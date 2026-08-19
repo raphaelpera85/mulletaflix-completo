@@ -25,6 +25,27 @@ namespace MulletaFlix.Server.Integration.Tests
             var userResponse = await client.GetByteArrayAsync("/Startup/User");
             var user = JsonSerializer.Deserialize<StartupUserDto>(userResponse, jsonOptions);
 
+            // GET /Startup/User only returns the Name; the wizard must POST
+            // /Startup/User to set the password before authentication works.
+            if (string.IsNullOrWhiteSpace(user?.Name))
+            {
+                throw new InvalidOperationException("Startup user not found.");
+            }
+
+            const string testPassword = "MulletaFlix-Test-Password!2026";
+            using (var updateUserResponse = await client.PostAsync(
+                       "/Startup/User",
+                       JsonContent.Create(
+                           new StartupUserDto
+                           {
+                               Name = user.Name,
+                               Password = testPassword
+                           },
+                           options: jsonOptions)))
+            {
+                Assert.Equal(HttpStatusCode.NoContent, updateUserResponse.StatusCode);
+            }
+
             using var completeResponse = await client.PostAsync("/Startup/Complete", new ByteArrayContent(Array.Empty<byte>()));
             Assert.Equal(HttpStatusCode.NoContent, completeResponse.StatusCode);
 
@@ -33,8 +54,8 @@ namespace MulletaFlix.Server.Integration.Tests
             httpRequest.Content = JsonContent.Create(
                 new AuthenticateUserByName()
                 {
-                    Username = user!.Name,
-                    Pw = user.Password,
+                    Username = user.Name,
+                    Pw = testPassword,
                 },
                 options: jsonOptions);
 

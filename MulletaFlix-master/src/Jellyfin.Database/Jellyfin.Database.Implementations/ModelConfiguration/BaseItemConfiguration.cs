@@ -86,7 +86,8 @@ public class BaseItemConfiguration : IEntityTypeConfiguration<BaseItemEntity>
         // Full-text search index for CleanName and OriginalTitle
         // Note: MySQL FULLTEXT indexes do not support partial filters — filter removed intentionally.
         builder.HasIndex(e => new { e.CleanName, e.OriginalTitle })
-            .HasDatabaseName("IX_BaseItems_FullTextSearch");
+            .HasDatabaseName("IX_BaseItems_FullTextSearch")
+            .HasAnnotation("MySql:FullTextIndex", true);
 
         builder.HasData(new BaseItemEntity()
         {

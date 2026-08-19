@@ -34,8 +34,8 @@ namespace MulletaFlix.Server.Integration.Tests
                 await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
                 cancellationToken: TestContext.Current.CancellationToken);
 
-            Assert.True(json.RootElement.TryGetProperty("IntroPath", out _));
-            Assert.False(json.RootElement.TryGetProperty("introPath", out _));
+            Assert.True(json.RootElement.TryGetProperty("SplashscreenEnabled", out _));
+            Assert.False(json.RootElement.TryGetProperty("splashscreenEnabled", out _));
         }
 
         [Theory]

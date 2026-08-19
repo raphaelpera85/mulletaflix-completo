@@ -51,3 +51,4 @@ MulletaFlix-packaging-master/jellyfin-server-windows/
 *.dmg
 *.zip
 *.tar.gz
+graphify-out/

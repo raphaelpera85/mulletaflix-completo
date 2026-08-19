@@ -385,7 +385,8 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("SeriesName");
 
                     b.HasIndex("CleanName", "OriginalTitle")
-                        .HasDatabaseName("IX_BaseItems_FullTextSearch");
+                        .HasDatabaseName("IX_BaseItems_FullTextSearch")
+                        .HasAnnotation("MySql:FullTextIndex", true);
 
                     b.HasIndex("ExtraType", "OwnerId");
 

@@ -12,8 +12,8 @@ using MulletaFlix.Database.Implementations;
 namespace Jellyfin.Database.Implementations.Migrations
 {
     [DbContext(typeof(MulletaFlixDbContext))]
-    [Migration("20260818231437_MySqlPendingChanges")]
-    partial class MySqlPendingChanges
+    [Migration("20260819010535_AlignSnapshotMidia")]
+    partial class AlignSnapshotMidia
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -388,7 +388,8 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("SeriesName");
 
                     b.HasIndex("CleanName", "OriginalTitle")
-                        .HasDatabaseName("IX_BaseItems_FullTextSearch");
+                        .HasDatabaseName("IX_BaseItems_FullTextSearch")
+                        .HasAnnotation("MySql:FullTextIndex", true);
 
                     b.HasIndex("ExtraType", "OwnerId");
 

@@ -147,7 +147,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
         /// <returns>The created avatar info.</returns>
         [HttpPost("Upload")]
         [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
-        public async Task<IActionResult> UploadAvatar([FromForm] IFormFile file, [FromQuery] string category = "")
+        public async Task<IActionResult> UploadAvatar(IFormFile file, [FromQuery] string category = "")
         {
             try
             {

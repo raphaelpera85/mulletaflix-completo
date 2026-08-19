@@ -20,6 +20,7 @@ using Moq;
 using Serilog;
 using Serilog.Core;
 using Serilog.Extensions.Logging;
+using MySqlConnector;
 
 namespace MulletaFlix.Server.Integration.Tests
 {
@@ -49,12 +50,34 @@ namespace MulletaFlix.Server.Integration.Tests
             return new HostBuilder();
         }
 
+        private static void ResetTestDatabase()
+        {
+            // The production MariaDB may not be running during CI; this reset is best-effort.
+            // If the connection fails, the server startup will surface the real error.
+            try
+            {
+                using var connection = new MySqlConnection("Server=localhost;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=2;");
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = "DROP DATABASE IF EXISTS `mulletaflix_test`; CREATE DATABASE `mulletaflix_test` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ResetTestDatabase failed (continuing): {ex.Message}");
+            }
+        }
+
         /// <inheritdoc/>
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             // Skip ffmpeg check for testing
             Environment.SetEnvironmentVariable("MulletaFlix_FFMPEG__NOVALIDATION", "true");
             Environment.SetEnvironmentVariable("MulletaFlix_DISABLE_RUNTIME_METRICS", "true");
+            // Isolate tests from any production MulletaFlix database: tests run
+            // against their own database that is dropped/recreated per run.
+            Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", "mulletaflix_test");
+            ResetTestDatabase();
             // Specify the startup command line options
             var commandLineOpts = new StartupOptions();
 

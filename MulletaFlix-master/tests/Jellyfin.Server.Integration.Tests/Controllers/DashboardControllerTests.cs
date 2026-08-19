@@ -89,7 +89,8 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
 
             var data = await response.Content.ReadFromJsonAsync<ConfigurationPageInfo[]>(_jsonOptions, TestContext.Current.CancellationToken);
             Assert.NotNull(data);
-            Assert.Empty(data);
+            Assert.True(data.Length >= 1);
+            Assert.Contains(data, p => p.DisplayName == "NebulaFTP");
         }
 
         private static string GetTestPageResourcePath()

@@ -499,7 +499,6 @@ namespace Emby.Server.Implementations.Dto
         }
 
         /// <inheritdoc />
-        /// TODO refactor this to use the new SetItemByNameInfo.
         /// Some callers already have the counts extracted so no reason to retrieve them again.
         public BaseItemDto GetItemByNameDto(BaseItem item, DtoOptions options, List<BaseItem>? taggedItems, User? user = null)
         {
@@ -1393,8 +1392,6 @@ namespace Emby.Server.Implementations.Dto
                 Series? episodeSeries = null;
 
                 // this block will add the series poster for episodes without a poster
-                // TODO maybe remove the if statement entirely
-                // if (options.ContainsField(ItemFields.SeriesPrimaryImage))
                 {
                     episodeSeries ??= episode.Series;
                     if (episodeSeries is not null)
@@ -1480,8 +1477,6 @@ namespace Emby.Server.Implementations.Dto
                 }
 
                 // this block will add the series poster for seasons without a poster
-                // TODO maybe remove the if statement entirely
-                // if (options.ContainsField(ItemFields.SeriesPrimaryImage))
                 {
                     series ??= season.Series;
                     if (series is not null)
