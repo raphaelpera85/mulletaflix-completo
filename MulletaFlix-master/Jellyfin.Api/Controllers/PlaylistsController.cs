@@ -510,7 +510,7 @@ public class PlaylistsController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<QueryResult<BaseItemDto>> GetPlaylistItems(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetPlaylistItems(
         [FromRoute, Required] Guid playlistId,
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
@@ -553,7 +553,7 @@ public class PlaylistsController : BaseMulletaFlixApiController
         var dtoOptions = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
 
-        var dtos = _dtoService.GetBaseItemDtos(items.Select(i => i.Item2).ToList(), dtoOptions, user);
+        var dtos = await _dtoService.GetBaseItemDtosAsync(items.Select(i => i.Item2).ToList(), dtoOptions, user).ConfigureAwait(false);
         for (int index = 0; index < dtos.Count; index++)
         {
             dtos[index].PlaylistItemId = items[index].Item1.ItemId?.ToString("N", CultureInfo.InvariantCulture);

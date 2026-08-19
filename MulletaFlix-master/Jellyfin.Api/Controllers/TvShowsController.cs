@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
@@ -75,7 +76,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the next up episodes.</returns>
     [HttpGet("NextUp")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<QueryResult<BaseItemDto>> GetNextUp(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetNextUp(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
@@ -115,7 +116,7 @@ public class TvShowsController : BaseMulletaFlixApiController
             },
             options);
 
-        var returnItems = _dtoService.GetBaseItemDtos(result.Items, options, user);
+        var returnItems = await _dtoService.GetBaseItemDtosAsync(result.Items, options, user).ConfigureAwait(false);
 
         return new QueryResult<BaseItemDto>(
             startIndex,
@@ -138,7 +139,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the upcoming episodes.</returns>
     [HttpGet("Upcoming")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<QueryResult<BaseItemDto>> GetUpcomingEpisodes(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetUpcomingEpisodes(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
@@ -173,7 +174,7 @@ public class TvShowsController : BaseMulletaFlixApiController
             DtoOptions = options
         });
 
-        var returnItems = _dtoService.GetBaseItemDtos(itemsResult, options, user);
+        var returnItems = await _dtoService.GetBaseItemDtosAsync(itemsResult, options, user).ConfigureAwait(false);
 
         return new QueryResult<BaseItemDto>(
             startIndex,
@@ -203,7 +204,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     [HttpGet("{seriesId}/Episodes")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<QueryResult<BaseItemDto>> GetEpisodes(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetEpisodes(
         [FromRoute, Required] Guid seriesId,
         [FromQuery] Guid? userId,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields,
@@ -301,7 +302,7 @@ public class TvShowsController : BaseMulletaFlixApiController
             returnItems = ApplyPaging(episodes, startIndex, limit).ToList();
         }
 
-        var dtos = _dtoService.GetBaseItemDtos(returnItems, dtoOptions, user);
+        var dtos = await _dtoService.GetBaseItemDtosAsync(returnItems, dtoOptions, user).ConfigureAwait(false);
 
         return new QueryResult<BaseItemDto>(
             startIndex,
@@ -326,7 +327,7 @@ public class TvShowsController : BaseMulletaFlixApiController
     [HttpGet("{seriesId}/Seasons")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<QueryResult<BaseItemDto>> GetSeasons(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSeasons(
         [FromRoute, Required] Guid seriesId,
         [FromQuery] Guid? userId,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] ItemFields[] fields,
@@ -357,7 +358,7 @@ public class TvShowsController : BaseMulletaFlixApiController
             .Cast<BaseItem>()
             .ToList();
 
-        var returnItems = _dtoService.GetBaseItemDtos(seasons, dtoOptions, user).ToList();
+        var returnItems = (await _dtoService.GetBaseItemDtosAsync(seasons, dtoOptions, user).ConfigureAwait(false)).ToList();
 
         if (returnItems.Count == 0)
         {
@@ -366,13 +367,13 @@ public class TvShowsController : BaseMulletaFlixApiController
                 .OfType<Episode>()
                 .ToList();
 
-            returnItems = CreateSyntheticSeasonDtos(item, episodes, dtoOptions, user, isSpecialSeason);
+            returnItems = await CreateSyntheticSeasonDtos(item, episodes, dtoOptions, user, isSpecialSeason).ConfigureAwait(false);
         }
 
         return new QueryResult<BaseItemDto>(returnItems);
     }
 
-    private List<BaseItemDto> CreateSyntheticSeasonDtos(
+    private async Task<List<BaseItemDto>> CreateSyntheticSeasonDtos(
         Series series,
         IReadOnlyCollection<Episode> episodes,
         DtoOptions dtoOptions,
@@ -384,7 +385,7 @@ public class TvShowsController : BaseMulletaFlixApiController
             return [];
         }
 
-        var episodeDtos = _dtoService.GetBaseItemDtos(episodes.Cast<BaseItem>().ToList(), dtoOptions, user)
+        var episodeDtos = (await _dtoService.GetBaseItemDtosAsync(episodes.Cast<BaseItem>().ToList(), dtoOptions, user).ConfigureAwait(false))
             .Where(dto => dto.SeasonId.HasValue || dto.ParentId.HasValue || dto.ParentIndexNumber.HasValue)
             .ToList();
 

@@ -67,7 +67,7 @@ public class CollectionController : BaseMulletaFlixApiController
 
         var dtoOptions = new DtoOptions();
 
-        var dto = _dtoService.GetBaseItemDto(item, dtoOptions);
+        var dto = await _dtoService.GetBaseItemDtoAsync(item, dtoOptions).ConfigureAwait(false);
 
         return new CollectionCreationResult
         {

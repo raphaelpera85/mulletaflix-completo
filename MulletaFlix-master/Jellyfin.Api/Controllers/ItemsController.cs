@@ -565,7 +565,7 @@ public class ItemsController : BaseMulletaFlixApiController
             var dtoResult = new QueryResult<BaseItemDto>(
                 startIndex,
                 result.TotalRecordCount,
-                _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user, skipVisibilityCheck: true));
+                await _dtoService.GetBaseItemDtosAsync(result.Items, dtoOptions, user, skipVisibilityCheck: true).ConfigureAwait(false));
 
             return dtoResult;
         }
@@ -578,7 +578,7 @@ public class ItemsController : BaseMulletaFlixApiController
         return new QueryResult<BaseItemDto>(
             startIndex,
             result.TotalRecordCount,
-            _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user, skipVisibilityCheck: true));
+            await _dtoService.GetBaseItemDtosAsync(result.Items, dtoOptions, user, skipVisibilityCheck: true).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -872,7 +872,7 @@ public class ItemsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the items that are resumable.</returns>
     [HttpGet("UserItems/Resume")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<QueryResult<BaseItemDto>> GetResumeItems(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetResumeItems(
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
@@ -941,7 +941,7 @@ public class ItemsController : BaseMulletaFlixApiController
             ExcludeItemIds = excludeItemIds
         });
 
-        var returnItems = _dtoService.GetBaseItemDtos(itemsResult.Items, dtoOptions, user);
+        var returnItems = await _dtoService.GetBaseItemDtosAsync(itemsResult.Items, dtoOptions, user).ConfigureAwait(false);
 
         return new QueryResult<BaseItemDto>(
             startIndex,
@@ -973,7 +973,7 @@ public class ItemsController : BaseMulletaFlixApiController
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<QueryResult<BaseItemDto>> GetResumeItemsLegacy(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetResumeItemsLegacy(
         [FromRoute, Required] Guid userId,
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
@@ -989,7 +989,7 @@ public class ItemsController : BaseMulletaFlixApiController
         [FromQuery] bool enableTotalRecordCount = true,
         [FromQuery] bool? enableImages = true,
         [FromQuery] bool excludeActiveSessions = false)
-    => GetResumeItems(
+    => await GetResumeItems(
         userId,
         startIndex,
         limit,

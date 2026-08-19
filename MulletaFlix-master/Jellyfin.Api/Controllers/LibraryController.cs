@@ -773,7 +773,7 @@ public class LibraryController : BaseMulletaFlixApiController
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<QueryResult<BaseItemDto>> GetItemCollections(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetItemCollections(
         [FromRoute, Required] Guid itemId,
         [FromQuery] Guid? userId,
         [FromQuery] int? startIndex,
@@ -815,7 +815,7 @@ public class LibraryController : BaseMulletaFlixApiController
             pagedCollections = pagedCollections.Take(limit.Value);
         }
 
-        var dtos = _dtoService.GetBaseItemDtos(pagedCollections.ToList(), dtoOptions, user);
+        var dtos = await _dtoService.GetBaseItemDtosAsync(pagedCollections.ToList(), dtoOptions, user).ConfigureAwait(false);
 
         return new QueryResult<BaseItemDto>(
             startIndex,

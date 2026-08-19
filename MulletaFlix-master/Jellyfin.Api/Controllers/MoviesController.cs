@@ -75,13 +75,13 @@ public class MoviesController : BaseMulletaFlixApiController
             .GetMovieRecommendationsAsync(user, parentId ?? Guid.Empty, categoryLimit, itemLimit, dtoOptions, cancellationToken)
             .ConfigureAwait(false);
 
-        return Ok(recommendations.Select(r => new RecommendationDto
+        return Ok((IEnumerable<RecommendationDto>)await Task.WhenAll(recommendations.Select(async r => new RecommendationDto
         {
             BaselineItemName = r.BaselineItemName,
             CategoryId = r.CategoryId,
             RecommendationType = r.RecommendationType,
-            Items = _dtoService.GetBaseItemDtos(r.Items, dtoOptions, user)
-        }));
+            Items = await _dtoService.GetBaseItemDtosAsync(r.Items, dtoOptions, user).ConfigureAwait(false)
+        })).ConfigureAwait(false));
     }
 }
 

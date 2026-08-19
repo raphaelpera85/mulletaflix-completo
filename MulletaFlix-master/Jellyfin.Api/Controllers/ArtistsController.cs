@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
@@ -402,7 +403,7 @@ public class ArtistsController : BaseMulletaFlixApiController
     [HttpGet("{name}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [Obsolete("Use GetPerson")]
-    public ActionResult<BaseItemDto> GetArtistByName([FromRoute, Required] string name, [FromQuery] Guid? userId)
+    public async Task<ActionResult<BaseItemDto>> GetArtistByName([FromRoute, Required] string name, [FromQuery] Guid? userId)
     {
         userId = RequestHelpers.GetUserId(User, userId);
         var dtoOptions = new DtoOptions();
@@ -413,10 +414,10 @@ public class ArtistsController : BaseMulletaFlixApiController
         {
             var user = _userManager.GetUserById(userId.Value);
 
-            return _dtoService.GetBaseItemDto(item, dtoOptions, user);
+            return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions, user).ConfigureAwait(false);
         }
 
-        return _dtoService.GetBaseItemDto(item, dtoOptions);
+        return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions).ConfigureAwait(false);
     }
 }
 

@@ -95,7 +95,7 @@ public class VideosController : BaseMulletaFlixApiController
     [HttpGet("{itemId}/AdditionalParts")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<QueryResult<BaseItemDto>> GetAdditionalPart([FromRoute, Required] Guid itemId, [FromQuery] Guid? userId)
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetAdditionalPart([FromRoute, Required] Guid itemId, [FromQuery] Guid? userId)
     {
         userId = RequestHelpers.GetUserId(User, userId);
         var user = userId.IsNullOrEmpty()
@@ -117,9 +117,8 @@ public class VideosController : BaseMulletaFlixApiController
         BaseItemDto[] items;
         if (item is Video video)
         {
-            items = video.GetAdditionalParts()
-                .Select(i => _dtoService.GetBaseItemDto(i, dtoOptions, user, video))
-                .ToArray();
+            items = await Task.WhenAll(video.GetAdditionalParts()
+                .Select(i => _dtoService.GetBaseItemDtoAsync(i, dtoOptions, user, video))).ConfigureAwait(false);
         }
         else
         {

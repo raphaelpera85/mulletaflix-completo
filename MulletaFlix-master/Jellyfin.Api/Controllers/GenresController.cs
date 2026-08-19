@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
@@ -156,7 +157,7 @@ public class GenresController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the genre.</returns>
     [HttpGet("{genreName}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<BaseItemDto> GetGenre([FromRoute, Required] string genreName, [FromQuery] Guid? userId)
+    public async Task<ActionResult<BaseItemDto>> GetGenre([FromRoute, Required] string genreName, [FromQuery] Guid? userId)
     {
         userId = RequestHelpers.GetUserId(User, userId);
         var dtoOptions = new DtoOptions();
@@ -177,7 +178,7 @@ public class GenresController : BaseMulletaFlixApiController
             ? null
             : _userManager.GetUserById(userId.Value);
 
-        return _dtoService.GetBaseItemDto(item, dtoOptions, user);
+        return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions, user).ConfigureAwait(false);
     }
 
     private T? GetItemFromSlugName<T>(ILibraryManager libraryManager, string name, DtoOptions dtoOptions, BaseItemKind baseItemKind)

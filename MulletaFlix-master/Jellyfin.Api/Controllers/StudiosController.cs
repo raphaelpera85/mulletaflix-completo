@@ -1,5 +1,6 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
+using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
@@ -139,7 +140,7 @@ public class StudiosController : BaseMulletaFlixApiController
     /// <returns>An <see cref="OkResult"/> containing the studio.</returns>
     [HttpGet("{name}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<BaseItemDto> GetStudio([FromRoute, Required] string name, [FromQuery] Guid? userId)
+    public async Task<ActionResult<BaseItemDto>> GetStudio([FromRoute, Required] string name, [FromQuery] Guid? userId)
     {
         userId = RequestHelpers.GetUserId(User, userId);
         var dtoOptions = new DtoOptions();
@@ -149,10 +150,10 @@ public class StudiosController : BaseMulletaFlixApiController
         {
             var user = _userManager.GetUserById(userId.Value);
 
-            return _dtoService.GetBaseItemDto(item, dtoOptions, user);
+            return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions, user).ConfigureAwait(false);
         }
 
-        return _dtoService.GetBaseItemDto(item, dtoOptions);
+        return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions).ConfigureAwait(false);
     }
 }
 

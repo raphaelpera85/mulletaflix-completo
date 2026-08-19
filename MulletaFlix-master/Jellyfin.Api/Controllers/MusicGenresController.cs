@@ -1,6 +1,7 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
@@ -147,7 +148,7 @@ public class MusicGenresController : BaseMulletaFlixApiController
     [HttpGet("{genreName}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [Obsolete("Use GetGenre instead")]
-    public ActionResult<BaseItemDto> GetMusicGenre([FromRoute, Required] string genreName, [FromQuery] Guid? userId)
+    public async Task<ActionResult<BaseItemDto>> GetMusicGenre([FromRoute, Required] string genreName, [FromQuery] Guid? userId)
     {
         userId = RequestHelpers.GetUserId(User, userId);
         var dtoOptions = new DtoOptions();
@@ -172,10 +173,10 @@ public class MusicGenresController : BaseMulletaFlixApiController
         {
             var user = _userManager.GetUserById(userId.Value);
 
-            return _dtoService.GetBaseItemDto(item, dtoOptions, user);
+            return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions, user).ConfigureAwait(false);
         }
 
-        return _dtoService.GetBaseItemDto(item, dtoOptions);
+        return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions).ConfigureAwait(false);
     }
 
     private T? GetItemFromSlugName<T>(ILibraryManager libraryManager, string name, DtoOptions dtoOptions, BaseItemKind baseItemKind)

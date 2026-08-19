@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -173,7 +174,7 @@ public class YearsController : BaseMulletaFlixApiController
     [HttpGet("{year}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<BaseItemDto> GetYear([FromRoute, Required] int year, [FromQuery] Guid? userId)
+    public async Task<ActionResult<BaseItemDto>> GetYear([FromRoute, Required] int year, [FromQuery] Guid? userId)
     {
         userId = RequestHelpers.GetUserId(User, userId);
         var item = _libraryManager.GetYear(year);
@@ -187,10 +188,10 @@ public class YearsController : BaseMulletaFlixApiController
         if (!userId.IsNullOrEmpty())
         {
             var user = _userManager.GetUserById(userId.Value);
-            return _dtoService.GetBaseItemDto(item, dtoOptions, user);
+            return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions, user).ConfigureAwait(false);
         }
 
-        return _dtoService.GetBaseItemDto(item, dtoOptions);
+        return await _dtoService.GetBaseItemDtoAsync(item, dtoOptions).ConfigureAwait(false);
     }
 
     private bool FilterItem(BaseItem f, IReadOnlyCollection<BaseItemKind> excludeItemTypes, IReadOnlyCollection<BaseItemKind> includeItemTypes, IReadOnlyCollection<MediaType> mediaTypes)

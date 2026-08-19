@@ -1,5 +1,6 @@
 ﻿using System;
 using System.ComponentModel.DataAnnotations;
+using System.Threading.Tasks;
 using MulletaFlix.Api.Caching;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Helpers;
@@ -64,7 +65,7 @@ public class SuggestionsController : BaseMulletaFlixApiController
     /// <returns>A <see cref="QueryResult{BaseItemDto}"/> with the suggestions.</returns>
     [HttpGet("Items/Suggestions")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<QueryResult<BaseItemDto>> GetSuggestions(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSuggestions(
         [FromQuery] Guid? userId,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] MediaType[] mediaType,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] BaseItemKind[] type,
@@ -103,7 +104,7 @@ public class SuggestionsController : BaseMulletaFlixApiController
 
         var result = _libraryManager.GetItemsResult(query);
 
-        var dtoList = _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user);
+        var dtoList = await _dtoService.GetBaseItemDtosAsync(result.Items, dtoOptions, user).ConfigureAwait(false);
 
         var response = new QueryResult<BaseItemDto>(
             startIndex,
@@ -131,13 +132,13 @@ public class SuggestionsController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [Obsolete("Kept for backwards compatibility")]
     [ApiExplorerSettings(IgnoreApi = true)]
-    public ActionResult<QueryResult<BaseItemDto>> GetSuggestionsLegacy(
+    public async Task<ActionResult<QueryResult<BaseItemDto>>> GetSuggestionsLegacy(
         [FromRoute, Required] Guid userId,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] MediaType[] mediaType,
         [FromQuery, ModelBinder(typeof(CommaDelimitedCollectionModelBinder))] BaseItemKind[] type,
         [FromQuery] int? startIndex,
         [FromQuery] int? limit,
         [FromQuery] bool enableTotalRecordCount = false)
-        => GetSuggestions(userId, mediaType, type, startIndex, limit, enableTotalRecordCount);
+        => await GetSuggestions(userId, mediaType, type, startIndex, limit, enableTotalRecordCount).ConfigureAwait(false);
 }
 
