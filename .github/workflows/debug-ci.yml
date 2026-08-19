@@ -1,0 +1,10 @@
+name: Debug CI
+on: [push]
+
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: List files
+        run: ls -la && echo "CHECKOUT_OK" && ls MulletaFlix-master | head -5
