@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Jellyfin.Data</AssemblyName>
+    <RootNamespace>Jellyfin.Data</RootNamespace>
+    <AssemblyVersion>10.11.8.0</AssemblyVersion>
+    <FileVersion>10.11.8.0</FileVersion>
+    <Version>10.11.8</Version>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Jellyfin.Data\Jellyfin.Data.csproj" />
+  </ItemGroup>
+
+</Project>

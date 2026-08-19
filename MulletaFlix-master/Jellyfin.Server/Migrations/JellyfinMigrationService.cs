@@ -1,0 +1,580 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using Emby.Server.Implementations.Serialization;
+using MulletaFlix.Database.Implementations;
+using MulletaFlix.Database.Implementations.Contexts;
+using MulletaFlix.Server.Implementations.SystemBackupService;
+using MulletaFlix.Server.Implementations.Billing;
+using MulletaFlix.Server.Migrations.Stages;
+using MulletaFlix.Server.ServerSetupApp;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.SystemBackupService;
+using MediaBrowser.Model.Configuration;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
+
+namespace MulletaFlix.Server.Migrations;
+
+/// <summary>
+/// Handles Migration of the MulletaFlix data structure.
+/// </summary>
+internal class MulletaFlixMigrationService
+{
+    private const string DbFilename = "library.db";
+    private readonly IDbContextFactory<MulletaFlixDbContext> _dbContextFactory;
+    private readonly IDbContextFactory<UsersDbContext> _usersDbContextFactory;
+    private readonly IDbContextFactory<MoviesDbContext> _moviesDbContextFactory;
+    private readonly IDbContextFactory<SeriesDbContext> _seriesDbContextFactory;
+    private readonly IDbContextFactory<ChannelsDbContext> _channelsDbContextFactory;
+    private readonly IDbContextFactory<BooksDbContext> _booksDbContextFactory;
+    private readonly IDbContextFactory<SystemDbContext> _systemDbContextFactory;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly IStartupLogger _startupLogger;
+    private readonly IBackupService? _backupService;
+    private readonly IMulletaFlixDatabaseProvider? _MulletaFlixDatabaseProvider;
+    private readonly IApplicationPaths _applicationPaths;
+    private (string? LibraryDb, string? MulletaFlixDb, BackupManifestDto? FullBackup) _backupKey;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MulletaFlixMigrationService"/> class.
+    /// </summary>
+    /// <param name="dbContextFactory">Provides access to the MulletaFlix database.</param>
+    /// <param name="loggerFactory">The logger factory.</param>
+    /// <param name="startupLogger">The startup logger for Startup UI intigration.</param>
+    /// <param name="applicationPaths">Application paths for library.db backup.</param>
+    /// <param name="backupService">The MulletaFlix backup service.</param>
+    /// <param name="usersDbContextFactory">Provides access to the users database.</param>
+    /// <param name="moviesDbContextFactory">Provides access to the movies database.</param>
+    /// <param name="seriesDbContextFactory">Provides access to the series database.</param>
+    /// <param name="channelsDbContextFactory">Provides access to the channels database.</param>
+    /// <param name="booksDbContextFactory">Provides access to the books database.</param>
+    /// <param name="systemDbContextFactory">Provides access to the system database.</param>
+    /// <param name="mulletaFlixDatabaseProvider">The MulletaFlix database provider.</param>
+    public MulletaFlixMigrationService(
+        IDbContextFactory<MulletaFlixDbContext> dbContextFactory,
+        IDbContextFactory<UsersDbContext> usersDbContextFactory,
+        IDbContextFactory<MoviesDbContext> moviesDbContextFactory,
+        IDbContextFactory<SeriesDbContext> seriesDbContextFactory,
+        IDbContextFactory<ChannelsDbContext> channelsDbContextFactory,
+        IDbContextFactory<BooksDbContext> booksDbContextFactory,
+        IDbContextFactory<SystemDbContext> systemDbContextFactory,
+        ILoggerFactory loggerFactory,
+        IStartupLogger<MulletaFlixMigrationService> startupLogger,
+        IApplicationPaths applicationPaths,
+        IBackupService? backupService = null,
+        IMulletaFlixDatabaseProvider? mulletaFlixDatabaseProvider = null)
+    {
+        _dbContextFactory = dbContextFactory;
+        _usersDbContextFactory = usersDbContextFactory;
+        _moviesDbContextFactory = moviesDbContextFactory;
+        _seriesDbContextFactory = seriesDbContextFactory;
+        _channelsDbContextFactory = channelsDbContextFactory;
+        _booksDbContextFactory = booksDbContextFactory;
+        _systemDbContextFactory = systemDbContextFactory;
+        _loggerFactory = loggerFactory;
+        _startupLogger = startupLogger;
+        _backupService = backupService;
+        _MulletaFlixDatabaseProvider = mulletaFlixDatabaseProvider;
+        _applicationPaths = applicationPaths;
+#pragma warning disable CS0618 // Type or member is obsolete
+        Migrations = [.. typeof(IMigrationRoutine).Assembly.GetTypes().Where(e => typeof(IMigrationRoutine).IsAssignableFrom(e) || typeof(IAsyncMigrationRoutine).IsAssignableFrom(e))
+            .Select(e => (Type: e, Metadata: e.GetCustomAttribute<MulletaFlixMigrationAttribute>(), Backup: e.GetCustomAttributes<MulletaFlixMigrationBackupAttribute>()))
+            .Where(e => e.Metadata is not null)
+            .GroupBy(e => e.Metadata!.Stage)
+            .Select(f =>
+            {
+                var stage = new MigrationStage(f.Key);
+                foreach (var item in f)
+                {
+                    MulletaFlixMigrationBackupAttribute? backupMetadata = null;
+                    if (item.Backup?.Any() == true)
+                    {
+                        backupMetadata = item.Backup.Aggregate(MergeBackupAttributes);
+                    }
+
+                    stage.Add(new(item.Type, item.Metadata!, backupMetadata));
+                }
+
+                return stage;
+            })];
+#pragma warning restore CS0618 // Type or member is obsolete
+    }
+
+    private interface IInternalMigration
+    {
+        Task PerformAsync(IStartupLogger logger);
+    }
+
+    private HashSet<MigrationStage> Migrations { get; set; }
+
+    public async Task CheckFirstTimeRunOrMigration(IApplicationPaths appPaths, StartupOptions startupOptions)
+    {
+        var logger = _startupLogger.With(_loggerFactory.CreateLogger<MulletaFlixMigrationService>()).BeginGroup($"Migration Startup");
+        logger.LogInformation("Initialise Migration service.");
+        var xmlSerializer = new MyXmlSerializer();
+        var serverConfig = File.Exists(appPaths.SystemConfigurationFilePath)
+            ? (ServerConfiguration)xmlSerializer.DeserializeFromFile(typeof(ServerConfiguration), appPaths.SystemConfigurationFilePath)!
+            : new ServerConfiguration();
+        if (!serverConfig.IsStartupWizardCompleted || startupOptions.StartupMode is Configuration.StartupMode.SeedSystem)
+        {
+            logger.LogInformation("System initialization detected. Seed data. Startup mode is: {StartupMode}", startupOptions.StartupMode ?? Configuration.StartupMode.MediaServer);
+            var flatApplyMigrations = Migrations.SelectMany(e => e.Where(f => !f.Metadata.RunMigrationOnSetup)).ToArray();
+
+            var dbContext = await _dbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+            await using (dbContext.ConfigureAwait(false))
+            {
+                var databaseCreator = dbContext.Database.GetService<IDatabaseCreator>() as IRelationalDatabaseCreator
+                    ?? throw new InvalidOperationException("MulletaFlix does only support relational databases.");
+                if (!await databaseCreator.ExistsAsync().ConfigureAwait(false))
+                {
+                    await databaseCreator.CreateAsync().ConfigureAwait(false);
+                }
+
+                if (!await databaseCreator.HasTablesAsync().ConfigureAwait(false))
+                {
+                    logger.LogInformation("Database tables do not exist. Creating relational tables...");
+                    await databaseCreator.CreateTablesAsync().ConfigureAwait(false);
+                }
+
+                var historyRepository = dbContext.GetService<IHistoryRepository>();
+
+                await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
+                var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync().ConfigureAwait(false);
+                var startupScripts = flatApplyMigrations
+                    .Where(e => !appliedMigrations.Any(f => f != e.BuildCodeMigrationId()))
+                    .Select(e => (Migration: e.Metadata, Script: historyRepository.GetInsertScript(new HistoryRow(e.BuildCodeMigrationId(), GetMulletaFlixVersion()))))
+                    .ToArray();
+                foreach (var item in startupScripts)
+                {
+                    logger.LogInformation("Seed migration {Key}-{Name}.", item.Migration.Key, item.Migration.Name);
+                    await dbContext.Database.ExecuteSqlRawAsync(item.Script).ConfigureAwait(false);
+                }
+            }
+
+            logger.LogInformation("Migration system initialisation completed.");
+        }
+        else
+        {
+            // migrate any existing migration.xml files
+            var migrationConfigPath = Path.Join(appPaths.ConfigurationDirectoryPath, "migrations.xml");
+            var migrationOptions = File.Exists(migrationConfigPath)
+                 ? (MigrationOptions)xmlSerializer.DeserializeFromFile(typeof(MigrationOptions), migrationConfigPath)!
+                 : null;
+            if (migrationOptions is not null && migrationOptions.Applied.Count > 0)
+            {
+                logger.LogInformation("Old migration style migration.xml detected. Migrate now.");
+                try
+                {
+                    var dbContext = await _dbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+                    await using (dbContext.ConfigureAwait(false))
+                    {
+                        var historyRepository = dbContext.GetService<IHistoryRepository>();
+                        var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync().ConfigureAwait(false);
+                        var lastOldAppliedMigration = Migrations
+                            .SelectMany(e => e.Where(e => e.Metadata.Key is not null)) // only consider migrations that have the key set as its the reference marker for legacy migrations.
+                            .Where(e => migrationOptions.Applied.Any(f => f.Id.Equals(e.Metadata.Key!.Value)))
+                            .Where(e => !appliedMigrations.Contains(e.BuildCodeMigrationId()))
+                            .OrderBy(e => e.BuildCodeMigrationId())
+                            .Last(); // this is the latest migration applied in the old migration.xml
+
+                        IReadOnlyList<CodeMigration> oldMigrations = [
+                            .. Migrations
+                            .SelectMany(e => e)
+                            .OrderBy(e => e.BuildCodeMigrationId())
+                            .TakeWhile(e => e.BuildCodeMigrationId() != lastOldAppliedMigration.BuildCodeMigrationId()),
+                            lastOldAppliedMigration
+                        ];
+                        // those are all migrations that had to run in the old migration system, even if not noted in the migration.xml file.
+
+                        var startupScripts = oldMigrations.Select(e => (Migration: e.Metadata, Script: historyRepository.GetInsertScript(new HistoryRow(e.BuildCodeMigrationId(), GetMulletaFlixVersion()))));
+                        foreach (var item in startupScripts)
+                        {
+                            logger.LogInformation("Migrate migration {Key}-{Name}.", item.Migration.Key, item.Migration.Name);
+                            await dbContext.Database.ExecuteSqlRawAsync(item.Script).ConfigureAwait(false);
+                        }
+
+                        logger.LogInformation("Rename old migration.xml to migration.xml.backup");
+                        File.Move(migrationConfigPath, Path.ChangeExtension(migrationConfigPath, ".xml.backup"), true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogCritical(ex, "Failed to apply migrations");
+                    throw;
+                }
+            }
+        }
+    }
+
+    public async Task MigrateStepAsync(MulletaFlixMigrationStageTypes stage, IServiceProvider? serviceProvider)
+    {
+        var logger = _startupLogger.With(_loggerFactory.CreateLogger<MulletaFlixMigrationService>()).BeginGroup($"Migrate stage {stage}.");
+        ICollection<CodeMigration> migrationStage = (Migrations.FirstOrDefault(e => e.Stage == stage) as ICollection<CodeMigration>) ?? [];
+
+        var dbContext = await _dbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+        await using (dbContext.ConfigureAwait(false))
+        {
+            var historyRepository = dbContext.GetService<IHistoryRepository>();
+            var migrationsAssembly = dbContext.GetService<IMigrationsAssembly>();
+            var databaseCreator = dbContext.Database.GetService<IDatabaseCreator>() as IRelationalDatabaseCreator
+                ?? throw new InvalidOperationException("MulletaFlix does only support relational databases.");
+            (string Key, IInternalMigration Migration)[] migrations = [];
+            var appliedMigrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
+
+            if (stage is MulletaFlixMigrationStageTypes.CoreInitialisation &&
+                await databaseCreator.HasTablesAsync().ConfigureAwait(false) &&
+                migrationsAssembly.Migrations.Count > 0)
+            {
+                var initialMigration = migrationsAssembly.Migrations
+                    .OrderBy(m => m.Key, StringComparer.Ordinal)
+                    .First();
+
+                if (appliedMigrations.All(m => m.MigrationId != initialMigration.Key))
+                {
+                    logger.LogInformation(
+                        "Detected an existing relational schema without EF migration {MigrationId}. Marking it as already applied so the server can continue.",
+                        initialMigration.Key);
+
+                    await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
+                    var insertScript = historyRepository.GetInsertScript(new HistoryRow(initialMigration.Key, GetMulletaFlixVersion()));
+                    await dbContext.Database.ExecuteSqlRawAsync(insertScript).ConfigureAwait(false);
+                    appliedMigrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
+                }
+            }
+
+            do
+            { // migrations may alter the migration state. Reevaluate the applicable migrations after every stage ran until there are no more to apply.
+                appliedMigrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
+                var pendingCodeMigrations = migrationStage
+                    .Where(e => appliedMigrations.All(f => f.MigrationId != e.BuildCodeMigrationId()))
+                    .Select(e => (Key: e.BuildCodeMigrationId(), Migration: new InternalCodeMigration(e, serviceProvider, dbContext)))
+                    .ToArray();
+
+                (string Key, InternalDatabaseMigration Migration)[] pendingDatabaseMigrations = [];
+                if (stage is MulletaFlixMigrationStageTypes.CoreInitialisation)
+                {
+                    pendingDatabaseMigrations = migrationsAssembly.Migrations
+                       .OrderBy(e => e.Key, StringComparer.Ordinal)
+                       .Where(f => appliedMigrations.All(e => e.MigrationId != f.Key))
+                       .Select(e => (Key: e.Key, Migration: new InternalDatabaseMigration(e, dbContext)))
+                       .ToArray();
+                }
+
+                (string Key, IInternalMigration Migration)[] pendingMigrations = [.. pendingCodeMigrations, .. pendingDatabaseMigrations];
+                logger.LogInformation("There are {Pending} migrations for stage {Stage}.", pendingCodeMigrations.Length, stage);
+                migrations = pendingMigrations.OrderBy(e => e.Key).ToArray();
+
+                foreach (var item in migrations)
+                {
+                    var migrationLogger = logger.With(_loggerFactory.CreateLogger(item.Migration.GetType().Name)).BeginGroup($"{item.Key}");
+                    try
+                    {
+                        migrationLogger.LogInformation("Perform migration {Name}", item.Key);
+                        await item.Migration.PerformAsync(migrationLogger).ConfigureAwait(false);
+                        migrationLogger.LogInformation("Migration {Name} was successfully applied", item.Key);
+                    }
+                    catch (Exception ex)
+                    {
+                        migrationLogger.LogCritical("Error: {Error}", ex.Message);
+                        migrationLogger.LogError(ex, "Migration {Name} failed", item.Key);
+
+                        if (_backupKey != default && _backupService is not null && _MulletaFlixDatabaseProvider is not null)
+                        {
+                            if (_backupKey.LibraryDb is not null)
+                            {
+                                migrationLogger.LogInformation("Attempt to rollback librarydb.");
+                                try
+                                {
+                                    var libraryDbPath = Path.Combine(_applicationPaths.DataPath, DbFilename);
+                                    File.Move(_backupKey.LibraryDb, libraryDbPath, true);
+                                }
+                                catch (Exception inner)
+                                {
+                                    migrationLogger.LogCritical(inner, "Could not rollback {LibraryPath}. Manual intervention might be required to restore a operational state.", _backupKey.LibraryDb);
+                                }
+                            }
+
+                            if (_backupKey.MulletaFlixDb is not null)
+                            {
+                                migrationLogger.LogInformation("Attempt to rollback MulletaFlixDb.");
+                                try
+                                {
+                                    await _MulletaFlixDatabaseProvider.RestoreBackupFast(_backupKey.MulletaFlixDb, CancellationToken.None).ConfigureAwait(false);
+                                }
+                                catch (Exception inner)
+                                {
+                                    migrationLogger.LogCritical(inner, "Could not rollback {LibraryPath}. Manual intervention might be required to restore a operational state.", _backupKey.MulletaFlixDb);
+                                }
+                            }
+
+                            if (_backupKey.FullBackup is not null)
+                            {
+                                migrationLogger.LogInformation("Attempt to rollback from backup.");
+                                try
+                                {
+                                    await _backupService.RestoreBackupAsync(_backupKey.FullBackup.Path).ConfigureAwait(false);
+                                }
+                                catch (Exception inner)
+                                {
+                                    migrationLogger.LogCritical(inner, "Could not rollback from backup {Backup}. Manual intervention might be required to restore a operational state.", _backupKey.FullBackup.Path);
+                                }
+                            }
+                        }
+
+                        throw;
+                    }
+                }
+            }
+            while (migrations.Length != 0);
+
+            if (stage is MulletaFlixMigrationStageTypes.CoreInitialisation)
+            {
+                var billingDbContext = await _usersDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+                await using (billingDbContext.ConfigureAwait(false))
+                {
+                    logger.LogInformation("Seeding billing defaults for plans and gateways.");
+                    await BillingSeedService.SeedAsync(billingDbContext).ConfigureAwait(false);
+                }
+
+                await InitializeDomainSchemasAsync(logger).ConfigureAwait(false);
+
+                logger.LogInformation("Migrating legacy media data to domain schemas.");
+                await DomainDataMigrator.MigrateAsync(
+                    _dbContextFactory,
+                    _moviesDbContextFactory,
+                    _seriesDbContextFactory,
+                    _channelsDbContextFactory,
+                    _booksDbContextFactory,
+                    logger,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static string GetMulletaFlixVersion()
+    {
+        return Assembly.GetEntryAssembly()!.GetName().Version!.ToString();
+    }
+
+    public async Task CleanupSystemAfterMigration(ILogger logger)
+    {
+        if (_backupKey != default)
+        {
+            if (_backupKey.LibraryDb is not null)
+            {
+                logger.LogInformation("Attempt to cleanup librarydb backup.");
+                try
+                {
+                    File.Delete(_backupKey.LibraryDb);
+                }
+                catch (Exception inner)
+                {
+                    logger.LogCritical(inner, "Could not cleanup {LibraryPath}.", _backupKey.LibraryDb);
+                }
+            }
+
+            if (_backupKey.MulletaFlixDb is not null && _MulletaFlixDatabaseProvider is not null)
+            {
+                logger.LogInformation("Attempt to cleanup MulletaFlixDb backup.");
+                try
+                {
+                    await _MulletaFlixDatabaseProvider.DeleteBackup(_backupKey.MulletaFlixDb).ConfigureAwait(false);
+                }
+                catch (Exception inner)
+                {
+                    logger.LogCritical(inner, "Could not cleanup {LibraryPath}.", _backupKey.MulletaFlixDb);
+                }
+            }
+
+            if (_backupKey.FullBackup is not null)
+            {
+                logger.LogInformation("Attempt to cleanup from migration backup.");
+                try
+                {
+                    File.Delete(_backupKey.FullBackup.Path);
+                }
+                catch (Exception inner)
+                {
+                    logger.LogCritical(inner, "Could not cleanup backup {Backup}.", _backupKey.FullBackup.Path);
+                }
+            }
+        }
+    }
+
+    public async Task PrepareSystemForMigration(ILogger logger)
+    {
+        logger.LogInformation("Prepare system for possible migrations");
+        MulletaFlixMigrationBackupAttribute backupInstruction;
+        IReadOnlyList<HistoryRow> appliedMigrations;
+        var dbContext = await _dbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+        await using (dbContext.ConfigureAwait(false))
+        {
+            var historyRepository = dbContext.GetService<IHistoryRepository>();
+            var migrationsAssembly = dbContext.GetService<IMigrationsAssembly>();
+            appliedMigrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
+            backupInstruction = new MulletaFlixMigrationBackupAttribute()
+            {
+                MulletaFlixDb = migrationsAssembly.Migrations.Any(f => appliedMigrations.All(e => e.MigrationId != f.Key))
+            };
+        }
+
+        backupInstruction = Migrations.SelectMany(e => e)
+           .Where(e => appliedMigrations.All(f => f.MigrationId != e.BuildCodeMigrationId()))
+           .Select(e => e.BackupRequirements)
+           .Where(e => e is not null)
+           .Aggregate(backupInstruction, MergeBackupAttributes!);
+
+        if (backupInstruction.LegacyLibraryDb)
+        {
+            logger.LogInformation("A migration will attempt to modify the library.db, will attempt to backup the file now.");
+            // for legacy migrations that still operates on the library.db
+            var libraryDbPath = Path.Combine(_applicationPaths.DataPath, DbFilename);
+            if (File.Exists(libraryDbPath))
+            {
+                for (int i = 1; ; i++)
+                {
+                    var bakPath = string.Format(CultureInfo.InvariantCulture, "{0}.bak{1}", libraryDbPath, i);
+                    if (!File.Exists(bakPath))
+                    {
+                        try
+                        {
+                            logger.LogInformation("Backing up {Library} to {BackupPath}", DbFilename, bakPath);
+                            File.Copy(libraryDbPath, bakPath);
+                            _backupKey = (bakPath, _backupKey.MulletaFlixDb, _backupKey.FullBackup);
+                            logger.LogInformation("{Library} backed up to {BackupPath}", DbFilename, bakPath);
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogError(ex, "Cannot make a backup of {Library} at path {BackupPath}", DbFilename, bakPath);
+                            throw;
+                        }
+                    }
+                }
+
+                logger.LogInformation("{Library} has been backed up as {BackupPath}", DbFilename, _backupKey.LibraryDb);
+            }
+            else
+            {
+                logger.LogError("Cannot make a backup of {Library} at path {BackupPath} because file could not be found at {LibraryPath}", DbFilename, libraryDbPath, _applicationPaths.DataPath);
+            }
+        }
+
+        if (backupInstruction.MulletaFlixDb && _MulletaFlixDatabaseProvider is not null)
+        {
+            logger.LogInformation("A migration will attempt to modify the MulletaFlix.db, will attempt to backup the file now.");
+            _backupKey = (_backupKey.LibraryDb, await _MulletaFlixDatabaseProvider.MigrationBackupFast(CancellationToken.None).ConfigureAwait(false), _backupKey.FullBackup);
+            logger.LogInformation("MulletaFlix database has been backed up as {BackupPath}", _backupKey.MulletaFlixDb);
+        }
+
+        if (_backupService is not null && (backupInstruction.Metadata || backupInstruction.Subtitles || backupInstruction.Trickplay))
+        {
+            logger.LogInformation("A migration will attempt to modify system resources. Will attempt to create backup now.");
+            _backupKey = (_backupKey.LibraryDb, _backupKey.MulletaFlixDb, await _backupService.CreateBackupAsync(new BackupOptionsDto()
+            {
+                Metadata = backupInstruction.Metadata,
+                Subtitles = backupInstruction.Subtitles,
+                Trickplay = backupInstruction.Trickplay,
+                Database = false // database backups are explicitly handled by the provider itself as the backup service requires parity with the current model
+            }).ConfigureAwait(false));
+            logger.LogInformation("Pre-Migration backup successfully created as {BackupKey}", _backupKey.FullBackup.Path);
+        }
+    }
+
+    private static MulletaFlixMigrationBackupAttribute MergeBackupAttributes(MulletaFlixMigrationBackupAttribute left, MulletaFlixMigrationBackupAttribute right)
+    {
+        return new MulletaFlixMigrationBackupAttribute()
+        {
+            MulletaFlixDb = left!.MulletaFlixDb || right!.MulletaFlixDb,
+            LegacyLibraryDb = left.LegacyLibraryDb || right!.LegacyLibraryDb,
+            Metadata = left.Metadata || right!.Metadata,
+            Subtitles = left.Subtitles || right!.Subtitles,
+            Trickplay = left.Trickplay || right!.Trickplay
+        };
+    }
+
+    private async Task InitializeDomainSchemasAsync(ILogger logger)
+    {
+        var moviesCtx = await _moviesDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+        await using (moviesCtx.ConfigureAwait(false))
+        {
+            await DomainSchemaInitializer.EnsureDomainTablesAsync(moviesCtx, CancellationToken.None)
+                .ConfigureAwait(false);
+            logger.LogInformation("Movies schema initialized.");
+        }
+
+        var seriesCtx = await _seriesDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+        await using (seriesCtx.ConfigureAwait(false))
+        {
+            await DomainSchemaInitializer.EnsureDomainTablesAsync(seriesCtx, CancellationToken.None)
+                .ConfigureAwait(false);
+            logger.LogInformation("Series schema initialized.");
+        }
+
+        var channelsCtx = await _channelsDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+        await using (channelsCtx.ConfigureAwait(false))
+        {
+            await DomainSchemaInitializer.EnsureDomainTablesAsync(channelsCtx, CancellationToken.None)
+                .ConfigureAwait(false);
+            logger.LogInformation("Channels schema initialized.");
+        }
+
+        var booksCtx = await _booksDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
+        await using (booksCtx.ConfigureAwait(false))
+        {
+            await DomainSchemaInitializer.EnsureDomainTablesAsync(booksCtx, CancellationToken.None)
+                .ConfigureAwait(false);
+            logger.LogInformation("Books schema initialized.");
+        }
+    }
+
+    private class InternalCodeMigration : IInternalMigration
+    {
+        private readonly CodeMigration _codeMigration;
+        private readonly IServiceProvider? _serviceProvider;
+        private MulletaFlixDbContext _dbContext;
+
+        public InternalCodeMigration(CodeMigration codeMigration, IServiceProvider? serviceProvider, MulletaFlixDbContext dbContext)
+        {
+            _codeMigration = codeMigration;
+            _serviceProvider = serviceProvider;
+            _dbContext = dbContext;
+        }
+
+        public async Task PerformAsync(IStartupLogger logger)
+        {
+            await _codeMigration.Perform(_serviceProvider, logger, CancellationToken.None).ConfigureAwait(false);
+
+            var historyRepository = _dbContext.GetService<IHistoryRepository>();
+            var createScript = historyRepository.GetInsertScript(new HistoryRow(_codeMigration.BuildCodeMigrationId(), GetMulletaFlixVersion()));
+            await _dbContext.Database.ExecuteSqlRawAsync(createScript).ConfigureAwait(false);
+        }
+    }
+
+    private class InternalDatabaseMigration : IInternalMigration
+    {
+        private readonly MulletaFlixDbContext _mulletaFlixDbContext;
+        private KeyValuePair<string, TypeInfo> _databaseMigrationInfo;
+
+        public InternalDatabaseMigration(KeyValuePair<string, TypeInfo> databaseMigrationInfo, MulletaFlixDbContext mulletaFlixDbContext)
+        {
+            _databaseMigrationInfo = databaseMigrationInfo;
+            _mulletaFlixDbContext = mulletaFlixDbContext;
+        }
+
+        public async Task PerformAsync(IStartupLogger logger)
+        {
+            var migrator = _mulletaFlixDbContext.GetService<IMigrator>();
+            await migrator.MigrateAsync(_databaseMigrationInfo.Key).ConfigureAwait(false);
+        }
+    }
+}

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html class="preload" dir="ltr" lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="MulletaFlix: organize, descubra e reproduza suas mídias com rapidez.">
+    <meta property="og:title" content="MulletaFlix">
+    <meta property="og:description" content="Organize, descubra e reproduza suas mídias com rapidez.">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="pt-BR">
+    <meta property="og:url" content="https://mulletaflix.com">
+    <meta property="og:image" content="./assets/branding/favicons/touchicon180.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="MulletaFlix">
+    <meta name="twitter:description" content="MulletaFlix — O Sistema de Mídia Livre. Organize suas coleções de mídia, transmita para qualquer dispositivo e aproveite sua diversão do seu jeito.">
+    <meta name="twitter:image" content="./assets/branding/favicons/touchicon180.png">
+    <link rel="canonical" href="https://mulletaflix.com">
+    <link rel="manifest" href="manifest.json">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="msapplication-tap-highlight" content="no">
+    <meta http-equiv="X-UA-Compatibility" content="IE=Edge">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="MulletaFlix">
+    <meta name="referrer" content="no-referrer">
+
+    <meta id="themeColor" name="theme-color" content="#202020">
+
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/branding/favicons/touchicon180.png">
+    <link rel="shortcut icon" href="./assets/branding/mulletaflix_icon.ico">
+    <meta name="msapplication-TileImage" content="./assets/branding/favicons/touchicon144.png">
+    <meta name="msapplication-TileColor" content="#333333">
+
+    <title>MulletaFlix</title>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "MulletaFlix",
+      "description": "O Sistema de Mídia Livre. Organize suas coleções de mídia, transmita para qualquer dispositivo e aproveite sua diversão do seu jeito.",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Windows, Linux, macOS, Docker",
+      "url": "https://mulletaflix.com",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "BRL"
+      }
+    }
+    </script>
+
+    <style>
+        .transparentDocument,
+        .backgroundContainer-transparent:not(.withBackdrop) {
+            background: none !important;
+            background-color: transparent !important;
+        }
+
+        .layout-tv .mouseIdle,
+        .layout-tv .mouseIdle button,
+        .layout-tv .mouseIdle select,
+        .layout-tv .mouseIdle input,
+        .layout-tv .mouseIdle textarea,
+        .layout-tv .mouseIdle a,
+        .layout-tv .mouseIdle label,
+        .transparentDocument .mouseIdle,
+        .transparentDocument .mouseIdle button,
+        .transparentDocument .mouseIdle select,
+        .transparentDocument .mouseIdle input,
+        .transparentDocument .mouseIdle textarea,
+        .transparentDocument .mouseIdle a,
+        .transparentDocument .mouseIdle label,
+        .screensaver-noScroll.mouseIdle,
+        .screensaver-noScroll.mouseIdle button,
+        .screensaver-noScroll.mouseIdle select,
+        .screensaver-noScroll.mouseIdle input,
+        .screensaver-noScroll.mouseIdle textarea,
+        .screensaver-noScroll.mouseIdle a,
+        .screensaver-noScroll.mouseIdle label {
+            cursor: none !important;
+        }
+
+        .preload {
+            background-color: #101010;
+        }
+
+        .hide,
+        .layout-desktop .hide-desktop,
+        .layout-mobile .hide-mobile,
+        .layout-tv .hide-tv,
+        .mouseIdle .hide-mouse-idle,
+        .mouseIdle-tv .hide-mouse-idle-tv {
+            display: none !important;
+        }
+
+        .mainDrawerHandle {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            z-index: 1;
+            width: 0.8em;
+            padding-left: env(safe-area-inset-left);
+            caret-color: transparent;
+        }
+
+        [dir="ltr"] .mainDrawerHandle {
+            left: 0;
+        }
+
+        [dir="rtl"] .mainDrawerHandle {
+            left: 0;
+        }
+    </style>
+</head>
+<body dir="ltr">
+    <div id="reactRoot">
+        <div class="splashLogo"></div>
+    </div>
+    <script type="module" src="/index.jsx"></script>
+</body>
+</html>

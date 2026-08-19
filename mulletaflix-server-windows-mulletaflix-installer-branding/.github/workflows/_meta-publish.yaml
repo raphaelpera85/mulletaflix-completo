@@ -1,0 +1,67 @@
+﻿on:
+  workflow_call:
+    inputs:
+      jellyfin_version:
+        required: true
+        type: string
+      server_url:
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Clone UX Repository
+        uses: actions/checkout@v4
+        with:
+          repository: jellyfin/jellyfin-ux
+          path: .\jellyfin-ux
+
+      - name: Setup Jellyfin server
+        run: |
+          Invoke-WebRequest '${{ inputs.server_url }}' -OutFile 'jellyfin.zip'
+          Expand-Archive 'jellyfin.zip'
+          Copy-Item ".\Support Files\LICENSE" -Destination $(Resolve-Path .\jellyfin\jellyfin)
+
+      - name: Add NSSM
+        run: |
+          Invoke-WebRequest 'https://repo.jellyfin.org/files/other/nssm.zip' -OutFile 'nssm.zip'
+          Expand-Archive 'nssm.zip'
+          Copy-Item ".\nssm\nssm.exe" -Destination $(Resolve-Path .\jellyfin\jellyfin)
+
+      - name: Publish Tray
+        run: |
+          New-Item -Path .\jellyfin\jellyfin\jellyfin-windows-tray -ItemType Directory
+          dotnet publish -c Release -r win-x64 -f net472 --no-self-contained --output $(Resolve-Path .\jellyfin\jellyfin\jellyfin-windows-tray)
+
+      - name: Build installer
+        run: |
+          $env:InstallLocation = $(Resolve-Path .\jellyfin\jellyfin)
+          makensis /Dx64 /DUXPATH=$(Resolve-Path .\jellyfin-ux) $(Join-Path -Path $(Resolve-Path .\nsis) -ChildPath jellyfin.nsi)
+
+      - name: Rename Installer
+        run: |
+          cd .\nsis
+          Rename-Item -Path .\jellyfin_*_windows-x64.exe -NewName ("jellyfin_${{ inputs.jellyfin_version }}_windows-x64.exe")
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          retention-days: 30
+          if-no-files-found: error
+          path: .\nsis\jellyfin_*_windows-x64.exe
+
+      - name: Upload to GitHub Release
+        if: ${{ github.event_name == 'release' }}
+        uses: shogo82148/actions-upload-release-asset@v1.7.5
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          overwrite: true
+          asset_path: .\nsis\jellyfin_*_windows-x64.exe

@@ -1,0 +1,382 @@
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Security.Principal;
+using System.ServiceProcess;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Xml.Linq;
+using System.Xml.XPath;
+using Microsoft.Win32;
+
+namespace Jellyfin.Windows.Tray;
+
+/// <summary>
+/// Tray application context.
+/// </summary>
+public class TrayApplicationContext : ApplicationContext
+{
+    private const string TrayIconResourceName = "Jellyfin.Windows.Tray.Resources.JellyfinIcon.ico";
+    private const string ProductName = "MulletaFlix";
+    private const string ProcessName = "MulletaFlix";
+    private const string ExecutableName = "MulletaFlix.exe";
+    private const string ServiceName = "MulletaFlixServer";
+    private readonly string _autostartKey = "MulletaFlixTray";
+    private string _configFile;
+    private string _networkFile;
+    private string _port;
+    private string _baseUrl;
+    private bool _firstRunDone = false;
+    private string _networkAddress;
+    private string _executableFile;
+    private string _dataFolder = @"C:\ProgramData\MulletaFlix\Server";
+    private string _localJellyfinUrl = "http://localhost:8096/web/index.html";
+    private NotifyIcon _trayIcon;
+    private ServiceController _serviceController;
+    private ToolStripMenuItem _menuItemAutostart;
+    private ToolStripMenuItem _menuItemStart;
+    private ToolStripMenuItem _menuItemStop;
+    private ToolStripMenuItem _menuItemOpen;
+    private ToolStripMenuItem _menuItemLogFolder;
+    private ToolStripMenuItem _menuItemExit;
+    private string _installFolder;
+    private RunType _runType;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="TrayApplicationContext"/> class.
+    /// </summary>
+    public TrayApplicationContext()
+    {
+        _serviceController = ServiceController.GetServices().FirstOrDefault(s => s.ServiceName == ServiceName);
+        if (_serviceController != null)
+        {
+            _runType = RunType.Service;
+        }
+    }
+
+    private bool AutoStart
+    {
+        get
+        {
+            using RegistryKey key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+            return key.GetValue(_autostartKey) != null;
+        }
+
+        set
+        {
+            using RegistryKey key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+            if (value && key.GetValue(_autostartKey) == null)
+            {
+                key.SetValue(_autostartKey, Path.ChangeExtension(Application.ExecutablePath, "exe"));
+            }
+            else if (!value && key.GetValue(_autostartKey) != null)
+            {
+                key.DeleteValue(_autostartKey);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Setups and Starts the application.
+    /// </summary>
+    /// <returns>boolean value if the application should start rendering its UI.</returns>
+    public bool InitApplication()
+    {
+        if (_serviceController == null)
+        {
+            try
+            {
+                LoadJellyfinConfig();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error: " + ex.Message + $"\r\nCouldn't find {ProductName} installation. The application will now close.");
+                return false;
+            }
+
+            _runType = RunType.Executable;
+        }
+
+        CreateTrayIcon();
+
+        if (!_firstRunDone)
+        {
+            CheckShowServiceNotElevatedWarning();
+            AutoStart = true;
+        }
+        else
+        {
+            _firstRunDone = true;
+        }
+
+        if (_runType == RunType.Executable)
+        {
+            if (Process.GetProcessesByName(ProcessName).Length == 0)
+            {
+                Start(null, null);
+            }
+        }
+
+        return true;
+    }
+
+    private void CreateTrayIcon()
+    {
+        _menuItemAutostart = new ToolStripMenuItem("Autostart", null, AutoStartToggle);
+        _menuItemStart = new ToolStripMenuItem($"Start {ProductName}", null, Start);
+        _menuItemStop = new ToolStripMenuItem($"Stop {ProductName}", null, Stop);
+        _menuItemOpen = new ToolStripMenuItem($"Open {ProductName}", null, Open);
+        _menuItemLogFolder = new ToolStripMenuItem("Show Logs", null, ShowLogs);
+        _menuItemExit = new ToolStripMenuItem("Exit", null, Exit);
+
+        ContextMenuStrip contextMenu = new ContextMenuStrip();
+        contextMenu.Items.Add(_menuItemAutostart);
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(_menuItemStart);
+        contextMenu.Items.Add(_menuItemStop);
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(_menuItemOpen);
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(_menuItemLogFolder);
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(_menuItemExit);
+
+        contextMenu.Opening += new CancelEventHandler(ContextMenuOnPopup);
+        using var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(TrayIconResourceName);
+        _trayIcon = new NotifyIcon() { Icon = new Icon(iconStream), ContextMenuStrip = contextMenu, Visible = true, Text = ProductName };
+        _trayIcon.DoubleClick += Open;
+    }
+
+    private void LoadJellyfinConfig()
+    {
+        using RegistryKey registryKey = OpenServerRegistryKey();
+        if (registryKey == null)
+        {
+            throw new InvalidOperationException("Server registry key was not found.");
+        }
+
+        _installFolder = registryKey.GetValue("InstallFolder")?.ToString();
+        _dataFolder = registryKey.GetValue("DataFolder")?.ToString();
+        if (string.IsNullOrWhiteSpace(_installFolder) || string.IsNullOrWhiteSpace(_dataFolder))
+        {
+            throw new InvalidOperationException("Server registry key is missing InstallFolder or DataFolder.");
+        }
+
+        _configFile = Path.Combine(_dataFolder, "config\\system.xml").ToString();
+        _networkFile = Path.Combine(_dataFolder, "config\\network.xml").ToString();
+        _executableFile = Path.Combine(_installFolder, ExecutableName);
+        if (!File.Exists(_executableFile))
+        {
+            throw new FileNotFoundException($"{ExecutableName} was not found.", _executableFile);
+        }
+
+        if (File.Exists(_configFile))
+        {
+            XDocument systemXml = XDocument.Load(_configFile);
+            XPathNavigator settingsReader = systemXml.CreateNavigator();
+
+            _firstRunDone = settingsReader.SelectSingleNode("/ServerConfiguration/IsStartupWizardCompleted").ValueAsBoolean;
+        }
+
+        if (File.Exists(_networkFile))
+        {
+            XDocument networkXml = XDocument.Load(_networkFile);
+            XPathNavigator networkReader = networkXml.CreateNavigator();
+
+            _networkAddress = networkReader.SelectSingleNode("/NetworkConfiguration/LocalNetworkAddresses").Value;
+            _port = networkReader.SelectSingleNode("/NetworkConfiguration/InternalHttpPort")?.Value;
+            _baseUrl = networkReader.SelectSingleNode("/NetworkConfiguration/BaseUrl")?.Value;
+        }
+
+        if (string.IsNullOrEmpty(_port))
+        {
+            _port = "8096";
+        }
+
+        if (string.IsNullOrEmpty(_networkAddress))
+        {
+            _networkAddress = "localhost";
+        }
+
+        if (string.IsNullOrEmpty(_baseUrl))
+        {
+            _baseUrl = string.Empty;
+        }
+
+        _localJellyfinUrl = "http://" + _networkAddress + ":" + _port + _baseUrl + "/web/index.html";
+    }
+
+    private static RegistryKey OpenServerRegistryKey()
+    {
+        string[] keyNames =
+        {
+            "Software\\WOW6432Node\\MulletaFlix\\Server",
+            "Software\\MulletaFlix\\Server",
+            "Software\\WOW6432Node\\Jellyfin\\Server",
+            "Software\\Jellyfin\\Server"
+        };
+
+        foreach (string keyName in keyNames)
+        {
+            RegistryKey key = Registry.LocalMachine.OpenSubKey(keyName);
+            if (key != null)
+            {
+                return key;
+            }
+        }
+
+        return null;
+    }
+
+    private bool CheckShowServiceNotElevatedWarning()
+    {
+        if (_runType == RunType.Service && !IsElevated())
+        {
+            MessageBox.Show($"When running {ProductName} as a service, the tray application must be run as Administrator.");
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsElevated()
+    {
+        WindowsIdentity id = WindowsIdentity.GetCurrent();
+        return id.Owner != id.User;
+    }
+
+    private void AutoStartToggle(object sender, EventArgs e)
+    {
+        AutoStart = !AutoStart;
+    }
+
+    private void Open(object sender, EventArgs e)
+    {
+        Process.Start("explorer.exe", _localJellyfinUrl);
+    }
+
+    private void ShowLogs(object sender, EventArgs e)
+    {
+        Process.Start("explorer.exe", _dataFolder + "\\log");
+    }
+
+    private void ContextMenuOnPopup(object sender, EventArgs e)
+    {
+        bool runningAsService = _runType == RunType.Service;
+        bool exeRunning = false;
+        if (runningAsService)
+        {
+            _serviceController.Refresh();
+        }
+        else
+        {
+            exeRunning = Process.GetProcessesByName(ProcessName).Length > 0;
+        }
+
+        bool running = (!runningAsService && exeRunning) || (runningAsService && _serviceController.Status == ServiceControllerStatus.Running);
+        bool stopped = (!runningAsService && !exeRunning) || (runningAsService && _serviceController.Status == ServiceControllerStatus.Stopped);
+        _menuItemStart.Enabled = stopped;
+        _menuItemStop.Enabled = running;
+        _menuItemOpen.Enabled = running;
+        _menuItemAutostart.Checked = AutoStart;
+    }
+
+    private void Start(object sender, EventArgs e)
+    {
+        if (CheckShowServiceNotElevatedWarning())
+        {
+            return;
+        }
+
+        Process jellyfinServerProcess = null;
+        if (_runType == RunType.Service)
+        {
+            _serviceController.Start();
+        }
+        else
+        {
+            try
+            {
+                jellyfinServerProcess = new Process();
+                jellyfinServerProcess.StartInfo.FileName = _executableFile;
+                jellyfinServerProcess.StartInfo.CreateNoWindow = true;
+                jellyfinServerProcess.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                jellyfinServerProcess.StartInfo.Arguments = "--datadir \"" + _dataFolder + "\"";
+                jellyfinServerProcess.Start();
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show($"Could not start {ProductName} Server. " +
+                                $"\r\n Because: '{exception.Message.Truncate(25)}'." +
+                                $"You can find the Server Logs at: " +
+                                $"\r\n {_dataFolder + "\\log"}");
+                return;
+            }
+        }
+
+        Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith((t) =>
+        {
+            if (_runType == RunType.Service)
+            {
+                _serviceController.Refresh();
+                if (_serviceController.Status == ServiceControllerStatus.Stopped)
+                {
+                    MessageBox.Show($"Could not start {ProductName} server service after the specified wait period." +
+                                    $"\r\n You can find the Server Logs at: " +
+                                    $"\r\n {_dataFolder + "\\log"}");
+                }
+            }
+            else
+            {
+                jellyfinServerProcess.Refresh();
+                if (jellyfinServerProcess.HasExited)
+                {
+                    MessageBox.Show($"Could not start {ProductName} server process after the specified wait period." +
+                                    $"\r\n You can find the Server Logs at: " +
+                                    $"\r\n {_dataFolder + "\\log"}");
+                }
+            }
+        });
+    }
+
+    private void Stop(object sender, EventArgs e)
+    {
+        if (CheckShowServiceNotElevatedWarning())
+        {
+            return;
+        }
+
+        if (_runType == RunType.Service)
+        {
+            _serviceController.Stop();
+        }
+        else
+        {
+            Process process = Process.GetProcessesByName(ProcessName).FirstOrDefault();
+            if (process == null)
+            {
+                return;
+            }
+
+            if (!process.CloseMainWindow())
+            {
+                process.Kill();
+            }
+        }
+    }
+
+    private void Exit(object sender, EventArgs e)
+    {
+        if (_runType == RunType.Executable)
+        {
+            Stop(null, null);
+        }
+
+        _trayIcon.Visible = false;
+        Application.Exit();
+    }
+}

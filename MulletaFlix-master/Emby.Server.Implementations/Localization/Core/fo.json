@@ -1,0 +1,16 @@
+{
+    "Artists": "Listafólk",
+    "Collections": "Søvn",
+    "Default": "Sjálvgildi",
+    "External": "Ytri",
+    "Genres": "Greinar",
+    "AppDeviceValues": "App: {0}, Eind: {1}",
+    "Books": "Bøkur",
+    "ChapterNameValue": "Kapittul {0}",
+    "Favorites": "Yndis",
+    "Folders": "Mappur",
+    "Forced": "Kravt",
+    "FailedLoginAttemptWithUserName": "Miseydnað innritanarroynd frá {0}",
+    "HeaderFavoriteEpisodes": "Yndispartar",
+    "LabelIpAddressValue": "IP atsetur: {0}"
+}

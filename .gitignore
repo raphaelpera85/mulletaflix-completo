@@ -1,0 +1,53 @@
+# Build outputs
+stage/
+.build/
+bin/
+obj/
+dist/
+out/
+publish/
+
+# Logs
+logs/
+*.log
+*.tmp
+
+# Dependencies
+node_modules/
+packages/
+*.nupkg
+
+# IDE / OS
+.vs/
+.idea/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+config/credentials*
+
+# Testing
+coverage/
+playwright-report/
+test-results/
+
+# Packaging temp
+MulletaFlix-packaging-master/output/
+MulletaFlix-packaging-master/stage/
+MulletaFlix-packaging-master/**/bin/
+MulletaFlix-packaging-master/**/obj/
+MulletaFlix-packaging-master/jellyfin-server-windows/
+*.exe
+*.msi
+*.dmg
+*.zip
+*.tar.gz

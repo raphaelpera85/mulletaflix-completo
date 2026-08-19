@@ -1,0 +1,437 @@
+using System;
+using System.Data.Common;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Entities.Security;
+using MulletaFlix.Database.Implementations.Interfaces;
+using MulletaFlix.Database.Implementations.Locking;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging;
+
+namespace MulletaFlix.Database.Implementations;
+
+/// <inheritdoc/>
+/// <summary>
+/// Initializes a new instance of the <see cref="MulletaFlixDbContext"/> class.
+/// </summary>
+/// <param name="options">The database context options.</param>
+/// <param name="logger">Logger.</param>
+/// <param name="MulletaFlixDatabaseProvider">The provider for the database engine specific operations.</param>
+/// <param name="entityFrameworkCoreLocking">The locking behavior.</param>
+public class MulletaFlixDbContext : DbContext
+{
+    private readonly ILogger<MulletaFlixDbContext> _logger;
+    private readonly IMulletaFlixDatabaseProvider _mulletaFlixDatabaseProvider;
+    private readonly IEntityFrameworkCoreLockingBehavior _entityFrameworkCoreLocking;
+
+    public MulletaFlixDbContext(DbContextOptions<MulletaFlixDbContext> options, ILogger<MulletaFlixDbContext> logger, IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider, IEntityFrameworkCoreLockingBehavior entityFrameworkCoreLocking) : base(options)
+    {
+        _logger = logger;
+        _mulletaFlixDatabaseProvider = MulletaFlixDatabaseProvider;
+        _entityFrameworkCoreLocking = entityFrameworkCoreLocking;
+    }
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the access schedules.
+    /// </summary>
+    public DbSet<AccessSchedule> AccessSchedules => Set<AccessSchedule>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the activity logs.
+    /// </summary>
+    public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the API keys.
+    /// </summary>
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the devices.
+    /// </summary>
+    public DbSet<Device> Devices => Set<Device>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the device options.
+    /// </summary>
+    public DbSet<DeviceOptions> DeviceOptions => Set<DeviceOptions>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the display preferences.
+    /// </summary>
+    public DbSet<DisplayPreferences> DisplayPreferences => Set<DisplayPreferences>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the image infos.
+    /// </summary>
+    public DbSet<ImageInfo> ImageInfos => Set<ImageInfo>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the item display preferences.
+    /// </summary>
+    public DbSet<ItemDisplayPreferences> ItemDisplayPreferences => Set<ItemDisplayPreferences>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the custom item display preferences.
+    /// </summary>
+    public DbSet<CustomItemDisplayPreferences> CustomItemDisplayPreferences => Set<CustomItemDisplayPreferences>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the permissions.
+    /// </summary>
+    public DbSet<Permission> Permissions => Set<Permission>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the preferences.
+    /// </summary>
+    public DbSet<Preference> Preferences => Set<Preference>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the users.
+    /// </summary>
+    public DbSet<User> Users => Set<User>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the user licenses.
+    /// </summary>
+    public DbSet<UserLicense> UserLicenses => Set<UserLicense>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the pricing plans.
+    /// </summary>
+    public DbSet<PricingPlan> PricingPlans => Set<PricingPlan>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the payment transactions.
+    /// </summary>
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the payment gateway configs.
+    /// </summary>
+    public DbSet<PaymentGatewayConfig> PaymentGatewayConfigs => Set<PaymentGatewayConfig>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the discount coupons.
+    /// </summary>
+    public DbSet<DiscountCoupon> DiscountCoupons => Set<DiscountCoupon>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the trickplay metadata.
+    /// </summary>
+    public DbSet<TrickplayInfo> TrickplayInfos => Set<TrickplayInfo>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the media segments.
+    /// </summary>
+    public DbSet<MediaSegment> MediaSegments => Set<MediaSegment>();
+
+    /// <summary>
+    /// Gets the Midia Storage Online recognition metadata.
+    /// </summary>
+    public DbSet<MidiaStorageOnlineMediaMetadata> MidiaStorageOnlineMediaMetadata => Set<MidiaStorageOnlineMediaMetadata>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the user data.
+    /// </summary>
+    public DbSet<UserData> UserData => Set<UserData>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the user data.
+    /// </summary>
+    public DbSet<AncestorId> AncestorIds => Set<AncestorId>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the user data.
+    /// </summary>
+    public DbSet<AttachmentStreamInfo> AttachmentStreamInfos => Set<AttachmentStreamInfo>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the user data.
+    /// </summary>
+    public DbSet<BaseItemEntity> BaseItems => Set<BaseItemEntity>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the user data.
+    /// </summary>
+    public DbSet<Chapter> Chapters => Set<Chapter>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<ItemValue> ItemValues => Set<ItemValue>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<ItemValueMap> ItemValuesMap => Set<ItemValueMap>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<MediaStreamInfo> MediaStreamInfos => Set<MediaStreamInfo>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<People> Peoples => Set<People>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<PeopleBaseItemMap> PeopleBaseItemMap => Set<PeopleBaseItemMap>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing linked children relationships.
+    /// </summary>
+    public DbSet<LinkedChildEntity> LinkedChildren => Set<LinkedChildEntity>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the referenced Providers with ids.
+    /// </summary>
+    public DbSet<BaseItemProvider> BaseItemProviders => Set<BaseItemProvider>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<BaseItemImageInfo> BaseItemImageInfos => Set<BaseItemImageInfo>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<BaseItemMetadataField> BaseItemMetadataFields => Set<BaseItemMetadataField>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<BaseItemTrailerType> BaseItemTrailerTypes => Set<BaseItemTrailerType>();
+
+    /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/>.
+    /// </summary>
+    public DbSet<KeyframeData> KeyframeData => Set<KeyframeData>();
+
+    /*public DbSet<Artwork> Artwork => Set<Artwork>();
+
+    public DbSet<Book> Books => Set<Book>();
+
+    public DbSet<BookMetadata> BookMetadata => Set<BookMetadata>();
+
+    public DbSet<Chapter> Chapters => Set<Chapter>();
+
+    public DbSet<Collection> Collections => Set<Collection>();
+
+    public DbSet<CollectionItem> CollectionItems => Set<CollectionItem>();
+
+    public DbSet<Company> Companies => Set<Company>();
+
+    public DbSet<CompanyMetadata> CompanyMetadata => Set<CompanyMetadata>();
+
+    public DbSet<CustomItem> CustomItems => Set<CustomItem>();
+
+    public DbSet<CustomItemMetadata> CustomItemMetadata => Set<CustomItemMetadata>();
+
+    public DbSet<Episode> Episodes => Set<Episode>();
+
+    public DbSet<EpisodeMetadata> EpisodeMetadata => Set<EpisodeMetadata>();
+
+    public DbSet<Genre> Genres => Set<Genre>();
+
+    public DbSet<Group> Groups => Set<Groups>();
+
+    public DbSet<Library> Libraries => Set<Library>();
+
+    public DbSet<LibraryItem> LibraryItems => Set<LibraryItems>();
+
+    public DbSet<LibraryRoot> LibraryRoot => Set<LibraryRoot>();
+
+    public DbSet<MediaFile> MediaFiles => Set<MediaFiles>();
+
+    public DbSet<MediaFileStream> MediaFileStream => Set<MediaFileStream>();
+
+    public DbSet<Metadata> Metadata => Set<Metadata>();
+
+    public DbSet<MetadataProvider> MetadataProviders => Set<MetadataProvider>();
+
+    public DbSet<MetadataProviderId> MetadataProviderIds => Set<MetadataProviderId>();
+
+    public DbSet<Movie> Movies => Set<Movie>();
+
+    public DbSet<MovieMetadata> MovieMetadata => Set<MovieMetadata>();
+
+    public DbSet<MusicAlbum> MusicAlbums => Set<MusicAlbum>();
+
+    public DbSet<MusicAlbumMetadata> MusicAlbumMetadata => Set<MusicAlbumMetadata>();
+
+    public DbSet<Person> People => Set<Person>();
+
+    public DbSet<PersonRole> PersonRoles => Set<PersonRole>();
+
+    public DbSet<Photo> Photo => Set<Photo>();
+
+    public DbSet<PhotoMetadata> PhotoMetadata => Set<PhotoMetadata>();
+
+    public DbSet<ProviderMapping> ProviderMappings => Set<ProviderMapping>();
+
+    public DbSet<Rating> Ratings => Set<Rating>();
+
+    /// <summary>
+    /// Repository for global::MulletaFlix.Data.Entities.RatingSource - This is the entity to
+    /// store review ratings, not age ratings.
+    /// </summary>
+    public DbSet<RatingSource> RatingSources => Set<RatingSource>();
+
+    public DbSet<Release> Releases => Set<Release>();
+
+    public DbSet<Season> Seasons => Set<Season>();
+
+    public DbSet<SeasonMetadata> SeasonMetadata => Set<SeasonMetadata>();
+
+    public DbSet<Series> Series => Set<Series>();
+
+    public DbSet<SeriesMetadata> SeriesMetadata => Set<SeriesMetadata();
+
+    public DbSet<Track> Tracks => Set<Track>();
+
+    public DbSet<TrackMetadata> TrackMetadata => Set<TrackMetadata>();*/
+
+    /// <inheritdoc/>
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        HandleConcurrencyToken();
+
+        var maxRetries = 5;
+        var attempt = 0;
+        while (true)
+        {
+            try
+            {
+                var result = -1;
+                await _entityFrameworkCoreLocking.OnSaveChangesAsync(this, async () =>
+                {
+                    result = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+                return result;
+            }
+            catch (Exception e) when (attempt < maxRetries && IsDeadlockException(e))
+            {
+                attempt++;
+                _logger.LogWarning(e, "Deadlock detectado durante SaveChangesAsync. Tentando novamente {Attempt}/{MaxRetries} após delay...", attempt, maxRetries);
+                await Task.Delay(150 * attempt, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // a concurrency exception is supposed to be always handled by the invoker of the method, logging it here is only causing log bloat.
+                throw;
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Error trying to save changes.");
+                throw;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public override int SaveChanges(bool acceptAllChangesOnSuccess) // SaveChanges(bool) is beeing called by SaveChanges() with default to false.
+    {
+        HandleConcurrencyToken();
+
+        var maxRetries = 5;
+        var attempt = 0;
+        while (true)
+        {
+            try
+            {
+                var result = -1;
+                _entityFrameworkCoreLocking.OnSaveChanges(this, () =>
+                {
+                    result = base.SaveChanges(acceptAllChangesOnSuccess);
+                });
+                return result;
+            }
+            catch (Exception e) when (attempt < maxRetries && IsDeadlockException(e))
+            {
+                attempt++;
+                _logger.LogWarning(e, "Deadlock detectado durante SaveChanges. Tentando novamente {Attempt}/{MaxRetries} após delay...", attempt, maxRetries);
+                Thread.Sleep(150 * attempt);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // a concurrency exception is supposed to be always handled by the invoker of the method, logging it here is only causing log bloat.
+                throw;
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Error trying to save changes.");
+                throw;
+            }
+        }
+    }
+
+    private static bool IsDeadlockException(Exception? exception)
+    {
+        if (exception == null)
+        {
+            return false;
+        }
+
+        if (exception is DbUpdateException dbUpdateException)
+        {
+            return IsDeadlockException(dbUpdateException.InnerException);
+        }
+
+        var exceptionType = exception.GetType();
+        if (exceptionType.FullName == "MySqlConnector.MySqlException" || exceptionType.Name == "MySqlException")
+        {
+            try
+            {
+                var numberProperty = exceptionType.GetProperty("Number");
+                if (numberProperty != null)
+                {
+                    var number = (int)numberProperty.GetValue(exception)!;
+                    return number == 1213; // ER_LOCK_DEADLOCK
+                }
+            }
+            catch
+            {
+                // Fallback
+            }
+        }
+
+        return exception.Message.Contains("Deadlock", StringComparison.OrdinalIgnoreCase)
+            || (exception.InnerException != null && IsDeadlockException(exception.InnerException));
+    }
+
+    private void HandleConcurrencyToken()
+    {
+        foreach (var saveEntity in ChangeTracker.Entries()
+                     .Where(e => e.State == EntityState.Modified)
+                     .Select(entry => entry.Entity)
+                     .OfType<IHasConcurrencyToken>())
+        {
+            saveEntity.OnSavingChanges();
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        _mulletaFlixDatabaseProvider.OnModelCreating(modelBuilder);
+        base.OnModelCreating(modelBuilder);
+
+        // Configuration for each entity is in its own class inside 'ModelConfiguration'.
+        // Domain entity configurations (movies, series, etc.) are excluded via [DomainConfiguration] attribute.
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(MulletaFlixDbContext).Assembly,
+            type => !type.IsDefined(typeof(DomainConfigurationAttribute), inherit: false));
+    }
+
+    /// <inheritdoc />
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        _mulletaFlixDatabaseProvider.ConfigureConventions(configurationBuilder);
+        base.ConfigureConventions(configurationBuilder);
+    }
+}

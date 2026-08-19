@@ -1,0 +1,11 @@
+obj
+bin
+
+# vs
+.vs
+
+# Rider
+.idea
+
+# Generated installer artifacts
+nsis/*.exe

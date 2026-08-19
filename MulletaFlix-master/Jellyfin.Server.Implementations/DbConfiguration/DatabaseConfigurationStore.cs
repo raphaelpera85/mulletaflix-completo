@@ -1,0 +1,27 @@
+using System;
+using System.Collections.Generic;
+using MediaBrowser.Common.Configuration;
+using MulletaFlix.Database.Implementations.DbConfiguration;
+
+namespace MulletaFlix.Server.Implementations.DatabaseConfiguration;
+
+/// <summary>
+/// A configuration that stores database related settings.
+/// </summary>
+public class DatabaseConfigurationStore : ConfigurationStore
+{
+    /// <summary>
+    /// The name of the configuration in the storage.
+    /// </summary>
+    public const string StoreKey = "database";
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DatabaseConfigurationStore"/> class.
+    /// </summary>
+    public DatabaseConfigurationStore()
+    {
+        ConfigurationType = typeof(DatabaseConfigurationOptions);
+        Key = StoreKey;
+    }
+}
+

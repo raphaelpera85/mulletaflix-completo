@@ -1,0 +1,149 @@
+﻿---
+# Build definitions for `build.py`
+
+# Upstream Framework versions
+# This section defines target commits after which a particular framework is required.
+# This is used by build.py to automatically determine which framework version to use
+# within the build containers based on whatever HEAD the project is at (from checkout.py).
+# Target commits should be a merge commit!
+# Target commits should be in order from oldest to newest!
+# HOW THIS WORKS:
+#   For each submodule, and then for each upstream framework version ARG to Docker...
+#   Provide a commit hash as a key, and a version as a value...
+#   If the given commit is in the commit tree of the current HEAD of the repo...
+#   Use the given version. Otherwise use the default.
+frameworks:
+  MulletaFlix-web:
+    NODEJS_VERSION:
+      6c0a64ef12b9eb40a7c4ee4b9d43d0a5f32f2287: 20  # Default
+      2a7006502aa2b71d705683040a5c644ab4edaf1e: 24
+  MulletaFlix-server:
+    DOTNET_VERSION:
+      6d1abf67c36379f0b061095619147a3691841e21: 8.0  # Default
+      ceb850c77052c465af8422dcf152f1d1d1530457: 9.0
+      9e480f6efb4bc0e1f0d1323ed7ed5a7208fded99: 10.0
+
+# DEB packages
+debian:
+  releases:
+    bullseye: '11'
+    bookworm: '12'
+    trixie: '13'
+  archmaps:
+    amd64:
+      PACKAGE_ARCH: amd64
+      GCC_ARCH: x86-64
+    arm64:
+      PACKAGE_ARCH: arm64
+      GCC_ARCH: aarch64
+  cross-gcc:
+    bullseye: '10'
+    bookworm: '12'
+    trixie: '14'
+  build_function: build_package_deb
+  dockerfile: debian/docker/Dockerfile
+  imagename: MulletaFlix-builder-debian
+ubuntu:
+  releases:
+    focal: '20.04'
+    jammy: '22.04'
+    noble: '24.04'
+    resolute: '26.04'
+  archmaps:
+    amd64:
+      PACKAGE_ARCH: amd64
+      GCC_ARCH: x86-64
+    arm64:
+      PACKAGE_ARCH: arm64
+      GCC_ARCH: aarch64
+  cross-gcc:
+    focal: '10'
+    jammy: '12'
+    noble: '13'
+    resolute: '14'
+  build_function: build_package_deb
+  dockerfile: debian/docker/Dockerfile
+  imagename: MulletaFlix-builder-ubuntu
+
+# Portable archives
+linux:
+  build_function: build_linux
+  archivetypes: targz,tarxz
+  archmaps:
+    amd64:
+      DOTNET_ARCH: x64
+      PACKAGE_ARCH: amd64
+    amd64-musl:
+      DOTNET_ARCH: musl-x64
+      PACKAGE_ARCH: amd64-musl
+    arm64:
+      DOTNET_ARCH: arm64
+      PACKAGE_ARCH: arm64
+    arm64-musl:
+      DOTNET_ARCH: musl-arm64
+      PACKAGE_ARCH: arm64-musl
+  dockerfile: portable/Dockerfile
+  imagename: MulletaFlix-builder-linux
+windows:
+  build_function: build_windows
+  archivetypes: zip
+  archmaps:
+    amd64:
+      DOTNET_ARCH: x64
+      PACKAGE_ARCH: amd64
+    arm64:
+      DOTNET_ARCH: arm64
+      PACKAGE_ARCH: arm64
+  dockerfile: portable/Dockerfile
+  imagename: MulletaFlix-builder-windows
+macos:
+  build_function: build_macos
+  archivetypes: tarxz
+  archmaps:
+    amd64:
+      DOTNET_ARCH: x64
+      PACKAGE_ARCH: amd64
+    arm64:
+      DOTNET_ARCH: arm64
+      PACKAGE_ARCH: arm64
+  dockerfile: portable/Dockerfile
+  imagename: MulletaFlix-builder-macos
+portable:
+  build_function: build_portable
+  archivetypes: targz,tarxz,zip
+  dockerfile: portable/Dockerfile
+  imagename: MulletaFlix-builder-portable
+
+# Docker images
+docker:
+  build_function: build_docker
+  archmaps:
+    amd64:
+      DOTNET_ARCH: x64
+      IMAGE_ARCH: amd64
+      PACKAGE_ARCH: amd64
+      TARGET_ARCH: amd64
+    arm64:
+      DOTNET_ARCH: arm64
+      IMAGE_ARCH: arm64v8
+      PACKAGE_ARCH: arm64
+      TARGET_ARCH: arm64/v8
+  dockerfile: docker/Dockerfile
+  imagename: MulletaFlix/MulletaFlix
+
+# Nuget packages
+nuget:
+  build_function: build_nuget
+  projects:
+    - MulletaFlix.Data/MulletaFlix.Data.csproj
+    - MediaBrowser.Common/MediaBrowser.Common.csproj
+    - MediaBrowser.Controller/MediaBrowser.Controller.csproj
+    - MediaBrowser.Model/MediaBrowser.Model.csproj
+    - Emby.Naming/Emby.Naming.csproj
+    - src/MulletaFlix.Extensions/MulletaFlix.Extensions.csproj
+    - src/MulletaFlix.Database/MulletaFlix.Database.Implementations/MulletaFlix.Database.Implementations.csproj
+    - src/MulletaFlix.MediaEncoding.Keyframes/MulletaFlix.MediaEncoding.Keyframes.csproj
+  feed_urls:
+    stable: https://api.nuget.org/v3/index.json
+    unstable: https://nuget.pkg.github.com/MulletaFlix/index.json
+
