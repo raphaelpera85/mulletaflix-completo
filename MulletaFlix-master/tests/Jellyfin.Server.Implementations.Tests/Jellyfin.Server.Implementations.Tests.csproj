@@ -31,6 +31,8 @@
     <ProjectReference Include="..\..\Jellyfin.Server.Implementations\Jellyfin.Server.Implementations.csproj" />
     <ProjectReference Include="..\Jellyfin.Server.Integration.Tests\Jellyfin.Server.Integration.Tests.csproj" />
     <ProjectReference Include="..\..\src\Jellyfin.Database\Jellyfin.Database.Implementations\Jellyfin.Database.Implementations.csproj" />
+    <ProjectReference Include="..\..\Compatibility\Jellyfin.Data\Jellyfin.Data.csproj" />
+    <ProjectReference Include="..\..\Compatibility\Jellyfin.Database.Implementations\Jellyfin.Database.Implementations.csproj" />
   </ItemGroup>
 
 </Project>
