@@ -62,6 +62,7 @@ export const useGetItems = (parametersOptions: ItemsApiGetItemsRequest) => {
     return useQuery({
         queryKey: [
             'Items',
+            currentApi.api?.basePath,
             currentApi.user?.Id,
             {
                 ...parametersOptions
