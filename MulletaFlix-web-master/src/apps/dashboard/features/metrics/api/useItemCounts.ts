@@ -20,7 +20,7 @@ const getItemCountsQuery = (
     api?: Api,
     params?: LibraryApiGetItemCountsRequest
 ) => queryOptions({
-    queryKey: [ 'ItemCounts', params ],
+    queryKey: [ 'ItemCounts', api?.basePath, params ],
     queryFn: ({ signal }) => fetchItemCounts(api!, params, { signal }),
     enabled: !!api,
     refetchOnWindowFocus: false

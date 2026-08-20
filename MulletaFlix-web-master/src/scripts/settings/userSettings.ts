@@ -146,7 +146,7 @@ export class UserSettings {
                 .updateUserConfiguration(this.currentUserId!, config)
                 .then(() => {
                     queryClient.invalidateQueries({
-                        queryKey: [ QUERY_KEY, this.currentUserId ]
+                        queryKey: [ QUERY_KEY, this.currentApiClient ? toApi(this.currentApiClient).basePath : undefined, this.currentUserId ]
                     });
                 });
         }
