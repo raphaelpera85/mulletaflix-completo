@@ -19,7 +19,7 @@ const fetchSyncPlayGroups = async (
 export const useSyncPlayGroups = () => {
     const { api } = useApi();
     return useQuery({
-        queryKey: QUERY_KEY,
+        queryKey: [ ...QUERY_KEY, api?.basePath ],
         queryFn: ({ signal }) => fetchSyncPlayGroups(api!, { signal }),
         refetchInterval: 60 * 1000, // Refresh every minute
         enabled: !!api

@@ -54,7 +54,7 @@ export const useGetItemByType = ({
 }: UseGetItemByTypeProps) => {
     const apiContext = useApi();
     return useQuery({
-        queryKey: ['ItemByType', { itemType, itemId }],
+        queryKey: ['ItemByType', apiContext.api?.basePath, { itemType, itemId }],
         queryFn: ({ signal }) =>
             getItemByType(apiContext, itemType, itemId, { signal }),
         enabled: !!apiContext.api && !!apiContext.user?.Id && !!itemId

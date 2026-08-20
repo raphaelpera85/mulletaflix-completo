@@ -38,7 +38,7 @@ export const useUserLicense = (userId: string) => {
     const { api } = useApi();
 
     return useQuery({
-        queryKey: [USER_LICENSE_QUERY_KEY, userId],
+        queryKey: [USER_LICENSE_QUERY_KEY, api?.basePath, userId],
         queryFn: ({ signal }) => fetchUserLicense(api!, userId, { signal }),
         enabled: !!api && !!userId,
         retry: false // Don't spam retries if the user simply has no license (404)
@@ -53,11 +53,11 @@ export const useSetUserLicense = () => {
             api!.axiosInstance.post<UserLicenseDto>(`/Users/${userId}/License`, request),
         onSuccess: (response, variables) => {
             void queryClient.setQueryData(
-                [USER_LICENSE_QUERY_KEY, variables.userId],
+                [USER_LICENSE_QUERY_KEY, api?.basePath, variables.userId],
                 response.data
             );
             void queryClient.invalidateQueries({
-                queryKey: ['User', variables.userId]
+                queryKey: ['User', api?.basePath, variables.userId]
             });
         }
     });
@@ -71,13 +71,13 @@ export const useRevokeUserLicense = () => {
             api!.axiosInstance.delete(`/Users/${userId}/License`),
         onSuccess: (_, userId) => {
             void queryClient.removeQueries({
-                queryKey: [USER_LICENSE_QUERY_KEY, userId]
+                queryKey: [USER_LICENSE_QUERY_KEY, api?.basePath, userId]
             });
             void queryClient.invalidateQueries({
-                queryKey: [USER_LICENSE_QUERY_KEY, userId]
+                queryKey: [USER_LICENSE_QUERY_KEY, api?.basePath, userId]
             });
             void queryClient.invalidateQueries({
-                queryKey: ['User', userId]
+                queryKey: ['User', api?.basePath, userId]
             });
         }
     });
