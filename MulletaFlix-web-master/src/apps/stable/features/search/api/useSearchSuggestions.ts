@@ -39,7 +39,7 @@ export const useSearchSuggestions = (parentId?: string) => {
     const userId = user?.Id;
 
     return useQuery({
-        queryKey: ['SearchSuggestions', { parentId }],
+        queryKey: ['SearchSuggestions', api?.basePath, { parentId }],
         queryFn: ({ signal }) =>
             fetchGetItems(api!, userId!, parentId, { signal }),
         staleTime: 120_000,

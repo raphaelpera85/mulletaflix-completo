@@ -35,7 +35,7 @@ export const useProgramsSearch = (
     const userId = user?.Id;
 
     return useQuery({
-        queryKey: ['Search', 'Programs', collectionType, parentId, searchTerm],
+        queryKey: ['Search', 'Programs', api?.basePath, collectionType, parentId, searchTerm],
         staleTime: 60_000,
         queryFn: ({ signal }) => fetchPrograms(
             api!,

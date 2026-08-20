@@ -37,7 +37,7 @@ export const usePeopleSearch = (
     const isPeopleEnabled = (!collectionType || isMovies(collectionType) || isTVShows(collectionType));
 
     return useQuery({
-        queryKey: ['Search', 'People', collectionType, parentId, searchTerm],
+        queryKey: ['Search', 'People', api?.basePath, collectionType, parentId, searchTerm],
         staleTime: 60_000,
         queryFn: ({ signal }) => fetchPeople(
             api!,

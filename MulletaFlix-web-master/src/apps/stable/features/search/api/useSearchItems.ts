@@ -37,7 +37,7 @@ export const useSearchItems = (
     const isLiveTvEnabled = !isLiveTvPending || !collectionType || !isLivetv(collectionType);
 
     return useQuery({
-        queryKey: ['Search', 'Items', collectionType, parentId, searchTerm],
+        queryKey: ['Search', 'Items', api?.basePath, collectionType, parentId, searchTerm],
         staleTime: 60_000,
         queryFn: async ({ signal }) => {
             if (liveTvSections && collectionType && isLivetv(collectionType)) {
