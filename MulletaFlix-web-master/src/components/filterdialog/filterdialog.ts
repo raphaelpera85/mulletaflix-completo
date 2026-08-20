@@ -12,6 +12,11 @@ import template from './filterdialog.template.html';
 import { stopMultiSelect } from '../../components/multiSelect/multiSelect';
 import { getFilterStatus } from 'components/filterdialog/filterIndicator';
 
+interface FilterDialogApiClient {
+    getJSON(url: string): Promise<unknown>;
+    getUrl(path: string, query?: Record<string, unknown>): string;
+}
+
 interface FilterDialogOptions {
     mode?: string;
     serverId?: string;
@@ -52,7 +57,9 @@ function merge(resultItems: string[], queryItems: string | null | undefined, del
 }
 
 function renderOptions(context: HTMLElement, selector: string, cssClass: string, items: string[], isCheckedFn: (value: string) => boolean): void {
-    const elem = context.querySelector(selector) as HTMLElement | null;
+    const elem = context.querySelector(selector);
+    if (!elem) return;
+
     if (items.length) {
         elem.classList.remove('hide');
     } else {
@@ -70,7 +77,8 @@ function renderOptions(context: HTMLElement, selector: string, cssClass: string,
         return itemHtml;
     }).join('');
     html += '</div>';
-    elem.querySelector('.filterOptions').innerHTML = html;
+    const filterOptions = elem.querySelector('.filterOptions');
+    if (filterOptions) filterOptions.innerHTML = html;
 }
 
 function renderFilters(context: HTMLElement, result: { Genres: string[]; OfficialRatings: string[]; Tags: string[]; Years: number[] }, query: { Genres?: string | null; OfficialRatings?: string | null; Tags?: string | null; Years?: string | null }): void {
@@ -92,13 +100,13 @@ function renderFilters(context: HTMLElement, result: { Genres: string[]; Officia
     });
 }
 
-function loadDynamicFilters(context: HTMLElement, apiClient: ApiClient, userId: string, itemQuery: FilterDialogOptions['query']): Promise<void> {
+function loadDynamicFilters(context: HTMLElement, apiClient: FilterDialogApiClient, userId: string, itemQuery: FilterDialogOptions['query']): Promise<void> {
     return apiClient.getJSON(apiClient.getUrl('Items/Filters', {
         UserId: userId,
         ParentId: itemQuery.ParentId,
         IncludeItemTypes: itemQuery.IncludeItemTypes
-    })).then(function (result: { Genres: string[]; OfficialRatings: string[]; Tags: string[]; Years: number[] }) {
-        renderFilters(context, result, itemQuery);
+    })).then((result) => {
+        renderFilters(context, result as { Genres: string[]; OfficialRatings: string[]; Tags: string[]; Years: number[] }, itemQuery);
     });
 }
 
@@ -106,35 +114,50 @@ function updateFilterControls(context: HTMLElement, options: FilterDialogOptions
     const query = options.query;
 
     if (options.mode === 'livetvchannels') {
-        context.querySelector('.chkFavorite').checked = query.IsFavorite === true;
+        const chkFavorite = context.querySelector('.chkFavorite') as HTMLInputElement | null;
+        if (chkFavorite) chkFavorite.checked = query.IsFavorite === true;
     } else {
-        for (const elem of context.querySelectorAll('.chkStandardFilter')) {
+        for (const elem of context.querySelectorAll<HTMLInputElement>('.chkStandardFilter')) {
             const filters = `,${query.Filters || ''}`;
-            const filterName = elem.getAttribute('data-filter');
+            const filterName = elem.getAttribute('data-filter') ?? '';
             elem.checked = filters.includes(`,${filterName}`);
         }
     }
 
-    for (const elem of context.querySelectorAll('.chkVideoTypeFilter')) {
+    for (const elem of context.querySelectorAll<HTMLInputElement>('.chkVideoTypeFilter')) {
         const filters = `,${query.VideoTypes || ''}`;
-        const filterName = elem.getAttribute('data-filter');
+        const filterName = elem.getAttribute('data-filter') ?? '';
         elem.checked = filters.includes(`,${filterName}`);
     }
-    context.querySelector('.chk3DFilter').checked = query.Is3D === true;
-    context.querySelector('.chkHDFilter').checked = query.IsHD === true;
-    context.querySelector('.chk4KFilter').checked = query.Is4K === true;
-    context.querySelector('.chkSDFilter').checked = query.IsHD === false;
-    context.querySelector('#chkSubtitle').checked = query.HasSubtitles === true;
-    context.querySelector('#chkTrailer').checked = query.HasTrailer === true;
-    context.querySelector('#chkThemeSong').checked = query.HasThemeSong === true;
-    context.querySelector('#chkThemeVideo').checked = query.HasThemeVideo === true;
-    context.querySelector('#chkSpecialFeature').checked = query.HasSpecialFeature === true;
-    context.querySelector('#chkSpecialEpisode').checked = query.ParentIndexNumber === 0;
-    context.querySelector('#chkMissingEpisode').checked = query.IsMissing === true;
-    context.querySelector('#chkFutureEpisode').checked = query.IsUnaired === true;
-    for (const elem of context.querySelectorAll('.chkStatus')) {
+
+    const chk3DFilter = context.querySelector('.chk3DFilter') as HTMLInputElement | null;
+    const chkHDFilter = context.querySelector('.chkHDFilter') as HTMLInputElement | null;
+    const chk4KFilter = context.querySelector('.chk4KFilter') as HTMLInputElement | null;
+    const chkSDFilter = context.querySelector('.chkSDFilter') as HTMLInputElement | null;
+    const chkSubtitle = context.querySelector('#chkSubtitle') as HTMLInputElement | null;
+    const chkTrailer = context.querySelector('#chkTrailer') as HTMLInputElement | null;
+    const chkThemeSong = context.querySelector('#chkThemeSong') as HTMLInputElement | null;
+    const chkThemeVideo = context.querySelector('#chkThemeVideo') as HTMLInputElement | null;
+    const chkSpecialFeature = context.querySelector('#chkSpecialFeature') as HTMLInputElement | null;
+    const chkSpecialEpisode = context.querySelector('#chkSpecialEpisode') as HTMLInputElement | null;
+    const chkMissingEpisode = context.querySelector('#chkMissingEpisode') as HTMLInputElement | null;
+    const chkFutureEpisode = context.querySelector('#chkFutureEpisode') as HTMLInputElement | null;
+
+    if (chk3DFilter) chk3DFilter.checked = query.Is3D === true;
+    if (chkHDFilter) chkHDFilter.checked = query.IsHD === true;
+    if (chk4KFilter) chk4KFilter.checked = query.Is4K === true;
+    if (chkSDFilter) chkSDFilter.checked = query.IsHD === false;
+    if (chkSubtitle) chkSubtitle.checked = query.HasSubtitles === true;
+    if (chkTrailer) chkTrailer.checked = query.HasTrailer === true;
+    if (chkThemeSong) chkThemeSong.checked = query.HasThemeSong === true;
+    if (chkThemeVideo) chkThemeVideo.checked = query.HasThemeVideo === true;
+    if (chkSpecialFeature) chkSpecialFeature.checked = query.HasSpecialFeature === true;
+    if (chkSpecialEpisode) chkSpecialEpisode.checked = query.ParentIndexNumber === 0;
+    if (chkMissingEpisode) chkMissingEpisode.checked = query.IsMissing === true;
+    if (chkFutureEpisode) chkFutureEpisode.checked = query.IsUnaired === true;
+    for (const elem of context.querySelectorAll<HTMLInputElement>('.chkStatus')) {
         const filters = `,${query.SeriesStatus || ''}`;
-        const filterName = elem.getAttribute('data-filter');
+        const filterName = elem.getAttribute('data-filter') ?? '';
         elem.checked = filters.includes(`,${filterName}`);
     }
 }
@@ -142,11 +165,11 @@ function updateFilterControls(context: HTMLElement, options: FilterDialogOptions
 function triggerChange(instance: FilterDialog): void {
     stopMultiSelect();
 
-    const hasFilters = getFilterStatus(instance.options.query);
+    const hasFilters = getFilterStatus(instance.options.query as any);
     if (hasFilters) {
-        enableByClass(document, 'resetFilters');
+        enableByClass(document.body, 'resetFilters');
     } else {
-        disableByClass(document, 'resetFilters');
+        disableByClass(document.body, 'resetFilters');
     }
 
     Events.trigger(instance, 'filterchange');
@@ -157,23 +180,26 @@ function setVisibility(context: HTMLElement, options: FilterDialogOptions): void
         hideByClass(context, 'videoStandard');
     }
 
-    if (enableDynamicFilters(options.mode)) {
-        context.querySelector('.genreFilters').classList.remove('hide');
-        context.querySelector('.officialRatingFilters').classList.remove('hide');
-        context.querySelector('.tagFilters').classList.remove('hide');
-        context.querySelector('.yearFilters').classList.remove('hide');
+    if (enableDynamicFilters(options.mode ?? '')) {
+        for (const selector of ['.genreFilters', '.officialRatingFilters', '.tagFilters', '.yearFilters']) {
+            const elem = context.querySelector(selector);
+            if (elem) elem.classList.remove('hide');
+        }
     }
 
     if (options.mode === 'movies' || options.mode === 'series' || options.mode === 'episodes') {
-        context.querySelector('.videoTypeFilters').classList.remove('hide');
+        const videoTypeFilters = context.querySelector('.videoTypeFilters');
+        if (videoTypeFilters) videoTypeFilters.classList.remove('hide');
     }
 
     if (options.mode === 'movies' || options.mode === 'series' || options.mode === 'episodes') {
-        context.querySelector('.features').classList.remove('hide');
+        const features = context.querySelector('.features');
+        if (features) features.classList.remove('hide');
     }
 
     if (options.mode === 'series') {
-        context.querySelector('.seriesStatus').classList.remove('hide');
+        const seriesStatus = context.querySelector('.seriesStatus');
+        if (seriesStatus) seriesStatus.classList.remove('hide');
     }
 
     if (options.mode === 'episodes') {
@@ -187,13 +213,13 @@ function setVisibility(context: HTMLElement, options: FilterDialogOptions): void
 
 function enableByClass(context: HTMLElement, className: string): void {
     for (const elem of context.querySelectorAll(`.${className}`)) {
-        elem.disabled = false;
+        (elem as HTMLButtonElement).disabled = false;
     }
 }
 
 function disableByClass(context: HTMLElement, className: string): void {
     for (const elem of context.querySelectorAll(`.${className}`)) {
-        elem.disabled = true;
+        (elem as HTMLButtonElement).disabled = true;
     }
 }
 
@@ -214,7 +240,7 @@ function enableDynamicFilters(mode: string): boolean {
 }
 
 class FilterDialog {
-    private options: FilterDialogOptions;
+    options: FilterDialogOptions;
 
     constructor(options: FilterDialogOptions) {
         this.options = options;
@@ -229,7 +255,7 @@ class FilterDialog {
 
     onStandardFilterChange(elem: HTMLInputElement): void {
         const query = this.options.query;
-        const filterName = elem.getAttribute('data-filter');
+        const filterName = elem.getAttribute('data-filter') ?? '';
         let filters = query.Filters || '';
         filters = (`,${filters}`).replace(`,${filterName}`, '').substring(1);
 
@@ -244,7 +270,7 @@ class FilterDialog {
 
     onVideoTypeFilterChange(elem: HTMLInputElement): void {
         const query = this.options.query;
-        const filterName = elem.getAttribute('data-filter');
+        const filterName = elem.getAttribute('data-filter') ?? '';
         let filters = query.VideoTypes || '';
         filters = (`,${filters}`).replace(`,${filterName}`, '').substring(1);
 
@@ -259,7 +285,7 @@ class FilterDialog {
 
     onStatusChange(elem: HTMLInputElement): void {
         const query = this.options.query;
-        const filterName = elem.getAttribute('data-filter');
+        const filterName = elem.getAttribute('data-filter') ?? '';
         let filters = query.SeriesStatus || '';
         filters = (`,${filters}`).replace(`,${filterName}`, '').substring(1);
 
@@ -276,22 +302,22 @@ class FilterDialog {
         const query = this.options.query;
 
         if (this.options.mode === 'livetvchannels') {
-            for (const elem of context.querySelectorAll('.chkFavorite')) {
+            for (const elem of context.querySelectorAll<HTMLInputElement>('.chkFavorite')) {
                 elem.addEventListener('change', () => this.onFavoriteChange(elem));
             }
         } else {
-            for (const elem of context.querySelectorAll('.chkStandardFilter')) {
+            for (const elem of context.querySelectorAll<HTMLInputElement>('.chkStandardFilter')) {
                 elem.addEventListener('change', () => this.onStandardFilterChange(elem));
             }
         }
 
-        for (const elem of context.querySelectorAll('.chkVideoTypeFilter')) {
+        for (const elem of context.querySelectorAll<HTMLInputElement>('.chkVideoTypeFilter')) {
             elem.addEventListener('change', () => this.onVideoTypeFilterChange(elem));
         }
 
         const resetFilters = context.querySelector('.resetFilters');
-        resetFilters.addEventListener('click', () => {
-            for (const elem of context.querySelectorAll('.filterDialogContent input[type="checkbox"]:checked')) {
+        resetFilters?.addEventListener('click', () => {
+            for (const elem of context.querySelectorAll<HTMLInputElement>('.filterDialogContent input[type="checkbox"]:checked')) {
                 elem.checked = false;
             }
             this.resetQuery(query);
@@ -332,7 +358,7 @@ class FilterDialog {
             }
             triggerChange(this);
         });
-        for (const elem of context.querySelectorAll('.chkStatus')) {
+        for (const elem of context.querySelectorAll<HTMLInputElement>('.chkStatus')) {
             elem.addEventListener('change', () => this.onStatusChange(elem));
         }
         const chkTrailer = context.querySelector('#chkTrailer') as HTMLInputElement;
@@ -496,10 +522,10 @@ class FilterDialog {
             dlg.addEventListener('close', () => resolve());
             updateFilterControls(dlg, this.options);
             this.bindEvents(dlg);
-            if (enableDynamicFilters(this.options.mode)) {
+            if (enableDynamicFilters(this.options.mode ?? '')) {
                 dlg.classList.add('dynamicFilterDialog');
-                const apiClient: any = ServerConnections.getApiClient(this.options.serverId);
-                loadDynamicFilters(dlg, apiClient, apiClient.getCurrentUserId(), this.options.query);
+                const apiClient: any = ServerConnections.getApiClient(this.options.serverId ?? '');
+                loadDynamicFilters(dlg, apiClient, apiClient.getCurrentUserId() ?? '', this.options.query);
             }
         });
     }
