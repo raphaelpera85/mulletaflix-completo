@@ -116,6 +116,15 @@ export function getSearchScopeLabel(parentId?: string, collectionType?: Collecti
     return undefined;
 }
 
+export function buildSearchScopeHref(searchParams: URLSearchParams) {
+    const scopeParams = new URLSearchParams(searchParams);
+    scopeParams.delete('parentId');
+    scopeParams.delete('collectionType');
+
+    const query = scopeParams.toString();
+    return query ? `/search?${query}` : '/search';
+}
+
 export function getItemTypesFromCollectionType(collectionType: CollectionType | undefined) {
     switch (collectionType) {
         case CollectionType.Movies:
