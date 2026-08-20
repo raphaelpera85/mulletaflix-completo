@@ -22,7 +22,7 @@ export const getItemQuery = (
     itemId?: string,
     userId?: string
 ) => queryOptions({
-    queryKey: [ 'User', userId, 'Items', itemId ],
+    queryKey: [ 'User', api?.basePath, userId, 'Items', itemId ],
     queryFn: ({ signal }) => fetchItem(api!, itemId!, userId!, { signal }),
     staleTime: 1000, // 1 second
     enabled: !!api && !!userId && !!itemId

@@ -20,7 +20,7 @@ export const getDisplayPreferencesQuery = (
     api?: Api,
     params?: DisplayPreferencesApiGetDisplayPreferencesRequest
 ) => queryOptions({
-    queryKey: [ 'User', params?.userId, 'DisplayPreferences', params?.displayPreferencesId, params?.client ],
+    queryKey: [ 'User', api?.basePath, params?.userId, 'DisplayPreferences', params?.displayPreferencesId, params?.client ],
     queryFn: ({ signal }) => fetchDisplayPreferences(api!, params!, { signal }),
     enabled: !!api && !!params
 });
