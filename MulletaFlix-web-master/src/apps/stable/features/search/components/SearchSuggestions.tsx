@@ -1,21 +1,29 @@
 import React, { FunctionComponent } from 'react';
 
+import type { BaseItemDto, SearchHint } from '@jellyfin/sdk/lib/generated-client';
+import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 import Loading from 'components/loading/LoadingComponent';
 import { appRouter } from 'components/router/appRouter';
-import { useSearchSuggestions } from '../api/useSearchSuggestions';
-import globalize from 'lib/globalize';
 import LinkButton from 'elements/emby-button/LinkButton';
+import globalize from 'lib/globalize';
+import { useSearchSuggestions } from '../api/useSearchSuggestions';
 
 import 'elements/emby-button/emby-button';
 
+type SearchSuggestionItem = BaseItemDto | SearchHint;
+
 type SearchSuggestionsProps = {
     parentId?: string | null;
+    query?: string;
+    collectionType?: CollectionType;
 };
 
-const SearchSuggestions: FunctionComponent<SearchSuggestionsProps> = ({ parentId }) => {
-    const { data: suggestions, isPending } = useSearchSuggestions(parentId || undefined);
+const SearchSuggestions: FunctionComponent<SearchSuggestionsProps> = ({ parentId, query, collectionType }) => {
+    const { data: suggestions, isPending } = useSearchSuggestions(parentId || undefined, query, collectionType);
 
     if (isPending) return <Loading />;
+
+    const hasQuery = !!query?.trim();
 
     return (
         <div
@@ -24,12 +32,12 @@ const SearchSuggestions: FunctionComponent<SearchSuggestionsProps> = ({ parentId
         >
             <div>
                 <h2 className='sectionTitle padded-left padded-right'>
-                    {globalize.translate('Suggestions')}
+                    {hasQuery ? globalize.translate('Search') : globalize.translate('Suggestions')}
                 </h2>
             </div>
 
             <div className='searchSuggestionsList padded-left padded-right'>
-                {suggestions?.map(item => (
+                {suggestions?.map((item: SearchSuggestionItem) => (
                     <div key={item.Id}>
                         <LinkButton
                             className='button-link'

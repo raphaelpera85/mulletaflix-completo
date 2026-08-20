@@ -35,6 +35,8 @@ const Search: FC = () => {
             {!shouldSearch ? (
                 <SearchSuggestions
                     parentId={parentIdQuery}
+                    query={debouncedQuery}
+                    collectionType={collectionTypeQuery}
                 />
             ) : (
                 <SearchResults
