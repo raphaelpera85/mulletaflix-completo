@@ -242,8 +242,7 @@ public sealed class TranscodingJob : IDisposable
     {
         lock (_processLock)
         {
-#pragma warning disable CA1849 // Can't await in lock block
-            TranscodingThrottler?.Stop().GetAwaiter().GetResult();
+            TranscodingThrottler?.Stop();
             TranscodingSegmentCleaner?.Stop();
 
             var process = Process;

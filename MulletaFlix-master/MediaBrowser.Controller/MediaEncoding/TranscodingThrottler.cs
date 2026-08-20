@@ -73,10 +73,29 @@ public class TranscodingThrottler : IDisposable
     /// Stop throttler.
     /// </summary>
     /// <returns>A <see cref="Task"/>.</returns>
-    public async Task Stop()
+    public void Stop()
     {
         DisposeTimer();
-        await UnpauseTranscoding().ConfigureAwait(false);
+        UnpauseTranscodingSync();
+    }
+
+    private void UnpauseTranscodingSync()
+    {
+        if (_isPaused)
+        {
+            _logger.LogDebug("Sending resume command to ffmpeg");
+
+            try
+            {
+                var resumeKey = _mediaEncoder.IsPkeyPauseSupported ? "u" : Environment.NewLine;
+                _job.Process!.StandardInput.Write(resumeKey);
+                _isPaused = false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error resuming transcoding");
+            }
+        }
     }
 
     /// <summary>
