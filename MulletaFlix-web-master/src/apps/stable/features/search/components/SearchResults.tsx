@@ -1,12 +1,21 @@
 import React, { type FC } from 'react';
-import { useSearchItems } from '../api/useSearchItems';
-import globalize from 'lib/globalize';
-import Loading from 'components/loading/LoadingComponent';
-import SearchResultsRow from './SearchResultsRow';
-import { CardShape } from 'components/cardbuilder/utils/shape';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
-import { Section } from '../types';
+import Loading from 'components/loading/LoadingComponent';
+import { CardShape } from 'components/cardbuilder/utils/shape';
+import SearchResultsRow from './SearchResultsRow';
+import globalize from 'lib/globalize';
 import { Link } from 'react-router-dom';
+import { useSearchItems } from '../api/useSearchItems';
+import { Section } from '../types';
+
+function getScopeLabel(parentId?: string, collectionType?: CollectionType) {
+    if (collectionType === CollectionType.Movies) return 'Movies';
+    if (collectionType === CollectionType.Tvshows) return 'TV Shows';
+    if (collectionType === CollectionType.Music) return 'Music';
+    if (collectionType === CollectionType.Livetv) return 'Live TV';
+    if (parentId) return 'this library';
+    return undefined;
+}
 
 interface SearchResultsProps {
     parentId?: string;
@@ -23,12 +32,16 @@ const SearchResults: FC<SearchResultsProps> = ({
     query
 }) => {
     const { data, isPending } = useSearchItems(parentId, collectionType, query?.trim());
+    const scopeLabel = getScopeLabel(parentId, collectionType);
 
     if (isPending) return <Loading />;
 
     if (!data?.length) {
         return (
             <div className='noItemsMessage centerMessage'>
+                <div className='secondary padded-left padded-right' style={{ marginBottom: '0.75rem' }}>
+                    {scopeLabel ? `Scoped to ${scopeLabel}` : 'Global search'}
+                </div>
                 {globalize.translate('SearchResultsEmpty', query ?? '')}
                 {collectionType && (
                     <div>
@@ -63,6 +76,11 @@ const SearchResults: FC<SearchResultsProps> = ({
 
     return (
         <div className={'searchResults padded-top padded-bottom-page'}>
+            {scopeLabel && (
+                <div className='secondary padded-left padded-right' style={{ marginBottom: '0.75rem' }}>
+                    {`Scoped to ${scopeLabel}`}
+                </div>
+            )}
             {data.map((section, index) => renderSection(section, index))}
         </div>
     );
