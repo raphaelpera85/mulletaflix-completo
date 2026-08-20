@@ -603,15 +603,14 @@ namespace Emby.Server.Implementations.Localization
                 {
                     var dictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     var namespaceName = localizationManager.GetType().Namespace + ".Core";
-                    // TODO: Convert CopyInto to sync or refactor GetLocalizationDictionary to async to avoid deadlock risk.
-                    localizationManager.CopyInto(dictionary, namespaceName + "." + GetResourceFilename(key)).GetAwaiter().GetResult();
+                    localizationManager.CopyInto(dictionary, namespaceName + "." + GetResourceFilename(key));
 
                     return dictionary;
                 },
                 this);
         }
 
-        private async Task CopyInto(IDictionary<string, string> dictionary, string resourcePath)
+        private void CopyInto(IDictionary<string, string> dictionary, string resourcePath)
         {
             using var stream = _assembly.GetManifestResourceStream(resourcePath);
             // If a Culture doesn't have a translation the stream will be null and it defaults to en-us further up the chain
@@ -621,7 +620,7 @@ namespace Emby.Server.Implementations.Localization
                 return;
             }
 
-            var dict = await JsonSerializer.DeserializeAsync<Dictionary<string, string>>(stream, _jsonOptions).ConfigureAwait(false) ?? throw new InvalidOperationException($"Resource contains invalid data: '{stream}'");
+            var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(stream, _jsonOptions) ?? throw new InvalidOperationException($"Resource contains invalid data: '{stream}'");
             foreach (var key in dict.Keys)
             {
                 dictionary[key] = dict[key];
