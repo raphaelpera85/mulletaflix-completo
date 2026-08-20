@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 
-import { getItemTypesFromCollectionType, getSearchScopeLabel, buildSearchScopeHref, buildSearchPageTitle } from './search';
+import { getItemTypesFromCollectionType, getSearchScopeLabel, buildSearchScopeHref, buildSearchPageTitle, buildSearchGlobalHref } from './search';
 
 describe('search scope helpers', () => {
     it('labels well-known scopes', () => {
@@ -35,5 +35,11 @@ describe('search scope helpers', () => {
     it('builds a scoped search title', () => {
         expect(buildSearchPageTitle('Movies')).toBe('Search - Movies');
         expect(buildSearchPageTitle()).toBe('Search');
+    });
+
+    it('builds a global search href', () => {
+        expect(buildSearchGlobalHref('batman')).toBe('/search?query=batman');
+        expect(buildSearchGlobalHref('batman & robin')).toBe('/search?query=batman%20%26%20robin');
+        expect(buildSearchGlobalHref()).toBe('/search');
     });
 });

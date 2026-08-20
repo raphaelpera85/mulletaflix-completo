@@ -7,7 +7,7 @@ import globalize from 'lib/globalize';
 import { Link } from 'react-router-dom';
 import { useSearchItems } from '../api/useSearchItems';
 import { Section } from '../types';
-import { getSearchScopeLabel } from '../utils/search';
+import { getSearchScopeLabel, buildSearchGlobalHref } from '../utils/search';
 
 interface SearchResultsProps {
     parentId?: string;
@@ -39,7 +39,7 @@ const SearchResults: FC<SearchResultsProps> = ({
                     <div>
                         <Link
                             className='emby-button'
-                            to={`/search?query=${encodeURIComponent(query || '')}`}
+                            to={buildSearchGlobalHref(query)}
                         >{globalize.translate('RetryWithGlobalSearch')}</Link>
                     </div>
                 )}

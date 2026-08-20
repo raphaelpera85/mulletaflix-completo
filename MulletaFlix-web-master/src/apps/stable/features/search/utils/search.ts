@@ -129,6 +129,10 @@ export function buildSearchScopeHref(searchParams: URLSearchParams) {
     return query ? `/search?${query}` : '/search';
 }
 
+export function buildSearchGlobalHref(query?: string) {
+    return query ? `/search?query=${encodeURIComponent(query)}` : '/search';
+}
+
 export function getItemTypesFromCollectionType(collectionType: CollectionType | undefined) {
     switch (collectionType) {
         case CollectionType.Movies:
