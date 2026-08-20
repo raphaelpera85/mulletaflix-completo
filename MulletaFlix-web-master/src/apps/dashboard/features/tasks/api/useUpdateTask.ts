@@ -15,7 +15,7 @@ export const useUpdateTask = () => {
         ),
         onSuccess: (_data, params) => {
             void queryClient.invalidateQueries({
-                queryKey: [ QUERY_KEY, params.taskId ]
+                queryKey: [ QUERY_KEY, api?.basePath, params.taskId ]
             });
         }
     });

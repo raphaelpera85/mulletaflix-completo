@@ -15,7 +15,7 @@ export const useDeleteUser = () => {
         ),
         onSuccess: () => {
             void queryClient.invalidateQueries({
-                queryKey: [ QUERY_KEY ]
+                queryKey: [ QUERY_KEY, api?.basePath ]
             });
         }
     });

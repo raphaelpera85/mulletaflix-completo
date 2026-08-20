@@ -16,10 +16,10 @@ export const useInstallPackage = () => {
         ),
         onSuccess: () => {
             void queryClient.invalidateQueries({
-                queryKey: [ QueryKey.ConfigurationPages ]
+                queryKey: [ QueryKey.ConfigurationPages, api?.basePath ]
             });
             void queryClient.invalidateQueries({
-                queryKey: [ QueryKey.Plugins ]
+                queryKey: [ QueryKey.Plugins, api?.basePath ]
             });
         }
     });

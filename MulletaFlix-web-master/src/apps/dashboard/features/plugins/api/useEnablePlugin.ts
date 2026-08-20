@@ -16,7 +16,7 @@ export const useEnablePlugin = () => {
         ),
         onSuccess: () => {
             void queryClient.invalidateQueries({
-                queryKey: [ QueryKey.Plugins ]
+                queryKey: [ QueryKey.Plugins, api?.basePath ]
             });
         }
     });
