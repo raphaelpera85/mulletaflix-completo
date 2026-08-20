@@ -21,7 +21,7 @@ export const getUserViewsQuery = (
     params?: UserViewsApiGetUserViewsRequest,
     userId?: string
 ) => queryOptions({
-    queryKey: [ 'User', userId ?? params?.userId, 'Views', params ],
+    queryKey: [ 'User', api?.basePath, userId ?? params?.userId, 'Views', params ],
     queryFn: ({ signal }) => fetchUserViews(api!, params, { signal }),
     // On initial page load we request user views 3x. Setting a 1 second stale time
     // allows a single request to be made to resolve all 3.

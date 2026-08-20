@@ -17,7 +17,7 @@ const fetchSystemInfo = async (
 export const getSystemInfoQuery = (
     api?: Api
 ) => queryOptions({
-    queryKey: [ 'SystemInfo' ],
+    queryKey: [ 'SystemInfo', api?.basePath ],
     queryFn: ({ signal }) => fetchSystemInfo(api!, { signal, headers: { 'Cache-Control': 'no-cache' } }),
     // Allow for query reuse in legacy javascript.
     staleTime: 1000, // 1 second

@@ -25,7 +25,7 @@ const fetchUsers = async (
 export const useUsers = (requestParams?: UserApiGetUsersRequest) => {
     const { api } = useApi();
     return useQuery({
-        queryKey: [ QUERY_KEY, JSON.stringify(requestParams ?? {}) ],
+        queryKey: [ QUERY_KEY, api?.basePath, JSON.stringify(requestParams ?? {}) ],
         queryFn: ({ signal }) =>
             fetchUsers(api!, requestParams, { signal }),
         enabled: !!api
