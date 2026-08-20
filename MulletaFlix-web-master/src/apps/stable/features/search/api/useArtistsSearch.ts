@@ -32,16 +32,17 @@ export const useArtistsSearch = (
 ) => {
     const { api, user } = useApi();
     const userId = user?.Id;
+    const normalizedSearchTerm = searchTerm?.trim();
 
     return useQuery({
-        queryKey: ['Search', 'Artists', api?.basePath, collectionType, parentId, searchTerm],
+        queryKey: ['Search', 'Artists', api?.basePath, collectionType, parentId, normalizedSearchTerm],
         staleTime: 60_000,
         queryFn: ({ signal }) => fetchArtists(
             api!,
             userId!,
             {
                 parentId,
-                searchTerm
+                searchTerm: normalizedSearchTerm
             },
             { signal }
         ),

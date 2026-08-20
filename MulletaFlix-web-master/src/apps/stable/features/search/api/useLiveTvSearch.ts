@@ -67,11 +67,12 @@ export const useLiveTvSearch = (
 ) => {
     const { api, user } = useApi();
     const userId = user?.Id;
+    const normalizedSearchTerm = searchTerm?.trim();
 
     return useQuery({
-        queryKey: ['Search', 'LiveTv', api?.basePath, collectionType, parentId, searchTerm],
+        queryKey: ['Search', 'LiveTv', api?.basePath, collectionType, parentId, normalizedSearchTerm],
         queryFn: ({ signal }) =>
-            fetchLiveTv(api!, userId!, searchTerm, signal),
+            fetchLiveTv(api!, userId!, normalizedSearchTerm, signal),
         enabled: !!api && !!userId && !!collectionType && !!isLivetv(collectionType)
     });
 };

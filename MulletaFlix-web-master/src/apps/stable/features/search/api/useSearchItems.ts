@@ -20,6 +20,7 @@ export const useSearchItems = (
     collectionType?: CollectionType,
     searchTerm?: string
 ) => {
+    const normalizedSearchTerm = searchTerm?.trim();
     const { data: artists, isPending: isArtistsPending } = useArtistsSearch(parentId, collectionType, searchTerm);
     const { data: people, isPending: isPeoplePending } = usePeopleSearch(parentId, collectionType, searchTerm);
     const { data: studios, isPending: isStudiosPending } = useStudiosSearch(parentId, collectionType, searchTerm);
@@ -37,7 +38,7 @@ export const useSearchItems = (
     const isLiveTvEnabled = !isLiveTvPending || !collectionType || !isLivetv(collectionType);
 
     return useQuery({
-        queryKey: ['Search', 'Items', api?.basePath, collectionType, parentId, searchTerm],
+        queryKey: ['Search', 'Items', api?.basePath, collectionType, parentId, normalizedSearchTerm],
         staleTime: 60_000,
         queryFn: async ({ signal }) => {
             if (liveTvSections && collectionType && isLivetv(collectionType)) {
@@ -74,7 +75,7 @@ export const useSearchItems = (
                 {
                     includeItemTypes: itemTypes,
                     parentId,
-                    searchTerm,
+                    searchTerm: normalizedSearchTerm,
                     isMissing: itemTypes.includes(BaseItemKind.Episode) && !user?.Configuration?.DisplayMissingEpisodes ? false : undefined,
                     limit: 800
                 },

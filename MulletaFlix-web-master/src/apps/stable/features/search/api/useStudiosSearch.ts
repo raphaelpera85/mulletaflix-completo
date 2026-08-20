@@ -32,18 +32,19 @@ export const useStudiosSearch = (
 ) => {
     const { api, user } = useApi();
     const userId = user?.Id;
+    const normalizedSearchTerm = searchTerm?.trim();
 
     const isStudiosEnabled = (!collectionType || isMovies(collectionType) || isTVShows(collectionType));
 
     return useQuery({
-        queryKey: ['Search', 'Studios', api?.basePath, collectionType, parentId, searchTerm],
+        queryKey: ['Search', 'Studios', api?.basePath, collectionType, parentId, normalizedSearchTerm],
         staleTime: 60_000,
         queryFn: ({ signal }) => fetchStudios(
             api!,
             userId!,
             {
                 parentId,
-                searchTerm
+                searchTerm: normalizedSearchTerm
             },
             { signal }
         ),

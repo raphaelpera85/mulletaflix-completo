@@ -33,17 +33,18 @@ export const usePeopleSearch = (
 ) => {
     const { api, user } = useApi();
     const userId = user?.Id;
+    const normalizedSearchTerm = searchTerm?.trim();
 
     const isPeopleEnabled = (!collectionType || isMovies(collectionType) || isTVShows(collectionType));
 
     return useQuery({
-        queryKey: ['Search', 'People', api?.basePath, collectionType, parentId, searchTerm],
+        queryKey: ['Search', 'People', api?.basePath, collectionType, parentId, normalizedSearchTerm],
         staleTime: 60_000,
         queryFn: ({ signal }) => fetchPeople(
             api!,
             userId!,
             {
-                searchTerm,
+                searchTerm: normalizedSearchTerm,
                 excludePersonTypes: [
                     PersonKind.Artist,
                     PersonKind.AlbumArtist
