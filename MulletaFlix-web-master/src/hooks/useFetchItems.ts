@@ -105,7 +105,7 @@ const fetchGetMovieRecommendations = async (
 export const useGetMovieRecommendations = (isMovieRecommendationEnabled: boolean, parentId: ParentId) => {
     const currentApi = useApi();
     return useQuery({
-        queryKey: ['MovieRecommendations', currentApi.user?.Id, isMovieRecommendationEnabled, parentId],
+        queryKey: ['MovieRecommendations', currentApi.api?.basePath, currentApi.user?.Id, isMovieRecommendationEnabled, parentId],
         queryFn: ({ signal }) => fetchGetMovieRecommendations(currentApi, parentId, { signal }),
         enabled: !!currentApi.api && !!currentApi.user?.Id && isMovieRecommendationEnabled
     });
@@ -139,7 +139,7 @@ const fetchGetGenres = async (
 export const useGetGenres = (itemType: BaseItemKind[], parentId: ParentId) => {
     const currentApi = useApi();
     return useQuery({
-        queryKey: ['Genres', currentApi.user?.Id, parentId],
+        queryKey: ['Genres', currentApi.api?.basePath, currentApi.user?.Id, parentId],
         queryFn: ({ signal }) =>
             fetchGetGenres(currentApi, itemType, parentId, { signal }),
         enabled: !!currentApi.api && !!currentApi.user?.Id && !!parentId
@@ -178,7 +178,7 @@ export const useGetStudios = (parentId: ParentId, itemType: BaseItemKind[]) => {
     const currentApi = useApi();
     const isLivetv = parentId === 'livetv';
     return useQuery({
-        queryKey: ['Studios', currentApi.user?.Id, parentId, itemType],
+        queryKey: ['Studios', currentApi.api?.basePath, currentApi.user?.Id, parentId, itemType],
         queryFn: ({ signal }) =>
             fetchGetStudios(currentApi, parentId, itemType, { signal }),
         enabled: !!currentApi.api && !!currentApi.user?.Id && !!parentId && !isLivetv
@@ -214,7 +214,7 @@ export const useGetQueryFiltersLegacy = (
     const currentApi = useApi();
     const isLivetv = parentId === 'livetv';
     return useQuery({
-        queryKey: ['QueryFiltersLegacy', currentApi.user?.Id, parentId, itemType],
+        queryKey: ['QueryFiltersLegacy', currentApi.api?.basePath, currentApi.user?.Id, parentId, itemType],
         queryFn: ({ signal }) =>
             fetchGetQueryFiltersLegacy(currentApi, parentId, itemType, {
                 signal
@@ -405,6 +405,7 @@ export const useGetItemsViewByType = (
     return useQuery({
         queryKey: [
             'ItemsViewByType',
+            currentApi.api?.basePath,
             currentApi.user?.Id,
             {
                 viewType,
@@ -553,7 +554,7 @@ const fetchGetGroupsUpcomingEpisodes = async (
 export const useGetGroupsUpcomingEpisodes = (parentId: ParentId) => {
     const currentApi = useApi();
     return useQuery({
-        queryKey: ['GroupsUpcomingEpisodes', currentApi.user?.Id, parentId],
+        queryKey: ['GroupsUpcomingEpisodes', currentApi.api?.basePath, currentApi.user?.Id, parentId],
         queryFn: ({ signal }) =>
             fetchGetGroupsUpcomingEpisodes(currentApi, parentId, { signal }),
         enabled: !!currentApi.api && !!currentApi.user?.Id && !!parentId
@@ -712,7 +713,7 @@ const fetchGetTimers = async (
 export const useGetTimers = (isUpcomingRecordingsEnabled: boolean, indexByDate?: boolean) => {
     const currentApi = useApi();
     return useQuery({
-        queryKey: ['Timers', currentApi.user?.Id, { isUpcomingRecordingsEnabled, indexByDate }],
+        queryKey: ['Timers', currentApi.api?.basePath, currentApi.user?.Id, { isUpcomingRecordingsEnabled, indexByDate }],
         queryFn: ({ signal }) => fetchGetTimers(currentApi, indexByDate, { signal }),
         enabled: !!currentApi.api && !!currentApi.user?.Id && isUpcomingRecordingsEnabled
     });
@@ -944,7 +945,7 @@ export const useGetSuggestionSectionsWithItems = (
     const currentApi = useApi();
     const sections = getSuggestionSections();
     return useQuery({
-        queryKey: ['SuggestionSectionWithItems', currentApi.user?.Id, { suggestionSectionType }],
+        queryKey: ['SuggestionSectionWithItems', currentApi.api?.basePath, currentApi.user?.Id, { suggestionSectionType }],
         queryFn: ({ signal }) =>
             getSectionsWithItems(currentApi, parentId, sections, suggestionSectionType, { signal }),
         enabled: !!currentApi.api && !!currentApi.user?.Id && !!parentId
@@ -958,7 +959,7 @@ export const useGetProgramsSectionsWithItems = (
     const currentApi = useApi();
     const sections = getProgramSections();
     return useQuery({
-        queryKey: ['ProgramSectionWithItems', currentApi.user?.Id, { programSectionType }],
+        queryKey: ['ProgramSectionWithItems', currentApi.api?.basePath, currentApi.user?.Id, { programSectionType }],
         queryFn: ({ signal }) => getSectionsWithItems(currentApi, parentId, sections, programSectionType, { signal }),
         enabled: !!currentApi.api && !!currentApi.user?.Id
     });
