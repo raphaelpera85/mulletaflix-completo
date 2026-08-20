@@ -15,7 +15,7 @@ export const useUpdateUser = () => {
         ),
         onSuccess: (_, params) => {
             void queryClient.invalidateQueries({
-                queryKey: [QUERY_KEY, params.userId]
+                queryKey: [QUERY_KEY, api?.basePath, params.userId]
             });
         }
     });

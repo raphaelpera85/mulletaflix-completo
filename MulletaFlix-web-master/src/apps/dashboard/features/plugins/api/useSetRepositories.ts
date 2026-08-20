@@ -14,7 +14,7 @@ export const useSetRepositories = () => {
         ),
         onSuccess: () => {
             void queryClient.invalidateQueries({
-                queryKey: [ QueryKey.Repositories ]
+                queryKey: [ QueryKey.Repositories, api?.basePath ]
             });
         }
     });

@@ -15,7 +15,7 @@ export const useDeleteProvider = () => {
         ),
         onSuccess: () => {
             void queryClient.invalidateQueries({
-                queryKey: [ 'NamedConfiguration', 'livetv' ]
+                queryKey: [ 'NamedConfiguration', api?.basePath, 'livetv' ]
             });
         }
     });
