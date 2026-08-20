@@ -23,7 +23,7 @@ export const getDownloadQuery = (
     params: LibraryApiGetDownloadRequest
 ) =>
     queryOptions({
-        queryKey: ['Download', params.itemId],
+        queryKey: ['Download', apiContext.user?.Id, params.itemId],
         queryFn: ({ signal }) => getDownload(apiContext, params, { signal }),
         enabled: !!apiContext.api && !!apiContext.user?.Id && !!params.itemId
     });

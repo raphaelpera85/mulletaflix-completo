@@ -22,7 +22,7 @@ export const getTimerQuery = (
     params: LiveTvApiGetTimerRequest
 ) =>
     queryOptions({
-        queryKey: ['Timer', params.timerId],
+        queryKey: ['Timer', apiContext.user?.Id, params.timerId],
         queryFn: ({ signal }) => getTimer(apiContext, params, { signal }),
         enabled: !!apiContext.api && !!apiContext.user?.Id && !!params.timerId
     });
