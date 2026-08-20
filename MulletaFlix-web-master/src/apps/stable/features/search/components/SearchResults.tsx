@@ -7,15 +7,7 @@ import globalize from 'lib/globalize';
 import { Link } from 'react-router-dom';
 import { useSearchItems } from '../api/useSearchItems';
 import { Section } from '../types';
-
-function getScopeLabel(parentId?: string, collectionType?: CollectionType) {
-    if (collectionType === CollectionType.Movies) return 'Movies';
-    if (collectionType === CollectionType.Tvshows) return 'TV Shows';
-    if (collectionType === CollectionType.Music) return 'Music';
-    if (collectionType === CollectionType.Livetv) return 'Live TV';
-    if (parentId) return 'this library';
-    return undefined;
-}
+import { getSearchScopeLabel } from '../utils/search';
 
 interface SearchResultsProps {
     parentId?: string;
@@ -32,7 +24,7 @@ const SearchResults: FC<SearchResultsProps> = ({
     query
 }) => {
     const { data, isPending } = useSearchItems(parentId, collectionType, query?.trim());
-    const scopeLabel = getScopeLabel(parentId, collectionType);
+    const scopeLabel = getSearchScopeLabel(parentId, collectionType);
 
     if (isPending) return <Loading />;
 

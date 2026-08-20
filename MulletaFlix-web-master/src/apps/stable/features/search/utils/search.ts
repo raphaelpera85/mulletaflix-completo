@@ -107,6 +107,15 @@ export function getTitleFromType(type: BaseItemKind) {
     }
 }
 
+export function getSearchScopeLabel(parentId?: string, collectionType?: CollectionType) {
+    if (collectionType === CollectionType.Movies) return 'Movies';
+    if (collectionType === CollectionType.Tvshows) return 'TV Shows';
+    if (collectionType === CollectionType.Music) return 'Music';
+    if (collectionType === CollectionType.Livetv) return 'Live TV';
+    if (parentId) return 'this library';
+    return undefined;
+}
+
 export function getItemTypesFromCollectionType(collectionType: CollectionType | undefined) {
     switch (collectionType) {
         case CollectionType.Movies:

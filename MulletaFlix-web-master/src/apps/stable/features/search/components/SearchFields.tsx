@@ -1,4 +1,5 @@
 import React, { type ChangeEvent, type FC, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import AlphaPicker from 'components/alphaPicker/AlphaPickerComponent';
 import Input from 'elements/emby-input/Input';
 import globalize from 'lib/globalize';
@@ -10,12 +11,16 @@ import './searchfields.scss';
 
 interface SearchFieldsProps {
     query: string,
-    onSearch?: (query: string) => void
+    onSearch?: (query: string) => void,
+    scopeLabel?: string,
+    scopeHref?: string
 }
 
 const SearchFields: FC<SearchFieldsProps> = ({
     onSearch = () => { /* no-op */ },
-    query
+    query,
+    scopeLabel,
+    scopeHref
 }) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -58,6 +63,16 @@ const SearchFields: FC<SearchFieldsProps> = ({
                     />
                 </div>
             </div>
+            {scopeLabel && (
+                <div className='secondary padded-top padded-left padded-right' style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span>{`Scoped to ${scopeLabel}`}</span>
+                    {scopeHref && (
+                        <Link className='button-link' to={scopeHref}>
+                            Clear scope
+                        </Link>
+                    )}
+                </div>
+            )}
             {layoutManager.tv && !browser.tv
                 && <AlphaPicker onAlphaPicked={onAlphaPicked} />
             }

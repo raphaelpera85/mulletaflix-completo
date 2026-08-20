@@ -9,6 +9,7 @@ import SearchSuggestions from 'apps/stable/features/search/components/SearchSugg
 import Page from 'components/Page';
 import useSearchParam from 'hooks/useSearchParam';
 import globalize from 'lib/globalize';
+import { getSearchScopeLabel } from '../features/search/utils/search';
 
 const COLLECTION_TYPE_PARAM = 'collectionType';
 const PARENT_ID_PARAM = 'parentId';
@@ -20,6 +21,12 @@ const Search: FC = () => {
     const [searchParams] = useSearchParams();
     const parentIdQuery = searchParams.get(PARENT_ID_PARAM) || undefined;
     const collectionTypeQuery = (searchParams.get(COLLECTION_TYPE_PARAM) || undefined) as CollectionType | undefined;
+    const scopeLabel = getSearchScopeLabel(parentIdQuery, collectionTypeQuery);
+    const clearScopeParams = new URLSearchParams(searchParams);
+    clearScopeParams.delete(PARENT_ID_PARAM);
+    clearScopeParams.delete(COLLECTION_TYPE_PARAM);
+    const clearScopeQuery = clearScopeParams.toString();
+    const clearScopeHref = clearScopeQuery ? `/search?${clearScopeQuery}` : '/search';
     const [ query, setQuery ] = useSearchParam(QUERY_PARAM);
     const [debouncedQuery] = useDebounceValue(query, 350);
 
@@ -31,7 +38,12 @@ const Search: FC = () => {
             title={globalize.translate('Search')}
             className='mainAnimatedPage libraryPage allLibraryPage noSecondaryNavPage'
         >
-            <SearchFields query={query} onSearch={setQuery} />
+            <SearchFields
+                query={query}
+                onSearch={setQuery}
+                scopeLabel={scopeLabel}
+                scopeHref={scopeLabel ? clearScopeHref : undefined}
+            />
             {!shouldSearch ? (
                 <SearchSuggestions
                     parentId={parentIdQuery}
