@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -37,6 +38,31 @@ public class MediaAttachmentRepository(IDbContextFactory<MulletaFlixDbContext> d
 
         context.SaveChangesAsync(default).GetAwaiter().GetResult();
         transaction.Commit();
+    }
+
+    /// <inheritdoc />
+    public async Task SaveMediaAttachmentsAsync(
+        Guid id,
+        IReadOnlyList<MediaAttachment> attachments,
+        CancellationToken cancellationToken)
+    {
+        var context = await dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (context.ConfigureAwait(false))
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            // Users may replace a media with a version that includes attachments to one without them.
+            // So when saving attachments is triggered by a library scan, we always unconditionally
+            // clear the old ones, and then add the new ones if given.
+            await context.AttachmentStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            if (attachments.Any())
+            {
+                context.AttachmentStreamInfos.AddRange(attachments.Select(e => Map(e, id)));
+            }
+
+            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />

@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Model.Entities;
 
 namespace MediaBrowser.Controller.Persistence;
@@ -35,4 +36,12 @@ public interface IMediaStreamRepository
     /// <param name="streams">The streams.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     void SaveMediaStreams(Guid id, IReadOnlyList<MediaStream> streams, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Saves the media streams asynchronously.
+    /// </summary>
+    /// <param name="id">The item id.</param>
+    /// <param name="streams">The streams.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    Task SaveMediaStreamsAsync(Guid id, IReadOnlyList<MediaStream> streams, CancellationToken cancellationToken);
 }

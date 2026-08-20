@@ -287,9 +287,9 @@ namespace MediaBrowser.Providers.MediaInfo
 
             video.HasSubtitles = mediaStreams.Any(i => i.Type == MediaStreamType.Subtitle);
 
-            _mediaStreamRepository.SaveMediaStreams(video.Id, mediaStreams, cancellationToken);
+            await _mediaStreamRepository.SaveMediaStreamsAsync(video.Id, mediaStreams, cancellationToken).ConfigureAwait(false);
 
-            _mediaAttachmentRepository.SaveMediaAttachments(video.Id, mediaAttachments, cancellationToken);
+            await _mediaAttachmentRepository.SaveMediaAttachmentsAsync(video.Id, mediaAttachments, cancellationToken).ConfigureAwait(false);
 
             if (options.MetadataRefreshMode == MetadataRefreshMode.FullRefresh
                 || options.MetadataRefreshMode == MetadataRefreshMode.Default)
@@ -309,7 +309,7 @@ namespace MediaBrowser.Providers.MediaInfo
 
                 await _chapterManager.RefreshChapterImages(video, options.DirectoryService, chapters, extractDuringScan, false, cancellationToken).ConfigureAwait(false);
 
-                _chapterManager.SaveChapters(video, chapters);
+                await _chapterManager.SaveChaptersAsync(video, chapters, cancellationToken).ConfigureAwait(false);
             }
         }
 

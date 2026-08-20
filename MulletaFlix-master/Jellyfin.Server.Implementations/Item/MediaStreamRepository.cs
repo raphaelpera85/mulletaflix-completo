@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
@@ -46,6 +47,22 @@ public class MediaStreamRepository : IMediaStreamRepository
         context.SaveChangesAsync(default).GetAwaiter().GetResult();
 
         transaction.Commit();
+    }
+
+    /// <inheritdoc />
+    public async Task SaveMediaStreamsAsync(Guid id, IReadOnlyList<MediaStream> streams, CancellationToken cancellationToken)
+    {
+        var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (context.ConfigureAwait(false))
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            await context.MediaStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            context.MediaStreamInfos.AddRange(streams.Select(f => Map(f, id)));
+            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />

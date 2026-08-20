@@ -28,6 +28,14 @@ public interface IChapterManager
     void SaveChapters(BaseItem item, IReadOnlyList<ChapterInfo> chapters);
 
     /// <summary>
+    /// Saves the chapters asynchronously.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <param name="chapters">The set of chapters.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    Task SaveChaptersAsync(BaseItem item, IReadOnlyList<ChapterInfo> chapters, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets a single chapter of a BaseItem on a specific index.
     /// </summary>
     /// <param name="baseItemId">The BaseItems id.</param>

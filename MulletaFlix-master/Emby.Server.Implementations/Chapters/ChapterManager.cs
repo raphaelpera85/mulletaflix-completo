@@ -224,7 +224,7 @@ public class ChapterManager : IChapterManager
 
         if (saveChapters && changesMade)
         {
-            SaveChapters(video, chapters);
+            await SaveChaptersAsync(video, chapters, cancellationToken).ConfigureAwait(false);
         }
 
         DeleteDeadImages(currentImages, chapters);
@@ -248,6 +248,20 @@ public class ChapterManager : IChapterManager
         // Remove any chapters that are outside of the runtime of the item
         var validChapters = chapters.Where(c => c.StartPositionTicks < item.RunTimeTicks).ToList();
         _chapterRepository.SaveChapters(item.Id, validChapters);
+    }
+
+    /// <inheritdoc />
+    public async Task SaveChaptersAsync(BaseItem item, IReadOnlyList<ChapterInfo> chapters, CancellationToken cancellationToken)
+    {
+        if (!Supports(item))
+        {
+            _logger.LogWarning("Attempted to save chapters for unsupported item type {Type}: {Name} ({Id})", item.GetType().Name, item.Name, item.Id);
+            return;
+        }
+
+        // Remove any chapters that are outside of the runtime of the item
+        var validChapters = chapters.Where(c => c.StartPositionTicks < item.RunTimeTicks).ToList();
+        await _chapterRepository.SaveChaptersAsync(item.Id, validChapters, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

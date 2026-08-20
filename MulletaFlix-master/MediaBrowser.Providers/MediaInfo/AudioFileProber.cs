@@ -174,11 +174,11 @@ namespace MediaBrowser.Providers.MediaInfo
 
             audio.HasLyrics = mediaStreams.Any(s => s.Type == MediaStreamType.Lyric);
 
-            _mediaStreamRepository.SaveMediaStreams(audio.Id, mediaStreams, cancellationToken);
+            await _mediaStreamRepository.SaveMediaStreamsAsync(audio.Id, mediaStreams, cancellationToken).ConfigureAwait(false);
 
             if (audio is AudioBook && mediaInfo.Chapters is { Length: > 0 })
             {
-                _chapterManager.SaveChapters(audio, mediaInfo.Chapters);
+                await _chapterManager.SaveChaptersAsync(audio, mediaInfo.Chapters, cancellationToken).ConfigureAwait(false);
             }
         }
 

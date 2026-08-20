@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Model.Entities;
 
 namespace MediaBrowser.Controller.Persistence;
@@ -25,4 +26,12 @@ public interface IMediaAttachmentRepository
     /// <param name="attachments">The attachments.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     void SaveMediaAttachments(Guid id, IReadOnlyList<MediaAttachment> attachments, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Saves the media attachments asynchronously.
+    /// </summary>
+    /// <param name="id">The item id.</param>
+    /// <param name="attachments">The attachments.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    Task SaveMediaAttachmentsAsync(Guid id, IReadOnlyList<MediaAttachment> attachments, CancellationToken cancellationToken);
 }

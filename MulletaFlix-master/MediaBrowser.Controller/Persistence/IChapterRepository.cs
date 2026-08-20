@@ -27,6 +27,14 @@ public interface IChapterRepository
     void SaveChapters(Guid itemId, IReadOnlyList<ChapterInfo> chapters);
 
     /// <summary>
+    /// Saves the chapters asynchronously.
+    /// </summary>
+    /// <param name="itemId">The item.</param>
+    /// <param name="chapters">The set of chapters.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    Task SaveChaptersAsync(Guid itemId, IReadOnlyList<ChapterInfo> chapters, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets all chapters associated with the baseItem.
     /// </summary>
     /// <param name="baseItemId">The BaseItems id.</param>

@@ -83,6 +83,25 @@ public class ChapterRepository : IChapterRepository
     }
 
     /// <inheritdoc />
+    public async Task SaveChaptersAsync(Guid itemId, IReadOnlyList<ChapterInfo> chapters, CancellationToken cancellationToken)
+    {
+        var context = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (context.ConfigureAwait(false))
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await context.Chapters.Where(e => e.ItemId.Equals(itemId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < chapters.Count; i++)
+            {
+                var chapter = chapters[i];
+                context.Chapters.Add(Map(chapter, i, itemId));
+            }
+
+            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
     public async Task DeleteChaptersAsync(Guid itemId, CancellationToken cancellationToken)
     {
         var dbContext = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
