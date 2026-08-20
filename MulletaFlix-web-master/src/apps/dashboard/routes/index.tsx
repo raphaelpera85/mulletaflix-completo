@@ -5,6 +5,7 @@ import Box from '@mui/material/Box';
 import Grid from '@mui/material/Grid';
 import ServerPathWidget from '../components/widgets/ServerPathWidget';
 import ServerInfoWidget from '../components/widgets/ServerInfoWidget';
+import ServerHealthWidget from '../components/widgets/ServerHealthWidget';
 import ActivityLogWidget from '../components/widgets/ActivityLogWidget';
 import AlertsLogWidget from '../components/widgets/AlertsLogWidget';
 import Stack from '@mui/material/Stack';
@@ -101,6 +102,7 @@ export const Component = () => {
                                 onShutdownClick={promptShutdown}
                                 isScanning={librariesTask?.State !== TaskState.Idle}
                             />
+                            <ServerHealthWidget tasks={tasks} />
                             <ItemCountsWidget />
                             <RunningTasksWidget tasks={tasks} />
                             <DevicesWidget />
