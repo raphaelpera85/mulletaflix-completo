@@ -18,9 +18,10 @@ const fetchUserViews = async (
 
 export const getUserViewsQuery = (
     api?: Api,
-    params?: UserViewsApiGetUserViewsRequest
+    params?: UserViewsApiGetUserViewsRequest,
+    userId?: string
 ) => queryOptions({
-    queryKey: [ 'User', params?.userId, 'Views', params ],
+    queryKey: [ 'User', userId ?? params?.userId, 'Views', params ],
     queryFn: ({ signal }) => fetchUserViews(api!, params, { signal }),
     // On initial page load we request user views 3x. Setting a 1 second stale time
     // allows a single request to be made to resolve all 3.
@@ -35,6 +36,6 @@ export const useUserViews = (
     return useQuery(getUserViewsQuery(api, {
         ...params,
         userId: params?.userId || user?.Id
-    }));
+    }, user?.Id));
 };
 
