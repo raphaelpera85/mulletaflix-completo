@@ -8,8 +8,7 @@ import SearchResults from 'apps/stable/features/search/components/SearchResults'
 import SearchSuggestions from 'apps/stable/features/search/components/SearchSuggestions';
 import Page from 'components/Page';
 import useSearchParam from 'hooks/useSearchParam';
-import globalize from 'lib/globalize';
-import { getSearchScopeLabel, buildSearchScopeHref } from '../features/search/utils/search';
+import { getSearchScopeLabel, buildSearchScopeHref, buildSearchPageTitle } from '../features/search/utils/search';
 
 const COLLECTION_TYPE_PARAM = 'collectionType';
 const PARENT_ID_PARAM = 'parentId';
@@ -26,7 +25,7 @@ const Search: FC = () => {
     const [ query, setQuery ] = useSearchParam(QUERY_PARAM);
     const [debouncedQuery] = useDebounceValue(query, 350);
 
-    const pageTitle = scopeLabel ? `${globalize.translate('Search')} - ${scopeLabel}` : globalize.translate('Search');
+    const pageTitle = buildSearchPageTitle(scopeLabel);
     const shouldSearch = debouncedQuery && debouncedQuery.length >= MIN_QUERY_LENGTH;
 
     return (

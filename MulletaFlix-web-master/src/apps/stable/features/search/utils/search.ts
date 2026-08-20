@@ -116,6 +116,10 @@ export function getSearchScopeLabel(parentId?: string, collectionType?: Collecti
     return undefined;
 }
 
+export function buildSearchPageTitle(scopeLabel?: string) {
+    return scopeLabel ? `Search - ${scopeLabel}` : 'Search';
+}
+
 export function buildSearchScopeHref(searchParams: URLSearchParams) {
     const scopeParams = new URLSearchParams(searchParams);
     scopeParams.delete('parentId');
