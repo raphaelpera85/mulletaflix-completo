@@ -20,7 +20,7 @@ export const getNextUpQuery = (
     api?: Api,
     params?: TvShowsApiGetNextUpRequest
 ) => queryOptions({
-    queryKey: [ 'User', params?.userId, 'NextUp', params ],
+    queryKey: [ 'User', api?.basePath, params?.userId, 'NextUp', params ],
     queryFn: ({ signal }) => fetchNextUp(api!, params, { signal }),
     enabled: !!api
 });

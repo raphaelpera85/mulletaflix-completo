@@ -20,7 +20,7 @@ export const getResumeItemsQuery = (
     api?: Api,
     params?: ItemsApiGetResumeItemsRequest
 ) => queryOptions({
-    queryKey: [ 'User', params?.userId, 'ResumeItems', params ],
+    queryKey: [ 'User', api?.basePath, params?.userId, 'ResumeItems', params ],
     queryFn: ({ signal }) => fetchResumeItems(api!, params, { signal }),
     enabled: !!api
 });

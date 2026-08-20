@@ -20,7 +20,7 @@ export const getLatestMediaQuery = (
     api?: Api,
     params?: UserLibraryApiGetLatestMediaRequest
 ) => queryOptions({
-    queryKey: [ 'User', params?.userId, 'LatestMedia', params ],
+    queryKey: [ 'User', api?.basePath, params?.userId, 'LatestMedia', params ],
     queryFn: ({ signal }) => fetchLatestMedia(api!, params, { signal }),
     staleTime: 10 * 1000,
     enabled: !!api
