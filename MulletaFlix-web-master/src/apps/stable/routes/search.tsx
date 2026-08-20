@@ -26,12 +26,13 @@ const Search: FC = () => {
     const [ query, setQuery ] = useSearchParam(QUERY_PARAM);
     const [debouncedQuery] = useDebounceValue(query, 350);
 
+    const pageTitle = scopeLabel ? `${globalize.translate('Search')} - ${scopeLabel}` : globalize.translate('Search');
     const shouldSearch = debouncedQuery && debouncedQuery.length >= MIN_QUERY_LENGTH;
 
     return (
         <Page
             id='searchPage'
-            title={globalize.translate('Search')}
+            title={pageTitle}
             className='mainAnimatedPage libraryPage allLibraryPage noSecondaryNavPage'
         >
             <SearchFields
