@@ -17,7 +17,7 @@ export const useCreateSyncPlayGroup = () => {
         onSuccess: () => {
             // Invalidate any queries related to SyncPlay groups
             void queryClient.invalidateQueries({
-                queryKey: QUERY_KEY
+                queryKey: [ ...QUERY_KEY, api?.basePath ]
             });
         }
     });

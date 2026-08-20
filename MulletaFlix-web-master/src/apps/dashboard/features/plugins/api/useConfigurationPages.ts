@@ -22,7 +22,7 @@ const getConfigurationPagesQuery = (
     api?: Api,
     params?: DashboardApiGetConfigurationPagesRequest
 ) => queryOptions({
-    queryKey: [ QueryKey.ConfigurationPages, params?.enableInMainMenu ],
+    queryKey: [ QueryKey.ConfigurationPages, api?.basePath, params?.enableInMainMenu ],
     queryFn: ({ signal }) => fetchConfigurationPages(api!, params, { signal }),
     enabled: !!api
 });

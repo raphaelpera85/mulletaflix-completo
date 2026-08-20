@@ -15,7 +15,7 @@ const fetchPackageInfo = async (
     params: PackageApiGetPackageInfoRequest,
     options?: AxiosRequestConfig
 ) => {
-    const packagesData = queryClient.getQueryData([ QueryKey.Packages ]) as PackageInfo[];
+    const packagesData = queryClient.getQueryData([ QueryKey.Packages, api?.basePath ]) as PackageInfo[];
     if (packagesData && params.assemblyGuid) {
         // Use cached query to avoid re-fetching
         const pkg = packagesData.find(v => v.guid === params.assemblyGuid);
@@ -44,7 +44,7 @@ const getPackageInfoQuery = (
 ) => queryOptions({
     // Don't retry since requests for plugins not available in repos fail
     retry: false,
-    queryKey: [ QueryKey.Packages, params?.name, params?.assemblyGuid ],
+    queryKey: [ QueryKey.Packages, api?.basePath, params?.name, params?.assemblyGuid ],
     queryFn: ({ signal }) => fetchPackageInfo(api!, params!, { signal }),
     enabled: !!params && !!api && !!params.name
 });
