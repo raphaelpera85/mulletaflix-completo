@@ -25,7 +25,7 @@ export const useSessions = (
 ) => {
     const { api } = useApi();
     return useQuery({
-        queryKey: [QUERY_KEY, requestParams],
+        queryKey: [QUERY_KEY, api?.basePath, requestParams],
         queryFn: ({ signal }) =>
             fetchSessions(api!, requestParams, { signal }),
         enabled: !!api,

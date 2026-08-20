@@ -25,7 +25,7 @@ export const useDevices = (
 ) => {
     const { api } = useApi();
     return useQuery({
-        queryKey: [QUERY_KEY, requestParams],
+        queryKey: [QUERY_KEY, api?.basePath, requestParams],
         queryFn: ({ signal }) =>
             fetchDevices(api!, requestParams, { signal }),
         enabled: !!api

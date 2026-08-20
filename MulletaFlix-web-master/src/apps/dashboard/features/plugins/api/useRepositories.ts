@@ -17,7 +17,7 @@ const fetchRepositories = async (
 const getRepositoriesQuery = (
     api?: Api
 ) => queryOptions({
-    queryKey: [ QueryKey.Repositories ],
+    queryKey: [ QueryKey.Repositories, api?.basePath ],
     queryFn: ({ signal }) => fetchRepositories(api!, { signal }),
     enabled: !!api
 });

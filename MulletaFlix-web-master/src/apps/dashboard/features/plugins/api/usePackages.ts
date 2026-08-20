@@ -19,7 +19,7 @@ const fetchPackages = async (
 const getPackagesQuery = (
     api?: Api
 ) => queryOptions({
-    queryKey: [ QueryKey.Packages ],
+    queryKey: [ QueryKey.Packages, api?.basePath ],
     queryFn: ({ signal }) => fetchPackages(api!, { signal }),
     enabled: !!api,
     staleTime: 15 * 60 * 1000 // 15 minutes

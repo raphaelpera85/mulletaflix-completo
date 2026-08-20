@@ -23,7 +23,7 @@ export const useLogEntries = (
 ) => {
     const { api } = useApi();
     return useQuery({
-        queryKey: ['ActivityLogEntries', requestParams],
+        queryKey: ['ActivityLogEntries', api?.basePath, requestParams],
         queryFn: ({ signal }) =>
             fetchLogEntries(api!, requestParams, { signal }),
         enabled: !!api,

@@ -21,7 +21,7 @@ export const useTask = (params: ScheduledTasksApiGetTaskRequest) => {
     const { api } = useApi();
 
     return useQuery({
-        queryKey: [ QUERY_KEY, params.taskId ],
+        queryKey: [ QUERY_KEY, api?.basePath, params.taskId ],
         queryFn: ({ signal }) =>
             fetchTask(api!, params, { signal }),
         enabled: !!api

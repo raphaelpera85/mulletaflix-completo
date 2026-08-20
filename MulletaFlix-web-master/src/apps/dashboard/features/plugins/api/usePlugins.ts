@@ -19,7 +19,7 @@ const fetchPlugins = async (
 const getPluginsQuery = (
     api?: Api
 ) => queryOptions({
-    queryKey: [ QueryKey.Plugins ],
+    queryKey: [ QueryKey.Plugins, api?.basePath ],
     queryFn: ({ signal }) => fetchPlugins(api!, { signal }),
     enabled: !!api
 });
