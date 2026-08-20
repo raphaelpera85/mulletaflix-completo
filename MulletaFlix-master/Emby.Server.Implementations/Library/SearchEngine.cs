@@ -53,6 +53,22 @@ namespace Emby.Server.Implementations.Library
             sb.Append(query.IncludeArtists ? '1' : '0');
             sb.Append('|');
             sb.Append(query.ParentId?.ToString() ?? "n");
+            sb.Append('|');
+            sb.Append(string.Join(',', query.IncludeItemTypes.Select(x => x.ToString())));
+            sb.Append('|');
+            sb.Append(string.Join(',', query.ExcludeItemTypes.Select(x => x.ToString())));
+            sb.Append('|');
+            sb.Append(string.Join(',', query.MediaTypes.Select(x => x.ToString())));
+            sb.Append('|');
+            sb.Append(query.IsMovie.HasValue ? (query.IsMovie.Value ? '1' : '0') : 'n');
+            sb.Append('|');
+            sb.Append(query.IsSeries.HasValue ? (query.IsSeries.Value ? '1' : '0') : 'n');
+            sb.Append('|');
+            sb.Append(query.IsNews.HasValue ? (query.IsNews.Value ? '1' : '0') : 'n');
+            sb.Append('|');
+            sb.Append(query.IsKids.HasValue ? (query.IsKids.Value ? '1' : '0') : 'n');
+            sb.Append('|');
+            sb.Append(query.IsSports.HasValue ? (query.IsSports.Value ? '1' : '0') : 'n');
             return sb.ToString();
         }
 
