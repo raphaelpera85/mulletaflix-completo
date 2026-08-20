@@ -14,10 +14,10 @@ const fetchSystemStorage = async (
     return response.data;
 };
 
-const getSystemStorageQuery = (
+export const getSystemStorageQuery = (
     api?: Api
 ) => queryOptions({
-    queryKey: [ 'SystemStorage' ],
+    queryKey: [ 'SystemStorage', api?.basePath ],
     queryFn: ({ signal }) => fetchSystemStorage(api!, { signal }),
     enabled: !!api,
     refetchOnWindowFocus: false

@@ -14,7 +14,7 @@ export const useLocalizationOptions = () => {
     const { api } = useApi();
 
     return useQuery({
-        queryKey: [ 'LocalizationOptions' ],
+        queryKey: [ 'LocalizationOptions', api?.basePath ],
         queryFn: ({ signal }) => fetchLocalizationOptions(api!, { signal }),
         enabled: !!api
     });
