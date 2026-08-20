@@ -15,7 +15,7 @@ export const useLibraryMediaFolders = (params?: LibraryApiGetMediaFoldersRequest
     const { api } = useApi();
 
     return useQuery({
-        queryKey: ['LibraryMediaFolders'],
+        queryKey: ['LibraryMediaFolders', api?.basePath],
         queryFn: ({ signal }) => fetchLibraryMediaFolders(api!, params, { signal }),
         enabled: !!api
     });

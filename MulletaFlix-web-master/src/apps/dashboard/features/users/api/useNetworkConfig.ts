@@ -15,7 +15,7 @@ export const useNetworkConfig = () => {
     const { api } = useApi();
 
     return useQuery({
-        queryKey: [ 'NetConfig' ],
+        queryKey: [ 'NetConfig', api?.basePath ],
         queryFn: ({ signal }) => fetchNetworkConfig(api!, { signal }),
         enabled: !!api
     });
