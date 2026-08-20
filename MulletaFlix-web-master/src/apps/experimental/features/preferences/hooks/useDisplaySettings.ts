@@ -1,4 +1,6 @@
+import type { Api } from '@jellyfin/sdk';
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client';
+import { getUserApi } from '@jellyfin/sdk/lib/utils/api/user-api';
 import { ApiClient } from 'jellyfin-apiclient';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -21,18 +23,24 @@ export function useDisplaySettings({ userId }: UseDisplaySettingsParams) {
     const [loading, setLoading] = useState(true);
     const [userSettings, setUserSettings] = useState<UserSettings>();
     const [displaySettings, setDisplaySettings] = useState<DisplaySettingsValues>();
-    const { __legacyApiClient__, user: currentUser } = useApi();
+    const { __legacyApiClient__, api, user: currentUser } = useApi();
     const { defaultThemeId } = useBrandingTheme();
 
     useEffect(() => {
-        if (!userId || !currentUser || !__legacyApiClient__) {
+        if (!userId || !currentUser || !api || !__legacyApiClient__) {
             return;
         }
 
         setLoading(true);
 
         void (async () => {
-            const loadedSettings = await loadDisplaySettings({ api: __legacyApiClient__, currentUser, userId, defaultThemeId });
+            const loadedSettings = await loadDisplaySettings({
+                api,
+                legacyApiClient: __legacyApiClient__,
+                currentUser,
+                userId,
+                defaultThemeId
+            });
 
             setDisplaySettings(loadedSettings.displaySettings);
             setUserSettings(loadedSettings.userSettings);
@@ -43,19 +51,19 @@ export function useDisplaySettings({ userId }: UseDisplaySettingsParams) {
         return () => {
             setLoading(false);
         };
-    }, [__legacyApiClient__, currentUser, userId]);
+    }, [api, __legacyApiClient__, currentUser, userId]);
 
     const saveSettings = useCallback(async (newSettings: DisplaySettingsValues) => {
-        if (!userId || !userSettings || !__legacyApiClient__) {
+        if (!userId || !userSettings || !api) {
             return;
         }
         return saveDisplaySettings({
-            api: __legacyApiClient__,
+            api,
             newDisplaySettings: newSettings,
             userSettings,
             userId
         });
-    }, [__legacyApiClient__, userSettings, userId]);
+    }, [api, userSettings, userId]);
 
     return {
         displaySettings,
@@ -67,7 +75,8 @@ export function useDisplaySettings({ userId }: UseDisplaySettingsParams) {
 interface LoadDisplaySettingsParams {
     currentUser: UserDto
     userId?: string
-    api: ApiClient
+    api: Api
+    legacyApiClient: ApiClient
     defaultThemeId?: string
 }
 
@@ -75,12 +84,15 @@ async function loadDisplaySettings({
     currentUser,
     userId,
     api,
+    legacyApiClient,
     defaultThemeId
 }: LoadDisplaySettingsParams) {
     const settings = (!userId || userId === currentUser?.Id) ? currentSettings : new UserSettings();
-    const user = (!userId || userId === currentUser?.Id) ? currentUser : await api.getUser(userId);
+    const user = (!userId || userId === currentUser?.Id)
+        ? currentUser
+        : (await getUserApi(api).getUserById({ userId })).data;
 
-    await settings.setUserInfo(userId, api);
+    await settings.setUserInfo(userId, legacyApiClient);
 
     const displaySettings = {
         customCss: settings.customCss() || '',
@@ -113,7 +125,7 @@ async function loadDisplaySettings({
 }
 
 interface SaveDisplaySettingsParams {
-    api: ApiClient;
+    api: Api;
     newDisplaySettings: DisplaySettingsValues
     userSettings: UserSettings;
     userId: string;
@@ -125,7 +137,7 @@ async function saveDisplaySettings({
     userSettings,
     userId
 }: SaveDisplaySettingsParams) {
-    const user = await api.getUser(userId);
+    const user = await getUserApi(api).getUserById({ userId }).then(response => response.data);
 
     if (appHost.supports(AppFeature.DisplayLanguage)) {
         userSettings.language(normalizeValue(newDisplaySettings.language));
@@ -156,7 +168,10 @@ async function saveDisplaySettings({
 
     if (user.Id && user.Configuration) {
         user.Configuration.DisplayMissingEpisodes = newDisplaySettings.displayMissingEpisodes;
-        promises.push(api.updateUserConfiguration(user.Id, user.Configuration));
+        promises.push(getUserApi(api).updateUserConfiguration({
+            userId: user.Id,
+            userConfiguration: user.Configuration
+        }).then(() => undefined));
     }
 
     await Promise.all(promises);
