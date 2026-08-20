@@ -25,7 +25,7 @@ export const getAncestorsQuery = (
     api?: Api,
     params?: AncestorsParams
 ) => queryOptions({
-    queryKey: [ 'Items', params?.itemId, 'Ancestors' ],
+    queryKey: [ 'Items', api?.basePath, params?.itemId, 'Ancestors' ],
     queryFn: ({ signal }) => fetchAncestors(api!, params as LibraryApiGetAncestorsRequest, { signal }),
     staleTime: Infinity, // Ancestors are unlikely to change
     enabled: !!api && !!params?.itemId

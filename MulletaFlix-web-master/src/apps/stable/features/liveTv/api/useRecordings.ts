@@ -19,7 +19,7 @@ export const getRecordingsQuery = (
     api?: Api,
     params?: LiveTvApiGetRecordingsRequest
 ) => queryOptions({
-    queryKey: [ 'User', params?.userId, 'Recordings', params ],
+    queryKey: [ 'User', api?.basePath, params?.userId, 'Recordings', params ],
     queryFn: ({ signal }) => fetchRecordings(api!, params, { signal }),
     enabled: !!api
 });

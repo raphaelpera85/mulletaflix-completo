@@ -20,7 +20,7 @@ export const getRecommendedProgramsQuery = (
     api?: Api,
     params?: LiveTvApiGetRecommendedProgramsRequest
 ) => queryOptions({
-    queryKey: [ 'User', params?.userId, 'RecommendedPrograms', params ],
+    queryKey: [ 'User', api?.basePath, params?.userId, 'RecommendedPrograms', params ],
     queryFn: ({ signal }) => fetchRecommendedPrograms(api!, params, { signal }),
     enabled: !!api
 });
