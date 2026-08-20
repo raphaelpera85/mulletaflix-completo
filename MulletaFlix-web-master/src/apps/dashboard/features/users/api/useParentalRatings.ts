@@ -14,7 +14,7 @@ export const useParentalRatings = () => {
     const { api } = useApi();
 
     return useQuery({
-        queryKey: ['ParentalRatings'],
+        queryKey: ['ParentalRatings', api?.basePath],
         queryFn: ({ signal }) => fetchParentalRatings(api!, { signal }),
         enabled: !!api
     });

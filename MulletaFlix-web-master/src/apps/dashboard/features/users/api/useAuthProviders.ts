@@ -15,7 +15,7 @@ export const useAuthProviders = () => {
     const { api } = useApi();
 
     return useQuery({
-        queryKey: [ 'AuthProviders' ],
+        queryKey: [ 'AuthProviders', api?.basePath ],
         queryFn: ({ signal }) => fetchAuthProviders(api!, { signal }),
         enabled: !!api
     });

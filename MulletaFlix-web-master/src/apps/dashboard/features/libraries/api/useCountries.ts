@@ -14,7 +14,7 @@ export const useCountries = () => {
     const { api } = useApi();
 
     return useQuery({
-        queryKey: [ 'Countries' ],
+        queryKey: [ 'Countries', api?.basePath ],
         queryFn: ({ signal }) => fetchCountries(api!, { signal }),
         enabled: !!api
     });

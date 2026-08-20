@@ -15,7 +15,7 @@ export const usePasswordResetProviders = () => {
     const { api } = useApi();
 
     return useQuery({
-        queryKey: [ 'PasswordResetProviders' ],
+        queryKey: [ 'PasswordResetProviders', api?.basePath ],
         queryFn: ({ signal }) => fetchPasswordResetProviders(api!, { signal }),
         enabled: !!api
     });
