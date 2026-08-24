@@ -9,6 +9,7 @@ import { LEGACY_ADMIN_ROUTES } from './_legacyRoutes';
 import Loading from 'components/loading/LoadingComponent';
 import ServerContentPage from 'components/ServerContentPage';
 import ErrorBoundary from 'components/router/ErrorBoundary';
+import { LEGACY_MIDIA_STORAGE_ONLINE_ROUTE } from './midiaStorageOnline';
 
 export const DASHBOARD_APP_PATHS = {
     Dashboard: 'dashboard',
@@ -33,6 +34,10 @@ export const DASHBOARD_APP_ROUTES: RouteObject[] = [
                         children: [
                             ...ASYNC_ADMIN_ROUTES.map(toAsyncPageRoute),
                             ...LEGACY_ADMIN_ROUTES.map(toViewManagerPageRoute),
+                            {
+                                path: LEGACY_MIDIA_STORAGE_ONLINE_ROUTE,
+                                element: <Navigate replace to='/dashboard/plugins/midia-storage-online' />
+                            },
                             {
                                 path: 'plugins/catalog',
                                 element: <Navigate replace to='/dashboard/plugins' />

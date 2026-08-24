@@ -2,6 +2,7 @@ import { PluginStatus } from '@jellyfin/sdk/lib/generated-client/models/plugin-s
 import type { VersionInfo } from '@jellyfin/sdk/lib/generated-client/models/version-info';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Container from '@mui/material/Container';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import FormGroup from '@mui/material/FormGroup';
@@ -28,7 +29,8 @@ import { usePlugins } from 'apps/dashboard/features/plugins/api/usePlugins';
 import { useUninstallPlugin } from 'apps/dashboard/features/plugins/api/useUninstallPlugin';
 import PluginDetailsTable from 'apps/dashboard/features/plugins/components/PluginDetailsTable';
 import PluginRevisions from 'apps/dashboard/features/plugins/components/PluginRevisions';
-import type { PluginDetails } from 'apps/dashboard/features/plugins/types/PluginDetails';
+import type { PluginDetails, ExtendedVersionInfo } from 'apps/dashboard/features/plugins/types/PluginDetails';
+import { getCompatibilityStatus, useServerTargetAbi } from 'apps/dashboard/features/plugins/utils/compatibility';
 
 import ConfirmDialog from 'components/ConfirmDialog';
 import Image from 'components/Image';
@@ -53,6 +55,7 @@ const PluginPage: FC = () => {
     const enablePlugin = useEnablePlugin();
     const installPlugin = useInstallPackage();
     const uninstallPlugin = useUninstallPlugin();
+    const serverTargetAbi = useServerTargetAbi();
 
     const [ isEnabledOverride, setIsEnabledOverride ] = useState<boolean>();
     const [ isInstallConfirmOpen, setIsInstallConfirmOpen ] = useState(false);
@@ -86,21 +89,21 @@ const PluginPage: FC = () => {
     const isLoading =
         isConfigurationPagesLoading || isPackageInfoLoading || isPluginsLoading;
 
-    const pluginDetails = useMemo<PluginDetails | undefined>(() => {
+    const pluginDetails = useMemo(() => {
         if (pluginId && !isPluginsLoading) {
             const pluginInfo = findBestPluginInfo(pluginId, plugins);
 
-            let version;
+            let version: ExtendedVersionInfo | undefined;
             if (pluginInfo) {
                 // Find the installed version
                 const repoVersion = packageInfo?.versions?.find(v => v.version === pluginInfo.Version);
-                version = repoVersion || {
+                version = (repoVersion || {
                     version: pluginInfo.Version,
                     VersionNumber: pluginInfo.Version
-                };
+                }) as ExtendedVersionInfo;
             } else {
                 // Use the latest version
-                version = packageInfo?.versions?.[0];
+                version = packageInfo?.versions?.[0] as ExtendedVersionInfo | undefined;
             }
 
             let imageUrl;
@@ -110,6 +113,7 @@ const PluginPage: FC = () => {
 
             return {
                 canUninstall: !!pluginInfo?.CanUninstall,
+                category: packageInfo?.category,
                 description: pluginInfo?.Description || packageInfo?.description || packageInfo?.overview,
                 id: pluginId,
                 imageUrl: imageUrl || packageInfo?.imageUrl || undefined,
@@ -119,9 +123,10 @@ const PluginPage: FC = () => {
                 owner: pluginInfo?.CanUninstall === false ? 'MulletaFlix' : packageInfo?.owner,
                 status: pluginInfo?.Status,
                 configurationPage: findBestConfigurationPage(configurationPages || [], pluginId),
-                version,
-                versions: packageInfo?.versions || []
-            };
+                version: version as ExtendedVersionInfo,
+                versions: (packageInfo?.versions || []) as VersionInfo[],
+                targetAbi: serverTargetAbi
+            } as PluginDetails;
         }
     }, [
         api,
@@ -331,6 +336,16 @@ const PluginPage: FC = () => {
                             <Typography variant='h1'>
                                 {pluginDetails?.name || pluginName}
                             </Typography>
+
+                            {/* Compatibility badge for uninstalled plugins */}
+                            {!pluginDetails?.status && pluginDetails?.versions?.[0] && (
+                                <Chip
+                                    size="small"
+                                    label={getCompatibilityStatus(pluginDetails.versions[0] as ExtendedVersionInfo, serverTargetAbi).label}
+                                    color={getCompatibilityStatus(pluginDetails.versions[0] as ExtendedVersionInfo, serverTargetAbi).color}
+                                    variant="outlined"
+                                />
+                            )}
 
                             <Typography sx={{ maxWidth: '80ch' }}>
                                 {isLoading && !pluginDetails?.description ? (

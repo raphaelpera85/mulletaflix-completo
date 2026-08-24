@@ -9,7 +9,8 @@ import People from '@mui/icons-material/People';
 import PlayCircle from '@mui/icons-material/PlayCircle';
 import Queue from '@mui/icons-material/Queue';
 import Settings from '@mui/icons-material/Settings';
-import Storage from '@mui/icons-material/Storage';
+import Analytics from '@mui/icons-material/Analytics';
+import Badge from '@mui/material/Badge';
 import Collapse from '@mui/material/Collapse';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
@@ -22,11 +23,11 @@ import { useLocation } from 'react-router-dom';
 
 import ListItemLink from 'components/ListItemLink';
 import globalize from 'lib/globalize';
+import { useServerUpdateInfo } from 'apps/dashboard/features/updates/api/useServerUpdateInfo';
 
 const LIBRARY_PATHS = [
     '/dashboard/libraries',
     '/dashboard/libraries/display',
-    '/dashboard/libraries/midia-storage-online',
     '/dashboard/libraries/metadata',
     '/dashboard/libraries/nfo',
     '/dashboard/libraries/unidentified'
@@ -39,11 +40,24 @@ const PLAYBACK_PATHS = [
     '/dashboard/playback/trickplay'
 ];
 
+const TOOLS_PATHS = [
+    '/dashboard/playback-reports',
+    '/dashboard/syncplay',
+    '/dashboard/updates'
+];
+
+const PLAYBACK_REPORTS_PATH = '/dashboard/playback-reports';
+const SYNCPLAY_PATH = '/dashboard/syncplay';
+const UPDATES_PATH = '/dashboard/updates';
+
 const ServerDrawerSection = () => {
     const location = useLocation();
+    const { data: updateInfo } = useServerUpdateInfo();
+    const hasUpdate = !!updateInfo?.UpdateAvailable;
 
     const [ isLibrarySectionOpen, setIsLibrarySectionOpen ] = useState(LIBRARY_PATHS.includes(location.pathname));
     const [ isPlaybackSectionOpen, setIsPlaybackSectionOpen ] = useState(PLAYBACK_PATHS.includes(location.pathname));
+    const [ isToolsSectionOpen, setIsToolsSectionOpen ] = useState(TOOLS_PATHS.includes(location.pathname));
 
     const onLibrarySectionClick = useCallback((e: MouseEvent) => {
         e.preventDefault();
@@ -55,6 +69,12 @@ const ServerDrawerSection = () => {
         e.preventDefault();
         e.stopPropagation();
         setIsPlaybackSectionOpen(isOpen => !isOpen);
+    }, []);
+
+    const onToolsSectionClick = useCallback((e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsToolsSectionOpen(isOpen => !isOpen);
     }, []);
 
     return (
@@ -127,12 +147,6 @@ const ServerDrawerSection = () => {
                     <ListItemLink to='/dashboard/libraries/display' sx={{ pl: 4 }}>
                         <ListItemText inset primary={globalize.translate('Display')} />
                     </ListItemLink>
-                    <ListItemLink to='/dashboard/libraries/midia-storage-online' sx={{ pl: 4 }}>
-                        <ListItemIcon>
-                            <Storage />
-                        </ListItemIcon>
-                        <ListItemText inset primary='Midia Storage Online' />
-                    </ListItemLink>
                     <ListItemLink to='/dashboard/libraries/metadata' sx={{ pl: 4 }}>
                         <ListItemText inset primary={globalize.translate('LabelMetadata')} />
                     </ListItemLink>
@@ -144,6 +158,37 @@ const ServerDrawerSection = () => {
                             <HelpOutline />
                         </ListItemIcon>
                         <ListItemText inset primary={globalize.translate('UnidentifiedMedia')} />
+                    </ListItemLink>
+                </List>
+            </Collapse>
+            <ListItem disablePadding>
+                <ListItemButton onClick={onToolsSectionClick}>
+                    <ListItemIcon>
+                        <Analytics />
+                    </ListItemIcon>
+                    <ListItemText primary='Ferramentas' />
+                    {isToolsSectionOpen ? <ExpandLess /> : <ExpandMore />}
+                </ListItemButton>
+            </ListItem>
+            <Collapse in={isToolsSectionOpen} timeout='auto' unmountOnExit>
+                <List component='div' disablePadding>
+                    <ListItemLink to={PLAYBACK_REPORTS_PATH} sx={{ pl: 4 }}>
+                        <ListItemText inset primary='Playback Reports' />
+                    </ListItemLink>
+                    <ListItemLink to={SYNCPLAY_PATH} sx={{ pl: 4 }}>
+                        <ListItemText inset primary='SyncPlay' />
+                    </ListItemLink>
+                    <ListItemLink to={UPDATES_PATH} sx={{ pl: 4 }}>
+                        <ListItemText inset primary={
+                            <Badge
+                                color='error'
+                                variant='dot'
+                                invisible={!hasUpdate}
+                                sx={{ '& .MuiBadge-dot': { top: 10, right: -6 } }}
+                            >
+                                <span>Centro de atualizações</span>
+                            </Badge>
+                        } />
                     </ListItemLink>
                 </List>
             </Collapse>

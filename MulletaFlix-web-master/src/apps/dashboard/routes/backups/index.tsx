@@ -25,6 +25,8 @@ import { getSystemApi } from '@jellyfin/sdk/lib/utils/api/system-api';
 import useLiveTasks from 'apps/dashboard/features/tasks/hooks/useLiveTasks';
 import { TaskState } from '@jellyfin/sdk/lib/generated-client/models/task-state';
 import ConfirmDialog from 'components/ConfirmDialog';
+import ScheduleBackupDialog from 'apps/dashboard/features/backups/components/ScheduleBackupDialog';
+import BackupHistory from 'apps/dashboard/features/backups/components/BackupHistory';
 
 export const Component = () => {
     const { api } = useApi();
@@ -38,6 +40,8 @@ export const Component = () => {
     const [ backupToRestore, setBackupToRestore ] = useState<BackupManifestDto | null>(null);
     const [ isConfirmBackupOpen, setIsConfirmBackupOpen ] = useState(false);
     const [ pendingBackupOptions, setPendingBackupOptions ] = useState<BackupOptionsDto | null>(null);
+    const [ isScheduleDialogOpen, setIsScheduleDialogOpen ] = useState(false);
+    const [ scheduleTaskId, setScheduleTaskId ] = useState<string | null>(null);
     const createBackup = useCreateBackup();
     const restoreBackup = useRestoreBackup();
 
@@ -56,6 +60,19 @@ export const Component = () => {
 
     const onRestoreDialogClose = useCallback(() => {
         setIsRestoreDialogOpen(false);
+    }, []);
+
+    const onScheduleClick = useCallback(() => {
+        const backupTask = tasks?.find(task => task.Key === 'BackupScheduledTask');
+        if (backupTask) {
+            setScheduleTaskId(backupTask.Id ?? null);
+            setIsScheduleDialogOpen(true);
+        }
+    }, [tasks]);
+
+    const onScheduleDialogClose = useCallback(() => {
+        setIsScheduleDialogOpen(false);
+        setScheduleTaskId(null);
     }, []);
 
     const onErrorAlertClose = useCallback(() => {
@@ -189,6 +206,12 @@ export const Component = () => {
                 onClose={onRestoreDialogClose}
                 onConfirm={onRestoreConfirm}
             />
+            <ScheduleBackupDialog
+                taskId={scheduleTaskId ?? ''}
+                open={isScheduleDialogOpen}
+                onClose={onScheduleDialogClose}
+                onSave={onScheduleDialogClose}
+            />
             <Box className='content-primary'>
                 {isError ? (
                     <Alert severity='error'>{globalize.translate('BackupsPageLoadError')}</Alert>
@@ -208,6 +231,13 @@ export const Component = () => {
                         >
                             {globalize.translate('ButtonCreateBackup')}
                         </Button>
+                        <Button
+                            sx={{ alignSelf: 'flex-start', ml: 2 }}
+                            variant="outlined"
+                            onClick={onScheduleClick}
+                        >
+                            {globalize.translate('HeaderScheduleBackup')}
+                        </Button>
 
                         <Box className='readOnlyContent'>
                             {backups.length > 0 && (
@@ -225,6 +255,7 @@ export const Component = () => {
                     </Stack>
                 )}
             </Box>
+            <BackupHistory />
         </Page>
     );
 };

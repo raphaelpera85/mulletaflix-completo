@@ -393,6 +393,11 @@ export default tseslint.config(
             'react/jsx-no-bind': 'error',
             'react/jsx-no-useless-fragment': 'error',
             'react/no-array-index-key': 'error',
+            // Project uses the automatic JSX runtime (`jsx: react-jsx` in tsconfig.json),
+            // so React does not need to be in scope.
+            'react/react-in-jsx-scope': 'off',
+            // Project is TypeScript; prop types are validated by the compiler.
+            'react/prop-types': 'off',
             'react-hooks/rules-of-hooks': 'error',
             'react-hooks/exhaustive-deps': 'warn'
         }

@@ -59,6 +59,9 @@ export const useSetUserLicense = () => {
             void queryClient.invalidateQueries({
                 queryKey: ['User', api?.basePath, variables.userId]
             });
+            void queryClient.invalidateQueries({
+                queryKey: ['ActivityLogEntries']
+            });
         }
     });
 };
@@ -78,6 +81,9 @@ export const useRevokeUserLicense = () => {
             });
             void queryClient.invalidateQueries({
                 queryKey: ['User', api?.basePath, userId]
+            });
+            void queryClient.invalidateQueries({
+                queryKey: ['ActivityLogEntries']
             });
         }
     });

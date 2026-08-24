@@ -355,7 +355,11 @@ namespace Emby.Server.Implementations.SyncPlay
         public GroupInfoDto GetInfo()
         {
             var participants = _participants.Values.Select(session => session.UserName).Distinct().ToList();
-            return new GroupInfoDto(GroupId, GroupName, _state.Type, participants, DateTime.UtcNow);
+            return new GroupInfoDto(GroupId, GroupName, _state.Type, participants, DateTime.UtcNow)
+            {
+                Ping = GetHighestPing(),
+                Host = participants.Count > 0 ? participants[0] : null
+            };
         }
 
         /// <summary>
@@ -444,7 +448,7 @@ namespace Emby.Server.Implementations.SyncPlay
         /// <inheritdoc />
         public long GetHighestPing()
         {
-            long max = long.MinValue;
+            long max = DefaultPing;
             foreach (var session in _participants.Values)
             {
                 max = Math.Max(max, session.Ping);

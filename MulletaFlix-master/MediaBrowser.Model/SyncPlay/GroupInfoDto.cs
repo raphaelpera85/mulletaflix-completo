@@ -54,5 +54,17 @@ namespace MediaBrowser.Model.SyncPlay
         /// </summary>
         /// <value>The date when this DTO has been created.</value>
         public DateTime LastUpdatedAt { get; }
+
+        /// <summary>
+        /// Gets or sets the highest ping (latency in milliseconds) among the group members.
+        /// </summary>
+        /// <value>The highest ping in milliseconds.</value>
+        public long Ping { get; set; }
+
+        /// <summary>
+        /// Gets or sets the host (first participant) of the group.
+        /// </summary>
+        /// <value>The host username, or null if the group is empty.</value>
+        public string? Host { get; set; }
     }
 }

@@ -82,6 +82,7 @@ namespace MulletaFlix.Server
             serviceCollection.AddSingleton<IEventManager, EventManager>();
 
             serviceCollection.AddSingleton<IActivityManager, ActivityManager>();
+            serviceCollection.AddSingleton<IPlaybackReportManager, PlaybackReportManager>();
             serviceCollection.AddDataProtection();
             serviceCollection.AddSingleton<IUserManager, UserManager>();
             serviceCollection.AddSingleton<IUserLicenseManager, UserLicenseManager>();

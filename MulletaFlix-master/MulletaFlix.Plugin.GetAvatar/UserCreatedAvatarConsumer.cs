@@ -33,7 +33,7 @@ namespace MulletaFlix.Plugin.GetAvatar
                 return;
             }
 
-            if (await _avatarService.AssignRandomAvatarAsync(eventArgs.Argument, forceAssign: true).ConfigureAwait(false))
+            if (await _avatarService.AssignRandomAvatarAsync(eventArgs.Argument).ConfigureAwait(false))
             {
                 _logger.LogInformation(
                     "Assigned a random avatar to newly created user {UserName}",

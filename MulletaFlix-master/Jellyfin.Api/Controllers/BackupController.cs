@@ -1,6 +1,8 @@
-﻿using System.IO;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
-using MulletaFlix.Server.Implementations.SystemBackupService;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.SystemBackupService;
@@ -71,6 +73,39 @@ public class BackupController : BaseMulletaFlixApiController
     }
 
     /// <summary>
+    /// Restores to a point-in-time backup by selecting the closest backup before the specified date.
+    /// </summary>
+    /// <param name="restoreRequest">The point-in-time restore request.</param>
+    /// <response code="204">Backup restore started.</response>
+    /// <response code="404">No backup found before the specified date.</response>
+    /// <response code="403">User does not have permission to retrieve information.</response>
+    /// <returns>No-Content.</returns>
+    [HttpPost("RestorePointInTime")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> RestorePointInTime([FromBody, BindRequired] PointInTimeRestoreRequestDto restoreRequest)
+    {
+        var backups = await _backupService.EnumerateBackups().ConfigureAwait(false);
+
+        // Find the closest backup before the target date
+        var targetDate = restoreRequest.TargetDate.UtcDateTime;
+        var validBackups = backups
+            .Where(b => b.DateCreated.UtcDateTime <= targetDate)
+            .OrderByDescending(b => b.DateCreated.UtcDateTime)
+            .ToArray();
+
+        if (validBackups.Length == 0)
+        {
+            return NotFound("No backup found before the specified date");
+        }
+
+        var selectedBackup = validBackups[0];
+        _backupService.ScheduleRestoreAndRestartServer(selectedBackup.Path);
+        return NoContent();
+    }
+
+    /// <summary>
     /// Gets a list of all currently present backups in the backup directory.
     /// </summary>
     /// <response code="200">Backups available.</response>
@@ -123,6 +158,42 @@ public class BackupController : BaseMulletaFlixApiController
         var archiveRestorePath = Path.GetFileName(Path.GetFullPath(path));
         var archivePath = Path.Combine(_applicationPaths.BackupPath, archiveRestorePath);
         return archivePath;
+    }
+
+    /// <summary>
+    /// Gets the backup execution history.
+    /// </summary>
+    /// <response code="200">Backup history entries.</response>
+    /// <response code="403">User does not have permission to retrieve information.</response>
+    /// <returns>The list of backup execution history entries.</returns>
+    [HttpGet("History")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<BackupExecutionHistoryDto[]>> GetBackupHistory()
+    {
+        return Ok(await _backupService.GetBackupHistory().ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Validates the integrity of a backup archive.
+    /// </summary>
+    /// <param name="path">The path to the backup archive.</param>
+    /// <response code="200">True if backup is valid, false otherwise.</response>
+    /// <response code="403">User does not have permission to retrieve information.</response>
+    /// <returns>Validation result.</returns>
+    [HttpGet("Validate")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<bool>> ValidateBackup([BindRequired] string path)
+    {
+        var backupPath = SanitizePath(path);
+
+        if (!System.IO.File.Exists(backupPath))
+        {
+            return NotFound();
+        }
+
+        return Ok(await _backupService.ValidateBackupIntegrity(backupPath).ConfigureAwait(false));
     }
 }
 

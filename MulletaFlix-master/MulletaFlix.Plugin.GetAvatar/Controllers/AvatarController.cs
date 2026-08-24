@@ -285,7 +285,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Controllers
 
                 // Get user ID
                 Guid currentUserId = Guid.Empty;
-                var userIdClaim = User.Claims.FirstOrDefault(c => c.Type == "userId" || c.Type == "sub" || c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier");
+                var userIdClaim = User.Claims.FirstOrDefault(c => c.Type == "MulletaFlix-UserId" || c.Type == "userId" || c.Type == "sub" || c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier");
                 if (userIdClaim != null && Guid.TryParse(userIdClaim.Value, out var claimUserId))
                 {
                     currentUserId = claimUserId;

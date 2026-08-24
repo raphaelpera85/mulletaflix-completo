@@ -14,7 +14,7 @@ export const useRemoveVirtualFolder = () => {
         ),
         onSuccess: () => {
             void queryClient.invalidateQueries({
-                queryKey: [ 'VirtualFolders' ]
+                queryKey: [ 'VirtualFolders', api?.basePath ]
             });
         }
     });

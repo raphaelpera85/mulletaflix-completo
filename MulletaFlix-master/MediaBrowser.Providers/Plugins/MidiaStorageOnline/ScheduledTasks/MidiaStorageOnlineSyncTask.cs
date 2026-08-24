@@ -327,19 +327,30 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
 
                 try
                 {
-                    var validatedMediaEntries = (await MidiaStorageOnlineLinkValidator.FilterOnlineEntriesAsync(
-                        mediaCandidates,
-                        _httpClientFactory,
-                        _logger,
-                        ct,
-                        config.MaxLinkValidationConcurrency,
-                        GetOfflineLinkCachePath()).ConfigureAwait(false)).ToList();
-                    if (validatedMediaEntries.Count != mediaCandidates.Count)
+                    List<M3uEntry> validatedMediaEntries;
+                    if (MidiaStorageOnlineLinkValidator.RequiresMediaLinkValidation(outputMode))
                     {
-                        Log($"Links offline removidos das midias antes do sync: {mediaCandidates.Count - validatedMediaEntries.Count}");
+                        validatedMediaEntries = (await MidiaStorageOnlineLinkValidator.FilterOnlineEntriesAsync(
+                            mediaCandidates,
+                            _httpClientFactory,
+                            _logger,
+                            ct,
+                            config.MaxLinkValidationConcurrency,
+                            GetOfflineLinkCachePath()).ConfigureAwait(false)).ToList();
+                        if (validatedMediaEntries.Count != mediaCandidates.Count)
+                        {
+                            Log($"Links offline removidos das midias antes do sync: {mediaCandidates.Count - validatedMediaEntries.Count}");
+                        }
+
+                        Log($"Midias validadas: {validatedMediaEntries.Count} entradas ativas.");
                     }
+                    else
+                    {
+                        validatedMediaEntries = mediaCandidates;
+                        Log($"Modo STRM: materializando {validatedMediaEntries.Count} atalhos sem pre-validacao HTTP bloqueante.");
+                    }
+
                     validatedMediaEntries = MidiaStorageOnlineEntryDeduplicator.DeduplicateByKey(validatedMediaEntries, BuildEntryDedupKey).ToList();
-                    Log($"Midias validadas: {validatedMediaEntries.Count} entradas ativas.");
 
                     // Count upfront to create libraries before file processing
                     int entryMovieCount = validatedMediaEntries.Count(e => e.Type == "Filme");
@@ -379,7 +390,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                     }
 
                     var manifest = LoadManifest();
-                    var knownSourceUrls = await LoadKnownSourceUrlsAsync(manifest, ct).ConfigureAwait(false);
+                    var seenSourceUrlsInRun = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
                     // Initialize with existing manifest to preserve files that are not in the new M3U
                     var newManifest = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(manifest, StringComparer.OrdinalIgnoreCase);
                     var createdDirs = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
@@ -413,7 +424,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                                 var filePath = Path.Combine(strmPath, relPath);
                                 var newUrl = entry.Url.Trim();
 
-                                if (!knownSourceUrls.TryAdd(newUrl, 0))
+                                if (!seenSourceUrlsInRun.TryAdd(newUrl, 0))
                                 {
                                     Interlocked.Increment(ref skippedCount);
                                     return;
@@ -476,7 +487,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                                 var filePath = Path.Combine(strmPath, relPath);
                                 var newUrl = entry.Url.Trim();
 
-                                if (!knownSourceUrls.TryAdd(newUrl, 0))
+                                if (!seenSourceUrlsInRun.TryAdd(newUrl, 0))
                                 {
                                     Interlocked.Increment(ref skippedCount);
                                     return;
@@ -1729,46 +1740,6 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                 Log($"Falha ao persistir metadata de reconhecimento: {ex.Message}");
                 _logger.LogWarning(ex, "Falha ao persistir metadata de reconhecimento.");
             }
-        }
-
-        private async Task<System.Collections.Concurrent.ConcurrentDictionary<string, byte>> LoadKnownSourceUrlsAsync(
-            IReadOnlyDictionary<string, string> manifest,
-            CancellationToken ct)
-        {
-            var knownSourceUrls = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var sourceUrl in manifest.Values)
-            {
-                var normalized = sourceUrl?.Trim();
-                if (!string.IsNullOrWhiteSpace(normalized))
-                {
-                    knownSourceUrls.TryAdd(normalized, 0);
-                }
-            }
-
-            try
-            {
-                await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-                var storedUrls = await dbContext.MidiaStorageOnlineMediaMetadata
-                    .AsNoTracking()
-                    .Select(x => x.SourceUrl)
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .ToListAsync(ct)
-                    .ConfigureAwait(false);
-
-                foreach (var sourceUrl in storedUrls)
-                {
-                    var normalized = sourceUrl.Trim();
-                    knownSourceUrls.TryAdd(normalized, 0);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log($"Falha ao carregar cache de links reconhecidos: {ex.Message}");
-                _logger.LogWarning(ex, "Falha ao carregar cache de links reconhecidos.");
-            }
-
-            return knownSourceUrls;
         }
 
         private static string TruncatePathSegment(string value, int maxLength)

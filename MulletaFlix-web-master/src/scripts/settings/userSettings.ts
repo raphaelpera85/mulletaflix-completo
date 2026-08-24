@@ -481,6 +481,34 @@ export class UserSettings {
     }
 
     /**
+     * Get or set book reader theme.
+     * @param val - Book reader theme (dark, sepia or light).
+     * @return Book reader theme.
+     */
+    bookPlayerTheme(val?: string): string | null {
+        if (val !== undefined) {
+            this.set('bookPlayerTheme', val, true);
+            return this.get('bookPlayerTheme', true);
+        }
+
+        return this.get('bookPlayerTheme', true);
+    }
+
+    /**
+     * Get or set book reader font size.
+     * @param val - Book reader font size (x-small, small, medium, large or x-large).
+     * @return Book reader font size.
+     */
+    bookPlayerFontSize(val?: string): string | null {
+        if (val !== undefined) {
+            this.set('bookPlayerFontSize', val, true);
+            return this.get('bookPlayerFontSize', true);
+        }
+
+        return this.get('bookPlayerFontSize', true);
+    }
+
+    /**
      * Get or set screensaver.
      * @param val - Screensaver.
      * @return Screensaver.
@@ -770,6 +798,8 @@ export const skipForwardLength = currentSettings.skipForwardLength.bind(currentS
 export const dashboardTheme = currentSettings.dashboardTheme.bind(currentSettings);
 export const skin = currentSettings.skin.bind(currentSettings);
 export const theme = currentSettings.theme.bind(currentSettings);
+export const bookPlayerTheme = currentSettings.bookPlayerTheme.bind(currentSettings);
+export const bookPlayerFontSize = currentSettings.bookPlayerFontSize.bind(currentSettings);
 export const screensaver = currentSettings.screensaver.bind(currentSettings);
 export const backdropScreensaverInterval = currentSettings.backdropScreensaverInterval.bind(currentSettings);
 export const slideshowInterval = currentSettings.slideshowInterval.bind(currentSettings);

@@ -1,0 +1,1232 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config",
+      "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts"
+    ],
+    "configFile": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
+    "rootDir": "D:/Users/rapha/Documents/Projetos/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "D:/Users/rapha/Documents/Projetos/mulletaflix/MulletaFlix-web-master/test-results/playwright",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "D:/Users/rapha/Documents/Projetos/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.spec\\.(ts|js|mjs)$/"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\reports\\playwright\\raw-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "00-wizard.spec.ts",
+      "file": "00-wizard.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "00 - Wizard",
+          "file": "00-wizard.spec.ts",
+          "line": 8,
+          "column": 15,
+          "specs": [
+            {
+              "title": "stage starts clean and wizard pages are reachable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1655,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:16:52.067Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f1ca24fc67c076af1-cd10c2b78139ec098857",
+              "file": "00-wizard.spec.ts",
+              "line": 9,
+              "column": 9
+            },
+            {
+              "title": "completes the wizard end-to-end",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 33147,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    3 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    60 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    3 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    60 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\00-wizard.spec.ts:23:9",
+                        "location": {
+                          "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                          "column": 58,
+                          "line": 41
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39m..\\support\\wizard.mjs:41\n\n\u001b[0m \u001b[90m 39 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/wizard\\/user$/i\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m 40 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage)\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 41 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtUsername'\u001b[39m))\u001b[33m.\u001b[39mtoHaveValue(adminUser\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 42 |\u001b[39m\n \u001b[90m 43 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtManualPassword'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\n \u001b[90m 44 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtPasswordConfirm'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                            "column": 58,
+                            "line": 41
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    3 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    60 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n\n   at ..\\support\\wizard.mjs:41\n\n  39 |     await page.waitForURL(/\\/wizard\\/user$/i, { timeout: 30_000 });\n  40 |     await expect(wizardUserPage).toBeVisible({ timeout: 30_000 });\n> 41 |     await expect(wizardUserPage.locator('#txtUsername')).toHaveValue(adminUser, { timeout: 30_000 });\n     |                                                          ^\n  42 |\n  43 |     await setInputValue(wizardUserPage.locator('#txtManualPassword'), adminPassword);\n  44 |     await setInputValue(wizardUserPage.locator('#txtPasswordConfirm'), adminPassword);\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\00-wizard.spec.ts:23:9"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:16:54.393Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\00-wizard-00---Wizard-completes-the-wizard-end-to-end-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\00-wizard-00---Wizard-completes-the-wizard-end-to-end-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\00-wizard-00---Wizard-completes-the-wizard-end-to-end-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\00-wizard-00---Wizard-completes-the-wizard-end-to-end-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                        "column": 58,
+                        "line": 41
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "568f1ca24fc67c076af1-0563e733b57853c3237c",
+              "file": "00-wizard.spec.ts",
+              "line": 22,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "10-admin.spec.ts",
+      "file": "10-admin.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "10 - Admin",
+          "file": "10-admin.spec.ts",
+          "line": 13,
+          "column": 15,
+          "specs": [
+            {
+              "title": "creates a common user and walks through profile, access, parental control and password tabs",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 33197,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    2 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    2 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\10-admin.spec.ts:16:9",
+                        "location": {
+                          "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                          "column": 58,
+                          "line": 41
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39m..\\support\\wizard.mjs:41\n\n\u001b[0m \u001b[90m 39 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/wizard\\/user$/i\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m 40 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage)\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 41 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtUsername'\u001b[39m))\u001b[33m.\u001b[39mtoHaveValue(adminUser\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 42 |\u001b[39m\n \u001b[90m 43 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtManualPassword'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\n \u001b[90m 44 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtPasswordConfirm'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                            "column": 58,
+                            "line": 41
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    2 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n\n   at ..\\support\\wizard.mjs:41\n\n  39 |     await page.waitForURL(/\\/wizard\\/user$/i, { timeout: 30_000 });\n  40 |     await expect(wizardUserPage).toBeVisible({ timeout: 30_000 });\n> 41 |     await expect(wizardUserPage.locator('#txtUsername')).toHaveValue(adminUser, { timeout: 30_000 });\n     |                                                          ^\n  42 |\n  43 |     await setInputValue(wizardUserPage.locator('#txtManualPassword'), adminPassword);\n  44 |     await setInputValue(wizardUserPage.locator('#txtPasswordConfirm'), adminPassword);\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\10-admin.spec.ts:16:9"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:17:28.568Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\10-admin-10---Admin-create-19f4f-l-control-and-password-tabs-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\10-admin-10---Admin-create-19f4f-l-control-and-password-tabs-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\10-admin-10---Admin-create-19f4f-l-control-and-password-tabs-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\10-admin-10---Admin-create-19f4f-l-control-and-password-tabs-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                        "column": 58,
+                        "line": 41
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "456aee3854f22d4b8c6b-a4aab20b42df1b56960e",
+              "file": "10-admin.spec.ts",
+              "line": 14,
+              "column": 9
+            },
+            {
+              "title": "smokes the main dashboard pages and form shells",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:18:02.733Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "456aee3854f22d4b8c6b-97a259ab366f3b54be57",
+              "file": "10-admin.spec.ts",
+              "line": 56,
+              "column": 9
+            },
+            {
+              "title": "creates a disposable user from the add-user form and reaches the profile page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:18:02.733Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "456aee3854f22d4b8c6b-5c11c70dcf972e97af05",
+              "file": "10-admin.spec.ts",
+              "line": 100,
+              "column": 9
+            },
+            {
+              "title": "saves the general, streaming and branding settings shells without changing the stage state",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:18:02.733Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "456aee3854f22d4b8c6b-b5402beb202b4da4dee6",
+              "file": "10-admin.spec.ts",
+              "line": 144,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "11-admin-extended.spec.ts",
+      "file": "11-admin-extended.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "11 - Admin extended",
+          "file": "11-admin-extended.spec.ts",
+          "line": 8,
+          "column": 15,
+          "specs": [
+            {
+              "title": "covers live tv status and recordings settings",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 33026,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    62 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    62 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\11-admin-extended.spec.ts:11:9",
+                        "location": {
+                          "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                          "column": 58,
+                          "line": 41
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39m..\\support\\wizard.mjs:41\n\n\u001b[0m \u001b[90m 39 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/wizard\\/user$/i\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m 40 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage)\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 41 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtUsername'\u001b[39m))\u001b[33m.\u001b[39mtoHaveValue(adminUser\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 42 |\u001b[39m\n \u001b[90m 43 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtManualPassword'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\n \u001b[90m 44 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtPasswordConfirm'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                            "column": 58,
+                            "line": 41
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    62 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n\n   at ..\\support\\wizard.mjs:41\n\n  39 |     await page.waitForURL(/\\/wizard\\/user$/i, { timeout: 30_000 });\n  40 |     await expect(wizardUserPage).toBeVisible({ timeout: 30_000 });\n> 41 |     await expect(wizardUserPage.locator('#txtUsername')).toHaveValue(adminUser, { timeout: 30_000 });\n     |                                                          ^\n  42 |\n  43 |     await setInputValue(wizardUserPage.locator('#txtManualPassword'), adminPassword);\n  44 |     await setInputValue(wizardUserPage.locator('#txtPasswordConfirm'), adminPassword);\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\11-admin-extended.spec.ts:11:9"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:18:03.150Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\11-admin-extended-11---Adm-aa334-tus-and-recordings-settings-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\11-admin-extended-11---Adm-aa334-tus-and-recordings-settings-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\11-admin-extended-11---Adm-aa334-tus-and-recordings-settings-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\11-admin-extended-11---Adm-aa334-tus-and-recordings-settings-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                        "column": 58,
+                        "line": 41
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "32983b187c05f77c58fb-e42e579c44c14e5969fe",
+              "file": "11-admin-extended.spec.ts",
+              "line": 9,
+              "column": 9
+            },
+            {
+              "title": "covers api keys, jobs and backups surfaces",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:18:37.063Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "32983b187c05f77c58fb-e6f68cbe1eeba7d0c996",
+              "file": "11-admin-extended.spec.ts",
+              "line": 34,
+              "column": 9
+            },
+            {
+              "title": "saves the networking and library metadata shells",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:18:37.063Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "32983b187c05f77c58fb-00fe601d0e3935aa617c",
+              "file": "11-admin-extended.spec.ts",
+              "line": 71,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "12-admin-surfaces.spec.ts",
+      "file": "12-admin-surfaces.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "12 - Admin surfaces",
+          "file": "12-admin-surfaces.spec.ts",
+          "line": 16,
+          "column": 15,
+          "specs": [
+            {
+              "title": "covers dashboard home, settings, users, libraries and playback surfaces",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 30293,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    60 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    60 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at loginAdmin (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\12-admin-surfaces.spec.ts:12:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\12-admin-surfaces.spec.ts:20:9",
+                        "location": {
+                          "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                          "column": 58,
+                          "line": 41
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39m..\\support\\wizard.mjs:41\n\n\u001b[0m \u001b[90m 39 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/wizard\\/user$/i\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m 40 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage)\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 41 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtUsername'\u001b[39m))\u001b[33m.\u001b[39mtoHaveValue(adminUser\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 42 |\u001b[39m\n \u001b[90m 43 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtManualPassword'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\n \u001b[90m 44 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtPasswordConfirm'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                            "column": 58,
+                            "line": 41
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    60 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n\n   at ..\\support\\wizard.mjs:41\n\n  39 |     await page.waitForURL(/\\/wizard\\/user$/i, { timeout: 30_000 });\n  40 |     await expect(wizardUserPage).toBeVisible({ timeout: 30_000 });\n> 41 |     await expect(wizardUserPage.locator('#txtUsername')).toHaveValue(adminUser, { timeout: 30_000 });\n     |                                                          ^\n  42 |\n  43 |     await setInputValue(wizardUserPage.locator('#txtManualPassword'), adminPassword);\n  44 |     await setInputValue(wizardUserPage.locator('#txtPasswordConfirm'), adminPassword);\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at loginAdmin (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\12-admin-surfaces.spec.ts:12:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\12-admin-surfaces.spec.ts:20:9"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:18:37.380Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\12-admin-surfaces-12---Adm-4cb02-aries-and-playback-surfaces-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\12-admin-surfaces-12---Adm-4cb02-aries-and-playback-surfaces-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\12-admin-surfaces-12---Adm-4cb02-aries-and-playback-surfaces-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                        "column": 58,
+                        "line": 41
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "5472d4e1245afb4c5dd1-6cd97f25ce1876cc6d62",
+              "file": "12-admin-surfaces.spec.ts",
+              "line": 19,
+              "column": 9
+            },
+            {
+              "title": "covers activity, logs, devices, plugins, backups, networking and task surfaces",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:19:08.322Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5472d4e1245afb4c5dd1-95f459c2bf5b28ef193b",
+              "file": "12-admin-surfaces.spec.ts",
+              "line": 52,
+              "column": 9
+            },
+            {
+              "title": "covers live tv and recordings surfaces",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:19:08.322Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "5472d4e1245afb4c5dd1-de3f0e602f4459ebf191",
+              "file": "12-admin-surfaces.spec.ts",
+              "line": 79,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "20-user.spec.ts",
+      "file": "20-user.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "20 - Common user",
+          "file": "20-user.spec.ts",
+          "line": 24,
+          "column": 15,
+          "specs": [
+            {
+              "title": "logs in as the created user and proves the session on home",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 33280,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    2 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    2 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\20-user.spec.ts:27:9",
+                        "location": {
+                          "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                          "column": 58,
+                          "line": 41
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39m..\\support\\wizard.mjs:41\n\n\u001b[0m \u001b[90m 39 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/wizard\\/user$/i\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m 40 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage)\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 41 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtUsername'\u001b[39m))\u001b[33m.\u001b[39mtoHaveValue(adminUser\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 42 |\u001b[39m\n \u001b[90m 43 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtManualPassword'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\n \u001b[90m 44 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtPasswordConfirm'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                            "column": 58,
+                            "line": 41
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    2 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m      - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n\n   at ..\\support\\wizard.mjs:41\n\n  39 |     await page.waitForURL(/\\/wizard\\/user$/i, { timeout: 30_000 });\n  40 |     await expect(wizardUserPage).toBeVisible({ timeout: 30_000 });\n> 41 |     await expect(wizardUserPage.locator('#txtUsername')).toHaveValue(adminUser, { timeout: 30_000 });\n     |                                                          ^\n  42 |\n  43 |     await setInputValue(wizardUserPage.locator('#txtManualPassword'), adminPassword);\n  44 |     await setInputValue(wizardUserPage.locator('#txtPasswordConfirm'), adminPassword);\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\20-user.spec.ts:27:9"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:19:08.729Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\20-user-20---Common-user-l-26d09--proves-the-session-on-home-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\20-user-20---Common-user-l-26d09--proves-the-session-on-home-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\20-user-20---Common-user-l-26d09--proves-the-session-on-home-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\20-user-20---Common-user-l-26d09--proves-the-session-on-home-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                        "column": 58,
+                        "line": 41
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "7f79f5d47e61836f1f2f-d28fe226b62d20cf4bb3",
+              "file": "20-user.spec.ts",
+              "line": 25,
+              "column": 9
+            },
+            {
+              "title": "opens the user profile and preference menu from the current session",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:19:42.892Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7f79f5d47e61836f1f2f-7459ad17afd5db839153",
+              "file": "20-user.spec.ts",
+              "line": 57,
+              "column": 9
+            },
+            {
+              "title": "registers a common user from the login screen and signs in",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:19:42.898Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7f79f5d47e61836f1f2f-006d9ef7e97296b394a3",
+              "file": "20-user.spec.ts",
+              "line": 91,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "21-multi-user-playback.spec.ts",
+      "file": "21-multi-user-playback.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "21 - Multi user playback",
+          "file": "21-multi-user-playback.spec.ts",
+          "line": 78,
+          "column": 15,
+          "specs": [
+            {
+              "title": "keeps media playback active for two different users at the same time",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 1200000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 32386,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\21-multi-user-playback.spec.ts:83:9",
+                        "location": {
+                          "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                          "column": 58,
+                          "line": 41
+                        },
+                        "snippet": "\u001b[90m   at \u001b[39m..\\support\\wizard.mjs:41\n\n\u001b[0m \u001b[90m 39 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/wizard\\/user$/i\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m 40 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage)\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 41 |\u001b[39m     \u001b[36mawait\u001b[39m expect(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtUsername'\u001b[39m))\u001b[33m.\u001b[39mtoHaveValue(adminUser\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m30\u001b[39m_000 })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 42 |\u001b[39m\n \u001b[90m 43 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtManualPassword'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\n \u001b[90m 44 |\u001b[39m     \u001b[36mawait\u001b[39m setInputValue(wizardUserPage\u001b[33m.\u001b[39mlocator(\u001b[32m'#txtPasswordConfirm'\u001b[39m)\u001b[33m,\u001b[39m adminPassword)\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                            "column": 58,
+                            "line": 41
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('#wizardUserPage').locator('#txtUsername')\nExpected: \u001b[32m\"mflx-e2e-admin\"\u001b[39m\nReceived: \u001b[31m\"NewName\"\u001b[39m\nTimeout:  30000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" with timeout 30000ms\u001b[22m\n\u001b[2m  - waiting for locator('#wizardUserPage').locator('#txtUsername')\u001b[22m\n\u001b[2m    - locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m    - unexpected value \"\"\u001b[22m\n\u001b[2m    61 × locator resolved to <input type=\"text\" is=\"emby-input\" id=\"txtUsername\" label=\"Username\" class=\"emby-input\" required=\"required\"/>\u001b[22m\n\u001b[2m       - unexpected value \"NewName\"\u001b[22m\n\n\n   at ..\\support\\wizard.mjs:41\n\n  39 |     await page.waitForURL(/\\/wizard\\/user$/i, { timeout: 30_000 });\n  40 |     await expect(wizardUserPage).toBeVisible({ timeout: 30_000 });\n> 41 |     await expect(wizardUserPage.locator('#txtUsername')).toHaveValue(adminUser, { timeout: 30_000 });\n     |                                                          ^\n  42 |\n  43 |     await setInputValue(wizardUserPage.locator('#txtManualPassword'), adminPassword);\n  44 |     await setInputValue(wizardUserPage.locator('#txtPasswordConfirm'), adminPassword);\n    at completeWizard (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:41:58)\n    at ensureWizardCompleted (D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs:106:5)\n    at D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\specs\\21-multi-user-playback.spec.ts:83:9"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:19:43.256Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\21-multi-user-playback-21--8d418-rent-users-at-the-same-time-chromium\\test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\21-multi-user-playback-21--8d418-rent-users-at-the-same-time-chromium\\video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\21-multi-user-playback-21--8d418-rent-users-at-the-same-time-chromium\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\test-results\\playwright\\21-multi-user-playback-21--8d418-rent-users-at-the-same-time-chromium\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "D:\\Users\\rapha\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\tests\\playwright\\support\\wizard.mjs",
+                        "column": 58,
+                        "line": 41
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "a7638e0b009b694df0df-ae5bc5293fe8daad9ad9",
+              "file": "21-multi-user-playback.spec.ts",
+              "line": 81,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "22-adsense-flow.spec.ts",
+      "file": "22-adsense-flow.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "22 - AdSense playback flow",
+          "file": "22-adsense-flow.spec.ts",
+          "line": 136,
+          "column": 15,
+          "specs": [
+            {
+              "title": "shows the ad after the intro and resumes the main media",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 1500000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: worker process exited unexpectedly (code=3221225794, signal=null)"
+                      },
+                      "errors": [
+                        {
+                          "message": "Error: worker process exited unexpectedly (code=3221225794, signal=null)"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:20:16.741Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "2cfd3138e8f61dd25972-b84127f6e86a6794e8d8",
+              "file": "22-adsense-flow.spec.ts",
+              "line": 139,
+              "column": 9
+            },
+            {
+              "title": "falls back when the ad script fails to load",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 1500000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:20:16.742Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "2cfd3138e8f61dd25972-f6673269a22f8ffecc2a",
+              "file": "22-adsense-flow.spec.ts",
+              "line": 143,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "23-search.spec.ts",
+      "file": "23-search.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "23 - Unified search",
+          "file": "23-search.spec.ts",
+          "line": 14,
+          "column": 15,
+          "specs": [
+            {
+              "title": "keeps the query while clearing collection scope and retrying globally",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 120000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: worker process exited unexpectedly (code=3221225794, signal=null)"
+                      },
+                      "errors": [
+                        {
+                          "message": "Error: worker process exited unexpectedly (code=3221225794, signal=null)"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:20:16.744Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "28711a9b7a89965a9327-0ad2dd6eee7729147420",
+              "file": "23-search.spec.ts",
+              "line": 15,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "99-pagination.spec.ts",
+      "file": "99-pagination.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "99 - Pagination and home media",
+          "file": "99-pagination.spec.ts",
+          "line": 122,
+          "column": 15,
+          "specs": [
+            {
+              "title": "admin sees the media libraries, home carousels and the paged library views after recognition",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 1500000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "failed",
+                      "duration": 0,
+                      "error": {
+                        "message": "Error: worker process exited unexpectedly (code=3221225794, signal=null)"
+                      },
+                      "errors": [
+                        {
+                          "message": "Error: worker process exited unexpectedly (code=3221225794, signal=null)"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:20:16.750Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e54713a444f2e695b17e-88d2a53f5e70519d86a5",
+              "file": "99-pagination.spec.ts",
+              "line": 125,
+              "column": 9
+            },
+            {
+              "title": "common user can browse home and page through movies and series too",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 1500000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": -1,
+                      "parallelIndex": -1,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-20T13:20:16.750Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "e54713a444f2e695b17e-8ecf3548654472c77d2b",
+              "file": "99-pagination.spec.ts",
+              "line": 190,
+              "column": 9
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-20T13:16:51.697Z",
+    "duration": 205059.669,
+    "expected": 1,
+    "skipped": 11,
+    "unexpected": 9,
+    "flaky": 0
+  }
+}

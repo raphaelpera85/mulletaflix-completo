@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.SystemBackupService;
+using MediaBrowser.Model.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -17,7 +18,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Server.Implementations.StorageHelpers;
-using MulletaFlix.Server.Implementations.SystemBackupService;
 
 namespace MulletaFlix.Server.Implementations.FullSystemBackup;
 
@@ -585,6 +585,71 @@ public class BackupService : IBackupService
     /// <returns>The normalized path. </returns>
     private static string NormalizePathSeparator(string path)
         => path.Replace('\\', '/');
+
+    /// <inheritdoc/>
+    public async Task<BackupExecutionHistoryDto[]> GetBackupHistory()
+    {
+        // For now, we'll read the ScheduledTask history file for the BackupScheduledTask
+        // The history is stored in the ScheduledTasks data directory
+        var historyPath = Path.Combine(_applicationPaths.DataPath, "ScheduledTasks");
+
+        if (!Directory.Exists(historyPath))
+        {
+            return [];
+        }
+
+        var backupTaskId = "BackupScheduledTask"; // This should match the task key
+        var historyFile = Path.Combine(historyPath, $"{backupTaskId}.js");
+
+        var results = new List<BackupExecutionHistoryDto>();
+
+        if (File.Exists(historyFile))
+        {
+            try
+            {
+                var json = await File.ReadAllTextAsync(historyFile).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(json))
+                {
+                    var taskResult = JsonSerializer.Deserialize<TaskResult>(json, _serializerSettings);
+                    if (taskResult != null)
+                    {
+                        results.Add(new BackupExecutionHistoryDto
+                        {
+                            Path = "", // Not stored in task result
+                            StartTimeUtc = taskResult.StartTimeUtc,
+                            EndTimeUtc = taskResult.EndTimeUtc,
+                            Status = taskResult.Status,
+                            Name = taskResult.Name,
+                            Key = taskResult.Key,
+                            Id = taskResult.Id,
+                            ErrorMessage = taskResult.ErrorMessage,
+                            LongErrorMessage = taskResult.LongErrorMessage
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read backup task history from {Path}", historyFile);
+            }
+        }
+
+        return results.ToArray();
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> ValidateBackupIntegrity(string archivePath)
+    {
+        try
+        {
+            var manifest = await GetBackupManifest(archivePath).ConfigureAwait(false);
+            return manifest is not null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Sanitizes a migration ID to prevent SQL injection through backup archives.

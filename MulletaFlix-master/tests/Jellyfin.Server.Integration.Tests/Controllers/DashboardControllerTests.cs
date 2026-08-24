@@ -53,6 +53,73 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
         }
 
         [Fact]
+        public async Task GetDashboardConfigurationPage_GetAvatar_HasDashboardPageWrapper()
+        {
+            var client = _factory.CreateClient();
+            client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
+
+            var response = await client.GetAsync("/web/ConfigurationPage?name=GetAvatar", TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            string html = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.Contains("data-role=\"page\"", html, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("pluginConfigurationPage", html, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("configPage", html, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task GetAvatarClientScript_ImplementsGalleryAndRandomSelection()
+        {
+            const string resourceName = "MulletaFlix.Plugin.GetAvatar.Configuration.Web.clientScript.js";
+            await using Stream stream = typeof(global::MulletaFlix.Plugin.GetAvatar.Plugin).Assembly.GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException("GetAvatar client script resource was not embedded.");
+            using StreamReader reader = new StreamReader(stream);
+            string script = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
+            Assert.Contains("const apiBase = '/GetAvatar'", script, StringComparison.Ordinal);
+            Assert.Contains("url('/Avatars')", script, StringComparison.Ordinal);
+            Assert.Contains("url('/SetAvatar')", script, StringComparison.Ordinal);
+            Assert.Contains("getavatar-random-button", script, StringComparison.Ordinal);
+            Assert.Contains("MutationObserver", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("/MulletaFlix/Plugins/GetAvatar/UserMappings", script, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task GetAvatarConfigurationResources_ExposeCatalogAndAutoAssignment()
+        {
+            var assembly = typeof(global::MulletaFlix.Plugin.GetAvatar.Plugin).Assembly;
+            await using Stream htmlStream = assembly.GetManifestResourceStream("MulletaFlix.Plugin.GetAvatar.Configuration.Web.configPage.html")
+                ?? throw new InvalidOperationException("GetAvatar configuration page was not embedded.");
+            await using Stream scriptStream = assembly.GetManifestResourceStream("MulletaFlix.Plugin.GetAvatar.Configuration.Web.configPage.js")
+                ?? throw new InvalidOperationException("GetAvatar configuration script was not embedded.");
+            using StreamReader htmlReader = new StreamReader(htmlStream);
+            using StreamReader scriptReader = new StreamReader(scriptStream);
+            string html = await htmlReader.ReadToEndAsync(TestContext.Current.CancellationToken);
+            string script = await scriptReader.ReadToEndAsync(TestContext.Current.CancellationToken);
+
+            Assert.Contains("enableAutoAssign", html, StringComparison.Ordinal);
+            Assert.Contains("avatarList", html, StringComparison.Ordinal);
+            Assert.Contains("/Settings", script, StringComparison.Ordinal);
+            Assert.Contains("/Avatars", script, StringComparison.Ordinal);
+            Assert.Contains("/Upload", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("ApiKey", html, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task GetDashboardConfigurationPage_NebulaFtp_HasDashboardPageWrapper()
+        {
+            var client = _factory.CreateClient();
+            client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
+
+            var response = await client.GetAsync("/web/ConfigurationPage?name=NebulaFTP", TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            string html = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.Contains("data-role=\"page\"", html, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("pluginConfigurationPage", html, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("configPage", html, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public async Task GetDashboardConfigurationPage_BrokenPage_NotFound()
         {
             var client = _factory.CreateClient();

@@ -52,10 +52,18 @@ import '../../elements/emby-textarea/emby-textarea';
 import './style.scss';
 import template from './libraryoptionseditor.template.html';
 
+declare global {
+    interface HTMLElement {
+        availableOptions?: AvailableLibraryOptions;
+    }
+}
+
 function populateLanguages(parent: HTMLElement) {
     return ApiClient.getCultures().then((languages: CultureDto[]) => {
-        populateLanguagesIntoSelect(parent.querySelector('#selectLanguage'), languages);
-        populateLanguagesIntoList(parent.querySelector('.subtitleDownloadLanguages'), languages);
+        const selectLanguage = parent.querySelector('#selectLanguage') as HTMLSelectElement | null;
+        const subtitleDownloadLanguages = parent.querySelector('.subtitleDownloadLanguages') as HTMLElement | null;
+        if (selectLanguage) populateLanguagesIntoSelect(selectLanguage, languages);
+        if (subtitleDownloadLanguages) populateLanguagesIntoList(subtitleDownloadLanguages, languages);
     });
 }
 
@@ -71,7 +79,7 @@ function populateLanguagesIntoSelect(select: HTMLSelectElement, languages: Cultu
 function populateLanguagesIntoList(element: HTMLElement, languages: CultureDto[]) {
     let html = '';
     for (const culture of languages) {
-        html += `<label><input type="checkbox" is="emby-checkbox" class="chkSubtitleLanguage" data-lang="${culture.ThreeLetterISOLanguageName.toLowerCase()}" /><span>${culture.DisplayName}</span></label>`;
+        html += `<label><input type="checkbox" is="emby-checkbox" class="chkSubtitleLanguage" data-lang="${(culture.ThreeLetterISOLanguageName ?? '').toLowerCase()}" /><span>${culture.DisplayName}</span></label>`;
     }
     element.innerHTML = html;
 }
@@ -102,8 +110,8 @@ function getDefaultMetadataLanguage(countryCode: string) {
 }
 
 function syncMetadataLanguageFromCountry(parent: HTMLElement) {
-    const countryCode = parent.querySelector('#selectCountry').value;
-    const selectLanguage = parent.querySelector('#selectLanguage');
+    const countryCode = (parent.querySelector('#selectCountry') as HTMLInputElement).value;
+    const selectLanguage = parent.querySelector('#selectLanguage') as HTMLSelectElement | null;
     if (!countryCode || !selectLanguage) {
         return Promise.resolve('');
     }
@@ -186,14 +194,15 @@ function populateRefreshInterval(select: HTMLSelectElement) {
     let html = '';
     html += `<option value='0'>${globalize.translate('Never')}</option>`;
     html += [30, 60, 90].map((val: number) => {
-        return `<option value='${val}'>${globalize.translate('EveryNDays', val)}</option>`;
+        return `<option value='${val}'>${globalize.translate('EveryNDays', String(val))}</option>`;
     }).join('');
     select.innerHTML = html;
 }
 
 function renderMetadataReaders(page: HTMLElement, plugins: LibraryOptionInfoDto[]) {
     let html = '';
-    const elem = page.querySelector('.metadataReaders');
+    const elem = page.querySelector('.metadataReaders') as HTMLElement | null;
+    if (!elem) return false;
 
     if (plugins.length < 1) {
         elem.innerHTML = '';
@@ -232,7 +241,8 @@ function renderMetadataReaders(page: HTMLElement, plugins: LibraryOptionInfoDto[
 
 function renderMetadataSavers(page: HTMLElement, metadataSavers: LibraryOptionInfoDto[]) {
     let html = '';
-    const elem = page.querySelector('.metadataSavers');
+    const elem = page.querySelector('.metadataSavers') as HTMLElement | null;
+    if (!elem) return false;
     if (!metadataSavers.length) {
         elem.innerHTML = '';
         elem.classList.add('hide');
@@ -252,18 +262,18 @@ function renderMetadataSavers(page: HTMLElement, metadataSavers: LibraryOptionIn
 
 function getMetadataFetchersForTypeHtml(availableTypeOptions: AvailableTypeOption, libraryOptionsForType: EditorTypeOptions) {
     let html = '';
-    let plugins = availableTypeOptions.MetadataFetchers;
+    let plugins = availableTypeOptions.MetadataFetchers ?? [];
 
-    plugins = getOrderedPlugins(plugins, libraryOptionsForType.MetadataFetcherOrder || []);
+    plugins = getOrderedPlugins(plugins, libraryOptionsForType.MetadataFetcherOrder ?? []);
     if (!plugins.length) return html;
 
     html += '<div class="metadataFetcher" data-type="' + availableTypeOptions.Type + '">';
-    html += '<h3 class="checkboxListLabel">' + globalize.translate('LabelTypeMetadataDownloaders', globalize.translate('TypeOptionPlural' + availableTypeOptions.Type)) + '</h3>';
+    html += '<h3 class="checkboxListLabel">' + globalize.translate('LabelTypeMetadataDownloaders', globalize.translate('TypeOptionPlural' + (availableTypeOptions.Type ?? ''))) + '</h3>';
     html += '<div class="checkboxList paperList checkboxList-paperList">';
 
     plugins.forEach((plugin: LibraryOptionInfoDto, index: number) => {
         html += '<div class="listItem metadataFetcherItem sortableOption" data-pluginname="' + escapeHtml(plugin.Name) + '">';
-        const isChecked = libraryOptionsForType.MetadataFetchers ? libraryOptionsForType.MetadataFetchers.includes(plugin.Name) : plugin.DefaultEnabled;
+        const isChecked = libraryOptionsForType.MetadataFetchers ? libraryOptionsForType.MetadataFetchers.includes(plugin.Name ?? '') : plugin.DefaultEnabled;
         const checkedHtml = isChecked ? ' checked="checked"' : '';
         html += '<label class="listItemCheckboxContainer"><input type="checkbox" is="emby-checkbox" class="chkMetadataFetcher" data-pluginname="' + escapeHtml(plugin.Name) + '" ' + checkedHtml + '><span></span></label>';
         html += '<div class="listItemBody">';
@@ -295,31 +305,33 @@ function getTypeOptions(allOptions: EditorLibraryOptions, type: string | null | 
 
 function renderMetadataFetchers(page: HTMLElement, availableOptions: AvailableLibraryOptions, libraryOptions: EditorLibraryOptions) {
     let html = '';
-    const elem = page.querySelector('.metadataFetchers');
-    for (const availableTypeOptions of availableOptions.TypeOptions) {
+    const elem = page.querySelector('.metadataFetchers') as HTMLElement | null;
+    if (!elem) return true;
+    for (const availableTypeOptions of availableOptions.TypeOptions ?? []) {
         html += getMetadataFetchersForTypeHtml(availableTypeOptions, getTypeOptions(libraryOptions, availableTypeOptions.Type) || {});
     }
     elem.innerHTML = html;
     if (html) {
         elem.classList.remove('hide');
-        page.querySelector('.fldAutoRefreshInterval').classList.remove('hide');
-        page.querySelector('.fldMetadataLanguage').classList.remove('hide');
-        page.querySelector('.fldMetadataCountry').classList.remove('hide');
+        page.querySelector('.fldAutoRefreshInterval')!.classList.remove('hide');
+        page.querySelector('.fldMetadataLanguage')!.classList.remove('hide');
+        page.querySelector('.fldMetadataCountry')!.classList.remove('hide');
     } else {
         elem.classList.add('hide');
-        page.querySelector('.fldAutoRefreshInterval').classList.add('hide');
-        page.querySelector('.fldMetadataLanguage').classList.add('hide');
-        page.querySelector('.fldMetadataCountry').classList.add('hide');
+        page.querySelector('.fldAutoRefreshInterval')!.classList.add('hide');
+        page.querySelector('.fldMetadataLanguage')!.classList.add('hide');
+        page.querySelector('.fldMetadataCountry')!.classList.add('hide');
     }
     return true;
 }
 
 function renderSubtitleFetchers(page: HTMLElement, availableOptions: AvailableLibraryOptions, libraryOptions: EditorLibraryOptions) {
     let html = '';
-    const elem = page.querySelector('.subtitleFetchers');
+    const elem = page.querySelector('.subtitleFetchers') as HTMLElement | null;
+    if (!elem) return html;
 
-    let plugins = availableOptions.SubtitleFetchers;
-    plugins = getOrderedPlugins(plugins, libraryOptions.SubtitleFetcherOrder || []);
+    let plugins = availableOptions.SubtitleFetchers ?? [];
+    plugins = getOrderedPlugins(plugins, libraryOptions.SubtitleFetcherOrder ?? []);
     if (!plugins.length) return html;
 
     html += `<h3 class="checkboxListLabel">${globalize.translate('LabelSubtitleDownloaders')}</h3>`;
@@ -327,7 +339,7 @@ function renderSubtitleFetchers(page: HTMLElement, availableOptions: AvailableLi
     for (let i = 0; i < plugins.length; i++) {
         const plugin = plugins[i];
         html += `<div class="listItem subtitleFetcherItem sortableOption" data-pluginname="${escapeHtml(plugin.Name)}">`;
-        const isChecked = libraryOptions.DisabledSubtitleFetchers ? !libraryOptions.DisabledSubtitleFetchers.includes(plugin.Name) : plugin.DefaultEnabled;
+        const isChecked = libraryOptions.DisabledSubtitleFetchers ? !libraryOptions.DisabledSubtitleFetchers.includes(plugin.Name ?? '') : plugin.DefaultEnabled;
         const checkedHtml = isChecked ? ' checked="checked"' : '';
         html += `<label class="listItemCheckboxContainer"><input type="checkbox" is="emby-checkbox" class="chkSubtitleFetcher" data-pluginname="${escapeHtml(plugin.Name)}" ${checkedHtml}><span></span></label>`;
         html += '<div class="listItemBody">';
@@ -349,9 +361,10 @@ function renderSubtitleFetchers(page: HTMLElement, availableOptions: AvailableLi
 
 function renderLyricFetchers(page: HTMLElement, availableOptions: AvailableLibraryOptions, libraryOptions: EditorLibraryOptions) {
     let html = '';
-    const elem = page.querySelector('.lyricFetchers');
+    const elem = page.querySelector('.lyricFetchers') as HTMLElement | null;
+    if (!elem) return html;
 
-    let plugins = availableOptions.LyricFetchers;
+    let plugins = availableOptions.LyricFetchers ?? [];
     plugins = getOrderedPlugins(plugins, libraryOptions.LyricFetcherOrder);
     if (!plugins.length) return html;
 
@@ -360,7 +373,7 @@ function renderLyricFetchers(page: HTMLElement, availableOptions: AvailableLibra
     for (let i = 0; i < plugins.length; i++) {
         const plugin = plugins[i];
         html += `<div class="listItem lyricFetcherItem sortableOption" data-pluginname="${escapeHtml(plugin.Name)}">`;
-        const isChecked = libraryOptions.DisabledLyricFetchers ? !libraryOptions.DisabledLyricFetchers.includes(plugin.Name) : plugin.DefaultEnabled;
+        const isChecked = libraryOptions.DisabledLyricFetchers ? !libraryOptions.DisabledLyricFetchers.includes(plugin.Name ?? '') : plugin.DefaultEnabled;
         const checkedHtml = isChecked ? ' checked="checked"' : '';
         html += `<label class="listItemCheckboxContainer"><input type="checkbox" is="emby-checkbox" class="chkLyricFetcher" data-pluginname="${escapeHtml(plugin.Name)}" ${checkedHtml}><span></span></label>`;
         html += '<div class="listItemBody">';
@@ -382,9 +395,10 @@ function renderLyricFetchers(page: HTMLElement, availableOptions: AvailableLibra
 
 function renderMediaSegmentProviders(page: HTMLElement, availableOptions: AvailableLibraryOptions, libraryOptions: EditorLibraryOptions) {
     let html = '';
-    const elem = page.querySelector('.mediaSegmentProviders');
+    const elem = page.querySelector('.mediaSegmentProviders') as HTMLElement | null;
+    if (!elem) return html;
 
-    let plugins = availableOptions.MediaSegmentProviders;
+    let plugins = availableOptions.MediaSegmentProviders ?? [];
     plugins = getOrderedPlugins(plugins, libraryOptions.MediaSegmentProviderOrder);
     elem.classList.toggle('hide', !plugins.length);
     if (!plugins.length) return html;
@@ -394,7 +408,7 @@ function renderMediaSegmentProviders(page: HTMLElement, availableOptions: Availa
     for (let i = 0; i < plugins.length; i++) {
         const plugin = plugins[i];
         html += `<div class="listItem mediaSegmentProviderItem sortableOption" data-pluginname="${escapeHtml(plugin.Name)}">`;
-        const isChecked = libraryOptions.DisabledMediaSegmentProviders ? !libraryOptions.DisabledMediaSegmentProviders.includes(plugin.Name) : plugin.DefaultEnabled;
+        const isChecked = libraryOptions.DisabledMediaSegmentProviders ? !libraryOptions.DisabledMediaSegmentProviders.includes(plugin.Name ?? '') : plugin.DefaultEnabled;
         const checkedHtml = isChecked ? ' checked="checked"' : '';
         html += `<label class="listItemCheckboxContainer"><input type="checkbox" is="emby-checkbox" class="chkMediaSegmentProvider" data-pluginname="${escapeHtml(plugin.Name)}" ${checkedHtml}><span></span></label>`;
         html += '<div class="listItemBody">';
@@ -416,14 +430,14 @@ function renderMediaSegmentProviders(page: HTMLElement, availableOptions: Availa
 
 function getImageFetchersForTypeHtml(availableTypeOptions: AvailableTypeOption, libraryOptionsForType: EditorTypeOptions) {
     let html = '';
-    let plugins = availableTypeOptions.ImageFetchers;
+    let plugins = availableTypeOptions.ImageFetchers ?? [];
 
-    plugins = getOrderedPlugins(plugins, libraryOptionsForType.ImageFetcherOrder || []);
+    plugins = getOrderedPlugins(plugins, libraryOptionsForType.ImageFetcherOrder ?? []);
     if (!plugins.length) return html;
 
     html += '<div class="imageFetcher" data-type="' + availableTypeOptions.Type + '">';
     html += '<div class="flex align-items-center" style="margin:1.5em 0 .5em;">';
-    html += '<h3 class="checkboxListLabel" style="margin:0;">' + globalize.translate('HeaderTypeImageFetchers', globalize.translate('TypeOptionPlural' + availableTypeOptions.Type)) + '</h3>';
+    html += '<h3 class="checkboxListLabel" style="margin:0;">' + globalize.translate('HeaderTypeImageFetchers', globalize.translate('TypeOptionPlural' + (availableTypeOptions.Type ?? ''))) + '</h3>';
     const supportedImageTypes = availableTypeOptions.SupportedImageTypes || [];
     if (supportedImageTypes.length > 1 || supportedImageTypes.length === 1 && supportedImageTypes[0] !== 'Primary') {
         html += '<button is="emby-button" class="raised btnImageOptionsForType" type="button" style="font-size:90%;"><span>' + globalize.translate('HeaderFetcherSettings') + '</span></button>';
@@ -433,7 +447,7 @@ function getImageFetchersForTypeHtml(availableTypeOptions: AvailableTypeOption, 
     for (let i = 0; i < plugins.length; i++) {
         const plugin = plugins[i];
         html += '<div class="listItem imageFetcherItem sortableOption" data-pluginname="' + escapeHtml(plugin.Name) + '">';
-        const isChecked = libraryOptionsForType.ImageFetchers ? libraryOptionsForType.ImageFetchers.includes(plugin.Name) : plugin.DefaultEnabled;
+        const isChecked = libraryOptionsForType.ImageFetchers ? libraryOptionsForType.ImageFetchers.includes(plugin.Name ?? '') : plugin.DefaultEnabled;
         const checkedHtml = isChecked ? ' checked="checked"' : '';
         html += '<label class="listItemCheckboxContainer"><input type="checkbox" is="emby-checkbox" class="chkImageFetcher" data-pluginname="' + escapeHtml(plugin.Name) + '" ' + checkedHtml + '><span></span></label>';
         html += '<div class="listItemBody">';
@@ -456,18 +470,18 @@ function getImageFetchersForTypeHtml(availableTypeOptions: AvailableTypeOption, 
 
 function getSimilarItemProvidersForTypeHtml(availableTypeOptions: AvailableTypeOption, libraryOptionsForType: EditorTypeOptions) {
     let html = '';
-    let plugins = availableTypeOptions.SimilarItemProviders;
+    let plugins = availableTypeOptions.SimilarItemProviders ?? [];
 
-    plugins = getOrderedPlugins(plugins, libraryOptionsForType.SimilarItemProviderOrder || []);
+    plugins = getOrderedPlugins(plugins, libraryOptionsForType.SimilarItemProviderOrder ?? []);
     if (!plugins.length) return html;
 
     html += '<div class="similarItemProvider" data-type="' + availableTypeOptions.Type + '">';
-    html += '<h3 class="checkboxListLabel">' + globalize.translate('HeaderTypeSimilarItemProviders', globalize.translate('TypeOptionPlural' + availableTypeOptions.Type)) + '</h3>';
+    html += '<h3 class="checkboxListLabel">' + globalize.translate('HeaderTypeSimilarItemProviders', globalize.translate('TypeOptionPlural' + (availableTypeOptions.Type ?? ''))) + '</h3>';
     html += '<div class="checkboxList paperList checkboxList-paperList">';
 
     plugins.forEach((plugin: LibraryOptionInfoDto, index: number) => {
         html += '<div class="listItem similarItemProviderItem sortableOption" data-pluginname="' + escapeHtml(plugin.Name) + '">';
-        const isChecked = libraryOptionsForType.SimilarItemProviders ? libraryOptionsForType.SimilarItemProviders.includes(plugin.Name) : plugin.DefaultEnabled;
+        const isChecked = libraryOptionsForType.SimilarItemProviders ? libraryOptionsForType.SimilarItemProviders.includes(plugin.Name ?? '') : plugin.DefaultEnabled;
         const checkedHtml = isChecked ? ' checked="checked"' : '';
         html += '<label class="listItemCheckboxContainer"><input type="checkbox" is="emby-checkbox" class="chkSimilarItemProvider" data-pluginname="' + escapeHtml(plugin.Name) + '" ' + checkedHtml + '><span></span></label>';
         html += '<div class="listItemBody">';
@@ -491,25 +505,27 @@ function getSimilarItemProvidersForTypeHtml(availableTypeOptions: AvailableTypeO
 
 function renderImageFetchers(page: HTMLElement, availableOptions: AvailableLibraryOptions, libraryOptions: EditorLibraryOptions) {
     let html = '';
-    const elem = page.querySelector('.imageFetchers');
-    for (const availableTypeOptions of availableOptions.TypeOptions) {
+    const elem = page.querySelector('.imageFetchers') as HTMLElement | null;
+    if (!elem) return true;
+    for (const availableTypeOptions of availableOptions.TypeOptions ?? []) {
         html += getImageFetchersForTypeHtml(availableTypeOptions, getTypeOptions(libraryOptions, availableTypeOptions.Type) || {});
     }
     elem.innerHTML = html;
     if (html) {
         elem.classList.remove('hide');
-        page.querySelector('.chkSaveLocalContainer').classList.remove('hide');
+        page.querySelector('.chkSaveLocalContainer')!.classList.remove('hide');
     } else {
         elem.classList.add('hide');
-        page.querySelector('.chkSaveLocalContainer').classList.add('hide');
+        page.querySelector('.chkSaveLocalContainer')!.classList.add('hide');
     }
     return true;
 }
 
 function renderSimilarItemProviders(page: HTMLElement, availableOptions: AvailableLibraryOptions, libraryOptions: EditorLibraryOptions) {
     let html = '';
-    const elem = page.querySelector('.similarItemProviders');
-    for (const availableTypeOptions of availableOptions.TypeOptions) {
+    const elem = page.querySelector('.similarItemProviders') as HTMLElement | null;
+    if (!elem) return true;
+    for (const availableTypeOptions of availableOptions.TypeOptions ?? []) {
         html += getSimilarItemProvidersForTypeHtml(availableTypeOptions, getTypeOptions(libraryOptions, availableTypeOptions.Type) || {});
     }
     elem.innerHTML = html;
@@ -537,15 +553,17 @@ function populateMetadataSettings(parent: HTMLElement, contentType: string) {
         renderMediaSegmentProviders(parent, availableOptions, {});
         renderImageFetchers(parent, availableOptions, {});
         renderSimilarItemProviders(parent, availableOptions, {});
-        availableOptions.SubtitleFetchers.length ? parent.querySelector('.subtitleDownloadSettings').classList.remove('hide') : parent.querySelector('.subtitleDownloadSettings').classList.add('hide');
+        (availableOptions.SubtitleFetchers ?? []).length ? parent.querySelector('.subtitleDownloadSettings')!.classList.remove('hide') : parent.querySelector('.subtitleDownloadSettings')!.classList.add('hide');
     }).catch(() => {
         return Promise.resolve();
     });
 }
 
 function adjustSortableListElement(elem: HTMLElement) {
-    const btnSortable = elem.querySelector('.btnSortable');
-    const inner = btnSortable.querySelector('.material-icons');
+    const btnSortable = elem.querySelector('.btnSortable') as HTMLElement | null;
+    if (!btnSortable) return;
+    const inner = btnSortable.querySelector('.material-icons') as HTMLElement | null;
+    if (!inner) return;
     if (elem.previousSibling) {
         btnSortable.title = globalize.translate('Up');
         btnSortable.classList.add('btnSortableMoveUp');
@@ -563,34 +581,36 @@ function adjustSortableListElement(elem: HTMLElement) {
 
 function showImageOptionsForType(type: string) {
     import('../imageOptionsEditor/imageOptionsEditor').then(({ default: ImageOptionsEditor }) => {
-        let typeOptions = getTypeOptions(currentLibraryOptions, type);
+        let typeOptions = getTypeOptions(currentLibraryOptions ?? { TypeOptions: [] } as EditorLibraryOptions, type);
         if (!typeOptions) {
             typeOptions = {
                 Type: type
             };
-            currentLibraryOptions.TypeOptions.push(typeOptions);
+            (currentLibraryOptions!.TypeOptions ??= []).push(typeOptions);
         }
-        const availableOptions = getTypeOptions(currentAvailableOptions || {}, type);
+        const availableOptions = currentAvailableOptions
+            ? getTypeOptions(currentAvailableOptions as unknown as EditorLibraryOptions, type)
+            : null;
         const imageOptionsEditor = new ImageOptionsEditor();
-        imageOptionsEditor.show(type, typeOptions, availableOptions);
+        imageOptionsEditor.show(type, typeOptions as any, availableOptions as any);
     });
 }
 
 function onImageFetchersContainerClick(this: HTMLElement, e: Event) {
-    const btnImageOptionsForType = dom.parentWithClass(e.target, 'btnImageOptionsForType') as HTMLElement | null;
+    const btnImageOptionsForType = dom.parentWithClass(e.target as HTMLElement, 'btnImageOptionsForType') as HTMLElement | null;
     if (btnImageOptionsForType) {
         const imageFetcher = dom.parentWithClass(btnImageOptionsForType, 'imageFetcher') as HTMLElement | null;
         if (!imageFetcher) {
             return;
         }
-        showImageOptionsForType(imageFetcher.getAttribute('data-type'));
+        showImageOptionsForType(imageFetcher.getAttribute('data-type') ?? '');
         return;
     }
     onSortableContainerClick.call(this, e);
 }
 
 function onSortableContainerClick(this: HTMLElement, e: Event) {
-    const btnSortable = dom.parentWithClass(e.target, 'btnSortable') as HTMLElement | null;
+    const btnSortable = dom.parentWithClass(e.target as HTMLElement, 'btnSortable') as HTMLElement | null;
     if (btnSortable) {
         const li = dom.parentWithClass(btnSortable, 'sortableOption') as HTMLElement | null;
         if (!li) {
@@ -628,19 +648,19 @@ function onSortableContainerClick(this: HTMLElement, e: Event) {
 }
 
 function bindEvents(parent: HTMLElement) {
-    parent.querySelector('.metadataReaders').addEventListener('click', onSortableContainerClick);
-    parent.querySelector('.subtitleFetchers').addEventListener('click', onSortableContainerClick);
-    parent.querySelector('.metadataFetchers').addEventListener('click', onSortableContainerClick);
-    parent.querySelector('.lyricFetchers').addEventListener('click', onSortableContainerClick);
-    parent.querySelector('.mediaSegmentProviders').addEventListener('click', onSortableContainerClick);
-    parent.querySelector('.imageFetchers').addEventListener('click', onImageFetchersContainerClick);
-    parent.querySelector('.similarItemProviders').addEventListener('click', onSortableContainerClick);
-    parent.querySelector('#selectCountry').addEventListener('change', () => {
+    parent.querySelector('.metadataReaders')!.addEventListener('click', onSortableContainerClick);
+    parent.querySelector('.subtitleFetchers')!.addEventListener('click', onSortableContainerClick);
+    parent.querySelector('.metadataFetchers')!.addEventListener('click', onSortableContainerClick);
+    parent.querySelector('.lyricFetchers')!.addEventListener('click', onSortableContainerClick);
+    parent.querySelector('.mediaSegmentProviders')!.addEventListener('click', onSortableContainerClick);
+    parent.querySelector('.imageFetchers')!.addEventListener('click', onImageFetchersContainerClick);
+    parent.querySelector('.similarItemProviders')!.addEventListener('click', onSortableContainerClick);
+    parent.querySelector('#selectCountry')!.addEventListener('change', () => {
         void syncMetadataLanguageFromCountry(parent);
     });
 
-    parent.querySelector('#chkEnableEmbeddedTitles').addEventListener('change', (e: Event) => {
-        parent.querySelector('.chkEnableEmbeddedExtrasTitlesContainer').classList.toggle('hide', !e.currentTarget.checked);
+    parent.querySelector('#chkEnableEmbeddedTitles')!.addEventListener('change', (e: Event) => {
+        parent.querySelector('.chkEnableEmbeddedExtrasTitlesContainer')!.classList.toggle('hide', !(e.currentTarget as HTMLInputElement).checked);
     });
 }
 
@@ -653,8 +673,8 @@ export async function embed(parent: HTMLElement, contentType: string | null | un
     isNewLibrary && parent.classList.add('newlibrary');
 
     parent.innerHTML = globalize.translateHtml(template);
-    populateRefreshInterval(parent.querySelector('#selectAutoRefreshInterval'));
-    const promises = [populateLanguages(parent), populateCountries(parent.querySelector('#selectCountry'))];
+    populateRefreshInterval(parent.querySelector('#selectAutoRefreshInterval')!);
+    const promises = [populateLanguages(parent), populateCountries(parent.querySelector('#selectCountry')!)];
     if (isNewLibrary) {
         promises.push(ApiClient.getJSON(ApiClient.getUrl('Startup/Configuration')).catch((err: any) => {
             console.warn('[libraryoptionseditor] Failed to fetch Startup/Configuration:', err);
@@ -664,7 +684,7 @@ export async function embed(parent: HTMLElement, contentType: string | null | un
     Promise.all(promises).then(function (responses: any) {
         const serverConfiguration = isNewLibrary ? responses[2] || {} : null;
         return setContentType(parent, contentType).then(function() {
-            setLibraryOptions(parent, libraryOptions || getNewLibraryOptions(serverConfiguration));
+            setLibraryOptions(parent, libraryOptions || getNewLibraryOptions(serverConfiguration) as EditorLibraryOptions);
             bindEvents(parent);
         });
     });
@@ -677,62 +697,62 @@ const CHAPTER_CONTENT_TYPES = [
     CollectionType.Tvshows
 ];
 
-export function setContentType(parent: HTMLElement, contentType: string | undefined) {
+export function setContentType(parent: HTMLElement, contentType: string | null | undefined) {
     if (contentType === 'homevideos' || contentType === 'photos') {
-        parent.querySelector('.chkEnablePhotosContainer').classList.remove('hide');
+        parent.querySelector('.chkEnablePhotosContainer')!.classList.remove('hide');
     } else {
-        parent.querySelector('.chkEnablePhotosContainer').classList.add('hide');
+        parent.querySelector('.chkEnablePhotosContainer')!.classList.add('hide');
     }
 
-    const hasChapterOptions = !contentType /* Mixed */ || CHAPTER_CONTENT_TYPES.includes(contentType);
-    parent.querySelector('.trickplaySettingsSection').classList.toggle('hide', !hasChapterOptions);
-    parent.querySelector('.chapterSettingsSection').classList.toggle('hide', !hasChapterOptions);
+    const hasChapterOptions = !contentType /* Mixed */ || (CHAPTER_CONTENT_TYPES as string[]).includes(contentType ?? '');
+    parent.querySelector('.trickplaySettingsSection')!.classList.toggle('hide', !hasChapterOptions);
+    parent.querySelector('.chapterSettingsSection')!.classList.toggle('hide', !hasChapterOptions);
 
     if (contentType === 'tvshows') {
-        parent.querySelector('.chkAutomaticallyGroupSeriesContainer').classList.remove('hide');
-        parent.querySelector('.fldSeasonZeroDisplayName').classList.remove('hide');
-        parent.querySelector('#txtSeasonZeroName').setAttribute('required', 'required');
+        parent.querySelector('.chkAutomaticallyGroupSeriesContainer')!.classList.remove('hide');
+        parent.querySelector('.fldSeasonZeroDisplayName')!.classList.remove('hide');
+        parent.querySelector('#txtSeasonZeroName')!.setAttribute('required', 'required');
     } else {
-        parent.querySelector('.chkAutomaticallyGroupSeriesContainer').classList.add('hide');
-        parent.querySelector('.fldSeasonZeroDisplayName').classList.add('hide');
-        parent.querySelector('#txtSeasonZeroName').removeAttribute('required');
+        parent.querySelector('.chkAutomaticallyGroupSeriesContainer')!.classList.add('hide');
+        parent.querySelector('.fldSeasonZeroDisplayName')!.classList.add('hide');
+        parent.querySelector('#txtSeasonZeroName')!.removeAttribute('required');
     }
 
     if (contentType === 'books' || contentType === 'boxsets' || contentType === 'playlists' || contentType === 'music') {
-        parent.querySelector('.chkEnableEmbeddedTitlesContainer').classList.add('hide');
-        parent.querySelector('.chkEnableEmbeddedExtrasTitlesContainer').classList.add('hide');
+        parent.querySelector('.chkEnableEmbeddedTitlesContainer')!.classList.add('hide');
+        parent.querySelector('.chkEnableEmbeddedExtrasTitlesContainer')!.classList.add('hide');
     } else {
-        parent.querySelector('.chkEnableEmbeddedTitlesContainer').classList.remove('hide');
-        if (parent.querySelector('#chkEnableEmbeddedTitles').checked) {
-            parent.querySelector('.chkEnableEmbeddedExtrasTitlesContainer').classList.remove('hide');
+        parent.querySelector('.chkEnableEmbeddedTitlesContainer')!.classList.remove('hide');
+        if ((parent.querySelector('#chkEnableEmbeddedTitles') as HTMLInputElement).checked) {
+            parent.querySelector('.chkEnableEmbeddedExtrasTitlesContainer')!.classList.remove('hide');
         }
     }
 
-    parent.querySelector('.chkEnableLUFSScanContainer').classList.toggle('hide', contentType !== 'music');
+    parent.querySelector('.chkEnableLUFSScanContainer')!.classList.toggle('hide', contentType !== 'music');
 
     if (contentType === 'tvshows') {
-        parent.querySelector('.chkEnableEmbeddedEpisodeInfosContainer').classList.remove('hide');
+        parent.querySelector('.chkEnableEmbeddedEpisodeInfosContainer')!.classList.remove('hide');
     } else {
-        parent.querySelector('.chkEnableEmbeddedEpisodeInfosContainer').classList.add('hide');
+        parent.querySelector('.chkEnableEmbeddedEpisodeInfosContainer')!.classList.add('hide');
     }
 
     if (contentType === 'tvshows' || contentType === 'movies' || contentType === 'musicvideos' || contentType === 'mixed') {
-        parent.querySelector('.fldAllowEmbeddedSubtitlesContainer').classList.remove('hide');
+        parent.querySelector('.fldAllowEmbeddedSubtitlesContainer')!.classList.remove('hide');
     } else {
-        parent.querySelector('.fldAllowEmbeddedSubtitlesContainer').classList.add('hide');
+        parent.querySelector('.fldAllowEmbeddedSubtitlesContainer')!.classList.add('hide');
     }
 
     if (contentType === 'music') {
-        parent.querySelector('.lyricSettingsSection').classList.remove('hide');
-        parent.querySelector('.audioTagSettingsSection').classList.remove('hide');
+        parent.querySelector('.lyricSettingsSection')!.classList.remove('hide');
+        parent.querySelector('.audioTagSettingsSection')!.classList.remove('hide');
     } else {
-        parent.querySelector('.lyricSettingsSection').classList.add('hide');
-        parent.querySelector('.audioTagSettingsSection').classList.add('hide');
+        parent.querySelector('.lyricSettingsSection')!.classList.add('hide');
+        parent.querySelector('.audioTagSettingsSection')!.classList.add('hide');
     }
 
-    parent.querySelector('.chkAutomaticallyAddToCollectionContainer').classList.toggle('hide', contentType !== 'movies' && contentType !== 'mixed');
+    parent.querySelector('.chkAutomaticallyAddToCollectionContainer')!.classList.toggle('hide', contentType !== 'movies' && contentType !== 'mixed');
 
-    return populateMetadataSettings(parent, contentType);
+    return populateMetadataSettings(parent, contentType ?? '');
 }
 
 function setSubtitleFetchersIntoOptions(parent: any, options: any) {
@@ -780,17 +800,17 @@ function setMetadataFetchersIntoOptions(parent: any, options: any) {
             typeOptions = {
                 Type: type
             };
-            options.TypeOptions.push(typeOptions);
+            (options.TypeOptions ??= []).push(typeOptions);
         }
         typeOptions.MetadataFetchers = Array.prototype.map.call(Array.prototype.filter.call(section.querySelectorAll('.chkMetadataFetcher'), (elem: any) => {
             return elem.checked;
         }), (elem: any) => {
             return elem.getAttribute('data-pluginname');
-        });
+        }) as string[];
 
         typeOptions.MetadataFetcherOrder = Array.prototype.map.call(section.querySelectorAll('.metadataFetcherItem'), (elem: any) => {
             return elem.getAttribute('data-pluginname');
-        });
+        }) as string[];
     }
 }
 
@@ -803,18 +823,18 @@ function setImageFetchersIntoOptions(parent: any, options: any) {
             typeOptions = {
                 Type: type
             };
-            options.TypeOptions.push(typeOptions);
+            (options.TypeOptions ??= []).push(typeOptions);
         }
 
         typeOptions.ImageFetchers = Array.prototype.map.call(Array.prototype.filter.call(section.querySelectorAll('.chkImageFetcher'), (elem: any) => {
             return elem.checked;
         }), (elem: any) => {
             return elem.getAttribute('data-pluginname');
-        });
+        }) as string[];
 
         typeOptions.ImageFetcherOrder = Array.prototype.map.call(section.querySelectorAll('.imageFetcherItem'), (elem: any) => {
             return elem.getAttribute('data-pluginname');
-        });
+        }) as string[];
     }
 }
 
@@ -827,18 +847,18 @@ function setSimilarItemProvidersIntoOptions(parent: any, options: any) {
             typeOptions = {
                 Type: type
             };
-            options.TypeOptions.push(typeOptions);
+            (options.TypeOptions ??= []).push(typeOptions);
         }
 
         typeOptions.SimilarItemProviders = Array.prototype.map.call(Array.prototype.filter.call(section.querySelectorAll('.chkSimilarItemProvider'), (elem: any) => {
             return elem.checked;
         }), (elem: any) => {
             return elem.getAttribute('data-pluginname');
-        });
+        }) as string[];
 
         typeOptions.SimilarItemProviderOrder = Array.prototype.map.call(section.querySelectorAll('.similarItemProviderItem'), (elem: any) => {
             return elem.getAttribute('data-pluginname');
-        });
+        }) as string[];
     }
 }
 
@@ -851,7 +871,7 @@ function setImageOptionsIntoOptions(options: EditorLibraryOptions) {
             typeOptions = {
                 Type: originalTypeOption.Type
             };
-            options.TypeOptions.push(typeOptions);
+            (options.TypeOptions ??= []).push(typeOptions);
         }
         originalTypeOption.ImageOptions && (typeOptions.ImageOptions = originalTypeOption.ImageOptions);
     }
@@ -859,53 +879,53 @@ function setImageOptionsIntoOptions(options: EditorLibraryOptions) {
 
 export function getLibraryOptions(parent: HTMLElement): EditorLibraryOptions {
     const options: EditorLibraryOptions = {
-        Enabled: parent.querySelector('.chkEnabled').checked,
+        Enabled: (parent.querySelector('.chkEnabled') as HTMLInputElement).checked,
         EnableArchiveMediaFiles: false,
-        EnablePhotos: parent.querySelector('.chkEnablePhotos').checked,
+        EnablePhotos: (parent.querySelector('.chkEnablePhotos') as HTMLInputElement).checked,
         EnableRealtimeMonitor: true,
-        EnableLUFSScan: parent.querySelector('.chkEnableLUFSScan').checked,
-        ExtractTrickplayImagesDuringLibraryScan: parent.querySelector('.chkExtractTrickplayDuringLibraryScan').checked,
-        SaveTrickplayWithMedia: parent.querySelector('.chkSaveTrickplayLocally').checked,
-        EnableTrickplayImageExtraction: parent.querySelector('.chkExtractTrickplayImages').checked,
-        ExtractChapterImagesDuringLibraryScan: parent.querySelector('.chkExtractChaptersDuringLibraryScan').checked,
-        EnableChapterImageExtraction: parent.querySelector('.chkExtractChapterImages').checked,
+        EnableLUFSScan: (parent.querySelector('.chkEnableLUFSScan') as HTMLInputElement).checked,
+        ExtractTrickplayImagesDuringLibraryScan: (parent.querySelector('.chkExtractTrickplayDuringLibraryScan') as HTMLInputElement).checked,
+        SaveTrickplayWithMedia: (parent.querySelector('.chkSaveTrickplayLocally') as HTMLInputElement).checked,
+        EnableTrickplayImageExtraction: (parent.querySelector('.chkExtractTrickplayImages') as HTMLInputElement).checked,
+        ExtractChapterImagesDuringLibraryScan: (parent.querySelector('.chkExtractChaptersDuringLibraryScan') as HTMLInputElement).checked,
+        EnableChapterImageExtraction: (parent.querySelector('.chkExtractChapterImages') as HTMLInputElement).checked,
         EnableInternetProviders: true,
-        SaveLocalMetadata: parent.querySelector('#chkSaveLocal').checked,
-        EnableAutomaticSeriesGrouping: parent.querySelector('.chkAutomaticallyGroupSeries').checked,
-        PreferredMetadataLanguage: parent.querySelector('#selectLanguage').value,
-        MetadataCountryCode: parent.querySelector('#selectCountry').value,
-        SeasonZeroDisplayName: parent.querySelector('#txtSeasonZeroName').value,
-        AutomaticRefreshIntervalDays: parseInt(parent.querySelector('#selectAutoRefreshInterval').value, 10),
-        EnableEmbeddedTitles: parent.querySelector('#chkEnableEmbeddedTitles').checked,
-        EnableEmbeddedExtrasTitles: parent.querySelector('#chkEnableEmbeddedExtrasTitles').checked,
-        EnableEmbeddedEpisodeInfos: parent.querySelector('#chkEnableEmbeddedEpisodeInfos').checked,
-        AllowEmbeddedSubtitles: parent.querySelector('#selectAllowEmbeddedSubtitles').value,
-        SkipSubtitlesIfEmbeddedSubtitlesPresent: parent.querySelector('#chkSkipIfGraphicalSubsPresent').checked,
-        SkipSubtitlesIfAudioTrackMatches: parent.querySelector('#chkSkipIfAudioTrackPresent').checked,
-        SaveSubtitlesWithMedia: parent.querySelector('#chkSaveSubtitlesLocally').checked,
-        SaveLyricsWithMedia: parent.querySelector('#chkSaveLyricsLocally').checked,
-        RequirePerfectSubtitleMatch: parent.querySelector('#chkRequirePerfectMatch').checked,
-        AutomaticallyAddToCollection: parent.querySelector('#chkAutomaticallyAddToCollection').checked,
-        PreferNonstandardArtistsTag: parent.querySelector('#chkPreferNonstandardArtistsTag').checked,
-        UseCustomTagDelimiters: parent.querySelector('#chkUseCustomTagDelimiters').checked,
+        SaveLocalMetadata: (parent.querySelector('#chkSaveLocal') as HTMLInputElement).checked,
+        EnableAutomaticSeriesGrouping: (parent.querySelector('.chkAutomaticallyGroupSeries') as HTMLInputElement).checked,
+        PreferredMetadataLanguage: (parent.querySelector('#selectLanguage') as HTMLInputElement).value,
+        MetadataCountryCode: (parent.querySelector('#selectCountry') as HTMLInputElement).value,
+        SeasonZeroDisplayName: (parent.querySelector('#txtSeasonZeroName') as HTMLInputElement).value,
+        AutomaticRefreshIntervalDays: parseInt((parent.querySelector('#selectAutoRefreshInterval') as HTMLInputElement).value, 10),
+        EnableEmbeddedTitles: (parent.querySelector('#chkEnableEmbeddedTitles') as HTMLInputElement).checked,
+        EnableEmbeddedExtrasTitles: (parent.querySelector('#chkEnableEmbeddedExtrasTitles') as HTMLInputElement).checked,
+        EnableEmbeddedEpisodeInfos: (parent.querySelector('#chkEnableEmbeddedEpisodeInfos') as HTMLInputElement).checked,
+        AllowEmbeddedSubtitles: (parent.querySelector('#selectAllowEmbeddedSubtitles') as HTMLInputElement).value as any,
+        SkipSubtitlesIfEmbeddedSubtitlesPresent: (parent.querySelector('#chkSkipIfGraphicalSubsPresent') as HTMLInputElement).checked,
+        SkipSubtitlesIfAudioTrackMatches: (parent.querySelector('#chkSkipIfAudioTrackPresent') as HTMLInputElement).checked,
+        SaveSubtitlesWithMedia: (parent.querySelector('#chkSaveSubtitlesLocally') as HTMLInputElement).checked,
+        SaveLyricsWithMedia: (parent.querySelector('#chkSaveLyricsLocally') as HTMLInputElement).checked,
+        RequirePerfectSubtitleMatch: (parent.querySelector('#chkRequirePerfectMatch') as HTMLInputElement).checked,
+        AutomaticallyAddToCollection: (parent.querySelector('#chkAutomaticallyAddToCollection') as HTMLInputElement).checked,
+        PreferNonstandardArtistsTag: (parent.querySelector('#chkPreferNonstandardArtistsTag') as HTMLInputElement).checked,
+        UseCustomTagDelimiters: (parent.querySelector('#chkUseCustomTagDelimiters') as HTMLInputElement).checked,
         MetadataSavers: Array.prototype.map.call(Array.prototype.filter.call(parent.querySelectorAll('.chkMetadataSaver'), (elem: any) => {
             return elem.checked;
         }), (elem: any) => {
             return elem.getAttribute('data-pluginname');
-        }),
+        }) as string[],
         TypeOptions: []
     };
 
     options.LocalMetadataReaderOrder = Array.prototype.map.call(parent.querySelectorAll('.localReaderOption'), (elem: any) => {
         return elem.getAttribute('data-pluginname');
-    });
+    }) as string[];
     options.SubtitleDownloadLanguages = Array.prototype.map.call(Array.prototype.filter.call(parent.querySelectorAll('.chkSubtitleLanguage'), (elem: any) => {
         return elem.checked;
     }), (elem: any) => {
         return elem.getAttribute('data-lang');
-    });
-    options.CustomTagDelimiters = parent.querySelector('#customTagDelimitersInput').value.split('');
-    options.DelimiterWhitelist = parent.querySelector('#tagDelimiterWhitelist').value.split('\n').filter((item: any) => item.trim());
+    }) as string[];
+    options.CustomTagDelimiters = (parent.querySelector('#customTagDelimitersInput') as HTMLInputElement).value.split('');
+    options.DelimiterWhitelist = (parent.querySelector('#tagDelimiterWhitelist') as HTMLInputElement).value.split('\n').filter((item: any) => item.trim());
     setSubtitleFetchersIntoOptions(parent, options);
     setLyricFetchersIntoOptions(parent, options);
     setMediaSegmentProvidersIntoOptions(parent, options);
@@ -929,51 +949,54 @@ function getOrderedPlugins(plugins: any = [], configuredOrder: any = []) {
 
 export function setLibraryOptions(parent: HTMLElement, options: EditorLibraryOptions) {
     currentLibraryOptions = options;
-    currentAvailableOptions = parent.availableOptions;
-    parent.querySelector('#selectLanguage').value = options.PreferredMetadataLanguage || '';
-    parent.querySelector('#selectCountry').value = options.MetadataCountryCode || '';
-    parent.querySelector('#selectAutoRefreshInterval').value = options.AutomaticRefreshIntervalDays || '0';
-    parent.querySelector('#txtSeasonZeroName').value = options.SeasonZeroDisplayName || 'Specials';
-    parent.querySelector('.chkEnabled').checked = options.Enabled;
-    parent.querySelector('.chkEnablePhotos').checked = options.EnablePhotos;
-    parent.querySelector('.chkEnableRealtimeMonitor').checked = true;
-    parent.querySelector('.chkEnableRealtimeMonitor').disabled = true;
-    parent.querySelector('.chkEnableLUFSScan').checked = options.EnableLUFSScan;
-    parent.querySelector('.chkExtractTrickplayDuringLibraryScan').checked = options.ExtractTrickplayImagesDuringLibraryScan;
-    parent.querySelector('.chkExtractTrickplayImages').checked = options.EnableTrickplayImageExtraction;
-    parent.querySelector('.chkSaveTrickplayLocally').checked = options.SaveTrickplayWithMedia;
-    parent.querySelector('.chkExtractChaptersDuringLibraryScan').checked = options.ExtractChapterImagesDuringLibraryScan;
-    parent.querySelector('.chkExtractChapterImages').checked = options.EnableChapterImageExtraction;
-    parent.querySelector('#chkSaveLocal').checked = options.SaveLocalMetadata;
-    parent.querySelector('.chkAutomaticallyGroupSeries').checked = options.EnableAutomaticSeriesGrouping;
-    parent.querySelector('#chkEnableEmbeddedTitles').checked = options.EnableEmbeddedTitles;
-    parent.querySelector('.chkEnableEmbeddedExtrasTitlesContainer').classList.toggle('hide', !options.EnableEmbeddedTitles);
-    parent.querySelector('#chkEnableEmbeddedExtrasTitles').checked = options.EnableEmbeddedExtrasTitles;
-    parent.querySelector('#chkEnableEmbeddedEpisodeInfos').checked = options.EnableEmbeddedEpisodeInfos;
-    parent.querySelector('#selectAllowEmbeddedSubtitles').value = options.AllowEmbeddedSubtitles;
-    parent.querySelector('#chkSkipIfGraphicalSubsPresent').checked = options.SkipSubtitlesIfEmbeddedSubtitlesPresent;
-    parent.querySelector('#chkSaveSubtitlesLocally').checked = options.SaveSubtitlesWithMedia;
-    parent.querySelector('#chkSaveLyricsLocally').checked = options.SaveLyricsWithMedia;
-    parent.querySelector('#chkSkipIfAudioTrackPresent').checked = options.SkipSubtitlesIfAudioTrackMatches;
-    parent.querySelector('#chkRequirePerfectMatch').checked = options.RequirePerfectSubtitleMatch;
-    parent.querySelector('#chkAutomaticallyAddToCollection').checked = options.AutomaticallyAddToCollection;
-    parent.querySelector('#chkPreferNonstandardArtistsTag').checked = options.PreferNonstandardArtistsTag;
-    parent.querySelector('#chkUseCustomTagDelimiters').checked = options.UseCustomTagDelimiters;
+    currentAvailableOptions = parent.availableOptions ?? null;
+    (parent.querySelector('#selectLanguage') as HTMLInputElement).value = options.PreferredMetadataLanguage || '';
+    (parent.querySelector('#selectCountry') as HTMLInputElement).value = options.MetadataCountryCode || '';
+    (parent.querySelector('#selectAutoRefreshInterval') as HTMLInputElement).value = String(options.AutomaticRefreshIntervalDays ?? 0);
+    (parent.querySelector('#txtSeasonZeroName') as HTMLInputElement).value = options.SeasonZeroDisplayName || 'Specials';
+    (parent.querySelector('.chkEnabled') as HTMLInputElement).checked = options.Enabled ?? false;
+    (parent.querySelector('.chkEnablePhotos') as HTMLInputElement).checked = options.EnablePhotos ?? false;
+    (parent.querySelector('.chkEnableRealtimeMonitor') as HTMLInputElement).checked = true;
+    (parent.querySelector('.chkEnableRealtimeMonitor') as HTMLInputElement).disabled = true;
+    (parent.querySelector('.chkEnableLUFSScan') as HTMLInputElement).checked = options.EnableLUFSScan ?? false;
+    (parent.querySelector('.chkExtractTrickplayDuringLibraryScan') as HTMLInputElement).checked = options.ExtractTrickplayImagesDuringLibraryScan ?? false;
+    (parent.querySelector('.chkExtractTrickplayImages') as HTMLInputElement).checked = options.EnableTrickplayImageExtraction ?? false;
+    (parent.querySelector('.chkSaveTrickplayLocally') as HTMLInputElement).checked = options.SaveTrickplayWithMedia ?? false;
+    (parent.querySelector('.chkExtractChaptersDuringLibraryScan') as HTMLInputElement).checked = options.ExtractChapterImagesDuringLibraryScan ?? false;
+    (parent.querySelector('.chkExtractChapterImages') as HTMLInputElement).checked = options.EnableChapterImageExtraction ?? false;
+    (parent.querySelector('#chkSaveLocal') as HTMLInputElement).checked = options.SaveLocalMetadata ?? false;
+    (parent.querySelector('.chkAutomaticallyGroupSeries') as HTMLInputElement).checked = options.EnableAutomaticSeriesGrouping ?? false;
+    (parent.querySelector('#chkEnableEmbeddedTitles') as HTMLInputElement).checked = options.EnableEmbeddedTitles ?? false;
+    parent.querySelector('.chkEnableEmbeddedExtrasTitlesContainer')!.classList.toggle('hide', !options.EnableEmbeddedTitles);
+    (parent.querySelector('#chkEnableEmbeddedExtrasTitles') as HTMLInputElement).checked = options.EnableEmbeddedExtrasTitles ?? false;
+    (parent.querySelector('#chkEnableEmbeddedEpisodeInfos') as HTMLInputElement).checked = options.EnableEmbeddedEpisodeInfos ?? false;
+    (parent.querySelector('#selectAllowEmbeddedSubtitles') as HTMLInputElement).value = options.AllowEmbeddedSubtitles ?? '';
+    (parent.querySelector('#chkSkipIfGraphicalSubsPresent') as HTMLInputElement).checked = options.SkipSubtitlesIfEmbeddedSubtitlesPresent ?? false;
+    (parent.querySelector('#chkSaveSubtitlesLocally') as HTMLInputElement).checked = options.SaveSubtitlesWithMedia ?? false;
+    (parent.querySelector('#chkSaveLyricsLocally') as HTMLInputElement).checked = options.SaveLyricsWithMedia ?? false;
+    (parent.querySelector('#chkSkipIfAudioTrackPresent') as HTMLInputElement).checked = options.SkipSubtitlesIfAudioTrackMatches ?? false;
+    (parent.querySelector('#chkRequirePerfectMatch') as HTMLInputElement).checked = options.RequirePerfectSubtitleMatch ?? false;
+    (parent.querySelector('#chkAutomaticallyAddToCollection') as HTMLInputElement).checked = options.AutomaticallyAddToCollection ?? false;
+    (parent.querySelector('#chkPreferNonstandardArtistsTag') as HTMLInputElement).checked = options.PreferNonstandardArtistsTag ?? false;
+    (parent.querySelector('#chkUseCustomTagDelimiters') as HTMLInputElement).checked = options.UseCustomTagDelimiters ?? false;
     Array.prototype.forEach.call(parent.querySelectorAll('.chkMetadataSaver'), (elem: any) => {
         elem.checked = options.MetadataSavers ? options.MetadataSavers.includes(elem.getAttribute('data-pluginname')) : elem.getAttribute('data-defaultenabled') === 'true';
     });
     Array.prototype.forEach.call(parent.querySelectorAll('.chkSubtitleLanguage'), (elem: any) => {
         elem.checked = !!options.SubtitleDownloadLanguages && options.SubtitleDownloadLanguages.includes(elem.getAttribute('data-lang'));
     });
-    parent.querySelector('#customTagDelimitersInput').value = options.CustomTagDelimiters.join('');
-    parent.querySelector('#tagDelimiterWhitelist').value = options.DelimiterWhitelist.filter((item: any) => item.trim()).join('\n');
-    renderMetadataReaders(parent, getOrderedPlugins(parent.availableOptions.MetadataReaders, options.LocalMetadataReaderOrder || []));
-    renderMetadataFetchers(parent, parent.availableOptions, options);
-    renderImageFetchers(parent, parent.availableOptions, options);
-    renderSimilarItemProviders(parent, parent.availableOptions, options);
-    renderSubtitleFetchers(parent, parent.availableOptions, options);
-    renderLyricFetchers(parent, parent.availableOptions, options);
-    renderMediaSegmentProviders(parent, parent.availableOptions, options);
+    (parent.querySelector('#customTagDelimitersInput') as HTMLInputElement).value = options.CustomTagDelimiters?.join('') ?? '';
+    (parent.querySelector('#tagDelimiterWhitelist') as HTMLInputElement).value = options.DelimiterWhitelist?.filter((item: any) => item.trim()).join('\n') ?? '';
+    const availableOptions = parent.availableOptions;
+    if (availableOptions) {
+        renderMetadataReaders(parent, getOrderedPlugins(availableOptions.MetadataReaders, options.LocalMetadataReaderOrder || []));
+        renderMetadataFetchers(parent, availableOptions, options);
+        renderImageFetchers(parent, availableOptions, options);
+        renderSimilarItemProviders(parent, availableOptions, options);
+        renderSubtitleFetchers(parent, availableOptions, options);
+        renderLyricFetchers(parent, availableOptions, options);
+        renderMediaSegmentProviders(parent, availableOptions, options);
+    }
 
     if (options.MetadataCountryCode) {
         void syncMetadataLanguageFromCountry(parent);

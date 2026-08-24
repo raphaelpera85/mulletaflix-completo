@@ -3,7 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.SystemBackupService;
 
-namespace MulletaFlix.Server.Implementations.SystemBackupService;
+namespace MediaBrowser.Controller.SystemBackupService;
 
 /// <summary>
 /// Defines an interface to restore and backup the MulletaFlix system.
@@ -45,5 +45,18 @@ public interface IBackupService
     /// </summary>
     /// <param name="archivePath">The path to the archive to restore from.</param>
     void ScheduleRestoreAndRestartServer(string archivePath);
+
+    /// <summary>
+    /// Gets the backup execution history.
+    /// </summary>
+    /// <returns>A list of backup execution history entries.</returns>
+    Task<BackupExecutionHistoryDto[]> GetBackupHistory();
+
+    /// <summary>
+    /// Validates the integrity of a backup archive.
+    /// </summary>
+    /// <param name="archivePath">The path to the backup archive.</param>
+    /// <returns>True if the backup is valid, false otherwise.</returns>
+    Task<bool> ValidateBackupIntegrity(string archivePath);
 }
 

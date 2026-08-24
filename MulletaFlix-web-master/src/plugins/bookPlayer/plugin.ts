@@ -86,6 +86,116 @@ interface BookUploadApiClient {
     uploadItemImage(itemId: string | undefined, index: number, file: File): Promise<unknown>;
 }
 
+interface BookItem {
+    Id?: string;
+    ServerId?: string;
+    Path?: string;
+    Name?: string;
+    ImageTags?: { Primary?: string };
+}
+
+interface StreamInfo {
+    started?: boolean;
+    ended?: boolean;
+    item?: BookItem;
+    mediaSource?: { Id?: string };
+}
+
+interface EpubLocation {
+    start?: { cfi?: string };
+    end?: { cfi?: string };
+}
+
+interface EpubCfiStep {
+    type?: string;
+    index?: number;
+    id?: string;
+}
+
+interface EpubCfiPath {
+    steps: EpubCfiStep[];
+    terminal: unknown;
+}
+
+interface EpubCfi {
+    base?: { steps?: EpubCfiStep[] };
+    spinePos?: number;
+    path: EpubCfiPath;
+    start?: EpubCfiPath;
+    end?: EpubCfiPath;
+    range?: boolean;
+    toString(): string;
+}
+
+interface EpubThemes {
+    register(name: string, styles: unknown): void;
+    select(name: string): void;
+    update(name: string): void;
+    fontSize(size: string): void;
+}
+
+interface EpubNavigationChapter {
+    href?: string;
+    label?: string;
+    subitems?: EpubNavigationChapter[];
+}
+
+interface EpubSpineItem {
+    document?: Document;
+    load?(loader: (url: string) => Promise<Document>): Promise<Document>;
+    href?: string;
+    url?: string;
+}
+
+interface EpubContents {
+    document?: {
+        body?: {
+            textContent?: string;
+        };
+        documentElement?: HTMLElement;
+    };
+}
+
+interface EpubLocations {
+    generate(characters: number): Promise<unknown>;
+    cfiFromPercentage(percentage: number): string;
+    percentageFromCfi(cfi: string): number;
+}
+
+interface EpubBook {
+    renderTo(element: string, options: Record<string, unknown>): EpubRendition;
+    locations: EpubLocations;
+    getRange(cfi: string): Promise<Range>;
+    load(url: string): Promise<Document>;
+    path: { directory: string };
+    spine: { spineItems: EpubSpineItem[] };
+    navigation: EpubNavigationChapter[];
+    package: { metadata: { direction?: string } };
+}
+
+interface EpubRendition {
+    on(event: 'keydown', handler: (e: KeyboardEvent) => void): void;
+    on(event: 'rendered', handler: (e: unknown, contents: EpubContents) => void): void;
+    on(event: 'relocated', handler: (location: EpubLocation) => void): void;
+    off(event: 'keydown', handler: (e: KeyboardEvent) => void): void;
+    off(event: 'rendered', handler: (e: unknown, contents: EpubContents) => void): void;
+    off(event: 'relocated', handler: (location: EpubLocation) => void): void;
+    destroy(): void;
+    resize(width: number, height: number): void;
+    themes: EpubThemes;
+    book: EpubBook;
+    next(): Promise<unknown>;
+    prev(): Promise<unknown>;
+    getContents(): EpubContents[];
+    currentLocation(): EpubLocation;
+    display(target?: string): Promise<unknown>;
+}
+
+interface EpubJsModule {
+    CFI: new (cfi?: string) => EpubCfi;
+    (url: string, options: { openAs: string }): EpubBook;
+}
+
 export class BookPlayer {
     name: string;
     type: PluginType;
@@ -107,12 +217,12 @@ export class BookPlayer {
     loaded!: boolean;
     mediaElement: HTMLElement | null = null;
     tocElement: TableOfContents | null = null;
-    rendition: any;
-    epubjs: any;
+    rendition: EpubRendition | undefined;
+    epubjs: EpubJsModule | undefined;
     currentSrc: string = '';
     touchHelper: TouchHelper | null = null;
-    item: any;
-    streamInfo: any;
+    item: BookItem | undefined;
+    streamInfo: StreamInfo | undefined;
 
     constructor() {
         this.name = 'Book Player';
@@ -120,12 +230,20 @@ export class BookPlayer {
         this.id = 'bookplayer';
         this.priority = 1;
         this.THEMES = THEMES;
-        if (!userSettings.theme() || userSettings.theme() === 'dark') {
+        const savedTheme = userSettings.bookPlayerTheme();
+        if (savedTheme && THEME_ORDER.includes(savedTheme as ThemeName)) {
+            this.theme = savedTheme as ThemeName;
+        } else if (!userSettings.theme() || userSettings.theme() === 'dark') {
             this.theme = 'dark';
         } else {
             this.theme = 'light';
         }
-        this.fontSize = 'medium';
+        const savedFontSize = userSettings.bookPlayerFontSize();
+        if (savedFontSize && FONT_SIZES.includes(savedFontSize as FontSize)) {
+            this.fontSize = savedFontSize as FontSize;
+        } else {
+            this.fontSize = 'medium';
+        }
         this.ttsActive = false;
         this.ttsUtterance = null;
         this.ttsPaused = false;
@@ -213,7 +331,7 @@ export class BookPlayer {
         }
     }
 
-    currentItem(): any {
+    currentItem(): BookItem | undefined {
         return this.item;
     }
 
@@ -325,7 +443,11 @@ export class BookPlayer {
             const player = document.getElementById('bookPlayerContainer')!;
             this.addSwipeGestures(player);
         } else {
-            this.rendition?.on('rendered', (_e: any, i: any) => this.addSwipeGestures(i.document.documentElement));
+            this.rendition?.on('rendered', (_e, i) => {
+                if (i.document?.documentElement) {
+                    this.addSwipeGestures(i.document.documentElement);
+                }
+            });
         }
     }
 
@@ -355,7 +477,11 @@ export class BookPlayer {
         this.rendition?.off('keydown', this.onWindowKeyDown);
 
         if (!browser.safari) {
-            this.rendition?.off('rendered', (_e: any, i: any) => this.addSwipeGestures(i.document.documentElement));
+            this.rendition?.off('rendered', (_e, i) => {
+                if (i.document?.documentElement) {
+                    this.addSwipeGestures(i.document.documentElement);
+                }
+            });
         }
 
         this.touchHelper?.destroy();
@@ -377,10 +503,10 @@ export class BookPlayer {
         }
     }
 
-    flattenNavigationChapters(chapters: any[], book: any, depth: number = 0): Chapter[] {
+    flattenNavigationChapters(chapters: EpubNavigationChapter[], book: EpubBook, depth: number = 0): Chapter[] {
         if (!chapters?.length) return [];
 
-        return chapters.flatMap((chapter: any) => {
+        return chapters.flatMap((chapter: EpubNavigationChapter) => {
             const link = chapter.href?.startsWith('../') ? chapter.href.slice(3) : chapter.href;
             const href = link ? book.path.directory + link : '';
             const mappedChapter: Chapter = {
@@ -392,7 +518,7 @@ export class BookPlayer {
 
             return [
                 mappedChapter,
-                ...this.flattenNavigationChapters(chapter.subitems, book, depth + 1)
+                ...this.flattenNavigationChapters(chapter.subitems ?? [], book, depth + 1)
             ];
         }).filter((chapter: Chapter) => chapter.href);
     }
@@ -415,7 +541,7 @@ export class BookPlayer {
             || classAndId.includes('capítulo');
     }
 
-    async loadSpineDocument(book: any, spineItem: any): Promise<Document | null> {
+    async loadSpineDocument(book: EpubBook, spineItem: EpubSpineItem): Promise<Document | null> {
         try {
             if (spineItem.document) {
                 return spineItem.document;
@@ -431,7 +557,7 @@ export class BookPlayer {
         return null;
     }
 
-    getChapterHrefFromElement(spineItem: any, element: HTMLElement): string {
+    getChapterHrefFromElement(spineItem: EpubSpineItem, element: HTMLElement): string {
         const href = spineItem.href || spineItem.url || '';
 
         if (!href) return '';
@@ -444,7 +570,7 @@ export class BookPlayer {
         return `${href}#${element.id}`;
     }
 
-    async detectChaptersFromSpine(book: any): Promise<Chapter[]> {
+    async detectChaptersFromSpine(book: EpubBook): Promise<Chapter[]> {
         const spineItems = book?.spine?.spineItems || [];
         const chapters: Chapter[] = [];
         const seen = new Set<string>();
@@ -480,7 +606,7 @@ export class BookPlayer {
         return chapters;
     }
 
-    async buildChapterMap(book: any): Promise<void> {
+    async buildChapterMap(book: EpubBook): Promise<void> {
         const navigationChapters = this.flattenNavigationChapters(book?.navigation, book);
 
         if (navigationChapters.length) {
@@ -504,7 +630,7 @@ export class BookPlayer {
         if (Screenfull.isEnabled) {
             icon.classList.remove(Screenfull.isFullscreen ? 'fullscreen_exit' : 'fullscreen');
             icon.classList.add(Screenfull.isFullscreen ? 'fullscreen' : 'fullscreen_exit');
-            Screenfull.toggle();
+            Screenfull.toggle()?.catch(() => undefined);
         } else if (window.NativeShell) {
             if (this.fullscreen) {
                 icon.classList.remove('fullscreen_exit');
@@ -520,48 +646,59 @@ export class BookPlayer {
         }
 
         // needs to be executed with a slight delay to give NativeShell time to process the request
-        setTimeout(() => this.rendition.resize(document.body.clientWidth, document.body.clientHeight * this.getPlayerHeight()), 200);
+        setTimeout(() => this.rendition?.resize(document.body.clientWidth, document.body.clientHeight * this.getPlayerHeight()), 200);
 
         // required for mobile apps without browser fullscreen support
         this.fullscreen = !this.fullscreen;
     }
 
     rotateTheme(): void {
-        if (this.loaded) {
+        if (this.loaded && this.rendition) {
             const newTheme = THEME_ORDER[(THEME_ORDER.indexOf(this.theme) + 1) % THEME_ORDER.length];
             this.rendition.themes.register('default', THEMES[newTheme]);
             this.rendition.themes.update('default');
             this.theme = newTheme;
+            userSettings.bookPlayerTheme(newTheme);
         }
     }
 
     increaseFontSize(): void {
-        if (this.loaded && this.fontSize !== FONT_SIZES[FONT_SIZES.length - 1]) {
+        if (this.loaded && this.rendition && this.fontSize !== FONT_SIZES[FONT_SIZES.length - 1]) {
             const newFontSize = FONT_SIZES[(FONT_SIZES.indexOf(this.fontSize) + 1)] as FontSize;
             this.rendition.themes.fontSize(newFontSize);
             this.fontSize = newFontSize;
+            userSettings.bookPlayerFontSize(newFontSize);
         }
     }
 
     decreaseFontSize(): void {
-        if (this.loaded && this.fontSize !== FONT_SIZES[0]) {
+        if (this.loaded && this.rendition && this.fontSize !== FONT_SIZES[0]) {
             const newFontSize = FONT_SIZES[(FONT_SIZES.indexOf(this.fontSize) - 1)] as FontSize;
             this.rendition.themes.fontSize(newFontSize);
             this.fontSize = newFontSize;
+            userSettings.bookPlayerFontSize(newFontSize);
         }
     }
 
     previous(e?: Event): void {
         e?.preventDefault();
         if (this.rendition) {
-            this.rendition.book.package.metadata.direction === 'rtl' ? this.rendition.next() : this.rendition.prev();
+            if (this.rendition.book.package.metadata.direction === 'rtl') {
+                void this.rendition.next();
+            } else {
+                void this.rendition.prev();
+            }
         }
     }
 
     next(e?: Event): void {
         e?.preventDefault();
         if (this.rendition) {
-            this.rendition.book.package.metadata.direction === 'rtl' ? this.rendition.prev() : this.rendition.next();
+            if (this.rendition.book.package.metadata.direction === 'rtl') {
+                void this.rendition.prev();
+            } else {
+                void this.rendition.next();
+            }
         }
     }
 
@@ -590,7 +727,7 @@ export class BookPlayer {
         }
     }
 
-    createVisiblePageRange(location: any): string | null {
+    createVisiblePageRange(location: EpubLocation | null | undefined): string | null {
         const startCfi = location?.start?.cfi;
         const endCfi = location?.end?.cfi;
         const EpubCFI = this.epubjs?.CFI;
@@ -639,7 +776,7 @@ export class BookPlayer {
         return range.toString();
     }
 
-    async extractTextFromPage(location?: any): Promise<string> {
+    async extractTextFromPage(location?: EpubLocation | null): Promise<string> {
         if (!this.rendition) return '';
 
         const visibleRange = this.createVisiblePageRange(location);
@@ -657,7 +794,7 @@ export class BookPlayer {
 
         const contents = this.rendition.getContents();
         return contents
-            .map((content: any) => content?.document?.body?.textContent || '')
+            .map((content: EpubContents) => content?.document?.body?.textContent || '')
             .join('\n')
             .trim();
     }
@@ -685,7 +822,7 @@ export class BookPlayer {
         }
     }
 
-    async speakCurrentPage(location?: any): Promise<void> {
+    async speakCurrentPage(location?: EpubLocation | null): Promise<void> {
         if (typeof speechSynthesis === 'undefined' || !this.ttsActive) return;
 
         const requestId = ++this.ttsRequestId;
@@ -763,7 +900,7 @@ export class BookPlayer {
         setMaterialIcon(playPauseIcon, 'play_arrow');
     }
 
-    async autoUploadCover(book: any): Promise<void> {
+    async autoUploadCover(book?: EpubBook | null): Promise<void> {
         const item = this.item;
         if (!item || !item.Id) return;
         if (item.ImageTags?.Primary) return;
@@ -814,11 +951,14 @@ export class BookPlayer {
                     if (!pngBlob) {
                         return;
                     }
+                    if (!item.ServerId) {
+                        return;
+                    }
                     const file = new File([pngBlob], 'cover.png', { type: 'image/png' });
-                    const apiClient = ServerConnections.getApiClient(item.ServerId) as any as BookUploadApiClient;
+                    const apiClient = ServerConnections.getApiClient(item.ServerId) as unknown as BookUploadApiClient;
                     apiClient
                         .uploadItemImage(item.Id, 0, file)
-                        .catch((error: any) => {
+                        .catch((error: unknown) => {
                             console.debug('Cover upload failed', error);
                         });
                 }, 'image/png');
@@ -872,7 +1012,7 @@ export class BookPlayer {
             elem.id = 'bookPlayer';
             elem.innerHTML = translateHtml(html);
 
-            dialogHelper.open(elem);
+            dialogHelper.open(elem).catch(() => undefined);
         }
 
         this.mediaElement = elem;
@@ -896,10 +1036,15 @@ export class BookPlayer {
         }
 
         return new Promise((resolve, reject) => {
-            import('epubjs').then(({ default: epubjs }) => {
+            void import('epubjs').then(({ default: epubjs }) => {
                 this.epubjs = epubjs;
                 const api = toApi(ServerConnections.getApiClient(item) as never);
-                const bookReaderHref = api.getUri(`BookReader/Items/${item.Id}/BookReader/Epub`);
+                // The BookReader endpoint requires authentication, but epubjs fetches the URL
+                // with a plain request (no X-Emby-Token header). Append ApiKey so the fetch is
+                // authorized via the query-string path (legacy api_key is disabled server-side).
+                const bookReaderHref = api.getUri(`BookReader/Items/${item.Id}/BookReader/Epub`, {
+                    ApiKey: api.accessToken
+                });
                 const book = epubjs(bookReaderHref, { openAs: 'epub' });
 
                 const rendition = book.renderTo('bookPlayerContainer', {
@@ -923,7 +1068,7 @@ export class BookPlayer {
 
                     const autoUploadCover = this.autoUploadCover.bind(this, book);
 
-                    return this.rendition.book.locations.generate(1024).then(async () => {
+                    return rendition.book.locations.generate(1024).then(async () => {
                         if (this.cancellationToken) reject();
 
                         await this.buildChapterMap(book);
@@ -935,8 +1080,11 @@ export class BookPlayer {
                         }
 
                         this.loaded = true;
-                        rendition.on('relocated', (locations: any) => {
-                            this.progress = book.locations.percentageFromCfi(locations.start.cfi);
+                        rendition.on('relocated', (locations: EpubLocation) => {
+                            const cfi = locations.start?.cfi;
+                            if (cfi) {
+                                this.progress = book.locations.percentageFromCfi(cfi);
+                            }
                             Events.trigger(this, 'pause');
                             if (this.ttsActive) {
                                 void this.speakCurrentPage(locations);

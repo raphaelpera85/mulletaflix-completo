@@ -43,7 +43,7 @@ export const useVideoSearch = (
     const normalizedSearchTerm = searchTerm?.trim();
 
     return useQuery({
-        queryKey: ['Search', 'Video', api?.basePath, collectionType, parentId, normalizedSearchTerm],
+        queryKey: ['Search', 'Video', api?.basePath, userId, collectionType, parentId, normalizedSearchTerm],
         staleTime: 60_000,
         queryFn: ({ signal }) => fetchVideos(
             api!,

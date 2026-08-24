@@ -207,7 +207,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
     this.showFilterMenu = function () {
         import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
-                query: getQuery(),
+                query: getQuery() as unknown as Record<string, unknown>,
                 mode: 'albums',
                 serverId: ApiClient.serverId()
             });

@@ -1095,19 +1095,30 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
 
                 try
                 {
-                    var validatedMediaEntries = (await MidiaStorageOnlineLinkValidator.FilterOnlineEntriesAsync(
-                        mediaCandidates,
-                        _httpClientFactory,
-                        _logger,
-                        ct,
-                        config.MaxLinkValidationConcurrency,
-                        GetOfflineLinkCachePath()).ConfigureAwait(false)).ToList();
-                    if (validatedMediaEntries.Count != mediaCandidates.Count)
+                    List<M3uEntry> validatedMediaEntries;
+                    if (MidiaStorageOnlineLinkValidator.RequiresMediaLinkValidation(config.OutputMode))
                     {
-                        Log($"Links offline removidos das midias antes do sync: {mediaCandidates.Count - validatedMediaEntries.Count}");
+                        validatedMediaEntries = (await MidiaStorageOnlineLinkValidator.FilterOnlineEntriesAsync(
+                            mediaCandidates,
+                            _httpClientFactory,
+                            _logger,
+                            ct,
+                            config.MaxLinkValidationConcurrency,
+                            GetOfflineLinkCachePath()).ConfigureAwait(false)).ToList();
+                        if (validatedMediaEntries.Count != mediaCandidates.Count)
+                        {
+                            Log($"Links offline removidos das midias antes do sync: {mediaCandidates.Count - validatedMediaEntries.Count}");
+                        }
+
+                        Log($"Midias validadas: {validatedMediaEntries.Count} entradas ativas.");
                     }
+                    else
+                    {
+                        validatedMediaEntries = mediaCandidates;
+                        Log($"Modo STRM: materializando {validatedMediaEntries.Count} atalhos sem pre-validacao HTTP bloqueante.");
+                    }
+
                     validatedMediaEntries = MidiaStorageOnlineEntryDeduplicator.DeduplicateByKey(validatedMediaEntries, BuildEntryDedupKey).ToList();
-                    Log($"Midias validadas: {validatedMediaEntries.Count} entradas ativas.");
 
                     // Count upfront to create libraries before file processing
                     int entryMovieCount = validatedMediaEntries.Count(e => e.Type == "Filme");

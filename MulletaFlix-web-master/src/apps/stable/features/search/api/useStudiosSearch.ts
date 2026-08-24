@@ -37,7 +37,7 @@ export const useStudiosSearch = (
     const isStudiosEnabled = (!collectionType || isMovies(collectionType) || isTVShows(collectionType));
 
     return useQuery({
-        queryKey: ['Search', 'Studios', api?.basePath, collectionType, parentId, normalizedSearchTerm],
+        queryKey: ['Search', 'Studios', api?.basePath, userId, collectionType, parentId, normalizedSearchTerm],
         staleTime: 60_000,
         queryFn: ({ signal }) => fetchStudios(
             api!,

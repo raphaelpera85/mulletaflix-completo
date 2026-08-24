@@ -10,6 +10,7 @@ import ListItemLink from 'components/ListItemLink';
 import globalize from 'lib/globalize';
 import Dashboard from 'utils/dashboard';
 import { useConfigurationPages } from 'apps/dashboard/features/plugins/api/useConfigurationPages';
+import { MIDIA_STORAGE_ONLINE_DASHBOARD_PATH } from 'apps/dashboard/routes/midiaStorageOnline';
 
 const PluginDrawerSection = () => {
     const {
@@ -34,6 +35,7 @@ const PluginDrawerSection = () => {
                 to='/dashboard/plugins'
                 includePaths={[
                     '/configurationpage',
+                    MIDIA_STORAGE_ONLINE_DASHBOARD_PATH,
                     '/dashboard/plugins/repositories'
                 ]}
                 excludePaths={pagesInfo?.map(p => `/${Dashboard.getPluginUrl(p.Name || '')}`)}
@@ -42,6 +44,13 @@ const PluginDrawerSection = () => {
                     <Extension />
                 </ListItemIcon>
                 <ListItemText primary={globalize.translate('TabPlugins')} />
+            </ListItemLink>
+
+            <ListItemLink to={MIDIA_STORAGE_ONLINE_DASHBOARD_PATH} sx={{ pl: 4 }}>
+                <ListItemIcon>
+                    <Folder />
+                </ListItemIcon>
+                <ListItemText primary='Midia Storage Online' />
             </ListItemLink>
 
             {pagesInfo?.map(pageInfo => (

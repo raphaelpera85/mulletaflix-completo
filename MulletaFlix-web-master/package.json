@@ -131,7 +131,11 @@
     "test:playwright:admin": "playwright test tests/playwright/specs/10-admin.spec.ts tests/playwright/specs/11-admin-extended.spec.ts tests/playwright/specs/12-admin-surfaces.spec.ts",
     "test:playwright:user": "playwright test tests/playwright/specs/20-user.spec.ts",
     "test:playwright:full": "playwright test tests/playwright/specs/00-wizard.spec.ts tests/playwright/specs/10-admin.spec.ts tests/playwright/specs/11-admin-extended.spec.ts tests/playwright/specs/12-admin-surfaces.spec.ts tests/playwright/specs/20-user.spec.ts tests/playwright/specs/21-multi-user-playback.spec.ts tests/playwright/specs/22-adsense-flow.spec.ts tests/playwright/specs/99-pagination.spec.ts",
-    "test:selenium-cucumber": "npm run selenium-cucumber"
+    "test:selenium-cucumber": "npm run selenium-cucumber",
+    "agents:list": "node ai/agents.mjs list",
+    "agents:prompt": "node ai/agents.mjs prompt",
+    "agents:check": "node ai/agents.mjs check",
+    "agents:map-plugins": "node ai/agents.mjs map-plugins"
   },
   "engines": {
     "node": ">=24.0.0",

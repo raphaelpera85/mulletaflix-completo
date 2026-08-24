@@ -44,6 +44,11 @@ public class MulletaFlixDbContext : DbContext
     public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
 
     /// <summary>
+    /// Gets the <see cref="DbSet{TEntity}"/> containing the action logs (audit trail).
+    /// </summary>
+    public DbSet<ActionLog> ActionLogs => Set<ActionLog>();
+
+    /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the API keys.
     /// </summary>
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();

@@ -23,6 +23,11 @@ internal static class MidiaStorageOnlineLinkValidator
         WriteIndented = true
     };
 
+    internal static bool RequiresMediaLinkValidation(string? outputMode)
+    {
+        return string.Equals(outputMode, "download", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static async Task<IReadOnlyList<T>> FilterOnlineEntriesAsync<T>(
         IReadOnlyList<T> entries,
         IHttpClientFactory httpClientFactory,

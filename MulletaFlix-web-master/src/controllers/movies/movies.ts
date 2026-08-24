@@ -283,7 +283,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                         userSettings.saveQuerySettings(savedQueryKey, query as Record<string, unknown>);
                         itemsContainer.refreshItems();
                     },
-                    query: query,
+                    query: query as unknown as Record<string, unknown>,
                     button: e.target
                 });
             });
@@ -334,7 +334,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
     this.showFilterMenu = function (): void {
         import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
-                query: query,
+                query: query as unknown as Record<string, unknown>,
                 mode: 'movies',
                 serverId: ApiClient.serverId(),
                 hasFilters: getFilterStatus(query)

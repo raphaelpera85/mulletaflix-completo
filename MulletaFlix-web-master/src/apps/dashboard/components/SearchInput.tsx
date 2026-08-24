@@ -56,7 +56,7 @@ const SearchInput: FC<SearchInputProps> = ({
                 <Search />
             </SearchIconWrapper>
             <StyledInputBase
-                placeholder={label}
+                placeholder={props.placeholder ?? label}
                 inputProps={{
                     'aria-label': label,
                     ...props.inputProps

@@ -90,6 +90,7 @@ Aumentar o nível de profissionalismo, percepção de qualidade e valor de produ
 3. Busca unificada
 4. Backup e recuperação aprimorados
 5. Gestão de plugins
+6. Relatório de playback por mídia e usuário
 
 ## Critério para próxima entrega
 

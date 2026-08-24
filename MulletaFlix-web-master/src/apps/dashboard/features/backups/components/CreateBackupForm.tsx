@@ -2,6 +2,7 @@ import React, { FunctionComponent, useCallback } from 'react';
 import globalize from 'lib/globalize';
 import type { BackupOptionsDto } from '@jellyfin/sdk/lib/generated-client/models/backup-options-dto';
 import Dialog from '@mui/material/Dialog';
+import { buildBackupOptions } from '../utils/backup';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import Stack from '@mui/material/Stack';
@@ -25,15 +26,7 @@ const CreateBackupForm: FunctionComponent<IProps> = ({ open, onClose, onCreate }
 
         const formData = new FormData(e.currentTarget);
 
-        const data = Object.fromEntries(formData.entries());
-
-        const backupOptions: BackupOptionsDto = {
-            'Metadata': data.Metadata?.toString() === 'on',
-            'Trickplay': data.Trickplay?.toString() === 'on',
-            'Subtitles': data.Subtitles?.toString() === 'on'
-        };
-
-        onCreate(backupOptions);
+        onCreate(buildBackupOptions(formData));
     }, [ onCreate ]);
 
     return (

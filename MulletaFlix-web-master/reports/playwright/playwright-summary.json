@@ -1,0 +1,34 @@
+{
+  "title": "MulletaFlix Playwright Summary",
+  "generatedAt": "2026-08-20T13:20:16.885Z",
+  "baseUrl": "http://127.0.0.1:8096",
+  "status": "failed",
+  "specCount": 9,
+  "tests": {
+    "total": 21,
+    "passed": 1,
+    "failed": 9,
+    "skipped": 11,
+    "durationMs": 205059.669
+  },
+  "stageProbe": {
+    "reachable": true,
+    "startupWizardCompleted": false,
+    "systemId": "f32f463f92334569bae3f2e13d6c38eb",
+    "error": null
+  },
+  "stageChecks": {
+    "wizard": true,
+    "admin": false,
+    "user": false,
+    "login": false
+  },
+  "assumptions": [
+    "Os specs devem continuar separados do código de apoio em tests/playwright/specs.",
+    "O runner usa o stage limpo em 127.0.0.1:8096 por padrão.",
+    "Stage inicial limpo confirmado com StartupWizardCompleted=false",
+    "StartupWizardCompleted=false",
+    "O relatório JSON cru do Playwright foi gerado e consolidado pelo runner."
+  ],
+  "conclusion": "A suíte falhou. Corrija os pontos listados no relatório antes de expandir a cobertura."
+}

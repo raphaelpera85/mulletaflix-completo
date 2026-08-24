@@ -1,10 +1,11 @@
 import { PluginStatus } from '@jellyfin/sdk/lib/generated-client/models/plugin-status';
+import type { VersionInfo } from '@jellyfin/sdk/lib/generated-client/models/version-info';
 import { useMemo } from 'react';
 
 import { useApi } from 'hooks/useApi';
 
 import { PluginCategory } from '../constants/pluginCategory';
-import type { PluginDetails } from '../types/PluginDetails';
+import type { PluginDetails, ExtendedVersionInfo } from '../types/PluginDetails';
 
 import { findBestConfigurationPage } from './configurationPage';
 import { findBestPluginInfo } from './pluginInfo';
@@ -48,17 +49,17 @@ export const usePluginDetails = () => {
                     const packageInfo = packages?.find(pkg => pkg.guid === id);
                     const pluginInfo = findBestPluginInfo(id, plugins);
 
-                    let version;
+                    let version: ExtendedVersionInfo | undefined;
                     if (pluginInfo) {
                         // Find the installed version
                         const repoVersion = packageInfo?.versions?.find(v => v.version === pluginInfo.Version);
-                        version = repoVersion || {
+                        version = (repoVersion || {
                             version: pluginInfo.Version,
                             VersionNumber: pluginInfo.Version
-                        };
+                        }) as ExtendedVersionInfo;
                     } else {
                         // Use the latest version
-                        version = packageInfo?.versions?.[0];
+                        version = packageInfo?.versions?.[0] as ExtendedVersionInfo | undefined;
                     }
 
                     let imageUrl;
@@ -93,9 +94,10 @@ export const usePluginDetails = () => {
                         owner: packageInfo?.owner,
                         status: pluginInfo?.Status,
                         configurationPage: findBestConfigurationPage(configurationPages || [], id),
-                        version,
-                        versions: packageInfo?.versions || []
-                    };
+                        version: version as ExtendedVersionInfo | undefined,
+                        versions: (packageInfo?.versions || []) as VersionInfo[],
+                        targetAbi: packageInfo?.versions?.[0]?.targetAbi
+                    } as PluginDetails;
                 })
                 .sort(({ name: nameA }, { name: nameB }) => (
                     (nameA || '').localeCompare(nameB || '')

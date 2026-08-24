@@ -208,7 +208,7 @@ function initEditor(dlg: HTMLElement, options: MediaLibraryEditorOptions): void 
     (dlg.querySelector('.btnAddFolder') as HTMLElement).addEventListener('click', onAddButtonClick);
     (dlg.querySelector('.folderList') as HTMLElement).addEventListener('click', onListItemClick);
     (dlg.querySelector('.btnSubmit') as HTMLElement).addEventListener('click', onEditLibrary as EventListener);
-    libraryoptionseditor.embed(dlg.querySelector('.libraryOptions') as HTMLElement, options.library.CollectionType, options.library.LibraryOptions);
+    libraryoptionseditor.embed(dlg.querySelector('.libraryOptions') as HTMLElement, options.library.CollectionType, options.library.LibraryOptions ?? null);
 }
 
 function onDialogClosed(): void {

@@ -46,7 +46,82 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AccessSchedules");
+                    b.ToTable("AccessSchedules", (string)null);
+                });
+
+            modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ActionLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActionType")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<DateTimeOffset>("DateCreated")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Details")
+                        .HasMaxLength(2048)
+                        .HasColumnType("varchar(2048)");
+
+                    b.Property<string>("EntityId")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1024)
+                        .HasColumnType("varchar(1024)");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<bool>("IsSuccess")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("NewValues")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<string>("OldValues")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActionType");
+
+                    b.HasIndex("DateCreated");
+
+                    b.HasIndex("EntityType");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("EntityType", "EntityId");
+
+                    b.ToTable("ActionLogs", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ActivityLog", b =>
@@ -94,7 +169,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("DateCreated");
 
-                    b.ToTable("ActivityLogs");
+                    b.ToTable("ActivityLogs", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.AncestorId", b =>
@@ -109,7 +184,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ParentItemId");
 
-                    b.ToTable("AncestorIds");
+                    b.ToTable("AncestorIds", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.AttachmentStreamInfo", b =>
@@ -137,7 +212,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId", "Index");
 
-                    b.ToTable("AttachmentStreamInfos");
+                    b.ToTable("AttachmentStreamInfos", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.BaseItemEntity", b =>
@@ -423,7 +498,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("Type", "TopParentId", "IsVirtualItem", "PresentationUniqueKey", "DateCreated");
 
-                    b.ToTable("BaseItems");
+                    b.ToTable("BaseItems", (string)null);
 
                     b.HasData(
                         new
@@ -472,7 +547,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId", "ImageType");
 
-                    b.ToTable("BaseItemImageInfos");
+                    b.ToTable("BaseItemImageInfos", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.BaseItemMetadataField", b =>
@@ -487,7 +562,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.ToTable("BaseItemMetadataFields");
+                    b.ToTable("BaseItemMetadataFields", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.BaseItemProvider", b =>
@@ -505,7 +580,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ProviderId", "ItemId", "ProviderValue");
 
-                    b.ToTable("BaseItemProviders");
+                    b.ToTable("BaseItemProviders", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.BaseItemTrailerType", b =>
@@ -520,7 +595,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.ToTable("BaseItemTrailerTypes");
+                    b.ToTable("BaseItemTrailerTypes", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Chapter", b =>
@@ -545,7 +620,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId", "ChapterIndex");
 
-                    b.ToTable("Chapters");
+                    b.ToTable("Chapters", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.CustomItemDisplayPreferences", b =>
@@ -577,7 +652,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("UserId", "ItemId", "Client", "Key")
                         .IsUnique();
 
-                    b.ToTable("CustomItemDisplayPreferences");
+                    b.ToTable("CustomItemDisplayPreferences", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.DiscountCoupon", b =>
@@ -637,7 +712,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("DiscountCoupons");
+                    b.ToTable("DiscountCoupons", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.DisplayPreferences", b =>
@@ -695,7 +770,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("UserId", "ItemId", "Client")
                         .IsUnique();
 
-                    b.ToTable("DisplayPreferences");
+                    b.ToTable("DisplayPreferences", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.HomeSection", b =>
@@ -719,7 +794,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("DisplayPreferencesId");
 
-                    b.ToTable("HomeSection");
+                    b.ToTable("HomeSection", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ImageInfo", b =>
@@ -745,7 +820,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("ImageInfos");
+                    b.ToTable("ImageInfos", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ItemDisplayPreferences", b =>
@@ -789,7 +864,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("ItemDisplayPreferences");
+                    b.ToTable("ItemDisplayPreferences", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ItemValue", b =>
@@ -814,7 +889,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("Type", "Value")
                         .IsUnique();
 
-                    b.ToTable("ItemValues");
+                    b.ToTable("ItemValues", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ItemValueMap", b =>
@@ -829,7 +904,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.ToTable("ItemValuesMap");
+                    b.ToTable("ItemValuesMap", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.KeyframeData", b =>
@@ -845,7 +920,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId");
 
-                    b.ToTable("KeyframeData");
+                    b.ToTable("KeyframeData", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.LinkedChildEntity", b =>
@@ -896,7 +971,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("MediaSegments");
+                    b.ToTable("MediaSegments", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.MediaStreamInfo", b =>
@@ -1047,7 +1122,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId", "StreamIndex");
 
-                    b.ToTable("MediaStreamInfos");
+                    b.ToTable("MediaStreamInfos", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.MidiaStorageOnlineMediaMetadata", b =>
@@ -1165,7 +1240,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("GatewayName")
                         .IsUnique();
 
-                    b.ToTable("PaymentGatewayConfigs");
+                    b.ToTable("PaymentGatewayConfigs", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.PaymentTransaction", b =>
@@ -1261,7 +1336,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("PaymentTransactions");
+                    b.ToTable("PaymentTransactions", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.People", b =>
@@ -1280,7 +1355,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("Peoples");
+                    b.ToTable("Peoples", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.PeopleBaseItemMap", b =>
@@ -1308,7 +1383,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId", "SortOrder");
 
-                    b.ToTable("PeopleBaseItemMap");
+                    b.ToTable("PeopleBaseItemMap", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Permission", b =>
@@ -1338,7 +1413,172 @@ namespace Jellyfin.Database.Implementations.Migrations
                         .IsUnique()
                         .HasFilter("[UserId] IS NOT NULL");
 
-                    b.ToTable("Permissions");
+                    b.ToTable("Permissions", (string)null);
+                });
+
+            modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.PlaybackReport", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Album")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("Artist")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("AudioCodec")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<long?>("Bitrate")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ClientName")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<double?>("CompletionPercentage")
+                        .HasColumnType("double");
+
+                    b.Property<string>("Container")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<DateTime>("DateCreated")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("DeviceId")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<long?>("DurationSeconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("EndPositionTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("EndTimeUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<int?>("EpisodeNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1024)
+                        .HasColumnType("varchar(1024)");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsLocal")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("ItemName")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<long?>("ItemRuntimeTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ItemType")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("LibraryId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("LibraryName")
+                        .HasMaxLength(256)
+                        .HasColumnType("varchar(256)");
+
+                    b.Property<int>("LogSeverity")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PlayMethod")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("PlaySessionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<bool>("PlayedToCompletion")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Protocol")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("RemoteEndPoint")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int unsigned");
+
+                    b.Property<int?>("SeasonNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SeriesName")
+                        .HasMaxLength(512)
+                        .HasColumnType("varchar(512)");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<long?>("StartPositionTicks")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("StartTimeUtc")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("VideoCodec")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<bool>("WasTranscoded")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DateCreated");
+
+                    b.HasIndex("DeviceId");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("PlaySessionId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("DeviceId", "DateCreated");
+
+                    b.HasIndex("ItemId", "DateCreated");
+
+                    b.HasIndex("UserId", "DateCreated");
+
+                    b.ToTable("PlaybackReport", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Preference", b =>
@@ -1369,7 +1609,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                         .IsUnique()
                         .HasFilter("[UserId] IS NOT NULL");
 
-                    b.ToTable("Preferences");
+                    b.ToTable("Preferences", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.PricingPlan", b =>
@@ -1418,7 +1658,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("SortOrder");
 
-                    b.ToTable("PricingPlans");
+                    b.ToTable("PricingPlans", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Security.ApiKey", b =>
@@ -1447,7 +1687,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("AccessToken")
                         .IsUnique();
 
-                    b.ToTable("ApiKeys");
+                    b.ToTable("ApiKeys", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Security.Device", b =>
@@ -1500,7 +1740,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId", "DeviceId");
 
-                    b.ToTable("Devices");
+                    b.ToTable("Devices", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Security.DeviceOptions", b =>
@@ -1522,7 +1762,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("DeviceId")
                         .IsUnique();
 
-                    b.ToTable("DeviceOptions");
+                    b.ToTable("DeviceOptions", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.TrickplayInfo", b =>
@@ -1553,7 +1793,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId", "Width");
 
-                    b.ToTable("TrickplayInfos");
+                    b.ToTable("TrickplayInfos", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.User", b =>
@@ -1676,7 +1916,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("Username")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.UserData", b =>
@@ -1734,7 +1974,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId", "Played", "ItemId");
 
-                    b.ToTable("UserData");
+                    b.ToTable("UserData", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.UserLicense", b =>
@@ -1780,7 +2020,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("UserLicenses");
+                    b.ToTable("UserLicenses", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.AccessSchedule", b =>

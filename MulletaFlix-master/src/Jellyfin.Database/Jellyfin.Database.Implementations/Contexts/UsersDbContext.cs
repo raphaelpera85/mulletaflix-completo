@@ -29,6 +29,8 @@ public class UsersDbContext : DbContext
     public DbSet<AccessSchedule> AccessSchedules => Set<AccessSchedule>();
     public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
     public DbSet<Device> Devices => Set<Device>();
+    public DbSet<PlaybackReport> PlaybackReports => Set<PlaybackReport>();
+    public DbSet<ActionLog> ActionLogs => Set<ActionLog>();
     public DbSet<DisplayPreferences> DisplayPreferences => Set<DisplayPreferences>();
     public DbSet<ItemDisplayPreferences> ItemDisplayPreferences => Set<ItemDisplayPreferences>();
     public DbSet<CustomItemDisplayPreferences> CustomItemDisplayPreferences => Set<CustomItemDisplayPreferences>();
@@ -77,6 +79,8 @@ public class UsersDbContext : DbContext
         modelBuilder.ApplyConfiguration(new MulletaFlix.Database.Implementations.ModelConfiguration.PreferenceConfiguration());
         modelBuilder.ApplyConfiguration(new MulletaFlix.Database.Implementations.ModelConfiguration.DeviceConfiguration());
         modelBuilder.ApplyConfiguration(new MulletaFlix.Database.Implementations.ModelConfiguration.ActivityLogConfiguration());
+        modelBuilder.ApplyConfiguration(new MulletaFlix.Database.Implementations.ModelConfiguration.PlaybackReportConfiguration());
+        modelBuilder.ApplyConfiguration(new MulletaFlix.Database.Implementations.ModelConfiguration.ActionLogConfiguration());
         modelBuilder.ApplyConfiguration(new MulletaFlix.Database.Implementations.ModelConfiguration.CustomItemDisplayPreferencesConfiguration());
 
         // New billing configurations

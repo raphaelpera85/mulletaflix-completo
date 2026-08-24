@@ -10,6 +10,15 @@ namespace MulletaFlix.Providers.Tests.Plugins.MidiaStorageOnline;
 
 public class MidiaStorageOnlineSyncTaskTests
 {
+    [Theory]
+    [InlineData("strm", false)]
+    [InlineData("STRM", false)]
+    [InlineData("download", true)]
+    public void RequiresMediaLinkValidation_OnlyDownloadsNeedPreflight(string outputMode, bool expected)
+    {
+        Assert.Equal(expected, MidiaStorageOnlineLinkValidator.RequiresMediaLinkValidation(outputMode));
+    }
+
     [Fact]
     public void BuildMovieRelativePath_UsesOriginalFileName_WhenDownloadMode()
     {

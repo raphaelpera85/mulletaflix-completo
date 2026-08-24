@@ -273,6 +273,8 @@ BenchmarkDotNet.Artifacts
 
 # Ignore web artifacts from native builds
 web/
+!MulletaFlix.Plugin.GetAvatar/Configuration/Web/
+!MulletaFlix.Plugin.GetAvatar/Configuration/Web/**
 web-src.*
 apiclient/generated
 

@@ -1,5 +1,10 @@
 import type { AsyncRoute } from 'components/router/AsyncRoute';
 import { AppType } from 'constants/appType';
+import { MIDIA_STORAGE_ONLINE_ROUTE } from './midiaStorageOnline';
+
+const PLAYBACK_REPORTS_ROUTE = 'playback-reports';
+const SYNCPLAY_ROUTE = 'syncplay';
+const UPDATES_ROUTE = 'updates';
 
 export const ASYNC_ADMIN_ROUTES: AsyncRoute[] = [
     { path: '', page: 'index', type: AppType.Dashboard },
@@ -12,10 +17,10 @@ export const ASYNC_ADMIN_ROUTES: AsyncRoute[] = [
     { path: 'keys', type: AppType.Dashboard },
     { path: 'libraries', type: AppType.Dashboard },
     { path: 'libraries/display', type: AppType.Dashboard },
-    { path: 'libraries/midia-storage-online', type: AppType.Dashboard },
     { path: 'libraries/metadata', type: AppType.Dashboard },
     { path: 'libraries/nfo', type: AppType.Dashboard },
     { path: 'libraries/unidentified', type: AppType.Dashboard },
+    { path: MIDIA_STORAGE_ONLINE_ROUTE, type: AppType.Dashboard },
     { path: 'livetv', type: AppType.Dashboard },
     { path: 'livetv/recordings', type: AppType.Dashboard },
     { path: 'logs', type: AppType.Dashboard },
@@ -28,10 +33,14 @@ export const ASYNC_ADMIN_ROUTES: AsyncRoute[] = [
     { path: 'plugins', type: AppType.Dashboard },
     { path: 'plugins/:pluginId', page: 'plugins/plugin', type: AppType.Dashboard },
     { path: 'plugins/repositories', type: AppType.Dashboard },
+    { path: 'search', type: AppType.Dashboard, page: 'search' },
+    { path: 'syncplay', type: AppType.Dashboard },
     { path: 'tasks', type: AppType.Dashboard },
     { path: 'tasks/:id', page: 'tasks/task', type: AppType.Dashboard },
     { path: 'users', type: AppType.Dashboard },
     { path: 'users/add', type: AppType.Dashboard },
     { path: 'users/licenses', page: 'users/licenses', type: AppType.Dashboard },
-    { path: 'users/:userId/:tab', page: 'users/edit', type: AppType.Dashboard }
+    { path: 'users/:userId/:tab', page: 'users/edit', type: AppType.Dashboard },
+    { path: UPDATES_ROUTE, type: AppType.Dashboard },
+    { path: PLAYBACK_REPORTS_ROUTE, type: AppType.Dashboard }
 ];

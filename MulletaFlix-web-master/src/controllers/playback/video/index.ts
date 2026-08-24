@@ -42,7 +42,7 @@ function getOpenedDialog() {
 export default function (this: { touchHelper?: { destroy(): void } }, view: HTMLElement): void {
     function getDisplayItem(item: ItemDto) {
         if (item.Type === 'TvChannel') {
-            const apiClient = ServerConnections.getApiClient(item.ServerId!);
+            const apiClient: any = ServerConnections.getApiClient(item.ServerId!);
             return apiClient.getItem(apiClient.getCurrentUserId(), item.Id!).then(function (refreshedItem: ItemDto & { CurrentProgram?: ItemDto }) {
                 return {
                     originalItem: refreshedItem,
@@ -63,12 +63,12 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                 recordingButtonManager = null;
             }
 
-            view.querySelector('.btnRecord').classList.add('hide');
+            view.querySelector('.btnRecord')!.classList.add('hide');
             return;
         }
 
-        ServerConnections.getApiClient(item.ServerId!).getCurrentUser().then(function (user: { Policy?: { EnableLiveTvManagement?: boolean } }) {
-            if (user.Policy.EnableLiveTvManagement) {
+        ServerConnections.getApiClient(item.ServerId!).getCurrentUser().then(function (user: any) {
+            if (user.Policy?.EnableLiveTvManagement) {
                 import('../../../components/recordingcreator/recordingbutton').then(({ default: RecordingButton }) => {
                     if (recordingButtonManager) {
                         recordingButtonManager.refreshItem(item);
@@ -76,10 +76,10 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                     }
 
                     recordingButtonManager = new RecordingButton({
-                        item: item,
-                        button: view.querySelector('.btnRecord')
+                        item: item as any,
+                        button: view.querySelector('.btnRecord') as HTMLElement
                     });
-                    view.querySelector('.btnRecord').classList.remove('hide');
+                    view.querySelector('.btnRecord')!.classList.remove('hide');
                 });
             }
         });
@@ -96,9 +96,9 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             parentName = displayItem.Name;
         }
 
-        setTitle(displayItem, parentName);
+        setTitle(displayItem, parentName ?? undefined);
 
-        const secondaryMediaInfo = view.querySelector('.osdSecondaryMediaInfo');
+        const secondaryMediaInfo = view.querySelector('.osdSecondaryMediaInfo') as HTMLElement;
         const secondaryMediaInfoHtml = mediaInfo.getSecondaryMediaInfoHtml(displayItem, {
             startDate: false,
             programTime: false
@@ -112,8 +112,8 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         }
 
         if (enableProgressByTimeOfDay) {
-            setDisplayTime(startTimeText, displayItem.StartDate);
-            setDisplayTime(endTimeText, displayItem.EndDate);
+            setDisplayTime(startTimeText, displayItem.StartDate ?? null);
+            setDisplayTime(endTimeText, displayItem.EndDate ?? null);
             startTimeText.classList.remove('hide');
             endTimeText.classList.remove('hide');
             programStartDateMs = displayItem.StartDate ? datetime.parseISO8601Date(displayItem.StartDate).getTime() : 0;
@@ -128,14 +128,14 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         }
 
         // Set currently playing item for favorite button
-        const btnUserRating = view.querySelector('.btnUserRating');
+        const btnUserRating = view.querySelector('.btnUserRating') as HTMLElement;
 
         if (itemHelper.canRate(currentItem)) {
             btnUserRating.classList.remove('hide');
-            btnUserRating.setItem(currentItem);
+            (btnUserRating as any).setItem(currentItem);
         } else {
             btnUserRating.classList.add('hide');
-            btnUserRating.setItem(null);
+            (btnUserRating as any).setItem(null);
         }
 
         // Update trickplay data
@@ -198,10 +198,10 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             nowPlayingPositionSlider.disabled = true;
             btnFastForward.disabled = true;
             btnRewind.disabled = true;
-            view.querySelector('.btnSubtitles').classList.add('hide');
-            view.querySelector('.btnAudio').classList.add('hide');
-            view.querySelector('.osdTitle').innerHTML = '';
-            view.querySelector('.osdMediaInfo').innerHTML = '';
+            view.querySelector('.btnSubtitles')!.classList.add('hide');
+            view.querySelector('.btnAudio')!.classList.add('hide');
+            view.querySelector('.osdTitle')!.innerHTML = '';
+            view.querySelector('.osdMediaInfo')!.innerHTML = '';
             return;
         }
 
@@ -213,25 +213,25 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         btnRewind.disabled = false;
 
         if (playbackManager.subtitleTracks(player).length) {
-            view.querySelector('.btnSubtitles').classList.remove('hide');
+            view.querySelector('.btnSubtitles')!.classList.remove('hide');
             toggleSubtitleSync();
         } else {
-            view.querySelector('.btnSubtitles').classList.add('hide');
+            view.querySelector('.btnSubtitles')!.classList.add('hide');
             toggleSubtitleSync('forceToHide');
         }
 
         if (playbackManager.audioTracks(player).length > 1) {
-            view.querySelector('.btnAudio').classList.remove('hide');
+            view.querySelector('.btnAudio')!.classList.remove('hide');
         } else {
-            view.querySelector('.btnAudio').classList.add('hide');
+            view.querySelector('.btnAudio')!.classList.add('hide');
         }
 
         if (currentItem.Chapters?.length > 1) {
-            view.querySelector('.btnPreviousChapter').classList.remove('hide');
-            view.querySelector('.btnNextChapter').classList.remove('hide');
+            view.querySelector('.btnPreviousChapter')!.classList.remove('hide');
+            view.querySelector('.btnNextChapter')!.classList.remove('hide');
         } else {
-            view.querySelector('.btnPreviousChapter').classList.add('hide');
-            view.querySelector('.btnNextChapter').classList.add('hide');
+            view.querySelector('.btnPreviousChapter')!.classList.add('hide');
+            view.querySelector('.btnNextChapter')!.classList.add('hide');
         }
     }
 
@@ -273,7 +273,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     function showOsd(focusElement?: HTMLElement) {
         Events.trigger(document, EventType.SHOW_VIDEO_OSD, [ true ]);
         slideDownToShow(headerElement);
-        showMainOsdControls(focusElement);
+        showMainOsdControls(focusElement ?? null);
         resetIdle();
     }
 
@@ -321,18 +321,18 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onHideAnimationComplete(e: Event) {
-        const elem = e.target;
+        const elem = e.target as HTMLElement;
         if (elem !== osdBottomElement && elem !== headerElement) return;
         elem.classList.add('hide');
         elem.removeEventListener(transitionEndEventName, onHideAnimationComplete);
     }
 
-    const _focus = function (focusElement: HTMLElement) {
+    const _focus = function (focusElement?: HTMLElement | null) {
         // If no focus element is provided, try to keep current focus if it's valid,
         // otherwise default to pause button
         const currentFocus = focusElement || document.activeElement;
         if (!currentFocus || !focusManager.isCurrentlyFocusable(currentFocus)) {
-            focusElement = osdBottomElement.querySelector('.btnPause');
+            focusElement = osdBottomElement.querySelector('.btnPause') as HTMLElement;
         }
 
         if (focusElement) focusManager.focus(focusElement);
@@ -385,7 +385,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         }
     }
 
-    function onPointerMove(e: Event & { pointerType?: string }) {
+    function onPointerMove(e: Event & { pointerType?: string; screenX?: number; clientX?: number; screenY?: number; clientY?: number }) {
         if ((e.pointerType || (layoutManager.mobile ? 'touch' : 'mouse')) === 'mouse') {
             const eventX = e.screenX || e.clientX || 0;
             const eventY = e.screenY || e.clientY || 0;
@@ -477,7 +477,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onRecordingCommand() {
-        const btnRecord = view.querySelector('.btnRecord');
+        const btnRecord = view.querySelector('.btnRecord') as HTMLButtonElement;
 
         if (!btnRecord.classList.contains('hide')) {
             btnRecord.click();
@@ -494,8 +494,10 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function updateFullscreenIcon() {
-        const button = view.querySelector('.btnFullscreen');
-        const icon = button.querySelector('.material-icons');
+        const button = view.querySelector('.btnFullscreen') as HTMLElement | null;
+        if (!button) return;
+        const icon = button.querySelector('.material-icons') as HTMLElement | null;
+        if (!icon) return;
 
         icon.classList.remove('fullscreen_exit', 'fullscreen');
 
@@ -574,11 +576,11 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onBeginFetch() {
-        view.querySelector('.osdMediaStatus').classList.remove('hide');
+        view.querySelector('.osdMediaStatus')!.classList.remove('hide');
     }
 
     function onEndFetch() {
-        view.querySelector('.osdMediaStatus').classList.add('hide');
+        view.querySelector('.osdMediaStatus')!.classList.add('hide');
     }
 
     function bindToPlayer(player: any) {
@@ -688,7 +690,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                 comingUpNextDisplayed = true;
                 playbackManager.nextItem(player).then(function (nextItem: any) {
                     currentUpNextDialog = new UpNextDialog({
-                        parent: view.querySelector('.upNextContainer'),
+                        parent: view.querySelector('.upNextContainer') as HTMLElement,
                         player: player,
                         nextItem: nextItem
                     });
@@ -721,8 +723,8 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function updatePlayPauseState(isPaused: boolean | undefined) {
-        const btnPlayPause = view.querySelector('.btnPause');
-        const btnPlayPauseIcon = btnPlayPause.querySelector('.material-icons');
+        const btnPlayPause = view.querySelector('.btnPause') as HTMLElement;
+        const btnPlayPauseIcon = btnPlayPause.querySelector('.material-icons') as HTMLElement;
 
         btnPlayPauseIcon.classList.remove('play_arrow', 'pause');
 
@@ -768,21 +770,21 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         }
 
         if (supportedCommands.indexOf('ToggleFullscreen') === -1 || player.isLocalPlayer && layoutManager.tv && playbackManager.isFullscreen(player)) {
-            view.querySelector('.btnFullscreen').classList.add('hide');
+            view.querySelector('.btnFullscreen')!.classList.add('hide');
         } else {
-            view.querySelector('.btnFullscreen').classList.remove('hide');
+            view.querySelector('.btnFullscreen')!.classList.remove('hide');
         }
 
         if (supportedCommands.indexOf('PictureInPicture') === -1) {
-            view.querySelector('.btnPip').classList.add('hide');
+            view.querySelector('.btnPip')!.classList.add('hide');
         } else {
-            view.querySelector('.btnPip').classList.remove('hide');
+            view.querySelector('.btnPip')!.classList.remove('hide');
         }
 
         if (supportedCommands.indexOf('AirPlay') === -1) {
-            view.querySelector('.btnAirPlay').classList.add('hide');
+            view.querySelector('.btnAirPlay')!.classList.add('hide');
         } else {
-            view.querySelector('.btnAirPlay').classList.remove('hide');
+            view.querySelector('.btnAirPlay')!.classList.remove('hide');
         }
 
         onFullscreenChanged();
@@ -881,8 +883,8 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             showVolumeSlider = false;
         }
 
-        const buttonMute = view.querySelector('.buttonMute');
-        const buttonMuteIcon = buttonMute.querySelector('.material-icons');
+        const buttonMute = view.querySelector('.buttonMute') as HTMLElement;
+        const buttonMuteIcon = buttonMute.querySelector('.material-icons') as HTMLElement;
 
         buttonMuteIcon.classList.remove('volume_off', 'volume_up');
 
@@ -918,8 +920,8 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             const playlist = await playbackManager.getPlaylist();
 
             if (playlist && playlist.length > 1) {
-                const btnPreviousTrack = view.querySelector('.btnPreviousTrack');
-                const btnNextTrack = view.querySelector('.btnNextTrack');
+                const btnPreviousTrack = view.querySelector('.btnPreviousTrack') as HTMLButtonElement;
+                const btnNextTrack = view.querySelector('.btnNextTrack') as HTMLButtonElement;
                 btnPreviousTrack.classList.remove('hide');
                 btnNextTrack.classList.remove('hide');
                 btnPreviousTrack.disabled = false;
@@ -1216,7 +1218,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onKeyDown(e: KeyboardEvent) {
-        clickedElement = e.target;
+        clickedElement = e.target as Element | null;
 
         const isKeyModified = e.ctrlKey || e.altKey || e.metaKey;
 
@@ -1225,10 +1227,10 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
         const key = keyboardnavigation.getKeyName(e);
 
-        const btnPlayPause = osdBottomElement.querySelector('.btnPause');
+        const btnPlayPause = osdBottomElement.querySelector('.btnPause') as HTMLElement;
 
         if (e.keyCode === 32) {
-            if (e.target.tagName !== 'BUTTON' || !layoutManager.tv) {
+            if ((e.target as HTMLElement).tagName !== 'BUTTON' || !layoutManager.tv) {
                 playbackManager.playPause(currentPlayer);
                 showOsd(btnPlayPause);
                 e.preventDefault();
@@ -1249,11 +1251,11 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                     if (!e.shiftKey) {
                         e.preventDefault();
                         showOsd(nowPlayingPositionSlider);
-                        nowPlayingPositionSlider.dispatchEvent(new KeyboardEvent(e.type, e));
+                        nowPlayingPositionSlider.dispatchEvent(new KeyboardEvent(e.type, e as KeyboardEventInit));
                     }
                     return;
                 case 'Enter':
-                    if (e.target.tagName !== 'BUTTON') {
+                    if ((e.target as HTMLElement).tagName !== 'BUTTON') {
                         e.preventDefault();
                         playbackManager.playPause(currentPlayer);
                         showOsd(btnPlayPause);
@@ -1437,8 +1439,8 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         }
     }
 
-    function onWindowMouseDown(e: MouseEvent) {
-        clickedElement = e.target;
+    function onWindowMouseDown(e: Event) {
+        clickedElement = e.target as Element | null;
         mouseIsDown = true;
         resetIdle();
     }
@@ -1589,7 +1591,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         if (playbackManager.isPlayingVideo()) {
             shell.disableFullscreen();
 
-            clearTimeout(playPauseClickTimeout);
+            if (playPauseClickTimeout) clearTimeout(playPauseClickTimeout);
             const player = currentPlayer;
             view.removeEventListener('viewbeforehide', onViewHideStopPlayback);
             releaseCurrentPlayer();
@@ -1635,16 +1637,16 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     let playbackStartTimeTicks = 0;
     let subtitleSyncOverlay: any;
     let trickplayResolution: any = null;
-    const nowPlayingVolumeSlider = view.querySelector('.osdVolumeSlider');
-    const nowPlayingVolumeSliderContainer = view.querySelector('.osdVolumeSliderContainer');
-    const nowPlayingPositionSlider = view.querySelector('.osdPositionSlider');
-    const nowPlayingPositionText = view.querySelector('.osdPositionText');
-    const nowPlayingDurationText = view.querySelector('.osdDurationText');
-    const startTimeText = view.querySelector('.startTimeText');
-    const endTimeText = view.querySelector('.endTimeText');
-    const endsAtText = view.querySelector('.endsAtText');
-    const btnRewind = view.querySelector('.btnRewind');
-    const btnFastForward = view.querySelector('.btnFastForward');
+    const nowPlayingVolumeSlider: any = view.querySelector('.osdVolumeSlider');
+    const nowPlayingVolumeSliderContainer = view.querySelector('.osdVolumeSliderContainer') as HTMLElement;
+    const nowPlayingPositionSlider: any = view.querySelector('.osdPositionSlider');
+    const nowPlayingPositionText = view.querySelector('.osdPositionText') as HTMLElement;
+    const nowPlayingDurationText = view.querySelector('.osdDurationText') as HTMLElement;
+    const startTimeText = view.querySelector('.startTimeText') as HTMLElement;
+    const endTimeText = view.querySelector('.endTimeText') as HTMLElement;
+    const endsAtText = view.querySelector('.endsAtText') as HTMLElement;
+    const btnRewind = view.querySelector('.btnRewind') as HTMLButtonElement;
+    const btnFastForward = view.querySelector('.btnFastForward') as HTMLButtonElement;
     const transitionEndEventName = dom.whichTransitionEvent();
     const headerElement = document.querySelector('.skinHeader') as HTMLElement;
     const osdBottomElement = view.querySelector('.videoOsdBottom-maincontrols') as HTMLElement;
@@ -1759,16 +1761,16 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         Events.off(playbackManager, 'playerchange', onPlayerChange);
         releaseCurrentPlayer();
     });
-    view.querySelector('.btnFullscreen').addEventListener('click', function () {
+    view.querySelector('.btnFullscreen')!.addEventListener('click', function () {
         playbackManager.toggleFullscreen(currentPlayer);
     });
-    view.querySelector('.btnPip').addEventListener('click', function () {
+    view.querySelector('.btnPip')!.addEventListener('click', function () {
         playbackManager.togglePictureInPicture(currentPlayer);
     });
-    view.querySelector('.btnAirPlay').addEventListener('click', function () {
+    view.querySelector('.btnAirPlay')!.addEventListener('click', function () {
         playbackManager.toggleAirPlay(currentPlayer);
     });
-    view.querySelector('.btnVideoOsdSettings').addEventListener('click', onSettingsButtonClick);
+    view.querySelector('.btnVideoOsdSettings')!.addEventListener('click', onSettingsButtonClick);
     view.addEventListener('viewhide', function () {
         clearHideAnimationEventListeners(headerElement);
         headerElement.classList.remove('hide');
@@ -1837,7 +1839,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         playbackManager.toggleFullscreen(currentPlayer);
     });
 
-    view.querySelector('.buttonMute').addEventListener('click', function () {
+    view.querySelector('.buttonMute')!.addEventListener('click', function () {
         playbackManager.toggleMute(currentPlayer);
     });
 
@@ -1932,19 +1934,19 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         })) || [];
     };
 
-    view.querySelector('.btnPreviousTrack').addEventListener('click', function () {
+    view.querySelector('.btnPreviousTrack')!.addEventListener('click', function () {
         playbackManager.previousTrack(currentPlayer);
     });
-    view.querySelector('.btnPreviousChapter').addEventListener('click', function () {
+    view.querySelector('.btnPreviousChapter')!.addEventListener('click', function () {
         playbackManager.previousChapter(currentPlayer);
     });
-    view.querySelector('.btnPause').addEventListener('click', function () {
+    view.querySelector('.btnPause')!.addEventListener('click', function () {
         playbackManager.playPause(currentPlayer);
     });
-    view.querySelector('.btnNextChapter').addEventListener('click', function () {
+    view.querySelector('.btnNextChapter')!.addEventListener('click', function () {
         playbackManager.nextChapter(currentPlayer);
     });
-    view.querySelector('.btnNextTrack').addEventListener('click', function () {
+    view.querySelector('.btnNextTrack')!.addEventListener('click', function () {
         playbackManager.nextTrack(currentPlayer);
     });
     btnRewind.addEventListener('click', function () {
@@ -1953,11 +1955,11 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     btnFastForward.addEventListener('click', function () {
         playbackManager.fastForward(currentPlayer);
     });
-    view.querySelector('.btnAudio').addEventListener('click', showAudioTrackSelection);
-    view.querySelector('.btnSubtitles').addEventListener('click', showSubtitleTrackSelection);
+    view.querySelector('.btnAudio')!.addEventListener('click', showAudioTrackSelection);
+    view.querySelector('.btnSubtitles')!.addEventListener('click', showSubtitleTrackSelection);
 
     // WORKAROUND: Remove emby-button class from rating button for consistent styling with other player controls
-    view.querySelector('.btnUserRating').classList.remove('emby-button');
+    view.querySelector('.btnUserRating')!.classList.remove('emby-button');
 
     // Register to SyncPlay playback events and show big animated icon
     const showIcon = (action: any) => {
@@ -1965,7 +1967,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         let secondaryIconName = '';
         let animationClass = 'oneShotPulse';
         let iconVisibilityTime = 1500;
-        const syncPlayIcon = view.querySelector('#syncPlayIcon');
+        const syncPlayIcon = view.querySelector('#syncPlayIcon') as HTMLElement;
 
         switch (action) {
             case 'schedule-play':
@@ -2012,15 +2014,15 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
         syncPlayIcon.setAttribute('class', 'syncPlayIconCircle ' + animationClass);
 
-        const primaryIcon = syncPlayIcon.querySelector('.primary-icon');
-        primaryIcon.setAttribute('class', 'primary-icon material-icons ' + primaryIconName);
+        const primaryIcon = syncPlayIcon.querySelector('.primary-icon') as HTMLElement | null;
+        if (primaryIcon) primaryIcon.setAttribute('class', 'primary-icon material-icons ' + primaryIconName);
 
-        const secondaryIcon = syncPlayIcon.querySelector('.secondary-icon');
-        secondaryIcon.setAttribute('class', 'secondary-icon material-icons ' + secondaryIconName);
+        const secondaryIcon = syncPlayIcon.querySelector('.secondary-icon') as HTMLElement | null;
+        if (secondaryIcon) secondaryIcon.setAttribute('class', 'secondary-icon material-icons ' + secondaryIconName);
 
-        const clone = syncPlayIcon.cloneNode(true);
+        const clone = syncPlayIcon.cloneNode(true) as HTMLElement;
         clone.style.visibility = 'visible';
-        syncPlayIcon.parentNode.replaceChild(clone, syncPlayIcon);
+        syncPlayIcon.parentNode?.replaceChild(clone, syncPlayIcon);
 
         if (iconVisibilityTime < 0) {
             return;
@@ -2035,7 +2037,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     if (SyncPlay) {
         Events.on(SyncPlay.Manager, 'enabled', (_event, enabled) => {
             if (!enabled) {
-                const syncPlayIcon = view.querySelector('#syncPlayIcon');
+                const syncPlayIcon = view.querySelector('#syncPlayIcon') as HTMLElement;
                 syncPlayIcon.style.visibility = 'hidden';
             }
         });

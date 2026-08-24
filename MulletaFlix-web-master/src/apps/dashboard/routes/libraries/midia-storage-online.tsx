@@ -8,6 +8,7 @@ import Checkbox from '@mui/material/Checkbox';
 import FormControl from '@mui/material/FormControl';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import FolderOpen from '@mui/icons-material/FolderOpen';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
@@ -18,7 +19,7 @@ import { type ActionFunctionArgs, Form, useActionData, useNavigation } from 'rea
 import Page from 'components/Page';
 import DirectoryBrowser from 'components/directorybrowser/directorybrowser';
 import Loading from 'components/loading/LoadingComponent';
-import { useNamedConfiguration } from 'hooks/useNamedConfiguration';
+import { useNamedConfiguration, QUERY_KEY as NAMED_CONFIG_QUERY_KEY } from 'hooks/useNamedConfiguration';
 import { useApi } from 'hooks/useApi';
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -26,18 +27,50 @@ import useLiveTasks from 'apps/dashboard/features/tasks/hooks/useLiveTasks';
 import { useStartTask } from 'apps/dashboard/features/tasks/api/useStartTask';
 import TaskProgress from 'apps/dashboard/features/tasks/components/TaskProgress';
 import { queryClient } from 'utils/query/queryClient';
-import { QUERY_KEY as NAMED_CONFIG_QUERY_KEY } from 'hooks/useNamedConfiguration';
 import { useQuery } from '@tanstack/react-query';
 
 const CONFIG_KEY = 'midiastorageonline';
 const STATUS_QUERY_KEY = [ 'MidiaStorageOnlineStatus' ];
 const TASK_KEY = 'MidiaStorageOnlineSync';
 
+interface StatCardProps {
+    label: string;
+    value: string;
+    monospace?: boolean;
+}
+
+const StatCard = ({ label, value, monospace }: StatCardProps) => (
+    <Box
+        sx={{
+            p: 2,
+            bgcolor: 'background.paper',
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider'
+        }}
+    >
+        <Typography variant='caption' color='text.secondary'>
+            {label}
+        </Typography>
+        <Typography
+            variant='body2'
+            sx={{
+                mt: 0.5,
+                fontFamily: monospace ? 'monospace' : 'inherit',
+                wordBreak: 'break-all'
+            }}
+        >
+            {value}
+        </Typography>
+    </Box>
+);
+
 interface MidiaStorageOnlineConfiguration {
     UseWorldStorage?: boolean;
     M3uUrl?: string;
     EpgUrl?: string;
     StrmOutputPath?: string;
+    OutputMode?: string;
     EnableAutoEpg?: boolean;
     AutoEpgLanguage?: string;
     MaxLinkValidationConcurrency?: number;
@@ -101,6 +134,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         M3uUrl: data.M3uUrl?.toString() ?? '',
         EpgUrl: data.EpgUrl?.toString() || undefined,
         StrmOutputPath: data.StrmOutputPath?.toString() || undefined,
+        OutputMode: data.OutputMode?.toString() === 'download' ? 'download' : 'strm',
         EnableAutoEpg: data.EnableAutoEpg?.toString() === 'on',
         AutoEpgLanguage: data.AutoEpgLanguage?.toString() || 'pt',
         MaxLinkValidationConcurrency: Number(data.MaxLinkValidationConcurrency?.toString() ?? '0') || 0
@@ -178,13 +212,17 @@ export const Component = () => {
         });
     }, [ strmOutputPath ]);
 
-    const startSync = () => {
+    const handleStrmOutputPathChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        setStrmOutputPath(event.target.value);
+    }, []);
+
+    const startSync = useCallback(() => {
         if (syncTask?.Id) {
             startTask.mutate({
                 taskId: syncTask.Id
             });
         }
-    };
+    }, [ syncTask?.Id, startTask ]);
 
     if (isConfigPending || isTasksPending) {
         return <Loading />;
@@ -237,7 +275,7 @@ export const Component = () => {
                                 name='StrmOutputPath'
                                 label='Pasta de saida dos STRM'
                                 value={strmOutputPath}
-                                onChange={(event) => setStrmOutputPath(event.target.value)}
+                                onChange={handleStrmOutputPathChange}
                                 fullWidth
                                 helperText='Se vazio, o servidor usa o diretorio padrao do sistema.'
                             />
@@ -249,6 +287,18 @@ export const Component = () => {
                             >
                                 Pesquisar pasta
                             </Button>
+
+                            <TextField
+                                name='OutputMode'
+                                label='Modo de saida'
+                                select
+                                defaultValue={config?.OutputMode ?? 'strm'}
+                                fullWidth
+                                helperText='strm cria atalhos para a URL original. download baixa a midia e grava localmente.'
+                            >
+                                <MenuItem value='strm'>strm (atalhos)</MenuItem>
+                                <MenuItem value='download'>download (gravar local)</MenuItem>
+                            </TextField>
 
                             <FormControl>
                                 <FormControlLabel
@@ -295,24 +345,38 @@ export const Component = () => {
 
                             <Box>
                                 <Typography variant='h2'>Status</Typography>
-                                {isStatusPending ? (
-                                    <Loading />
-                                ) : isStatusError ? (
+                                {isStatusPending && <Loading />}
+                                {!isStatusPending && isStatusError && (
                                     <Alert severity='error'>{globalize.translate('HeaderError')}</Alert>
-                                ) : status ? (
-                                    <Stack spacing={1}>
-                                        <Typography>Ultima sincronizacao: {status.lastSync ?? '-'}</Typography>
-                                        <Typography>Arquivos gerados: {status.syncedFileCount ?? '-'}</Typography>
-                                        <Typography>Total de canais: {status.totalChannelCount ?? '-'}</Typography>
-                                        <Typography>Canais compativeis com EPG: {status.epgCompatibleChannelCount ?? '-'}</Typography>
-                                        <Typography>URL M3U atual: {status.m3uUrl ?? '-'}</Typography>
-                                        <Typography>URL EPG atual: {status.epgUrl ?? '-'}</Typography>
-                                        <Typography>EPG guide: {status.epgGuideUrl ?? '-'}</Typography>
-                                        <Typography>Pasta STRM: {status.strmPath ?? '-'}</Typography>
+                                )}
+                                {!isStatusPending && !isStatusError && status && (
+                                    <Stack spacing={2}>
                                         {status.lastError && <Alert severity='error'>{status.lastError}</Alert>}
                                         {status.epgLastError && <Alert severity='warning'>{status.epgLastError}</Alert>}
+
+                                        <Box sx={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                            gap: 2
+                                        }}>
+                                            <StatCard label='Ultima sincronizacao' value={status.lastSync ? new Date(status.lastSync).toLocaleString() : '-'} />
+                                            <StatCard label='Arquivos gerados' value={String(status.syncedFileCount ?? '-')} />
+                                            <StatCard label='Total de canais' value={String(status.totalChannelCount ?? '-')} />
+                                            <StatCard label='Canais com EPG' value={String(status.epgCompatibleChannelCount ?? '-')} />
+                                        </Box>
+
+                                        <Box sx={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                                            gap: 2
+                                        }}>
+                                            <StatCard label='Pasta STRM' value={status.strmPath ?? '-'} monospace />
+                                            <StatCard label='URL M3U atual' value={status.m3uUrl ?? '-'} monospace />
+                                            <StatCard label='URL EPG atual' value={status.epgUrl ?? '-'} monospace />
+                                            <StatCard label='EPG guide' value={status.epgGuideUrl ?? '-'} monospace />
+                                        </Box>
                                     </Stack>
-                                ) : null}
+                                )}
                             </Box>
                         </Stack>
                     </Form>

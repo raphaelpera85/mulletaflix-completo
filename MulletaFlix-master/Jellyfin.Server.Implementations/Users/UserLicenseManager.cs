@@ -2,12 +2,14 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Dto;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MulletaFlix.Data;
+using MulletaFlix.Data.Events.Users;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Contexts;
 using MulletaFlix.Database.Implementations.Entities;
@@ -23,6 +25,7 @@ public class UserLicenseManager : IUserLicenseManager
     private readonly IDbContextFactory<UsersDbContext> _dbProvider;
     private readonly IUserManager _userManager;
     private readonly ISessionManager _sessionManager;
+    private readonly IEventManager _eventManager;
     private readonly ILogger<UserLicenseManager> _logger;
 
     /// <summary>
@@ -31,16 +34,19 @@ public class UserLicenseManager : IUserLicenseManager
     /// <param name="dbProvider">The database provider.</param>
     /// <param name="userManager">The user manager.</param>
     /// <param name="sessionManager">The session manager.</param>
+    /// <param name="eventManager">The event manager.</param>
     /// <param name="logger">The logger.</param>
     public UserLicenseManager(
         IDbContextFactory<UsersDbContext> dbProvider,
         IUserManager userManager,
         ISessionManager sessionManager,
+        IEventManager eventManager,
         ILogger<UserLicenseManager> logger)
     {
         _dbProvider = dbProvider;
         _userManager = userManager;
         _sessionManager = sessionManager;
+        _eventManager = eventManager;
         _logger = logger;
     }
 
@@ -86,6 +92,7 @@ public class UserLicenseManager : IUserLicenseManager
                 .FirstOrDefaultAsync(l => l.UserId.Equals(userId))
                 .ConfigureAwait(false);
 
+            var isNewLicense = license is null;
             var now = DateTime.UtcNow;
             bool isUnlimited = !durationHours.HasValue
                 || durationHours.Value == -1
@@ -142,6 +149,14 @@ public class UserLicenseManager : IUserLicenseManager
 
             await dbContext.SaveChangesAsync().ConfigureAwait(false);
 
+            // Publish event for activity logging
+            await _eventManager.PublishAsync(new UserLicenseChangedEventArgs(
+                user,
+                isNewLicense,
+                isUnlimited ? null : durationHours,
+                adminNotes,
+                grantedByUserId)).ConfigureAwait(false);
+
             // Reload with navigation for DTO mapping
             license = await dbContext.UserLicenses
                 .AsNoTracking()
@@ -168,14 +183,21 @@ public class UserLicenseManager : IUserLicenseManager
 
             if (license is not null)
             {
+                var user = license.User;
                 dbContext.UserLicenses.Remove(license);
 
-                if (license.User is not null && !license.User.HasPermission(PermissionKind.IsAdministrator))
+                if (user is not null && !user.HasPermission(PermissionKind.IsAdministrator))
                 {
-                    license.User.SetPermission(PermissionKind.IsDisabled, true);
+                    user.SetPermission(PermissionKind.IsDisabled, true);
                 }
 
                 await dbContext.SaveChangesAsync().ConfigureAwait(false);
+
+                // Publish event for activity logging
+                if (user is not null)
+                {
+                    await _eventManager.PublishAsync(new UserLicenseRevokedEventArgs(user, Guid.Empty)).ConfigureAwait(false);
+                }
 
                 _logger.LogInformation(
                     "License revoked for user {UserId}. User disabled.",

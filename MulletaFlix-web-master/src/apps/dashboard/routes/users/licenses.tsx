@@ -25,6 +25,10 @@ import confirm from 'components/confirm/confirm';
 import Loading from 'components/loading/LoadingComponent';
 import toast from 'components/toast/toast';
 import { fetchUserLicense, type UserLicenseDto, USER_LICENSE_QUERY_KEY, useRevokeUserLicense, useSetUserLicense } from 'apps/dashboard/features/users/api/useUserLicense';
+import { useLogEntries } from 'apps/dashboard/features/activity/api/useLogEntries';
+import type { ActivityLogEntry } from '@jellyfin/sdk/lib/generated-client/models/activity-log-entry';
+import { ActivityLogSortBy } from '@jellyfin/sdk/lib/generated-client/models/activity-log-sort-by';
+import { SortOrder } from '@jellyfin/sdk/lib/generated-client/models/sort-order';
 import { useUsers } from 'hooks/useUsers';
 import { useApi } from 'hooks/useApi';
 
@@ -183,6 +187,33 @@ export const Component = () => {
         })
     ), [users, licenseQueries]);
 
+    const summary = useMemo(() => {
+        const total = rows.length;
+        const admins = rows.filter(r => r.isAdmin).length;
+        const unlimited = rows.filter(r => r.license?.IsUnlimited).length;
+        const expired = rows.filter(r => r.license?.IsExpired).length;
+        const withoutLicense = rows.filter(r => !r.isAdmin && (r.isNoLicense || !r.license)).length;
+        const active = total - admins - unlimited - expired - withoutLicense;
+        return { total, admins, unlimited, expired, withoutLicense, active };
+    }, [rows]);
+
+    const timelineParams = useMemo(() => ({
+        startIndex: 0,
+        limit: 15,
+        type: 'UserLicense',
+        sortBy: [ActivityLogSortBy.DateCreated],
+        sortOrder: [SortOrder.Descending]
+    }), []);
+
+    const {
+        data: timelineData,
+        isPending: isTimelineLoading
+    } = useLogEntries(timelineParams);
+
+    const timelineEntries = useMemo<ActivityLogEntry[]>(() => (
+        timelineData?.Items || []
+    ), [timelineData]);
+
     const handleDurationChange = useCallback((userId: string, value: string) => {
         setDurationDrafts(prev => ({
             ...prev,
@@ -269,6 +300,25 @@ export const Component = () => {
                         </Alert>
                     )}
                 </Stack>
+
+                <Paper variant='outlined' sx={{ p: 2, mb: 3, borderRadius: 3 }}>
+                    <Typography variant='h2' sx={{ mb: 1.5 }}>
+                        Resumo de impacto
+                    </Typography>
+                    <Stack direction='row' spacing={1} flexWrap='wrap' useFlexGap>
+                        <Chip label={`${summary.total} usuários`} variant='outlined' />
+                        <Chip label={`${summary.admins} administradores`} color='info' />
+                        <Chip label={`${summary.active} ativas`} color='success' />
+                        <Chip label={`${summary.unlimited} ilimitadas`} color='info' variant='outlined' />
+                        <Chip label={`${summary.expired} expiradas`} color='error' />
+                        <Chip label={`${summary.withoutLicense} sem licença`} color='warning' variant='outlined' />
+                    </Stack>
+                    {summary.expired > 0 && (
+                        <Alert severity='warning' sx={{ mt: 1.5 }}>
+                            {summary.expired} usuário(s) com licença expirada. Eles serão desabilitados até que uma nova licença seja aplicada.
+                        </Alert>
+                    )}
+                </Paper>
 
                 <TableContainer component={Paper} sx={{ borderRadius: 3, overflowX: 'auto', overflowY: 'hidden' }}>
                     <Table stickyHeader size='small' sx={{ tableLayout: 'fixed', minWidth: 0 }}>
@@ -389,6 +439,43 @@ export const Component = () => {
                         </TableBody>
                     </Table>
                 </TableContainer>
+
+                <Paper variant='outlined' sx={{ p: 2, mt: 3, borderRadius: 3 }}>
+                    <Typography variant='h2' sx={{ mb: 1.5 }}>
+                        Alterações recentes
+                    </Typography>
+                    {isTimelineLoading ? (
+                        <CircularProgress size={24} />
+                    ) : timelineEntries.length === 0 ? (
+                        <Typography color='text.secondary'>
+                            Nenhuma alteração de licença registrada ainda.
+                        </Typography>
+                    ) : (
+                        <Stack spacing={1}>
+                            {timelineEntries.map(entry => (
+                                <Stack
+                                    key={entry.Id}
+                                    direction='row'
+                                    spacing={2}
+                                    alignItems='baseline'
+                                    sx={{ borderBottom: '1px solid', borderColor: 'divider', py: 0.5 }}
+                                >
+                                    <Typography variant='caption' color='text.secondary' sx={{ minWidth: 160 }}>
+                                        {entry.Date ? new Date(entry.Date).toLocaleString() : ''}
+                                    </Typography>
+                                    <Typography variant='body2' sx={{ flexGrow: 1 }}>
+                                        {entry.Name}
+                                    </Typography>
+                                    {entry.Overview && (
+                                        <Typography variant='caption' color='text.secondary'>
+                                            {entry.Overview}
+                                        </Typography>
+                                    )}
+                                </Stack>
+                            ))}
+                        </Stack>
+                    )}
+                </Paper>
             </Box>
         </Page>
     );

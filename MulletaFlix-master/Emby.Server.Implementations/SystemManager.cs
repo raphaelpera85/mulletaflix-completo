@@ -118,7 +118,8 @@ public class SystemManager : ISystemManager
             Id = _applicationHost.SystemId,
             ServerName = _applicationHost.FriendlyName,
             LocalAddress = _applicationHost.GetSmartApiUrl(request),
-            StartupWizardCompleted = _configurationManager.CommonConfiguration.IsStartupWizardCompleted
+            StartupWizardCompleted = _configurationManager.CommonConfiguration.IsStartupWizardCompleted,
+            TargetAbi = _applicationHost.ApplicationVersionString
         };
     }
 

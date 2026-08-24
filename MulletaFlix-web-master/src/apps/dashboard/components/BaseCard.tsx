@@ -13,7 +13,7 @@ import { Link, To } from 'react-router-dom';
 
 interface BaseCardProps {
     title?: string;
-    text?: string;
+    text?: string | React.ReactNode;
     image?: string | null;
     icon?: React.ReactNode;
     to?: To;

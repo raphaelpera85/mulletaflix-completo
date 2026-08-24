@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>GetAvatar</title></head>
+<body>
+  <div id="GetAvatarConfigPage" data-role="page" class="page type-interior pluginConfigurationPage configPage" data-require="emby-input,emby-button" data-controller="__plugin/GetAvatarConfig">
+    <div data-role="content"><div class="content-primary">
+      <h2>GetAvatar</h2>
+      <div class="checkboxContainer checkboxContainer-withDescription"><label><input type="checkbox" id="enableAutoAssign"> Avatar aleatório para novos usuários</label><div class="fieldDescription">Novos usuários recebem automaticamente um avatar da coleção.</div></div>
+      <div class="verticalSection"><h3>Adicionar avatares</h3><input type="file" id="avatarFileInput" accept="image/jpeg,image/png,image/webp,image/gif" multiple><input type="text" id="avatarCategory" is="emby-input" placeholder="Categoria opcional"><button id="uploadButton" is="emby-button" type="button" class="raised button-submit">Enviar</button></div>
+      <div class="verticalSection"><h3>Avatares disponíveis <span id="avatarCount"></span></h3><div id="avatarList">Carregando...</div></div>
+    </div></div>
+  </div>
+</body>
+</html>

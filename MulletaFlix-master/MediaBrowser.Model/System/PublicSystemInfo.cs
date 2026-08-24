@@ -26,6 +26,12 @@ namespace MediaBrowser.Model.System
         public string Version { get; set; }
 
         /// <summary>
+        /// Gets or sets the target ABI version for plugin compatibility.
+        /// </summary>
+        /// <value>The target ABI.</value>
+        public string TargetAbi { get; set; }
+
+        /// <summary>
         /// Gets or sets the product name. This is the AssemblyProduct name.
         /// </summary>
         public string ProductName { get; set; }

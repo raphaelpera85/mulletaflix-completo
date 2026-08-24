@@ -3,10 +3,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Data;
+using MulletaFlix.Data.Events.Users;
 using MulletaFlix.Database.Implementations.Contexts;
 using MulletaFlix.Database.Implementations.Entities;
 using MulletaFlix.Database.Implementations.Enums;
 using MulletaFlix.Server.Implementations.Users;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +22,7 @@ public sealed class UserLicenseManagerTests : IDisposable
 {
     private readonly DbContextOptions<UsersDbContext> _dbOptions;
     private readonly UserLicenseManager _licenseManager;
+    private readonly Mock<IEventManager> _eventManager;
 
     public UserLicenseManagerTests()
     {
@@ -35,10 +38,13 @@ public sealed class UserLicenseManagerTests : IDisposable
         factory.Setup(f => f.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateDbContext);
 
+        _eventManager = new Mock<IEventManager>();
+
         _licenseManager = new UserLicenseManager(
             factory.Object,
             Mock.Of<IUserManager>(),
             Mock.Of<ISessionManager>(),
+            _eventManager.Object,
             NullLogger<UserLicenseManager>.Instance);
     }
 
@@ -129,6 +135,39 @@ public sealed class UserLicenseManagerTests : IDisposable
         Assert.False(dto.IsUnlimited);
         Assert.InRange(dto.StartDate, before, after);
         Assert.Equal(dto.StartDate.AddHours(24), dto.ExpirationDate);
+    }
+
+    [Fact]
+    public async Task SetLicenseAsync_NewLicense_PublishesChangedEvent()
+    {
+        var user = await CreateUserAsync();
+        var grantedBy = Guid.NewGuid();
+
+        await _licenseManager.SetLicenseAsync(user.Id, 730, "notes", grantedBy);
+
+        _eventManager.Verify(
+            m => m.PublishAsync(It.Is<UserLicenseChangedEventArgs>(e =>
+                e.Argument.Id == user.Id
+                && e.IsNewLicense
+                && e.DurationHours == 730
+                && e.AdminNotes == "notes"
+                && e.GrantedByUserId == grantedBy)),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task RevokeLicenseAsync_PublishesRevokedEvent()
+    {
+        var user = await CreateUserAsync();
+        await _licenseManager.SetLicenseAsync(user.Id, 730, null, Guid.NewGuid());
+        _eventManager.Invocations.Clear();
+
+        await _licenseManager.RevokeLicenseAsync(user.Id);
+
+        _eventManager.Verify(
+            m => m.PublishAsync(It.Is<UserLicenseRevokedEventArgs>(e =>
+                e.Argument.Id == user.Id)),
+            Times.Once);
     }
 
     [Fact]

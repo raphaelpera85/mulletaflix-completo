@@ -36,7 +36,7 @@ export const useProgramsSearch = (
     const normalizedSearchTerm = searchTerm?.trim();
 
     return useQuery({
-        queryKey: ['Search', 'Programs', api?.basePath, collectionType, parentId, normalizedSearchTerm],
+        queryKey: ['Search', 'Programs', api?.basePath, userId, collectionType, parentId, normalizedSearchTerm],
         staleTime: 60_000,
         queryFn: ({ signal }) => fetchPrograms(
             api!,

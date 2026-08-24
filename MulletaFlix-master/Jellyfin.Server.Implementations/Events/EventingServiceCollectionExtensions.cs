@@ -41,6 +41,14 @@ namespace MulletaFlix.Server.Implementations.Events
             // Session consumers
             collection.AddScoped<IEventConsumer<PlaybackStartEventArgs>, PlaybackStartLogger>();
             collection.AddScoped<IEventConsumer<PlaybackStopEventArgs>, PlaybackStopLogger>();
+            // Webhook notifier posts playback events to configured webhook URLs.
+            collection.AddSingleton<IEventConsumer<PlaybackStartEventArgs>, PlaybackWebhookNotifier>();
+            collection.AddSingleton<IEventConsumer<PlaybackStopEventArgs>, PlaybackWebhookNotifier>();
+            // PlaybackReportLogger must be a singleton: it correlates Start → Progress → Stop
+            // in an in-memory dictionary, and EventManager resolves consumers in a new scope per event.
+            collection.AddSingleton<IEventConsumer<PlaybackProgressEventArgs>, PlaybackReportLogger>();
+            collection.AddSingleton<IEventConsumer<PlaybackStartEventArgs>, PlaybackReportLogger>();
+            collection.AddSingleton<IEventConsumer<PlaybackStopEventArgs>, PlaybackReportLogger>();
             collection.AddScoped<IEventConsumer<SessionEndedEventArgs>, SessionEndedLogger>();
             collection.AddScoped<IEventConsumer<SessionStartedEventArgs>, SessionStartedLogger>();
 
@@ -64,6 +72,8 @@ namespace MulletaFlix.Server.Implementations.Events
             collection.AddScoped<IEventConsumer<UserCreatedEventArgs>, UserCreatedLogger>();
             collection.AddScoped<IEventConsumer<UserDeletedEventArgs>, UserDeletedLogger>();
             collection.AddScoped<IEventConsumer<UserDeletedEventArgs>, UserDeletedNotifier>();
+            collection.AddScoped<IEventConsumer<UserLicenseChangedEventArgs>, UserLicenseChangedLogger>();
+            collection.AddScoped<IEventConsumer<UserLicenseRevokedEventArgs>, UserLicenseRevokedLogger>();
             collection.AddScoped<IEventConsumer<UserLockedOutEventArgs>, UserLockedOutLogger>();
             collection.AddScoped<IEventConsumer<UserPasswordChangedEventArgs>, UserPasswordChangedLogger>();
             collection.AddScoped<IEventConsumer<UserUpdatedEventArgs>, UserUpdatedNotifier>();

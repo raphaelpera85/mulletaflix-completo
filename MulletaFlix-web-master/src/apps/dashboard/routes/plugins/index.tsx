@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 
 import SearchInput from 'apps/dashboard/components/SearchInput';
 import { usePluginDetails } from 'apps/dashboard/features/plugins/api/usePluginDetails';
+import { checkPluginCompatibility } from 'apps/dashboard/features/plugins/utils/compatibility';
 import NoPluginResults from 'apps/dashboard/features/plugins/components/NoPluginResults';
 import PluginCard from 'apps/dashboard/features/plugins/components/PluginCard';
 import { CATEGORY_LABELS } from 'apps/dashboard/features/plugins/constants/categoryLabels';
@@ -39,6 +40,7 @@ const MAIN_CATEGORIES = [
 const CATEGORY_PARAM = 'category';
 const QUERY_PARAM = 'query';
 const STATUS_PARAM = 'status';
+const COMPATIBILITY_PARAM = 'compatibility';
 
 export const Component = () => {
     const {
@@ -49,6 +51,7 @@ export const Component = () => {
     const [ category, setCategory ] = useSearchParam(CATEGORY_PARAM);
     const [ searchQuery, setSearchQuery ] = useSearchParam(QUERY_PARAM);
     const [ status, setStatus ] = useSearchParam(STATUS_PARAM, PluginStatusOption.Installed);
+    const [ compatibility, setCompatibility ] = useSearchParam(COMPATIBILITY_PARAM);
 
     const onSearchChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
         setSearchQuery(event.target.value);
@@ -57,9 +60,10 @@ export const Component = () => {
 
     const onViewAll = useCallback(() => {
         if (category) setCategory('');
+        else if (compatibility) setCompatibility('');
         else setStatus(PluginStatusOption.All);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ category ]);
+    }, [ category, compatibility ]);
 
     const filteredPlugins = useMemo(() => {
         if (pluginDetails) {
@@ -80,12 +84,23 @@ export const Component = () => {
                     filtered = filtered.filter(p => p.category?.toLowerCase() === category);
                 }
             }
+
+            // Filter by compatibility
+            if (compatibility) {
+                filtered = filtered.filter(p => {
+                    const compat = p.versions?.[0] ? checkPluginCompatibility(p.versions[0], p.targetAbi) : null;
+                    if (compatibility === 'compatible') return compat === true;
+                    if (compatibility === 'incompatible') return compat === false;
+                    return true;
+                });
+            }
+
             return filtered
                 .filter(i => i.name?.toLowerCase().includes(searchQuery.toLowerCase()));
         } else {
             return [];
         }
-    }, [ category, pluginDetails, searchQuery, status ]);
+    }, [ category, compatibility, pluginDetails, searchQuery, status ]);
 
     if (isPending) {
         return <Loading />;
@@ -200,6 +215,29 @@ export const Component = () => {
                                         // eslint-disable-next-line react/jsx-no-bind
                                         onClick={() => setStatus(PluginStatusOption.Installed)}
                                         label={globalize.translate('LabelInstalled')}
+                                    />
+
+                                    <Divider orientation='vertical' flexItem />
+
+                                    <Chip
+                                        color={compatibility === 'compatible' ? 'success' : compatibility === 'incompatible' ? 'error' : !compatibility ? 'primary' : undefined}
+                                        // eslint-disable-next-line react/jsx-no-bind
+                                        onClick={() => setCompatibility('compatible')}
+                                        label={globalize.translate('LabelCompatible') || 'Compatível'}
+                                    />
+
+                                    <Chip
+                                        color={compatibility === 'incompatible' ? 'error' : compatibility === 'compatible' ? 'success' : !compatibility ? 'primary' : undefined}
+                                        // eslint-disable-next-line react/jsx-no-bind
+                                        onClick={() => setCompatibility('incompatible')}
+                                        label={globalize.translate('LabelIncompatible') || 'Incompatível'}
+                                    />
+
+                                    <Chip
+                                        color={!compatibility ? 'primary' : undefined}
+                                        // eslint-disable-next-line react/jsx-no-bind
+                                        onClick={() => setCompatibility('')}
+                                        label={globalize.translate('All') || 'Todos'}
                                     />
 
                                     <Divider orientation='vertical' flexItem />
