@@ -1,5 +1,6 @@
 # Build outputs
 stage/
+stage-data/
 .build/
 bin/
 obj/

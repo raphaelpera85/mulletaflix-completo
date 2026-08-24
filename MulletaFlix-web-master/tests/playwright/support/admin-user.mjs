@@ -7,8 +7,6 @@ import path from 'node:path';
 import { fetchStagePublicInfo, navigateStage, openLogin, resolveStageUrl, seedStageConnection, waitForDashboardBridge } from './stage.mjs';
 import { ensureWizardCompleted } from './wizard.mjs';
 
-const ADMIN_USER = process.env.MFLX_ADMIN_USER || 'Raphael';
-const ADMIN_PASSWORD = process.env.MFLX_ADMIN_PASSWORD || 'Bug309c*';
 const SHARED_USER_FILE = process.env.MFLX_SHARED_USER_FILE
     || path.join(os.tmpdir(), 'mulletaflix-playwright-common-user.json');
 
@@ -22,10 +20,14 @@ function createCredentials() {
 }
 
 export function getAdminCredentials() {
-    return {
-        username: ADMIN_USER,
-        password: ADMIN_PASSWORD
-    };
+    const username = process.env.MFLX_ADMIN_USER?.trim();
+    const password = process.env.MFLX_ADMIN_PASSWORD?.trim();
+
+    if (!username || !password) {
+        throw new Error('Set MFLX_ADMIN_USER and MFLX_ADMIN_PASSWORD before running Playwright.');
+    }
+
+    return { username, password };
 }
 
 export async function readSharedUser() {

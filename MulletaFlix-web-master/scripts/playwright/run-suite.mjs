@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
@@ -11,6 +11,13 @@ import {
     getStageBaseUrl,
     writePlaywrightReportArtifacts
 } from '../../tests/playwright/support/index.mjs';
+import {
+    assertSafeRemovalTargets,
+    assertStagePidFileAbsent,
+    buildStageKillArgs,
+    buildStageRemovalTargets,
+    parseStagePid
+} from './stage-safety.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..', '..');
@@ -19,21 +26,20 @@ const configPath = path.join(repoRoot, 'playwright.stage.config.ts');
 const specDir = path.join(repoRoot, 'tests', 'playwright', 'specs');
 const playwrightCli = path.join(repoRoot, 'node_modules', '@playwright', 'test', 'cli.js');
 const workspaceRoot = path.resolve(repoRoot, '..');
-const localAppDataRoot = process.env.LOCALAPPDATA || '';
-const stageExe = path.join(workspaceRoot, 'stage', 'MulletaFlix.exe');
+const stageDll = path.join(workspaceRoot, 'stage', 'MulletaFlix.dll');
 const stageDataDir = path.join(workspaceRoot, 'stage-data');
 const legacyStageDataDir = path.join(workspaceRoot, 'stage', 'data', 'jellyfin-test');
-const stageDatabaseTargets = [
-    path.join(workspaceRoot, 'stage', 'data'),
-    path.join(localAppDataRoot, 'MulletaFlix'),
-    path.join(localAppDataRoot, 'jellyfin'),
-    path.join(stageDataDir, 'data', 'mariadb_data'),
-    path.join(stageDataDir, 'data', 'mariadb'),
-    path.join(stageDataDir, 'config', 'system.xml'),
-    path.join(legacyStageDataDir, 'data', 'mariadb_data'),
-    path.join(legacyStageDataDir, 'data', 'mariadb'),
-    path.join(legacyStageDataDir, 'config', 'system.xml')
+const stagePidFile = path.join(stageDataDir, 'stage.pid');
+const allowedStageRoots = [
+    path.join(workspaceRoot, 'stage'),
+    stageDataDir
 ];
+const stageRemovalTargets = buildStageRemovalTargets({
+    workspaceRoot,
+    stageDataDir,
+    legacyStageDataDir
+});
+let ownsStageProcess = false;
 
 function parseArgs(argv) {
     const args = {
@@ -81,11 +87,29 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function killStageProcess(imageName) {
-    spawnSync('taskkill', [ '/IM', imageName, '/F' ], {
+async function stopTrackedStageProcess() {
+    let pidContent;
+    try {
+        pidContent = await readFile(stagePidFile, 'utf8');
+    } catch (error) {
+        if (error?.code === 'ENOENT') {
+            return;
+        }
+
+        throw error;
+    }
+
+    const pid = parseStagePid(pidContent);
+    if (!pid) {
+        throw new Error(`Invalid stage pid file: ${stagePidFile}`);
+    }
+
+    spawnSync('taskkill', buildStageKillArgs(pid), {
         windowsHide: true,
         stdio: 'ignore'
     });
+    await rm(stagePidFile, { force: true });
+    ownsStageProcess = false;
 }
 
 async function removeTargets(targets) {
@@ -95,24 +119,27 @@ async function removeTargets(targets) {
 }
 
 async function resetStageWorkspace() {
-    console.error('[playwright] resetting stage workspace');
-    killStageProcess('MulletaFlix.exe');
-    killStageProcess('mysqld.exe');
-    await sleep(2000);
-    await removeTargets(stageDatabaseTargets);
-    await rm(stageDataDir, { recursive: true, force: true });
-    await rm(legacyStageDataDir, { recursive: true, force: true });
+    console.error('[playwright] resetting isolated stage workspace');
+    assertStagePidFileAbsent(existsSync(stagePidFile));
+    assertSafeRemovalTargets(stageRemovalTargets, allowedStageRoots);
+    await removeTargets(stageRemovalTargets);
     await mkdir(stageDataDir, { recursive: true });
 }
 
 async function startStageAndWaitClean(baseUrl) {
     console.error('[playwright] starting clean stage');
-    const child = spawn(stageExe, [ `--datadir=${stageDataDir}` ], {
+    const child = spawn('dotnet', [ stageDll, `--datadir=${stageDataDir}` ], {
         windowsHide: true,
-        stdio: 'ignore',
+        stdio: [ 'ignore', 'inherit', 'inherit' ],
         detached: true
     });
 
+    if (!child.pid) {
+        throw new Error('Stage process did not return a process id.');
+    }
+
+    await writeFile(stagePidFile, String(child.pid), 'utf8');
+    ownsStageProcess = true;
     child.unref();
 
     for (let attempt = 1; attempt <= 120; attempt++) {
@@ -219,6 +246,9 @@ async function main() {
         const { jsonPath, markdownPath } = await writePlaywrightReportArtifacts(summary, args.reportDir);
         console.log(`Relatório Playwright salvo em:\n- ${jsonPath}\n- ${markdownPath}`);
         process.exitCode = stageProbe.reachable ? 0 : 1;
+        if (ownsStageProcess) {
+            await stopTrackedStageProcess();
+        }
         return;
     }
 
@@ -279,10 +309,19 @@ async function main() {
     const { jsonPath, markdownPath } = await writePlaywrightReportArtifacts(summary, args.reportDir);
     console.log(`Relatório Playwright salvo em:\n- ${jsonPath}\n- ${markdownPath}`);
 
+    if (ownsStageProcess) {
+        await stopTrackedStageProcess();
+    }
     process.exitCode = result.status === 0 && summary.tests.failed === 0 ? 0 : 1;
 }
 
 main().catch(async error => {
+    if (ownsStageProcess) {
+        await stopTrackedStageProcess().catch(cleanupError => {
+            console.error('[playwright] failed to stop owned stage process', cleanupError);
+        });
+    }
+
     const summary = {
         title: 'MulletaFlix Playwright Summary',
         generatedAt: new Date().toISOString(),
