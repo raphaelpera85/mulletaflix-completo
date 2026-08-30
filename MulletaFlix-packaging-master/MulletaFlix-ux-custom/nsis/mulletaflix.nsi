@@ -141,6 +141,11 @@ Function StopRunningMulletaFlixProcesses
     ExecWait 'TaskKill /IM MulletaFlix.exe /F /T' $0
     ExecWait 'TaskKill /IM mysqld.exe /F /T' $0
     ExecWait 'TaskKill /IM mariadbd.exe /F /T' $0
+    ; Nebula runs from Python and can keep .pyd files locked during upgrades.
+    ; Filter by the installed Nebula path so unrelated Python processes survive.
+    SetOutPath "$PLUGINSDIR"
+    File "/oname=stop-nebula-processes.ps1" "${UXPATH}\nsis\stop-nebula-processes.ps1"
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-nebula-processes.ps1"' $0
     Sleep 3000
 FunctionEnd
 
@@ -170,8 +175,14 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
             DetailPrint "Stopped MulletaFlix Server service, $0"
         ${EndIf}
 
-    SetOutPath "$INSTDIR"
+    ; -------------------------------------------------------------
+    ; Limpa qualquer pasta legada nebula / .venv de instalações antigas com Python
+    ; -------------------------------------------------------------
+    DetailPrint "Removendo resquicios de instalacoes antigas do Nebula em Python..."
+    RMDir /r "$INSTDIR\nebula"
+    ClearErrors
 
+    SetOutPath "$INSTDIR"
 
     File "/oname=icon.ico" "${UXPATH}\branding\NSIS\modern-install.ico"
     File /r "${InstallLocation}\*"
@@ -197,6 +208,27 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
 
     ; Allow MariaDB through firewall
     ExecWait 'netsh advfirewall firewall add rule name="MulletaFlix MariaDB" dir=in action=allow program="$INSTDIR\mariadb\bin\mysqld.exe" enable=yes' $0
+
+    ; -------------------------------------------------------------
+    ; Verificação e Instalação Automática do MongoDB
+    ; -------------------------------------------------------------
+    DetailPrint "Verificando se o MongoDB esta instalado no sistema..."
+    ClearErrors
+    ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Services\MongoDB" "ImagePath"
+    ${If} $0 != ""
+        DetailPrint "MongoDB ja esta instalado no sistema (Servico registrado). Pulando instalacao."
+    ${Else}
+        DetailPrint "MongoDB nao encontrado. Executando verificador e instalador automatico..."
+        ${If} ${FileExists} "$INSTDIR\install-mongodb-if-missing.ps1"
+            ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\install-mongodb-if-missing.ps1"' $0
+            DetailPrint "Processo de instalacao do MongoDB finalizado com codigo: $0"
+        ${Else}
+            ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $$msi = \"$$TEMP\mongodb.msi\"; try { (New-Object System.Net.WebClient).DownloadFile(\"https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-7.0.14-signed.msi\", $$msi); Start-Process msiexec.exe -ArgumentList \"/i `\"$$msi`\" /qn /norestart SHOULD_INSTALL_COMPASS=0 ADDLOCAL=ServerService,Client\" -Wait; Remove-Item $$msi -Force -ErrorAction SilentlyContinue; Start-Service MongoDB -ErrorAction SilentlyContinue; } catch {}"' $0
+        ${EndIf}
+    ${EndIf}
+
+    ; Allow MongoDB through firewall
+    ExecWait 'netsh advfirewall firewall add rule name="MulletaFlix MongoDB" dir=in action=allow port=27017 protocol=TCP enable=yes' $0
 
     ; Create uninstaller
     WriteUninstaller "$INSTDIR\Uninstall.exe"

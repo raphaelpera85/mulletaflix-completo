@@ -74,8 +74,9 @@ function Copy-DirectoryContents {
     Assert-Path $Source 'Source directory'
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 
-    Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
+    $process = Start-Process -FilePath "robocopy.exe" -ArgumentList @("`"$Source`"", "`"$Destination`"", "/E", "/R:2", "/W:1", "/NFL", "/NDL", "/NJH", "/NJS", "/nc", "/ns", "/np") -Wait -PassThru -NoNewWindow
+    if ($process.ExitCode -ge 8) {
+        throw "robocopy failed from $Source to $Destination with exit code $($process.ExitCode)"
     }
 }
 
@@ -129,9 +130,9 @@ function Build-Server {
         if (Test-Path -LiteralPath $sourcePath) {
             $tempBackupPath = Join-Path $projectRoot "stage-backup-$item"
             if (Test-Path -LiteralPath $tempBackupPath) {
-                Remove-Item -LiteralPath $tempBackupPath -Recurse -Force
+                Remove-Item -LiteralPath $tempBackupPath -Recurse -Force -ErrorAction SilentlyContinue
             }
-            Move-Item -LiteralPath $sourcePath -Destination $tempBackupPath -Force
+            Copy-Item -LiteralPath $sourcePath -Destination $tempBackupPath -Recurse -Force
             $backupItems += [PSCustomObject]@{
                 Item = $item
                 BackupPath = $tempBackupPath
@@ -177,9 +178,18 @@ function Build-Server {
             Remove-Item -LiteralPath $destPath -Recurse -Force -ErrorAction SilentlyContinue
         }
 
-        Copy-Item -LiteralPath $backup.BackupPath -Destination $destPath -Recurse -Force
-        Remove-Item -LiteralPath $backup.BackupPath -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "Restored $($backup.Item) to stage." -ForegroundColor Gray
+        try {
+            if (Test-Path -LiteralPath $backup.BackupPath -PathType Container) {
+                Copy-DirectoryContents -Source $backup.BackupPath -Destination $destPath
+            } else {
+                Copy-Item -LiteralPath $backup.BackupPath -Destination $destPath -Force -ErrorAction Stop
+            }
+            Remove-Item -LiteralPath $backup.BackupPath -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "Restored $($backup.Item) to stage." -ForegroundColor Gray
+        }
+        catch {
+            Write-Host "Notice: $($backup.Item) could not be restored: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
     }
 
     # Safety net: if a preserve item had a backup folder already on disk from a
@@ -187,11 +197,20 @@ function Build-Server {
     # beginning of this run.
     foreach ($item in $preserves) {
         $destPath = Join-Path $stageDir $item
-        $legacyBackupPath = Join-Path $projectRoot "stage-backup-$item"
-
-        if (-not (Test-Path -LiteralPath $destPath) -and (Test-Path -LiteralPath $legacyBackupPath)) {
-            Copy-Item -LiteralPath $legacyBackupPath -Destination $destPath -Recurse -Force
-            Write-Host "Recovered $item from existing backup into stage." -ForegroundColor Yellow
+        $tempBackupPath = Join-Path $projectRoot "stage-backup-$item"
+        if ((Test-Path -LiteralPath $tempBackupPath) -and (-not (Test-Path -LiteralPath $destPath))) {
+            try {
+                if (Test-Path -LiteralPath $tempBackupPath -PathType Container) {
+                    Copy-DirectoryContents -Source $tempBackupPath -Destination $destPath
+                } else {
+                    Copy-Item -LiteralPath $tempBackupPath -Destination $destPath -Force -ErrorAction Stop
+                }
+                Remove-Item -LiteralPath $tempBackupPath -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Host "Recovered $item from previous backup." -ForegroundColor Yellow
+            }
+            catch {
+                Write-Host "Notice: Could not recover $item from previous backup." -ForegroundColor Yellow
+            }
         }
     }
 }
@@ -248,6 +267,12 @@ function Copy-RuntimeExtras {
     $supportLicense = Join-Path $packagingRoot 'jellyfin-server-windows\Support Files\LICENSE'
     if (Test-Path -LiteralPath $supportLicense) {
         Copy-Item -LiteralPath $supportLicense -Destination (Join-Path $stageDir 'LICENSE') -Force
+    }
+
+    $mongoScript = Join-Path $packagingRoot 'jellyfin-server-windows\Support Files\install-mongodb-if-missing.ps1'
+    if (Test-Path -LiteralPath $mongoScript) {
+        Copy-Item -LiteralPath $mongoScript -Destination (Join-Path $stageDir 'install-mongodb-if-missing.ps1') -Force
+        Write-Host "Copied install-mongodb-if-missing.ps1 to stage." -ForegroundColor Green
     }
 
     foreach ($binary in @('ffmpeg.exe', 'ffprobe.exe')) {
@@ -325,6 +350,13 @@ function Copy-RuntimeExtras {
         }
     } else {
         Write-Host "MariaDB portable already present in stage." -ForegroundColor Gray
+    }
+
+    # Remove any legacy Python/Nebula directories from stage (Nebula is now 100% C# .NET native)
+    $legacyNebula = Join-Path $stageDir 'nebula'
+    if (Test-Path -LiteralPath $legacyNebula) {
+        Remove-Item -LiteralPath $legacyNebula -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "Removed legacy Python nebula directory from stage." -ForegroundColor Green
     }
 }
 
