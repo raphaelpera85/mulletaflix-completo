@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -37,6 +37,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Primitives;
 using Prometheus;
+using Jellyfin.Server.Implementations.Nebula;
 
 namespace MulletaFlix.Server
 {
@@ -180,6 +181,7 @@ namespace MulletaFlix.Server
             services.AddHostedService<UserDataChangeNotifier>();
             services.AddHostedService<RecordingNotifier>();
             services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MulletaFlixJobQueue>());
+            services.AddHostedService<NebulaHostedService>();
         }
 
         /// <summary>

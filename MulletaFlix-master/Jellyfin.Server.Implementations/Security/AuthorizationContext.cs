@@ -92,12 +92,12 @@ namespace MulletaFlix.Server.Implementations.Security
                 auth.TryGetValue("Token", out token);
             }
 
-            if (_configurationManager.Configuration.EnableLegacyAuthorization && string.IsNullOrEmpty(token))
+            if (string.IsNullOrEmpty(token))
             {
                 token = headers["X-Emby-Token"];
             }
 
-            if (_configurationManager.Configuration.EnableLegacyAuthorization && string.IsNullOrEmpty(token))
+            if (string.IsNullOrEmpty(token))
             {
                 token = headers["X-MediaBrowser-Token"];
             }
@@ -107,7 +107,7 @@ namespace MulletaFlix.Server.Implementations.Security
                 token = queryString["ApiKey"];
             }
 
-            if (_configurationManager.Configuration.EnableLegacyAuthorization && string.IsNullOrEmpty(token))
+            if (string.IsNullOrEmpty(token))
             {
                 token = queryString["api_key"];
             }

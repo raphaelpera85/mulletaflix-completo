@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -231,7 +231,6 @@ public sealed class MovieSimilarItemsProvider : ILocalSimilarItemsProvider<Movie
     private static async Task<Dictionary<Guid, Dictionary<Guid, int>>> ComputeBatchScoresAsync(List<Guid> sourceIds, MulletaFlixDbContext context, CancellationToken cancellationToken)
     {
         var result = new Dictionary<Guid, Dictionary<Guid, int>>();
-        var sourceIdArray = sourceIds.ToArray();
         foreach (var id in sourceIds)
         {
             result[id] = [];
@@ -240,7 +239,7 @@ public sealed class MovieSimilarItemsProvider : ILocalSimilarItemsProvider<Movie
         foreach (var (valueType, weight) in _itemValueDimensions)
         {
             var sourceRows = await context.ItemValuesMap.AsNoTracking()
-                .Where(m => sourceIdArray.Contains(m.ItemId) && m.ItemValue.Type == valueType)
+                .Where(m => sourceIds.Contains(m.ItemId) && m.ItemValue.Type == valueType)
                 .Select(m => new { m.ItemId, Key = m.ItemValue.CleanValue })
                 .ToListAsync(cancellationToken).ConfigureAwait(false);
 
@@ -251,8 +250,9 @@ public sealed class MovieSimilarItemsProvider : ILocalSimilarItemsProvider<Movie
                 continue;
             }
 
+            var allKeysList = allKeys.ToList();
             var candidateRows = await context.ItemValuesMap.AsNoTracking()
-                .Where(m => m.ItemValue.Type == valueType && allKeys.Contains(m.ItemValue.CleanValue))
+                .Where(m => m.ItemValue.Type == valueType && allKeysList.Contains(m.ItemValue.CleanValue))
                 .Select(m => new { m.ItemId, Key = m.ItemValue.CleanValue })
                 .ToListAsync(cancellationToken).ConfigureAwait(false);
 
@@ -264,7 +264,7 @@ public sealed class MovieSimilarItemsProvider : ILocalSimilarItemsProvider<Movie
         }
 
         var personSourceRows = await context.PeopleBaseItemMap.AsNoTracking()
-            .Where(m => sourceIdArray.Contains(m.ItemId))
+            .Where(m => sourceIds.Contains(m.ItemId))
             .Select(m => new { m.ItemId, m.PeopleId, m.People.PersonType })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
@@ -274,7 +274,7 @@ public sealed class MovieSimilarItemsProvider : ILocalSimilarItemsProvider<Movie
 
         if (personSourceRows.Count > 0)
         {
-            var scoredPersonIds = personSourceRows.Select(r => r.PeopleId).Distinct().ToArray();
+            var scoredPersonIds = personSourceRows.Select(r => r.PeopleId).Distinct().ToList();
             var personCandidateRows = await context.PeopleBaseItemMap.AsNoTracking()
                 .Where(m => scoredPersonIds.Contains(m.PeopleId))
                 .Select(m => new { m.ItemId, m.PeopleId })

@@ -1762,9 +1762,61 @@ namespace Emby.Server.Implementations.Library
                 CollectionType = GetCollectionType(dir)
             };
 
-            var libraryFolder = allCollectionFolders.FirstOrDefault(i => string.Equals(i.Path, dir, StringComparison.OrdinalIgnoreCase));
+            // The directory list and the resolved CollectionFolder can differ in
+            // separators, casing, or other platform-specific path normalization.
+            // Comparing the raw strings leaves ItemId empty and makes the web
+            // editor report the library as invalid even though it is the same
+            // filesystem location.
+            var libraryFolder = allCollectionFolders.FirstOrDefault(i => _fileSystem.AreEqual(i.Path, dir));
+            if (libraryFolder is null)
+            {
+                // Fallback 1: Match by collection folder name or directory name
+                libraryFolder = allCollectionFolders.FirstOrDefault(i =>
+                    string.Equals(i.Name, info.Name, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(i.Path) && _fileSystem.AreEqual(Path.GetFileName(i.Path), info.Name)));
+            }
+
+            if (libraryFolder is null)
+            {
+                // Fallback 2: Look up by ItemId hash of dir
+                var folderId = GetNewItemId(dir, typeof(CollectionFolder));
+                libraryFolder = GetItemById(folderId);
+            }
+
+            if (libraryFolder is null)
+            {
+                // Fallback 3: Resolve folder from filesystem metadata
+                try
+                {
+                    var userRoot = GetUserRootFolder();
+                    var resolved = ResolvePath(_fileSystem.GetDirectoryInfo(dir), new DirectoryService(_fileSystem), null, userRoot, null) as Folder;
+                    if (resolved is not null)
+                    {
+                        _persistenceService.SaveItems([resolved], CancellationToken.None);
+                        libraryFolder = resolved;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve collection folder for {Path}", dir);
+                }
+            }
+
             if (libraryFolder is not null)
             {
+                if (!string.IsNullOrEmpty(libraryFolder.Path) && !_fileSystem.AreEqual(libraryFolder.Path, dir))
+                {
+                    libraryFolder.Path = dir;
+                    try
+                    {
+                        _persistenceService.SaveItems([libraryFolder], CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to update collection folder path for {Path}", dir);
+                    }
+                }
+
                 var libraryFolderId = libraryFolder.Id.ToString("N", CultureInfo.InvariantCulture);
                 info.ItemId = libraryFolderId;
                 if (libraryFolder.HasImage(ImageType.Primary))

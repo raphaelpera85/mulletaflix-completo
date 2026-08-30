@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -27,6 +27,7 @@ public class DashboardController : BaseMulletaFlixApiController
     private const string NebulaFtpConfigurationName = "NebulaFTP";
     private const string NebulaFtpConfigurationKey = "nebulaftp";
     private const string NebulaFtpResourceName = "MulletaFlix.Api.Web.NebulaFTP.configPage.html";
+    private const string NebulaFtpScriptResourceName = "MulletaFlix.Api.Web.NebulaFTP.configPage.js";
     private static readonly Guid NebulaFtpPluginId = Guid.Parse("7f4f5c78-9f05-4d1b-8f5b-5d6fd5c6b0d1");
 
     private readonly ILogger<DashboardController> _logger;
@@ -80,12 +81,18 @@ public class DashboardController : BaseMulletaFlixApiController
     [HttpGet("web/ConfigurationPage")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesFile(MediaTypeNames.Text.Html, "application/x-javascript")]
+    [ProducesFile(MediaTypeNames.Text.Html, "application/x-javascript", "application/javascript")]
     public ActionResult GetDashboardConfigurationPage([FromQuery] string? name)
     {
         if (string.Equals(name, NebulaFtpConfigurationName, StringComparison.OrdinalIgnoreCase))
         {
             return GetNebulaFtpConfigurationPage();
+        }
+
+        if (string.Equals(name, NebulaFtpConfigurationName + "-config", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "NebulaFTPConfig", StringComparison.OrdinalIgnoreCase))
+        {
+            return GetNebulaFtpConfigurationScript();
         }
 
         var altPage = GetPluginPages().FirstOrDefault(p => string.Equals(p.Item1.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -117,6 +124,19 @@ public class DashboardController : BaseMulletaFlixApiController
         }
 
         return File(stream, MediaTypeNames.Text.Html);
+    }
+
+    [NonAction]
+    private ActionResult GetNebulaFtpConfigurationScript()
+    {
+        var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(NebulaFtpScriptResourceName);
+        if (stream is null)
+        {
+            _logger.LogError("Failed to get native resource {Resource}", NebulaFtpScriptResourceName);
+            return NotFound();
+        }
+
+        return File(stream, "application/javascript");
     }
 
     [NonAction]

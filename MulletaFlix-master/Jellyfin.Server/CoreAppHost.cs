@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Emby.Server.Implementations;
@@ -29,6 +29,8 @@ using MediaBrowser.Controller.Security;
 using MediaBrowser.Controller.Trickplay;
 using MediaBrowser.Model.Activity;
 using MediaBrowser.Providers.Lyric;
+using MediaBrowser.Controller.Nebula;
+using MulletaFlix.Server.Implementations.Nebula;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -92,6 +94,7 @@ namespace MulletaFlix.Server
             serviceCollection.AddSingleton<IDisplayPreferencesManager, DisplayPreferencesManager>();
             serviceCollection.AddSingleton<IDeviceManager, DeviceManager>();
             serviceCollection.AddSingleton<ITrickplayManager, TrickplayManager>();
+            serviceCollection.AddSingleton<INebulaFtpManager, NebulaFtpManager>();
 
             // TODO search the assemblies instead of adding them manually?
             serviceCollection.AddSingleton<IWebSocketListener, SessionWebSocketListener>();
@@ -129,7 +132,7 @@ namespace MulletaFlix.Server
             yield return typeof(MulletaFlixDbContext).Assembly;
 
             // MulletaFlix.Server.Implementations
-            yield return typeof(ServiceCollectionExtensions).Assembly;
+            yield return typeof(UserManager).Assembly;
 
             // MulletaFlix.LiveTv
             yield return typeof(LiveTvManager).Assembly;

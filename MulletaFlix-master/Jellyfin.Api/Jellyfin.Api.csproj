@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <!-- ProjectGuid is only included as a requirement for SonarQube analysis -->
   <PropertyGroup>
@@ -49,6 +49,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Web\NebulaFTP\configPage.html" LogicalName="MulletaFlix.Api.Web.NebulaFTP.configPage.html" />
+    <EmbeddedResource Include="Web\NebulaFTP\configPage.js" LogicalName="MulletaFlix.Api.Web.NebulaFTP.configPage.js" />
   </ItemGroup>
 
 </Project>

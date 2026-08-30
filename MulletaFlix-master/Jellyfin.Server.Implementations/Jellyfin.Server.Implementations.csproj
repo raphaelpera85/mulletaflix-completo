@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -28,7 +28,13 @@
   <ItemGroup>
     <PackageReference Include="AsyncKeyedLock" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="MongoDB.Driver" />
+    <PackageReference Include="BCrypt.Net-Next" />
+    <PackageReference Include="WTelegramClient" />
+    <PackageReference Include="FubarDev.FtpServer" />
+    <PackageReference Include="FubarDev.FtpServer.Commands" />
   </ItemGroup>
+
 
   <ItemGroup>
     <ProjectReference Include="..\Jellyfin.Data\Jellyfin.Data.csproj" />

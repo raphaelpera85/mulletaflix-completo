@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
@@ -351,6 +351,19 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         [FromBody] UpdateLibraryOptionsDto request)
     {
         var item = _libraryManager.GetItemById<CollectionFolder>(request.Id);
+        if (item is null)
+        {
+            var rawItem = _libraryManager.GetItemById(request.Id);
+            if (rawItem is CollectionFolder colFolder)
+            {
+                item = colFolder;
+            }
+            else
+            {
+                item = _libraryManager.GetUserRootFolder().Children.OfType<CollectionFolder>().FirstOrDefault(f => f.Id == request.Id);
+            }
+        }
+
         if (item is null)
         {
             return NotFound();
