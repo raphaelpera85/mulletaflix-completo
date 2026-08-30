@@ -6,14 +6,34 @@
     let selectedId = null;
     let targetUserId = null;
 
+    function getClient() {
+        return window.ApiClient || (typeof ApiClient !== 'undefined' ? ApiClient : null);
+    }
+
     function url(path) {
-        return window.ApiClient?.getUrl ? window.ApiClient.getUrl(apiBase + path) : apiBase + path;
+        const client = getClient();
+        let fullPath = apiBase + path;
+        const token = (client && client.accessToken && client.accessToken()) || '';
+        if (token) {
+            const sep = fullPath.indexOf('?') === -1 ? '?' : '&';
+            fullPath += sep + 'api_key=' + encodeURIComponent(token);
+        }
+        return client && client.getUrl ? client.getUrl(fullPath) : fullPath;
     }
 
     function headers(json) {
-        const result = {};
+        const result = { 'Accept': 'application/json' };
         if (json) result['Content-Type'] = 'application/json';
-        if (window.ApiClient?.accessToken) result['X-Emby-Token'] = window.ApiClient.accessToken();
+        const client = getClient();
+        if (client && client.accessToken && client.accessToken()) {
+            const token = client.accessToken();
+            result['X-Emby-Token'] = token;
+            result['X-MediaBrowser-Token'] = token;
+            const deviceId = client.deviceId ? client.deviceId() : '';
+            const version = client.appVersion ? client.appVersion() : '1.0.0';
+            const appName = client.appName ? client.appName() : 'MulletaFlix Web';
+            result['Authorization'] = 'MediaBrowser Client="' + appName + '", Device="Browser", DeviceId="' + deviceId + '", Version="' + version + '", Token="' + token + '"';
+        }
         return result;
     }
 

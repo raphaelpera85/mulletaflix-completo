@@ -236,6 +236,11 @@ function addBackdropOverlay(dlg: DialogElement): void {
 }
 
 function onDialogClosed(dlg: DialogElement, removeScrollLockOnClose: boolean, hash: string, finishClose: () => void, unlistenRef: { current: (() => void) | null }, activeElement: Element | null): void {
+    dlg.dispatchEvent(new CustomEvent('close', {
+        bubbles: false,
+        cancelable: false
+    }));
+
     if (!isHistoryEnabled(dlg)) {
         inputManager.off(dlg, onBackCommand);
     }

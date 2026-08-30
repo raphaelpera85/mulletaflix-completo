@@ -36,27 +36,46 @@ function onEditLibrary(this: HTMLElement): boolean {
     isCreating = true;
     loading.show();
     const dlg = dom.parentWithClass(this, 'dlg-libraryeditor') as HTMLElement;
+    const proceedUpdate = (itemId: string) => {
+        let libraryOptions = libraryoptionseditor.getLibraryOptions(dlg.querySelector('.libraryOptions') as HTMLElement);
+        libraryOptions = Object.assign(currentOptions.library.LibraryOptions || {}, libraryOptions);
+        (window as any).ApiClient.updateVirtualFolderOptions(itemId, libraryOptions).then(() => {
+            hasChanges = true;
+            isCreating = false;
+            loading.hide();
+            dialogHelper.close(dlg);
+        }, () => {
+            isCreating = false;
+            loading.hide();
+        });
+    };
+
     // when the library has moved or symlinked, the ItemId is not correct anymore
     // this can lead to a forever spinning value on edit the library parameters
     if (!currentOptions.library.ItemId) {
-        loading.hide();
-        dialogHelper.close(dlg);
-        alert({
-            text: globalize.translate('LibraryInvalidItemIdError')
+        (window as any).ApiClient.getVirtualFolders().then((result: any[]) => {
+            const library = (result || []).find((f: any) => f.Name === currentOptions.library.Name);
+            if (library && library.ItemId) {
+                currentOptions.library = library;
+                proceedUpdate(library.ItemId);
+            } else {
+                loading.hide();
+                dialogHelper.close(dlg);
+                alert({
+                    text: globalize.translate('LibraryInvalidItemIdError')
+                });
+            }
+        }, () => {
+            loading.hide();
+            dialogHelper.close(dlg);
+            alert({
+                text: globalize.translate('LibraryInvalidItemIdError')
+            });
         });
         return false;
     }
-    let libraryOptions = libraryoptionseditor.getLibraryOptions(dlg.querySelector('.libraryOptions') as HTMLElement);
-    libraryOptions = Object.assign(currentOptions.library.LibraryOptions || {}, libraryOptions);
-    (window as any).ApiClient.updateVirtualFolderOptions(currentOptions.library.ItemId, libraryOptions).then(() => {
-        hasChanges = true;
-        isCreating = false;
-        loading.hide();
-        dialogHelper.close(dlg);
-    }, () => {
-        isCreating = false;
-        loading.hide();
-    });
+
+    proceedUpdate(currentOptions.library.ItemId);
     return false;
 }
 

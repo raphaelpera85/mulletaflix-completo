@@ -426,8 +426,8 @@ function getResolveFunction(resolve: (value: { command: string; updated?: boolea
 
 function executeCommand(item: ContextItem, id: string, options: ContextMenuOptions): Promise<any> {
     const itemId = item.Id;
-    const serverId = item.ServerId;
-    const apiClient = ServerConnections.getApiClient(serverId) as any;
+    const serverId = item.ServerId || (options.user && options.user.ServerId) || ((globalThis as any).ApiClient?.serverId ? (globalThis as any).ApiClient.serverId() : undefined);
+    const apiClient = (serverId ? ServerConnections.getApiClient(serverId) : null) || (globalThis as any).ApiClient;
     const api = toApi(apiClient as any);
 
     return new Promise<any>(function (resolve, reject) {
@@ -761,7 +761,7 @@ function play(item: ContextItem, resume?: boolean, queue?: boolean, queueNext?: 
 
 function editItem(apiClient: any, item: ContextItem): Promise<any> {
     return new Promise<any>(function (resolve, reject) {
-        const serverId = apiClient.serverInfo().Id;
+        const serverId = (typeof apiClient.serverId === 'function' ? apiClient.serverId() : null) || (typeof apiClient.serverInfo === 'function' ? apiClient.serverInfo()?.Id : null) || item.ServerId;
 
         if (item.Type === 'Timer') {
             import('./recordingcreator/recordingeditor').then(({ default: recordingEditor }) => {
@@ -794,9 +794,10 @@ function deleteItem(apiClient: any, item: ContextItem): Promise<any> {
 
 function refresh(apiClient: any, item: ContextItem): void {
     import('./refreshdialog/refreshdialog').then(({ default: RefreshDialog }) => {
+        const serverId = (typeof apiClient.serverId === 'function' ? apiClient.serverId() : null) || (typeof apiClient.serverInfo === 'function' ? apiClient.serverInfo()?.Id : null) || item.ServerId;
         new RefreshDialog({
             itemIds: [item.Id],
-            serverId: apiClient.serverInfo().Id,
+            serverId: serverId,
             mode: item.Type === 'CollectionFolder' ? 'scan' : undefined
         }).show();
     });

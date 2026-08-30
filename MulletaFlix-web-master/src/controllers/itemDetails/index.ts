@@ -704,7 +704,7 @@ export default function (view: HTMLElement, params: ViewParams): void {
         libraryMenu.setTitle(displayName);
 
         // Backdrop
-        setBackdrops([item]);
+        setBackdrops([item], undefined, true);
 
         // Logo & Poster
         renderLogo(view, item, apiClient);

@@ -823,6 +823,7 @@
     }
 }
 
+.detailImageContainer,
 .detailImageContainer .card {
     position: relative;
     float: left;
@@ -911,7 +912,10 @@
 }
 
 .itemDetailImage {
+    display: block;
     width: 100% !important;
+    height: auto;
+    border-radius: 0.4em;
     box-shadow: 0 0.1em 0.5em 0 rgba(0, 0, 0, 0.75);
 
     [dir="rtl"] & {
@@ -959,7 +963,9 @@ div.itemDetailGalleryLink.defaultCardBackground {
         margin-top: 0.1em;
     }
 
+    .layout-desktop .detailImageContainer,
     .layout-desktop .detailImageContainer .card,
+    .layout-tv .detailImageContainer,
     .layout-tv .detailImageContainer .card {
         top: 10%;
     }
