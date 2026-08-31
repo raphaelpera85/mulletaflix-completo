@@ -156,6 +156,15 @@ function Build-Server {
     $serverProject = Join-Path $serverRoot 'Jellyfin.Server\Jellyfin.Server.csproj'
     Assert-Path $serverProject 'Server project'
 
+    & $DotNet clean $serverProject `
+        -c Release `
+        -r win-x64 `
+        --nologo `
+        -v:minimal
+    if ($LASTEXITCODE -ne 0) {
+        throw "Server clean failed with exit code $LASTEXITCODE"
+    }
+
     & $DotNet publish $serverProject `
         -c Release `
         -r win-x64 `
@@ -169,6 +178,17 @@ function Build-Server {
 
     New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
     Copy-DirectoryContents -Source $serverPublishDir -Destination $stageDir
+
+    $publishedImplementations = Join-Path $serverPublishDir 'MulletaFlix.Server.Implementations.dll'
+    $stagedImplementations = Join-Path $stageDir 'MulletaFlix.Server.Implementations.dll'
+    Assert-Path $publishedImplementations 'Published server implementation'
+    Assert-Path $stagedImplementations 'Staged server implementation'
+    $publishedHash = (Get-FileHash -LiteralPath $publishedImplementations -Algorithm SHA256).Hash
+    $stagedHash = (Get-FileHash -LiteralPath $stagedImplementations -Algorithm SHA256).Hash
+    if ($publishedHash -ne $stagedHash) {
+        throw "Server implementation was not copied intact to stage (publish=$publishedHash, stage=$stagedHash)"
+    }
+
     Write-Host "Server copied to: $stageDir" -ForegroundColor Green
 
     # Restore backups
@@ -264,6 +284,17 @@ function Build-Tray {
 function Copy-RuntimeExtras {
     Write-Step 'Copying runtime extras'
 
+    $mountScript = Join-Path $serverRoot 'Tools\mount_drive_n.py'
+    if (Test-Path -LiteralPath $mountScript -PathType Leaf) {
+        $stageTools = Join-Path $stageDir 'Tools'
+        New-Item -ItemType Directory -Force -Path $stageTools | Out-Null
+        Copy-Item -LiteralPath $mountScript -Destination (Join-Path $stageTools 'mount_drive_n.py') -Force
+        Remove-Item -LiteralPath (Join-Path $stageDir 'mount_drive_n.py') -Force -ErrorAction SilentlyContinue
+        Write-Host 'Copied Python Nebula mount helper to stage.' -ForegroundColor Green
+    } else {
+        throw "Python Nebula mount helper not found at $mountScript"
+    }
+
     $supportLicense = Join-Path $packagingRoot 'jellyfin-server-windows\Support Files\LICENSE'
     if (Test-Path -LiteralPath $supportLicense) {
         Copy-Item -LiteralPath $supportLicense -Destination (Join-Path $stageDir 'LICENSE') -Force
@@ -275,8 +306,25 @@ function Copy-RuntimeExtras {
         Write-Host "Copied install-mongodb-if-missing.ps1 to stage." -ForegroundColor Green
     }
 
-    foreach ($binary in @('ffmpeg.exe', 'ffprobe.exe')) {
-        $existing = Join-Path $stageDir $binary
+    $winfspScript = Join-Path $packagingRoot 'install-winfsp-if-missing.ps1'
+    if (Test-Path -LiteralPath $winfspScript) {
+        Copy-Item -LiteralPath $winfspScript -Destination (Join-Path $stageDir 'install-winfsp-if-missing.ps1') -Force
+        Write-Host 'Copied WinFsp prerequisite checker to stage.' -ForegroundColor Green
+    } else {
+        throw "WinFsp prerequisite checker not found at $winfspScript"
+    }
+
+    $pythonScript = Join-Path $packagingRoot 'install-python-if-missing.ps1'
+    if (Test-Path -LiteralPath $pythonScript) {
+        Copy-Item -LiteralPath $pythonScript -Destination (Join-Path $stageDir 'install-python-if-missing.ps1') -Force
+        Write-Host 'Copied Python prerequisite installer to stage.' -ForegroundColor Green
+    } else {
+        throw "Python prerequisite installer not found at $pythonScript"
+    }
+
+    foreach ($binary in @('ffmpeg.exe', 'ffprobe.exe', 'rclone.exe')) {
+        $binaryDestination = if ($binary -eq 'rclone.exe') { Join-Path $stageTools $binary } else { Join-Path $stageDir $binary }
+        $existing = $binaryDestination
         if (Test-Path -LiteralPath $existing) {
             Write-Host "Found $binary in stage." -ForegroundColor Gray
         } else {
@@ -294,9 +342,12 @@ function Copy-RuntimeExtras {
 
             if ($foundPath -and (Test-Path -LiteralPath $foundPath)) {
                 Write-Host "Resolving $binary from: $foundPath" -ForegroundColor Gray
-                Copy-Item -LiteralPath $foundPath -Destination $stageDir -Force
+                Copy-Item -LiteralPath $foundPath -Destination $binaryDestination -Force
                 Write-Host "Copied $binary to stage." -ForegroundColor Green
             } else {
+                if ($binary -eq 'rclone.exe') {
+                    throw 'rclone.exe was not found. Install rclone before building the MulletaFlix installer.'
+                }
                 Write-Warning "$binary was not found in stage and could not be resolved."
             }
         }

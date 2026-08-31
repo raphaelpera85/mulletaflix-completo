@@ -1,4 +1,4 @@
-import React, { FC, memo } from 'react';
+import React, { FC } from 'react';
 import type { MRT_Cell, MRT_RowData } from 'material-react-table';
 import { useLocale } from 'hooks/useLocale';
 import Box from '@mui/material/Box';
@@ -31,5 +31,4 @@ const TaskTriggerCell: FC<CellProps> = ({ cell }) => {
     );
 };
 
-export default memo(TaskTriggerCell);
-
+export default TaskTriggerCell;

@@ -210,21 +210,50 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
     ExecWait 'netsh advfirewall firewall add rule name="MulletaFlix MariaDB" dir=in action=allow program="$INSTDIR\mariadb\bin\mysqld.exe" enable=yes' $0
 
     ; -------------------------------------------------------------
+    ; Verificação e instalação do Python (necessário para o helper de montagem N:)
+    ; -------------------------------------------------------------
+    DetailPrint "Verificando o Python, requisito do Nebula..."
+    ${If} ${FileExists} "$INSTDIR\install-python-if-missing.ps1"
+        ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\install-python-if-missing.ps1"' $0
+        ${If} $0 <> 0
+            MessageBox MB_OK|MB_ICONSTOP "O Python é necessário para montar a unidade N:. Instalação interrompida."
+            Abort
+        ${EndIf}
+    ${Else}
+        MessageBox MB_OK|MB_ICONSTOP "O instalador não contém o instalador do Python. Gere o instalador novamente."
+        Abort
+    ${EndIf}
+
+    ; -------------------------------------------------------------
     ; Verificação e Instalação Automática do MongoDB
     ; -------------------------------------------------------------
     DetailPrint "Verificando se o MongoDB esta instalado no sistema..."
-    ClearErrors
-    ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Services\MongoDB" "ImagePath"
-    ${If} $0 != ""
-        DetailPrint "MongoDB ja esta instalado no sistema (Servico registrado). Pulando instalacao."
-    ${Else}
-        DetailPrint "MongoDB nao encontrado. Executando verificador e instalador automatico..."
-        ${If} ${FileExists} "$INSTDIR\install-mongodb-if-missing.ps1"
-            ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\install-mongodb-if-missing.ps1"' $0
-            DetailPrint "Processo de instalacao do MongoDB finalizado com codigo: $0"
-        ${Else}
-            ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $$msi = \"$$TEMP\mongodb.msi\"; try { (New-Object System.Net.WebClient).DownloadFile(\"https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-7.0.14-signed.msi\", $$msi); Start-Process msiexec.exe -ArgumentList \"/i `\"$$msi`\" /qn /norestart SHOULD_INSTALL_COMPASS=0 ADDLOCAL=ServerService,Client\" -Wait; Remove-Item $$msi -Force -ErrorAction SilentlyContinue; Start-Service MongoDB -ErrorAction SilentlyContinue; } catch {}"' $0
+    DetailPrint "Verificando instalacao e estado do servico MongoDB..."
+    ${If} ${FileExists} "$INSTDIR\install-mongodb-if-missing.ps1"
+        ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\install-mongodb-if-missing.ps1"' $0
+        DetailPrint "Processo de verificacao do MongoDB finalizado com codigo: $0"
+        ${If} $0 <> 0
+            MessageBox MB_OK|MB_ICONSTOP "O MongoDB nao iniciou corretamente. A instalacao nao pode continuar."
+            Abort
         ${EndIf}
+    ${Else}
+        MessageBox MB_OK|MB_ICONSTOP "O instalador nao contem o verificador do MongoDB. Gere o instalador novamente."
+        Abort
+    ${EndIf}
+
+    ; -------------------------------------------------------------
+    ; Verificação e instalação do WinFsp (necessário para rclone mount)
+    ; -------------------------------------------------------------
+    DetailPrint "Verificando o WinFsp, requisito da montagem da unidade N:..."
+    ${If} ${FileExists} "$INSTDIR\install-winfsp-if-missing.ps1"
+        ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\install-winfsp-if-missing.ps1"' $0
+        ${If} $0 <> 0
+            MessageBox MB_OK|MB_ICONSTOP "O WinFsp é necessário para montar a unidade N:. Instalação interrompida."
+            Abort
+        ${EndIf}
+    ${Else}
+        MessageBox MB_OK|MB_ICONSTOP "O instalador não contém o verificador do WinFsp. Gere o instalador novamente."
+        Abort
     ${EndIf}
 
     ; Allow MongoDB through firewall

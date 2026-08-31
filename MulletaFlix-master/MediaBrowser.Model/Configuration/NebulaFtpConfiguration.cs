@@ -4,7 +4,7 @@ namespace MediaBrowser.Model.Configuration;
 
 public class NebulaFtpConfiguration
 {
-    public bool Enabled { get; set; }
+    public bool Enabled { get; set; } = true;
 
     public string RaiDriveDownloadUrl { get; set; } = "https://www.raidrive.com/download";
 

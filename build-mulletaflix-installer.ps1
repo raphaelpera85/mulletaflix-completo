@@ -79,6 +79,7 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 Write-Step 'Compiling NSIS installer...'
 
 $uxPath = $uxCustomRoot
+$buildStarted = Get-Date
 
 # Run makensis from output directory so OutFile lands there
 Set-Location $outputDir
@@ -93,18 +94,22 @@ if ($LASTEXITCODE -ne 0) {
     throw "NSIS compilation failed with exit code $LASTEXITCODE"
 }
 
-# Find the generated installer (NSIS puts it next to the .nsi script)
-$installer = Get-ChildItem -LiteralPath (Join-Path $uxCustomRoot 'nsis') -Filter 'mulletaflix_*_windows-x64.exe' -ErrorAction SilentlyContinue |
+# NSIS writes a relative OutFile beside the .nsi script, not in the process cwd.
+$generatedInstaller = Get-ChildItem -LiteralPath (Join-Path $uxCustomRoot 'nsis') -Filter 'mulletaflix_*_windows-x64.exe' -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -ge $buildStarted } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 
-if (-not $installer) {
-    throw "Installer executable not found in $outputDir after compilation"
+if (-not $generatedInstaller) {
+    throw "Installer executable was not generated during this compilation"
 }
+
+Copy-Item -LiteralPath $generatedInstaller.FullName -Destination $outputDir -Force
+$installer = Join-Path $outputDir $generatedInstaller.Name
 
 Write-Host ""
 Write-Host '==================================================' -ForegroundColor Green
 Write-Host 'Installer build completed successfully!' -ForegroundColor Green
-Write-Host "Output: $($installer.FullName)" -ForegroundColor Green
-Write-Host "Size: $([Math]::Round($installer.Length / 1MB, 2)) MB" -ForegroundColor Green
+Write-Host "Output: $installer" -ForegroundColor Green
+Write-Host "Size: $([Math]::Round((Get-Item -LiteralPath $installer).Length / 1MB, 2)) MB" -ForegroundColor Green
 Write-Host '==================================================' -ForegroundColor Green
