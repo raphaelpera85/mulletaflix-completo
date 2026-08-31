@@ -52,7 +52,7 @@ public class NebulaFtpConfiguration
 
     public string[] MonitorPaths { get; set; } = ["D:\\midias"];
 
-    public string[] StagePaths { get; set; } = ["E:\\NebulaStage", "I:\\NebulaStage"];
+    public string[] StagePaths { get; set; } = ["E:\\NebulaStage", "F:\\NebulaStage", "I:\\NebulaStage"];
 
     public bool TurboEnabled { get; set; } = true;
 

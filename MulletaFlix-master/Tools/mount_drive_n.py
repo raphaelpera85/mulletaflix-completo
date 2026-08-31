@@ -101,6 +101,10 @@ async def mount(args: argparse.Namespace) -> int:
         "--links",
         "--no-checksum",
         "--network-mode",
+        # O filesystem FTP virtual aceita o conteúdo, mas não oferece
+        # alteração de timestamps. Mantemos MDTM desativado para que cada
+        # metadata .nfo não termine com 550 durante o SetModTime.
+        "--ftp-writing-mdtm=false",
         "--volname",
         "NebulaFTP",
         "--log-file",
