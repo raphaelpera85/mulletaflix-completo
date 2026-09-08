@@ -14,6 +14,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
+using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -36,7 +37,7 @@ using MediaBrowser.Providers.Plugins.MidiaStorageOnline.Configuration;
 namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
 {
     [ApiController]
-    [Authorize]
+    [Authorize(Policy = Policies.LocalAccessOrRequiresElevation)]
     [Route("[controller]")]
     [Produces(MediaTypeNames.Application.Json)]
     [ApiExplorerSettings(IgnoreApi = true)]
@@ -944,14 +945,16 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                         {
                             using var httpClient = _httpClientFactory.CreateClient();
                             httpClient.Timeout = TimeSpan.FromMinutes(5);
-                            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-                            var resp = await httpClient.GetAsync(config.M3uUrl!).ConfigureAwait(false);
+                            using var request = new HttpRequestMessage(HttpMethod.Get, config.M3uUrl!);
+                            request.Headers.TryAddWithoutValidation("User-Agent", "VLC/3.0.21 LibVLC/3.0.21");
+                            request.Headers.TryAddWithoutValidation("Accept", "*/*");
+                            using var resp = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
                             if (!resp.IsSuccessStatusCode)
                             {
                                 Log($"Falha ao baixar M3U: HTTP {resp.StatusCode}");
                                 if (attempt < 2)
                                 {
-                                    await Task.Delay(2000 * (attempt + 1)).ConfigureAwait(false);
+                                    await Task.Delay(2000 * (attempt + 1), ct).ConfigureAwait(false);
                                     continue;
                                 }
                                 return BadRequest(new { error = $"Falha ao baixar M3U: HTTP {resp.StatusCode}" });

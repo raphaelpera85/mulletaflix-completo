@@ -317,16 +317,23 @@ public sealed partial class BaseItemRepository
         var baseQuery = PrepareItemQuery(context, filter);
         baseQuery = TranslateQuery(baseQuery, context, filter);
 
+        // Keep the expensive item filter as an id-only subquery. Reusing the full
+        // BaseItem query for every aggregate made /Items/Filters execute the
+        // ancestor/library joins repeatedly and could exceed MySQL's timeout.
         var matchingItemIds = baseQuery.Select(e => e.Id);
 
-        var years = baseQuery
+        var matchingItems = context.BaseItems
+            .AsNoTracking()
+            .Where(e => matchingItemIds.Contains(e.Id));
+
+        var years = matchingItems
             .Where(e => e.ProductionYear != null && e.ProductionYear > 0)
             .Select(e => e.ProductionYear!.Value)
             .Distinct()
             .OrderBy(y => y)
             .ToArray();
 
-        var officialRatings = baseQuery
+        var officialRatings = matchingItems
             .Where(e => e.OfficialRating != null && e.OfficialRating != string.Empty)
             .Select(e => e.OfficialRating!)
             .Distinct()
@@ -335,7 +342,8 @@ public sealed partial class BaseItemRepository
 
         var tags = context.ItemValuesMap
             .Where(ivm => ivm.ItemValue.Type == ItemValueType.Tags)
-            .Join(baseQuery, ivm => ivm.ItemId, e => e.Id, (ivm, e) => ivm.ItemValue)
+            .Where(ivm => matchingItemIds.Contains(ivm.ItemId))
+            .Select(ivm => ivm.ItemValue)
             .GroupBy(iv => iv.CleanValue)
             .Select(g => g.Min(iv => iv.Value))
             .OrderBy(t => t)
@@ -343,7 +351,8 @@ public sealed partial class BaseItemRepository
 
         var genres = context.ItemValuesMap
             .Where(ivm => ivm.ItemValue.Type == ItemValueType.Genre)
-            .Join(baseQuery, ivm => ivm.ItemId, e => e.Id, (ivm, e) => ivm.ItemValue)
+            .Where(ivm => matchingItemIds.Contains(ivm.ItemId))
+            .Select(ivm => ivm.ItemValue)
             .GroupBy(iv => iv.CleanValue)
             .Select(g => g.Min(iv => iv.Value))
             .OrderBy(g => g)
@@ -358,5 +367,4 @@ public sealed partial class BaseItemRepository
         };
     }
 }
-
 

@@ -150,8 +150,8 @@ internal static class MidiaStorageOnlineWorldStorageDownloader
     {
         using var client = httpClientFactory.CreateClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (compatible; MidiaStorageOnline/1.0)");
-        request.Headers.TryAddWithoutValidation("Accept", "text/plain, */*");
+        request.Headers.TryAddWithoutValidation("User-Agent", "VLC/3.0.21 LibVLC/3.0.21");
+        request.Headers.TryAddWithoutValidation("Accept", "*/*");
 
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();

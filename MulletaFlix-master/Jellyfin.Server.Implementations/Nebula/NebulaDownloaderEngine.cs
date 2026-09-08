@@ -33,6 +33,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     private readonly NebulaMongoContext _mongoContext;
     private readonly NebulaTelegramPool _telegramPool;
     private readonly ILogger<NebulaDownloaderEngine> _logger;
+    private readonly NebulaMetadataExportService? _metadataExportService;
     private readonly HttpClient _httpClient;
     private readonly CancellationTokenSource _cts = new();
     private readonly FailureTracker _failureTracker = new();
@@ -56,11 +57,13 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     public NebulaDownloaderEngine(
         NebulaMongoContext mongoContext,
         NebulaTelegramPool telegramPool,
-        ILogger<NebulaDownloaderEngine> logger)
+        ILogger<NebulaDownloaderEngine> logger,
+        NebulaMetadataExportService? metadataExportService = null)
     {
         _mongoContext = mongoContext;
         _telegramPool = telegramPool;
         _logger = logger;
+        _metadataExportService = metadataExportService;
 
         var handler = new SocketsHttpHandler
         {
@@ -327,6 +330,21 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         Directory.CreateDirectory(targetStageDir);
 
+        // The STRM must already be recognized by Jellyfin before downloading its
+        // remote media. This exports the NFO and images into the same staging
+        // directory, allowing the watcher to upload the sidecars with the media.
+        if (_metadataExportService != null)
+        {
+            var metadataReady = await WaitForMetadataAsync(strmPath, targetStageDir, cancellationToken).ConfigureAwait(false);
+            if (!metadataReady)
+            {
+                var message = $"Metadados ainda não reconhecidos pelo Jellyfin para {strmFileName}; download adiado.";
+                LogWarning(message);
+                _failureTracker.RecordFailure(strmPath, message);
+                return;
+            }
+        }
+
         // 3. Executa o download multipart resiliente
         var partsCount = config.DownloadParts > 0 ? Math.Clamp(config.DownloadParts, 1, 32) : 24;
         bool downloadOk;
@@ -379,6 +397,38 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             CleanEmptyParentDirectoriesWithLog(Path.GetDirectoryName(strmPath), monitorSources);
             LogInfo($"[1 MÍDIA POR VEZ] Conclusão do processamento de: {strmFileName}. Pronto para a próxima mídia.");
         }
+    }
+
+    private async Task<bool> WaitForMetadataAsync(
+        string strmPath,
+        string targetStageDirectory,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 30;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                if (await _metadataExportService!.PrepareForDownloadAsync(strmPath, targetStageDirectory, cancellationToken).ConfigureAwait(false))
+                {
+                    LogInfo($"Metadados reconhecidos e exportados antes do download: {Path.GetFileName(strmPath)}");
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Aguardando reconhecimento de metadados para {Path} (tentativa {Attempt}/{MaxAttempts}).", strmPath, attempt, maxAttempts);
+            }
+
+            if (attempt < maxAttempts)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return false;
     }
 
     private async Task<bool> DownloadMultipartAsync(

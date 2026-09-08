@@ -610,8 +610,10 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                 {
                     using var client = _httpClientFactory.CreateClient();
                     client.Timeout = TimeSpan.FromMinutes(5);
-                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-                    var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.TryAddWithoutValidation("User-Agent", "VLC/3.0.21 LibVLC/3.0.21");
+                    request.Headers.TryAddWithoutValidation("Accept", "*/*");
+                    using var resp = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
                     resp.EnsureSuccessStatusCode();
                     var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
                     return Encoding.UTF8.GetString(bytes);

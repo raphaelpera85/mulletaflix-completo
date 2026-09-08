@@ -28,6 +28,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private readonly ILogger<NebulaFtpManager> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILibraryManager? _libraryManager;
+    private readonly NebulaMetadataExportService? _metadataExportService;
 
     private readonly object _lock = new();
     private readonly List<string> _serverLogs = new();
@@ -81,12 +82,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         IServerConfigurationManager configManager,
         ILogger<NebulaFtpManager> logger,
         ILoggerFactory loggerFactory,
-        ILibraryManager? libraryManager = null)
+        ILibraryManager? libraryManager = null,
+        NebulaMetadataExportService? metadataExportService = null)
     {
         _configManager = configManager;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
+        _metadataExportService = metadataExportService;
     }
 
     private void EnsureLocalMediaLibraryPaths(NebulaFtpConfiguration config)
@@ -817,7 +820,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 await _telegramPool.InitializeAsync(emitLog: null, cancellationToken).ConfigureAwait(false);
             }
 
-            _downloaderEngine = new NebulaDownloaderEngine(_mongoContext, _telegramPool, _loggerFactory.CreateLogger<NebulaDownloaderEngine>());
+        _downloaderEngine = new NebulaDownloaderEngine(
+            _mongoContext,
+            _telegramPool,
+            _loggerFactory.CreateLogger<NebulaDownloaderEngine>(),
+            _metadataExportService);
             _downloaderEngine.OnLog += msg => AddDownloaderLog(msg);
             _downloaderEngine.OnProgressChanged += st =>
             {

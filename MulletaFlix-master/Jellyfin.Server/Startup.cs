@@ -182,7 +182,10 @@ namespace MulletaFlix.Server
             services.AddHostedService<RecordingNotifier>();
             services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MulletaFlixJobQueue>());
             services.AddHostedService<NebulaHostedService>();
-            services.AddHostedService<NebulaMetadataExportService>();
+            // Register the concrete exporter as well as the hosted-service view so
+            // the STRM downloader can await metadata preparation before downloading.
+            services.AddSingleton<NebulaMetadataExportService>();
+            services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<NebulaMetadataExportService>());
         }
 
         /// <summary>

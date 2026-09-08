@@ -120,21 +120,51 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     }
 
     private async Task ExportAsync(BaseItem item, CancellationToken cancellationToken)
+        => await ExportAsync(item, stageDirectory: null, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Refreshes the item recognized by Jellyfin for a STRM path and exports its
+    /// metadata sidecars to the directory that will receive the downloaded media.
+    /// </summary>
+    /// <param name="strmPath">The recognized STRM path.</param>
+    /// <param name="targetDirectory">The staging directory for the media.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><see langword="true"/> when the item was found and exported.</returns>
+    public async Task<bool> PrepareForDownloadAsync(
+        string strmPath,
+        string targetDirectory,
+        CancellationToken cancellationToken = default)
     {
-        var relativePath = Path.GetRelativePath(GetNebulaDriveRoot(), item.Path!);
-        if (relativePath.StartsWith("..", StringComparison.Ordinal))
+        var item = _libraryManager.FindByPath(strmPath, isFolder: false);
+        if (item is null || item.IsFolder)
         {
-            return;
+            return false;
         }
 
-        var relativeDirectory = Path.GetDirectoryName(relativePath);
-        if (string.IsNullOrWhiteSpace(relativeDirectory))
+        await item.RefreshMetadata(cancellationToken).ConfigureAwait(false);
+        await ExportAsync(item, targetDirectory, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task ExportAsync(BaseItem item, string? stageDirectory, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(stageDirectory))
         {
-            return;
+            var relativePath = Path.GetRelativePath(GetNebulaDriveRoot(), item.Path!);
+            if (relativePath.StartsWith("..", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var relativeDirectory = Path.GetDirectoryName(relativePath);
+            if (string.IsNullOrWhiteSpace(relativeDirectory))
+            {
+                return;
+            }
+
+            stageDirectory = Path.Combine(GetStageRoot(), relativeDirectory);
         }
 
-        var stageRoot = GetStageRoot();
-        var stageDirectory = Path.Combine(stageRoot, relativeDirectory);
         Directory.CreateDirectory(stageDirectory);
 
         await ExportNfoAsync(item, stageDirectory, cancellationToken).ConfigureAwait(false);
