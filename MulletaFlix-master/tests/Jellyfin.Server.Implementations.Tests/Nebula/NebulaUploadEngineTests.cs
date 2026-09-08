@@ -1,0 +1,529 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Reflection;
+using Jellyfin.Server.Implementations.Nebula;
+using MediaBrowser.Model.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using MongoDB.Bson;
+using MulletaFlix.Server.Implementations.Nebula;
+using Xunit;
+
+namespace MulletaFlix.Server.Implementations.Tests.Nebula;
+
+public class NebulaUploadEngineTests
+{
+    [Fact]
+    public void TelegramPool_ParsesBotApiUploadResult()
+    {
+        const string ResponseJson = """
+            {"ok":true,"result":{"message_id":321,"chat":{"id":-1004391811380},"document":{"file_id":"telegram-file-id"}}}
+            """;
+        var parseMethod = typeof(NebulaTelegramPool).GetMethod(
+            "ParseUploadResult",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(parseMethod);
+        var result = Assert.IsType<NebulaTelegramUploadResult>(parseMethod.Invoke(null, [ResponseJson]));
+        Assert.Equal(321, result.MessageId);
+        Assert.Equal(-1004391811380L, result.ChatId);
+        Assert.Equal("telegram-file-id", result.FileId);
+    }
+
+    [Fact]
+    public void Constructor_UsesSixteenMegabyteLogicalChunks()
+    {
+        using var engine = new NebulaUploadEngine(
+            null!,
+            null!,
+            uploadConcurrency: 1,
+            chunkSizeMb: 64,
+            deleteSourceAfterUpload: false,
+            NullLogger<NebulaUploadEngine>.Instance);
+
+        var logicalChunkField = typeof(NebulaUploadEngine).GetField("_logicalChunkSizeBytes", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(logicalChunkField);
+        Assert.Equal(16 * 1024 * 1024, logicalChunkField.GetValue(engine));
+    }
+
+    [Theory]
+    [InlineData(-1004391811380L, 4391811380L)]
+    [InlineData(-1001234567890L, 1234567890L)]
+    [InlineData(-12345L, 12345L)]
+    [InlineData(4391811380L, 4391811380L)]
+    public void TelegramPool_NormalizesChannelId_ForMTProto(long inputChatId, long expectedBareId)
+    {
+        var normalizeMethod = typeof(NebulaTelegramPool).GetMethod(
+            "NormalizeChannelId",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(normalizeMethod);
+        var actual = normalizeMethod.Invoke(null, [inputChatId]);
+        Assert.Equal(expectedBareId, actual);
+    }
+
+    [Fact]
+    public void TelegramPool_SanitizesBotTokens_FromExceptionMessages()
+    {
+        var sanitizeMethod = typeof(NebulaTelegramPool).GetMethod(
+            "SanitizeMessage",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(sanitizeMethod);
+        var tokens = new[] { "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", "987654:XYZ-UVW9876" };
+        var rawMessage = "HttpRequestException: Error calling https://api.telegram.org/bot123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11/sendDocument failed.";
+
+        var sanitized = (string?)sanitizeMethod.Invoke(null, [rawMessage, tokens]);
+
+        Assert.NotNull(sanitized);
+        Assert.DoesNotContain("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", sanitized, System.StringComparison.Ordinal);
+        Assert.Contains("[REDACTED_TOKEN]", sanitized, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TelegramPool_HelpersLog_SuppressesReceivingUpdates()
+    {
+        // Ensure static constructor was triggered
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(NebulaTelegramPool).TypeHandle);
+
+        Assert.NotNull(WTelegram.Helpers.Log);
+        // Invoking Log with "Receiving Updates" should not throw and should be safely handled
+        WTelegram.Helpers.Log(1, "Receiving Updates                                  2026-08-31 23:01:52Z");
+        WTelegram.Helpers.Log(1, string.Empty);
+    }
+
+    [Fact]
+    public void TelegramPool_RewindsOutputAfterFailedDownloadAttempt()
+    {
+        var captureMethod = typeof(NebulaTelegramPool).GetMethod(
+            "CaptureOutputPosition",
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+        var rewindMethod = typeof(NebulaTelegramPool).GetMethod(
+            "RewindOutputToPosition",
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+
+        Assert.NotNull(captureMethod);
+        Assert.NotNull(rewindMethod);
+
+        using var output = new MemoryStream();
+        output.WriteByte(1);
+        var position = captureMethod.Invoke(null, [output]);
+        output.Write([2, 3, 4]);
+
+        rewindMethod.Invoke(null, [output, position]);
+
+        Assert.Equal(1, output.Length);
+        Assert.Equal(1, output.Position);
+        Assert.Equal([1], output.ToArray());
+    }
+
+    [Fact]
+    public void UploadEngine_BuildPartCaption_FormatsCorrectly()
+    {
+        // 1757.2 MB in bytes = (long)(1757.2 * 1024 * 1024) = 1842571264
+        long totalSize = (long)(1757.2 * 1024 * 1024);
+        var caption = NebulaUploadEngine.BuildPartCaption(
+            mediaType: "FILME",
+            filename: "Gosto Infernal (2025).mkv",
+            partNum: 79, // 0-indexed part 79 is Part 80
+            totalParts: 110,
+            fileUuid: "793b8f4e-814d-4a09-9076-8537856292f4",
+            totalSize: totalSize);
+
+        Assert.Equal("[NEBULA] TIPO: FILME | MIDIA: Gosto Infernal (2025).mkv | PARTE: 80/110 | UUID: 793b8f4e-814d-4a09-9076-8537856292f4 | TAM: 1757.2MB", caption);
+    }
+
+    [Theory]
+    [InlineData("Filmes", "Gosto Infernal (2025).mkv", "FILME")]
+    [InlineData("Series/Breaking Bad/Season 1", "Breaking Bad S01E01.mkv", "SERIE")]
+    [InlineData(null, "Stranger.Things.4x01.mp4", "SERIE")]
+    [InlineData("Adulto", "video_xxx.mp4", "PORNO")]
+    [InlineData(null, "Hentai Episode 1.mkv", "PORNO")]
+    public void UploadEngine_ClassifyMediaType_ClassifiesProperly(string? parent, string filename, string expectedType)
+    {
+        var actual = NebulaUploadEngine.ClassifyMediaType(parent, filename);
+        Assert.Equal(expectedType, actual);
+    }
+
+    [Fact]
+    public void UploadEngine_CompletedUploadValidation_RequiresExactSizeAndParts()
+    {
+        var doc = new BsonDocument
+        {
+            { "size", 32L },
+            {
+                "parts", new BsonArray
+                {
+                    new BsonDocument
+                    {
+                        { "part_number", 0 },
+                        { "size", 16L },
+                        { "tg_file_id", "part-0" }
+                    },
+                    new BsonDocument
+                    {
+                        { "part_number", 1 },
+                        { "size", 16L },
+                        { "tg_file_id", "part-1" }
+                    }
+                }
+            }
+        };
+
+        Assert.True(NebulaUploadEngine.IsCompletedUploadForFile(doc, 32L, 2));
+        Assert.False(NebulaUploadEngine.IsCompletedUploadForFile(doc, 33L, 2));
+        Assert.False(NebulaUploadEngine.IsCompletedUploadForFile(doc, 32L, 3));
+    }
+
+    [Fact]
+    public void Downloader_ValidateRangeResponse_RejectsServerThatIgnoresRange()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(new byte[10])
+        };
+        response.Content.Headers.ContentLength = 10;
+
+        Assert.Throws<IOException>(() => NebulaDownloaderEngine.ValidateRangeResponse(response, 0, 9, 100, 10));
+    }
+
+    [Fact]
+    public void Downloader_ValidateRangeResponse_AcceptsMatchingPartialContent()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.PartialContent)
+        {
+            Content = new ByteArrayContent(new byte[10])
+        };
+        response.Content.Headers.ContentLength = 10;
+        response.Content.Headers.ContentRange = new ContentRangeHeaderValue(0, 9, 100);
+
+        NebulaDownloaderEngine.ValidateRangeResponse(response, 0, 9, 100, 10);
+    }
+
+    [Fact]
+    public void Downloader_RangeProbe_AcceptsPartialContentWhenHeadDidNotAdvertiseRanges()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.PartialContent)
+        {
+            Content = new ByteArrayContent([0])
+        };
+        response.Content.Headers.ContentLength = 1;
+        response.Content.Headers.ContentRange = new ContentRangeHeaderValue(0, 0, 100);
+
+        Assert.True(NebulaDownloaderEngine.TryGetRangeProbeLength(response, out var totalSize));
+        Assert.Equal(100, totalSize);
+    }
+
+    [Fact]
+    public void Downloader_RangeProbe_RejectsFullResponse()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([0])
+        };
+
+        Assert.False(NebulaDownloaderEngine.TryGetRangeProbeLength(response, out var totalSize));
+        Assert.Equal(0, totalSize);
+    }
+
+    [Fact]
+    public void TelegramPool_RetryAfter_IsParsedFromBotApiResponse()
+    {
+        const string ResponseJson = """
+            {"ok":false,"error_code":429,"parameters":{"retry_after":42}}
+            """;
+
+        Assert.True(NebulaTelegramPool.TryReadRetryAfter(ResponseJson, out var retryAfter));
+        Assert.Equal(42, retryAfter);
+    }
+
+    [Fact]
+    public void TelegramPool_ChannelAccessHashCandidates_TryPreferredThenFallbacks()
+    {
+        var candidates = NebulaTelegramPool.GetCandidateChannelAccessHashes(1).Take(3).ToArray();
+
+        Assert.True(candidates.Length >= 2);
+        Assert.NotEqual(candidates[0], candidates[1]);
+    }
+
+    [Fact]
+    public void NebulaConfiguration_DoesNotShipBotTokensOrApiHash()
+    {
+        var config = new NebulaFtpConfiguration();
+
+        Assert.True(string.IsNullOrEmpty(config.ApiHash));
+        Assert.True(string.IsNullOrEmpty(config.BotTokens));
+    }
+
+    [Fact]
+    public void SupabaseRecord_ConvertsBsonDocumentWithParts_Properly()
+    {
+        var convertMethod = typeof(NebulaSupabaseSyncService).GetMethod(
+            "ConvertBsonDocToSupabaseRecord",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(convertMethod);
+
+        var doc = new MongoDB.Bson.BsonDocument
+        {
+            { "_id", MongoDB.Bson.ObjectId.GenerateNewId() },
+            { "name", "Filme Teste.mkv" },
+            { "size", 1024L * 1024L * 32L },
+            { "status", "completed" },
+            {
+                "parts", new MongoDB.Bson.BsonArray
+                {
+                    new MongoDB.Bson.BsonDocument
+                    {
+                        { "part_number", 0 },
+                        { "size", 16 * 1024 * 1024 },
+                        { "tg_file_id", "tg-123" }
+                    }
+                }
+            }
+        };
+
+        var record = convertMethod.Invoke(null, [doc]);
+        Assert.NotNull(record);
+    }
+
+    [Fact]
+    public void TelegramFileIdDecoder_DecodesRealTelegramFileId_Successfully()
+    {
+        // FileId real de parte armazenada no MongoDB ftp.files
+        const string FileId = "BQACAgEAAyEFAAMBBcW5NAABAaLoapDQ5PR_-d25JlQMDLWKgEvcmj8AAq8KAALr0llEaob3dkC0G2geBA";
+
+        var doc = TelegramFileIdDecoder.DecodeDocument(FileId);
+
+        Assert.NotNull(doc);
+        Assert.True(doc.id != 0);
+        Assert.True(doc.access_hash != 0);
+        Assert.NotNull(doc.file_reference);
+        Assert.True(doc.file_reference.Length > 0);
+        Assert.Equal(1, doc.dc_id);
+    }
+
+    /// <summary>
+    /// Regression: arquivos sem NodeId (FileSystemWatcher) devem ser bloqueados
+    /// pelo claim em memória (_activeFiles) para evitar processamento duplicado.
+    /// </summary>
+    [Fact]
+    public void StagingWatcher_ActiveFilesField_PreventsDoubleProcessingWithoutNodeId()
+    {
+        var activeFilesField = typeof(NebulaStagingWatcher).GetField(
+            "_activeFiles",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        Assert.NotNull(activeFilesField);
+
+        // Verifica que o tipo é ConcurrentDictionary<string, byte>
+        var fieldType = activeFilesField.FieldType;
+        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentDictionary<string, byte>), fieldType);
+
+        // Cria instância mínima só para acessar o campo
+        using var engine = new NebulaUploadEngine(
+            null!,
+            null!,
+            uploadConcurrency: 1,
+            chunkSizeMb: 16,
+            deleteSourceAfterUpload: false,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<NebulaUploadEngine>.Instance);
+
+        var watcher = new NebulaStagingWatcher(engine, Microsoft.Extensions.Logging.Abstractions.NullLogger<NebulaStagingWatcher>.Instance);
+
+        var dict = (System.Collections.Concurrent.ConcurrentDictionary<string, byte>?)activeFilesField.GetValue(watcher);
+        Assert.NotNull(dict);
+
+        // Simula dois workers tentando reivindicar o mesmo arquivo
+        const string FakePath = @"C:\staging\filme.mkv";
+        var firstClaim = dict.TryAdd(FakePath, 0);
+        var secondClaim = dict.TryAdd(FakePath, 0);
+
+        Assert.True(firstClaim, "O primeiro worker deve conseguir reivindicar o arquivo.");
+        Assert.False(secondClaim, "O segundo worker NÃO deve conseguir reivindicar o mesmo arquivo.");
+
+        // Simula liberação pelo finally do worker
+        dict.TryRemove(FakePath, out _);
+        var thirdClaim = dict.TryAdd(FakePath, 0);
+        Assert.True(thirdClaim, "Após liberação, um novo worker deve conseguir reivindicar.");
+    }
+
+    /// <summary>
+    /// Regression: o script SQL do Supabase deve incluir CREATE POLICY para service_role
+    /// em todas as tabelas gerenciadas, tornando o modelo de acesso explícito.
+    /// </summary>
+    [Fact]
+    public void SupabaseSqlScript_ContainsRlsPolicies_ForAllNebulaTablesWithServiceRole()
+    {
+        var manager = new NebulaFtpManager(
+            null!,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<NebulaFtpManager>.Instance,
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance);
+
+        var sql = manager.GetSupabaseSqlScript();
+
+        Assert.NotNull(sql);
+
+        // Deve habilitar RLS em todas as tabelas
+        Assert.Contains("ALTER TABLE nebula_files ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("ALTER TABLE nebula_users ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("ALTER TABLE nebula_backups ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+        Assert.Contains("ALTER TABLE nebula_bot_tokens ENABLE ROW LEVEL SECURITY", sql, System.StringComparison.Ordinal);
+
+        // Deve criar políticas para service_role (evita acesso anônimo implícito)
+        Assert.Contains("CREATE POLICY nebula_files_service_role_all", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE POLICY nebula_users_service_role_all", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE POLICY nebula_backups_service_role_all", sql, System.StringComparison.Ordinal);
+        Assert.Contains("CREATE POLICY nebula_bot_tokens_service_role_all", sql, System.StringComparison.Ordinal);
+
+        // Deve incluir DROP POLICY IF EXISTS para idempotência
+        Assert.Contains("DROP POLICY IF EXISTS nebula_files_service_role_all", sql, System.StringComparison.Ordinal);
+
+        // Não deve mais conter o comentário enganoso que dizia "Desabilita RLS"
+        Assert.DoesNotContain("Desabilita RLS", sql, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Regression: Dispose em NebulaFtpManager não deve lançar exceções mesmo se serviços não foram iniciados.
+    /// </summary>
+    [Fact]
+    public void NebulaFtpManager_Dispose_CleansUpWithoutThrowing()
+    {
+        var manager = new NebulaFtpManager(
+            null!,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<NebulaFtpManager>.Instance,
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance);
+
+        var exception = Record.Exception(() => manager.Dispose());
+        Assert.Null(exception);
+    }
+
+    [Theory]
+    [InlineData(@"C:\staging\strm\Filmes\Avatar\Avatar.mkv", @"C:\staging", "Filmes/Avatar")]
+    [InlineData(@"C:\staging\Filmes\Avatar\Avatar.mkv", @"C:\staging", "Filmes/Avatar")]
+    [InlineData(@"C:\staging\strm\Series\Breaking Bad\S01E01.mp4", @"C:\staging", "Series/Breaking Bad")]
+    public void NebulaStagingWatcher_GetRelativeDirectory_StripsLeadingStrm(string filePath, string stagingRoot, string expectedRelDir)
+    {
+        var getRelDirMethod = typeof(NebulaStagingWatcher).GetMethod(
+            "GetRelativeDirectory",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(getRelDirMethod);
+        var result = (string?)getRelDirMethod.Invoke(null, [filePath, new[] { stagingRoot }]);
+
+        Assert.Equal(expectedRelDir, result);
+    }
+
+    [Theory]
+    [InlineData(@"D:\midias\strm\Filmes\Avatar\Avatar.strm", @"D:\midias", "Filmes" + @"\Avatar")]
+    [InlineData(@"D:\midias\Filmes\Avatar\Avatar.strm", @"D:\midias", "Filmes" + @"\Avatar")]
+    public void NebulaDownloaderEngine_GetRelativePathFromSource_StripsLeadingStrm(string filePath, string monitorRoot, string expectedRelPath)
+    {
+        var getRelPathMethod = typeof(NebulaDownloaderEngine).GetMethod(
+            "GetRelativePathFromSource",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(getRelPathMethod);
+        var result = (string?)getRelPathMethod.Invoke(null, [filePath, new System.Collections.Generic.List<string> { monitorRoot }]);
+
+        Assert.Equal(expectedRelPath, result);
+    }
+
+    [Theory]
+    // Filmes vão para a pasta Filmes
+    [InlineData("Avatar (2009)", "Avatar.mkv", "Filmes/Avatar (2009)")]
+    [InlineData("Filmes/Avatar (2009)", "Avatar.mkv", "Filmes/Avatar (2009)")]
+    [InlineData("strm/Filmes/Matrix (1999)", "Matrix.mp4", "Filmes/Matrix (1999)")]
+    [InlineData(null, "Matrix.mp4", "Filmes")]
+    [InlineData("", "Gladiator.mkv", "Filmes")]
+    // Series vão para Series preservando todas as subpastas
+    [InlineData("Breaking Bad/Season 01", "S01E01.mkv", "Series/Breaking Bad/Season 01")]
+    [InlineData("Series/Game of Thrones/Temporada 2", "GOT 2x01.mp4", "Series/Game of Thrones/Temporada 2")]
+    [InlineData("strm/Series/Dark/Season 1", "Dark.S01E01.mkv", "Series/Dark/Season 1")]
+    [InlineData(null, "Lost.S01E01.mkv", "Series")]
+    // Porno vai SEMPRE diretamente para Porno sem nenhuma subpasta
+    [InlineData("Atriz XYZ/Subpasta1/Subpasta2", "video_xxx.mp4", "Porno")]
+    [InlineData("Porno/Studio/Cena", "cena.mp4", "Porno")]
+    [InlineData("Adulto", "video.mp4", "Porno")]
+    [InlineData("strm/Porno/Hentai Studio", "ep1.mkv", "Porno")]
+    [InlineData(null, "Hentai Episode 1.mkv", "Porno")]
+    public void NebulaUploadEngine_RouteMediaRelativeDirectory_FollowsCategoryRules(string? relDir, string filename, string expected)
+    {
+        var result = NebulaUploadEngine.RouteMediaRelativeDirectory(relDir, filename);
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    // Filmes sob Nebula/Filmes/NomeDoFilme
+    [InlineData("Avatar (2009)", "Avatar.mkv", "Nebula", "Filmes", "Avatar (2009)")]
+    [InlineData("Filmes/Matrix (1999)", "Matrix.mp4", "Nebula", "Filmes", "Matrix (1999)")]
+    [InlineData(null, "Gladiator (2000).mkv", "Nebula", "Filmes", "Gladiator (2000)")]
+    // Series sob Nebula/Series/Show/Season ##
+    [InlineData("Breaking Bad/Season 01", "S01E01.mkv", "Nebula", "Series", "Breaking Bad", "Season 01")]
+    [InlineData("Series/Game of Thrones/Temporada 2", "GOT 2x01.mp4", "Nebula", "Series", "Game of Thrones", "Season 02")]
+    [InlineData("Series/Dark/Season 1", "Dark.S01E01.mkv", "Nebula", "Series", "Dark", "Season 01")]
+    [InlineData("Dark", "Dark.S03E05.mkv", "Nebula", "Series", "Dark", "Season 03")]
+    // Porno sob Nebula/Porno
+    [InlineData("Porno/Cena", "video_xxx.mp4", "Nebula", "Porno", null, null)]
+    [InlineData("Adulto", "video.mp4", "Nebula", "Porno", null, null)]
+    public void NebulaStrmGenerator_RouteStrmRelativeDirectory_FollowsStandardHierarchy(
+        string? relDir,
+        string filename,
+        string p1,
+        string p2,
+        string? p3 = null,
+        string? p4 = null)
+    {
+        var parts = new System.Collections.Generic.List<string> { p1, p2 };
+        if (p3 != null) parts.Add(p3);
+        if (p4 != null) parts.Add(p4);
+        var expected = Path.Combine(parts.ToArray());
+
+        var result = NebulaStrmGenerator.RouteStrmRelativeDirectory(relDir, filename);
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void NebulaStrmGenerator_BuildStrmTargetUrl_PointsToIpAndPath_NeverDriveN()
+    {
+        var config = new MediaBrowser.Model.Configuration.NebulaFtpConfiguration
+        {
+            ServerHost = "192.168.1.100",
+            ServerPort = 2121,
+            UseMappedDrive = true,
+            DriveLetter = "N:",
+            Username = "user",
+            Password = "password"
+        };
+
+        var url = NebulaStrmGenerator.BuildStrmTargetUrl(config, "Filmes/Matrix (1999)", "Matrix.mp4");
+
+        Assert.DoesNotContain("N:", url, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("ftp://user:password@192.168.1.100:2121/", url, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Filmes/Matrix%20%281999%29/Matrix.mp4", url, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NebulaStrmGenerator_BuildStrmTargetUrl_WithoutAuth_GeneratesCleanFtpUrl()
+    {
+        var config = new MediaBrowser.Model.Configuration.NebulaFtpConfiguration
+        {
+            ServerHost = "10.0.0.5",
+            ServerPort = 2121,
+            UseMappedDrive = false,
+            Username = string.Empty,
+            Password = string.Empty
+        };
+
+        var url = NebulaStrmGenerator.BuildStrmTargetUrl(config, "Series/Dark/Season 01", "Dark.S01E01.mkv");
+
+        Assert.DoesNotContain("N:", url, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("ftp://10.0.0.5:2121/", url, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Series/Dark/Season%2001/Dark.S01E01.mkv", url, StringComparison.Ordinal);
+    }
+}
+

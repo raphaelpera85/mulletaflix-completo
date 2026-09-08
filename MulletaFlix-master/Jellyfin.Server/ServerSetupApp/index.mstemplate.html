@@ -190,18 +190,18 @@
 
         {{#DECLARE LogEntry |--}}
         {{#LET children = Children}}
-        <li class="{{FormatLogLevel(children).ToString()}}-item">
+        <li class="{{FormatLogLevel(., children).ToString()}}-item">
             {{--| #IF children.Count > 0}}
             <details open>
                 <summary>{{DateOfCreation}} - {{Content}}</summary>
                 <ul class="action-list">
-                    {{--| #EACH children.Reverse() |-}}
-                    {{#IMPORT 'LogEntry'}}
+                    {{--| #EACH children |-}}
+                    {{#IMPORT 'LogEntry' #WITH .}}
                     {{--| /EACH |-}}
                 </ul>
             </details>
             {{--| #ELSE |-}}
-            <span class="{{FormatLogLevel(children).ToString()}}-item">{{DateOfCreation}} - {{Content}}</span>
+            <span class="{{FormatLogLevel(., children).ToString()}}-item">{{DateOfCreation}} - {{Content}}</span>
             {{--| /ELSE |--}}
             {{--| /IF |-}}
         </li>
@@ -210,7 +210,7 @@
         {{#IF localNetworkRequest}}
         <div class="flex-col">
             <ol class="action-list">
-                {{#FOREACH log IN logs.Reverse()}}
+                {{#FOREACH log IN logs}}
                 {{#IMPORT 'LogEntry' #WITH log}}
                 {{/FOREACH}}
             </ol>

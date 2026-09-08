@@ -163,6 +163,11 @@ namespace MediaBrowser.Controller.Providers
         IEnumerable<IMetadataSaver> GetMetadataSavers(BaseItem item, LibraryOptions libraryOptions);
 
         /// <summary>
+        /// Gets metadata savers, including savers disabled by local-metadata settings.
+        /// </summary>
+        IEnumerable<IMetadataSaver> GetMetadataSavers(BaseItem item, LibraryOptions libraryOptions, bool includeDisabled);
+
+        /// <summary>
         /// Gets all metadata plugins.
         /// </summary>
         /// <returns>IEnumerable{MetadataPlugin}.</returns>
@@ -231,4 +236,3 @@ namespace MediaBrowser.Controller.Providers
         double? GetRefreshProgress(Guid id);
     }
 }
-

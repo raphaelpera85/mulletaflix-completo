@@ -12,6 +12,8 @@ public class NebulaFtpConfiguration
 
     public int ServerPort { get; set; } = 2121;
 
+    public int HttpStreamPort { get; set; } = 2123;
+
     public string PassivePorts { get; set; } = "60000-60009";
 
     public string MongoDbConnectionString { get; set; } = "mongodb://localhost:27017";
@@ -46,7 +48,7 @@ public class NebulaFtpConfiguration
 
     public string WatchFolderPath { get; set; } = string.Empty;
 
-    public string SetupNotes { get; set; } = "Use o botao Baixar RaiDrive para montar o NebulaFTP como unidade no Windows.";
+    public string SetupNotes { get; set; } = "O NebulaFTP funciona sem montar unidade de rede. O modo Envio e Streaming operam via FTP/HTTP virtual. Use o botão Baixar RaiDrive apenas se precisar acessar via letra de drive (N:) para compatibilidade com players legados.";
 
     public string NebulaFolderPath { get; set; } = string.Empty;
 

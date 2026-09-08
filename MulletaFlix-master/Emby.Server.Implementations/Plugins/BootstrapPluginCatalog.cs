@@ -39,17 +39,9 @@ internal static class BootstrapPluginCatalog
             ]),
         new(
             "https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/10.11/manifest.json",
-            []),
-        new(
-            "https://www.iamparadox.dev/jellyfin/plugins/manifest.json",
-            [
-                Guid.Parse("b8298e01-2697-407a-b44d-aa8dc795e850"),
-                Guid.Parse("fbacd0b6-fd46-4a05-b0a4-2045d6a135b0"),
-                Guid.Parse("08f615ea-2107-4f04-89cc-091035f54448"),
-                Guid.Parse("043b2c48-b3e0-4610-b398-8217b146d1a4"),
-                Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90"),
-                Guid.Parse("5b6550fa-a014-4f4c-8a2c-59a43680ac6d")
-            ])
+            [])
+        // IAmParadox plugins removed from bootstrap due to circular dependency in File Transformation plugin
+        // Users can install them manually from the repository if needed
     ];
 
     internal sealed record BootstrapRepositorySpec(string Url, Guid[] PluginIds);

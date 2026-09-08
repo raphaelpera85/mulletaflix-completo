@@ -156,6 +156,14 @@ function Build-Server {
     $serverProject = Join-Path $serverRoot 'Jellyfin.Server\Jellyfin.Server.csproj'
     Assert-Path $serverProject 'Server project'
 
+    & $DotNet restore $serverProject `
+        -r win-x64 `
+        --nologo `
+        -v:minimal
+    if ($LASTEXITCODE -ne 0) {
+        throw "Server restore failed with exit code $LASTEXITCODE"
+    }
+
     & $DotNet clean $serverProject `
         -c Release `
         -r win-x64 `
@@ -249,6 +257,14 @@ function Build-Tray {
     if (Test-Path -LiteralPath $sourceIcon) {
         Copy-Item -LiteralPath $sourceIcon -Destination (Join-Path $trayProjectDir 'JellyfinIcon.ico') -Force
         Copy-Item -LiteralPath $sourceIcon -Destination (Join-Path $trayProjectDir 'Resources\JellyfinIcon.ico') -Force
+    }
+
+    & $DotNet restore $trayProject `
+        -r win-x64 `
+        --nologo `
+        -v:minimal
+    if ($LASTEXITCODE -ne 0) {
+        throw "Tray restore failed with exit code $LASTEXITCODE"
     }
 
     & $DotNet build $trayProject -c Release -f net472 -r win-x64

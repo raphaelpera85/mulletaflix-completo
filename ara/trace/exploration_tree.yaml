@@ -1,0 +1,41 @@
+tree:
+  - id: N01
+    type: question
+    title: "Como evitar que o disco N desmonte e dê erro de E/S ou acessar mídias sem montagem?"
+    provenance: user
+    timestamp: "2026-09-04T20:35:00"
+    description: >
+      O usuário reportou que o disco N desmonta constantemente com erros de E/S
+      e que nenhum filme funciona sem o disco N montado.
+    children:
+      - id: N02
+        type: observation
+        title: "Diagnóstico da causa raiz de desmontagem no rclone e WinFsp"
+        provenance: ai-executed
+        timestamp: "2026-09-04T20:37:00"
+        result: >
+          Identificados 6 fatores: dir-cache-time agressivo de 10s, ausência de --network-mode,
+          indexação de disco fixo pelo Windows Defender e Windows Search, sync-over-async
+          no NebulaChunkedStream e estouro de IOException com quebra de socket FTP.
+        evidence: ["C02", "mount_drive_n.py:L74-86", "NebulaChunkedStream.cs:L172"]
+
+      - id: N03
+        type: observation
+        title: "Descoberta da infraestrutura STRM e HTTP Stream existente no código"
+        provenance: ai-executed
+        timestamp: "2026-09-04T20:39:00"
+        result: >
+          O NebulaHttpStreamServer já implementa HTTP 206 e streaming direto das partes
+          do Telegram na porta 2123, mas o gerador NebulaStrmGenerator gerava URLs ftp://
+          e não havia gatilho automático pós-upload.
+        evidence: ["C01", "C03", "NebulaHttpStreamServer.cs:L18-490", "NebulaStrmGenerator.cs:L251"]
+
+      - id: N04
+        type: decision
+        title: "Proposta arquitetural dual: Eliminação do disco N via STRM + Endurecimento de flags do rclone"
+        provenance: ai-suggested
+        timestamp: "2026-09-04T20:41:00"
+        result: >
+          Recomendação da Abordagem B (STRM local leve + HTTP nativo 206) como arquitetura principal
+          e Abordagem A (rclone endurecido com --network-mode e dir-cache-time 24h) como fallback.
+        evidence: ["C01", "C02", "learning_proposal.md"]

@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS159, SA1300
 
@@ -234,20 +234,38 @@ namespace MediaBrowser.Providers.Plugins.Omdb
         internal async Task<RootObject> GetRootObject(string imdbId, CancellationToken cancellationToken)
         {
             var path = await EnsureItemInfo(imdbId, cancellationToken).ConfigureAwait(false);
+
+            // EnsureItemInfo only writes cache when OMDB returns a valid response.
+            // If the file doesn't exist, it means the last API call failed (e.g. rate limiting).
+            if (!File.Exists(path))
+            {
+                return new RootObject { Response = "False" };
+            }
+
             var stream = AsyncFile.OpenRead(path);
             await using (stream.ConfigureAwait(false))
             {
-                return await JsonSerializer.DeserializeAsync<RootObject>(stream, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                return await JsonSerializer.DeserializeAsync<RootObject>(stream, _jsonOptions, cancellationToken).ConfigureAwait(false)
+                    ?? new RootObject { Response = "False" };
             }
         }
 
         internal async Task<SeasonRootObject> GetSeasonRootObject(string imdbId, int seasonId, CancellationToken cancellationToken)
         {
             var path = await EnsureSeasonInfo(imdbId, seasonId, cancellationToken).ConfigureAwait(false);
+
+            // EnsureSeasonInfo only writes cache when OMDB returns a valid response.
+            // If the file doesn't exist, it means the last API call failed (e.g. rate limiting).
+            if (!File.Exists(path))
+            {
+                return new SeasonRootObject { Response = "False" };
+            }
+
             var stream = AsyncFile.OpenRead(path);
             await using (stream.ConfigureAwait(false))
             {
-                return await JsonSerializer.DeserializeAsync<SeasonRootObject>(stream, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                return await JsonSerializer.DeserializeAsync<SeasonRootObject>(stream, _jsonOptions, cancellationToken).ConfigureAwait(false)
+                    ?? new SeasonRootObject { Response = "False" };
             }
         }
 
@@ -316,10 +334,8 @@ namespace MediaBrowser.Providers.Plugins.Omdb
                         return path;
                     }
                 }
-                else
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(path));
-                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
 
                 var url = GetOmdbUrl(
                     string.Format(
@@ -327,9 +343,25 @@ namespace MediaBrowser.Providers.Plugins.Omdb
                         "i={0}&plot=short&tomatoes=true&r=json",
                         imdbParam));
 
-                var rootObject = await _httpClientFactory.CreateClient(NamedClient.Default).GetFromJsonAsync<RootObject>(url, _jsonOptions, cancellationToken).ConfigureAwait(false);
-                await using var jsonFileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, IODefaults.FileStreamBufferSize, FileOptions.Asynchronous);
-                await JsonSerializer.SerializeAsync(jsonFileStream, rootObject, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                var rootObject = await _httpClientFactory.CreateClient(NamedClient.Default)
+                    .GetFromJsonAsync<RootObject>(url, _jsonOptions, cancellationToken)
+                    .ConfigureAwait(false);
+
+                // Only persist cache when OMDB returned a valid result.
+                // A failed response (rate limiting, invalid ID, network error) must NOT be
+                // cached — otherwise the stale error would block retries for up to 24 hours.
+                if (rootObject is not null
+                    && string.Equals(rootObject.Response, "True", StringComparison.OrdinalIgnoreCase))
+                {
+                    await using var jsonFileStream = new FileStream(
+                        path,
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.Read,
+                        IODefaults.FileStreamBufferSize,
+                        FileOptions.Asynchronous);
+                    await JsonSerializer.SerializeAsync(jsonFileStream, rootObject, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                }
 
                 return path;
             }
@@ -364,10 +396,8 @@ namespace MediaBrowser.Providers.Plugins.Omdb
                         return path;
                     }
                 }
-                else
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(path));
-                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
 
                 var url = GetOmdbUrl(
                     string.Format(
@@ -376,9 +406,25 @@ namespace MediaBrowser.Providers.Plugins.Omdb
                         imdbParam,
                         seasonId));
 
-                var rootObject = await _httpClientFactory.CreateClient(NamedClient.Default).GetFromJsonAsync<SeasonRootObject>(url, _jsonOptions, cancellationToken).ConfigureAwait(false);
-                await using var jsonFileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read, IODefaults.FileStreamBufferSize, FileOptions.Asynchronous);
-                await JsonSerializer.SerializeAsync(jsonFileStream, rootObject, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                var rootObject = await _httpClientFactory.CreateClient(NamedClient.Default)
+                    .GetFromJsonAsync<SeasonRootObject>(url, _jsonOptions, cancellationToken)
+                    .ConfigureAwait(false);
+
+                // Only persist cache when OMDB returned a valid result.
+                // A failed response must NOT be cached — otherwise the stale error would
+                // block retries for up to 24 hours.
+                if (rootObject is not null
+                    && string.Equals(rootObject.Response, "True", StringComparison.OrdinalIgnoreCase))
+                {
+                    await using var jsonFileStream = new FileStream(
+                        path,
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.Read,
+                        IODefaults.FileStreamBufferSize,
+                        FileOptions.Asynchronous);
+                    await JsonSerializer.SerializeAsync(jsonFileStream, rootObject, _jsonOptions, cancellationToken).ConfigureAwait(false);
+                }
 
                 return path;
             }

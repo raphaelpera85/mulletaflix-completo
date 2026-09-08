@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using Emby.Naming.Common;
 
 namespace Emby.Naming.Video
 {
@@ -24,11 +26,55 @@ namespace Emby.Naming.Video
             }
 
             var len = cleanDateTimeRegexes.Count;
+
+            // 1. Try with release tags cleaned (e.g. "Deadpool & Wolverine (LEG) (2024)", "[Multi-Subs] [2018]")
+            var cleanedTagsName = TitleNormalization.CleanReleaseTags(name);
+            if (!string.IsNullOrWhiteSpace(cleanedTagsName) && !string.Equals(cleanedTagsName, name, StringComparison.Ordinal))
+            {
+                for (int i = 0; i < len; i++)
+                {
+                    if (TryClean(cleanedTagsName, cleanDateTimeRegexes[i], ref result))
+                    {
+                        var cleaned = TitleNormalization.CleanReleaseTags(result.Name);
+                        if (!string.IsNullOrWhiteSpace(cleaned))
+                        {
+                            result = new CleanDateTimeResult(cleaned, result.Year);
+                        }
+
+                        return result;
+                    }
+                }
+            }
+
+            // 2. Try with raw name
             for (int i = 0; i < len; i++)
             {
                 if (TryClean(name, cleanDateTimeRegexes[i], ref result))
                 {
+                    var cleaned = TitleNormalization.CleanReleaseTags(result.Name);
+                    if (!string.IsNullOrWhiteSpace(cleaned))
+                    {
+                        result = new CleanDateTimeResult(cleaned, result.Year);
+                    }
+
                     return result;
+                }
+            }
+
+            // 3. Fallback year extraction (e.g. bracketed years "[2018]", "(LEG)(2024)")
+            var year = TitleNormalization.ExtractYear(name);
+            if (year.HasValue)
+            {
+                var yearStr = year.Value.ToString(CultureInfo.InvariantCulture);
+                var yearIdx = name.LastIndexOf(yearStr, StringComparison.Ordinal);
+                if (yearIdx > 0)
+                {
+                    var prefix = name[..yearIdx].TrimEnd(' ', '.', '_', '-', '(', '[', '{');
+                    var cleanedPrefix = TitleNormalization.CleanReleaseTags(prefix);
+                    if (!string.IsNullOrWhiteSpace(cleanedPrefix))
+                    {
+                        return new CleanDateTimeResult(cleanedPrefix, year.Value);
+                    }
                 }
             }
 
@@ -53,3 +99,4 @@ namespace Emby.Naming.Video
         }
     }
 }
+

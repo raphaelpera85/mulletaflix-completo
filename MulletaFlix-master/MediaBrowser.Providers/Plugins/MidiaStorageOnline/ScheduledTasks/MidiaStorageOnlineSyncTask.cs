@@ -315,6 +315,17 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                     config.EpgLastError = null;
                 }
 
+                await RemoveManagedStrmLibrariesAsync(config).ConfigureAwait(false);
+                config.SyncedFileCount = 0;
+                config.LastSyncDurationSeconds = sw.Elapsed.TotalSeconds;
+                config.LastSyncError = null;
+                config.LastSyncTime = DateTime.UtcNow;
+                SaveConfig(config);
+                Log("Storage Online configurado somente para canais de TV; sincronização de filmes/séries STRM desativada.");
+                return;
+
+                // O Storage Online permanece dedicado ao Live TV. O antigo fluxo STRM foi desativado.
+#if false
                 // 2. Criar pastas e preparar bibliotecas para filmes e series
                 var strmPath = GetStrmOutputPath(config);
                 var moviesPath = Path.Combine(strmPath, "Filmes");
@@ -581,6 +592,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                         Log($"Falha ao atualizar canais Live TV após o sync: {refreshEx.Message}");
                     }
                 }
+#endif
             }
             catch (Exception ex)
             {
@@ -629,6 +641,29 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
             if (!string.IsNullOrEmpty(config.StrmOutputPath))
                 return config.StrmOutputPath;
             return GetDefaultStrmPath();
+        }
+
+        private async Task RemoveManagedStrmLibrariesAsync(PluginConfiguration config)
+        {
+            var strmRoot = Path.GetFullPath(GetStrmOutputPath(config)).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var managedLocations = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                Path.Combine(strmRoot, "Filmes"),
+                Path.Combine(strmRoot, "Series")
+            };
+
+            var managedLibraries = _libraryManager.GetVirtualFolders()
+                .Where(folder => (string.Equals(folder.Name, "Filmes", StringComparison.OrdinalIgnoreCase)
+                                  || string.Equals(folder.Name, "Series", StringComparison.OrdinalIgnoreCase))
+                                 && folder.Locations.Any(location => managedLocations.Contains(
+                                     Path.GetFullPath(location).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))))
+                .ToList();
+
+            foreach (var library in managedLibraries)
+            {
+                await _libraryManager.RemoveVirtualFolder(library.Name, true).ConfigureAwait(false);
+                Log($"Biblioteca STRM removida do Storage Online: {library.Name}");
+            }
         }
 
         private string GetDefaultStrmPath() =>

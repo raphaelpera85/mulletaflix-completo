@@ -190,8 +190,11 @@ namespace MediaBrowser.XbmcMetadata.Savers
 
         /// <inheritdoc />
         public async Task SaveAsync(BaseItem item, CancellationToken cancellationToken)
+            => await SaveAsync(item, GetSavePath(item), cancellationToken).ConfigureAwait(false);
+
+        /// <inheritdoc />
+        public async Task SaveAsync(BaseItem item, string path, CancellationToken cancellationToken)
         {
-            var path = GetSavePath(item);
             var pathLock = _pathLocks.GetOrAdd(path, _ => new SemaphoreSlim(1, 1));
 
             await pathLock.WaitAsync(cancellationToken).ConfigureAwait(false);

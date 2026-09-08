@@ -1,0 +1,19 @@
+import json
+
+with open('graphify-out/graph.json') as f:
+    data = json.load(f)
+
+# Show sample node labels
+print("Sample node labels:")
+for n in data['nodes'][:50]:
+    print(f'  {n["id"]}: {n["label"]} ({n.get("file_type", "?")})')
+
+# Search for specific patterns
+patterns = ['Controller', 'Api', 'Dto', 'Plugin', 'Migration', 'Client', 'Web', 'Mobile', 'Tv', 'React', 'Vue', 'Angular', 'BaseItem', 'BaseItemDto', 'ItemLookup', 'ApiClient', 'LibraryManager', 'SessionManager', 'PlaybackManager', 'SyncPlay', 'LiveTv', 'Metadata', 'Provider', 'Scheduler', 'Task', 'Job', 'Queue', 'Cache', 'Database', 'Repository', 'Entity', 'Configuration', 'Settings', 'Startup', 'Host', 'Server', 'Application', 'Module', 'Service', 'Handler', 'Middleware', 'Filter', 'Attribute', 'Action', 'Result', 'Response', 'Request', 'Route', 'Endpoint', 'Swagger', 'OpenApi', 'SignalR', 'Hub', 'WebSocket', 'Signal', 'Event', 'Notification', 'Push', 'Message', 'Chat', 'Conversation', 'User', 'Role', 'Permission', 'Auth', 'Token', 'Jwt', 'OAuth', 'OpenId', 'Saml', 'Ldap', 'ActiveDirectory', 'Entra', 'Azure', 'Aws', 'Gcp', 'Cloud', 'Kubernetes', 'Docker', 'Container', 'Image', 'Registry', 'Helm', 'Chart', 'Manifest', 'Yaml', 'Json', 'Xml', 'Config', 'Settings', 'Environment', 'Variable', 'Secret', 'Key', 'Certificate', 'Tls', 'Ssl', 'Https', 'Http', 'Rest', 'Grpc', 'Protobuf', 'MessagePack', 'Avro', 'Thrift', 'GraphQL', 'Query', 'Mutation', 'Subscription', 'Resolver', 'Schema', 'Type', 'Field', 'Argument', 'Directive', 'Fragment', 'Operation', 'Variable', 'Input', 'Output', 'Interface', 'Union', 'Enum', 'Scalar', 'Object', 'List', 'NonNull', 'Description', 'Deprecated', 'SpecifiedBy', 'Introspection', 'Validation', 'Execution', 'Subscription', 'Webhook', 'Event', 'Trigger', 'Action', 'Workflow', 'Pipeline', 'Stage', 'Step', 'Job', 'Task', 'Run', 'Build', 'Deploy', 'Release', 'Version', 'Tag', 'Branch', 'Commit', 'Merge', 'PullRequest', 'Review', 'Comment', 'Approval', 'Status', 'Check', 'Test', 'Coverage', 'Lint', 'Format', 'Analyze', 'Scan', 'Audit', 'Security', 'Vulnerability', 'Dependency', 'License', 'Sbom', 'CycloneDx', 'Spdx', 'Syft', 'Grype', 'Cosign', 'Sigstore', 'Rekor', 'Fulcio', 'Oidc', 'Keyless', 'Attestation', 'Provenance', 'Slsa', 'InToto']
+
+for pattern in patterns:
+    matches = [n for n in data['nodes'] if pattern.lower() in n.get('label', '').lower()]
+    if matches:
+        print(f'\n{pattern} matches: {len(matches)}')
+        for n in matches[:5]:
+            print(f'  {n["id"]}: {n["label"]} ({n.get("file_type", "?")})')

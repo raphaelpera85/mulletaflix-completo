@@ -139,13 +139,21 @@ internal class MulletaFlixMigrationService
                     await databaseCreator.CreateAsync().ConfigureAwait(false);
                 }
 
+                var historyRepository = dbContext.GetService<IHistoryRepository>();
+                var migrationsAssembly = dbContext.GetService<IMigrationsAssembly>();
+
                 if (!await databaseCreator.HasTablesAsync().ConfigureAwait(false))
                 {
                     logger.LogInformation("Database tables do not exist. Creating relational tables...");
                     await databaseCreator.CreateTablesAsync().ConfigureAwait(false);
-                }
 
-                var historyRepository = dbContext.GetService<IHistoryRepository>();
+                    await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
+                    foreach (var migrationKey in migrationsAssembly.Migrations.Keys.OrderBy(k => k, StringComparer.Ordinal))
+                    {
+                        var script = historyRepository.GetInsertScript(new HistoryRow(migrationKey, GetMulletaFlixVersion()));
+                        await dbContext.Database.ExecuteSqlRawAsync(script).ConfigureAwait(false);
+                    }
+                }
 
                 await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
                 var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync().ConfigureAwait(false);
@@ -574,7 +582,20 @@ internal class MulletaFlixMigrationService
         public async Task PerformAsync(IStartupLogger logger)
         {
             var migrator = _mulletaFlixDbContext.GetService<IMigrator>();
-            await migrator.MigrateAsync(_databaseMigrationInfo.Key).ConfigureAwait(false);
+            try
+            {
+                await migrator.MigrateAsync(_databaseMigrationInfo.Key).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase)
+                                    || ex.InnerException?.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase) == true
+                                    || (ex is MySqlConnector.MySqlException mySqlEx && (mySqlEx.Number == 1050 || mySqlEx.Number == 1060 || mySqlEx.Number == 1061)))
+            {
+                logger.LogWarning(ex, "Migration {Name} reported existing table, column or index. Marking migration as applied in history.", _databaseMigrationInfo.Key);
+                var historyRepository = _mulletaFlixDbContext.GetService<IHistoryRepository>();
+                await historyRepository.CreateIfNotExistsAsync().ConfigureAwait(false);
+                var insertScript = historyRepository.GetInsertScript(new HistoryRow(_databaseMigrationInfo.Key, GetMulletaFlixVersion()));
+                await _mulletaFlixDbContext.Database.ExecuteSqlRawAsync(insertScript).ConfigureAwait(false);
+            }
         }
     }
 }

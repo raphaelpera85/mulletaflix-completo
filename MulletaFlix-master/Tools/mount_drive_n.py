@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import signal
 from pathlib import Path
 import shutil
 from typing import Sequence
@@ -60,6 +61,86 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+async def run_rclone_mount(rclone: str, config: Path, drive: str, log_file: str, stop_event: asyncio.Event) -> int:
+    """Run rclone mount with automatic restart on failure. Flags match original Nebula."""
+    while not stop_event.is_set():
+        command: Sequence[str] = (
+            rclone,
+            "mount",
+            "nebula:/",
+            drive,
+            "--config",
+            str(config),
+            "--network-mode",
+            "--volname",
+            "MulletaFlix",
+            "--vfs-cache-mode",
+            "full",
+            "--vfs-read-chunk-size",
+            "16M",
+            "--vfs-read-chunk-size-limit",
+            "512M",
+            "--vfs-cache-max-size",
+            "20G",
+            "--vfs-cache-max-age",
+            "6h",
+            "--dir-cache-time",
+            "24h",
+            "--poll-interval",
+            "0",
+            "--buffer-size",
+            "32M",
+            "--timeout",
+            "60s",
+            "--contimeout",
+            "15s",
+            "--retries",
+            "3",
+            "--low-level-retries",
+            "10",
+            "--log-file",
+            log_file,
+            "--log-level",
+            "INFO",
+        )
+        print(f"[NEBULA-MOUNT-PY] Iniciando rclone mount em {drive}.", flush=True)
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        
+        # Wait for process to complete or stop_event
+        wait_task = asyncio.create_task(process.wait())
+        stop_wait_task = asyncio.create_task(stop_event.wait())
+        
+        done, pending = await asyncio.wait(
+            [wait_task, stop_wait_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        
+        if stop_event.is_set():
+            # Graceful shutdown requested
+            if process.returncode is None:
+                process.terminate()
+                with contextlib.suppress(ProcessLookupError, asyncio.TimeoutError):
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+            print(f"[NEBULA-MOUNT-PY] rclone mount encerrado (solicitado).", flush=True)
+            return 0
+        
+        # rclone exited unexpectedly
+        returncode = process.returncode
+        print(f"[NEBULA-MOUNT-PY-AVISO] rclone encerrou com código {returncode}. Reiniciando em 5s...", flush=True)
+        await asyncio.sleep(5)
+        # Loop continues, will restart rclone
+
+
 async def mount(args: argparse.Namespace) -> int:
     rclone = args.rclone if Path(args.rclone).is_file() else shutil.which(args.rclone)
     if not rclone:
@@ -83,58 +164,22 @@ async def mount(args: argparse.Namespace) -> int:
     if not await wait_for_ftp(args.host, args.port, args.ftp_timeout):
         print("[NEBULA-MOUNT-PY-AVISO] FTP não respondeu no prazo; tentando montar mesmo assim.", flush=True)
 
-    command: Sequence[str] = (
-        rclone,
-        "mount",
-        "nebula:/",
-        args.drive,
-        "--config",
-        str(config),
-        "--vfs-cache-mode",
-        "full",
-        "--vfs-cache-max-size",
-        "20G",
-        "--dir-cache-time",
-        "30s",
-        "--poll-interval",
-        "0",
-        "--links",
-        "--no-checksum",
-        "--network-mode",
-        # O filesystem FTP virtual aceita o conteúdo, mas não oferece
-        # alteração de timestamps. Mantemos MDTM desativado para que cada
-        # metadata .nfo não termine com 550 durante o SetModTime.
-        "--ftp-writing-mdtm=false",
-        "--volname",
-        "NebulaFTP",
-        "--log-file",
-        args.log_file,
-        "--log-level",
-        "INFO",
-    )
-    print(f"[NEBULA-MOUNT-PY] Executando rclone mount em {args.drive}.", flush=True)
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    try:
-        if not await wait_for_mount(process, drive, args.mount_timeout):
-            returncode = await process.wait() if process.returncode is not None else None
-            detail = f" código {returncode}" if returncode is not None else " sem confirmação de N:"
-            print(f"[NEBULA-MOUNT-PY-ERRO] rclone encerrou{detail}.", flush=True)
-            return 1
-        print(f"[NEBULA-MOUNT-PY] Unidade {args.drive} montada com sucesso.", flush=True)
-        await process.wait()
-        return process.returncode or 0
-    except asyncio.CancelledError:
-        raise
-    finally:
-        if process.returncode is None:
-            process.terminate()
-            with contextlib.suppress(ProcessLookupError, asyncio.TimeoutError):
-                await asyncio.wait_for(process.wait(), timeout=5.0)
+    # Run rclone with supervision loop
+    stop_event = asyncio.Event()
+    
+    # Handle Ctrl+C
+    loop = asyncio.get_running_loop()
+    def signal_handler():
+        print("[NEBULA-MOUNT-PY] Sinal de interrupção recebido. Parando...", flush=True)
+        stop_event.set()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, signal_handler)
+        except NotImplementedError:
+            # Windows doesn't support add_signal_handler for SIGTERM
+            pass
+    
+    return await run_rclone_mount(rclone, config, args.drive, args.log_file, stop_event)
 
 
 def main() -> int:

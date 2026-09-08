@@ -3690,13 +3690,22 @@ namespace Emby.Server.Implementations.Library
         public ItemLookupInfo ParseName(string name)
         {
             var namingOptions = _namingOptions;
-            var result = VideoResolver.CleanDateTime(name, namingOptions);
-            var normalizedName = TitleNormalization.RemoveTrailingReleaseTags(result.Name);
+            var cleanedInput = TitleNormalization.CleanReleaseTags(name);
+            var result = VideoResolver.CleanDateTime(cleanedInput, namingOptions);
+            var year = result.Year ?? TitleNormalization.ExtractYear(name);
+            var normalizedName = TitleNormalization.CleanReleaseTags(result.Name);
+
+            if (VideoResolver.TryCleanString(normalizedName, namingOptions, out var newName))
+            {
+                normalizedName = newName;
+            }
+
+            normalizedName = TitleNormalization.RemoveTrailingReleaseTags(normalizedName);
 
             return new ItemLookupInfo
             {
-                Name = VideoResolver.TryCleanString(normalizedName, namingOptions, out var newName) ? newName : normalizedName,
-                Year = result.Year
+                Name = normalizedName,
+                Year = year
             };
         }
 

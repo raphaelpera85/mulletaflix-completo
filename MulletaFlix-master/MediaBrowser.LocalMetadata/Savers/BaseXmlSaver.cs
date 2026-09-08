@@ -91,8 +91,11 @@ namespace MediaBrowser.LocalMetadata.Savers
 
         /// <inheritdoc />
         public async Task SaveAsync(BaseItem item, CancellationToken cancellationToken)
+            => await SaveAsync(item, GetSavePath(item), cancellationToken).ConfigureAwait(false);
+
+        /// <inheritdoc />
+        public async Task SaveAsync(BaseItem item, string path, CancellationToken cancellationToken)
         {
-            var path = GetSavePath(item);
             var directory = Path.GetDirectoryName(path) ?? throw new InvalidDataException($"Provided path ({path}) is not valid.");
             Directory.CreateDirectory(directory);
 

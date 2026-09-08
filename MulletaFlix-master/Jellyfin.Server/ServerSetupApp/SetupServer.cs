@@ -99,8 +99,15 @@ public sealed class SetupServer : IDisposable
             },
             "ToString")
             .WithFormatter(
-                (StartupLogTopic logEntry, IEnumerable<StartupLogTopic> children) =>
+                (StartupLogTopic logEntry, object childrenValue) =>
                 {
+                    // Morestachio pode entregar um único StartupLogTopic para
+                    // uma variável LET, embora o template declare Children como
+                    // coleção. Normalize os dois formatos antes de iterar.
+                    var children = childrenValue as IEnumerable<StartupLogTopic>
+                        ?? (childrenValue is StartupLogTopic single
+                            ? new[] { single }
+                            : Array.Empty<StartupLogTopic>());
                     if (children.Any())
                     {
                         var maxLevel = logEntry.LogLevel;
@@ -388,4 +395,3 @@ public sealed class SetupServer : IDisposable
         }
     }
 }
-

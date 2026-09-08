@@ -14,6 +14,10 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
     /// </summary>
     public static partial class TmdbUtils
     {
+        private static readonly Regex StandaloneConjunctionRegex = new(
+            @"(?<!\p{L})e(?!\p{L})",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
         /// <summary>
         /// URL of the TMDb instance to use.
         /// </summary>
@@ -104,6 +108,22 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
             }
 
             yield return normalized;
+
+            // Pastas de mídia costumam substituir '&' por 'e'. Envie também a
+            // grafia original para que o TMDb encontre títulos como "Velozes e
+            // Furiosos" / "Fast & Furious", sem alterar o nome salvo da pasta.
+            var ampersandVariant = StandaloneConjunctionRegex.Replace(normalized, "&");
+            ampersandVariant = Regex.Replace(ampersandVariant, @"\s*&\s*", " & ", RegexOptions.CultureInvariant).Trim();
+            if (!string.Equals(ampersandVariant, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return ampersandVariant;
+            }
+
+            var conjunctionVariant = Regex.Replace(normalized, @"\s*&\s*", " e ", RegexOptions.CultureInvariant).Trim();
+            if (!string.Equals(conjunctionVariant, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return conjunctionVariant;
+            }
 
             var withoutLeadingArticle = RemoveLeadingPortugueseArticle(normalized);
             if (!string.Equals(withoutLeadingArticle, normalized, StringComparison.OrdinalIgnoreCase))

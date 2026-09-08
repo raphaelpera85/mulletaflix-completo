@@ -182,6 +182,7 @@ namespace MulletaFlix.Server
             services.AddHostedService<RecordingNotifier>();
             services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MulletaFlixJobQueue>());
             services.AddHostedService<NebulaHostedService>();
+            services.AddHostedService<NebulaMetadataExportService>();
         }
 
         /// <summary>

@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS1591
 
@@ -82,6 +82,23 @@ namespace MediaBrowser.Controller.Entities.Movies
                 info.Name = name;
             }
 
+            if (!info.Year.HasValue)
+            {
+                var parsed = LibraryManager.ParseName(info.Name);
+                if (parsed.Year.HasValue)
+                {
+                    info.Year = parsed.Year;
+                }
+                else if (!string.IsNullOrWhiteSpace(Path))
+                {
+                    var fileParsed = LibraryManager.ParseName(System.IO.Path.GetFileNameWithoutExtension(Path));
+                    if (fileParsed.Year.HasValue)
+                    {
+                        info.Year = fileParsed.Year;
+                    }
+                }
+            }
+
             return info;
         }
 
@@ -93,8 +110,13 @@ namespace MediaBrowser.Controller.Entities.Movies
             if (!ProductionYear.HasValue)
             {
                 var info = LibraryManager.ParseName(Name);
-
                 var yearInName = info.Year;
+
+                if (!yearInName.HasValue && !string.IsNullOrWhiteSpace(Path))
+                {
+                    info = LibraryManager.ParseName(System.IO.Path.GetFileNameWithoutExtension(Path));
+                    yearInName = info.Year;
+                }
 
                 if (yearInName.HasValue)
                 {
@@ -104,7 +126,7 @@ namespace MediaBrowser.Controller.Entities.Movies
                 else
                 {
                     // Try to get the year from the folder name
-                    if (!IsInMixedFolder)
+                    if (!IsInMixedFolder && !string.IsNullOrWhiteSpace(ContainingFolderPath))
                     {
                         info = LibraryManager.ParseName(System.IO.Path.GetFileName(ContainingFolderPath));
 

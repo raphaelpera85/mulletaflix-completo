@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using Emby.Naming.Common;
@@ -88,13 +88,14 @@ namespace Emby.Naming.Video
             {
                 var cleanDateTimeResult = CleanDateTime(name, namingOptions);
                 name = cleanDateTimeResult.Name;
-                year = cleanDateTimeResult.Year;
+                year = cleanDateTimeResult.Year ?? TitleNormalization.ExtractYear(Path.GetFileNameWithoutExtension(path));
 
                 if (TryCleanString(name, namingOptions, out var newName))
                 {
                     name = newName;
                 }
 
+                name = TitleNormalization.CleanReleaseTags(name);
                 name = TitleNormalization.RemoveTrailingReleaseTags(name);
             }
 

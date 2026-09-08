@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <_MulletaFlixAssemblyName>$([System.String]::Copy('$(MSBuildProjectName)').Replace('Jellyfin', 'MulletaFlix'))</_MulletaFlixAssemblyName>
     <AssemblyName Condition="'$(AssemblyName)' == '' and $([System.String]::Copy('$(MSBuildProjectName)').Contains('Jellyfin'))">$(_MulletaFlixAssemblyName)</AssemblyName>
     <NoWarn>$(NoWarn);CA1849;SA1518;SA1513;SA1210;SA1600;SA1601;SA1602;SA1649;SA1306;CS8632;CS1591</NoWarn>

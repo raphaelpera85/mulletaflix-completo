@@ -51,5 +51,23 @@ namespace MulletaFlix.Providers.Tests.Tmdb
 
             Assert.Equal(new[] { "Árvore", "Arvore" }, variants);
         }
+
+        [Fact]
+        public static void BuildSearchNameVariants_ExpandsFolderSafeEToAmpersand()
+        {
+            var variants = TmdbUtils.BuildSearchNameVariants("Bonnie e Clyde").ToArray();
+
+            Assert.Contains("Bonnie e Clyde", variants);
+            Assert.Contains("Bonnie & Clyde", variants);
+        }
+
+        [Fact]
+        public static void BuildSearchNameVariants_ExpandsAmpersandToFolderSafeE()
+        {
+            var variants = TmdbUtils.BuildSearchNameVariants("Bonnie & Clyde").ToArray();
+
+            Assert.Contains("Bonnie & Clyde", variants);
+            Assert.Contains("Bonnie e Clyde", variants);
+        }
     }
 }
