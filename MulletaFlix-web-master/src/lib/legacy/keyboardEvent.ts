@@ -22,7 +22,6 @@ interface KeyboardEventInit {
     repeat?: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface Window {
     KeyboardEvent: typeof globalThis.KeyboardEvent;
     Event: typeof globalThis.Event;

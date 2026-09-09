@@ -110,8 +110,8 @@ function populateCollections(panel: HTMLElement): void {
         html += `<option value="">${globalize.translate('OptionNew')}</option>`;
 
         html += result.Items.map((i: any) => {
-            return `<option value="${i.Id}">${escapeHtml(i.Name)}</option>`;
-        });
+            return `<option value="${escapeHtml(i.Id)}">${escapeHtml(i.Name)}</option>`;
+        }).join('');
 
         select.innerHTML = html;
         select.value = '';

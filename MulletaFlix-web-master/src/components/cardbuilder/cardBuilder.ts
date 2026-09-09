@@ -356,7 +356,7 @@ function getCardFooterText(item: any, apiClient: any, options: any, footerClass:
     let html = '';
 
     if (urls.logoUrl) {
-        html += '<div class="lazy cardFooterLogo" data-src="' + urls.logoUrl + '"></div>';
+        html += '<div class="lazy cardFooterLogo" data-src="' + escapeHtml(urls.logoUrl) + '"></div>';
     }
 
     const showTitle = options.showTitle === 'auto' ? true : (options.showTitle || item.Type === 'PhotoAlbum' || item.Type === 'Folder');
@@ -626,7 +626,7 @@ function getTextActionButton(item: any, text?: any, serverId?: any): string {
     }
 
     const url = appRouter.getRouteUrl(item);
-    let html = '<a href="' + url + '" ' + itemShortcuts.getShortcutAttributesHtml(item, serverId) + ' class="itemAction textActionButton" title="' + text + `" data-action="${ItemAction.Link}">`;
+    let html = '<a href="' + escapeHtml(url) + '" ' + itemShortcuts.getShortcutAttributesHtml(item, serverId) + ' class="itemAction textActionButton" title="' + text + `" data-action="${ItemAction.Link}">`;
     html += text;
     html += '</a>';
 
@@ -721,7 +721,8 @@ let refreshIndicatorLoaded: boolean | undefined;
 function importRefreshIndicator() {
     if (!refreshIndicatorLoaded) {
         refreshIndicatorLoaded = true;
-        import('../../elements/emby-itemrefreshindicator/emby-itemrefreshindicator');
+        import('../../elements/emby-itemrefreshindicator/emby-itemrefreshindicator')
+            .catch(error => console.error('[CardBuilder] Failed to load refresh indicator', error));
     }
 }
 
@@ -857,12 +858,12 @@ function buildCard(index: any, item: any, apiClient: any, options: any) {
 
     let blurhashAttrib = '';
     if (blurhash && blurhash.length > 0) {
-        blurhashAttrib = 'data-blurhash="' + blurhash + '"';
+        blurhashAttrib = 'data-blurhash="' + escapeHtml(blurhash) + '"';
     }
 
     if (layoutManager.tv) {
         // Don't use the IMG tag with safari because it puts a white border around it
-        cardImageContainerOpen = imgUrl ? ('<div class="' + cardImageContainerClasses + ' ' + cardContentClass + ' lazy" data-src="' + imgUrl + '" ' + blurhashAttrib + '>') : ('<div class="' + cardImageContainerClasses + ' ' + cardContentClass + '">');
+        cardImageContainerOpen = imgUrl ? ('<div class="' + cardImageContainerClasses + ' ' + cardContentClass + ' lazy" data-src="' + escapeHtml(imgUrl) + '" ' + blurhashAttrib + '>') : ('<div class="' + cardImageContainerClasses + ' ' + cardContentClass + '">');
 
         cardImageContainerClose = '</div>';
     } else {
@@ -870,7 +871,7 @@ function buildCard(index: any, item: any, apiClient: any, options: any) {
 
         const url = appRouter.getRouteUrl(item);
         // Don't use the IMG tag with safari because it puts a white border around it
-        cardImageContainerOpen = imgUrl ? ('<a href="' + url + '" data-action="' + action + '" class="' + cardImageContainerClasses + ' ' + cardContentClass + ' itemAction lazy" data-src="' + imgUrl + '" ' + blurhashAttrib + cardImageContainerAriaLabelAttribute + '>') : ('<a href="' + url + '" data-action="' + action + '" class="' + cardImageContainerClasses + ' ' + cardContentClass + ' itemAction"' + cardImageContainerAriaLabelAttribute + '>');
+        cardImageContainerOpen = imgUrl ? ('<a href="' + escapeHtml(url) + '" data-action="' + escapeHtml(action) + '" class="' + cardImageContainerClasses + ' ' + cardContentClass + ' itemAction lazy" data-src="' + escapeHtml(imgUrl) + '" ' + blurhashAttrib + cardImageContainerAriaLabelAttribute + '>') : ('<a href="' + escapeHtml(url) + '" data-action="' + escapeHtml(action) + '" class="' + cardImageContainerClasses + ' ' + cardContentClass + ' itemAction"' + cardImageContainerAriaLabelAttribute + '>');
 
         cardImageContainerClose = '</a>';
     }
@@ -914,7 +915,7 @@ function buildCard(index: any, item: any, apiClient: any, options: any) {
 
         if (item.Type === BaseItemKind.CollectionFolder || item.CollectionType) {
             const refreshClass = item.RefreshProgress ? '' : ' class="hide"';
-            indicatorsHtml += '<div is="emby-itemrefreshindicator"' + refreshClass + ' data-progress="' + (item.RefreshProgress || 0) + '" data-status="' + item.RefreshStatus + '"></div>';
+            indicatorsHtml += '<div is="emby-itemrefreshindicator"' + refreshClass + ' data-progress="' + escapeHtml(String(item.RefreshProgress || 0)) + '" data-status="' + escapeHtml(String(item.RefreshStatus || '')) + '"></div>';
             importRefreshIndicator();
         }
 
@@ -938,17 +939,17 @@ function buildCard(index: any, item: any, apiClient: any, options: any) {
 
     let timerAttributes = '';
     if (item.TimerId) {
-        timerAttributes += ' data-timerid="' + item.TimerId + '"';
+        timerAttributes += ' data-timerid="' + escapeHtml(String(item.TimerId)) + '"';
     }
     if (item.SeriesTimerId) {
-        timerAttributes += ' data-seriestimerid="' + item.SeriesTimerId + '"';
+        timerAttributes += ' data-seriestimerid="' + escapeHtml(String(item.SeriesTimerId)) + '"';
     }
 
     let actionAttribute;
     let ariaLabelAttribute = '';
 
     if (tagName === 'button') {
-        actionAttribute = ' data-action="' + action + '"';
+        actionAttribute = ' data-action="' + escapeHtml(action) + '"';
         ariaLabelAttribute = ` aria-label="${escapeHtml(item.Name)}"`;
     } else {
         actionAttribute = '';
@@ -967,17 +968,17 @@ function buildCard(index: any, item: any, apiClient: any, options: any) {
         itemType: item.Type
     });
 
-    const positionTicksData = item.UserData?.PlaybackPositionTicks ? (' data-positionticks="' + item.UserData.PlaybackPositionTicks + '"') : '';
-    const collectionIdData = options.collectionId ? (' data-collectionid="' + options.collectionId + '"') : '';
-    const playlistIdData = options.playlistId ? (' data-playlistid="' + options.playlistId + '"') : '';
-    const mediaTypeData = item.MediaType ? (' data-mediatype="' + item.MediaType + '"') : '';
-    const collectionTypeData = item.CollectionType ? (' data-collectiontype="' + item.CollectionType + '"') : '';
-    const channelIdData = item.ChannelId ? (' data-channelid="' + item.ChannelId + '"') : '';
+    const positionTicksData = item.UserData?.PlaybackPositionTicks ? (' data-positionticks="' + escapeHtml(String(item.UserData.PlaybackPositionTicks)) + '"') : '';
+    const collectionIdData = options.collectionId ? (' data-collectionid="' + escapeHtml(String(options.collectionId)) + '"') : '';
+    const playlistIdData = options.playlistId ? (' data-playlistid="' + escapeHtml(String(options.playlistId)) + '"') : '';
+    const mediaTypeData = item.MediaType ? (' data-mediatype="' + escapeHtml(String(item.MediaType)) + '"') : '';
+    const collectionTypeData = item.CollectionType ? (' data-collectiontype="' + escapeHtml(String(item.CollectionType)) + '"') : '';
+    const channelIdData = item.ChannelId ? (' data-channelid="' + escapeHtml(String(item.ChannelId)) + '"') : '';
     const pathData = item.Path ? (' data-path="' + escapeHtml(item.Path) + '"') : '';
-    const contextData = options.context ? (' data-context="' + options.context + '"') : '';
-    const parentIdData = options.parentId ? (' data-parentid="' + options.parentId + '"') : '';
-    const startDate = item.StartDate ? (' data-startdate="' + item.StartDate.toString() + '"') : '';
-    const endDate = item.EndDate ? (' data-enddate="' + item.EndDate.toString() + '"') : '';
+    const contextData = options.context ? (' data-context="' + escapeHtml(String(options.context)) + '"') : '';
+    const parentIdData = options.parentId ? (' data-parentid="' + escapeHtml(String(options.parentId)) + '"') : '';
+    const startDate = item.StartDate ? (' data-startdate="' + escapeHtml(item.StartDate.toString()) + '"') : '';
+    const endDate = item.EndDate ? (' data-enddate="' + escapeHtml(item.EndDate.toString()) + '"') : '';
 
     let additionalCardContent = '';
 
@@ -985,7 +986,7 @@ function buildCard(index: any, item: any, apiClient: any, options: any) {
         additionalCardContent += getHoverMenuHtml(item, action);
     }
 
-    return '<' + tagName + ' data-index="' + index + '"' + timerAttributes + actionAttribute + ' data-isfolder="' + (item.IsFolder || false) + '" data-serverid="' + (item.ServerId || options.serverId) + '" data-id="' + (item.Id || item.ItemId) + '" data-type="' + item.Type + '"' + mediaTypeData + collectionTypeData + channelIdData + pathData + positionTicksData + collectionIdData + playlistIdData + contextData + parentIdData + startDate + endDate + ' data-prefix="' + escapeHtml(prefix) + '" class="' + className + '"' + ariaLabelAttribute + '>' + cardImageContainerOpen + innerCardFooter + cardImageContainerClose + overlayButtons + additionalCardContent + cardScalableClose + outerCardFooter + cardBoxClose + '</' + tagName + '>';
+    return '<' + tagName + ' data-index="' + index + '"' + timerAttributes + actionAttribute + ' data-isfolder="' + (item.IsFolder || false) + '" data-serverid="' + escapeHtml(String(item.ServerId || options.serverId || '')) + '" data-id="' + escapeHtml(String(item.Id || item.ItemId || '')) + '" data-type="' + escapeHtml(String(item.Type || '')) + '"' + mediaTypeData + collectionTypeData + channelIdData + pathData + positionTicksData + collectionIdData + playlistIdData + contextData + parentIdData + startDate + endDate + ' data-prefix="' + escapeHtml(prefix) + '" class="' + escapeHtml(className) + '"' + ariaLabelAttribute + '>' + cardImageContainerOpen + innerCardFooter + cardImageContainerClose + overlayButtons + additionalCardContent + cardScalableClose + outerCardFooter + cardBoxClose + '</' + tagName + '>';
 }
 
 /**
@@ -1010,15 +1011,17 @@ function getHoverMenuHtml(item: any, action: any) {
     const userData = item.UserData || {};
 
     if (itemHelper.canMarkPlayed(item)) {
-        import('../../elements/emby-playstatebutton/emby-playstatebutton');
-        html += `<button is="emby-playstatebutton" type="button" data-action="${ItemAction.None}" class="${btnCssClass}" data-id="${item.Id}" data-serverid="${item.ServerId}" data-itemtype="${item.Type}" data-played="${userData.Played}"><span class="material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover check" aria-hidden="true"></span></button>`;
+        import('../../elements/emby-playstatebutton/emby-playstatebutton')
+            .catch(error => console.error('[CardBuilder] Failed to load playstate button', error));
+        html += `<button is="emby-playstatebutton" type="button" data-action="${ItemAction.None}" class="${btnCssClass}" data-id="${escapeHtml(String(item.Id || ''))}" data-serverid="${escapeHtml(String(item.ServerId || ''))}" data-itemtype="${escapeHtml(String(item.Type || ''))}" data-played="${String(userData.Played)}"><span class="material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover check" aria-hidden="true"></span></button>`;
     }
 
     if (itemHelper.canRate(item)) {
         const likes = userData.Likes == null ? '' : userData.Likes;
 
-        import('../../elements/emby-ratingbutton/emby-ratingbutton');
-        html += `<button is="emby-ratingbutton" type="button" data-action="${ItemAction.None}" class="${btnCssClass}" data-id="${item.Id}" data-serverid="${item.ServerId}" data-itemtype="${item.Type}" data-likes="${likes}" data-isfavorite="${userData.IsFavorite}"><span class="material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover favorite" aria-hidden="true"></span></button>`;
+        import('../../elements/emby-ratingbutton/emby-ratingbutton')
+            .catch(error => console.error('[CardBuilder] Failed to load rating button', error));
+        html += `<button is="emby-ratingbutton" type="button" data-action="${ItemAction.None}" class="${btnCssClass}" data-id="${escapeHtml(String(item.Id || ''))}" data-serverid="${escapeHtml(String(item.ServerId || ''))}" data-itemtype="${escapeHtml(String(item.Type || ''))}" data-likes="${escapeHtml(String(likes))}" data-isfavorite="${String(userData.IsFavorite)}"><span class="material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover favorite" aria-hidden="true"></span></button>`;
     }
 
     html += `<button is="paper-icon-button-light" class="${btnCssClass}" data-action="${ItemAction.Menu}" title="${globalize.translate('ButtonMore')}"><span class="material-icons cardOverlayButtonIcon cardOverlayButtonIcon-hover more_vert" aria-hidden="true"></span></button>`;
@@ -1277,5 +1280,3 @@ export default {
     onTimerCancelled: onTimerCancelled,
     onSeriesTimerCancelled: onSeriesTimerCancelled
 };
-
-

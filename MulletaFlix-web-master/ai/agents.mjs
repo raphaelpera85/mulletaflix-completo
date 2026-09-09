@@ -104,7 +104,7 @@ switch (cmd) {
         mapPlugins();
         break;
     default:
-        console.log(`Uso: node ai/agents.mjs {list|prompt <agente>|check|map-plugins}`);
+        console.log('Uso: node ai/agents.mjs {list|prompt <agente>|check|map-plugins}');
         console.log(`Agentes: ${AGENTS.join(', ')}`);
         console.log('');
         console.log('Para EXECUTAR um agente, peça ao Hermes: "chame o agente <nome> para <tarefa>" —');

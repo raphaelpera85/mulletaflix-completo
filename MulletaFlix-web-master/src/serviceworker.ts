@@ -65,5 +65,4 @@ serviceWorker.addEventListener('notificationclick', (event: ServiceWorkerNotific
     event.waitUntil(executeAction(action, data, serverId));
 }, false);
 
-/* eslint-disable-next-line no-restricted-globals -- self is valid in a serviceworker environment */
 serviceWorker.addEventListener('activate', () => serviceWorker.clients.claim());

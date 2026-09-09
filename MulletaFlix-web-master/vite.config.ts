@@ -39,7 +39,7 @@ const htmlPlugin = () => ({
                 return `export default ${JSON.stringify(content)};`;
             } catch (err) {
                 this.warn(`[html-plugin] failed to read ${filePath}: ${err}`);
-                return `export default "";`;
+                return 'export default "";';
             }
         }
         return null;

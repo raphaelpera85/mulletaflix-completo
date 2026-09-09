@@ -139,7 +139,6 @@ function stopMouseInterval(): void {
 function initMouse(): void {
     stopMouseInterval();
 
-    /* eslint-disable-next-line compat/compat */
     dom.removeEventListener(document, (window.PointerEvent ? 'pointermove' : 'mousemove') as string, onPointerMove as EventListenerOrEventListenerObject, {
         passive: true
     });
@@ -152,7 +151,6 @@ function initMouse(): void {
         });
     }
 
-    /* eslint-disable-next-line compat/compat */
     dom.removeEventListener(document, (window.PointerEvent ? 'pointerenter' : 'mouseenter') as string, onPointerEnter as EventListenerOrEventListenerObject, {
         capture: true,
         passive: true

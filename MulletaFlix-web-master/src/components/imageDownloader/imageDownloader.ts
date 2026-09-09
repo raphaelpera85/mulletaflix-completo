@@ -1,3 +1,5 @@
+import escapeHtml from 'escape-html';
+
 import { AppFeature } from 'constants/appFeature';
 import dom from '../../utils/dom';
 import loading from '../loading/loading';
@@ -77,8 +79,8 @@ function reloadBrowsableImages(page: HTMLElement, apiClient: any): void {
         (page.querySelector('#selectBrowsableImageType') as HTMLSelectElement).value = browsableImageType;
 
         const providersHtml = result.Providers.map(function (p: string) {
-            return '<option value="' + p + '">' + p + '</option>';
-        });
+            return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
+        }).join('');
 
         const selectImageProvider = page.querySelector('#selectImageProvider') as HTMLSelectElement;
         selectImageProvider.innerHTML = '<option value="">' + globalize.translate('All') + '</option>' + providersHtml;
@@ -218,7 +220,7 @@ function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
         html += '<div class="' + cssClass + '"';
     }
 
-    html += ' data-imageprovider="' + image.ProviderName + '" data-imageurl="' + image.Url + '" data-imagetype="' + image.Type + '"';
+    html += ' data-imageprovider="' + escapeHtml(image.ProviderName || '') + '" data-imageurl="' + escapeHtml(image.Url || '') + '" data-imagetype="' + escapeHtml(image.Type || '') + '"';
 
     html += '>';
 
@@ -228,9 +230,9 @@ function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
     html += '<div class="cardContent">';
 
     if (layoutManager.tv || !appHost.supports(AppFeature.ExternalLinks)) {
-        html += '<div class="cardImageContainer lazy" data-src="' + image.Url + '" style="background-position:center center;background-size:contain;"></div>';
+        html += '<div class="cardImageContainer lazy" data-src="' + escapeHtml(image.Url || '') + '" style="background-position:center center;background-size:contain;"></div>';
     } else {
-        html += '<a is="emby-linkbutton" target="_blank" href="' + image.Url + '" class="button-link cardImageContainer lazy" data-src="' + image.Url + '" style="background-position:center center;background-size:contain"></a>';
+        html += '<a is="emby-linkbutton" target="_blank" href="' + escapeHtml(image.Url || '') + '" class="button-link cardImageContainer lazy" data-src="' + escapeHtml(image.Url || '') + '" style="background-position:center center;background-size:contain"></a>';
     }
 
     html += '</div>';
@@ -239,7 +241,7 @@ function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
     // begin footer
     html += '<div class="cardFooter visualCardBox-cardFooter">';
 
-    html += '<div class="cardText cardTextCentered">' + image.ProviderName + '</div>';
+    html += '<div class="cardText cardTextCentered">' + escapeHtml(image.ProviderName || '') + '</div>';
 
     if (image.Width || image.Height || image.Language) {
         html += '<div class="cardText cardText-secondary cardTextCentered">';
@@ -248,10 +250,10 @@ function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
             html += image.Width + ' x ' + image.Height;
 
             if (image.Language) {
-                html += ' \u2022 ' + image.Language;
+                html += ' \u2022 ' + escapeHtml(image.Language);
             }
         } else if (image.Language) {
-            html += image.Language;
+            html += escapeHtml(image.Language);
         }
 
         html += '</div>';

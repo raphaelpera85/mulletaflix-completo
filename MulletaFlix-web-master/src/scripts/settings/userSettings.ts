@@ -1,6 +1,5 @@
-import { getDisplayPreferencesQuery } from 'hooks/api/useDisplayPreferences';
-import { getUserQuery } from 'hooks/api/useUser';
-import { QUERY_KEY } from 'hooks/useUsers';
+import { getDisplayPreferencesQuery } from 'hooks/api/displayPreferencesQuery';
+import { getUserQuery, USER_QUERY_KEY } from 'hooks/api/userQuery';
 import { ApiClient } from 'jellyfin-apiclient';
 import Events from 'utils/events';
 import { toApi } from 'utils/jellyfin-apiclient/compat';
@@ -16,7 +15,7 @@ const CLIENT_ID = 'emby';
 
 function onSaveTimeout(this: UserSettings): void {
     this.saveTimeout = undefined;
-    this.currentApiClient?.updateDisplayPreferences(DISPLAY_PREFERENCES_ID, this.displayPrefs as unknown as Record<string, unknown>, this.currentUserId as string, CLIENT_ID);
+    void this.currentApiClient?.updateDisplayPreferences(DISPLAY_PREFERENCES_ID, this.displayPrefs as unknown as Record<string, unknown>, this.currentUserId as string, CLIENT_ID).catch(() => undefined);
 }
 
 function saveServerPreferences(instance: UserSettings): void {
@@ -144,11 +143,10 @@ export class UserSettings {
         if (config) {
             return apiClient!
                 .updateUserConfiguration(this.currentUserId!, config)
-                .then(() => {
-                    queryClient.invalidateQueries({
-                        queryKey: [ QUERY_KEY, this.currentApiClient ? toApi(this.currentApiClient).basePath : undefined, this.currentUserId ]
-                    });
-                });
+                    .then(() => queryClient.invalidateQueries({
+                        queryKey: [ USER_QUERY_KEY, this.currentApiClient ? toApi(this.currentApiClient).basePath : undefined, this.currentUserId ]
+                    }))
+                    .catch(() => undefined);
         }
 
         return queryClient
@@ -651,8 +649,8 @@ export class UserSettings {
     loadQuerySettings(key: string, query: Record<string, unknown>): Record<string, unknown> {
         let sortSettings: Record<string, unknown> | undefined;
         let filterSettings: Record<string, unknown> | undefined;
-        let sortSettingsStr = this.get(key);
-        let filterSettingsStr = this.get(key + filterSettingsPostfix, false);
+        const sortSettingsStr = this.get(key);
+        const filterSettingsStr = this.get(key + filterSettingsPostfix, false);
 
         if (sortSettingsStr) {
             sortSettings = filterQuerySettings(JSON.parse(sortSettingsStr), allowedSortSettings);

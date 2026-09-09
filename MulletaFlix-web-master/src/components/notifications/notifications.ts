@@ -125,7 +125,6 @@ function closeAfter(notification: ClosableNotification, timeoutMs: number): void
 }
 
 function resetRegistration(): void {
-    /* eslint-disable-next-line compat/compat */
     const serviceWorker = navigator.serviceWorker;
     if (serviceWorker) {
         serviceWorker.ready.then(function (registration) {

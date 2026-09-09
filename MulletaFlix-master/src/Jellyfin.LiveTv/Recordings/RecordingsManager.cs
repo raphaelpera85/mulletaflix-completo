@@ -346,19 +346,28 @@ public sealed class RecordingsManager : IRecordingsManager, IDisposable
             _logger.LogInformation("Beginning recording. Will record for {Duration} minutes.", duration.TotalMinutes);
             _logger.LogInformation("Writing file to: {Path}", recordingPath);
 
-            async void OnStarted()
+            void OnStarted() => _ = OnStartedAsync();
+
+            async Task OnStartedAsync()
             {
-                recordingInfo.Path = recordingPath;
-                _activeRecordings.TryAdd(timer.Id, recordingInfo);
+                try
+                {
+                    recordingInfo.Path = recordingPath;
+                    _activeRecordings.TryAdd(timer.Id, recordingInfo);
 
-                timer.Status = RecordingStatus.InProgress;
-                _timerManager.AddOrUpdate(timer, false);
+                    timer.Status = RecordingStatus.InProgress;
+                    _timerManager.AddOrUpdate(timer, false);
 
-                await _recordingsMetadataManager.SaveRecordingMetadata(timer, recordingPath, seriesPath).ConfigureAwait(false);
-                await CreateRecordingFolders().ConfigureAwait(false);
+                    await _recordingsMetadataManager.SaveRecordingMetadata(timer, recordingPath, seriesPath).ConfigureAwait(false);
+                    await CreateRecordingFolders().ConfigureAwait(false);
 
-                TriggerRefresh(recordingPath);
-                await EnforceKeepUpTo(timer, seriesPath).ConfigureAwait(false);
+                    TriggerRefresh(recordingPath);
+                    await EnforceKeepUpTo(timer, seriesPath).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error initializing recording metadata for {RecordPath}", recordingPath);
+                }
             }
 
             await recorder.Record(
@@ -442,11 +451,23 @@ public sealed class RecordingsManager : IRecordingsManager, IDisposable
         _disposed = true;
     }
 
-    private async void OnNamedConfigurationUpdated(object? sender, ConfigurationUpdateEventArgs e)
+    private void OnNamedConfigurationUpdated(object? sender, ConfigurationUpdateEventArgs e)
     {
         if (string.Equals(e.Key, "livetv", StringComparison.OrdinalIgnoreCase))
         {
+            _ = CreateRecordingFoldersSafeAsync();
+        }
+    }
+
+    private async Task CreateRecordingFoldersSafeAsync()
+    {
+        try
+        {
             await CreateRecordingFolders().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating Live TV recording folders after configuration update.");
         }
     }
 
@@ -836,4 +857,3 @@ public sealed class RecordingsManager : IRecordingsManager, IDisposable
         }
     }
 }
-

@@ -183,8 +183,8 @@ function resumeVisibleSections(elem: HTMLElement): Promise<unknown[]> {
     }
 
     const promises: Promise<unknown>[] = [];
-    const observer = typeof window.IntersectionObserver === 'function'
-        ? new IntersectionObserver((entries, intersectionObserver) => {
+    const observer = typeof window.IntersectionObserver === 'function' ?
+        new IntersectionObserver((entries, intersectionObserver) => {
             entries.forEach(entry => {
                 if (!entry.isIntersecting) {
                     return;
@@ -198,8 +198,8 @@ function resumeVisibleSections(elem: HTMLElement): Promise<unknown[]> {
         }, {
             rootMargin: INITIAL_SECTION_VIEWPORT_MARGIN + 'px 0px',
             threshold: 0
-        })
-        : null;
+        }) :
+        null;
 
     for (const section of itemsContainers) {
         const rect = section.getBoundingClientRect();

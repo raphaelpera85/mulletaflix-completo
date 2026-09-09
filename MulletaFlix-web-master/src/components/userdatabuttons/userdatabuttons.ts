@@ -1,4 +1,6 @@
 import globalize from '../../lib/globalize';
+import escapeHtml from 'escape-html';
+
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import dom from '../../utils/dom';
 import itemHelper from '../itemHelper';
@@ -74,7 +76,7 @@ function getUserDataButtonHtml(method: string, itemId: string | undefined, serve
 
     iconCssClass += 'material-icons';
 
-    return `<button title="${tooltip}" data-itemid="${itemId}" data-serverid="${serverId}" is="${is}" data-method="${method}" class="${className}"><span class="${iconCssClass} ${icon}" aria-hidden="true"></span></button>`;
+    return `<button title="${escapeHtml(tooltip)}" data-itemid="${escapeHtml(itemId || '')}" data-serverid="${escapeHtml(serverId || '')}" is="${escapeHtml(is)}" data-method="${escapeHtml(method)}" class="${escapeHtml(className)}"><span class="${escapeHtml(iconCssClass)} ${escapeHtml(icon)}" aria-hidden="true"></span></button>`;
 }
 
 function onContainerClick(e: Event): void {
@@ -94,10 +96,8 @@ function fill(options: UserDataButtonsOptions): void {
 
     if (options.fillMode === 'insertAdjacent') {
         options.element?.insertAdjacentHTML((options.insertLocation || 'beforeend') as InsertPosition, html);
-    } else {
-        if (options.element) {
-            options.element.innerHTML = html;
-        }
+    } else if (options.element) {
+        options.element.innerHTML = html;
     }
 
     if (options.element) {
@@ -178,13 +178,11 @@ function markFavorite(link: HTMLElement): void {
 
     const markAsFavorite = !link.classList.contains('btnUserDataOn');
 
-    favorite(id, serverId, markAsFavorite);
-
-    if (markAsFavorite) {
-        link.classList.add('btnUserDataOn');
-    } else {
-        link.classList.remove('btnUserDataOn');
-    }
+    favorite(id, serverId, markAsFavorite)
+        .then(() => {
+            link.classList.toggle('btnUserDataOn', markAsFavorite);
+        })
+        .catch(error => console.error('[UserDataButtons] Failed to update favorite state', error));
 }
 
 function markPlayed(link: HTMLElement): void {
@@ -192,13 +190,13 @@ function markPlayed(link: HTMLElement): void {
     const serverId = link.getAttribute('data-serverid')!;
 
     if (!link.classList.contains('btnUserDataOn')) {
-        played(id, serverId, true);
-
-        link.classList.add('btnUserDataOn');
+        played(id, serverId, true)
+            .then(() => link.classList.add('btnUserDataOn'))
+            .catch(error => console.error('[UserDataButtons] Failed to mark item as played', error));
     } else {
-        played(id, serverId, false);
-
-        link.classList.remove('btnUserDataOn');
+        played(id, serverId, false)
+            .then(() => link.classList.remove('btnUserDataOn'))
+            .catch(error => console.error('[UserDataButtons] Failed to mark item as unplayed', error));
     }
 }
 

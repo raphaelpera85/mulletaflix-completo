@@ -13,13 +13,13 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Serilog;
 using Serilog.Core;
-using Serilog.Extensions.Logging;
 using MySqlConnector;
 
 namespace MulletaFlix.Server.Integration.Tests
@@ -103,9 +103,10 @@ namespace MulletaFlix.Server.Integration.Tests
 
             MariaDbProcessManager.StartMariaDbAsync(appPaths, NullLogger.Instance).GetAwaiter().GetResult();
 
-            ILoggerFactory loggerFactory = new SerilogLoggerFactory();
-
-            _disposableComponents.Add(loggerFactory);
+            // The host owns the logger factory registered during service setup.
+            // Reusing a disposable SerilogLoggerFactory here allowed the test host
+            // to dispose it before migrations completed, causing startup failures.
+            ILoggerFactory loggerFactory = NullLoggerFactory.Instance;
 
             // Create the app host and initialize it
             var appHost = new TestAppHost(
@@ -128,7 +129,9 @@ namespace MulletaFlix.Server.Integration.Tests
                 .ConfigureServices(e => e
                     .AddSingleton<IStartupLogger, NullStartupLogger<object>>()
                     .AddTransient(typeof(IStartupLogger<>), typeof(NullStartupLogger<>))
-                    .AddSingleton(e));
+                    .AddSingleton(e)
+                    .RemoveAll<ILoggerFactory>()
+                    .AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance));
         }
 
         /// <inheritdoc/>

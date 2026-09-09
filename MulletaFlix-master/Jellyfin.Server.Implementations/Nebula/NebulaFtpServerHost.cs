@@ -21,6 +21,7 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
 {
     private readonly ILogger<NebulaFtpServerHost> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private IFtpServerHost? _ftpServerHost;
     private bool _isRunning;
     private bool _disposed;
@@ -78,23 +79,34 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        if (_isRunning)
-        {
-            return;
-        }
-
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _logger.LogInformation("[NEBULA-FTP-SERVER] Iniciando servidor FTP nativo em C#...");
-            _ftpServerHost = _serviceProvider.GetRequiredService<IFtpServerHost>();
-            await _ftpServerHost.StartAsync(cancellationToken).ConfigureAwait(false);
-            _isRunning = true;
-            _logger.LogInformation("[NEBULA-FTP-SERVER] Servidor FTP nativo em C# rodando com sucesso!");
+            if (_isRunning)
+            {
+                return;
+            }
+
+            try
+            {
+                _logger.LogInformation("[NEBULA-FTP-SERVER] Iniciando servidor FTP nativo em C#...");
+                _ftpServerHost = _serviceProvider.GetRequiredService<IFtpServerHost>();
+                await _ftpServerHost.StartAsync(cancellationToken).ConfigureAwait(false);
+                _isRunning = true;
+                _logger.LogInformation("[NEBULA-FTP-SERVER] Servidor FTP nativo em C# rodando com sucesso!");
+            }
+            catch (Exception ex)
+            {
+                _ftpServerHost = null;
+                _isRunning = false;
+                _logger.LogError(ex, "[NEBULA-FTP-SERVER] Falha ao iniciar o servidor FTP nativo em C#.");
+                throw;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogError(ex, "[NEBULA-FTP-SERVER] Falha ao iniciar o servidor FTP nativo em C#.");
-            throw;
+            _lifecycleGate.Release();
         }
     }
 
@@ -103,21 +115,30 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
     /// </summary>
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
-        if (!_isRunning || _ftpServerHost == null)
-        {
-            return;
-        }
-
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _logger.LogInformation("[NEBULA-FTP-SERVER] Parando servidor FTP nativo em C#...");
-            await _ftpServerHost.StopAsync(cancellationToken).ConfigureAwait(false);
-            _isRunning = false;
-            _logger.LogInformation("[NEBULA-FTP-SERVER] Servidor FTP parado.");
+            if (!_isRunning || _ftpServerHost == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _logger.LogInformation("[NEBULA-FTP-SERVER] Parando servidor FTP nativo em C#...");
+                await _ftpServerHost.StopAsync(cancellationToken).ConfigureAwait(false);
+                _isRunning = false;
+                _ftpServerHost = null;
+                _logger.LogInformation("[NEBULA-FTP-SERVER] Servidor FTP parado.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[NEBULA-FTP-SERVER] Erro ao parar o servidor FTP nativo.");
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogError(ex, "[NEBULA-FTP-SERVER] Erro ao parar o servidor FTP nativo.");
+            _lifecycleGate.Release();
         }
     }
 
@@ -143,6 +164,7 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
             disposable.Dispose();
         }
 
+        _lifecycleGate.Dispose();
         _disposed = true;
     }
 

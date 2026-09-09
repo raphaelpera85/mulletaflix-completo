@@ -32,18 +32,6 @@ interface LoginPageParams {
     url?: string;
 }
 
-interface AuthResultUser {
-    Id: string;
-    HasPassword?: boolean;
-    Name?: string;
-    PrimaryImageTag?: string;
-}
-
-interface AuthResult {
-    User: AuthResultUser;
-    AccessToken: string;
-}
-
 interface LicenseInfo {
     IsUnlimited?: boolean;
     IsExpired?: boolean;
@@ -85,7 +73,7 @@ function authenticateUserByName(
                     try {
                         const data = JSON.parse(text);
                         message = data.Message || data.message || data.title || '';
-                    } catch (error) {
+                    } catch {
                         message = text;
                     }
                 }
@@ -121,7 +109,7 @@ function authenticateQuickConnect(apiClient: ApiClientType, targetUrl: string): 
             return false;
         }
 
-        baseAlert({
+        void baseAlert({
             dialogOptions: {
                 id: 'quickConnectAlert'
             },
@@ -131,7 +119,6 @@ function authenticateQuickConnect(apiClient: ApiClientType, targetUrl: string): 
 
         const connectUrl: string = apiClient.getUrl('/QuickConnect/Connect?Secret=' + json.Secret);
 
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-conversion
         const interval = setInterval(function() {
             apiClient.getJSON(connectUrl).then(async function(data: QuickConnectAuthData) {
                 if (!data.Authenticated) {
@@ -178,7 +165,7 @@ function authenticateQuickConnect(apiClient: ApiClientType, targetUrl: string): 
 
 function onLoginSuccessful(id: string, accessToken: string, apiClient: ApiClientType, url: string): void {
     Dashboard.onServerChanged(id, accessToken, apiClient as never);
-    Dashboard.navigate(url || 'home');
+    void Dashboard.navigate(url || 'home');
 
     apiClient.getJSON(apiClient.getUrl('Users/' + id + '/License')).then(function (license: LicenseInfo) {
         if (!license || license.IsUnlimited) {
@@ -243,7 +230,7 @@ function loadUserList(context: HTMLElement, apiClient: ApiClientType, users: Pub
         html += '<div class="' + cardBoxCssClass + '">';
         html += '<div class="cardScalable">';
         html += '<div class="cardPadder cardPadder-square"></div>';
-        html += `<div class="cardContent" data-haspw="${user.HasPassword}" data-username="${escapeHtml(user.Name || '')}" data-userid="${user.Id}">`;
+        html += `<div class="cardContent" data-haspw="${escapeHtml(String(user.HasPassword))}" data-username="${escapeHtml(user.Name || '')}" data-userid="${escapeHtml(user.Id || '')}">`;
         let imgUrl: string;
 
         if (user.PrimaryImageTag) {
@@ -253,7 +240,7 @@ function loadUserList(context: HTMLElement, apiClient: ApiClientType, users: Pub
                 type: 'Primary'
             });
 
-            html += '<div class="cardImageContainer coveredImage" style="background-image:url(\'' + imgUrl + "');\"></div>";
+            html += '<div class="cardImageContainer coveredImage" style="background-image:url(\'' + escapeHtml(imgUrl) + "');\"></div>";
         } else {
             html += `<div class="cardImage flex align-items-center justify-content-center ${getDefaultBackgroundClass()}">`;
             html += '<span class="material-icons cardImageIcon person" aria-hidden="true"></span>';
@@ -288,7 +275,6 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
             return ServerConnections.getOrCreateApiClient(serverId) as unknown as ApiClientType;
         }
 
-        // eslint-disable-next-line no-undef
         return ApiClient;
     }
 
@@ -309,8 +295,10 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
         view.querySelector('.manualLoginForm')!.classList.add('hide');
         view.querySelector('.btnManual')!.classList.remove('hide');
 
-        import('../../../components/autoFocuser').then(({ default: autoFocuser }) => {
+        void import('../../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(view);
+        }).catch(() => {
+            console.debug('Failed to autofocus login form');
         });
     }
 
@@ -349,7 +337,7 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
         e.preventDefault();
     });
     view.querySelector('.btnForgotPassword')!.addEventListener('click', () => {
-        Dashboard.navigate('forgotpassword');
+        void Dashboard.navigate('forgotpassword');
     });
     view.querySelector('.btnCancel')!.addEventListener('click', showVisualForm);
     view.querySelector('.btnQuick')!.addEventListener('click', () => {
@@ -360,8 +348,10 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
         showManualForm(view, true);
     });
     view.querySelector('.btnRegister')!.addEventListener('click', () => {
-        import('../register/index').then(function (registerDialog) {
+        void import('../register/index').then(function (registerDialog) {
             registerDialog.default(getApiClient());
+        }).catch(() => {
+            toast(globalize.translate('MessageUnableToConnectToServer'));
         });
     });
     view.querySelector('.btnSelectServer')!.addEventListener('click', () => {
@@ -389,7 +379,7 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
                 console.debug('Failed to get QuickConnect status');
             });
 
-        apiClient.getPublicUsers().then(function (users: unknown[]) {
+        void apiClient.getPublicUsers().then(function (users: unknown[]) {
             if (users.length) {
                 showVisualForm();
                 loadUserList(view, apiClient, users as PublicUser[]);
@@ -397,13 +387,18 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
                 (view.querySelector('#txtManualName') as HTMLInputElement).value = '';
                 showManualForm(view, false, false);
             }
-        }).catch().then(function () {
+        }).catch(function () {
+            Dashboard.alert({
+                message: globalize.translate('MessageUnableToConnectToServer'),
+                title: globalize.translate('HeaderConnectionFailure')
+            });
+        }).then(function () {
             loading.hide();
         });
-        apiClient.getJSON(apiClient.getUrl('Branding/Configuration')).then(function (options: BrandingOptions) {
+        void apiClient.getJSON(apiClient.getUrl('Branding/Configuration')).then(function (options: BrandingOptions) {
             const loginDisclaimer = view.querySelector('.loginDisclaimer') as HTMLElement;
 
-            loginDisclaimer.innerHTML = DOMPurify.sanitize(markdownIt({ html: true }).render(options.LoginDisclaimer || ''));
+            loginDisclaimer.innerHTML = DOMPurify.sanitize(markdownIt({ html: false }).render(options.LoginDisclaimer || ''));
 
             for (const elem of loginDisclaimer.querySelectorAll<HTMLAnchorElement>('a')) {
                 elem.rel = 'noopener noreferrer';
@@ -417,6 +412,8 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
             }
 
             void showAdSenseInterstitial(apiClient, 'login');
+        }).catch(() => {
+            console.debug('Failed to load login disclaimer');
         });
     });
     view.addEventListener('viewhide', () => {

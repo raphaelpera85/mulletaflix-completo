@@ -1,4 +1,5 @@
 import dialogHelper from './dialogHelper/dialogHelper';
+import escapeHtml from 'escape-html';
 import dom from '../utils/dom';
 import layoutManager from './layoutManager';
 import globalize from '../lib/globalize';
@@ -25,6 +26,11 @@ interface DialogOptions {
     removeOnClose: boolean;
     scrollY: boolean;
     size?: string;
+}
+
+interface DiscoveryApiClient {
+    getJSON(url: string): Promise<TunerDevice[]>;
+    getUrl(path: string, params?: Record<string, unknown>): string;
 }
 
 const enableFocusTransform: boolean = !browser.slow && !browser.edge;
@@ -61,7 +67,7 @@ function getDeviceHtml(device: TunerDevice): string {
         }
     }
 
-    html += '<button type="button" class="' + cssClass + '" data-id="' + device.DeviceId + '" style="min-width:33.3333%;">';
+    html += '<button type="button" class="' + cssClass + '" data-id="' + escapeHtml(device.DeviceId) + '" style="min-width:33.3333%;">';
     html += '<div class="' + cardBoxCssClass + '">';
     html += '<div class="cardScalable visualCardBox-cardScalable">';
     html += '<div class="' + padderClass + '"></div>';
@@ -70,10 +76,10 @@ function getDeviceHtml(device: TunerDevice): string {
     html += '</div>';
     html += '</div>';
     html += '<div class="cardFooter visualCardBox-cardFooter">';
-    html += '<div class="cardText cardTextCentered">' + getTunerName(device.Type || '') + '</div>';
-    html += '<div class="cardText cardTextCentered cardText-secondary">' + device.FriendlyName + '</div>';
+    html += '<div class="cardText cardTextCentered">' + escapeHtml(getTunerName(device.Type || '')) + '</div>';
+    html += '<div class="cardText cardTextCentered cardText-secondary">' + escapeHtml(device.FriendlyName || '') + '</div>';
     html += '<div class="cardText cardText-secondary cardTextCentered">';
-    html += device.Url || '&nbsp;';
+    html += device.Url ? escapeHtml(device.Url) : '&nbsp;';
     html += '</div>';
     html += '</div>';
     html += '</div>';
@@ -125,7 +131,8 @@ function renderDevices(view: HTMLElement, devices: TunerDevice[]): void {
 function discoverDevices(view: HTMLElement): Promise<void> {
     loading.show();
     view.querySelector('.loadingContent')?.classList.remove('hide');
-    return (ServerConnections.getApiClient('') as any).getJSON((ServerConnections.getApiClient('') as any).getUrl('LiveTv/Tuners/Discover', {
+    const apiClient = ServerConnections.getApiClient('') as unknown as DiscoveryApiClient;
+    return apiClient.getJSON(apiClient.getUrl('LiveTv/Tuners/Discover', {
         NewDevicesOnly: true
     })).then(function (devices: TunerDevice[]) {
         currentDevices = devices;
@@ -180,7 +187,11 @@ class TunerPicker {
             scrollHelper.centerFocus.on(dlg.querySelector('.formDialogContent')!, false);
         }
 
-        discoverDevices(dlg);
+        void discoverDevices(dlg).catch((error: unknown) => {
+            console.error('Failed to discover Live TV tuners', error);
+            dlg.querySelector('.loadingContent')?.classList.add('hide');
+            loading.hide();
+        });
 
         if (layoutManager.tv) {
             scrollHelper.centerFocus.off(dlg.querySelector('.formDialogContent')!, false);

@@ -340,10 +340,10 @@ const PluginPage: FC = () => {
                             {/* Compatibility badge for uninstalled plugins */}
                             {!pluginDetails?.status && pluginDetails?.versions?.[0] && (
                                 <Chip
-                                    size="small"
+                                    size='small'
                                     label={getCompatibilityStatus(pluginDetails.versions[0] as ExtendedVersionInfo, serverTargetAbi).label}
                                     color={getCompatibilityStatus(pluginDetails.versions[0] as ExtendedVersionInfo, serverTargetAbi).color}
-                                    variant="outlined"
+                                    variant='outlined'
                                 />
                             )}
 

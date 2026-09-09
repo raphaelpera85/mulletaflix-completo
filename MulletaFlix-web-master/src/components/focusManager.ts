@@ -375,7 +375,7 @@ function nav(activeElement: Element | Window | null, direction: number, containe
 
     if (nearestElement) {
         if (activeElement) {
-        const nearestElementFocusableParent = dom.parentWithClass(nearestElement as HTMLElement, 'focusable');
+            const nearestElementFocusableParent = dom.parentWithClass(nearestElement as HTMLElement, 'focusable');
             if (nearestElementFocusableParent
                 && nearestElementFocusableParent !== nearestElement
                 && focusableContainer !== nearestElementFocusableParent

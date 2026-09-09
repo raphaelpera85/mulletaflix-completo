@@ -100,7 +100,7 @@ function fillSubtitleList(context: Element, item: any): void {
 
             className += ' listItem-noborder';
 
-            itemHtml += '<' + tagName + ' class="' + className + '" data-index="' + s.Index + '">';
+            itemHtml += '<' + tagName + ' class="' + className + '" data-index="' + escapeHtml(String(s.Index ?? '')) + '">';
 
             itemHtml += '<span class="listItemIcon material-icons closed_caption" aria-hidden="true"></span>';
 
@@ -114,11 +114,10 @@ function fillSubtitleList(context: Element, item: any): void {
                 itemHtml += '<div class="secondary listItemBodyText">' + escapeHtml(s.Path) + '</div>';
             }
 
-            itemHtml += '</a>';
             itemHtml += '</div>';
 
             if (!layoutManager.tv && s.Path) {
-                itemHtml += '<button is="paper-icon-button-light" data-index="' + s.Index + '" title="' + globalize.translate('Delete') + '" class="btnDelete listItemButton"><span class="material-icons delete" aria-hidden="true"></span></button>';
+                itemHtml += '<button is="paper-icon-button-light" data-index="' + escapeHtml(String(s.Index ?? '')) + '" title="' + globalize.translate('Delete') + '" class="btnDelete listItemButton"><span class="material-icons delete" aria-hidden="true"></span></button>';
             }
 
             itemHtml += '</' + tagName + '>';
@@ -143,7 +142,7 @@ function fillLanguages(context: Element, apiClient: any, languages: any[]): void
     const selectLanguage = context.querySelector('#selectLanguage') as HTMLSelectElement;
 
     selectLanguage.innerHTML = languages.map(function (l: any) {
-        return '<option value="' + l.ThreeLetterISOLanguageName + '">' + l.DisplayName + '</option>';
+        return '<option value="' + escapeHtml(l.ThreeLetterISOLanguageName || '') + '">' + escapeHtml(l.DisplayName || '') + '</option>';
     }).join('');
 
     const lastLanguage = userSettings.get('subtitleeditor-language');

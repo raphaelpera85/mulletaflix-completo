@@ -82,4 +82,55 @@ public class NebulaStreamEngineTests
         var result = (string?)method.Invoke(null, [fileName]);
         Assert.Equal(expectedContentType, result);
     }
+
+    [Theory]
+    [InlineData(null, 100, 0, 99, false, true)]
+    [InlineData("bytes=0-9", 100, 0, 9, true, true)]
+    [InlineData("bytes=90-", 100, 90, 99, true, true)]
+    [InlineData("bytes=-10", 100, 90, 99, true, true)]
+    [InlineData("bytes=-200", 100, 0, 99, true, true)]
+    [InlineData("bytes=100-", 100, 0, 0, false, false)]
+    [InlineData("bytes=20-10", 100, 0, 0, false, false)]
+    [InlineData("bytes=0-1,4-5", 100, 0, 0, false, false)]
+    [InlineData("bytes=-0", 100, 0, 0, false, false)]
+    public void HttpStreamServer_ParsesSingleByteRangesSafely(
+        string? header,
+        long totalSize,
+        long expectedStart,
+        long expectedEnd,
+        bool expectedRange,
+        bool expectedValid)
+    {
+        var method = typeof(NebulaHttpStreamServer).GetMethod(
+            "TryParseRange",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+        var arguments = new object?[] { header, totalSize, 0L, 0L, false };
+        var result = Assert.IsType<bool>(method.Invoke(null, arguments));
+
+        Assert.Equal(expectedValid, result);
+        if (result)
+        {
+            Assert.Equal(expectedStart, arguments[2]);
+            Assert.Equal(expectedEnd, arguments[3]);
+            Assert.Equal(expectedRange, arguments[4]);
+        }
+    }
+
+    [Theory]
+    [InlineData("movie\"name.mkv", "inline; filename=\"moviename.mkv\"; filename*=UTF-8''moviename.mkv")]
+    [InlineData("episode\r\nX-Injected: true.mkv", "inline; filename=\"episodeX-Injected: true.mkv\"; filename*=UTF-8''episodeX-Injected%3A%20true.mkv")]
+    [InlineData("", "inline; filename=\"media.bin\"; filename*=UTF-8''media.bin")]
+    public void HttpStreamServer_SanitizesContentDispositionFileNames(string fileName, string expectedHeader)
+    {
+        var method = typeof(NebulaHttpStreamServer).GetMethod(
+            "BuildContentDisposition",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+        var result = Assert.IsType<string>(method.Invoke(null, [fileName]));
+
+        Assert.Equal(expectedHeader, result);
+    }
 }

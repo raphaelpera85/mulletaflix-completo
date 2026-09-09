@@ -28,7 +28,7 @@ public class RateLimitMiddleware
     private const int MaxDistinctIps = 10000;
 
     /// <summary>
-    /// Minimum interval between stale-entry cleanup sweeps.
+    /// Minimum interval between cleanup sweeps after the configured IP cap is reached.
     /// </summary>
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
 
@@ -55,8 +55,8 @@ public class RateLimitMiddleware
         var isAuth = context.User?.Identity?.IsAuthenticated ?? false;
         var path = context.Request.Path.Value;
         var isLoginAttempt = path is not null && (
-            path.StartsWith("/Users/Authenticate", StringComparison.OrdinalIgnoreCase)
-            || path.StartsWith("/Users/Register", StringComparison.OrdinalIgnoreCase));
+            IsPathOrDescendant(path, "/Users/Authenticate")
+            || IsPathOrDescendant(path, "/Users/Register"));
 
         if (isLoginAttempt)
         {
@@ -81,34 +81,34 @@ public class RateLimitMiddleware
 
         if (isLoginAttempt && context.Response.StatusCode == (int)HttpStatusCode.Unauthorized)
         {
-            RecordAttempt(_failedLogins, ip);
+            RecordAttempt(_failedLogins, ip, LoginWindow);
+        }
+        else if (!isAuth && !isLoginAttempt)
+        {
+            RecordAttempt(_anonymousRequests, ip, AnonymousWindow);
         }
     }
+
+    internal static bool IsPathOrDescendant(string path, string route)
+        => string.Equals(path, route, StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(route + "/", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsBlocked(ConcurrentDictionary<string, RateLimitEntry> store, string key, TimeSpan window, int max)
     {
         var now = DateTime.UtcNow;
         if (store.TryGetValue(key, out var entry))
         {
-            lock (entry)
-            {
-                entry.Prune(now, window);
-                return entry.Count >= max;
-            }
+            return entry.IsBlocked(now, window, max);
         }
 
         return false;
     }
 
-    private static void RecordAttempt(ConcurrentDictionary<string, RateLimitEntry> store, string key)
+    private static void RecordAttempt(ConcurrentDictionary<string, RateLimitEntry> store, string key, TimeSpan window)
     {
         var now = DateTime.UtcNow;
         var entry = store.GetOrAdd(key, _ => new RateLimitEntry());
-        lock (entry)
-        {
-            entry.Prune(now, LoginWindow);
-            entry.Timestamps.Add(now);
-        }
+        entry.Record(now, window);
 
         EvictStaleEntries(store, now);
     }
@@ -120,39 +120,61 @@ public class RateLimitMiddleware
             return;
         }
 
-        if ((now - _lastCleanup) < CleanupInterval)
+        if ((now - _lastCleanup) < CleanupInterval && store.Count <= MaxDistinctIps * 2)
         {
             return;
         }
 
         _lastCleanup = now;
 
-        var staleKeys = new List<string>();
-        foreach (var kvp in store)
-        {
-            var entry = kvp.Value;
-            lock (entry)
+        var keysToRemove = store
+            .Select(kvp =>
             {
-                if (entry.Count == 0)
-                {
-                    staleKeys.Add(kvp.Key);
-                }
-            }
-        }
+                return (Key: kvp.Key, Oldest: kvp.Value.GetOldestTimestamp());
+            })
+            .OrderBy(entry => entry.Oldest)
+            .Take(Math.Max(1, store.Count - MaxDistinctIps))
+            .Select(entry => entry.Key)
+            .ToList();
 
-        foreach (var k in staleKeys)
+        foreach (var key in keysToRemove)
         {
-            store.TryRemove(k, out _);
+            store.TryRemove(key, out _);
         }
     }
 
     private class RateLimitEntry
     {
+        private readonly object _sync = new();
         public List<DateTime> Timestamps { get; } = new();
 
-        public int Count => Timestamps.Count;
+        public bool IsBlocked(DateTime now, TimeSpan window, int max)
+        {
+            lock (_sync)
+            {
+                Prune(now, window);
+                return Timestamps.Count >= max;
+            }
+        }
 
-        public void Prune(DateTime now, TimeSpan window)
+        public void Record(DateTime now, TimeSpan window)
+        {
+            lock (_sync)
+            {
+                Prune(now, window);
+                Timestamps.Add(now);
+            }
+        }
+
+        public DateTime GetOldestTimestamp()
+        {
+            lock (_sync)
+            {
+                return Timestamps.Count == 0 ? DateTime.MinValue : Timestamps.Min();
+            }
+        }
+
+        private void Prune(DateTime now, TimeSpan window)
         {
             var cutoff = now - window;
             Timestamps.RemoveAll(t => t < cutoff);

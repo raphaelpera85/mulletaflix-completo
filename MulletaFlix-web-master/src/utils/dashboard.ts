@@ -17,6 +17,7 @@ import dialogHelper from '../components/dialogHelper/dialogHelper';
 import itemIdentifier from '../components/itemidentifier/itemidentifier';
 import { getLocationSearch } from './url';
 import { queryClient } from './query/queryClient';
+import { getClientCapabilities } from './clientCapabilities';
 
 export function getCurrentUser(): unknown {
     return window.ApiClient.getCurrentUser(false);
@@ -162,10 +163,10 @@ export function processErrorResponse(response: { status: number; statusText?: st
         status = response.statusText;
     }
 
-        baseAlert({
-            title: status,
-            text: response.headers?.get('X-Application-Error-Code') ?? undefined
-        });
+    baseAlert({
+        title: status,
+        text: response.headers?.get('X-Application-Error-Code') ?? undefined
+    });
 }
 
 export function alert(options: string | { title?: string; message?: string; callback?: () => void }): void {
@@ -181,14 +182,7 @@ export function alert(options: string | { title?: string; message?: string; call
     }
 }
 
-export function capabilities(host: { getPushTokenInfo(): Record<string, unknown> }): Record<string, unknown> {
-    return Object.assign({
-        PlayableMediaTypes: ['Audio', 'Video'],
-        SupportedCommands: ['MoveUp', 'MoveDown', 'MoveLeft', 'MoveRight', 'PageUp', 'PageDown', 'PreviousLetter', 'NextLetter', 'ToggleOsd', 'ToggleContextMenu', 'Select', 'Back', 'SendKey', 'SendString', 'GoHome', 'GoToSettings', 'VolumeUp', 'VolumeDown', 'Mute', 'Unmute', 'ToggleMute', 'SetVolume', 'SetAudioStreamIndex', 'SetSubtitleStreamIndex', 'DisplayContent', 'GoToSearch', 'DisplayMessage', 'SetRepeatMode', 'SetShuffleQueue', 'ChannelUp', 'ChannelDown', 'PlayMediaSource', 'PlayTrailers'],
-        SupportsPersistentIdentifier: (window as unknown as Record<string, string>).appMode === 'cordova' || (window as unknown as Record<string, string>).appMode === 'android',
-        SupportsMediaControl: true
-    }, host.getPushTokenInfo());
-}
+export const capabilities = getClientCapabilities;
 
 export function selectServer(): void {
     if (window.NativeShell && typeof window.NativeShell.selectServer === 'function') {

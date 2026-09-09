@@ -1,3 +1,5 @@
+import escapeHtml from 'escape-html';
+
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { PluginType } from 'types/plugin';
@@ -61,11 +63,11 @@ function renderStats(elem: HTMLElement, categories: any[]): void {
             categoryHtml += '<div class="playerStats-stat playerStats-stat-header">';
 
             categoryHtml += '<div class="playerStats-stat-label">';
-            categoryHtml += category.name;
+            categoryHtml += escapeHtml(String(category.name));
             categoryHtml += '</div>';
 
             categoryHtml += '<div class="playerStats-stat-value">';
-            categoryHtml += category.subText || '';
+            categoryHtml += escapeHtml(String(category.subText || ''));
             categoryHtml += '</div>';
 
             categoryHtml += '</div>';
@@ -77,11 +79,11 @@ function renderStats(elem: HTMLElement, categories: any[]): void {
             const stat = stats[i];
 
             categoryHtml += '<div class="playerStats-stat-label">';
-            categoryHtml += stat.label;
+            categoryHtml += escapeHtml(String(stat.label || ''));
             categoryHtml += '</div>';
 
             categoryHtml += '<div class="playerStats-stat-value">';
-            categoryHtml += stat.value;
+            categoryHtml += escapeHtml(String(stat.value || ''));
             categoryHtml += '</div>';
 
             categoryHtml += '</div>';

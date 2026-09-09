@@ -21,7 +21,7 @@ function reload(context: HTMLElement, itemId: string | undefined): void {
             metadataEditor.embed(
                 context.querySelector('.editPageInnerContent') as HTMLElement,
                 itemId,
-                ApiClient.serverInfo().Id,
+                ApiClient.serverInfo().Id
             );
         });
     } else {
@@ -46,6 +46,6 @@ export default function (view: HTMLElement): void {
                 setCurrentItemId(data.id);
                 reload(view, data.id);
             }
-        }) as EventListener,
+        }) as EventListener
     );
 }

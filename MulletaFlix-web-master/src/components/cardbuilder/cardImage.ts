@@ -1,6 +1,7 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto';
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
 import type { ApiClient } from 'jellyfin-apiclient';
+import escapeHtml from 'escape-html';
 
 import type { CardOptions } from 'types/cardOptions';
 import { toApi } from 'utils/jellyfin-apiclient/compat';
@@ -53,7 +54,7 @@ export function buildCardImage(
 
     let blurhashAttrib = '';
     if (blurhash && blurhash.length > 0) {
-        blurhashAttrib = `data-blurhash="${blurhash}"`;
+        blurhashAttrib = `data-blurhash="${escapeHtml(blurhash)}"`;
     }
 
     return (
@@ -66,7 +67,7 @@ export function buildCardImage(
             <div
                 class="cardImageContainer coveredImage cardContent lazy"
                 style="cursor: default;"
-                data-src="${imgUrl || ''}"
+                data-src="${escapeHtml(imgUrl || '')}"
                 ${blurhashAttrib}
             ></div>
         </div>
@@ -74,4 +75,3 @@ export function buildCardImage(
 </div>`
     );
 }
-

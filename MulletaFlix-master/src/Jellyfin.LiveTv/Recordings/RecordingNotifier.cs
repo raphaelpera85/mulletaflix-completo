@@ -65,27 +65,27 @@ namespace MulletaFlix.LiveTv.Recordings
             return Task.CompletedTask;
         }
 
-        private async void OnLiveTvManagerSeriesTimerCreated(object? sender, GenericEventArgs<TimerEventInfo> e)
-            => await SendMessage(SessionMessageType.SeriesTimerCreated, e.Argument).ConfigureAwait(false);
+        private void OnLiveTvManagerSeriesTimerCreated(object? sender, GenericEventArgs<TimerEventInfo> e)
+            => _ = SendMessage(SessionMessageType.SeriesTimerCreated, e.Argument);
 
-        private async void OnLiveTvManagerTimerCreated(object? sender, GenericEventArgs<TimerEventInfo> e)
-            => await SendMessage(SessionMessageType.TimerCreated, e.Argument).ConfigureAwait(false);
+        private void OnLiveTvManagerTimerCreated(object? sender, GenericEventArgs<TimerEventInfo> e)
+            => _ = SendMessage(SessionMessageType.TimerCreated, e.Argument);
 
-        private async void OnLiveTvManagerSeriesTimerCancelled(object? sender, GenericEventArgs<TimerEventInfo> e)
-            => await SendMessage(SessionMessageType.SeriesTimerCancelled, e.Argument).ConfigureAwait(false);
+        private void OnLiveTvManagerSeriesTimerCancelled(object? sender, GenericEventArgs<TimerEventInfo> e)
+            => _ = SendMessage(SessionMessageType.SeriesTimerCancelled, e.Argument);
 
-        private async void OnLiveTvManagerTimerCancelled(object? sender, GenericEventArgs<TimerEventInfo> e)
-            => await SendMessage(SessionMessageType.TimerCancelled, e.Argument).ConfigureAwait(false);
+        private void OnLiveTvManagerTimerCancelled(object? sender, GenericEventArgs<TimerEventInfo> e)
+            => _ = SendMessage(SessionMessageType.TimerCancelled, e.Argument);
 
         private async Task SendMessage(SessionMessageType name, TimerEventInfo info)
         {
-            var users = _userManager.GetUsers()
-                .Where(i => i.HasPermission(PermissionKind.EnableLiveTvAccess))
-                .Select(i => i.Id)
-                .ToList();
-
             try
             {
+                var users = _userManager.GetUsers()
+                    .Where(i => i.HasPermission(PermissionKind.EnableLiveTvAccess))
+                    .Select(i => i.Id)
+                    .ToList();
+
                 await _sessionManager.SendMessageToUserSessions(users, name, info, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -95,4 +95,3 @@ namespace MulletaFlix.LiveTv.Recordings
         }
     }
 }
-

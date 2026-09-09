@@ -33,15 +33,155 @@ import 'webcomponents.js/webcomponents-lite';
 
 import template from './tvguide.template.html';
 
-function showViewSettings(instance: any) {
-    import('./guide-settings').then(({ default: guideSettingsDialog }) => {
-        guideSettingsDialog.show(instance.categoryOptions).then(function () {
-            instance.refresh();
-        });
-    });
+interface GuideSettingsInstance {
+    categoryOptions: { categories: string[] };
+    refresh: () => void;
 }
 
-function updateProgramCellOnScroll(cell: any, scrollPct: any) {
+export interface GuideOptions {
+    element: HTMLElement;
+    serverId: string;
+}
+
+export interface GuideInstance extends GuideSettingsInstance {
+    options: GuideOptions;
+    pause: () => void;
+    resume: (refreshData?: unknown) => void;
+    destroy: () => void;
+    _wsUnsubscribers?: Array<() => void>;
+}
+
+interface ProgramCellElement extends HTMLElement {
+    posLeft?: number;
+    posWidth?: number;
+    guideProgramName?: HTMLElement | null;
+    caret?: HTMLElement | null;
+}
+
+type GuideIdentifier = string | number;
+
+interface GuideTimerEvent {
+    Id?: GuideIdentifier | null;
+    ProgramId?: GuideIdentifier | null;
+}
+
+interface TimerIndicatorItem {
+    Type?: string;
+    TimerId?: GuideIdentifier | null;
+    SeriesTimerId?: GuideIdentifier | null;
+    Status?: string;
+}
+
+interface GuideProgramDates {
+    StartDate: string;
+    EndDate: string;
+    StartDateLocal?: Date;
+    EndDateLocal?: Date;
+}
+
+interface GuideSortableProgram {
+    ChannelId?: string;
+    StartDate: string;
+}
+
+interface GuideChannelIdentity {
+    Id?: string;
+}
+
+interface GuideChannel extends GuideChannelIdentity {
+    Id: string;
+    Name?: string;
+    ChannelName?: string;
+    ChannelNumber?: string | number;
+    IsFolder?: boolean;
+    ServerId?: string;
+    Type?: string;
+    ImageTags: {
+        Primary?: string;
+    };
+}
+
+interface GuideProgram extends TimerIndicatorItem, GuideSortableProgram {
+    Id: string;
+    ChannelId: string;
+    StartDate: string;
+    EndDate: string;
+    StartDateLocal: Date;
+    EndDateLocal: Date;
+    ServerId?: string;
+    Name?: string;
+    EpisodeTitle?: string;
+    IsHD?: boolean;
+    IsKids?: boolean;
+    IsLive?: boolean;
+    IsMovie?: boolean;
+    IsNews?: boolean;
+    IsPremiere?: boolean;
+    IsRepeat?: boolean;
+    IsSeries?: boolean;
+    IsSports?: boolean;
+}
+
+interface GuideProgramOptions {
+    showHdIcon: boolean;
+    showLiveIndicator: boolean;
+    showPremiereIndicator: boolean;
+    showNewIndicator: boolean;
+    showRepeatIndicator: boolean;
+    showEpisodeTitle: boolean;
+}
+
+interface GuideProgramListInfo {
+    startIndex: number;
+}
+
+interface GuideApiClient {
+    getScaledImageUrl: (id: string, options: { maxHeight: number; tag: string; type: string }) => string;
+    getCurrentUserId: () => string;
+    getLiveTvGuideInfo: () => Promise<{ StartDate: string; EndDate: string }>;
+    getLiveTvChannels: (query: Record<string, unknown>) => Promise<GuideChannelResult>;
+    getLiveTvPrograms: (query: Record<string, unknown>) => Promise<GuideProgramResult>;
+    subscribe?: (messages: OutboundWebSocketMessageType[], callback: (message: { Data: GuideTimerEvent }) => void) => (() => void) | undefined;
+}
+
+interface GuideChannelResult {
+    TotalRecordCount: number;
+    Items: GuideChannel[];
+}
+
+interface GuideProgramResult {
+    Items: GuideProgram[];
+}
+
+type GuideFocusDirection = 'left' | 'right' | 'up' | 'down';
+
+interface GuideCommandEvent extends Event {
+    detail: {
+        command: GuideFocusDirection;
+    };
+    target: HTMLElement;
+}
+
+interface GuideTabChangeEvent extends Event {
+    target: HTMLElement;
+    detail: {
+        selectedTabIndex: string | number;
+        previousIndex?: string | number | null;
+    };
+}
+
+interface GuideScrollableElement extends HTMLElement {
+    toCenter: (element: HTMLElement, immediate: boolean) => void;
+}
+
+function showViewSettings(instance: GuideSettingsInstance) {
+    void import('./guide-settings')
+        .then(({ default: guideSettingsDialog }) => guideSettingsDialog.show(instance.categoryOptions))
+        .then(() => instance.refresh())
+        .catch((error: unknown) => console.error('Failed to open TV guide settings', error));
+}
+
+function updateProgramCellOnScroll(cell: ProgramCellElement, scrollPct: number) {
     let left = cell.posLeft;
     if (!left) {
         left = parseFloat(cell.style.left.replace('%', ''));
@@ -61,29 +201,29 @@ function updateProgramCellOnScroll(cell: any, scrollPct: any) {
 
     let guideProgramName = cell.guideProgramName;
     if (!guideProgramName) {
-        guideProgramName = cell.querySelector('.guideProgramName');
+        guideProgramName = cell.querySelector('.guideProgramName') as HTMLElement | null;
         cell.guideProgramName = guideProgramName;
     }
 
     let caret = cell.caret;
     if (!caret) {
-        caret = cell.querySelector('.guide-programNameCaret');
+        caret = cell.querySelector('.guide-programNameCaret') as HTMLElement | null;
         cell.caret = caret;
     }
 
     if (guideProgramName) {
         if (pctOfWidth > 0 && pctOfWidth <= 100) {
             guideProgramName.style.transform = 'translateX(' + pctOfWidth + '%)';
-            caret.classList.remove('hide');
+            caret?.classList.remove('hide');
         } else {
             guideProgramName.style.transform = 'none';
-            caret.classList.add('hide');
+            caret?.classList.add('hide');
         }
     }
 }
 
 let isUpdatingProgramCellScroll = false;
-function updateProgramCellsOnScroll(programGrid: any, programCells: any) {
+function updateProgramCellsOnScroll(programGrid: HTMLElement, programCells: Iterable<ProgramCellElement>) {
     if (isUpdatingProgramCellScroll) {
         return;
     }
@@ -103,22 +243,24 @@ function updateProgramCellsOnScroll(programGrid: any, programCells: any) {
     });
 }
 
-function onProgramGridClick(e: any) {
+function onProgramGridClick(e: Event) {
     if (!layoutManager.tv) {
         return;
     }
 
-    const programCell = dom.parentWithClass(e.target, 'programCell');
+    const programCell = dom.parentWithClass(e.target as HTMLElement, 'programCell') as ProgramCellElement | null;
     if (programCell) {
-        let startDate: any = programCell.getAttribute('data-startdate');
-        let endDate: any = programCell.getAttribute('data-enddate');
-        startDate = datetime.parseISO8601Date(startDate || '', true).getTime();
-        endDate = datetime.parseISO8601Date(endDate || '', true).getTime();
+        const startDate = datetime.parseISO8601Date(programCell.getAttribute('data-startdate') || '', true).getTime();
+        const endDate = datetime.parseISO8601Date(programCell.getAttribute('data-enddate') || '', true).getTime();
 
         const now = new Date().getTime();
         if (now >= startDate && now < endDate) {
             const channelId = programCell.getAttribute('data-channelid');
             const serverId = programCell.getAttribute('data-serverid');
+
+            if (!channelId) {
+                return;
+            }
 
             e.preventDefault();
             e.stopPropagation();
@@ -131,9 +273,11 @@ function onProgramGridClick(e: any) {
     }
 }
 
-function Guide(this: any, options: any) {
-    const self: any = this;
-    let items: any = {};
+function Guide(this: GuideInstance, options: GuideOptions) {
+    // The instance is intentionally captured because the legacy guide uses nested callbacks.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this;
+    let items: Record<string, unknown> = {};
 
     self.options = options;
     self.categoryOptions = { categories: [] };
@@ -143,12 +287,12 @@ function Guide(this: any, options: any) {
     const cellDurationMs = cellCurationMinutes * 60 * 1000;
     const msPerDay = 86400000;
 
-    let currentDate: any;
+    let currentDate: Date | null = null;
     let currentStartIndex = 0;
     let currentChannelLimit = 0;
-    let autoRefreshInterval: any;
-    let programCells: any;
-    let lastFocusDirection: any;
+    let autoRefreshInterval: ReturnType<typeof setInterval> | null = null;
+    let programCells: NodeListOf<ProgramCellElement> | null = null;
+    let lastFocusDirection: GuideFocusDirection | null = null;
 
     self.refresh = function () {
         currentDate = null;
@@ -160,7 +304,7 @@ function Guide(this: any, options: any) {
         stopAutoRefresh();
     };
 
-    self.resume = function (refreshData: any) {
+    self.resume = function (refreshData?: unknown) {
         if (refreshData) {
             self.refresh();
         } else {
@@ -172,7 +316,7 @@ function Guide(this: any, options: any) {
         stopAutoRefresh();
 
         if (self._wsUnsubscribers) {
-            self._wsUnsubscribers.forEach((unsub: any) => {
+            self._wsUnsubscribers.forEach((unsub) => {
                 unsub();
             });
             self._wsUnsubscribers = [];
@@ -200,7 +344,7 @@ function Guide(this: any, options: any) {
         }
     }
 
-    function normalizeDateToTimeslot(date: any) {
+    function normalizeDateToTimeslot(date: Date): Date {
         const minutesOffset = date.getMinutes() - cellCurationMinutes;
 
         if (minutesOffset >= 0) {
@@ -220,66 +364,111 @@ function Guide(this: any, options: any) {
         loading.hide();
     }
 
-    function reloadGuide(context: any, newStartDate: any, scrollToTimeMs: any, focusToTimeMs: any, startTimeOfDayMs: any, focusProgramOnRender: any) {
-        const apiClient: any = ServerConnections.getApiClient(options.serverId);
-
-        const channelQuery: any = {
-
-            StartIndex: 0,
-            EnableFavoriteSorting: userSettings.get('livetv-favoritechannelsattop') !== 'false'
+    function getGuideChannelQuery(apiClient: GuideApiClient): Record<string, unknown> & { StartIndex: number; Limit: number } {
+        const categories = self.categoryOptions.categories || [];
+        const enabled = (category: string) => !categories.length || categories.indexOf(category) !== -1;
+        const query: Record<string, unknown> & { StartIndex: number; Limit: number } = {
+            StartIndex: currentStartIndex,
+            Limit: 500,
+            UserId: apiClient.getCurrentUserId(),
+            EnableFavoriteSorting: userSettings.get('livetv-favoritechannelsattop') !== 'false',
+            AddCurrentProgram: false,
+            EnableUserData: false,
+            EnableImageTypes: 'Primary'
         };
 
-        channelQuery.UserId = apiClient.getCurrentUserId();
-
-        const channelLimit = 500;
-        currentChannelLimit = channelLimit;
-
-        showLoading();
-
-        channelQuery.StartIndex = currentStartIndex;
-        channelQuery.Limit = channelLimit;
-        channelQuery.AddCurrentProgram = false;
-        channelQuery.EnableUserData = false;
-        channelQuery.EnableImageTypes = 'Primary';
-
-        const categories = self.categoryOptions.categories || [];
-        const displayMovieContent = !categories.length || categories.indexOf('movies') !== -1;
-        const displaySportsContent = !categories.length || categories.indexOf('sports') !== -1;
-        const displayNewsContent = !categories.length || categories.indexOf('news') !== -1;
-        const displayKidsContent = !categories.length || categories.indexOf('kids') !== -1;
-        const displaySeriesContent = !categories.length || categories.indexOf('series') !== -1;
-
-        if (displayMovieContent && displaySportsContent && displayNewsContent && displayKidsContent) {
-            channelQuery.IsMovie = null;
-            channelQuery.IsSports = null;
-            channelQuery.IsKids = null;
-            channelQuery.IsNews = null;
-            channelQuery.IsSeries = null;
+        const allPrimaryCategories = ['movies', 'sports', 'news', 'kids'].every(enabled);
+        if (allPrimaryCategories) {
+            Object.assign(query, { IsMovie: null, IsSports: null, IsKids: null, IsNews: null, IsSeries: null });
         } else {
-            if (displayNewsContent) {
-                channelQuery.IsNews = true;
-            }
-            if (displaySportsContent) {
-                channelQuery.IsSports = true;
-            }
-            if (displayKidsContent) {
-                channelQuery.IsKids = true;
-            }
-            if (displayMovieContent) {
-                channelQuery.IsMovie = true;
-            }
-            if (displaySeriesContent) {
-                channelQuery.IsSeries = true;
+            const categoryFilters: Record<string, string> = {
+                news: 'IsNews',
+                sports: 'IsSports',
+                kids: 'IsKids',
+                movies: 'IsMovie',
+                series: 'IsSeries'
+            };
+            for (const [category, filter] of Object.entries(categoryFilters)) {
+                if (enabled(category)) {
+                    query[filter] = true;
+                }
             }
         }
 
         if (userSettings.get('livetv-channelorder') === 'DatePlayed') {
-            channelQuery.SortBy = 'DatePlayed';
-            channelQuery.SortOrder = 'Descending';
+            query.SortBy = 'DatePlayed';
+            query.SortOrder = 'Descending';
         } else {
-            channelQuery.SortBy = null;
-            channelQuery.SortOrder = null;
+            query.SortBy = null;
+            query.SortOrder = null;
         }
+
+        return query;
+    }
+
+    function getGuideRenderOptions(): GuideProgramOptions {
+        const allowIndicators = dom.getWindowSize().innerWidth >= 600;
+        return {
+            showHdIcon: allowIndicators && userSettings.get('guide-indicator-hd') === 'true',
+            showLiveIndicator: allowIndicators && userSettings.get('guide-indicator-live') !== 'false',
+            showPremiereIndicator: allowIndicators && userSettings.get('guide-indicator-premiere') !== 'false',
+            showNewIndicator: allowIndicators && userSettings.get('guide-indicator-new') !== 'false',
+            showRepeatIndicator: allowIndicators && userSettings.get('guide-indicator-repeat') === 'true',
+            showEpisodeTitle: !layoutManager.tv
+        };
+    }
+
+    function updateGuidePagination(context: HTMLElement, channelQuery: Record<string, unknown> & { StartIndex: number; Limit: number }, totalRecordCount: number) {
+        const btnPreviousPage = context.querySelector('.btnPreviousPage') as HTMLButtonElement;
+        const btnNextPage = context.querySelector('.btnNextPage') as HTMLButtonElement;
+        const guideOptions = context.querySelector('.guideOptions') as HTMLElement;
+        const hasMultiplePages = totalRecordCount > channelQuery.Limit;
+
+        guideOptions.classList.toggle('hide', !hasMultiplePages);
+        if (!hasMultiplePages) {
+            return;
+        }
+
+        btnPreviousPage.classList.remove('hide');
+        btnNextPage.classList.remove('hide');
+        btnPreviousPage.disabled = channelQuery.StartIndex === 0;
+        btnNextPage.disabled = channelQuery.StartIndex + channelQuery.Limit >= totalRecordCount;
+    }
+
+    function getGuideProgramQuery(apiClient: GuideApiClient, date: Date, nextDay: Date, channelIds: string[], showHdIcon: boolean): Record<string, unknown> {
+        const query: Record<string, unknown> = {
+            UserId: apiClient.getCurrentUserId(),
+            MaxStartDate: nextDay.toISOString(),
+            MinEndDate: date.toISOString(),
+            channelIds: channelIds.join(','),
+            ImageTypeLimit: 1,
+            EnableImages: false,
+            SortBy: 'StartDate',
+            EnableTotalRecordCount: false,
+            EnableUserData: false
+        };
+
+        if (showHdIcon) {
+            query.Fields = 'IsHD';
+        }
+
+        return query;
+    }
+
+    function reloadGuide(
+        context: HTMLElement,
+        newStartDate: Date,
+        scrollToTimeMs: number,
+        focusToTimeMs: number,
+        startTimeOfDayMs: number,
+        focusProgramOnRender: boolean
+    ) {
+        const apiClient = ServerConnections.getApiClient(options.serverId) as unknown as GuideApiClient;
+
+        const channelLimit = 500;
+        currentChannelLimit = channelLimit;
+        showLoading();
+        const channelQuery = getGuideChannelQuery(apiClient);
 
         let date = newStartDate;
         // Add one second to avoid getting programs that are just ending
@@ -291,81 +480,29 @@ function Guide(this: any, options: any) {
         // Normally we'd want to just let responsive css handle this,
         // but since mobile browsers are often underpowered,
         // it can help performance to get them out of the markup
-        const allowIndicators = dom.getWindowSize().innerWidth >= 600;
+        const renderOptions = getGuideRenderOptions();
 
-        const renderOptions = {
-            showHdIcon: allowIndicators && userSettings.get('guide-indicator-hd') === 'true',
-            showLiveIndicator: allowIndicators && userSettings.get('guide-indicator-live') !== 'false',
-            showPremiereIndicator: allowIndicators && userSettings.get('guide-indicator-premiere') !== 'false',
-            showNewIndicator: allowIndicators && userSettings.get('guide-indicator-new') !== 'false',
-            showRepeatIndicator: allowIndicators && userSettings.get('guide-indicator-repeat') === 'true',
-            showEpisodeTitle: !layoutManager.tv
-        };
+        apiClient.getLiveTvChannels(channelQuery).then(function (channelsResult) {
+            updateGuidePagination(context, channelQuery, channelsResult.TotalRecordCount);
+            const programQuery = getGuideProgramQuery(apiClient, date, nextDay, channelsResult.Items.map(c => c.Id), renderOptions.showHdIcon);
 
-        apiClient.getLiveTvChannels(channelQuery).then(function (channelsResult: any) {
-            const btnPreviousPage = context.querySelector('.btnPreviousPage');
-            const btnNextPage = context.querySelector('.btnNextPage');
+            return apiClient.getLiveTvPrograms(programQuery).then(function (programsResult) {
+                const focusOptions = { focusProgramOnRender, scrollToTimeMs, focusToTimeMs, startTimeOfDayMs };
 
-            if (channelsResult.TotalRecordCount > channelLimit) {
-                context.querySelector('.guideOptions').classList.remove('hide');
-
-                btnPreviousPage.classList.remove('hide');
-                btnNextPage.classList.remove('hide');
-
-                if (channelQuery.StartIndex) {
-                    context.querySelector('.btnPreviousPage').disabled = false;
-                } else {
-                    context.querySelector('.btnPreviousPage').disabled = true;
-                }
-
-                if ((channelQuery.StartIndex + channelLimit) < channelsResult.TotalRecordCount) {
-                    btnNextPage.disabled = false;
-                } else {
-                    btnNextPage.disabled = true;
-                }
-            } else {
-                context.querySelector('.guideOptions').classList.add('hide');
-            }
-
-            const programFields = [];
-
-            const programQuery: any = {
-                UserId: apiClient.getCurrentUserId(),
-                MaxStartDate: nextDay.toISOString(),
-                MinEndDate: date.toISOString(),
-                channelIds: channelsResult.Items.map(function (c: any) {
-                    return c.Id;
-                }).join(','),
-                ImageTypeLimit: 1,
-                EnableImages: false,
-                //EnableImageTypes: layoutManager.tv ? "Primary,Backdrop" : "Primary",
-                SortBy: 'StartDate',
-                EnableTotalRecordCount: false,
-                EnableUserData: false
-            };
-
-            if (renderOptions.showHdIcon) {
-                programFields.push('IsHD');
-            }
-
-            if (programFields.length) {
-                programQuery.Fields = programFields.join('');
-            }
-
-            apiClient.getLiveTvPrograms(programQuery).then(function (programsResult: any) {
-                const guideOptions = { focusProgramOnRender, scrollToTimeMs, focusToTimeMs, startTimeOfDayMs };
-
-                renderGuide(context, date, channelsResult.Items, programsResult.Items, renderOptions, guideOptions, apiClient);
+                renderGuide(context, date, channelsResult.Items, programsResult.Items, renderOptions, focusOptions, apiClient);
 
                 hideLoading();
             });
+        }).catch((error: unknown) => {
+            hideLoading();
+            console.error('Failed to load TV guide data', error);
         });
     }
 
-    function getDisplayTime(date: any) {
-        if ((typeof date).toString().toLowerCase() === 'string') {
+    function getDisplayTime(date: Date | string): string {
+        if (typeof date === 'string') {
             try {
-                date = datetime.parseISO8601Date(date, true);
+                return datetime.getDisplayTime(datetime.parseISO8601Date(date, true)).toLowerCase();
             } catch {
                 return date;
             }
@@ -374,7 +511,7 @@ function Guide(this: any, options: any) {
         return datetime.getDisplayTime(date).toLowerCase();
     }
 
-    function getTimeslotHeadersHtml(startDate: any, endDateTime: any) {
+    function getTimeslotHeadersHtml(startDate: Date, endDateTime: Date): string {
         let html = '';
 
         // clone
@@ -382,7 +519,7 @@ function Guide(this: any, options: any) {
 
         html += '<div class="timeslotHeadersInner">';
 
-        while (startDate.getTime() < endDateTime) {
+        while (startDate.getTime() < endDateTime.getTime()) {
             html += '<div class="timeslotHeader">';
 
             html += getDisplayTime(startDate);
@@ -395,7 +532,7 @@ function Guide(this: any, options: any) {
         return html;
     }
 
-    function parseDates(program: any) {
+    function parseDates(program: GuideProgramDates): null {
         if (!program.StartDateLocal) {
             try {
                 program.StartDateLocal = datetime.parseISO8601Date(program.StartDate, true);
@@ -415,7 +552,7 @@ function Guide(this: any, options: any) {
         return null;
     }
 
-    function getTimerIndicator(item: any) {
+    function getTimerIndicator(item: TimerIndicatorItem): string {
         let status;
 
         if (item.Type === 'SeriesTimer') {
@@ -439,7 +576,14 @@ function Guide(this: any, options: any) {
         return '<span class="material-icons programIcon timerIcon fiber_manual_record" aria-hidden="true"></span>';
     }
 
-    function getChannelProgramsHtml(context: any, date: any, channel: any, programs: any, programOptions: any, listInfo: any) {
+    function getChannelProgramsHtml(
+        context: HTMLElement,
+        date: Date,
+        channel: GuideChannel,
+        programs: GuideProgram[],
+        programOptions: GuideProgramOptions,
+        listInfo: GuideProgramListInfo
+    ): string {
         let html = '';
 
         const startMs = date.getTime();
@@ -447,7 +591,7 @@ function Guide(this: any, options: any) {
 
         const outerCssClass = layoutManager.tv ? 'channelPrograms channelPrograms-tv' : 'channelPrograms';
 
-        html += '<div class="' + outerCssClass + '" data-channelid="' + channel.Id + '">';
+        html += '<div class="' + escapeHtml(outerCssClass) + '" data-channelid="' + escapeHtml(String(channel.Id || '')) + '">';
 
         const clickAction = layoutManager.tv ? ItemAction.Link : ItemAction.ProgramDialog;
 
@@ -532,15 +676,25 @@ function Guide(this: any, options: any) {
 
             let timerAttributes = '';
             if (program.TimerId) {
-                timerAttributes += ' data-timerid="' + program.TimerId + '"';
+                timerAttributes += ' data-timerid="' + escapeHtml(String(program.TimerId)) + '"';
             }
             if (program.SeriesTimerId) {
-                timerAttributes += ' data-seriestimerid="' + program.SeriesTimerId + '"';
+                timerAttributes += ' data-seriestimerid="' + escapeHtml(String(program.SeriesTimerId)) + '"';
             }
 
             const isAttribute = endPercent >= 2 ? ' is="emby-programcell"' : '';
 
-            html += '<button' + isAttribute + ' data-action="' + clickAction + '"' + timerAttributes + ' data-channelid="' + program.ChannelId + '" data-id="' + program.Id + '" data-serverid="' + program.ServerId + '" data-startdate="' + program.StartDate + '" data-enddate="' + program.EndDate + '" data-type="' + program.Type + '" class="' + cssClass + '" style="left:' + startPercent + '%;width:' + endPercent + '%;">';
+            html += '<button' + isAttribute
+                + ' data-action="' + escapeHtml(String(clickAction)) + '"'
+                + timerAttributes
+                + ' data-channelid="' + escapeHtml(String(program.ChannelId || '')) + '"'
+                + ' data-id="' + escapeHtml(String(program.Id || '')) + '"'
+                + ' data-serverid="' + escapeHtml(String(program.ServerId || '')) + '"'
+                + ' data-startdate="' + escapeHtml(String(program.StartDate || '')) + '"'
+                + ' data-enddate="' + escapeHtml(String(program.EndDate || '')) + '"'
+                + ' data-type="' + escapeHtml(String(program.Type || '')) + '"'
+                + ' class="' + escapeHtml(cssClass) + '"'
+                + ' style="left:' + startPercent + '%;width:' + endPercent + '%;">';
 
             if (displayInnerContent) {
                 const guideProgramNameClass = 'guideProgramName';
@@ -595,11 +749,11 @@ function Guide(this: any, options: any) {
         return html;
     }
 
-    function renderChannelHeaders(context: any, channels: any, apiClient: any) {
+    function renderChannelHeaders(context: HTMLElement, channels: GuideChannel[], apiClient: GuideApiClient) {
         let html = '';
 
         for (const channel of channels) {
-            const hasChannelImage = channel.ImageTags.Primary;
+            const imageTag = channel.ImageTags.Primary;
 
             let cssClass = 'guide-channelHeaderCell itemAction';
 
@@ -607,18 +761,18 @@ function Guide(this: any, options: any) {
                 cssClass += ' guide-channelHeaderCell-tv';
             }
 
-            const title = (channel.Name || channel.ChannelName || channel.ChannelNumber || '').replace(/^\s*\d+\s+/, '').trim();
+            const title = String(channel.Name || channel.ChannelName || channel.ChannelNumber || '').replace(/^\s*\d+\s+/, '').trim();
 
-            html += `<button title="${escapeHtml(title)}" type="button" class="${cssClass}" data-action="${ItemAction.Link}" data-isfolder="${channel.IsFolder}" data-id="${channel.Id}" data-serverid="${channel.ServerId}" data-type="${channel.Type}">`;
+            html += `<button title="${escapeHtml(title)}" type="button" class="${escapeHtml(cssClass)}" data-action="${ItemAction.Link}" data-isfolder="${String(channel.IsFolder)}" data-id="${escapeHtml(String(channel.Id || ''))}" data-serverid="${escapeHtml(String(channel.ServerId || ''))}" data-type="${escapeHtml(String(channel.Type || ''))}">`;
 
-            if (hasChannelImage) {
+            if (imageTag) {
                 const url = apiClient.getScaledImageUrl(channel.Id, {
                     maxHeight: 220,
-                    tag: channel.ImageTags.Primary,
+                    tag: imageTag,
                     type: 'Primary'
                 });
 
-                html += '<div class="guideChannelImage lazy" data-src="' + url + '"></div>';
+                html += '<div class="guideChannelImage lazy" data-src="' + escapeHtml(url) + '"></div>';
             }
 
             const channelName = (channel.Name || channel.ChannelName || '').replace(/^\s*\d+\s+/, '').trim();
@@ -626,23 +780,23 @@ function Guide(this: any, options: any) {
             if (channelName) {
                 html += '<div class="guideChannelName">' + escapeHtml(channelName) + '</div>';
             } else if (channel.ChannelNumber) {
-                html += '<h3 class="guideChannelNumber">' + channel.ChannelNumber + '</h3>';
+                html += '<h3 class="guideChannelNumber">' + escapeHtml(String(channel.ChannelNumber)) + '</h3>';
             }
 
             html += '</button>';
         }
 
-        const channelList = context.querySelector('.channelsContainer');
+        const channelList = context.querySelector('.channelsContainer') as HTMLElement;
         channelList.innerHTML = html;
         imageLoader.lazyChildren(channelList);
     }
 
-    function renderPrograms(context: any, date: any, channels: any, programs: any, programOptions: any) {
-        const listInfo = {
+    function renderPrograms(context: HTMLElement, date: Date, channels: GuideChannel[], programs: GuideProgram[], programOptions: GuideProgramOptions) {
+        const listInfo: GuideProgramListInfo = {
             startIndex: 0
         };
 
-        const html = [];
+        const html: string[] = [];
 
         for (const channel of channels) {
             html.push(getChannelProgramsHtml(context, date, channel, programs, programOptions, listInfo));
@@ -650,12 +804,12 @@ function Guide(this: any, options: any) {
 
         programGrid.innerHTML = html.join('');
 
-        programCells = programGrid.querySelectorAll('[is=emby-programcell]');
+        programCells = programGrid.querySelectorAll('[is=emby-programcell]') as NodeListOf<ProgramCellElement>;
 
         updateProgramCellsOnScroll(programGrid, programCells);
     }
 
-    function getProgramSortOrder(program: any, channels: any) {
+    function getProgramSortOrder(program: GuideSortableProgram, channels: GuideChannelIdentity[]): number {
         const channelId = program.ChannelId;
         let channelIndex = -1;
 
@@ -671,8 +825,16 @@ function Guide(this: any, options: any) {
         return (channelIndex * 10000000) + (start.getTime() / 60000);
     }
 
-    function renderGuide(context: any, date: any, channels: any, programs: any, renderOptions: any, guideOptions: any, apiClient: any) {
-        programs.sort(function (a: any, b: any) {
+    function renderGuide(
+        context: HTMLElement,
+        date: Date,
+        channels: GuideChannel[],
+        programs: GuideProgram[],
+        renderOptions: GuideProgramOptions,
+        guideOptions: { focusProgramOnRender: boolean; scrollToTimeMs: number; focusToTimeMs: number; startTimeOfDayMs: number },
+        apiClient: GuideApiClient
+    ) {
+        programs.sort(function (a: GuideProgram, b: GuideProgram) {
             return getProgramSortOrder(a, channels) - getProgramSortOrder(b, channels);
         });
 
@@ -689,7 +851,7 @@ function Guide(this: any, options: any) {
 
         const startDate = date;
         const endDate = new Date(startDate.getTime() + msPerDay);
-        context.querySelector('.timeslotHeaders').innerHTML = getTimeslotHeadersHtml(startDate, endDate);
+        (context.querySelector('.timeslotHeaders') as HTMLElement).innerHTML = getTimeslotHeadersHtml(startDate, endDate);
         items = {};
         renderPrograms(context, date, channels, programs, renderOptions);
 
@@ -700,7 +862,7 @@ function Guide(this: any, options: any) {
         scrollProgramGridToTimeMs(context, guideOptions.scrollToTimeMs, guideOptions.startTimeOfDayMs);
     }
 
-    function scrollProgramGridToTimeMs(context: any, scrollToTimeMs: any, startTimeOfDayMs: any) {
+    function scrollProgramGridToTimeMs(_context: HTMLElement, scrollToTimeMs: number, startTimeOfDayMs: number) {
         scrollToTimeMs -= startTimeOfDayMs;
 
         const pct = scrollToTimeMs / msPerDay;
@@ -712,19 +874,36 @@ function Guide(this: any, options: any) {
         nativeScrollTo(programGrid, scrollPos, true);
     }
 
-    function focusProgram(context: any, itemId: any, channelRowId: any, focusToTimeMs: any, startTimeOfDayMs: any) {
-        let focusElem;
+    function findProgramCellForTime(parent: HTMLElement, pct: number): HTMLElement | null {
+        let programCell = parent.querySelector('.programCell') as HTMLElement | null;
+
+        while (programCell) {
+            const left = parseFloat((programCell.style.left || '0').replace('%', '')) || 0;
+            const width = parseFloat((programCell.style.width || '0').replace('%', '')) || 0;
+
+            if (left >= pct || (left + width) >= pct) {
+                return programCell;
+            }
+
+            programCell = programCell.nextElementSibling as HTMLElement | null;
+        }
+
+        return null;
+    }
+
+    function focusProgram(context: HTMLElement, itemId: GuideIdentifier | null, channelRowId: string | null, focusToTimeMs: number, startTimeOfDayMs: number) {
+        let focusElem: HTMLElement | null = null;
         if (itemId) {
-            focusElem = context.querySelector('[data-id="' + itemId + '"]');
+            focusElem = context.querySelector('[data-id="' + itemId + '"]') as HTMLElement | null;
         }
 
         if (focusElem) {
             focusManager.focus(focusElem as HTMLElement);
         } else {
-            let autoFocusParent;
+            let autoFocusParent: HTMLElement = programGrid;
 
             if (channelRowId) {
-                autoFocusParent = context.querySelector('[data-channelid="' + channelRowId + '"]');
+                autoFocusParent = context.querySelector('[data-channelid="' + channelRowId + '"]') as HTMLElement || programGrid;
             }
 
             if (!autoFocusParent) {
@@ -735,29 +914,17 @@ function Guide(this: any, options: any) {
 
             const pct = (focusToTimeMs / msPerDay) * 100;
 
-            let programCell = autoFocusParent.querySelector('.programCell');
-
-            while (programCell) {
-                let left = (programCell.style.left || '').replace('%', '');
-                left = left ? parseFloat(left) : 0;
-                let width = (programCell.style.width || '').replace('%', '');
-                width = width ? parseFloat(width) : 0;
-
-                if (left >= pct || (left + width) >= pct) {
-                    break;
-                }
-                programCell = programCell.nextSibling;
-            }
+            const programCell = findProgramCellForTime(autoFocusParent, pct);
 
             if (programCell) {
-            focusManager.focus(programCell as HTMLElement);
+                focusManager.focus(programCell as HTMLElement);
             } else {
                 focusManager.autoFocus(autoFocusParent, true);
             }
         }
     }
 
-    function nativeScrollTo(container: any, pos: any, horizontal: any) {
+    function nativeScrollTo(container: HTMLElement, pos: number, horizontal: boolean) {
         if (container.scrollTo) {
             if (horizontal) {
                 container.scrollTo(pos, 0);
@@ -774,7 +941,7 @@ function Guide(this: any, options: any) {
     let lastGridScroll = 0;
     let lastHeaderScroll = 0;
     let scrollXPct = 0;
-    function onProgramGridScroll(context: any, elem: any, headers: any) {
+    function onProgramGridScroll(_context: HTMLElement, elem: HTMLElement, headers: HTMLElement) {
         if ((new Date().getTime() - lastHeaderScroll) >= 1000) {
             lastGridScroll = new Date().getTime();
 
@@ -783,24 +950,26 @@ function Guide(this: any, options: any) {
             nativeScrollTo(headers, scrollLeft, true);
         }
 
-        updateProgramCellsOnScroll(elem, programCells);
+        if (programCells) {
+            updateProgramCellsOnScroll(elem, programCells);
+        }
     }
 
-    function onTimeslotHeadersScroll(context: any, elem: any) {
+    function onTimeslotHeadersScroll(_context: HTMLElement, elem: HTMLElement) {
         if ((new Date().getTime() - lastGridScroll) >= 1000) {
             lastHeaderScroll = new Date().getTime();
             nativeScrollTo(programGrid, elem.scrollLeft, true);
         }
     }
 
-    function changeDate(page: any, date: any, scrollToTimeMs: any, focusToTimeMs: any, startTimeOfDayMs: any, focusProgramOnRender: any) {
+    function changeDate(page: HTMLElement, date: Date, scrollToTimeMs: number, focusToTimeMs: number, startTimeOfDayMs: number, focusProgramOnRender: boolean) {
         const newStartDate = normalizeDateToTimeslot(date);
         currentDate = newStartDate;
 
         reloadGuide(page, newStartDate, scrollToTimeMs, focusToTimeMs, startTimeOfDayMs, focusProgramOnRender);
     }
 
-    function getDateTabText(date: any, isActive: any, tabIndex: any) {
+    function getDateTabText(date: Date, isActive: boolean, tabIndex: number): string {
         const cssClass = isActive ? 'emby-tab-button guide-date-tab-button emby-tab-button-active' : 'emby-tab-button guide-date-tab-button';
 
         let html = '<button is="emby-button" class="' + cssClass + '" data-index="' + tabIndex + '" data-date="' + date.getTime() + '">';
@@ -814,7 +983,7 @@ function Guide(this: any, options: any) {
         return html;
     }
 
-    function setDateRange(page: any, guideInfo: any) {
+    function setDateRange(page: HTMLElement, guideInfo: { StartDate: string; EndDate: string }) {
         const today = new Date();
         const nowHours = today.getHours();
         today.setHours(nowHours, 0, 0, 0);
@@ -856,8 +1025,10 @@ function Guide(this: any, options: any) {
             tabIndex++;
         }
 
-        page.querySelector('.emby-tabs-slider').innerHTML = dateTabsHtml;
-        page.querySelector('.guideDateTabs').refresh();
+        const tabsSlider = page.querySelector('.emby-tabs-slider') as HTMLElement;
+        const dateTabs = page.querySelector('.guideDateTabs') as HTMLElement & { refresh: () => void };
+        tabsSlider.innerHTML = dateTabsHtml;
+        dateTabs.refresh();
 
         const newDate = new Date();
         const newDateHours = newDate.getHours();
@@ -872,29 +1043,32 @@ function Guide(this: any, options: any) {
         changeDate(page, date, scrollToTimeMs, focusToTimeMs, startTimeOfDayMs, layoutManager.tv);
     }
 
-    function reloadPage(page: any) {
+    function reloadPage(page: HTMLElement) {
         showLoading();
 
-        const apiClient: any = ServerConnections.getApiClient(options.serverId);
+        const apiClient = ServerConnections.getApiClient(options.serverId) as unknown as GuideApiClient;
 
-        apiClient.getLiveTvGuideInfo().then(function (guideInfo: any) {
+        void apiClient.getLiveTvGuideInfo().then(function (guideInfo) {
             setDateRange(page, guideInfo);
+        }).catch((error: unknown) => {
+            hideLoading();
+            console.error('Failed to load TV guide range', error);
         });
     }
 
-    function getChannelProgramsFocusableElements(container: any) {
-        const elements = container.querySelectorAll('.programCell');
+    function getChannelProgramsFocusableElements(container: HTMLElement): HTMLElement[] {
+        const elements = container.querySelectorAll('.programCell') as NodeListOf<HTMLElement>;
 
         const list = [];
         // add 1 to avoid programs that are out of view to the left
         const currentScrollXPct = scrollXPct + 1;
 
         for (const elem of elements) {
-            let left = (elem.style.left || '').replace('%', '');
-            left = left ? parseFloat(left) : 0;
+            const leftStyle = (elem.style.left || '').replace('%', '');
+            const left = leftStyle ? parseFloat(leftStyle) : 0;
 
-            let width = (elem.style.width || '').replace('%', '');
-            width = width ? parseFloat(width) : 0;
+            const widthStyle = (elem.style.width || '').replace('%', '');
+            const width = widthStyle ? parseFloat(widthStyle) : 0;
 
             if ((left + width) >= currentScrollXPct) {
                 list.push(elem);
@@ -904,92 +1078,72 @@ function Guide(this: any, options: any) {
         return list;
     }
 
-    function onInputCommand(e: any) {
+    function moveVertically(target: HTMLElement, programCell: HTMLElement | null, direction: 'up' | 'down'): boolean {
+        let container: HTMLElement | null = null;
+        let focusableElements: HTMLElement[] | undefined;
+
+        if (programCell) {
+            container = programGrid;
+            const channelPrograms = dom.parentWithClass(programCell, 'channelPrograms');
+            if (!channelPrograms) {
+                return false;
+            }
+
+            const newRow = (direction === 'up' ? channelPrograms.previousSibling : channelPrograms.nextSibling) as HTMLElement | null;
+            if (newRow) {
+                focusableElements = getChannelProgramsFocusableElements(newRow);
+                if (focusableElements.length) {
+                    container = newRow;
+                } else {
+                    focusableElements = undefined;
+                }
+            } else {
+                container = null;
+            }
+        }
+
+        lastFocusDirection = direction;
+        const focusOptions = { container, focusableElements };
+        if (direction === 'up') {
+            focusManager.moveUp(target, focusOptions);
+        } else {
+            focusManager.moveDown(target, focusOptions);
+        }
+
+        return true;
+    }
+
+    function moveHorizontally(target: HTMLElement, programCell: HTMLElement | null, direction: 'left' | 'right') {
+        let container = programCell ? dom.parentWithClass(programCell, 'channelPrograms') : null;
+        if (direction === 'left' && container && programCell && !programCell.previousSibling) {
+            container = null;
+        }
+
+        lastFocusDirection = direction;
+        if (direction === 'left') {
+            focusManager.moveLeft(target, { container });
+        } else {
+            focusManager.moveRight(target, { container });
+        }
+    }
+
+    function onInputCommand(event: Event) {
+        const e = event as GuideCommandEvent;
         const target = e.target;
-        const programCell = dom.parentWithClass(target, 'programCell');
-        let container;
-        let channelPrograms;
-        let focusableElements;
-        let newRow;
+        const programCell = dom.parentWithClass(target, 'programCell') as HTMLElement | null;
 
         switch (e.detail.command) {
             case 'up':
-                if (programCell) {
-                    container = programGrid;
-                    channelPrograms = dom.parentWithClass(programCell, 'channelPrograms');
-                    if (!channelPrograms) {
-                        return;
-                    }
-
-                    newRow = channelPrograms.previousSibling as HTMLElement | null;
-                    if (newRow) {
-                        focusableElements = getChannelProgramsFocusableElements(newRow);
-                        if (focusableElements.length) {
-                            container = newRow;
-                        } else {
-                            focusableElements = null;
-                        }
-                    } else {
-                        container = null;
-                    }
-                } else {
-                    container = null;
-                }
-                lastFocusDirection = e.detail.command;
-
-                focusManager.moveUp(target, {
-                    container: container,
-                    focusableElements: focusableElements || undefined
-                });
+                if (!moveVertically(target, programCell, 'up')) return;
                 break;
             case 'down':
-                if (programCell) {
-                    container = programGrid;
-                    channelPrograms = dom.parentWithClass(programCell, 'channelPrograms');
-                    if (!channelPrograms) {
-                        return;
-                    }
-
-                    newRow = channelPrograms.nextSibling as HTMLElement | null;
-                    if (newRow) {
-                        focusableElements = getChannelProgramsFocusableElements(newRow);
-                        if (focusableElements.length) {
-                            container = newRow;
-                        } else {
-                            focusableElements = null;
-                        }
-                    } else {
-                        container = null;
-                    }
-                } else {
-                    container = null;
-                }
-                lastFocusDirection = e.detail.command;
-
-                focusManager.moveDown(target, {
-                    container: container,
-                    focusableElements: focusableElements || undefined
-                });
+                if (!moveVertically(target, programCell, 'down')) return;
                 break;
             case 'left':
-                container = programCell ? dom.parentWithClass(programCell, 'channelPrograms') : null;
-                // allow left outside the channelProgramsContainer when the first child is currently focused
-                if (container && programCell && !programCell.previousSibling) {
-                    container = null;
-                }
-                lastFocusDirection = e.detail.command;
-
-                focusManager.moveLeft(target, {
-                    container: container
-                });
+                moveHorizontally(target, programCell, 'left');
                 break;
             case 'right':
-                container = programCell ? dom.parentWithClass(programCell, 'channelPrograms') : null;
-                lastFocusDirection = e.detail.command;
-
-                focusManager.moveRight(target, {
-                    container: container
-                });
+                moveHorizontally(target, programCell, 'right');
                 break;
             default:
                 return;
@@ -999,15 +1153,37 @@ function Guide(this: any, options: any) {
         e.stopPropagation();
     }
 
-    function onScrollerFocus(e: any) {
+    function centerFocusedElement(target: HTMLElement, programCell: Element | null) {
+        if (lastFocusDirection === 'left' && programCell) {
+            scrollHelper.toStart(programGrid, programCell as HTMLElement, true, true);
+            return;
+        }
+
+        if (lastFocusDirection === 'right' && programCell) {
+            scrollHelper.toCenter(programGrid, programCell as HTMLElement, true, true);
+            return;
+        }
+
+        if (lastFocusDirection === 'up' || lastFocusDirection === 'down') {
+            const verticalScroller = dom.parentWithClass(target, 'guideVerticalScroller') as GuideScrollableElement | null;
+            const focusedElement = (programCell || dom.parentWithTag(target, 'BUTTON')) as HTMLElement | null;
+            if (verticalScroller && focusedElement) {
+                verticalScroller.toCenter(focusedElement, true);
+            }
+        }
+    }
+
+    function onScrollerFocus(event: Event) {
+        const e = event as FocusEvent;
         const target = e.target;
-        const programCell = dom.parentWithClass(target, 'programCell');
+        const targetElement = target as HTMLElement;
+        const programCell = dom.parentWithClass(targetElement, 'programCell');
 
         if (programCell) {
-            const focused: any = target;
+            const focused = targetElement;
 
             const id = focused.getAttribute('data-id');
-            const item = items[id];
+            const item = id ? items[id] : undefined;
 
             if (item) {
                 Events.trigger(self, 'focus', [
@@ -1017,26 +1193,16 @@ function Guide(this: any, options: any) {
             }
         }
 
-        if (lastFocusDirection === 'left') {
-            if (programCell) {
-                scrollHelper.toStart(programGrid, programCell, true, true);
-            }
-        } else if (lastFocusDirection === 'right') {
-            if (programCell) {
-                scrollHelper.toCenter(programGrid, programCell as any, true, true);
-            }
-        } else if (lastFocusDirection === 'up' || lastFocusDirection === 'down') {
-            const verticalScroller = dom.parentWithClass(target, 'guideVerticalScroller');
-            if (verticalScroller) {
-                const focusedElement = (programCell || dom.parentWithTag(target, 'BUTTON')) as any;
-                (verticalScroller as any).toCenter(focusedElement, true);
-            }
-        }
+        centerFocusedElement(targetElement, programCell);
     }
 
-    function setScrollEvents(view: any, enabled: any) {
+    function setScrollEvents(view: HTMLElement, enabled: boolean) {
         if (layoutManager.tv) {
-            const guideVerticalScroller = view.querySelector('.guideVerticalScroller');
+            const guideVerticalScroller = view.querySelector('.guideVerticalScroller') as HTMLElement | null;
+
+            if (!guideVerticalScroller) {
+                return;
+            }
 
             if (enabled) {
                 inputManager.on(guideVerticalScroller, onInputCommand);
@@ -1046,51 +1212,62 @@ function Guide(this: any, options: any) {
         }
     }
 
-    function onTimerCreated(data: any) {
+    function findProgramCellsByAttribute(attribute: string, value: unknown) {
+        if (value == null) {
+            return [] as Element[];
+        }
+
+        const expectedValue = String(value);
+        const programCellNodes = options.element.querySelectorAll('.programCell') as NodeListOf<Element>;
+        return Array.from(programCellNodes)
+            .filter((cell) => cell.getAttribute(attribute) === expectedValue);
+    }
+
+    function onTimerCreated(data: GuideTimerEvent) {
         const programId = data?.ProgramId;
         // This could be null, not supported by all tv providers
         const newTimerId = data?.Id;
 
         // find guide cells by program id, ensure timer icon
-        const cells = options.element.querySelectorAll('.programCell[data-id="' + programId + '"]');
+        const cells = findProgramCellsByAttribute('data-id', programId);
         for (const cell of cells) {
             const icon = cell.querySelector('.timerIcon');
             if (!icon) {
-                cell.querySelector('.guideProgramName').insertAdjacentHTML('beforeend', '<span class="timerIcon material-icons programIcon fiber_manual_record"></span>');
+                cell.querySelector('.guideProgramName')?.insertAdjacentHTML('beforeend', '<span class="timerIcon material-icons programIcon fiber_manual_record"></span>');
             }
 
             if (newTimerId) {
-                cell.setAttribute('data-timerid', newTimerId);
+                cell.setAttribute('data-timerid', String(newTimerId));
             }
         }
     }
 
-    function onTimerCancelled(data: any) {
+    function onTimerCancelled(data: GuideTimerEvent) {
         const id = data?.Id;
         // find guide cells by timer id, remove timer icon
-        const cells = options.element.querySelectorAll('.programCell[data-timerid="' + id + '"]');
+        const cells = findProgramCellsByAttribute('data-timerid', id);
 
         for (const cell of cells) {
             const icon = cell.querySelector('.timerIcon');
 
             if (icon) {
-                icon.parentNode.removeChild(icon);
+                icon.parentNode?.removeChild(icon);
             }
 
             cell.removeAttribute('data-timerid');
         }
     }
 
-    function onSeriesTimerCancelled(data: any) {
+    function onSeriesTimerCancelled(data: GuideTimerEvent) {
         const id = data?.Id;
         // find guide cells by timer id, remove timer icon
-        const cells = options.element.querySelectorAll('.programCell[data-seriestimerid="' + id + '"]');
+        const cells = findProgramCellsByAttribute('data-seriestimerid', id);
 
         for (const cell of cells) {
             const icon = cell.querySelector('.seriesTimerIcon');
 
             if (icon) {
-                icon.parentNode.removeChild(icon);
+                icon.parentNode?.removeChild(icon);
             }
 
             cell.removeAttribute('data-seriestimerid');
@@ -1103,11 +1280,12 @@ function Guide(this: any, options: any) {
 
     guideContext.innerHTML = globalize.translateHtml(template, 'core');
 
-    const programGrid = guideContext.querySelector('.programGrid');
-    const timeslotHeaders = guideContext.querySelector('.timeslotHeaders');
+    const programGrid = guideContext.querySelector('.programGrid') as HTMLElement;
+    const timeslotHeaders = guideContext.querySelector('.timeslotHeaders') as HTMLElement;
 
     if (layoutManager.tv) {
-        dom.addEventListener(guideContext.querySelector('.guideVerticalScroller'), 'focus', onScrollerFocus, {
+        const guideVerticalScroller = guideContext.querySelector('.guideVerticalScroller') as HTMLElement;
+        dom.addEventListener(guideVerticalScroller, 'focus', onScrollerFocus, {
             capture: true,
             passive: true
         });
@@ -1116,18 +1294,19 @@ function Guide(this: any, options: any) {
     }
 
     if (browser.iOS || browser.osx) {
-        guideContext.querySelector('.channelsContainer').classList.add('noRubberBanding');
+        const channelsContainer = guideContext.querySelector('.channelsContainer') as HTMLElement;
+        channelsContainer.classList.add('noRubberBanding');
 
         programGrid.classList.add('noRubberBanding');
     }
 
-    dom.addEventListener(programGrid, 'scroll', function (this: any) {
+    dom.addEventListener(programGrid, 'scroll', function (this: HTMLElement) {
         onProgramGridScroll(guideContext, this, timeslotHeaders);
     }, {
         passive: true
     });
 
-    dom.addEventListener(timeslotHeaders, 'scroll', function (this: any) {
+    dom.addEventListener(timeslotHeaders, 'scroll', function (this: HTMLElement) {
         onTimeslotHeadersScroll(guideContext, this);
     }, {
         passive: true
@@ -1135,32 +1314,37 @@ function Guide(this: any, options: any) {
 
     programGrid.addEventListener('click', onProgramGridClick);
 
-    guideContext.querySelector('.btnNextPage').addEventListener('click', function () {
+    const nextPageButton = guideContext.querySelector('.btnNextPage') as HTMLElement;
+    nextPageButton.addEventListener('click', function () {
         currentStartIndex += currentChannelLimit;
         reloadPage(guideContext);
         restartAutoRefresh();
     });
 
-    guideContext.querySelector('.btnPreviousPage').addEventListener('click', function () {
+    const previousPageButton = guideContext.querySelector('.btnPreviousPage') as HTMLElement;
+    previousPageButton.addEventListener('click', function () {
         currentStartIndex = Math.max(currentStartIndex - currentChannelLimit, 0);
         reloadPage(guideContext);
         restartAutoRefresh();
     });
 
-    guideContext.querySelector('.btnGuideViewSettings').addEventListener('click', function () {
+    const guideViewSettingsButton = guideContext.querySelector('.btnGuideViewSettings') as HTMLElement;
+    guideViewSettingsButton.addEventListener('click', function () {
         showViewSettings(self);
         restartAutoRefresh();
     });
 
-    guideContext.querySelector('.guideDateTabs').addEventListener('tabchange', function (e: any) {
+    const guideDateTabs = guideContext.querySelector('.guideDateTabs') as HTMLElement;
+    guideDateTabs.addEventListener('tabchange', function (event: Event) {
+        const e = event as GuideTabChangeEvent;
         const allTabButtons = e.target.querySelectorAll('.guide-date-tab-button');
 
-        const tabButton = allTabButtons[parseInt(e.detail.selectedTabIndex, 10)];
+        const tabButton = allTabButtons[parseInt(String(e.detail.selectedTabIndex), 10)];
         if (tabButton) {
-            const previousButton = e.detail.previousIndex == null ? null : allTabButtons[parseInt(e.detail.previousIndex, 10)];
+            const previousButton = e.detail.previousIndex == null ? null : allTabButtons[parseInt(String(e.detail.previousIndex), 10)];
 
             const date = new Date();
-            date.setTime(parseInt(tabButton.getAttribute('data-date'), 10));
+            date.setTime(parseInt(tabButton.getAttribute('data-date') || '0', 10));
 
             const scrollWidth = programGrid.scrollWidth;
             let scrollToTimeMs;
@@ -1172,7 +1356,7 @@ function Guide(this: any, options: any) {
 
             if (previousButton) {
                 const previousDate = new Date();
-                previousDate.setTime(parseInt(previousButton.getAttribute('data-date'), 10));
+                previousDate.setTime(parseInt(previousButton.getAttribute('data-date') || '0', 10));
 
                 scrollToTimeMs += (previousDate.getHours() * 60 * 60 * 1000);
                 scrollToTimeMs += (previousDate.getMinutes() * 60 * 1000);
@@ -1190,18 +1374,20 @@ function Guide(this: any, options: any) {
 
     Events.trigger(self, 'load');
 
-    const _guideApiClient: any = ServerConnections.getApiClient(options.serverId);
+    const _guideApiClient = ServerConnections.getApiClient(options.serverId) as unknown as GuideApiClient;
     self._wsUnsubscribers = [
-        _guideApiClient?.subscribe([OutboundWebSocketMessageType.TimerCreated], ({ Data }: any) => onTimerCreated(Data)),
-        _guideApiClient?.subscribe([OutboundWebSocketMessageType.TimerCancelled], ({ Data }: any) => onTimerCancelled(Data)),
-        _guideApiClient?.subscribe([OutboundWebSocketMessageType.SeriesTimerCancelled], ({ Data }: any) => onSeriesTimerCancelled(Data))
-    ].filter(Boolean);
+        _guideApiClient.subscribe?.([OutboundWebSocketMessageType.TimerCreated], ({ Data }) => onTimerCreated(Data)),
+        _guideApiClient.subscribe?.([OutboundWebSocketMessageType.TimerCancelled], ({ Data }) => onTimerCancelled(Data)),
+        _guideApiClient.subscribe?.([OutboundWebSocketMessageType.SeriesTimerCancelled], ({ Data }) => onSeriesTimerCancelled(Data))
+    ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe));
 
     self.refresh();
 }
 
+export function createGuide(options: GuideOptions): GuideInstance {
+    const instance = Object.create(null) as GuideInstance;
+    Guide.call(instance, options);
+    return instance;
+}
+
 export default Guide;
-
-
-
-

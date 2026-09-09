@@ -529,8 +529,8 @@ function getItem(params: ListParams): Promise<JellyfinItem | null> {
 function showViewSettingsMenu(this: ItemsView): void {
     const instance = this;
 
-    import('../components/viewSettings/viewSettings').then(({ default: ViewSettings }) => {
-        new ViewSettings().show({
+    void import('../components/viewSettings/viewSettings').then(({ default: ViewSettings }) => {
+        return new ViewSettings().show({
             settingsKey: instance.getSettingsKey(),
             settings: instance.getViewSettings() as any,
             visibleSettings: instance.getVisibleViewSettings()
@@ -538,14 +538,14 @@ function showViewSettingsMenu(this: ItemsView): void {
             updateItemsContainerForViewType(instance);
             instance.itemsContainer.refreshItems();
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open view settings', error));
 }
 
 function showFilterMenu(this: ItemsView): void {
     const instance = this;
 
-    import('../components/filtermenu/filtermenu').then(({ default: FilterMenu }) => {
-        new FilterMenu().show({
+    void import('../components/filtermenu/filtermenu').then(({ default: FilterMenu }) => {
+        return new FilterMenu().show({
             settingsKey: instance.getSettingsKey(),
             settings: instance.getFilters(),
             visibleSettings: instance.getVisibleFilters(),
@@ -557,14 +557,14 @@ function showFilterMenu(this: ItemsView): void {
         }).then(function () {
             instance.itemsContainer.refreshItems();
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open filter menu', error));
 }
 
 function showSortMenu(this: ItemsView): void {
     const instance = this;
 
-    import('../components/sortmenu/sortmenu').then(({ default: SortMenu }) => {
-        new SortMenu().show({
+    void import('../components/sortmenu/sortmenu').then(({ default: SortMenu }) => {
+        return new SortMenu().show({
             settingsKey: instance.getSettingsKey(),
             settings: instance.getSortValues(),
             onChange: instance.itemsContainer.refreshItems.bind(instance.itemsContainer),
@@ -575,7 +575,7 @@ function showSortMenu(this: ItemsView): void {
             updateAlphaPickerState(instance);
             instance.itemsContainer.refreshItems();
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open sort menu', error));
 }
 
 function onNewItemClick(this: ItemsView): void {
@@ -947,12 +947,12 @@ class ItemsView {
                     autoplay: true
                 });
             } else {
-                getItems(self, self.params, currentItem, null, 0, 300).then(function (result: ApiResult) {
+                void getItems(self, self.params, currentItem, null, 0, 300).then(function (result: ApiResult) {
                     playbackManager.play({
                         items: result.Items,
                         autoplay: true
                     });
-                });
+                }).catch((error: unknown) => console.error('Failed to play all items', error));
             }
         };
 
@@ -964,11 +964,11 @@ class ItemsView {
                     items: [currentItem]
                 });
             } else {
-                getItems(self, self.params, currentItem, null, 0, 300).then(function (result: ApiResult) {
+                void getItems(self, self.params, currentItem, null, 0, 300).then(function (result: ApiResult) {
                     playbackManager.queue({
                         items: result.Items
                     });
-                });
+                }).catch((error: unknown) => console.error('Failed to queue all items', error));
             }
         };
 
@@ -978,19 +978,19 @@ class ItemsView {
             if (currentItem && !self.hasFilters) {
                 playbackManager.shuffle(currentItem);
             } else {
-                getItems(self, self.params, currentItem, 'Random', 0, 300).then(function (result: ApiResult) {
+                void getItems(self, self.params, currentItem, 'Random', 0, 300).then(function (result: ApiResult) {
                     playbackManager.play({
                         items: result.Items,
                         autoplay: true
                     });
-                });
+                }).catch((error: unknown) => console.error('Failed to shuffle items', error));
             }
         };
 
         const autoFocus = (): void => {
-            import('../components/autoFocuser').then(({ default: autoFocuser }) => {
+            void import('../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(view);
-            });
+            }).catch((error: unknown) => console.error('Failed to autofocus list', error));
         };
 
         const self = this;
@@ -1054,7 +1054,7 @@ class ItemsView {
             }
 
             setTitle(null);
-            getItem(params).then(function (item: JellyfinItem | null) {
+            void getItem(params).then(function (item: JellyfinItem | null) {
                 setTitle(item);
                 if (item && item.Type == 'Genre') {
                     item.ParentId = params.parentId;
@@ -1062,7 +1062,7 @@ class ItemsView {
 
                 self.currentItem = item;
                 const refresh = !isRestored;
-                self.itemsContainer.resume({
+                void self.itemsContainer.resume({
                     refresh: refresh
                 }).then(function () {
                     loading.hide();
@@ -1070,6 +1070,9 @@ class ItemsView {
                     if (refresh) {
                         focusManager.autoFocus(self.itemsContainer);
                     }
+                }).catch((error: unknown) => {
+                    loading.hide();
+                    console.error('Failed to resume list', error);
                 });
 
                 if (!isRestored && item && item.Type !== 'PhotoAlbum') {
@@ -1111,6 +1114,9 @@ class ItemsView {
                     // Hide Queue button
                     hideOrShowAll(view.querySelectorAll<HTMLElement>('.btnQueue'), true);
                 }
+            }).catch((error: unknown) => {
+                loading.hide();
+                console.error('Failed to load list context', error);
             });
 
             if (!isRestored) {

@@ -489,6 +489,12 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         int limit,
         CancellationToken cancellationToken = default)
     {
+        if (offset < 0 || limit <= 0)
+        {
+            _logger.LogWarning("[NEBULA-TG] Solicitação de chunk inválida: offset={Offset}, limite={Limit}.", offset, limit);
+            return null;
+        }
+
         var availableBots = GetAvailableBotIndices();
         if (availableBots.Count == 0)
         {
@@ -1046,7 +1052,8 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 using var downloadResp = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
                 if (downloadResp.StatusCode is HttpStatusCode.PartialContent or HttpStatusCode.OK)
                 {
-                    return await downloadResp.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                    var chunk = await downloadResp.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                    return IsValidBotApiChunkResponse(downloadResp, offset, limit, chunk.Length) ? chunk : null;
                 }
 
                 if ((int)downloadResp.StatusCode == 429 || (int)downloadResp.StatusCode >= 500)
@@ -1382,6 +1389,34 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         }
 
         return false;
+    }
+
+    internal static bool IsValidBotApiChunkResponse(
+        HttpResponseMessage response,
+        long requestedOffset,
+        int requestedLimit,
+        int payloadLength)
+    {
+        if (requestedOffset < 0 || requestedLimit <= 0 || payloadLength <= 0)
+        {
+            return false;
+        }
+
+        if (response.StatusCode == HttpStatusCode.PartialContent)
+        {
+            var range = response.Content.Headers.ContentRange;
+            if (range?.From != requestedOffset || range.To is null || range.To < range.From)
+            {
+                return false;
+            }
+
+            var rangeLength = range.To.Value - range.From!.Value + 1;
+            return rangeLength <= requestedLimit && rangeLength == payloadLength;
+        }
+
+        // HTTP 200 is only safe for the first chunk when the server did not
+        // need to honor a range. Never treat a complete file as a later chunk.
+        return response.StatusCode == HttpStatusCode.OK && requestedOffset == 0 && payloadLength <= requestedLimit;
     }
 
     private static NebulaTelegramUploadResult? ParseUploadResult(string responseJson)

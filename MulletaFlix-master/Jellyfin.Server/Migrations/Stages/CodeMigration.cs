@@ -32,6 +32,15 @@ internal class CodeMigration(Type migrationType, MulletaFlixMigrationAttribute m
 
         foreach (ServiceDescriptor service in serviceProvider.GetRequiredService<IServiceCollection>())
         {
+            if (service.ServiceType == typeof(ILoggerFactory))
+            {
+                // Migration providers are short-lived child containers. Do not let
+                // them dispose the application's logger factory when they are torn down.
+                childServiceCollection.AddSingleton<ILoggerFactory>(_ =>
+                    new NonDisposingLoggerFactory(serviceProvider.GetRequiredService<ILoggerFactory>()));
+                continue;
+            }
+
             if (service.Lifetime == ServiceLifetime.Singleton && !service.ServiceType.IsGenericTypeDefinition)
             {
                 childServiceCollection.AddSingleton(service.ServiceType, _ => serviceProvider.GetService(service.ServiceType)!);
@@ -84,5 +93,16 @@ internal class CodeMigration(Type migrationType, MulletaFlixMigrationAttribute m
         {
         }
     }
-}
 
+    private sealed class NonDisposingLoggerFactory(ILoggerFactory inner) : ILoggerFactory
+    {
+        public ILogger CreateLogger(string categoryName) => inner.CreateLogger(categoryName);
+
+        public void AddProvider(ILoggerProvider provider) => inner.AddProvider(provider);
+
+        public void Dispose()
+        {
+            // The parent service provider owns the actual logger factory.
+        }
+    }
+}

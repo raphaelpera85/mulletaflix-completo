@@ -101,6 +101,17 @@ interface Item {
     [key: string]: unknown;
 }
 
+type MetadataApiClient = {
+    updateItem: (item: Item) => Promise<void>;
+    ajax: (options: { url: string; type: string }) => Promise<void>;
+    getUrl: (path: string, params?: Record<string, string>) => string;
+    getCurrentUser: () => Promise<unknown>;
+    getCurrentUserId: () => string;
+    getItem: (userId: string, itemId: string) => Promise<Item>;
+    getRootFolder: (userId: string) => Promise<Item>;
+    getJSON: <T>(url: string) => Promise<T>;
+};
+
 interface Person {
     Name?: string;
     Type?: string;
@@ -161,10 +172,16 @@ function submitUpdatedItem(form: HTMLFormElement, item: Item): void {
 
             }).then(function () {
                 afterContentTypeUpdated();
+            }).catch((error: unknown) => {
+                loading.hide();
+                console.error('[MetadataEditor] failed to update content type', error);
             });
         } else {
             afterContentTypeUpdated();
         }
+    }).catch((error: unknown) => {
+        loading.hide();
+        console.error('[MetadataEditor] failed to update item', error);
     });
 }
 
@@ -186,13 +203,7 @@ function getAlbumArtists(form: HTMLFormElement): Array<{ Name: string }> {
 }
 
 function getArtists(form: HTMLFormElement): Array<{ Name: string }> {
-    return (form.querySelector('#txtArtist') as HTMLInputElement).value.trim().split(';').filter(function (s) {
-        return s.length > 0;
-    }).map(function (a) {
-        return {
-            Name: a
-        };
-    });
+    return getAlbumArtists(form);
 }
 
 function getDateValue(form: HTMLFormElement, element: string, property: keyof Item): string | null {
@@ -218,10 +229,10 @@ function getDateValue(form: HTMLFormElement, element: string, property: keyof It
     return val;
 }
 
-function onSubmit(this: any, e: Event): void {
+function onSubmit(e: Event): void {
     loading.show();
 
-    const form = this as HTMLFormElement;
+    const form = e.currentTarget as HTMLFormElement;
 
     const item: Item = {
         Id: currentItem.Id,
@@ -289,7 +300,7 @@ function onSubmit(this: any, e: Event): void {
     if (currentItem.Type === 'Series') {
         // 600000000
         const seriesRuntime = (form.querySelector('#txtSeriesRuntime') as HTMLInputElement).value;
-        item.RunTimeTicks = seriesRuntime ? (parseInt(seriesRuntime) * 600000000) : null;
+        item.RunTimeTicks = seriesRuntime ? (parseInt(seriesRuntime, 10) * 600000000) : null;
     }
 
     const tagline = (form.querySelector('#txtTagline') as HTMLInputElement).value;
@@ -301,7 +312,6 @@ function onSubmit(this: any, e: Event): void {
     e.stopPropagation();
 
     // Disable default form submission
-    return;
 }
 
 function getListValues(list: HTMLElement): string[] {
@@ -315,16 +325,22 @@ function addElementToList(source: HTMLElement, sortCallback?: (items: string[]) 
         prompt({
             label: 'Value:'
         }).then(function (text: string) {
-            const list = dom.parentWithClass(source, 'editableListviewContainer')?.querySelector('.paperList')! as HTMLElement;
+            const list = dom.parentWithClass(source, 'editableListviewContainer')?.querySelector<HTMLElement>('.paperList');
+            if (!list) {
+                return;
+            }
             const items = getListValues(list);
             items.push(text);
-            populateListView(list as HTMLElement, items, sortCallback);
-        });
-    });
+            populateListView(list, items, sortCallback);
+        }).catch(error => console.error('[MetadataEditor] failed to prompt for list value', error));
+    }).catch(error => console.error('[MetadataEditor] failed to load list prompt', error));
 }
 
 function removeElementFromList(source: HTMLElement): void {
-    const el = dom.parentWithClass(source, 'listItem')!;
+    const el = dom.parentWithClass(source, 'listItem');
+    if (!el) {
+        return;
+    }
     el.parentNode?.removeChild(el);
 }
 
@@ -338,17 +354,17 @@ function editPerson(context: HTMLElement, person: Person, index: number): void {
             }
 
             populatePeople(context, currentItem.People || []);
-        });
-    });
+        }).catch(error => console.error('[MetadataEditor] failed to edit person', error));
+    }).catch(error => console.error('[MetadataEditor] failed to load person editor', error));
 }
 
 function afterDeleted(context: HTMLElement, item: Item): void {
     const parentId = item.ParentId || item.SeasonId || item.SeriesId;
 
-    if (parentId) {
-        reload(context, parentId, item.ServerId!);
+    if (parentId && item.ServerId) {
+        reload(context, parentId, item.ServerId);
     } else {
-        appRouter.goHome();
+        void appRouter.goHome().catch(error => console.error('[MetadataEditor] failed to navigate home', error));
     }
 }
 
@@ -370,10 +386,12 @@ function showMoreMenu(context: HTMLElement, button: HTMLElement, user: unknown):
             if (result.deleted) {
                 afterDeleted(context, item);
             } else if (result.updated) {
-                reload(context, item.Id!, item.ServerId!);
+                if (item.Id && item.ServerId) {
+                    reload(context, item.Id, item.ServerId);
+                }
             }
         }).catch(() => { /* no-op */ });
-    });
+    }).catch(error => console.error('[MetadataEditor] failed to load context menu', error));
 }
 
 function onEditorClick(e: Event): void {
@@ -390,8 +408,8 @@ function onEditorClick(e: Event): void {
     }
 }
 
-function getApiClient(): any {
-    return ServerConnections.getApiClient(currentItem.ServerId!);
+function getApiClient(): MetadataApiClient {
+    return ServerConnections.getApiClient(currentItem.ServerId!) as unknown as MetadataApiClient;
 }
 
 function bindAll(elems: NodeListOf<Element>, eventName: string, fn: EventListener): void {
@@ -452,7 +470,7 @@ function init(context: HTMLElement): void {
     context.querySelector('.btnMore')?.addEventListener('click', function (e: Event) {
         getApiClient().getCurrentUser().then(function (user: unknown) {
             showMoreMenu(context, (e as MouseEvent).target as HTMLElement, user);
-        });
+        }).catch((error: unknown) => console.error('[MetadataEditor] failed to load current user', error));
     });
 
     context.querySelector('.btnHeaderSave')?.addEventListener('click', function () {
@@ -499,7 +517,7 @@ function init(context: HTMLElement): void {
 }
 
 function getItem(itemId: string | null, serverId: string): Promise<Item> {
-    const apiClient = ServerConnections.getApiClient(serverId) as any;
+    const apiClient = ServerConnections.getApiClient(serverId) as unknown as MetadataApiClient;
 
     if (itemId) {
         return apiClient.getItem(apiClient.getCurrentUserId(), itemId);
@@ -509,7 +527,7 @@ function getItem(itemId: string | null, serverId: string): Promise<Item> {
 }
 
 function getEditorConfig(itemId: string | null, serverId: string): Promise<EditorConfig> {
-    const apiClient = ServerConnections.getApiClient(serverId) as any;
+    const apiClient = ServerConnections.getApiClient(serverId) as unknown as MetadataApiClient;
 
     if (itemId) {
         return apiClient.getJSON(apiClient.getUrl('Items/' + itemId + '/MetadataEditor'));
@@ -526,7 +544,7 @@ function populateCountries(select: HTMLSelectElement, allCountries: Array<{ TwoL
     for (let i = 0, length = allCountries.length; i < length; i++) {
         const culture = allCountries[i];
 
-        html += "<option value='" + culture.TwoLetterISORegionName + "'>" + culture.DisplayName + '</option>';
+        html += "<option value='" + escapeHtml(culture.TwoLetterISORegionName) + "'>" + escapeHtml(culture.DisplayName) + '</option>';
     }
 
     select.innerHTML = html;
@@ -540,7 +558,7 @@ function populateLanguages(select: HTMLSelectElement, languages: Array<{ Name: s
     for (let i = 0, length = languages.length; i < length; i++) {
         const culture = languages[i];
 
-        html += "<option value='" + culture.Name + "' data-culture-name='" + culture.Name + "'>" + culture.DisplayName + '</option>';
+        html += "<option value='" + escapeHtml(culture.Name) + "' data-culture-name='" + escapeHtml(culture.Name) + "'>" + escapeHtml(culture.DisplayName) + '</option>';
     }
 
     select.innerHTML = html;
@@ -665,217 +683,112 @@ function showElement(selector: string | HTMLElement, context?: HTMLElement, mult
     }
 }
 
+type LabelElement = HTMLElement & { label: (value: string) => void };
+
+function setElementLabel(context: HTMLElement, selector: string, value: string): void {
+    context.querySelector<LabelElement>(selector)?.label(value);
+}
+
+function setFieldsVisibility(context: HTMLElement, selectors: string[], visible: boolean): void {
+    selectors.forEach(selector => {
+        if (visible) {
+            showElement(selector, context);
+        } else {
+            hideElement(selector, context);
+        }
+    });
+}
+
+function setDisplayOrderVisibility(context: HTMLElement, type: string): void {
+    const displayOrder = context.querySelector<HTMLSelectElement>('#selectDisplayOrder');
+    if (type === 'BoxSet') {
+        setFieldsVisibility(context, ['#fldDisplayOrder'], true);
+        setFieldsVisibility(context, ['.seriesDisplayOrderDescription'], false);
+        if (displayOrder) {
+            displayOrder.innerHTML = '<option value="Default">' + globalize.translate('DateModified') + '</option><option value="SortName">' + globalize.translate('SortName') + '</option><option value="PremiereDate">' + globalize.translate('ReleaseDate') + '</option>';
+        }
+    } else if (type === 'Series') {
+        setFieldsVisibility(context, ['#fldDisplayOrder', '.seriesDisplayOrderDescription'], true);
+        if (displayOrder) {
+            displayOrder.innerHTML = '<option value="">' + globalize.translate('Aired') + '</option><option value="originalAirDate">' + globalize.translate('OriginalAirDate') + '</option><option value="absolute">' + globalize.translate('Absolute') + '</option><option value="dvd">DVD</option><option value="digital">' + globalize.translate('Digital') + '</option><option value="storyArc">' + globalize.translate('StoryArc') + '</option><option value="production">' + globalize.translate('Production') + '</option><option value="tv">TV</option><option value="alternate">' + globalize.translate('Alternate') + '</option><option value="regional">' + globalize.translate('Regional') + '</option><option value="altdvd">' + globalize.translate('AlternateDVD') + '</option>';
+        }
+    } else {
+        setFieldsVisibility(context, ['#fldDisplayOrder'], false);
+        if (displayOrder) {
+            displayOrder.innerHTML = '';
+        }
+    }
+}
+
 function setFieldVisibilities(context: HTMLElement, item: Item): void {
-    if (item.Path && item.EnableMediaSourceDisplay !== false) {
-        showElement('#fldPath', context);
-    } else {
-        hideElement('#fldPath', context);
-    }
+    const type = item.Type || '';
+    const specialEntity = ['Person', 'Genre', 'Studio', 'MusicGenre', 'TvChannel'].includes(type);
+    const isSeries = type === 'Series';
+    const isVideo = item.MediaType === 'Video';
 
-    if ([BaseItemKind.Series, BaseItemKind.Season, BaseItemKind.Episode, BaseItemKind.Movie, BaseItemKind.Trailer, BaseItemKind.Person].includes(item.Type as BaseItemKind as string as any)) {
-        showElement('#fldOriginalName', context);
-    } else {
-        hideElement('#fldOriginalName', context);
-    }
-
-    if (item.Type === 'Series' || item.MediaType === 'Video') {
-        showElement('#fldOriginalLanguage', context);
-    } else {
-        hideElement('#fldOriginalLanguage', context);
-    }
-
-    if (item.Type === 'Series') {
-        showElement('#fldSeriesRuntime', context);
-    } else {
-        hideElement('#fldSeriesRuntime', context);
-    }
-
-    if (item.Type === 'Series' || item.Type === 'Person') {
-        showElement('#fldEndDate', context);
-    } else {
-        hideElement('#fldEndDate', context);
-    }
-
-    if (item.Type === 'MusicAlbum') {
-        showElement('#albumAssociationMessage', context);
-    } else {
-        hideElement('#albumAssociationMessage', context);
-    }
-
-    if (item.Type === 'Movie' || item.Type === 'Trailer') {
-        showElement('#fldCriticRating', context);
-    } else {
-        hideElement('#fldCriticRating', context);
-    }
-
-    if (item.Type === 'Series') {
-        showElement('#fldStatus', context);
-        showElement('#fldAirDays', context);
-        showElement('#fldAirTime', context);
-    } else {
-        hideElement('#fldStatus', context);
-        hideElement('#fldAirDays', context);
-        hideElement('#fldAirTime', context);
-    }
-
-    if (item.MediaType === 'Video' && item.Type !== 'TvChannel') {
-        showElement('#fld3dFormat', context);
-    } else {
-        hideElement('#fld3dFormat', context);
-    }
-
-    if (item.Type === BaseItemKind.Audio || item.Type === BaseItemKind.MusicAlbum || item.Type === BaseItemKind.MusicVideo) {
-        showElement('#fldArtist', context);
-        showElement('#fldAlbumArtist', context);
-    } else {
-        hideElement('#fldArtist', context);
-        hideElement('#fldAlbumArtist', context);
-    }
-
-    if (item.Type === BaseItemKind.Audio || item.Type === BaseItemKind.MusicVideo) {
-        showElement('#fldAlbum', context);
-    } else {
-        hideElement('#fldAlbum', context);
-    }
-
-    if (item.Type === 'Episode' && item.ParentIndexNumber === 0) {
-        showElement('#collapsibleSpecialEpisodeInfo', context);
-    } else {
-        hideElement('#collapsibleSpecialEpisodeInfo', context);
-    }
-
-    if (item.Type === 'Person'
-            || item.Type === 'Genre'
-            || item.Type === 'Studio'
-            || item.Type === 'MusicGenre'
-            || item.Type === 'TvChannel') {
-        hideElement('#peopleCollapsible', context);
-    } else {
-        showElement('#peopleCollapsible', context);
-    }
-
-    if (item.Type === 'Person' || item.Type === 'Genre' || item.Type === 'Studio' || item.Type === 'MusicGenre' || item.Type === 'TvChannel') {
-        hideElement('#fldCommunityRating', context);
-        hideElement('#genresCollapsible', context);
-        hideElement('#studiosCollapsible', context);
-
-        if (item.Type === 'TvChannel') {
-            showElement('#fldOfficialRating', context);
-        } else {
-            hideElement('#fldOfficialRating', context);
-        }
-        hideElement('#fldCustomRating', context);
-    } else {
-        showElement('#fldCommunityRating', context);
-        showElement('#genresCollapsible', context);
-        showElement('#studiosCollapsible', context);
-        showElement('#fldOfficialRating', context);
-        showElement('#fldCustomRating', context);
-    }
-
+    setFieldsVisibility(context, ['#fldPath'], Boolean(item.Path && item.EnableMediaSourceDisplay !== false));
+    setFieldsVisibility(context, ['#fldOriginalName'], ([BaseItemKind.Series, BaseItemKind.Season, BaseItemKind.Episode, BaseItemKind.Movie, BaseItemKind.Trailer, BaseItemKind.Person] as string[]).includes(type));
+    setFieldsVisibility(context, ['#fldOriginalLanguage'], isSeries || isVideo);
+    setFieldsVisibility(context, ['#fldSeriesRuntime'], isSeries);
+    setFieldsVisibility(context, ['#fldEndDate'], isSeries || type === 'Person');
+    setFieldsVisibility(context, ['#albumAssociationMessage'], type === 'MusicAlbum');
+    setFieldsVisibility(context, ['#fldCriticRating'], type === 'Movie' || type === 'Trailer');
+    setFieldsVisibility(context, ['#fldStatus', '#fldAirDays', '#fldAirTime'], isSeries);
+    setFieldsVisibility(context, ['#fld3dFormat'], isVideo && type !== 'TvChannel');
+    setFieldsVisibility(context, ['#fldArtist', '#fldAlbumArtist'], ([BaseItemKind.Audio, BaseItemKind.MusicAlbum, BaseItemKind.MusicVideo] as string[]).includes(type));
+    setFieldsVisibility(context, ['#fldAlbum'], ([BaseItemKind.Audio, BaseItemKind.MusicVideo] as string[]).includes(type));
+    setFieldsVisibility(context, ['#collapsibleSpecialEpisodeInfo'], type === 'Episode' && item.ParentIndexNumber === 0);
+    setFieldsVisibility(context, ['#peopleCollapsible'], !specialEntity);
+    setFieldsVisibility(context, ['#fldCommunityRating', '#genresCollapsible', '#studiosCollapsible'], !specialEntity);
+    setFieldsVisibility(context, ['#fldOfficialRating'], !specialEntity || type === 'TvChannel');
+    setFieldsVisibility(context, ['#fldCustomRating'], !specialEntity);
     showElement('#tagsCollapsible', context);
+    setFieldsVisibility(context, ['#metadataSettingsCollapsible', '#fldPremiereDate', '#fldDateAdded', '#fldYear', '.overviewContainer'], type !== 'TvChannel');
 
-    if (item.Type === 'TvChannel') {
-        hideElement('#metadataSettingsCollapsible', context);
-        hideElement('#fldPremiereDate', context);
-        hideElement('#fldDateAdded', context);
-        hideElement('#fldYear', context);
+    if (type === 'Person') {
+        setElementLabel(context, '#txtName', globalize.translate('LabelName'));
+        setElementLabel(context, '#txtSortName', globalize.translate('LabelSortName'));
+        setElementLabel(context, '#txtOriginalName', globalize.translate('LabelOriginalName'));
+        setElementLabel(context, '#txtProductionYear', globalize.translate('LabelBirthYear'));
+        setElementLabel(context, '#txtPremiereDate', globalize.translate('LabelBirthDate'));
+        setElementLabel(context, '#txtEndDate', globalize.translate('LabelDeathDate'));
     } else {
-        showElement('#metadataSettingsCollapsible', context);
-        showElement('#fldPremiereDate', context);
-        showElement('#fldDateAdded', context);
-        showElement('#fldYear', context);
+        setElementLabel(context, '#txtProductionYear', globalize.translate('LabelYear'));
+        setElementLabel(context, '#txtPremiereDate', globalize.translate('LabelReleaseDate'));
+        setElementLabel(context, '#txtEndDate', globalize.translate('LabelEndDate'));
+    }
+    setFieldsVisibility(context, ['#fldPlaceOfBirth'], type === 'Person');
+    setFieldsVisibility(context, ['#fldHeight'], isVideo && type === 'TvChannel');
+    setFieldsVisibility(context, ['#fldOriginalAspectRatio'], isVideo && type !== 'TvChannel');
+
+    const indexLabels: Record<string, string> = {
+        Episode: 'LabelEpisodeNumber',
+        Season: 'LabelSeasonNumber',
+        Audio: 'LabelTrackNumber'
+    };
+    setFieldsVisibility(context, ['#fldIndexNumber'], ['Audio', 'Episode', 'Season'].includes(type));
+    if (indexLabels[type]) {
+        setElementLabel(context, '#txtIndexNumber', globalize.translate(indexLabels[type]));
     }
 
-    if (item.Type === 'TvChannel') {
-        hideElement('.overviewContainer', context);
-    } else {
-        showElement('.overviewContainer', context);
+    const parentLabels: Record<string, string> = { Episode: 'LabelSeasonNumber', Audio: 'LabelDiscNumber' };
+    setFieldsVisibility(context, ['#fldParentIndexNumber'], ['Audio', 'Episode'].includes(type));
+    if (parentLabels[type]) {
+        setElementLabel(context, '#txtParentIndexNumber', globalize.translate(parentLabels[type]));
     }
 
-    if (item.Type === 'Person') {
-        (context.querySelector('#txtName') as any).label(globalize.translate('LabelName'));
-        (context.querySelector('#txtSortName') as any).label(globalize.translate('LabelSortName'));
-        (context.querySelector('#txtOriginalName') as any).label(globalize.translate('LabelOriginalName'));
-        (context.querySelector('#txtProductionYear') as any).label(globalize.translate('LabelBirthYear'));
-        (context.querySelector('#txtPremiereDate') as any).label(globalize.translate('LabelBirthDate'));
-        (context.querySelector('#txtEndDate') as any).label(globalize.translate('LabelDeathDate'));
-        showElement('#fldPlaceOfBirth');
-    } else {
-        (context.querySelector('#txtProductionYear') as any).label(globalize.translate('LabelYear'));
-        (context.querySelector('#txtPremiereDate') as any).label(globalize.translate('LabelReleaseDate'));
-        (context.querySelector('#txtEndDate') as any).label(globalize.translate('LabelEndDate'));
-        hideElement('#fldPlaceOfBirth');
+    setDisplayOrderVisibility(context, type);
+}
+
+function formatDateForInput(value?: string): string {
+    if (!value) {
+        return '';
     }
 
-    if (item.MediaType === 'Video' && item.Type === 'TvChannel') {
-        showElement('#fldHeight');
-    } else {
-        hideElement('#fldHeight');
-    }
-
-    if (item.MediaType === 'Video' && item.Type !== 'TvChannel') {
-        showElement('#fldOriginalAspectRatio');
-    } else {
-        hideElement('#fldOriginalAspectRatio');
-    }
-
-    if (item.Type === 'Audio' || item.Type === 'Episode' || item.Type === 'Season') {
-        showElement('#fldIndexNumber');
-
-        if (item.Type === 'Episode') {
-            (context.querySelector('#txtIndexNumber') as any).label(globalize.translate('LabelEpisodeNumber'));
-        } else if (item.Type === 'Season') {
-            (context.querySelector('#txtIndexNumber') as any).label(globalize.translate('LabelSeasonNumber'));
-        } else if (item.Type === 'Audio') {
-            (context.querySelector('#txtIndexNumber') as any).label(globalize.translate('LabelTrackNumber'));
-        } else {
-            (context.querySelector('#txtIndexNumber') as any).label(globalize.translate('LabelNumber'));
-        }
-    } else {
-        hideElement('#fldIndexNumber');
-    }
-
-    if (item.Type === 'Audio' || item.Type === 'Episode') {
-        showElement('#fldParentIndexNumber');
-
-        if (item.Type === 'Episode') {
-            (context.querySelector('#txtParentIndexNumber') as any).label(globalize.translate('LabelSeasonNumber'));
-        } else if (item.Type === 'Audio') {
-            (context.querySelector('#txtParentIndexNumber') as any).label(globalize.translate('LabelDiscNumber'));
-        } else {
-            (context.querySelector('#txtParentIndexNumber') as any).label(globalize.translate('LabelParentNumber'));
-        }
-    } else {
-        hideElement('#fldParentIndexNumber', context);
-    }
-
-    if (item.Type === 'BoxSet') {
-        showElement('#fldDisplayOrder', context);
-        hideElement('.seriesDisplayOrderDescription', context);
-
-        (context.querySelector('#selectDisplayOrder') as HTMLSelectElement).innerHTML = '<option value="Default">' + globalize.translate('DateModified') + '<option value="SortName">' + globalize.translate('SortName') + '</option><option value="PremiereDate">' + globalize.translate('ReleaseDate') + '</option>';
-    } else if (item.Type === 'Series') {
-        showElement('#fldDisplayOrder', context);
-        showElement('.seriesDisplayOrderDescription', context);
-
-        let html = '';
-        html += '<option value="">' + globalize.translate('Aired') + '</option>';
-        html += '<option value="originalAirDate">' + globalize.translate('OriginalAirDate') + '</option>';
-        html += '<option value="absolute">' + globalize.translate('Absolute') + '</option>';
-        html += '<option value="dvd">DVD</option></option>';
-        html += '<option value="digital">' + globalize.translate('Digital') + '</option>';
-        html += '<option value="storyArc">' + globalize.translate('StoryArc') + '</option>';
-        html += '<option value="production">' + globalize.translate('Production') + '</option>';
-        html += '<option value="tv">TV</option>';
-        html += '<option value="alternate">' + globalize.translate('Alternate') + '</option>';
-        html += '<option value="regional">' + globalize.translate('Regional') + '</option>';
-        html += '<option value="altdvd">' + globalize.translate('AlternateDVD') + '</option>';
-
-        (context.querySelector('#selectDisplayOrder') as HTMLSelectElement).innerHTML = html;
-    } else {
-        (context.querySelector('#selectDisplayOrder') as HTMLSelectElement).innerHTML = '';
-        hideElement('#fldDisplayOrder', context);
+    try {
+        return datetime.parseISO8601Date(value, true).toISOString().slice(0, 10);
+    } catch {
+        return '';
     }
 }
 
@@ -951,43 +864,9 @@ function fillItemInfo(context: HTMLElement, item: Item, parentalRatingOptions: P
         return a.Name;
     }).join(';');
 
-    let date: Date;
-
-    if (item.DateCreated) {
-        try {
-            date = datetime.parseISO8601Date(item.DateCreated, true);
-
-            (context.querySelector('#txtDateAdded') as HTMLInputElement).value = date.toISOString().slice(0, 10);
-        } catch {
-            (context.querySelector('#txtDateAdded') as HTMLInputElement).value = '';
-        }
-    } else {
-        (context.querySelector('#txtDateAdded') as HTMLInputElement).value = '';
-    }
-
-    if (item.PremiereDate) {
-        try {
-            date = datetime.parseISO8601Date(item.PremiereDate, true);
-
-            (context.querySelector('#txtPremiereDate') as HTMLInputElement).value = date.toISOString().slice(0, 10);
-        } catch {
-            (context.querySelector('#txtPremiereDate') as HTMLInputElement).value = '';
-        }
-    } else {
-        (context.querySelector('#txtPremiereDate') as HTMLInputElement).value = '';
-    }
-
-    if (item.EndDate) {
-        try {
-            date = datetime.parseISO8601Date(item.EndDate, true);
-
-            (context.querySelector('#txtEndDate') as HTMLInputElement).value = date.toISOString().slice(0, 10);
-        } catch {
-            (context.querySelector('#txtEndDate') as HTMLInputElement).value = '';
-        }
-    } else {
-        (context.querySelector('#txtEndDate') as HTMLInputElement).value = '';
-    }
+    (context.querySelector('#txtDateAdded') as HTMLInputElement).value = formatDateForInput(item.DateCreated);
+    (context.querySelector('#txtPremiereDate') as HTMLInputElement).value = formatDateForInput(item.PremiereDate);
+    (context.querySelector('#txtEndDate') as HTMLInputElement).value = formatDateForInput(item.EndDate);
 
     (context.querySelector('#txtProductionYear') as HTMLInputElement).value = String(item.ProductionYear || '');
 
@@ -1207,14 +1086,20 @@ function reload(context: HTMLElement, itemId: string, serverId: string): void {
         }
 
         loading.hide();
+    }).catch(error => {
+        loading.hide();
+        console.error('[MetadataEditor] failed to reload metadata', error);
     });
 }
 
 function centerFocus(elem: HTMLElement | null, horiz: boolean, on: boolean): void {
+    if (!elem) {
+        return;
+    }
     import('../../scripts/scrollHelper').then((scrollHelper) => {
         const fn = on ? 'on' : 'off';
-        scrollHelper.centerFocus[fn](elem!, horiz);
-    });
+        scrollHelper.centerFocus[fn](elem, horiz);
+    }).catch(error => console.error('[MetadataEditor] failed to center focus', error));
 }
 
 function show(itemId: string, serverId: string, resolve: () => void): void {
@@ -1243,14 +1128,14 @@ function show(itemId: string, serverId: string, resolve: () => void): void {
     dlg.innerHTML = html;
 
     if (layoutManager.tv) {
-        centerFocus(dlg.querySelector('.formDialogContent') as HTMLElement, false, true);
+        centerFocus(dlg.querySelector('.formDialogContent') as HTMLElement | null, false, true);
     }
 
-    dialogHelper.open(dlg);
+    void dialogHelper.open(dlg).catch(error => console.error('[MetadataEditor] failed to open dialog', error));
 
     dlg.addEventListener('close', function () {
         if (layoutManager.tv) {
-            centerFocus(dlg.querySelector('.formDialogContent') as HTMLElement, false, false);
+            centerFocus(dlg.querySelector('.formDialogContent') as HTMLElement | null, false, false);
         }
 
         resolve();

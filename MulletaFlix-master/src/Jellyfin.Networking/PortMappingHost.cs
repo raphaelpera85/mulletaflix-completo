@@ -15,18 +15,20 @@ namespace MulletaFlix.Networking;
 /// <summary>
 /// <see cref="IHostedService"/> responsible for automatically mapping server ports on compatible routers.
 /// </summary>
-public sealed class PortMappingHost : IHostedService
+public sealed class PortMappingHost : IHostedService, IDisposable
 {
-    private static readonly TimeSpan DiscoveryTimeout = TimeSpan.FromSeconds(15);
     private const int MaxRetries = 3;
+    private static readonly TimeSpan DiscoveryTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan RetryBaseDelay = TimeSpan.FromSeconds(3);
 
+    private readonly CancellationTokenSource _lifecycleCts = new();
     private readonly ILogger<PortMappingHost> _logger;
     private readonly IConfigurationManager _configurationManager;
     private readonly INetworkManager _networkManager;
     private readonly List<Mapping> _activeMappings = new();
 
     private dynamic? _natDevice;
+    private Task? _mappingTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PortMappingHost"/> class.
@@ -45,70 +47,101 @@ public sealed class PortMappingHost : IHostedService
     }
 
     /// <inheritdoc />
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        var config = _configurationManager.GetNetworkConfiguration();
-#pragma warning disable CS0618 // Temporary compatibility with existing network configuration schema.
-        if (!config.EnableRemoteAccess)
-        {
-            _logger.LogInformation("Automatic port mapping skipped because remote access is disabled.");
-            return;
-        }
+        // UPnP/PMP discovery is network-bound and may take several retries. Do not
+        // hold host startup open while a router is unavailable.
+        _mappingTask = Task.Run(() => StartPortMappingAsync(_lifecycleCts.Token), _lifecycleCts.Token);
+        return Task.CompletedTask;
+    }
 
-        if (!config.EnableUPnP)
+    private async Task StartPortMappingAsync(CancellationToken cancellationToken)
+    {
+        try
         {
-            _logger.LogInformation("Automatic port mapping is disabled in network settings.");
-            return;
-        }
+            var config = _configurationManager.GetNetworkConfiguration();
+#pragma warning disable CS0618 // Temporary compatibility with existing network configuration schema.
+            if (!config.EnableRemoteAccess)
+            {
+                _logger.LogInformation("Automatic port mapping skipped because remote access is disabled.");
+                return;
+            }
+
+            if (!config.EnableUPnP)
+            {
+                _logger.LogInformation("Automatic port mapping is disabled in network settings.");
+                return;
+            }
 #pragma warning restore CS0618
 
-        var localAddress = GetLocalAddress();
-        if (localAddress is null)
-        {
-            _logger.LogWarning("Automatic port mapping skipped because no local LAN address could be determined.");
-            return;
-        }
-
-        for (int attempt = 1; attempt <= MaxRetries; attempt++)
-        {
-            foreach (var portMapper in new[] { PortMapper.Upnp, PortMapper.Pmp })
+            var localAddress = GetLocalAddress();
+            if (localAddress is null)
             {
-                if (cancellationToken.IsCancellationRequested)
+                _logger.LogWarning("Automatic port mapping skipped because no local LAN address could be determined.");
+                return;
+            }
+
+            for (int attempt = 1; attempt <= MaxRetries; attempt++)
+            {
+                foreach (var portMapper in new[] { PortMapper.Upnp, PortMapper.Pmp })
                 {
-                    return;
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    if (await TryCreateMappingsAsync(portMapper, localAddress, cancellationToken).ConfigureAwait(false))
+                    {
+                        return;
+                    }
                 }
 
-                if (await TryCreateMappingsAsync(portMapper, localAddress, cancellationToken).ConfigureAwait(false))
+                if (attempt < MaxRetries)
                 {
-                    return;
+                    var delay = RetryBaseDelay * attempt;
+                    _logger.LogInformation(
+                        "Port mapping attempt {Attempt}/{MaxRetries} failed. Retrying in {Delay}s...",
+                        attempt,
+                        MaxRetries,
+                        delay.TotalSeconds);
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 }
             }
 
-            if (attempt < MaxRetries)
-            {
-                var delay = RetryBaseDelay * attempt;
-                _logger.LogInformation(
-                    "Port mapping attempt {Attempt}/{MaxRetries} failed. Retrying in {Delay}s...",
-                    attempt,
-                    MaxRetries,
-                    delay.TotalSeconds);
-                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-            }
+            _logger.LogWarning(
+                "Automatic port mapping failed after {MaxRetries} attempts for HTTP {HttpPort} and HTTPS {HttpsPort}. " +
+                "If the internet connection uses CGNAT or the router blocks UPnP/PMP, the server cannot open the ports automatically.",
+                MaxRetries,
+                config.PublicHttpPort,
+                config.EnableHttps ? config.PublicHttpsPort : 0);
         }
-
-        _logger.LogWarning(
-            "Automatic port mapping failed after {MaxRetries} attempts for HTTP {HttpPort} and HTTPS {HttpsPort}. " +
-            "If the internet connection uses CGNAT or the router blocks UPnP/PMP, the server cannot open the ports automatically.",
-            MaxRetries,
-            config.PublicHttpPort,
-            config.EnableHttps ? config.PublicHttpsPort : 0);
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unexpected error while starting automatic port mapping.");
+        }
     }
 
     /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        _lifecycleCts.Cancel();
+        if (_mappingTask is not null)
+        {
+            try
+            {
+                await _mappingTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _lifecycleCts.IsCancellationRequested)
+            {
+            }
+        }
+
         if (_natDevice is null || _activeMappings.Count == 0)
         {
+            _lifecycleCts.Dispose();
             return;
         }
 
@@ -125,6 +158,20 @@ public sealed class PortMappingHost : IHostedService
         }
 
         _activeMappings.Clear();
+        _lifecycleCts.Dispose();
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+    }
+
+    private void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _lifecycleCts.Dispose();
+        }
     }
 
     private async Task<bool> TryCreateMappingsAsync(PortMapper portMapper, IPAddress localAddress, CancellationToken cancellationToken)

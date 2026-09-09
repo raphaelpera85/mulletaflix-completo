@@ -1,16 +1,17 @@
 import React, { FC } from 'react';
 import DOMPurify from 'dompurify';
+import escapeHtml from 'escape-html';
 
 const createScroller = ({ scrollerclassName, dataHorizontal, dataMousewheel, dataCenterfocus, dataId, className }: IProps) => ({
     __html: DOMPurify.sanitize(`<div is="emby-scroller"
-    class="${scrollerclassName}"
+    class="${escapeHtml(scrollerclassName || '')}"
     ${dataHorizontal}
     ${dataMousewheel}
     ${dataCenterfocus}
     >
         <div
             is="emby-itemscontainer"
-            class="${className}"
+            class="${escapeHtml(className || '')}"
             ${dataId}
         >
         </div>
@@ -31,10 +32,10 @@ const ItemsScrollerContainerElement: FC<IProps> = ({ scrollerclassName, dataHori
         <div
             dangerouslySetInnerHTML={createScroller({
                 scrollerclassName: scrollerclassName,
-                dataHorizontal: dataHorizontal ? `data-horizontal="${dataHorizontal}"` : '',
-                dataMousewheel: dataMousewheel ? `data-mousewheel="${dataMousewheel}"` : '',
-                dataCenterfocus: dataCenterfocus ? `data-centerfocus="${dataCenterfocus}"` : '',
-                dataId: dataId ? `data-id="${dataId}"` : '',
+                dataHorizontal: dataHorizontal ? `data-horizontal="${escapeHtml(dataHorizontal)}"` : '',
+                dataMousewheel: dataMousewheel ? `data-mousewheel="${escapeHtml(dataMousewheel)}"` : '',
+                dataCenterfocus: dataCenterfocus ? `data-centerfocus="${escapeHtml(dataCenterfocus)}"` : '',
+                dataId: dataId ? `data-id="${escapeHtml(dataId)}"` : '',
                 className: className
             })}
         />

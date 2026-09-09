@@ -30,10 +30,9 @@ function processForgotPasswordResult(result: ForgotPasswordResult): void {
 
 export default function (view: HTMLElement): void {
     function onSubmit(e: Event): void {
-        // eslint-disable-next-line no-undef
         ApiClient.ajax({
             type: 'POST',
-            // eslint-disable-next-line no-undef
+
             url: ApiClient.getUrl('Users/ForgotPassword/Pin'),
             dataType: 'json',
             data: JSON.stringify({

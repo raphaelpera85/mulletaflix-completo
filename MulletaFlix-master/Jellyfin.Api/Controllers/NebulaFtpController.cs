@@ -214,6 +214,8 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             ServerHost = config.ServerHost,
             ServerPort = config.ServerPort,
             PassivePorts = config.PassivePorts,
+            HttpStreamPort = config.HttpStreamPort,
+            HttpStreamToken = string.Empty,
             MongoDbConnectionString = string.Empty,
             ApiId = config.ApiId,
             ApiHash = string.Empty,
@@ -267,6 +269,11 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         if (string.IsNullOrWhiteSpace(config.Password))
         {
             config.Password = existing.Password;
+        }
+
+        if (string.IsNullOrWhiteSpace(config.HttpStreamToken))
+        {
+            config.HttpStreamToken = existing.HttpStreamToken;
         }
 
         if (string.IsNullOrWhiteSpace(config.SupabaseKey))

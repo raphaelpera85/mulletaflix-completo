@@ -109,14 +109,14 @@ export function handleCommand(commandName: string, options?: HandleCommandOption
             focusManager.moveRight(sourceElement);
         },
         'home': () => {
-            appRouter.goHome();
+            void appRouter.goHome().catch((error: unknown) => console.error('Failed to navigate home', error));
         },
         'settings': () => {
-            appRouter.showSettings();
+            void appRouter.showSettings().catch((error: unknown) => console.error('Failed to open settings', error));
         },
         'back': () => {
             if (appRouter.canGoBack()) {
-                appRouter.back();
+                void appRouter.back().catch((error: unknown) => console.error('Failed to navigate back', error));
             } else if (appHost.supports(AppFeature.Exit)) {
                 appHost.exit();
             }
@@ -143,13 +143,13 @@ export function handleCommand(commandName: string, options?: HandleCommandOption
             playbackManager.previousChapter();
         },
         'guide': () => {
-            appRouter.showGuide();
+            void appRouter.showGuide().catch((error: unknown) => console.error('Failed to open guide', error));
         },
         'recordedtv': () => {
-            appRouter.showRecordedTV();
+            void appRouter.showRecordedTV().catch((error: unknown) => console.error('Failed to open recordings', error));
         },
         'livetv': () => {
-            appRouter.showLiveTV();
+            void appRouter.showLiveTV().catch((error: unknown) => console.error('Failed to open live TV', error));
         },
         'mute': () => {
             playbackManager.setMute(true);
@@ -202,10 +202,10 @@ export function handleCommand(commandName: string, options?: HandleCommandOption
             playbackManager.changeSubtitleStream();
         },
         'search': () => {
-            appRouter.showSearch();
+            void appRouter.showSearch().catch((error: unknown) => console.error('Failed to open search', error));
         },
         'favorites': () => {
-            appRouter.showFavorites();
+            void appRouter.showFavorites().catch((error: unknown) => console.error('Failed to open favorites', error));
         },
         'fastforward': () => {
             playbackManager.fastForward();
@@ -229,7 +229,7 @@ export function handleCommand(commandName: string, options?: HandleCommandOption
             playbackManager.toggleDisplayMirroring();
         },
         'nowplaying': () => {
-            appRouter.showNowPlaying();
+            void appRouter.showNowPlaying().catch((error: unknown) => console.error('Failed to open now playing', error));
         },
         'repeatnone': () => {
             playbackManager.setRepeatMode('RepeatNone');

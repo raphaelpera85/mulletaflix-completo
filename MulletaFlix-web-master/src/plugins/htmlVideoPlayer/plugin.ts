@@ -116,13 +116,13 @@ function enableNativeTrackSupport(mediaSource, track) {
 }
 
 function requireHlsPlayer(callback) {
-    import('hls.js/dist/hls.js').then(({ default: hls }) => {
+    void import('hls.js/dist/hls.js').then(({ default: hls }) => {
         hls.DefaultConfig.lowLatencyMode = false;
         hls.DefaultConfig.backBufferLength = Infinity;
         hls.DefaultConfig.liveBackBufferLength = 90;
         window.Hls = hls;
         callback();
-    });
+    }).catch((error: unknown) => console.error('Failed to load HLS player', error));
 }
 
 function getMediaStreamVideoTracks(mediaSource) {
@@ -886,7 +886,7 @@ export class HtmlVideoPlayer {
         }
 
         if (Screenfull.isEnabled) {
-            Screenfull.exit();
+            void Screenfull.exit().catch((error: unknown) => console.error('Failed to exit fullscreen', error));
         } else if (document.webkitIsFullScreen && document.webkitCancelFullscreen) {
             // iOS Safari
             document.webkitCancelFullscreen();
@@ -1007,7 +1007,7 @@ export class HtmlVideoPlayer {
             });
 
             if (this._currentPlayOptions.fullscreen) {
-                appRouter.showVideoOsd().then(this.onNavigatedToOsd);
+                void appRouter.showVideoOsd().then(this.onNavigatedToOsd).catch((error: unknown) => console.error('Failed to show video OSD', error));
             } else {
                 setBackdropTransparency(TRANSPARENCY_LEVEL.Backdrop);
                 this.#videoDialog.classList.remove('videoPlayerContainer-onTop');
@@ -1262,7 +1262,7 @@ export class HtmlVideoPlayer {
         } else {
             this.#customTrackIndex = track.Index;
         }
-        this.renderTracksEvents(videoElement, track, item, targetTextTrackIndex);
+        void this.renderTracksEvents(videoElement, track, item, targetTextTrackIndex).catch((error: unknown) => console.error('Failed to render subtitle track', error));
     }
 
     /**
@@ -1284,7 +1284,7 @@ export class HtmlVideoPlayer {
             ApiKey: apiClient.accessToken()
         });
         const htmlVideoPlayer = this;
-        import('@jellyfin/libass-wasm').then(({ default: SubtitlesOctopus }) => {
+        void import('@jellyfin/libass-wasm').then(({ default: SubtitlesOctopus }) => {
             const mediaSource = this._currentPlayOptions.mediaSource;
             const videoStream = getMediaStreamVideoTracks(mediaSource)[0];
 
@@ -1318,7 +1318,7 @@ export class HtmlVideoPlayer {
                 renderAhead: 90
             };
 
-            Promise.all([
+            return Promise.all([
                 apiClient.getNamedConfiguration('encoding'),
                 // Worker in Tizen 5 doesn't resolve relative path with async request
                 resolveUrl(options.workerUrl),
@@ -1328,7 +1328,7 @@ export class HtmlVideoPlayer {
                 options.legacyWorkerUrl = legacyWorkerUrl;
 
                 if (config.EnableFallbackFont) {
-                    apiClient.getJSON(fallbackFontList).then((fontFiles: any = []) => {
+                    return apiClient.getJSON(fallbackFontList).then((fontFiles: any = []) => {
                         fontFiles.forEach((font: any) => {
                             const fontUrl = apiClient.getUrl(`/FallbackFont/Fonts/${encodeURIComponent(font.Name)}`, {
                                 ApiKey: apiClient.accessToken()
@@ -1340,15 +1340,15 @@ export class HtmlVideoPlayer {
                 } else {
                     this.#currentAssRenderer = new SubtitlesOctopus(options);
                 }
-            });
-        });
+            }).catch((error: unknown) => console.error('Failed to initialize ASS subtitles', error));
+        }).catch((error: unknown) => console.error('Failed to load ASS subtitle renderer', error));
     }
 
     /**
      * @private
      */
     renderPgs(videoElement, track, item) {
-        import('libpgs').then((libpgs: any) => {
+        void import('libpgs').then((libpgs: any) => {
             const aspectRatio = this.getAspectRatio() === 'auto' ? 'contain' : this.getAspectRatio();
             const options = {
                 video: videoElement,
@@ -1358,14 +1358,14 @@ export class HtmlVideoPlayer {
                 aspectRatio
             };
             this.#currentPgsRenderer = new libpgs.PgsRenderer(options);
-        });
+        }).catch((error: unknown) => console.error('Failed to load PGS subtitle renderer', error));
     }
 
     /**
      * @private
      */
     renderSubtitlesWithCustomElement(videoElement, track, item, targetTextTrackIndex) {
-        this.fetchSubtitles(track, item).then((subtitleData: any) => {
+        void this.fetchSubtitles(track, item).then((subtitleData: any) => {
             // Exit if the video element was destroyed while fetching subtitles
             if (!this.#mediaElement) return;
 
@@ -1400,7 +1400,7 @@ export class HtmlVideoPlayer {
                 this.setSubtitleAppearance(subtitlesContainer, this.#videoSecondarySubtitlesElem);
                 this.#currentSecondaryTrackEvents = subtitleData.TrackEvents;
             }
-        });
+        }).catch((error: unknown) => console.error('Failed to render custom subtitles', error));
     }
 
     /**
@@ -1482,7 +1482,7 @@ export class HtmlVideoPlayer {
         }
 
         // download the track json
-        this.fetchSubtitles(track, item).then((data: any) => {
+        void this.fetchSubtitles(track, item).then((data: any) => {
             // Exit if the video element was destroyed while fetching subtitles
             if (!this.#mediaElement) return;
 
@@ -1511,7 +1511,7 @@ export class HtmlVideoPlayer {
             }
 
             trackElement.mode = 'showing';
-        });
+        }).catch((error: unknown) => console.error('Failed to render text subtitles', error));
     }
 
     /**
@@ -1673,9 +1673,9 @@ export class HtmlVideoPlayer {
 
                     // Enter fullscreen in the webOS browser to hide the top bar
                     if (!window.NativeShell && browser.web0s && Screenfull.isEnabled) {
-                        Screenfull.request().then(() => {
+                        void Screenfull.request().then(() => {
                             this.forcedFullscreen = true;
-                        });
+                        }).catch((error: unknown) => console.error('Failed to enter fullscreen', error));
                         return videoElement;
                     }
 
@@ -1696,9 +1696,9 @@ export class HtmlVideoPlayer {
 
                 // Enter fullscreen in the webOS browser to hide the top bar
                 if (!this.forcedFullscreen && !window.NativeShell && browser.web0s && Screenfull.isEnabled) {
-                    Screenfull.request().then(() => {
+                    void Screenfull.request().then(() => {
                         this.forcedFullscreen = true;
-                    });
+                    }).catch((error: unknown) => console.error('Failed to enter fullscreen', error));
                 }
             }
 
@@ -2228,4 +2228,3 @@ export class HtmlVideoPlayer {
 }
 
 export default HtmlVideoPlayer;
-

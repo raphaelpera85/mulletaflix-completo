@@ -87,6 +87,21 @@ html[data-theme='netflix'] .homeSectionsContainer-netflix .verticalSection:first
     box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
 }
 
+html[data-theme='netflix'] .homePage .itemsContainer,
+html[data-theme='netflix'] .homePage .scrollSlider {
+    padding-bottom: 0.8rem;
+}
+
+html[data-theme='netflix'] .homePage .cardBox,
+html[data-theme='netflix'] .homePage .cardImageContainer {
+    border-radius: 0.45rem;
+}
+
+html[data-theme='netflix'] .homePage .cardBox {
+    transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+    transform-origin: center center;
+}
+
 html[data-theme='netflix'] .homeSectionsContainer-netflix .verticalSection:first-child .itemsContainer,
 html[data-theme='netflix'] .homeSectionsContainer-netflix .verticalSection:first-child .scrollSlider {
     padding-top: 0.35rem;
@@ -138,21 +153,6 @@ html[data-theme='netflix'] .netflixHeroCta-primary {
 html[data-theme='netflix'] .netflixHeroCta-secondary {
     background: rgba(255, 255, 255, 0.16);
     color: #f5f5f1;
-}
-
-html[data-theme='netflix'] .homePage .itemsContainer,
-html[data-theme='netflix'] .homePage .scrollSlider {
-    padding-bottom: 0.8rem;
-}
-
-html[data-theme='netflix'] .homePage .cardBox,
-html[data-theme='netflix'] .homePage .cardImageContainer {
-    border-radius: 0.45rem;
-}
-
-html[data-theme='netflix'] .homePage .cardBox {
-    transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
-    transform-origin: center center;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -221,6 +221,11 @@ html[data-theme='netflix'] .btnOption {
     color: #fff;
 }
 
+html[data-theme='netflix'] .button-submit:hover,
+html[data-theme='netflix'] .button-submit:focus {
+    background: #f6121d;
+}
+
 html[data-theme='netflix'] .page#loginPage .readOnlyContent button[is='emby-button'],
 html[data-theme='netflix'] .page#loginPage .manualLoginForm .button-submit,
 html[data-theme='netflix'] .page#loginPage .manualLoginForm .btnCancel,
@@ -253,9 +258,4 @@ html[data-theme='netflix'] .page#loginPage .readOnlyContent .btnSelectServer:hov
 html[data-theme='netflix'] .page#loginPage .readOnlyContent .btnSelectServer:focus {
     background: linear-gradient(180deg, #f6121d 0%, #d60f19 100%) !important;
     color: #fff !important;
-}
-
-html[data-theme='netflix'] .button-submit:hover,
-html[data-theme='netflix'] .button-submit:focus {
-    background: #f6121d;
 }

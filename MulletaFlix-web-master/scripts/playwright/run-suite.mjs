@@ -235,12 +235,12 @@ async function main() {
         summary.assumptions = [
             'A suíte deve continuar mirando o stage limpo em http://127.0.0.1:8096 por padrão.',
             'Nenhum spec Playwright foi encontrado no diretório configurado.',
-            stageProbe.reachable
-                ? 'O stage respondeu ao probe do endpoint público.'
-                : `Probe do stage falhou: ${stageProbe.error || 'erro desconhecido'}`,
-            stageProbe.reachable
-                ? `StartupWizardCompleted=${String(stageProbe.startupWizardCompleted)}`
-                : 'Não foi possível confirmar o estado limpo do stage.'
+            stageProbe.reachable ?
+                'O stage respondeu ao probe do endpoint público.' :
+                `Probe do stage falhou: ${stageProbe.error || 'erro desconhecido'}`,
+            stageProbe.reachable ?
+                `StartupWizardCompleted=${String(stageProbe.startupWizardCompleted)}` :
+                'Não foi possível confirmar o estado limpo do stage.'
         ];
 
         const { jsonPath, markdownPath } = await writePlaywrightReportArtifacts(summary, args.reportDir);
@@ -296,13 +296,13 @@ async function main() {
         assumptions: [
             'Os specs devem continuar separados do código de apoio em tests/playwright/specs.',
             'O runner usa o stage limpo em 127.0.0.1:8096 por padrão.',
-            initialStageProbe
-                ? `Stage inicial limpo confirmado com StartupWizardCompleted=${String(initialStageProbe.startupWizardCompleted)}`
-                : 'Reset limpo do stage foi desabilitado para esta execuÃ§Ã£o.',
+            initialStageProbe ?
+                `Stage inicial limpo confirmado com StartupWizardCompleted=${String(initialStageProbe.startupWizardCompleted)}` :
+                'Reset limpo do stage foi desabilitado para esta execuÃ§Ã£o.',
             `StartupWizardCompleted=${String(stageProbe.startupWizardCompleted)}`,
-            rawReport
-                ? 'O relatório JSON cru do Playwright foi gerado e consolidado pelo runner.'
-                : 'O relatório JSON cru do Playwright não foi encontrado; o resumo foi derivado do exit code.'
+            rawReport ?
+                'O relatório JSON cru do Playwright foi gerado e consolidado pelo runner.' :
+                'O relatório JSON cru do Playwright não foi encontrado; o resumo foi derivado do exit code.'
         ]
     };
 

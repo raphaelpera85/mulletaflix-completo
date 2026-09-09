@@ -29,7 +29,7 @@ import '../../elements/emby-textarea/emby-textarea';
 function fillThemes(select: HTMLSelectElement, selectedTheme?: string): void {
     skinManager.getThemes().then((themes: any[]) => {
         select.innerHTML = themes.map(t => {
-            return `<option value="${t.id}">${escapeHtml(t.name)}</option>`;
+            return `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`;
         }).join('');
 
         // get default theme
@@ -37,6 +37,8 @@ function fillThemes(select: HTMLSelectElement, selectedTheme?: string): void {
 
         // set the current theme
         select.value = selectedTheme || defaultTheme.id;
+    }).catch(() => {
+        select.innerHTML = '';
     });
 }
 
@@ -55,7 +57,7 @@ function loadScreensavers(context: HTMLElement, userSettings: any): void {
     });
 
     selectScreensaver.innerHTML = options.map(o => {
-        return `<option value="${o.value}">${escapeHtml(o.name)}</option>`;
+        return `<option value="${escapeHtml(o.value)}">${escapeHtml(o.name)}</option>`;
     }).join('');
 
     selectScreensaver.value = userSettings.screensaver();
@@ -183,7 +185,7 @@ function saveUser(context: HTMLElement, user: any, userSettingsInstance: any, ap
     userSettingsInstance.customCss((context.querySelector('#txtLocalCustomCss') as HTMLTextAreaElement).value);
 
     if (user.Id === apiClient.getCurrentUserId()) {
-        skinManager.setTheme(userSettingsInstance.theme());
+        skinManager.setTheme(userSettingsInstance.theme()).catch(() => undefined);
     }
 
     layoutManager.setLayout((context.querySelector('.selectLayout') as HTMLSelectElement).value);
@@ -203,6 +205,8 @@ function save(instance: DisplaySettings, context: HTMLElement, userId: string, u
         }, () => {
             loading.hide();
         });
+    }).catch(() => {
+        loading.hide();
     });
 }
 
@@ -215,6 +219,8 @@ function onSubmit(this: any, e: Event): void {
     userSettings.setUserInfo(userId, apiClient).then(() => {
         const enableSaveConfirmation = self.options.enableSaveConfirmation;
         save(self, self.options.element, userId, userSettings, apiClient, enableSaveConfirmation);
+    }).catch(() => {
+        loading.hide();
     });
 
     // Disable default form submission
@@ -229,7 +235,9 @@ function embed(options: any, self: DisplaySettings): void {
     if (options.enableSaveButton) {
         options.element.querySelector('.btnSave').classList.remove('hide');
     }
-    self.loadData(options.autoFocus);
+    self.loadData(options.autoFocus).catch(() => {
+        loading.hide();
+    });
 }
 
 class DisplaySettings {

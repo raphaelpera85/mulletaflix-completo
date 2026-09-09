@@ -18,7 +18,7 @@ import React, { type FC } from 'react';
 import MarkdownBox from 'components/MarkdownBox';
 import { getDisplayDateTime } from 'scripts/datetime';
 import globalize from 'lib/globalize';
-import { checkPluginCompatibility, formatTimestamp, getCompatibilityStatus } from '../utils/compatibility';
+import { getCompatibilityStatus } from '../utils/compatibility';
 
 import type { PluginDetails } from '../types/PluginDetails';
 
@@ -51,21 +51,21 @@ const PluginRevisions: FC<PluginRevisionsProps> = ({
                 return (
                     <Accordion key={version.checksum || version.version}>
                         <AccordionSummary expandIcon={<ExpandMore />}>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                                <Typography variant="subtitle1">{version.version}</Typography>
+                            <Stack direction='row' spacing={1} alignItems='center'>
+                                <Typography variant='subtitle1'>{version.version}</Typography>
                                 {version.timestamp && (
-                                    <Typography variant="body2" color="text.secondary">
+                                    <Typography variant='body2' color='text.secondary'>
                                         &mdash; {getDisplayDateTime(version.timestamp)}
                                     </Typography>
                                 )}
                                 <Chip
-                                    size="small"
+                                    size='small'
                                     label={compatibility.label}
                                     color={compatibility.color}
                                     icon={
-                                        compatibility.status === 'compatible' ? <CheckCircleIcon fontSize="small" /> :
-                                        compatibility.status === 'incompatible' ? <WarningIcon fontSize="small" /> :
-                                        <HelpIcon fontSize="small" />
+                                        compatibility.status === 'compatible' ? <CheckCircleIcon fontSize='small' /> :
+                                            compatibility.status === 'incompatible' ? <WarningIcon fontSize='small' /> :
+                                                <HelpIcon fontSize='small' />
                                     }
                                 />
                             </Stack>
@@ -74,14 +74,14 @@ const PluginRevisions: FC<PluginRevisionsProps> = ({
                             <Stack spacing={2}>
                                 {extVersion.targetAbi && (
                                     <Tooltip title={globalize.translate('LabelTargetAbi')}>
-                                        <Typography variant="body2" color="text.secondary">
+                                        <Typography variant='body2' color='text.secondary'>
                                             <strong>Target ABI:</strong> {extVersion.targetAbi}
                                         </Typography>
                                     </Tooltip>
                                 )}
                                 {extVersion.dependencies?.length && (
                                     <Tooltip title={globalize.translate('LabelDependencies')}>
-                                        <Typography variant="body2" color="text.secondary">
+                                        <Typography variant='body2' color='text.secondary'>
                                             <strong>Dependências:</strong> {extVersion.dependencies.length} plugin(s)
                                         </Typography>
                                     </Tooltip>
@@ -91,11 +91,11 @@ const PluginRevisions: FC<PluginRevisionsProps> = ({
                                     markdown={version.changelog}
                                 />
                                 {isInstalled ? (
-                                    <Button disabled startIcon={<DownloadDone />} variant="outlined">
+                                    <Button disabled startIcon={<DownloadDone />} variant='outlined'>
                                         {globalize.translate('LabelInstalled')}
                                     </Button>
                                 ) : (
-                                    <Button startIcon={<Download />} variant="outlined" onClick={onInstall(extVersion)}>
+                                    <Button startIcon={<Download />} variant='outlined' onClick={onInstall(extVersion)}>
                                         {globalize.translate('HeaderInstall')}
                                     </Button>
                                 )}
@@ -109,4 +109,3 @@ const PluginRevisions: FC<PluginRevisionsProps> = ({
 };
 
 export default PluginRevisions;
-

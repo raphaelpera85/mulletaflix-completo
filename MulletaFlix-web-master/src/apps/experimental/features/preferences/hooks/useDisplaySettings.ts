@@ -88,9 +88,9 @@ async function loadDisplaySettings({
     defaultThemeId
 }: LoadDisplaySettingsParams) {
     const settings = (!userId || userId === currentUser?.Id) ? currentSettings : new UserSettings();
-    const user = (!userId || userId === currentUser?.Id)
-        ? currentUser
-        : (await getUserApi(api).getUserById({ userId })).data;
+    const user = (!userId || userId === currentUser?.Id) ?
+        currentUser :
+        (await getUserApi(api).getUserById({ userId })).data;
 
     await settings.setUserInfo(userId, legacyApiClient);
 

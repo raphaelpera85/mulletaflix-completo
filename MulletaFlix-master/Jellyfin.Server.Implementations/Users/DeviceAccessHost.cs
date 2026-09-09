@@ -4,6 +4,7 @@ using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using MulletaFlix.Data;
 using MulletaFlix.Data.Events;
 using MulletaFlix.Data.Queries;
@@ -20,6 +21,7 @@ public sealed class DeviceAccessHost : IHostedService
     private readonly IUserManager _userManager;
     private readonly IDeviceManager _deviceManager;
     private readonly ISessionManager _sessionManager;
+    private readonly ILogger<DeviceAccessHost> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DeviceAccessHost"/> class.
@@ -27,11 +29,16 @@ public sealed class DeviceAccessHost : IHostedService
     /// <param name="userManager">The <see cref="IUserManager"/>.</param>
     /// <param name="deviceManager">The <see cref="IDeviceManager"/>.</param>
     /// <param name="sessionManager">The <see cref="ISessionManager"/>.</param>
-    public DeviceAccessHost(IUserManager userManager, IDeviceManager deviceManager, ISessionManager sessionManager)
+    public DeviceAccessHost(
+        IUserManager userManager,
+        IDeviceManager deviceManager,
+        ISessionManager sessionManager,
+        ILogger<DeviceAccessHost> logger)
     {
         _userManager = userManager;
         _deviceManager = deviceManager;
         _sessionManager = sessionManager;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -50,12 +57,24 @@ public sealed class DeviceAccessHost : IHostedService
         return Task.CompletedTask;
     }
 
-    private async void OnUserUpdated(object? sender, GenericEventArgs<User> e)
+    private void OnUserUpdated(object? sender, GenericEventArgs<User> e)
     {
         var user = e.Argument;
         if (!user.HasPermission(PermissionKind.EnableAllDevices))
         {
+            _ = UpdateDeviceAccessSafeAsync(user);
+        }
+    }
+
+    private async Task UpdateDeviceAccessSafeAsync(User user)
+    {
+        try
+        {
             await UpdateDeviceAccess(user).ConfigureAwait(false);
+        }
+        catch (System.Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update device access after user {UserId} was changed.", user.Id);
         }
     }
 
@@ -75,4 +94,3 @@ public sealed class DeviceAccessHost : IHostedService
         }
     }
 }
-

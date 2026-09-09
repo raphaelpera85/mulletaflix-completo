@@ -101,7 +101,7 @@ class RecordingEditor {
 
     constructor(options: RecordingFieldsOptions) {
         this.options = options;
-        this.embed();
+        void this.embed().catch((error: unknown) => console.error('Failed to embed recording fields', error));
 
         const apiClient = ServerConnections.getApiClient(options.serverId) as any;
         this._unsubscribeTimers = [
@@ -114,7 +114,7 @@ class RecordingEditor {
 
     embed(): Promise<void> {
         const self = this;
-        return new Promise(function (resolve) {
+        return new Promise(function (resolve, reject) {
             const options = self.options;
             const context = options.parent;
             context.innerHTML = globalize.translateHtml(template, 'core');
@@ -124,7 +124,7 @@ class RecordingEditor {
             context.querySelector('.btnManageRecording')!.addEventListener('click', onManageRecordingClick.bind(self));
             context.querySelector('.btnManageSeriesRecording')!.addEventListener('click', onManageSeriesRecordingClick.bind(self));
 
-            fetchData(self).then(resolve);
+            fetchData(self).then(resolve, reject);
         });
     }
 
@@ -133,7 +133,7 @@ class RecordingEditor {
     }
 
     refresh(): void {
-        fetchData(this);
+        void fetchData(this).catch((error: unknown) => console.error('Failed to refresh recording fields', error));
     }
 
     destroy(): void {
@@ -152,12 +152,12 @@ function onManageRecordingClick(this: RecordingEditor): void {
 
     const self = this;
     import('./recordingeditor').then(({ default: recordingEditor }) => {
-        recordingEditor.show(self.TimerId!, options.serverId, {
+        return recordingEditor.show(self.TimerId!, options.serverId, {
             enableCancel: false
         }).then(function () {
             self.changed = true;
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open recording editor', error));
 }
 
 function onManageSeriesRecordingClick(this: RecordingEditor): void {
@@ -170,14 +170,14 @@ function onManageSeriesRecordingClick(this: RecordingEditor): void {
     const self = this;
 
     import('./seriesrecordingeditor').then(({ default: seriesRecordingEditor }) => {
-        seriesRecordingEditor.show(self.SeriesTimerId!, options.serverId, {
+        return seriesRecordingEditor.show(self.SeriesTimerId!, options.serverId, {
 
             enableCancel: false
 
         }).then(function () {
             self.changed = true;
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open series recording editor', error));
 }
 
 function onRecordChange(this: RecordingEditor, e: Event): void {
@@ -195,19 +195,18 @@ function onRecordChange(this: RecordingEditor, e: Event): void {
     if (isChecked) {
         if (!hasEnabledTimer) {
             loading.show();
-            recordingHelper.createRecording(apiClient, options.programId, false).then(function () {
+            void recordingHelper.createRecording(apiClient, options.programId, false).then(function () {
                 Events.trigger(self, 'recordingchanged');
-                fetchData(self);
+                return fetchData(self);
                 loading.hide();
-            });
+            }).catch((error: unknown) => console.error('Failed to create recording', error)).finally(() => loading.hide());
         }
     } else if (hasEnabledTimer) {
         loading.show();
-        recordingHelper.cancelTimer(apiClient, this.TimerId!, true).then(function () {
+        void recordingHelper.cancelTimer(apiClient, this.TimerId!, true).then(function () {
             Events.trigger(self, 'recordingchanged');
-            fetchData(self);
-            loading.hide();
-        });
+            return fetchData(self);
+        }).catch((error: unknown) => console.error('Failed to cancel recording', error)).finally(() => loading.hide());
     }
 }
 
@@ -227,15 +226,15 @@ function onRecordSeriesChange(this: RecordingEditor, e: Event): void {
             const promise = this.TimerId ?
                 recordingHelper.changeRecordingToSeries(apiClient, this.TimerId, options.programId) :
                 recordingHelper.createRecording(apiClient, options.programId, true);
-            promise.then(function () {
-                fetchData(self);
-            });
+            void promise.then(function () {
+                return fetchData(self);
+            }).catch((error: unknown) => console.error('Failed to create series recording', error));
         }
     } else if (this.SeriesTimerId) {
-        apiClient.cancelLiveTvSeriesTimer(this.SeriesTimerId).then(function () {
+        void apiClient.cancelLiveTvSeriesTimer(this.SeriesTimerId).then(function () {
             toast(globalize.translate('RecordingCancelled'));
-            fetchData(self);
-        });
+            return fetchData(self);
+        }).catch((error: unknown) => console.error('Failed to cancel series recording', error));
     }
 }
 

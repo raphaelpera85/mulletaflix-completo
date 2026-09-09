@@ -249,8 +249,10 @@ const Profile = ({ userDto }: ProfileProps) => {
                         }, {
                             onSuccess: () => {
                                 loading.hide();
-                                navigate('/dashboard/users', {
+                                Promise.resolve(navigate('/dashboard/users', {
                                     state: { openSavedToast: true }
+                                })).catch((error: unknown) => {
+                                    console.error('Unable to navigate to users dashboard', error);
                                 });
                             }
                         });
@@ -288,12 +290,12 @@ const Profile = ({ userDto }: ProfileProps) => {
 
     const optionLoginProvider = authProviders?.map((provider) => {
         const selected = provider.Id === authenticationProviderId || authProviders.length < 2 ? ' selected' : '';
-        return `<option value="${provider.Id}"${selected}>${escapeHTML(provider.Name)}</option>`;
+        return `<option value="${escapeHTML(provider.Id || '')}"${selected}>${escapeHTML(provider.Name)}</option>`;
     });
 
     const optionPasswordResetProvider = passwordResetProviders?.map((provider) => {
         const selected = provider.Id === passwordResetProviderId || passwordResetProviders.length < 2 ? ' selected' : '';
-        return `<option value="${provider.Id}"${selected}>${escapeHTML(provider.Name)}</option>`;
+        return `<option value="${escapeHTML(provider.Id || '')}"${selected}>${escapeHTML(provider.Name)}</option>`;
     });
 
     const optionSyncPlayAccess = () => {
@@ -583,4 +585,3 @@ const Profile = ({ userDto }: ProfileProps) => {
 };
 
 export default Profile;
-

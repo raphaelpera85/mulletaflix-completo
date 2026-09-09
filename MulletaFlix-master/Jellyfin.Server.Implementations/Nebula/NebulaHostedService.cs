@@ -21,6 +21,7 @@ public sealed class NebulaHostedService : IHostedService
     private readonly IServerConfigurationManager _configManager;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<NebulaHostedService> _logger;
+    private Task? _startupTask;
 
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaHostedService"/>.
@@ -46,7 +47,8 @@ public sealed class NebulaHostedService : IHostedService
 
     private void OnApplicationStarted()
     {
-        _ = Task.Run(
+        var startupCancellationToken = _lifetime.ApplicationStopping;
+        _startupTask = Task.Run(
             async () =>
             {
                 try
@@ -60,14 +62,14 @@ public sealed class NebulaHostedService : IHostedService
 
                     _logger.LogInformation("[NEBULA-STARTUP] Servidor MulletaFlix inicializado com sucesso. Iniciando modo Envio do Nebula...");
 
-                    var envioStarted = await _nebulaManager.StartEnvioAsync(streamOnly: false, CancellationToken.None).ConfigureAwait(false);
+                    var envioStarted = await _nebulaManager.StartEnvioAsync(streamOnly: false, startupCancellationToken).ConfigureAwait(false);
                     if (envioStarted)
                     {
                         _logger.LogInformation("[NEBULA-STARTUP] Modo Envio iniciado com sucesso.");
                         if (config.UseMappedDrive)
                         {
                             _logger.LogInformation("[NEBULA-STARTUP] UseMappedDrive=true: montando disco N: em sequência...");
-                            await _nebulaManager.MountDriveNAsync(CancellationToken.None).ConfigureAwait(false);
+                            await _nebulaManager.MountDriveNAsync(startupCancellationToken).ConfigureAwait(false);
                         }
                         else
                         {
@@ -90,15 +92,42 @@ public sealed class NebulaHostedService : IHostedService
     /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        _logger.LogInformation("[NEBULA-SHUTDOWN] Encerrando serviços do NebulaFTP, Downloader... (unidade N: será desmontada apenas se UseMappedDrive=true)");
+
+        if (_startupTask != null)
+        {
+            try
+            {
+                await _startupTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("[NEBULA-SHUTDOWN] Inicialização automática cancelada pelo timeout de encerramento.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[NEBULA-SHUTDOWN] Falha ao aguardar a inicialização automática do Nebula.");
+            }
+
+            _startupTask = null;
+        }
+
         try
         {
-            _logger.LogInformation("[NEBULA-SHUTDOWN] Encerrando serviços do NebulaFTP, Downloader... (unidade N: será desmontada apenas se UseMappedDrive=true)");
             await _nebulaManager.StopDownloaderAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[NEBULA-SHUTDOWN] Erro ao parar o Downloader do Nebula.");
+        }
+
+        try
+        {
             await _nebulaManager.StopEnvioAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[NEBULA-SHUTDOWN] Erro ao parar serviços do NebulaFTP.");
+            _logger.LogError(ex, "[NEBULA-SHUTDOWN] Erro ao parar o Envio do Nebula.");
         }
     }
 }

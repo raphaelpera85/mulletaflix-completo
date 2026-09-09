@@ -233,7 +233,7 @@ export const Component = () => {
                         </Button>
                         <Button
                             sx={{ alignSelf: 'flex-start', ml: 2 }}
-                            variant="outlined"
+                            variant='outlined'
                             onClick={onScheduleClick}
                         >
                             {globalize.translate('HeaderScheduleBackup')}

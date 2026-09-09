@@ -47,22 +47,14 @@ internal class MigrateLinkedChildren : IDatabaseMigrationRoutine
     {
         using var context = _dbProvider.CreateDbContext();
 
-        var containerTypes = new[]
-        {
-            "MediaBrowser.Controller.Entities.Movies.BoxSet",
-            "MediaBrowser.Controller.Playlists.Playlist",
-            "MediaBrowser.Controller.Entities.CollectionFolder"
-        };
-
-        var videoTypes = new[]
-        {
-            "MediaBrowser.Controller.Entities.Video",
-            "MediaBrowser.Controller.Entities.Movies.Movie",
-            "MediaBrowser.Controller.Entities.TV.Episode"
-        };
-
         var itemsWithData = context.BaseItems
-            .Where(b => b.Data != null && (containerTypes.Contains(b.Type) || videoTypes.Contains(b.Type)))
+            .Where(b => b.Data != null &&
+                (b.Type == "MediaBrowser.Controller.Entities.Movies.BoxSet" ||
+                 b.Type == "MediaBrowser.Controller.Playlists.Playlist" ||
+                 b.Type == "MediaBrowser.Controller.Entities.CollectionFolder" ||
+                 b.Type == "MediaBrowser.Controller.Entities.Video" ||
+                 b.Type == "MediaBrowser.Controller.Entities.Movies.Movie" ||
+                 b.Type == "MediaBrowser.Controller.Entities.TV.Episode"))
             .Select(b => new { b.Id, b.Data, b.Type })
             .ToList();
 
@@ -95,7 +87,9 @@ internal class MigrateLinkedChildren : IDatabaseMigrationRoutine
             {
                 using var doc = JsonDocument.Parse(item.Data);
 
-                var isVideo = videoTypes.Contains(item.Type);
+                var isVideo = item.Type == "MediaBrowser.Controller.Entities.Video" ||
+                    item.Type == "MediaBrowser.Controller.Entities.Movies.Movie" ||
+                    item.Type == "MediaBrowser.Controller.Entities.TV.Episode";
 
                 // Handle Video alternate versions
                 if (isVideo)
@@ -613,4 +607,3 @@ internal class MigrateLinkedChildren : IDatabaseMigrationRoutine
         }
     }
 }
-

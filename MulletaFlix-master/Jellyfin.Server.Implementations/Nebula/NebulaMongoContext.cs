@@ -237,6 +237,10 @@ public sealed class NebulaMongoContext : IDisposable
         {
             return await _filesCollection.CountDocumentsAsync(Builders<BsonDocument>.Filter.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[NEBULA-MONGO] Erro ao contar arquivos no MongoDB.");
@@ -263,6 +267,10 @@ public sealed class NebulaMongoContext : IDisposable
         return normalized;
     }
 
+    internal static bool IsRaphaelPath(string path)
+        => string.Equals(path, "/raphael", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/raphael/", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Busca os nós filhos de um determinado pai (ID).
     /// </summary>
@@ -286,7 +294,7 @@ public sealed class NebulaMongoContext : IDisposable
             {
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", normPath["/raphael".Length..]));
             }
-            else if (!normPath.StartsWith("/raphael", StringComparison.OrdinalIgnoreCase) && normPath != "/")
+            else if (!IsRaphaelPath(normPath) && normPath != "/")
             {
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", $"/raphael{normPath}"));
             }
@@ -301,7 +309,7 @@ public sealed class NebulaMongoContext : IDisposable
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "null"));
             }
         }
-        else if (parentId == null)
+        else if (string.IsNullOrWhiteSpace(parentId))
         {
             parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/raphael"));
             parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/"));
@@ -360,7 +368,7 @@ public sealed class NebulaMongoContext : IDisposable
             {
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", normPath["/raphael".Length..]));
             }
-            else if (!normPath.StartsWith("/raphael", StringComparison.OrdinalIgnoreCase) && normPath != "/")
+            else if (!IsRaphaelPath(normPath) && normPath != "/")
             {
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", $"/raphael{normPath}"));
             }
@@ -375,7 +383,7 @@ public sealed class NebulaMongoContext : IDisposable
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "null"));
             }
         }
-        else if (parentId == null)
+        else if (string.IsNullOrWhiteSpace(parentId))
         {
             parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/raphael"));
             parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/"));
@@ -483,6 +491,10 @@ public sealed class NebulaMongoContext : IDisposable
                 .Select(v => v.AsString.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -790,14 +802,32 @@ public sealed class NebulaMongoContext : IDisposable
     /// <returns>Documento encontrado ou null.</returns>
     public async Task<BsonDocument?> FindFileForUploadAsync(string name, string? parentId, string? localFilePath = null, CancellationToken cancellationToken = default)
     {
-        if (!string.IsNullOrWhiteSpace(parentId))
+        var parentFilters = new List<FilterDefinition<BsonDocument>>();
+        if (string.IsNullOrWhiteSpace(parentId))
         {
-            var parentVal = ObjectId.TryParse(parentId, out var pOid) ? (BsonValue)pOid : parentId;
-            var filterByParent = Builders<BsonDocument>.Filter.And(
-                Builders<BsonDocument>.Filter.Eq("name", name),
-                Builders<BsonDocument>.Filter.Eq("parent", parentVal));
+            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", BsonNull.Value));
+            parentFilters.Add(Builders<BsonDocument>.Filter.Exists("parent", false));
+            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", string.Empty));
+            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/"));
+            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/raphael"));
+            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "null"));
+        }
+        else
+        {
+            if (ObjectId.TryParse(parentId, out var pOid))
+            {
+                parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", pOid));
+            }
 
-            using var cursor = await _filesCollection.FindAsync(filterByParent, cancellationToken: cancellationToken).ConfigureAwait(false);
+            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", parentId));
+        }
+
+        var filterByParent = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("name", name),
+            Builders<BsonDocument>.Filter.Or(parentFilters));
+
+        using (var cursor = await _filesCollection.FindAsync(filterByParent, cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
             var match = await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             if (match != null)
             {
@@ -909,8 +939,8 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="lastBotIndex">Último bot usado.</param>
     /// <param name="workerId">Identificador do worker de envio.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
-    /// <returns>Uma tarefa assíncrona.</returns>
-    public async Task UpdateUploadProgressAsync(
+    /// <returns>Verdadeiro quando o worker ainda possui o upload; falso quando outro worker assumiu a posse.</returns>
+    public async Task<bool> UpdateUploadProgressAsync(
         ObjectId id,
         BsonArray parts,
         long uploadedBytes,
@@ -918,7 +948,9 @@ public sealed class NebulaMongoContext : IDisposable
         string workerId = "1",
         CancellationToken cancellationToken = default)
     {
-        var filter = Builders<BsonDocument>.Filter.Eq("_id", id);
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            BuildWorkerOwnershipFilter(workerId));
         var update = Builders<BsonDocument>.Update
             .Set("status", "uploading")
             .Set("parts", parts)
@@ -926,6 +958,38 @@ public sealed class NebulaMongoContext : IDisposable
             .Set("last_bot_index", lastBotIndex)
             .Set("bot_index", lastBotIndex + 1)
             .Set("worker_id", workerId)
+            .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        var result = await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result.MatchedCount > 0;
+    }
+
+    /// <summary>
+    /// Marca uma tentativa de upload como falha para que o scanner possa
+    /// reencaminhá-la, em vez de deixá-la permanentemente em <c>uploading</c>.
+    /// </summary>
+    /// <param name="id">ID do arquivo.</param>
+    /// <param name="reason">Motivo da falha.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <param name="workerId">Worker que deve possuir o arquivo; nulo desativa a verificação.</param>
+    /// <returns>Uma tarefa assíncrona.</returns>
+    public async Task MarkUploadFailedAsync(
+        ObjectId id,
+        string reason,
+        CancellationToken cancellationToken = default,
+        string? workerId = null)
+    {
+        var retryAt = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds();
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            BuildWorkerOwnershipFilter(workerId));
+        var update = Builders<BsonDocument>.Update
+            .Set("status", "failed")
+            .Set("failed_reason", reason.Length > 1000 ? reason[..1000] : reason)
+            .Set("retry_after", retryAt)
+            .Inc("retry_count", 1)
+            .Unset("worker_id")
+            .Unset("started_at")
             .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
         await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -937,19 +1001,58 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="id">ID do arquivo.</param>
     /// <param name="finalFields">Campos finais do documento.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
-    /// <returns>Uma tarefa assíncrona.</returns>
-    public async Task CompleteFileUploadAsync(
+    /// <param name="workerId">Worker que deve possuir o arquivo; nulo desativa a verificação.</param>
+    /// <returns>Verdadeiro quando o worker ainda possui o upload e a conclusão foi gravada.</returns>
+    public async Task<bool> CompleteFileUploadAsync(
         ObjectId id,
         BsonDocument finalFields,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? workerId = null)
     {
-        var filter = Builders<BsonDocument>.Filter.Eq("_id", id);
-        var update = new BsonDocument("$set", finalFields);
-        await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            BuildWorkerOwnershipFilter(workerId));
+        var update = Builders<BsonDocument>.Update.Combine(
+            new BsonDocument("$set", finalFields),
+            Builders<BsonDocument>.Update.Unset("retry_after"));
+        var result = await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result.MatchedCount > 0;
+    }
+
+    private static FilterDefinition<BsonDocument> BuildWorkerOwnershipFilter(string? workerId)
+    {
+        if (string.IsNullOrWhiteSpace(workerId))
+        {
+            return Builders<BsonDocument>.Filter.Empty;
+        }
+
+        // A document without an owner is allowed to acquire one exactly once;
+        // once claimed, all later writes must come from that same worker.
+        var ownerFilters = new List<FilterDefinition<BsonDocument>>
+        {
+            Builders<BsonDocument>.Filter.Eq("worker_id", workerId),
+            Builders<BsonDocument>.Filter.Exists("worker_id", false),
+            Builders<BsonDocument>.Filter.Eq("worker_id", string.Empty)
+        };
+
+        // Older documents may have persisted the worker id as an integer.
+        if (int.TryParse(workerId, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var numericWorkerId))
+        {
+            ownerFilters.Add(Builders<BsonDocument>.Filter.Eq("worker_id", numericWorkerId));
+        }
+
+        return Builders<BsonDocument>.Filter.Or(ownerFilters);
+    }
+
+    private static FilterDefinition<BsonDocument> BuildRetryReadyFilter(long now)
+    {
+        return Builders<BsonDocument>.Filter.Or(
+            Builders<BsonDocument>.Filter.Exists("retry_after", false),
+            Builders<BsonDocument>.Filter.Lte("retry_after", now));
     }
 
     /// <summary>
-    /// Obtém todos os arquivos com upload ativo ou pendente no MongoDB (uploading, queued, staging ou com partes parciais não concluídas).
+    /// Obtém todos os arquivos com upload ativo ou pendente no MongoDB (uploading, queued, staging, falhas prontas para retry ou com partes parciais não concluídas).
     /// </summary>
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <returns>Lista de documentos BSON ordenados por mtime/ctime/progresso.</returns>
@@ -957,10 +1060,14 @@ public sealed class NebulaMongoContext : IDisposable
     {
         try
         {
+            var retryReady = BuildRetryReadyFilter(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             var filter = Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Eq("type", "file"),
                 Builders<BsonDocument>.Filter.Or(
                     Builders<BsonDocument>.Filter.In("status", new[] { "uploading", "queued", "staging" }),
+                    Builders<BsonDocument>.Filter.And(
+                        Builders<BsonDocument>.Filter.Eq("status", "failed"),
+                        retryReady),
                     Builders<BsonDocument>.Filter.And(
                         Builders<BsonDocument>.Filter.Exists("parts"),
                         Builders<BsonDocument>.Filter.Ne("parts", new BsonArray()),
@@ -975,6 +1082,10 @@ public sealed class NebulaMongoContext : IDisposable
 
             using var cursor = await _filesCollection.FindAsync(filter, new FindOptions<BsonDocument> { Sort = sort }, cancellationToken).ConfigureAwait(false);
             return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -992,12 +1103,43 @@ public sealed class NebulaMongoContext : IDisposable
     /// <returns>Caminho absoluto do arquivo no disco ou null se não encontrado.</returns>
     public async Task<string?> ResolveLocalPathAsync(BsonDocument doc, IEnumerable<string> stagingDirs, CancellationToken cancellationToken = default)
     {
+        var validStageRoots = new List<string>();
+        foreach (var stageRoot in stagingDirs)
+        {
+            if (string.IsNullOrWhiteSpace(stageRoot))
+            {
+                continue;
+            }
+
+            try
+            {
+                var fullRoot = Path.GetFullPath(stageRoot);
+                if (Directory.Exists(fullRoot) && !validStageRoots.Contains(fullRoot, StringComparer.OrdinalIgnoreCase))
+                {
+                    validStageRoots.Add(fullRoot);
+                }
+            }
+            catch (ArgumentException)
+            {
+                _logger.LogWarning("[NEBULA-MONGO] Diretório de staging inválido ignorado: '{Path}'.", stageRoot);
+            }
+            catch (IOException)
+            {
+                _logger.LogWarning("[NEBULA-MONGO] Diretório de staging inacessível ignorado: '{Path}'.", stageRoot);
+            }
+        }
+
+        if (validStageRoots.Count == 0)
+        {
+            return null;
+        }
+
         if (doc.TryGetValue("local_path", out var lpVal) && lpVal.IsString && !string.IsNullOrWhiteSpace(lpVal.AsString))
         {
             var lp = lpVal.AsString;
-            if (File.Exists(lp))
+            if (File.Exists(lp) && validStageRoots.Any(root => IsPathWithinRoot(lp, root)))
             {
-                return lp;
+                return Path.GetFullPath(lp);
             }
         }
 
@@ -1007,49 +1149,44 @@ public sealed class NebulaMongoContext : IDisposable
             return null;
         }
 
-        foreach (var stageRoot in stagingDirs)
+        var exactFileName = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(exactFileName) || !string.Equals(exactFileName, fileName, StringComparison.Ordinal))
         {
-            if (string.IsNullOrWhiteSpace(stageRoot) || !Directory.Exists(stageRoot))
-            {
-                continue;
-            }
+            return null;
+        }
 
-            var candidates = new List<string>
+        foreach (var stageRoot in validStageRoots)
+        {
+            var candidate = Path.Combine(stageRoot, exactFileName);
+            if (File.Exists(candidate) && IsPathWithinRoot(candidate, stageRoot))
             {
-                Path.Combine(stageRoot, fileName)
-            };
-
-            foreach (var cand in candidates)
-            {
-                if (File.Exists(cand))
+                var fullCand = Path.GetFullPath(candidate);
+                try
                 {
-                    var fullCand = Path.GetFullPath(cand);
-                    try
+                    if (doc.TryGetValue("_id", out var idVal))
                     {
-                        if (doc.TryGetValue("_id", out var idVal))
+                        var oid = idVal.IsObjectId ? idVal.AsObjectId : (ObjectId.TryParse(idVal.ToString(), out var pOid) ? pOid : ObjectId.Empty);
+                        if (oid != ObjectId.Empty)
                         {
-                            var oid = idVal.IsObjectId ? idVal.AsObjectId : (ObjectId.TryParse(idVal.ToString(), out var pOid) ? pOid : ObjectId.Empty);
-                            if (oid != ObjectId.Empty)
-                            {
-                                var update = Builders<BsonDocument>.Update.Set("local_path", fullCand);
-                                await _filesCollection.UpdateOneAsync(Builders<BsonDocument>.Filter.Eq("_id", oid), update, cancellationToken: cancellationToken).ConfigureAwait(false);
-                            }
+                            var update = Builders<BsonDocument>.Update.Set("local_path", fullCand);
+                            await _filesCollection.UpdateOneAsync(Builders<BsonDocument>.Filter.Eq("_id", oid), update, cancellationToken: cancellationToken).ConfigureAwait(false);
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "[NEBULA-MONGO] Aviso ao atualizar local_path de '{File}'.", fileName);
-                    }
-
-                    return fullCand;
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[NEBULA-MONGO] Aviso ao atualizar local_path de '{File}'.", fileName);
+                }
+
+                return fullCand;
             }
 
             try
             {
-                var matches = Directory.EnumerateFiles(stageRoot, fileName, SearchOption.AllDirectories);
+                var matches = Directory.EnumerateFiles(stageRoot, "*", SearchOption.AllDirectories)
+                    .Where(path => string.Equals(Path.GetFileName(path), exactFileName, StringComparison.OrdinalIgnoreCase));
                 var match = matches.FirstOrDefault();
-                if (match != null && File.Exists(match))
+                if (match != null && File.Exists(match) && IsPathWithinRoot(match, stageRoot))
                 {
                     var fullMatch = Path.GetFullPath(match);
                     try
@@ -1081,6 +1218,24 @@ public sealed class NebulaMongoContext : IDisposable
         return null;
     }
 
+    internal static bool IsPathWithinRoot(string path, string root)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Reivindica atomicamente um arquivo para processamento por um worker de upload.
     /// </summary>
@@ -1091,11 +1246,15 @@ public sealed class NebulaMongoContext : IDisposable
     /// <returns>Documento atualizado se a reivindicação teve sucesso, ou null.</returns>
     public async Task<BsonDocument?> ClaimFileForUploadAsync(ObjectId id, int workerId, int botIndex, CancellationToken cancellationToken = default)
     {
-        var staleBefore = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 3600;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var staleBefore = now - 3600;
         var filter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Eq("_id", id),
             Builders<BsonDocument>.Filter.Or(
                 Builders<BsonDocument>.Filter.In("status", new[] { "queued", "staging" }),
+                Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.Eq("status", "failed"),
+                    BuildRetryReadyFilter(now)),
                 Builders<BsonDocument>.Filter.And(
                     Builders<BsonDocument>.Filter.Eq("status", "uploading"),
                     Builders<BsonDocument>.Filter.Lt("modified_at", staleBefore))));
@@ -1125,8 +1284,7 @@ public sealed class NebulaMongoContext : IDisposable
     {
         var validExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".webm",
-            ".nfo", ".jpg", ".jpeg", ".png", ".webp"
+            ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".webm"
         };
 
         foreach (var stageRoot in stagingDirs)
@@ -1144,7 +1302,7 @@ public sealed class NebulaMongoContext : IDisposable
                     cancellationToken.ThrowIfCancellationRequested();
 
                     var ext = Path.GetExtension(file);
-                    if (!validExts.Contains(ext))
+                    if (!validExts.Contains(ext) && !NebulaMetadataExportService.IsMetadataSidecarPath(file))
                     {
                         continue;
                     }
@@ -1391,6 +1549,63 @@ public sealed class NebulaMongoContext : IDisposable
         }
 
         return completed;
+    }
+
+    /// <summary>
+    /// Retorna os caminhos locais exatos dos arquivos concluídos no MongoDB.
+    /// Registros sem <c>local_path</c> são ignorados para evitar apagar um arquivo
+    /// com o mesmo nome em outro diretório.
+    /// </summary>
+    public async Task<HashSet<string>> GetCompletedTelegramLocalPathsAsync(CancellationToken cancellationToken = default)
+    {
+        var completedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var filter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("type", "file"),
+                Builders<BsonDocument>.Filter.Eq("status", "completed"),
+                Builders<BsonDocument>.Filter.Exists("local_path", true));
+
+            var projection = Builders<BsonDocument>.Projection.Include("local_path");
+            using var cursor = await _filesCollection.FindAsync(
+                filter,
+                new FindOptions<BsonDocument> { Projection = projection },
+                cancellationToken).ConfigureAwait(false);
+            var docs = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+
+            foreach (var doc in docs)
+            {
+                if (!doc.TryGetValue("local_path", out var localPathValue) || !localPathValue.IsString)
+                {
+                    continue;
+                }
+
+                var localPath = localPathValue.AsString;
+                if (string.IsNullOrWhiteSpace(localPath))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    completedPaths.Add(Path.GetFullPath(localPath));
+                }
+                catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+                {
+                    _logger.LogDebug(ex, "[NEBULA-MONGO] Ignorando local_path inválido durante a limpeza: {Path}", localPath);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-MONGO] Erro ao listar caminhos concluídos para limpeza.");
+        }
+
+        return completedPaths;
     }
 
     /// <summary>

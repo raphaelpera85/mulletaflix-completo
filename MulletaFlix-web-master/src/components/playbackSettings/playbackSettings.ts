@@ -29,7 +29,7 @@ function fillSkipLengths(select: any): void {
             value: option * 1000
         };
     }).map(o => {
-        return `<option value="${o.value}">${o.name}</option>`;
+        return `<option value="${escapeHTML(String(o.value))}">${escapeHTML(o.name)}</option>`;
     }).join('');
 }
 
@@ -41,7 +41,7 @@ function populateLanguages(select: any, languages: any[]): void {
 
     for (let i = 0, length = languages.length; i < length; i++) {
         const culture = languages[i];
-        html += `<option value='${culture.ThreeLetterISOLanguageName}'>${culture.DisplayName}</option>`;
+        html += `<option value='${escapeHTML(culture.ThreeLetterISOLanguageName || '')}'>${escapeHTML(culture.DisplayName || '')}</option>`;
     }
 
     select.innerHTML = html;
@@ -52,7 +52,7 @@ function populateMediaSegments(container: any, userSettings: any): void {
     const actionOptions = Object.values(MediaSegmentAction)
         .map(action => {
             const actionLabel = globalize.translate(`MediaSegmentAction.${action}`);
-            return `<option value='${action}'>${actionLabel}</option>`;
+            return `<option value='${escapeHTML(action)}'>${escapeHTML(actionLabel)}</option>`;
         })
         .join('');
 
@@ -67,7 +67,7 @@ function populateMediaSegments(container: any, userSettings: any): void {
         const id = getId(segmentType);
         selectedValues[id] = getMediaSegmentAction(userSettings, segmentType);
         return `<div class="selectContainer">
-<select is="emby-select" id="${id}" class="segmentTypeAction" label="${segmentTypeLabel}">
+<select is="emby-select" id="${escapeHTML(id)}" class="segmentTypeAction" label="${escapeHTML(segmentTypeLabel)}">
     ${actionOptions}
 </select>
 </div>`;
@@ -89,11 +89,11 @@ function fillQuality(select: any, isInNetwork: boolean, mediatype: string, maxVi
     }) : qualityoptions.getVideoQualityOptions({
         currentMaxBitrate: appSettings.maxStreamingBitrate(isInNetwork, mediatype),
         isAutomaticBitrateEnabled: appSettings.enableAutomaticBitrateDetection(isInNetwork, mediatype),
-        enableAuto: true,
+        enableAuto: true
     } as any);
 
     select.innerHTML = options.map((i: any) => {
-        return `<option value="${i.bitrate || ''}">${i.name}</option>`;
+        return `<option value="${escapeHTML(String(i.bitrate || ''))}">${escapeHTML(String(i.name || ''))}</option>`;
     }).join('');
 }
 
@@ -111,11 +111,11 @@ function fillChromecastQuality(select: any, maxVideoWidth?: string): void {
     const options = qualityoptions.getVideoQualityOptions({
         currentMaxBitrate: appSettings.maxChromecastBitrate(),
         isAutomaticBitrateEnabled: !appSettings.maxChromecastBitrate(),
-        enableAuto: true,
+        enableAuto: true
     } as any);
 
     select.innerHTML = options.map((i: any) => {
-        return `<option value="${i.bitrate || ''}">${i.name}</option>`;
+        return `<option value="${escapeHTML(String(i.bitrate || ''))}">${escapeHTML(String(i.name || ''))}</option>`;
     }).join('');
 
     select.value = appSettings.maxChromecastBitrate() || '';

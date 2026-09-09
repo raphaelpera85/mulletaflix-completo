@@ -230,8 +230,8 @@ function populatePlaylists(editorOptions: PlaylistEditorOptions, panel: DialogEl
             html += playlists.map(({ item, permissions }) => {
                 if (!permissions?.CanEdit) return '';
 
-                return `<option value="${item.Id}">${escapeHtml(item.Name)}</option>`;
-            });
+                return `<option value="${escapeHtml(item.Id)}">${escapeHtml(item.Name)}</option>`;
+            }).join('');
 
             select.innerHTML = html;
 
@@ -436,4 +436,3 @@ export class PlaylistEditor {
 }
 
 export default PlaylistEditor;
-

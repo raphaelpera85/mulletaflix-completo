@@ -59,7 +59,7 @@ export const Component = () => {
         isError: isConfigError
     } = useNamedConfiguration<XbmcMetadataOptions>(CONFIG_KEY);
     const {
-        data: users,
+        data: users
     } = useUsers();
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;

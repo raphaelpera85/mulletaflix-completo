@@ -5,40 +5,40 @@ import type { AxiosRequestConfig } from 'axios';
 import { useApi } from 'hooks/useApi';
 
 interface ActionLogDto {
-  id: number;
-  actionType: string;
-  entityType: string;
-  entityId: string | null;
-  userId: string;
-  username: string;
-  dateCreated: string;
-  details: string | null;
-  oldValues: string | null;
-  newValues: string | null;
-  ipAddress: string | null;
-  userAgent: string | null;
-  isSuccess: boolean;
-  errorMessage: string | null;
-  category: string;
+    id: number;
+    actionType: string;
+    entityType: string;
+    entityId: string | null;
+    userId: string;
+    username: string;
+    dateCreated: string;
+    details: string | null;
+    oldValues: string | null;
+    newValues: string | null;
+    ipAddress: string | null;
+    userAgent: string | null;
+    isSuccess: boolean;
+    errorMessage: string | null;
+    category: string;
 }
 
 interface ActionLogQuery {
-  startIndex?: number;
-  limit?: number;
-  minDate?: string;
-  maxDate?: string;
-  actionType?: string;
-  entityType?: string;
-  userId?: string;
-  username?: string;
-  isSuccess?: boolean;
-  category?: string;
+    startIndex?: number;
+    limit?: number;
+    minDate?: string;
+    maxDate?: string;
+    actionType?: string;
+    entityType?: string;
+    userId?: string;
+    username?: string;
+    isSuccess?: boolean;
+    category?: string;
 }
 
 interface ActionLogQueryResult {
-  items: ActionLogDto[];
-  totalRecordCount: number;
-  startIndex: number;
+    items: ActionLogDto[];
+    totalRecordCount: number;
+    startIndex: number;
 }
 
 const fetchActionLogs = async (
@@ -72,7 +72,7 @@ export const getActionLogsQuery = (
     query?: ActionLogQuery
 ) => queryOptions({
     queryKey: ['ActionLog', 'Entries', api?.basePath, JSON.stringify(query ?? {})],
-    queryFn: ({ signal }) => fetchActionLogs(api!, query ?? {}, { signal, headers: { 'Cache-Control': 'no-cache' }}),
+    queryFn: ({ signal }) => fetchActionLogs(api!, query ?? {}, { signal, headers: { 'Cache-Control': 'no-cache' } }),
     staleTime: 10000, // 10 seconds
     enabled: !!api
 });

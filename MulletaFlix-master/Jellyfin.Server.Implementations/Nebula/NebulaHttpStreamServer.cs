@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -24,8 +25,10 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     private readonly NebulaTelegramPool _telegramPool;
     private readonly string _host;
     private readonly int _port;
+    private readonly string _streamToken;
     private readonly ILogger<NebulaHttpStreamServer> _logger;
     private readonly CancellationTokenSource _cts = new();
+    private readonly object _lifecycleLock = new();
 
     private HttpListener? _listener;
     private Task? _listenTask;
@@ -39,13 +42,15 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         NebulaTelegramPool telegramPool,
         string host,
         int port,
-        ILogger<NebulaHttpStreamServer> logger)
+        ILogger<NebulaHttpStreamServer> logger,
+        string streamToken = "")
     {
         _mongoContext = mongoContext ?? throw new ArgumentNullException(nameof(mongoContext));
         _telegramPool = telegramPool ?? throw new ArgumentNullException(nameof(telegramPool));
         _host = string.IsNullOrWhiteSpace(host) ? "127.0.0.1" : host;
         _port = port > 0 ? port : 2123;
         _logger = logger;
+        _streamToken = streamToken ?? string.Empty;
     }
 
     /// <summary>
@@ -53,41 +58,58 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     /// </summary>
     public void Start()
     {
-        if (_listener != null && _listener.IsListening)
+        lock (_lifecycleLock)
         {
-            return;
-        }
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
-        try
-        {
-            _listener = new HttpListener();
-            // 0.0.0.0 is a bind address, not a valid Host header for HttpListener.
-            // Use the HTTP.sys wildcard so generated STRM URLs can be consumed from LAN clients.
-            var prefixHost = _host is "0.0.0.0" or "*" or "+" ? "+" : _host;
-            var prefix = $"http://{prefixHost}:{_port}/";
-            _listener.Prefixes.Add(prefix);
-
-            if (_host == "127.0.0.1" || _host == "localhost")
+            if (_listener != null && _listener.IsListening)
             {
-                // Adiciona localhost como alias se não estiver presente
-                var altPrefix = _host == "127.0.0.1" ? $"http://localhost:{_port}/" : $"http://127.0.0.1:{_port}/";
+                return;
+            }
+
+            HttpListener? listener = null;
+            try
+            {
+                listener = new HttpListener();
+                // 0.0.0.0 is a bind address, not a valid Host header for HttpListener.
+                // Use the HTTP.sys wildcard so generated STRM URLs can be consumed from LAN clients.
+                var prefixHost = _host is "0.0.0.0" or "*" or "+" ? "+" : _host;
+                var prefix = $"http://{prefixHost}:{_port}/";
+                listener.Prefixes.Add(prefix);
+
+                if (_host == "127.0.0.1" || _host == "localhost")
+                {
+                    // Adiciona localhost como alias se não estiver presente
+                    var altPrefix = _host == "127.0.0.1" ? $"http://localhost:{_port}/" : $"http://127.0.0.1:{_port}/";
+                    try
+                    {
+                        listener.Prefixes.Add(altPrefix);
+                    }
+                    catch
+                    {
+                        // Ignora se não puder adicionar prefixo alternativo
+                    }
+                }
+
+                listener.Start();
+                _listener = listener;
+                _logger.LogInformation("[NEBULA-HTTP] Servidor HTTP de streaming iniciado em http://{Host}:{Port}/", _host, _port);
+                _listenTask = ListenLoopAsync(_cts.Token);
+            }
+            catch (Exception ex)
+            {
                 try
                 {
-                    _listener.Prefixes.Add(altPrefix);
+                    listener?.Close();
                 }
                 catch
                 {
-                    // Ignora se não puder adicionar prefixo alternativo
                 }
-            }
 
-            _listener.Start();
-            _logger.LogInformation("[NEBULA-HTTP] Servidor HTTP de streaming iniciado em http://{Host}:{Port}/", _host, _port);
-            _listenTask = Task.Run(() => ListenLoopAsync(_cts.Token), _cts.Token);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[NEBULA-HTTP] Não foi possível iniciar o listener HTTP em {Host}:{Port}", _host, _port);
+                _listener = null;
+                _listenTask = null;
+                _logger.LogWarning(ex, "[NEBULA-HTTP] Não foi possível iniciar o listener HTTP em {Host}:{Port}", _host, _port);
+            }
         }
     }
 
@@ -96,14 +118,19 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     /// </summary>
     public void Stop()
     {
-        _cts.Cancel();
-        try
+        lock (_lifecycleLock)
         {
-            _listener?.Stop();
-            _listener?.Close();
-        }
-        catch
-        {
+            _cts.Cancel();
+            try
+            {
+                _listener?.Stop();
+                _listener?.Close();
+            }
+            catch
+            {
+            }
+
+            _listener = null;
         }
     }
 
@@ -114,7 +141,10 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             try
             {
                 var context = await _listener.GetContextAsync().ConfigureAwait(false);
-                _ = Task.Run(() => HandleRequestAsync(context, cancellationToken), cancellationToken);
+                // HandleRequestAsync already catches request-level failures. Starting it directly
+                // avoids an unobserved Task.Run wrapper and still allows concurrent requests because
+                // the method yields at its first asynchronous operation.
+                _ = HandleRequestAsync(context, cancellationToken);
             }
             catch (HttpListenerException) when (cancellationToken.IsCancellationRequested)
             {
@@ -143,6 +173,14 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         {
             var path = request.Url?.AbsolutePath.TrimEnd('/') ?? string.Empty;
             var isHead = request.HttpMethod.Equals("HEAD", StringComparison.OrdinalIgnoreCase);
+
+            if (!IsAuthorized(request))
+            {
+                response.StatusCode = (int)HttpStatusCode.Unauthorized;
+                response.Headers["WWW-Authenticate"] = "Bearer realm=nebula-stream";
+                response.Close();
+                return;
+            }
 
             if (path.Equals("/stream", StringComparison.OrdinalIgnoreCase) || path.Equals("/transcode", StringComparison.OrdinalIgnoreCase))
             {
@@ -190,6 +228,34 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             {
             }
         }
+    }
+
+    private bool IsAuthorized(HttpListenerRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(_streamToken))
+        {
+            return false;
+        }
+
+        var providedToken = request.QueryString["token"];
+        if (string.IsNullOrWhiteSpace(providedToken))
+        {
+            return false;
+        }
+
+        return AreTokensEqual(_streamToken, providedToken);
+    }
+
+    private static bool AreTokensEqual(string expectedToken, string providedToken)
+    {
+        if (string.IsNullOrWhiteSpace(expectedToken) || string.IsNullOrWhiteSpace(providedToken))
+        {
+            return false;
+        }
+
+        var expected = Encoding.UTF8.GetBytes(expectedToken);
+        var provided = Encoding.UTF8.GetBytes(providedToken);
+        return CryptographicOperations.FixedTimeEquals(expected, provided);
     }
 
     private async Task HandleStreamRequestAsync(HttpListenerContext context, bool isHead, CancellationToken cancellationToken)
@@ -290,41 +356,11 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
 
         var contentType = GuessContentType(fileName);
         response.Headers.Set("Accept-Ranges", "bytes");
-        response.Headers.Set("Content-Disposition", $"inline; filename=\"{Uri.EscapeDataString(fileName)}\"");
+        response.Headers.Set("Content-Disposition", BuildContentDisposition(fileName));
         response.ContentType = contentType;
 
         var rangeHeader = request.Headers["Range"];
-        long start = 0;
-        long end = totalSize - 1;
-        var isRange = false;
-
-        if (!string.IsNullOrWhiteSpace(rangeHeader) && rangeHeader.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
-        {
-            var rangeValue = rangeHeader[6..].Trim();
-            var hyphenIdx = rangeValue.IndexOf('-', StringComparison.Ordinal);
-            if (hyphenIdx >= 0)
-            {
-                var startStr = rangeValue[..hyphenIdx].Trim();
-                var endStr = rangeValue[(hyphenIdx + 1)..].Trim();
-
-                if (long.TryParse(startStr, out var parsedStart))
-                {
-                    start = parsedStart;
-                    if (long.TryParse(endStr, out var parsedEnd))
-                    {
-                        end = Math.Min(parsedEnd, totalSize - 1);
-                    }
-                    isRange = true;
-                }
-                else if (long.TryParse(endStr, out var suffixLength))
-                {
-                    start = Math.Max(0, totalSize - suffixLength);
-                    isRange = true;
-                }
-            }
-        }
-
-        if (start > end || start >= totalSize)
+        if (!TryParseRange(rangeHeader, totalSize, out var start, out var end, out var isRange))
         {
             response.StatusCode = (int)HttpStatusCode.RequestedRangeNotSatisfiable;
             response.Headers.Set("Content-Range", $"bytes */{totalSize}");
@@ -373,12 +409,91 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         response.Close();
     }
 
+    private static bool TryParseRange(string? rangeHeader, long totalSize, out long start, out long end, out bool isRange)
+    {
+        start = 0;
+        end = totalSize - 1;
+        isRange = false;
+
+        if (string.IsNullOrWhiteSpace(rangeHeader))
+        {
+            return totalSize > 0;
+        }
+
+        if (totalSize <= 0 || !rangeHeader.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var rangeValue = rangeHeader[6..].Trim();
+        if (rangeValue.Length == 0 || rangeValue.Contains(',', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var hyphenIndex = rangeValue.IndexOf('-', StringComparison.Ordinal);
+        if (hyphenIndex < 0 || rangeValue.IndexOf('-', hyphenIndex + 1) >= 0)
+        {
+            return false;
+        }
+
+        var startText = rangeValue[..hyphenIndex].Trim();
+        var endText = rangeValue[(hyphenIndex + 1)..].Trim();
+        if (startText.Length == 0)
+        {
+            if (!long.TryParse(endText, out var suffixLength) || suffixLength <= 0)
+            {
+                return false;
+            }
+
+            start = suffixLength >= totalSize ? 0 : totalSize - suffixLength;
+            isRange = true;
+            return true;
+        }
+
+        if (!long.TryParse(startText, out start) || start < 0 || start >= totalSize)
+        {
+            return false;
+        }
+
+        if (endText.Length > 0)
+        {
+            if (!long.TryParse(endText, out end) || end < start)
+            {
+                return false;
+            }
+
+            end = Math.Min(end, totalSize - 1);
+        }
+
+        isRange = true;
+        return true;
+    }
+
+    private static string BuildContentDisposition(string fileName)
+    {
+        var safeName = new string((fileName ?? string.Empty)
+            .Where(character => character >= ' ' && character != '"' && character != '\\' && character != '\u007f')
+            .ToArray())
+            .Trim();
+
+        if (string.IsNullOrWhiteSpace(safeName))
+        {
+            safeName = "media.bin";
+        }
+
+        return $"inline; filename=\"{safeName}\"; filename*=UTF-8''{Uri.EscapeDataString(safeName)}";
+    }
+
     private static async Task HandlePlayRequestAsync(HttpListenerContext context, bool isHead)
     {
         var request = context.Request;
         var response = context.Response;
 
         var fileId = request.QueryString["id"] ?? string.Empty;
+        var token = request.QueryString["token"] ?? string.Empty;
+        var encodedToken = WebUtility.UrlEncode(token);
+        var encodedFileId = WebUtility.UrlEncode(fileId);
         var html = $@"<!DOCTYPE html>
 <html lang=""pt-BR"">
 <head>
@@ -392,7 +507,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
 </head>
 <body>
     <video controls autoplay playsinline>
-        <source src=""/stream?id={WebUtility.UrlEncode(fileId)}"">
+        <source src=""/stream?id={encodedFileId}&amp;token={encodedToken}"">
         Seu navegador não suporta a tag de vídeo.
     </video>
 </body>
@@ -402,6 +517,8 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         response.StatusCode = (int)HttpStatusCode.OK;
         response.ContentType = "text/html; charset=utf-8";
         response.ContentLength64 = bytes.Length;
+        response.Headers["Cache-Control"] = "no-store, private";
+        response.Headers["Referrer-Policy"] = "no-referrer";
 
         if (!isHead)
         {

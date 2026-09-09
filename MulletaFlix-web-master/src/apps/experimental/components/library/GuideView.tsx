@@ -1,6 +1,6 @@
 import React, { memo, FC, useCallback, useEffect, useRef } from 'react';
 import Box from '@mui/material/Box';
-import Guide from 'components/guide/guide';
+import { createGuide, type GuideInstance } from 'components/guide/guide';
 import 'material-design-icons-iconfont';
 import 'elements/emby-programcell/emby-programcell';
 import 'elements/emby-button/emby-button';
@@ -13,12 +13,11 @@ import 'styles/scrollstyles.scss';
 import 'styles/flexstyles.scss';
 
 const GuideView: FC = () => {
-    const guideInstance = useRef<any>();
+    const guideInstance = useRef<GuideInstance | null>(null);
     const tvGuideContainerRef = useRef<HTMLDivElement>(null);
-    const GuideCtor = Guide as any;
 
     const initGuide = useCallback((element: HTMLDivElement) => {
-        guideInstance.current = new GuideCtor({
+        guideInstance.current = createGuide({
             element: element,
             serverId: window.ApiClient.serverId()
         });

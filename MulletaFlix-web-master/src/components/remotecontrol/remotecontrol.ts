@@ -11,7 +11,7 @@ import { clearBackdrop, setBackdrops } from '../backdrop/backdrop';
 import listView from '../listview/listview';
 import imageLoader from '../images/imageLoader';
 import { playbackManager } from '../playback/playbackmanager';
-import Events, { type Event as EventsEvent } from '../../utils/events.ts';
+import Events from '../../utils/events.ts';
 import { appHost } from '../apphost';
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -73,41 +73,6 @@ interface PlaybackPlayer {
     getVolume(): number;
 }
 
-interface PlaybackManagerContract {
-    getAudioStreamIndex(player: PlaybackPlayer): number | null;
-    audioTracks(player: PlaybackPlayer): Array<{ DisplayTitle: string; Index: number }>;
-    setAudioStreamIndex(index: number, player: PlaybackPlayer): void;
-    getSubtitleStreamIndex(player: PlaybackPlayer): number | null;
-    subtitleTracks(player: PlaybackPlayer): Array<{ DisplayTitle: string; Index: number }>;
-    setSubtitleStreamIndex(index: number, player: PlaybackPlayer): void;
-    getRepeatMode(): 'RepeatAll' | 'RepeatOne' | 'RepeatNone';
-    setRepeatMode(mode: 'RepeatAll' | 'RepeatOne' | 'RepeatNone'): void;
-    getPlayerInfo(): { supportedCommands: string[] };
-    isPlayingVideo(): boolean;
-    isPlayingAudio(player: PlaybackPlayer): boolean;
-    getQueueShuffleMode(player: PlaybackPlayer | undefined): 'Shuffle' | 'Sorted';
-    getPlaylist(player: PlaybackPlayer): Promise<Array<{ Id: string; ServerId?: string }>>;
-    getCurrentPlaylistItemId(player: PlaybackPlayer): string | null;
-    paused(): boolean;
-    duration(player: PlaybackPlayer): number;
-    currentTime(player: PlaybackPlayer): number;
-    sendCommand(command: { Name: string; Arguments?: Record<string, string> }, player: PlaybackPlayer): void;
-    toggleFullscreen(player: PlaybackPlayer): void;
-    stop(player: PlaybackPlayer): void;
-    playPause(player: PlaybackPlayer): void;
-    nextTrack(player: PlaybackPlayer): void;
-    rewind(player: PlaybackPlayer): void;
-    fastForward(player: PlaybackPlayer): void;
-    toggleQueueShuffleMode(player: PlaybackPlayer): void;
-    seekPercent(percent: number, player: PlaybackPlayer): void;
-    setVolume(volume: number, player: PlaybackPlayer): void;
-    toggleMute(player: PlaybackPlayer): void;
-    removeFromPlaylist(ids: string[], player: PlaybackPlayer): void;
-    movePlaylistItem(id: string, newIndex: number, player: PlaybackPlayer): void;
-    getCurrentPlayer(): PlaybackPlayer | null;
-    getPlayerState(player: PlaybackPlayer): PlaybackState;
-}
-
 interface RemoteControlModule {
     init(ownerView: HTMLElement, context: HTMLElement | null): void;
     onShow(): void;
@@ -130,8 +95,6 @@ declare const ApiClient: {
 
 let showMuteButton = true;
 let showVolumeSlider = true;
-
-const playback = playbackManager as PlaybackManagerContract;
 
 function requiredElement<T extends Element>(root: ParentNode, selector: string): T {
     const element = root.querySelector<T>(selector);
@@ -159,15 +122,15 @@ function showAudioMenu(context: HTMLElement, player: PlaybackPlayer, button: HTM
         return menuItem;
     });
 
-    import('../actionSheet/actionSheet').then((actionsheet) => {
-        actionsheet.show({
+    import('../actionSheet/actionSheet')
+        .then((actionsheet) => actionsheet.show({
             items: menuItems,
             positionTo: button,
             callback: function (id) {
                 playbackManager.setAudioStreamIndex(parseInt(id, 10), player);
             }
-        });
-    });
+        }))
+        .catch((error: unknown) => console.error('Failed to open audio menu', error));
 }
 
 function showSubtitleMenu(context: HTMLElement, player: PlaybackPlayer, button: HTMLElement): void {
@@ -191,15 +154,15 @@ function showSubtitleMenu(context: HTMLElement, player: PlaybackPlayer, button: 
         selected: currentIndex == null
     });
 
-    import('../actionSheet/actionSheet').then((actionsheet) => {
-        actionsheet.show({
+    import('../actionSheet/actionSheet')
+        .then((actionsheet) => actionsheet.show({
             items: menuItems,
             positionTo: button,
             callback: function (id) {
                 playbackManager.setSubtitleStreamIndex(parseInt(id, 10), player);
             }
-        });
-    });
+        }))
+        .catch((error: unknown) => console.error('Failed to open subtitle menu', error));
 }
 
 function updateNowPlayingInfo(context: HTMLElement, state: PlaybackState, serverId?: string): void {
@@ -215,7 +178,7 @@ function updateNowPlayingInfo(context: HTMLElement, state: PlaybackState, server
             if (item.Artists != null) {
                 if (item.ArtistItems != null) {
                     for (const artist of item.ArtistItems) {
-                        artistsSeries += `<a class="button-link" is="emby-linkbutton" href="#/details?id=${artist.Id}&serverId=${nowPlayingServerId}">${escapeHtml(artist.Name)}</a>`;
+                        artistsSeries += `<a class="button-link" is="emby-linkbutton" href="#/details?id=${escapeHtml(artist.Id)}&serverId=${escapeHtml(nowPlayingServerId)}">${escapeHtml(artist.Name)}</a>`;
                         if (artist !== item.ArtistItems.slice(-1)[0]) {
                             artistsSeries += ', ';
                         }
@@ -233,7 +196,7 @@ function updateNowPlayingInfo(context: HTMLElement, state: PlaybackState, server
                 }
             }
             if (item.Album != null) {
-                albumName = '<a class="button-link" is="emby-linkbutton" href="#/details?id=' + item.AlbumId + `&serverId=${nowPlayingServerId}">` + escapeHtml(item.Album) + '</a>';
+                albumName = '<a class="button-link" is="emby-linkbutton" href="#/details?id=' + escapeHtml(item.AlbumId) + `&serverId=${escapeHtml(nowPlayingServerId)}">` + escapeHtml(item.Album) + '</a>';
             }
             requiredElement<HTMLElement>(context, '.nowPlayingAlbum').innerHTML = albumName;
             requiredElement<HTMLElement>(context, '.nowPlayingArtist').innerHTML = artistsSeries;
@@ -241,19 +204,19 @@ function updateNowPlayingInfo(context: HTMLElement, state: PlaybackState, server
         } else if (item.Type == 'Episode') {
             if (item.SeasonName != null) {
                 const seasonName = item.SeasonName;
-                requiredElement<HTMLElement>(context, '.nowPlayingSeason').innerHTML = '<a class="button-link" is="emby-linkbutton" href="#/details?id=' + item.SeasonId + `&serverId=${nowPlayingServerId}">${escapeHtml(seasonName)}</a>`;
+                requiredElement<HTMLElement>(context, '.nowPlayingSeason').innerHTML = '<a class="button-link" is="emby-linkbutton" href="#/details?id=' + escapeHtml(item.SeasonId) + `&serverId=${escapeHtml(nowPlayingServerId)}">${escapeHtml(seasonName)}</a>`;
             }
             if (item.SeriesName != null) {
                 const seriesName = item.SeriesName;
                 if (item.SeriesId != null) {
-                    requiredElement<HTMLElement>(context, '.nowPlayingSerie').innerHTML = '<a class="button-link" is="emby-linkbutton" href="#/details?id=' + item.SeriesId + `&serverId=${nowPlayingServerId}">${escapeHtml(seriesName)}</a>`;
+                    requiredElement<HTMLElement>(context, '.nowPlayingSerie').innerHTML = '<a class="button-link" is="emby-linkbutton" href="#/details?id=' + escapeHtml(item.SeriesId) + `&serverId=${escapeHtml(nowPlayingServerId)}">${escapeHtml(seriesName)}</a>`;
                 } else {
                     requiredElement<HTMLElement>(context, '.nowPlayingSerie').innerText = seriesName;
                 }
             }
             requiredElement<HTMLElement>(context, '.nowPlayingEpisode').innerText = item.Name || '';
         } else {
-            requiredElement<HTMLElement>(context, '.nowPlayingPageTitle').innerHTML = displayName;
+            requiredElement<HTMLElement>(context, '.nowPlayingPageTitle').innerText = displayName;
         }
 
         if (displayName.length > 0 && item.Type != 'Audio' && item.Type != 'Episode') {
@@ -285,7 +248,7 @@ function updateNowPlayingInfo(context: HTMLElement, state: PlaybackState, server
         };
         const apiClient = ServerConnections.getApiClient(item.ServerId);
         apiClient.getItem(apiClient.getCurrentUserId(), item.Id).then(function (fullItem) {
-            apiClient.getCurrentUser().then(function (user) {
+            return apiClient.getCurrentUser().then(function (user) {
                 contextButton.addEventListener('click', function () {
                     itemContextMenu.show(Object.assign({
                         item: fullItem,
@@ -295,15 +258,16 @@ function updateNowPlayingInfo(context: HTMLElement, state: PlaybackState, server
                         .catch(() => { /* no-op */ });
                 });
             });
-        });
+        }).catch((error: unknown) => console.error('Failed to load remote-control item', error));
         setImageUrl(context, state, url);
         setBackdrops([item]);
         apiClient.getItem(apiClient.getCurrentUserId(), item.Id).then(function (fullItem) {
             const userData = fullItem.UserData || {};
             const likes = userData.Likes == null ? '' : userData.Likes;
-            requiredElement<HTMLElement>(context, '.nowPlayingPageUserDataButtonsTitle').innerHTML = '<button is="emby-ratingbutton" type="button" class="paper-icon-button-light" data-id="' + fullItem.Id + '" data-serverid="' + fullItem.ServerId + '" data-itemtype="' + fullItem.Type + '" data-likes="' + likes + '" data-isfavorite="' + userData.IsFavorite + '"><span class="material-icons favorite" aria-hidden="true"></span></button>';
-            requiredElement<HTMLElement>(context, '.nowPlayingPageUserDataButtons').innerHTML = '<button is="emby-ratingbutton" type="button" class="paper-icon-button-light" data-id="' + fullItem.Id + '" data-serverid="' + fullItem.ServerId + '" data-itemtype="' + fullItem.Type + '" data-likes="' + likes + '" data-isfavorite="' + userData.IsFavorite + '"><span class="material-icons favorite" aria-hidden="true"></span></button>';
-        });
+            const ratingButton = '<button is="emby-ratingbutton" type="button" class="paper-icon-button-light" data-id="' + escapeHtml(fullItem.Id) + '" data-serverid="' + escapeHtml(fullItem.ServerId) + '" data-itemtype="' + escapeHtml(fullItem.Type) + '" data-likes="' + escapeHtml(String(likes)) + '" data-isfavorite="' + escapeHtml(String(userData.IsFavorite)) + '"><span class="material-icons favorite" aria-hidden="true"></span></button>';
+            requiredElement<HTMLElement>(context, '.nowPlayingPageUserDataButtonsTitle').innerHTML = ratingButton;
+            requiredElement<HTMLElement>(context, '.nowPlayingPageUserDataButtons').innerHTML = ratingButton;
+        }).catch((error: unknown) => console.error('Failed to load remote-control user data', error));
     } else {
         clearBackdrop();
         requiredElement<HTMLElement>(context, '.nowPlayingPageUserDataButtons').innerHTML = '';
@@ -315,7 +279,7 @@ function setImageUrl(context: HTMLElement, state: PlaybackState, url?: string | 
     const imgContainer = requiredElement<HTMLElement>(context, '.nowPlayingPageImageContainer');
 
     if (url) {
-        imgContainer.innerHTML = '<img class="nowPlayingPageImage" src="' + url + '" />';
+        imgContainer.innerHTML = '<img class="nowPlayingPageImage" src="' + escapeHtml(url) + '" />';
 
         requiredElement<HTMLImageElement>(context, '.nowPlayingPageImage').classList.toggle('nowPlayingPageImageAudio', item?.Type === 'Audio');
         requiredElement<HTMLImageElement>(context, '.nowPlayingPageImage').classList.toggle('nowPlayingPageImagePoster', item?.Type !== 'Audio');
@@ -564,7 +528,7 @@ const remotecontrol: RemoteControlConstructor = function (this: RemoteControlMod
     }
 
     function loadPlaylist(context: HTMLElement, player: PlaybackPlayer): void {
-        getPlaylistItems(player).then(function (items) {
+        void getPlaylistItems(player).then(function (items) {
             if (items.length === 0) {
                 return;
             }
@@ -617,7 +581,7 @@ const remotecontrol: RemoteControlConstructor = function (this: RemoteControlMod
             }
 
             imageLoader.lazyChildren(itemsContainer);
-        });
+        }).catch((error: unknown) => console.error('Failed to load remote-control playlist', error));
     }
 
     function onPlaybackStart(e, state) {
@@ -680,7 +644,7 @@ const remotecontrol: RemoteControlConstructor = function (this: RemoteControlMod
 
         if (!state.NextMediaType) {
             updatePlayerState(player, dlg, {});
-            appRouter.back();
+            Promise.resolve(appRouter.back()).catch((error: unknown) => console.error('Failed to navigate back', error));
         }
     }
 
@@ -779,8 +743,8 @@ const remotecontrol: RemoteControlConstructor = function (this: RemoteControlMod
     }
 
     function savePlaylist() {
-        import('../playlisteditor/playlisteditor').then(({ default: PlaylistEditor }) => {
-            getSaveablePlaylistItems().then(function (items) {
+        void import('../playlisteditor/playlisteditor').then(({ default: PlaylistEditor }) => {
+            return getSaveablePlaylistItems().then(function (items) {
                 const serverId = items.length ? items[0].ServerId : ApiClient.serverId();
                 const playlistEditor = new PlaylistEditor();
                 playlistEditor.show({
@@ -793,7 +757,7 @@ const remotecontrol: RemoteControlConstructor = function (this: RemoteControlMod
                 }).catch(() => {
                     // Dialog closed
                 });
-            });
+            }).catch((error: unknown) => console.error('Failed to load playlist items', error));
         }).catch(err => {
             console.error('[savePlaylist] failed to load playlist editor', err);
         });
@@ -848,7 +812,7 @@ const remotecontrol: RemoteControlConstructor = function (this: RemoteControlMod
             }
         });
         context.querySelector('.btnLyrics').addEventListener('click', function () {
-            appRouter.show('lyrics');
+            Promise.resolve(appRouter.show('lyrics')).catch((error: unknown) => console.error('Failed to open lyrics', error));
         });
 
         for (const shuffleButton of context.querySelectorAll('.btnShuffleQueue')) {
@@ -1053,4 +1017,3 @@ const remotecontrol: RemoteControlConstructor = function (this: RemoteControlMod
 };
 
 export default remotecontrol;
-

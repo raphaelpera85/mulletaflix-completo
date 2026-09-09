@@ -236,7 +236,7 @@ export class PdfPlayer {
             const downloadHref = getLibraryApi(api).getDownloadUrl({ itemId: item.Id! });
 
             this.bindEvents();
-            GlobalWorkerOptions.workerSrc = appRouter.baseUrl() + '/libraries/pdf.worker.js';
+            GlobalWorkerOptions.workerSrc = appRouter.baseUrl() + '/libraries/pdf.worker.mjs';
 
             const downloadTask = getDocument({
                 url: downloadHref,

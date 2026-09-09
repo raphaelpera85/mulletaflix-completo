@@ -27,7 +27,9 @@ const TunerDeviceCard = ({ tunerHost }: TunerDeviceCardProps) => {
     const deleteTuner = useDeleteTuner();
 
     const navigateToEditPage = useCallback(() => {
-        navigate(`/dashboard/livetv/tuner?id=${tunerHost.Id}`);
+        Promise.resolve(navigate(`/dashboard/livetv/tuner?id=${tunerHost.Id}`)).catch((error: unknown) => {
+            console.error('Unable to navigate to tuner editor', error);
+        });
     }, [ navigate, tunerHost ]);
 
     const onDelete = useCallback(() => {
@@ -107,4 +109,3 @@ const TunerDeviceCard = ({ tunerHost }: TunerDeviceCardProps) => {
 };
 
 export default TunerDeviceCard;
-

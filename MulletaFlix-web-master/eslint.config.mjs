@@ -197,6 +197,16 @@ export default tseslint.config(
         }
     },
 
+    // Tooling, E2E and test files execute in Node.js rather than in a browser.
+    // Browser compatibility rules here create false positives for APIs such as
+    // URL, Promise and fetch that are provided by the Node runtime.
+    {
+        ignores: [ 'src' ],
+        rules: {
+            'compat/compat': 'off'
+        }
+    },
+
     // App files
     {
         files: [

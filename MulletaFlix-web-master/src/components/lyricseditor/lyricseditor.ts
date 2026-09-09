@@ -1,4 +1,5 @@
 import escapeHtml from 'escape-html';
+import DOMPurify from 'dompurify';
 
 import { getLyricsApi } from '@jellyfin/sdk/lib/utils/api/lyrics-api';
 import { toApi } from 'utils/jellyfin-apiclient/compat';
@@ -28,7 +29,7 @@ let hasChanges: boolean;
 function downloadRemoteLyrics(context: HTMLElement, id: string): void {
     const api = toApi(ServerConnections.getApiClient(currentItem.ServerId) as any);
     const lyricsApi = getLyricsApi(api);
-    lyricsApi.downloadRemoteLyrics({
+    void lyricsApi.downloadRemoteLyrics({
         itemId: currentItem.Id,
         lyricId: id
     }).then(function () {
@@ -37,7 +38,7 @@ function downloadRemoteLyrics(context: HTMLElement, id: string): void {
         toast(globalize.translate('MessageDownloadQueued'));
 
         focusManager.autoFocus(context);
-    });
+    }).catch((error: unknown) => console.error('Failed to download remote lyrics', error));
 }
 
 interface LyricEntry {
@@ -150,10 +151,13 @@ function searchForLyrics(context: HTMLElement): void {
 
     const api = toApi(ServerConnections.getApiClient(currentItem.ServerId) as any);
     const lyricsApi = getLyricsApi(api);
-    lyricsApi.searchRemoteLyrics({
+    void lyricsApi.searchRemoteLyrics({
         itemId: currentItem.Id
     }).then(function (results: any) {
         renderSearchResults(context, results.data);
+    }).catch((error: unknown) => {
+        loading.hide();
+        console.error('Failed to search remote lyrics', error);
     });
 }
 
@@ -182,7 +186,10 @@ function reload(context: HTMLElement, apiClient: any, itemId: string | any): voi
     }
 
     if (typeof itemId === 'string') {
-        apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(onGetItem);
+        void apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(onGetItem).catch((error: unknown) => {
+            loading.hide();
+            console.error('Failed to load lyrics item', error);
+        });
     } else {
         onGetItem(itemId);
     }
@@ -244,13 +251,13 @@ function showLyricsPreview(lyrics: string): void {
 
     dlg.innerHTML = globalize.translateHtml(templatePreview, 'core');
 
-    (dlg.querySelector('.lyricsPreview') as HTMLElement).innerHTML = lyrics;
+    (dlg.querySelector('.lyricsPreview') as HTMLElement).innerHTML = DOMPurify.sanitize(lyrics);
 
     dlg.querySelector('.btnCancel')!.addEventListener('click', function () {
         dialogHelper.close(dlg);
     });
 
-    dialogHelper.open(dlg);
+    void dialogHelper.open(dlg).catch((error: unknown) => console.error('Failed to open lyrics preview', error));
 }
 
 interface ActionSheetItem {
@@ -270,8 +277,8 @@ function showOptions(button: HTMLElement, context: HTMLElement, lyricsId: string
         id: 'download'
     });
 
-    import('../actionSheet/actionSheet').then((actionsheet) => {
-        actionsheet.show({
+    void import('../actionSheet/actionSheet').then((actionsheet) => {
+        return actionsheet.show({
             items: items,
             positionTo: button
 
@@ -283,22 +290,22 @@ function showOptions(button: HTMLElement, context: HTMLElement, lyricsId: string
                 showLyricsPreview(lyrics);
             }
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open lyrics options', error));
 }
 
 function centerFocus(elem: HTMLElement, horiz: boolean, on: boolean): void {
-    import('../../scripts/scrollHelper').then(({ default: scrollHelper }) => {
+    void import('../../scripts/scrollHelper').then(({ default: scrollHelper }) => {
         const fn = on ? 'on' : 'off';
         (scrollHelper as any).centerFocus[fn](elem, horiz);
-    });
+    }).catch((error: unknown) => console.error('Failed to update lyrics focus', error));
 }
 
 function onOpenUploadMenu(e: Event): void {
     const dialog = dom.parentWithClass(e.target as HTMLElement, 'lyricsEditorDialog') as HTMLElement;
     const apiClient = ServerConnections.getApiClient(currentItem.ServerId);
 
-    import('../lyricsuploader/lyricsuploader').then(({ default: lyricsUploader }) => {
-        lyricsUploader.show({
+    void import('../lyricsuploader/lyricsuploader').then(({ default: lyricsUploader }) => {
+        return lyricsUploader.show({
             itemId: currentItem.Id,
             serverId: currentItem.ServerId
         }).then(function (hasChanged: boolean) {
@@ -307,7 +314,7 @@ function onOpenUploadMenu(e: Event): void {
                 reload(dialog, apiClient, currentItem.Id);
             }
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open lyrics uploader', error));
 }
 
 function onDeleteLyrics(e: Event): void {
@@ -335,7 +342,7 @@ function fillCurrentLyrics(context: HTMLElement, apiClient: any, item: any): voi
             html += '<div>';
             html += getLyricsText(response.data.Lyrics);
             html += '</div>';
-            (context.querySelector('.currentLyrics') as HTMLElement).innerHTML = html;
+            (context.querySelector('.currentLyrics') as HTMLElement).innerHTML = DOMPurify.sanitize(html);
         }
     }).catch(() => {
         (context.querySelector('.currentLyrics') as HTMLElement).innerHTML = '';
@@ -401,7 +408,7 @@ function showEditorInternal(itemId: string, serverId: string): Promise<void> {
                 }
             });
 
-            dialogHelper.open(dlg);
+            void dialogHelper.open(dlg).catch((error: unknown) => console.error('Failed to open lyrics dialog', error));
 
             reload(editorContent, apiClient, item);
         });

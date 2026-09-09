@@ -95,9 +95,9 @@ class PluginManager {
                 });
             } else {
                 console.debug(`Loading plugin (via dynamic import): ${pluginSpec}`);
-                const normalizedPluginSpec = pluginSpec.endsWith('.js')
-                    ? pluginSpec.slice(0, -3) + '.ts'
-                    : pluginSpec;
+                const normalizedPluginSpec = pluginSpec.endsWith('.js') ?
+                    pluginSpec.slice(0, -3) + '.ts' :
+                    pluginSpec;
                 const globPath = `../plugins/${normalizedPluginSpec}`;
                 const loadFn = pluginModules[globPath] || pluginModules[`${globPath}.ts`];
                 if (!loadFn) {

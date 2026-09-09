@@ -1,3 +1,5 @@
+import escapeHtml from 'escape-html';
+
 import dialogHelper from '../dialogHelper/dialogHelper';
 import layoutManager from '../layoutManager';
 import globalize from '../../lib/globalize';
@@ -61,7 +63,7 @@ function fillSortBy(context: HTMLElement, options: SortOption[]): void {
     const selectSortBy = context.querySelector<HTMLElement>('.selectSortBy');
     if (selectSortBy) {
         selectSortBy.innerHTML = options.map((option) => {
-            return '<option value="' + option.value + '">' + option.name + '</option>';
+            return '<option value="' + escapeHtml(option.value) + '">' + escapeHtml(option.name) + '</option>';
         }).join('');
     }
 }

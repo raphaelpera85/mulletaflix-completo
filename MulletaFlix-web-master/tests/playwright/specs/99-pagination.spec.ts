@@ -6,7 +6,7 @@ import {
     deleteUserById,
     getAdminCredentials,
     loginWithManualForm,
-    logoutViaDashboard,
+    logoutViaDashboard
 } from '../support/admin-user.mjs';
 import { ensureWizardCompleted } from '../support/wizard.mjs';
 import { navigateStage } from '../support/stage.mjs';
@@ -16,7 +16,7 @@ import {
     getFirstScheduledTask,
     getVirtualFolderByLibrary,
     MOVIES_LIBRARY,
-    SERIES_LIBRARY,
+    SERIES_LIBRARY
 } from '../support/media-library.mjs';
 
 async function assertHomeShowsLibrariesAndCarousels(page, libraries) {

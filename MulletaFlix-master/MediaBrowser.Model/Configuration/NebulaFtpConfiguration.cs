@@ -14,6 +14,11 @@ public class NebulaFtpConfiguration
 
     public int HttpStreamPort { get; set; } = 2123;
 
+    /// <summary>
+    /// Gets or sets the token used to authorize native HTTP streaming and catalog requests.
+    /// </summary>
+    public string HttpStreamToken { get; set; } = string.Empty;
+
     public string PassivePorts { get; set; } = "60000-60009";
 
     public string MongoDbConnectionString { get; set; } = "mongodb://localhost:27017";

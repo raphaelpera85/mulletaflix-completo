@@ -440,7 +440,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                         items: [itemId],
                         serverId: serverId
                     }).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'addtoplaylist':
                 import('./playlisteditor/playlisteditor').then(({ default: PlaylistEditor }) => {
@@ -449,7 +449,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                         items: [itemId],
                         serverId: serverId
                     }).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'download':
                 import('../scripts/fileDownloader').then((fileDownloader) => {
@@ -463,7 +463,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                         filename: item.Path.replace(/^.*[\\/]/, '')
                     }]);
                     getResolveFunction(getResolveFunction(resolve, id), id)();
-                });
+                }).catch(reject);
                 break;
             case 'downloadall': {
                 const downloadItems = (items: any[]) => {
@@ -483,7 +483,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                             });
 
                         fileDownloader.download(downloads);
-                    });
+                    }).catch(reject);
                 };
                 const downloadSeasons = (seasons: any[]) => {
                     Promise.all(seasons.map((seasonItem: any) => {
@@ -496,7 +496,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                     }
                     )).then((seasonData: Array<{ Items: any[] }>) => {
                         downloadItems(seasonData.map(season => season.Items).flat());
-                    });
+                    }).catch(reject);
                 };
 
                 switch (item.Type) {
@@ -505,7 +505,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                         apiClient.getItems(options.user.Id, {
                             ParentId: item.Id,
                             Fields: 'CanDownload,Path'
-                        }).then(({ Items }: { Items: any[] }) => downloadItems(Items));
+                        }).then(({ Items }: { Items: any[] }) => downloadItems(Items), reject);
                         break;
                     case BaseItemKind.Season:
                         downloadSeasons([item]);
@@ -514,7 +514,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                         apiClient.getSeasons(item.Id, {
                             userId: options.user.Id,
                             Fields: 'ItemCounts'
-                        }).then((seasons: { Items: any[] }) => downloadSeasons(seasons.Items));
+                        }).then((seasons: { Items: any[] }) => downloadSeasons(seasons.Items), reject);
                 }
 
                 getResolveFunction(getResolveFunction(resolve, id), id)();
@@ -533,12 +533,12 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
             case 'editsubtitles':
                 import('./subtitleeditor/subtitleeditor').then(({ default: subtitleEditor }) => {
                     subtitleEditor.show(itemId, serverId).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'editlyrics':
                 import('./lyricseditor/lyricseditor').then(({ default: lyricseditor }) => {
                     lyricseditor.show(itemId, serverId).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'edit':
                 editItem(apiClient, item).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
@@ -551,7 +551,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                         id: itemId,
                         serverId
                     }).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'editimages':
                 import('./imageeditor/imageeditor').then((imageEditor) => {
@@ -559,17 +559,17 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                         itemId: itemId,
                         serverId: serverId
                     }).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'identify':
                 import('./itemidentifier/itemidentifier').then((itemIdentifier) => {
                     itemIdentifier.show(itemId, serverId).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'moremediainfo':
                 import('./itemMediaInfo/itemMediaInfo').then((itemMediaInfo) => {
                     itemMediaInfo.show(itemId, serverId).then(getResolveFunction(resolve, id), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'multiSelect':
                 import('./multiSelect/multiSelect').then(({ startMultiSelect }) => {
@@ -577,7 +577,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                     if (card) {
                         startMultiSelect(card);
                     }
-                });
+                }).catch(reject);
                 break;
             case 'refresh':
                 refresh(apiClient, item);
@@ -612,7 +612,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
             case 'record':
                 import('./recordingcreator/recordingcreator').then(({ default: recordingCreator }) => {
                     recordingCreator.show(itemId, serverId).then(getResolveFunction(resolve, id, true), getResolveFunction(resolve, id));
-                });
+                }).catch(reject);
                 break;
             case 'shuffle':
                 playbackManager.shuffle(item);
@@ -626,11 +626,11 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                 deleteItem(apiClient, item).then(getResolveFunction(resolve, id, true, true, itemId), getResolveFunction(resolve, id));
                 break;
             case 'share':
-                navigator.share({
+                void navigator.share({
                     title: item.Name,
                     text: item.Overview,
                     url: `${apiClient.serverAddress()}/web/${appRouter.getRouteUrl(item)}`
-                });
+                }).then(getResolveFunction(resolve, id)).catch(reject);
                 break;
             case 'album':
                 appRouter.showItem(item.AlbumId, item.ServerId);
@@ -642,7 +642,7 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                 break;
             case 'lyrics': {
                 if (options.isMobile) {
-                    appRouter.show('lyrics');
+                    void appRouter.show('lyrics');
                 } else {
                     appRouter.showItem(item.Id, item.ServerId);
                 }
@@ -693,10 +693,10 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                 });
                 break;
             case 'canceltimer':
-                deleteTimer(apiClient, item, resolve, id);
+                deleteTimer(apiClient, item, resolve, reject, id);
                 break;
             case 'cancelseriestimer':
-                deleteSeriesTimer(apiClient, item, resolve, id);
+                deleteSeriesTimer(apiClient, item, resolve, reject, id);
                 break;
             default:
                 reject();
@@ -705,21 +705,21 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
     });
 }
 
-function deleteTimer(apiClient: any, item: ContextItem, resolve: (value: any) => void, command: string): void {
+function deleteTimer(apiClient: any, item: ContextItem, resolve: (value: any) => void, reject: (reason?: unknown) => void, command: string): void {
     import('./recordingcreator/recordinghelper').then(({ default: recordingHelper }) => {
         const timerId = item.TimerId || item.Id;
-        recordingHelper.cancelTimerWithConfirmation(timerId, item.ServerId).then(function () {
+        return recordingHelper.cancelTimerWithConfirmation(timerId, item.ServerId).then(function () {
             getResolveFunction(resolve, command, true)();
-        });
-    });
+        }).catch(reject);
+    }).catch(reject);
 }
 
-function deleteSeriesTimer(apiClient: any, item: ContextItem, resolve: (value: any) => void, command: string): void {
+function deleteSeriesTimer(apiClient: any, item: ContextItem, resolve: (value: any) => void, reject: (reason?: unknown) => void, command: string): void {
     import('./recordingcreator/recordinghelper').then(({ default: recordingHelper }) => {
-        recordingHelper.cancelSeriesTimerWithConfirmation(item.Id, item.ServerId).then(function () {
+        return recordingHelper.cancelSeriesTimerWithConfirmation(item.Id, item.ServerId).then(function () {
             getResolveFunction(resolve, command, true)();
-        });
-    });
+        }).catch(reject);
+    }).catch(reject);
 }
 
 function play(item: ContextItem, resume?: boolean, queue?: boolean, queueNext?: boolean): void {
@@ -766,15 +766,15 @@ function editItem(apiClient: any, item: ContextItem): Promise<any> {
         if (item.Type === 'Timer') {
             import('./recordingcreator/recordingeditor').then(({ default: recordingEditor }) => {
                 recordingEditor.show(item.Id, serverId).then(resolve, reject);
-            });
+            }).catch(reject);
         } else if (item.Type === 'SeriesTimer') {
             import('./recordingcreator/seriesrecordingeditor').then(({ default: recordingEditor }) => {
                 recordingEditor.show(item.Id, serverId).then(resolve, reject);
-            });
+            }).catch(reject);
         } else {
             import('./metadataEditor/metadataEditor').then(({ default: metadataEditor }) => {
                 metadataEditor.show(item.Id, serverId).then(resolve, reject);
-            });
+            }).catch(reject);
         }
     });
 }
@@ -788,19 +788,19 @@ function deleteItem(apiClient: any, item: ContextItem): Promise<any> {
             }).then(function () {
                 resolve(true);
             }, reject);
-        });
+        }).catch(reject);
     });
 }
 
 function refresh(apiClient: any, item: ContextItem): void {
-    import('./refreshdialog/refreshdialog').then(({ default: RefreshDialog }) => {
+    void import('./refreshdialog/refreshdialog').then(({ default: RefreshDialog }) => {
         const serverId = (typeof apiClient.serverId === 'function' ? apiClient.serverId() : null) || (typeof apiClient.serverInfo === 'function' ? apiClient.serverInfo()?.Id : null) || item.ServerId;
-        new RefreshDialog({
+        return new RefreshDialog({
             itemIds: [item.Id],
             serverId: serverId,
             mode: item.Type === 'CollectionFolder' ? 'scan' : undefined
         }).show();
-    });
+    }).catch((error: unknown) => console.error('Failed to open refresh dialog', error));
 }
 
 export async function show(options: ContextMenuOptions): Promise<any> {
@@ -822,4 +822,3 @@ export default {
     getCommands,
     show
 };
-

@@ -24,6 +24,14 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 {
+    internal const string PendingMarkerFileName = ".nebula-metadata-pending";
+
+    internal static readonly HashSet<string> MetadataSidecarExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".nfo", ".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".bmp",
+        ".tif", ".tiff", ".jpe", ".jif", ".jfif", ".jfi"
+    };
+
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".webm", ".strm"
@@ -41,6 +49,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     private readonly ILogger<NebulaMetadataExportService> _logger;
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _scheduled = new();
     private readonly CancellationTokenSource _cts = new();
+    private int _disposed;
 
     public NebulaMetadataExportService(
         ILibraryManager libraryManager,
@@ -80,7 +89,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     {
         var item = args.Item;
         if (item.IsFolder || string.IsNullOrWhiteSpace(item.Path) ||
-            !item.Path.StartsWith(GetNebulaDriveRoot(), StringComparison.OrdinalIgnoreCase) ||
+            !IsPathWithinRoot(item.Path, GetNebulaDriveRoot()) ||
             !VideoExtensions.Contains(Path.GetExtension(item.Path)))
         {
             return;
@@ -135,15 +144,28 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         string targetDirectory,
         CancellationToken cancellationToken = default)
     {
+        if (!IsPathWithinRoot(strmPath, GetNebulaDriveRoot()) || !IsConfiguredStagePath(targetDirectory))
+        {
+            _logger.LogWarning("[NEBULA-METADATA] Preparação ignorada fora das raízes permitidas: STRM={StrmPath}, destino={TargetDirectory}", strmPath, targetDirectory);
+            return false;
+        }
+
         var item = _libraryManager.FindByPath(strmPath, isFolder: false);
         if (item is null || item.IsFolder)
         {
             return false;
         }
 
+        Directory.CreateDirectory(targetDirectory);
+        File.WriteAllText(Path.Combine(targetDirectory, PendingMarkerFileName), "pending");
         await item.RefreshMetadata(cancellationToken).ConfigureAwait(false);
         await ExportAsync(item, targetDirectory, cancellationToken).ConfigureAwait(false);
         return true;
+    }
+
+    internal static void RemovePendingMarker(string targetDirectory)
+    {
+        TryDelete(Path.Combine(targetDirectory, PendingMarkerFileName));
     }
 
     private async Task ExportAsync(BaseItem item, string? stageDirectory, CancellationToken cancellationToken)
@@ -187,6 +209,27 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         _logger.LogInformation("[NEBULA-METADATA] Sidecars exportados para {Directory}", stageDirectory);
     }
 
+    internal static bool IsPathWithinRoot(string path, string root)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return fullPath.Equals(fullRoot, StringComparison.OrdinalIgnoreCase)
+                || fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     private async Task ExportNfoAsync(BaseItem item, string stageDirectory, CancellationToken cancellationToken)
     {
         var options = _libraryManager.GetLibraryOptions(item);
@@ -209,7 +252,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         await saver.SaveAsync(item, target, cancellationToken).ConfigureAwait(false);
     }
 
-    private static string GetImageFileName(BaseItem item, ImageType type, int index, string sourcePath)
+    internal static string GetImageFileName(BaseItem item, ImageType type, int index, string sourcePath)
     {
         var extension = Path.GetExtension(sourcePath);
         if (string.IsNullOrWhiteSpace(extension))
@@ -219,13 +262,14 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 
         if (type == ImageType.Primary && string.Equals(item.GetType().Name, "Episode", StringComparison.Ordinal))
         {
-            return Path.GetFileNameWithoutExtension(item.Path) + "-thumb" + extension;
+            var episodeSuffix = index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
+            return Path.GetFileNameWithoutExtension(item.Path) + "-thumb" + episodeSuffix + extension;
         }
 
         var baseName = type switch
         {
             ImageType.Primary => "poster",
-            ImageType.Backdrop => index == 0 ? "fanart" : $"fanart{index}",
+            ImageType.Backdrop => "fanart",
             ImageType.Thumb => "landscape",
             ImageType.Logo => "logo",
             ImageType.Art => "clearart",
@@ -236,8 +280,13 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
             _ => type.ToString().ToLowerInvariant()
         };
 
-        return baseName + extension;
+        var suffix = index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
+        return baseName + suffix + extension;
     }
+
+    internal static bool IsMetadataSidecarPath(string path)
+        => !string.IsNullOrWhiteSpace(path)
+            && MetadataSidecarExtensions.Contains(Path.GetExtension(path));
 
     private string GetNebulaDriveRoot()
     {
@@ -261,6 +310,23 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         var fallback = Path.Combine(AppContext.BaseDirectory, "NebulaStage");
         Directory.CreateDirectory(fallback);
         return fallback;
+    }
+
+    private bool IsConfiguredStagePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var config = _configurationManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+        var roots = config?.StagePaths?.Where(p => !string.IsNullOrWhiteSpace(p)).ToArray() ?? Array.Empty<string>();
+        if (roots.Length == 0)
+        {
+            roots = [Path.Combine(AppContext.BaseDirectory, "NebulaStage")];
+        }
+
+        return roots.Any(root => IsPathWithinRoot(path, root));
     }
 
     private static async Task CopyAtomicallyAsync(string source, string target, CancellationToken cancellationToken)
@@ -301,6 +367,11 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         _cts.Cancel();
         _cts.Dispose();
         foreach (var pending in _scheduled.Values)

@@ -5,7 +5,7 @@ import {
     deleteUserById,
     getAdminCredentials,
     loginWithManualForm,
-    logoutViaDashboard,
+    logoutViaDashboard
 } from '../support/admin-user.mjs';
 import { ensureWizardCompleted } from '../support/wizard.mjs';
 import { navigateStage } from '../support/stage.mjs';
@@ -13,7 +13,7 @@ import {
     ensureMediaLibrariesReady,
     getFirstItemFromVirtualFolder,
     getVirtualFolderByLibrary,
-    MOVIES_LIBRARY,
+    MOVIES_LIBRARY
 } from '../support/media-library.mjs';
 
 async function createPlayableUser(page, username, password) {

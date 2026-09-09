@@ -5,10 +5,9 @@ import type { BaseItemDto, SearchHint } from '@jellyfin/sdk/lib/generated-client
 import type { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
 import { ItemSortBy } from '@jellyfin/sdk/lib/generated-client/models/item-sort-by';
-import { getItemsApi } from '@jellyfin/sdk/lib/utils/api/items-api';
 
 import { useApi } from 'hooks/useApi';
-import { getItemTypesFromCollectionType } from '../utils/search';
+import type { CardOptions } from 'types/cardOptions';
 
 type UnifiedSearchItem = BaseItemDto | SearchHint;
 
@@ -40,7 +39,7 @@ interface UnifiedSearchResult {
 interface UnifiedSearchSection {
     name: string;
     items: UnifiedSearchItem[];
-    cardOptions?: any;
+    cardOptions?: CardOptions;
 }
 
 interface SearchStatsDto {
@@ -54,28 +53,48 @@ interface SearchStatsDto {
     totalPrograms: number;
 }
 
+function setDefinedParam(
+    params: URLSearchParams,
+    name: string,
+    value: string | number | boolean | undefined
+): void {
+    if (value !== undefined) {
+        params.set(name, String(value));
+    }
+}
+
+function setNonEmptyArrayParam(
+    params: URLSearchParams,
+    name: string,
+    value: string[] | undefined
+): void {
+    if (value?.length) {
+        params.set(name, value.join(','));
+    }
+}
+
 const fetchUnifiedSearch = async (
     api: Api,
     query: UnifiedSearchQuery,
     options?: AxiosRequestConfig
 ) => {
     const params = new URLSearchParams();
-    if (query.userId) params.set('userId', query.userId);
-    if (query.searchTerm) params.set('searchTerm', query.searchTerm);
-    if (query.parentId) params.set('parentId', query.parentId);
-    if (query.collectionType) params.set('collectionType', query.collectionType);
-    if (query.includeItemTypes?.length) params.set('includeItemTypes', query.includeItemTypes.join(','));
-    if (query.excludeItemTypes?.length) params.set('excludeItemTypes', query.excludeItemTypes.join(','));
-    if (query.mediaTypes?.length) params.set('mediaTypes', query.mediaTypes.join(','));
-    if (query.limit) params.set('limit', query.limit.toString());
-    if (query.startIndex) params.set('startIndex', query.startIndex.toString());
-    if (query.includePeople !== undefined) params.set('includePeople', query.includePeople.toString());
-    if (query.includeMedia !== undefined) params.set('includeMedia', query.includeMedia.toString());
-    if (query.includeGenres !== undefined) params.set('includeGenres', query.includeGenres.toString());
-    if (query.includeStudios !== undefined) params.set('includeStudios', query.includeStudios.toString());
-    if (query.includeArtists !== undefined) params.set('includeArtists', query.includeArtists.toString());
-    if (query.sortBy?.length) params.set('sortBy', query.sortBy.join(','));
-    if (query.sortOrder) params.set('sortOrder', query.sortOrder);
+    setDefinedParam(params, 'userId', query.userId);
+    setDefinedParam(params, 'searchTerm', query.searchTerm);
+    setDefinedParam(params, 'parentId', query.parentId);
+    setDefinedParam(params, 'collectionType', query.collectionType);
+    setNonEmptyArrayParam(params, 'includeItemTypes', query.includeItemTypes);
+    setNonEmptyArrayParam(params, 'excludeItemTypes', query.excludeItemTypes);
+    setNonEmptyArrayParam(params, 'mediaTypes', query.mediaTypes);
+    setDefinedParam(params, 'limit', query.limit || undefined);
+    setDefinedParam(params, 'startIndex', query.startIndex || undefined);
+    setDefinedParam(params, 'includePeople', query.includePeople);
+    setDefinedParam(params, 'includeMedia', query.includeMedia);
+    setDefinedParam(params, 'includeGenres', query.includeGenres);
+    setDefinedParam(params, 'includeStudios', query.includeStudios);
+    setDefinedParam(params, 'includeArtists', query.includeArtists);
+    setNonEmptyArrayParam(params, 'sortBy', query.sortBy);
+    setDefinedParam(params, 'sortOrder', query.sortOrder);
 
     const response = await api.axiosInstance.request({
         url: `/Search/Unified?${params.toString()}`,
@@ -105,7 +124,7 @@ export const getUnifiedSearchQuery = (
     query?: UnifiedSearchQuery
 ) => queryOptions({
     queryKey: ['Search', 'Unified', api?.basePath, JSON.stringify(query ?? {})],
-    queryFn: ({ signal }) => fetchUnifiedSearch(api!, query ?? {}, { signal, headers: { 'Cache-Control': 'no-cache' }}),
+    queryFn: ({ signal }) => fetchUnifiedSearch(api!, query ?? {}, { signal, headers: { 'Cache-Control': 'no-cache' } }),
     staleTime: 30000,
     enabled: !!api && !!query?.searchTerm
 });
@@ -115,7 +134,7 @@ export const getSearchStatsQuery = (
     userId?: string
 ) => queryOptions({
     queryKey: ['Search', 'Stats', api?.basePath, userId],
-    queryFn: ({ signal }) => fetchSearchStats(api!, userId!, { signal, headers: { 'Cache-Control': 'no-cache' }}),
+    queryFn: ({ signal }) => fetchSearchStats(api!, userId!, { signal, headers: { 'Cache-Control': 'no-cache' } }),
     staleTime: 300000,
     enabled: !!api && !!userId
 });

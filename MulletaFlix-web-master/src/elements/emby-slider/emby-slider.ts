@@ -142,7 +142,6 @@ function updateValues(this: EmbySliderElement, isValueSet?: boolean): void {
     if (!!isValueSet && !supportsValueAutoSnap) {
         const value = snapValue(range, parseFloat(range.value)).toString();
 
-        // eslint-disable-next-line sonarjs/different-types-comparison
         if (range.value !== value) {
             range.value = value;
 
@@ -350,7 +349,6 @@ EmbySliderPrototype.attachedCallback = function (): void {
         passive: true
     });
 
-    /* eslint-disable-next-line compat/compat */
     dom.addEventListener(this, (window.PointerEvent ? 'pointermove' : 'mousemove'), function (this: EmbySliderElement, e: PointerEvent | MouseEvent) {
         if (!this.dragging) {
             const fraction = mapClientToFraction(this, (e as PointerEvent).clientX);
@@ -368,7 +366,6 @@ EmbySliderPrototype.attachedCallback = function (): void {
         passive: true
     });
 
-    /* eslint-disable-next-line compat/compat */
     dom.addEventListener(this, (window.PointerEvent ? 'pointerleave' : 'mouseleave'), function (this: EmbySliderElement) {
         sliderBubble.classList.add('hide');
         hasHideBubbleClass = true;

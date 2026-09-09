@@ -3,6 +3,8 @@
  * @module components/alphaPicker/alphaPicker
  */
 
+import escapeHtml from 'escape-html';
+
 import focusManager from '../focusManager';
 import layoutManager from '../layoutManager';
 import dom from '../../utils/dom';
@@ -55,7 +57,7 @@ function getAlphaPickerButtonClassName(vertical: boolean): string {
 }
 
 function getLetterButton(l: string, vertical: boolean): string {
-    return `<button data-value="${l}" class="${getAlphaPickerButtonClassName(vertical)}">${l}</button>`;
+    return `<button data-value="${escapeHtml(l)}" class="${getAlphaPickerButtonClassName(vertical)}">${escapeHtml(l)}</button>`;
 }
 
 function mapLetters(letters: string[], vertical: boolean): string[] {

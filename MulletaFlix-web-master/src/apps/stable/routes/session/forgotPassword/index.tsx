@@ -31,7 +31,7 @@ export const ForgotPasswordPage = () => {
         },
         onSuccess: (result) => {
             let msg = '';
-            let callback: () => void | undefined = () => undefined;
+            let callback: () => void | Promise<void> = () => undefined;
 
             switch (result.Action) {
                 case ForgotPasswordAction.ContactAdmin:
@@ -128,4 +128,3 @@ export const ForgotPasswordPage = () => {
 };
 
 export default ForgotPasswordPage;
-

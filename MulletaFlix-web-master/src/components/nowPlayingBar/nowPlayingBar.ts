@@ -1,3 +1,5 @@
+import escapeHtml from 'escape-html';
+
 import { getImageUrl } from 'apps/stable/features/playback/utils/image';
 import { getItemTextLines } from 'apps/stable/features/playback/utils/itemText';
 import { appRouter, isLyricsPage } from 'components/router/appRouter';
@@ -627,7 +629,7 @@ function updateNowPlayingInfo(state: any): void {
                     });
                 });
             }
-            nowPlayingUserData!.innerHTML = '<button is="emby-ratingbutton" type="button" class="mediaButton paper-icon-button-light" data-id="' + item.Id + '" data-serverid="' + item.ServerId + '" data-itemtype="' + item.Type + '" data-likes="' + likes + '" data-isfavorite="' + (userData.IsFavorite) + '"><span class="material-icons favorite" aria-hidden="true"></span></button>';
+            nowPlayingUserData!.innerHTML = '<button is="emby-ratingbutton" type="button" class="mediaButton paper-icon-button-light" data-id="' + escapeHtml(item.Id) + '" data-serverid="' + escapeHtml(item.ServerId) + '" data-itemtype="' + escapeHtml(item.Type) + '" data-likes="' + escapeHtml(String(likes)) + '" data-isfavorite="' + escapeHtml(String(userData.IsFavorite)) + '"><span class="material-icons favorite" aria-hidden="true"></span></button>';
         });
     } else {
         nowPlayingUserData!.innerHTML = '';
@@ -855,4 +857,3 @@ document.addEventListener('viewbeforeshow', function (e: Event) {
         }
     }
 });
-

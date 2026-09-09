@@ -7,7 +7,7 @@ import {
     getAdminCredentials,
     loginWithManualForm,
     logoutViaDashboard,
-    readSharedUser,
+    readSharedUser
 } from '../support/admin-user.mjs';
 import { navigateStage, openLogin } from '../support/stage.mjs';
 import { ensureWizardCompleted } from '../support/wizard.mjs';

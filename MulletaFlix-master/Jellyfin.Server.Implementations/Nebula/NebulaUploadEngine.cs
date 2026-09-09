@@ -91,12 +91,16 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         }
     }
 
-    private static readonly System.Text.RegularExpressions.Regex AdultPattern = new(
-        @"(?i)(?:^|[\W_])(porno|porn|xxx|hentai|adulto)(?:[\W_]|$)",
+    private static readonly System.Text.RegularExpressions.Regex AdultPathPattern = new(
+        @"(?i)(?:^|[\\/\s._()+-])(porno|porn|xxx|hentai|adulto|adult|erotico|erótico|sexo|sex|18\+|\+18)(?=$|[\\/\s._()+-])",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex AdultFilenamePattern = new(
+        @"(?i)(?:^|[\\/\s._()+-])(porno|porn|xxx|hentai|adulto|adult)(?=$|[\\/\s._()+-])",
         System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex SeriesPattern = new(
-        @"(?i)\bS\d{1,2}[ ._-]*E\d{1,3}\b|\b\d{1,2}x\d{1,3}\b|season|temporada",
+        @"(?i)\bS\d{1,2}[ ._-]*E\d{1,3}\b|\b\d{1,2}x\d{1,3}\b|(?:^|[\\/\s._-])(series?|season|temporada|anime|novela|dorama|show)(?=$|[\\/\s._-])",
         System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>
@@ -104,27 +108,15 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// </summary>
     public static string ClassifyMediaType(string? parent, string filename)
     {
-        var pLower = (parent ?? string.Empty).ToLowerInvariant();
-        var fLower = (filename ?? string.Empty).ToLowerInvariant();
+        var parentValue = parent ?? string.Empty;
+        var filenameValue = filename ?? string.Empty;
 
-        if (pLower.Contains("/porno", StringComparison.Ordinal) ||
-            pLower.Contains("porno", StringComparison.Ordinal) ||
-            pLower.Contains("porn", StringComparison.Ordinal) ||
-            pLower.Contains("xxx", StringComparison.Ordinal) ||
-            pLower.Contains("hentai", StringComparison.Ordinal) ||
-            pLower.Contains("adulto", StringComparison.Ordinal) ||
-            AdultPattern.IsMatch(fLower))
+        if (AdultPathPattern.IsMatch(parentValue) || AdultFilenamePattern.IsMatch(filenameValue))
         {
             return "PORNO";
         }
 
-        if (pLower.Contains("/series", StringComparison.Ordinal) ||
-            pLower.Contains("series", StringComparison.Ordinal) ||
-            pLower.Contains("serie", StringComparison.Ordinal) ||
-            pLower.Contains("season", StringComparison.Ordinal) ||
-            pLower.Contains("temporada", StringComparison.Ordinal) ||
-            pLower.Contains("anime", StringComparison.Ordinal) ||
-            SeriesPattern.IsMatch(fLower))
+        if (SeriesPattern.IsMatch(parentValue) || SeriesPattern.IsMatch(filenameValue))
         {
             return "SERIE";
         }
@@ -242,6 +234,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         await _concurrencySemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var workerKey = workerId.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var fileInfo = new FileInfo(localFilePath);
             var totalSize = fileInfo.Length;
             var totalParts = (int)Math.Ceiling((double)totalSize / _logicalChunkSizeBytes);
@@ -284,8 +277,24 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     return true;
                 }
 
-                // Carrega partes já salvas no MongoDB
-                if (existingDoc.TryGetValue("parts", out var partsBson) && partsBson.IsBsonArray)
+                var storedSize = existingDoc.TryGetValue("size", out var storedSizeValue) && storedSizeValue.IsNumeric
+                    ? storedSizeValue.ToInt64()
+                    : existingDoc.TryGetValue("file_size", out var legacySizeValue) && legacySizeValue.IsNumeric
+                        ? legacySizeValue.ToInt64()
+                        : -1L;
+                var canResumeExistingParts = storedSize == totalSize;
+
+                if (!canResumeExistingParts)
+                {
+                    _logger.LogWarning(
+                        "[NEBULA-UPLOAD] Ignorando partes parciais de '{Name}': tamanho local={LocalSize}, tamanho persistido={StoredSize}.",
+                        targetFileName,
+                        totalSize,
+                        storedSize);
+                }
+
+                // Carrega apenas partes compatíveis com o arquivo local atual.
+                if (canResumeExistingParts && existingDoc.TryGetValue("parts", out var partsBson) && partsBson.IsBsonArray)
                 {
                     foreach (var pElem in partsBson.AsBsonArray)
                     {
@@ -302,8 +311,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         var botIdx = pDoc.GetValue("bot_index", 0).ToInt32();
                         var pStatus = pDoc.GetValue("status", "completed").AsString;
                         var uploadedAt = pDoc.GetValue("uploaded_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds()).ToInt64();
-
-                        if (pNum >= 0 && !string.IsNullOrWhiteSpace(fileId) && pSize > 0)
+                        if (IsReusablePart(pNum, pSize, fileId, pStatus, totalSize, totalParts, _logicalChunkSizeBytes))
                         {
                             existingPartsMap[pNum] = new NebulaFilePart
                             {
@@ -321,7 +329,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 }
 
                 // Reutiliza o UUID do arquivo já existente ou gera um novo
-                if (existingDoc.Contains("file_uuid") && !string.IsNullOrWhiteSpace(existingDoc["file_uuid"].AsString))
+                if (canResumeExistingParts && existingDoc.Contains("file_uuid") && !string.IsNullOrWhiteSpace(existingDoc["file_uuid"].AsString))
                 {
                     fileUuid = existingDoc["file_uuid"].AsString;
                 }
@@ -357,6 +365,23 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                     await _mongoContext.InsertFileDocAsync(initialDoc, cancellationToken).ConfigureAwait(false);
                 }
+            }
+
+            async Task<bool> FailUploadAsync(string reason)
+            {
+                if (_mongoContext != null)
+                {
+                    try
+                    {
+                        await _mongoContext.MarkUploadFailedAsync(nodeId, reason, cancellationToken, workerKey).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível marcar '{Name}' como failed no MongoDB.", targetFileName);
+                    }
+                }
+
+                return false;
             }
 
             // 2. Extrai partes contíguas a partir da parte 0
@@ -430,7 +455,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     if (availableBots.Count == 0)
                     {
                         _logger.LogError("[NEBULA-UPLOAD] Nenhum bot Telegram autenticado está disponível.");
-                        return false;
+                        return await FailUploadAsync("Nenhum bot Telegram autenticado disponível.").ConfigureAwait(false);
                     }
 
                     var caption = BuildPartCaption(mediaType, targetFileName, partNum, totalParts, fileUuid, totalSize);
@@ -461,7 +486,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     {
                         _logger.LogError("[NEBULA-UPLOAD] Telegram não publicou a parte {Part} de '{Name}'.", partNum + 1, targetFileName);
                         LogServer("ERROR", $"[NEBULA-UPLOAD-ERRO] Telegram não publicou a parte {partNum + 1} de '{targetFileName}'.");
-                        return false;
+                        return await FailUploadAsync($"Telegram não publicou a parte {partNum + 1}.").ConfigureAwait(false);
                     }
 
                     // O pool pode escolher outro bot livre para manter o
@@ -511,7 +536,15 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         }
 
                         var uploadedBytes = parts.Sum(p => p.Size);
-                        await _mongoContext.UpdateUploadProgressAsync(nodeId, currentPartDocs, uploadedBytes, botIndex, workerId.ToString(System.Globalization.CultureInfo.InvariantCulture), cancellationToken).ConfigureAwait(false);
+                        var ownsUpload = await _mongoContext.UpdateUploadProgressAsync(nodeId, currentPartDocs, uploadedBytes, botIndex, workerKey, cancellationToken).ConfigureAwait(false);
+                        if (!ownsUpload)
+                        {
+                            _logger.LogWarning(
+                                "[NEBULA-UPLOAD] Worker {Worker} perdeu a posse de '{Name}' durante o progresso; interrompendo para evitar sobrescrita.",
+                                workerId,
+                                targetFileName);
+                            return false;
+                        }
                     }
                 }
             }
@@ -519,7 +552,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             if (parts.Count < totalParts)
             {
                 _logger.LogError("[NEBULA-UPLOAD] Upload incompleto para '{Name}': {Count}/{Total} partes.", targetFileName, parts.Count, totalParts);
-                return false;
+                return await FailUploadAsync($"Upload incompleto: {parts.Count}/{totalParts} partes.").ConfigureAwait(false);
             }
 
             var finalPartDocs = new BsonArray();
@@ -565,7 +598,15 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     { "tg_file_id", firstPart.TgFileId }
                 };
 
-                await _mongoContext.CompleteFileUploadAsync(nodeId, finalFields, cancellationToken).ConfigureAwait(false);
+                var completed = await _mongoContext.CompleteFileUploadAsync(nodeId, finalFields, cancellationToken, workerKey).ConfigureAwait(false);
+                if (!completed)
+                {
+                    _logger.LogWarning(
+                        "[NEBULA-UPLOAD] Worker {Worker} perdeu a posse de '{Name}' antes da conclusão; não sobrescrevendo o estado.",
+                        workerId,
+                        targetFileName);
+                    return false;
+                }
 
                 if (_onNodeUpdated != null)
                 {
@@ -601,6 +642,12 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível remover staging file: {Path}", localFilePath);
                 }
             }
+
+            // O marcador é removido somente após a mídia alcançar o estado
+            // completed. Enquanto ele existir, o watcher retém NFO/capas do
+            // mesmo diretório para que os sidecars nunca sejam publicados
+            // antes da mídia correspondente.
+            NebulaMetadataExportService.RemovePendingMarker(Path.GetDirectoryName(localFilePath) ?? string.Empty);
 
             return true;
         }
@@ -656,6 +703,27 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         }
 
         return totalPartSize == expectedSize;
+    }
+
+    internal static bool IsReusablePart(
+        int partNumber,
+        long partSize,
+        string? fileId,
+        string? status,
+        long totalSize,
+        int totalParts,
+        int logicalChunkSize)
+    {
+        if (partNumber < 0 || partNumber >= totalParts ||
+            string.IsNullOrWhiteSpace(fileId) ||
+            !string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase) ||
+            totalSize <= 0 || logicalChunkSize <= 0)
+        {
+            return false;
+        }
+
+        var expectedPartSize = Math.Min(logicalChunkSize, totalSize - ((long)partNumber * logicalChunkSize));
+        return expectedPartSize > 0 && partSize == expectedPartSize;
     }
 
     /// <inheritdoc />

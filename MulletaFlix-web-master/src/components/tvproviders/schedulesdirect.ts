@@ -1,5 +1,6 @@
 import $ from 'jquery';
 import DOMPurify from 'dompurify';
+import escapeHtml from 'escape-html';
 import loading from '../loading/loading';
 import globalize from '../../lib/globalize';
 import '../../elements/emby-checkbox/emby-checkbox';
@@ -266,7 +267,7 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
             dataType: 'json'
         }).then(function (result: Array<{ Id: string; Name: string }>) {
             page.querySelector('#selectListing')!.innerHTML = result.map(function (o) {
-                return '<option value="' + o.Id + '">' + o.Name + '</option>';
+                return '<option value="' + escapeHtml(o.Id) + '">' + escapeHtml(o.Name) + '</option>';
             }).join('');
 
             if (listingsId) {

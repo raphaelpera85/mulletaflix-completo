@@ -1,4 +1,5 @@
 import loading from 'components/loading/loading';
+import escapeHtml from 'escape-html';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import Dashboard from 'utils/dashboard';
 
@@ -41,19 +42,21 @@ function save(context: HTMLElement): void {
     const selectLanguage = context.querySelector<HTMLSelectElement>('#selectLanguage');
     const selectCountry = context.querySelector<HTMLSelectElement>('#selectCountry');
 
-    config.then(function (currentConfig) {
+    void config.then(function (currentConfig) {
         currentConfig.PreferredMetadataLanguage = selectLanguage?.value || '';
         currentConfig.MetadataCountryCode = selectCountry?.value || '';
 
-        apiClient.ajax({
+        return apiClient.ajax({
             type: 'POST',
             data: JSON.stringify(currentConfig),
             url: apiClient.getUrl('Startup/Configuration'),
             contentType: 'application/json'
-        }).then(function () {
-            loading.hide();
-            navigateToNextPage();
         });
+    }).then(function () {
+        loading.hide();
+        navigateToNextPage();
+    }).catch(function () {
+        loading.hide();
     });
 }
 
@@ -63,7 +66,7 @@ function populateLanguages(select: HTMLSelectElement, languages: WizardSettingsL
 
     for (let i = 0, length = languages.length; i < length; i++) {
         const culture = languages[i];
-        html += "<option value='" + culture.Name + "' data-culture-name='" + culture.Name + "'>" + culture.DisplayName + '</option>';
+        html += "<option value='" + escapeHtml(culture.Name) + "' data-culture-name='" + escapeHtml(culture.Name) + "'>" + escapeHtml(culture.DisplayName) + '</option>';
     }
 
     select.innerHTML = html;
@@ -75,7 +78,7 @@ function populateCountries(select: HTMLSelectElement, allCountries: WizardSettin
 
     for (let i = 0, length = allCountries.length; i < length; i++) {
         const culture = allCountries[i];
-        html += "<option value='" + culture.TwoLetterISORegionName + "'>" + culture.DisplayName + '</option>';
+        html += "<option value='" + escapeHtml(culture.TwoLetterISORegionName) + "'>" + escapeHtml(culture.DisplayName) + '</option>';
     }
 
     select.innerHTML = html;
@@ -144,17 +147,19 @@ function reload(page: HTMLElement): void {
     loading.show();
     const apiClient = ServerConnections.currentApiClient() as WizardSettingsApiClient;
 
-    Promise.all([
+    void Promise.all([
         apiClient.getJSON<WizardSettingsConfiguration>(apiClient.getUrl('Startup/Configuration')),
         apiClient.getCultures(),
         apiClient.getCountries()
     ]).then(function (responses) {
         reloadData(page, responses[0], responses[1], responses[2]);
+    }).catch(function () {
+        loading.hide();
     });
 }
 
 function navigateToNextPage(): void {
-    Dashboard.navigate('wizard/remoteaccess');
+    void Dashboard.navigate('wizard/remoteaccess');
 }
 
 function onSubmit(this: HTMLFormElement, e: SubmitEvent): boolean {

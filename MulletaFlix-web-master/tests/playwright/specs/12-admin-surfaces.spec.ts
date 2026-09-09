@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import {
     getAdminCredentials,
-    loginWithManualForm,
+    loginWithManualForm
 } from '../support/admin-user.mjs';
 import { ensureWizardCompleted } from '../support/wizard.mjs';
 import { navigateStage } from '../support/stage.mjs';
@@ -37,7 +37,7 @@ test.describe.serial('12 - Admin surfaces', () => {
             { route: '/dashboard/playback/resume', selector: '#playbackConfigurationPage' },
             { route: '/dashboard/playback/streaming', selector: '#streamingSettingsPage' },
             { route: '/dashboard/playback/transcoding', selector: '#encodingSettingsPage' },
-            { route: '/dashboard/playback/trickplay', selector: '#trickplayConfigurationPage' },
+            { route: '/dashboard/playback/trickplay', selector: '#trickplayConfigurationPage' }
         ];
 
         for (const entry of routes) {
@@ -61,7 +61,7 @@ test.describe.serial('12 - Admin surfaces', () => {
             { route: '/dashboard/branding', selector: '#brandingPage' },
             { route: '/dashboard/backups', selector: '#backupsPage' },
             { route: '/dashboard/networking', selector: '#networkingPage' },
-            { route: '/dashboard/tasks', selector: '#scheduledTasksPage' },
+            { route: '/dashboard/tasks', selector: '#scheduledTasksPage' }
         ];
 
         for (const entry of routes) {

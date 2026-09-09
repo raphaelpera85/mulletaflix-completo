@@ -11,11 +11,13 @@ namespace MulletaFlix.Plugin.GetAvatar
     /// Hosted service that validates user avatars at startup.
     /// This ensures that profile images are repaired if they were deleted or lost.
     /// </summary>
-    public class AvatarValidationService : IHostedService
+    public class AvatarValidationService : IHostedService, IDisposable
     {
         private readonly AvatarService _avatarService;
         private readonly OnlinePackService _onlinePackService;
         private readonly ILogger<AvatarValidationService> _logger;
+        private readonly CancellationTokenSource _lifecycleCts = new();
+        private Task? _validationTask;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="AvatarValidationService"/> class.
@@ -33,7 +35,15 @@ namespace MulletaFlix.Plugin.GetAvatar
         }
 
         /// <inheritdoc />
-        public async Task StartAsync(CancellationToken cancellationToken)
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            // Avatar catalog/bootstrap may access the network. It must not delay
+            // the server from accepting requests during host startup.
+            _validationTask = Task.Run(() => ValidateAsync(_lifecycleCts.Token), _lifecycleCts.Token);
+            return Task.CompletedTask;
+        }
+
+        private async Task ValidateAsync(CancellationToken cancellationToken)
         {
             try
             {
@@ -73,10 +83,35 @@ namespace MulletaFlix.Plugin.GetAvatar
         }
 
         /// <inheritdoc />
-        public Task StopAsync(CancellationToken cancellationToken)
+        public async Task StopAsync(CancellationToken cancellationToken)
         {
+            _lifecycleCts.Cancel();
+            if (_validationTask is not null)
+            {
+                try
+                {
+                    await _validationTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _lifecycleCts.IsCancellationRequested)
+                {
+                }
+            }
+
             _logger.LogInformation("GetAvatar validation service stopping...");
-            return Task.CompletedTask;
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _lifecycleCts.Dispose();
+            }
         }
 
         private async Task EnsureDefaultAvatarCatalogAsync()

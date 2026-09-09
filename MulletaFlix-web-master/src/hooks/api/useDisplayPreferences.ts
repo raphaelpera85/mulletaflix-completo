@@ -1,29 +1,10 @@
-import type { Api } from '@jellyfin/sdk/lib/api';
 import { DisplayPreferencesApiGetDisplayPreferencesRequest } from '@jellyfin/sdk/lib/generated-client/api/display-preferences-api';
-import { getDisplayPreferencesApi } from '@jellyfin/sdk/lib/utils/api/display-preferences-api';
-import { queryOptions, useQuery } from '@tanstack/react-query';
-import type { AxiosRequestConfig } from 'axios';
+import { useQuery } from '@tanstack/react-query';
 
 import { useApi } from 'hooks/useApi';
+import { getDisplayPreferencesQuery } from './displayPreferencesQuery';
 
-const fetchDisplayPreferences = async (
-    api: Api,
-    params: DisplayPreferencesApiGetDisplayPreferencesRequest,
-    options?: AxiosRequestConfig
-) => {
-    const response = await getDisplayPreferencesApi(api)
-        .getDisplayPreferences(params, options);
-    return response.data;
-};
-
-export const getDisplayPreferencesQuery = (
-    api?: Api,
-    params?: DisplayPreferencesApiGetDisplayPreferencesRequest
-) => queryOptions({
-    queryKey: [ 'User', api?.basePath, params?.userId, 'DisplayPreferences', params?.displayPreferencesId, params?.client ],
-    queryFn: ({ signal }) => fetchDisplayPreferences(api!, params!, { signal }),
-    enabled: !!api && !!params
-});
+export { getDisplayPreferencesQuery } from './displayPreferencesQuery';
 
 export const useDisplayPreferences = (
     params: DisplayPreferencesApiGetDisplayPreferencesRequest
@@ -34,4 +15,3 @@ export const useDisplayPreferences = (
         userId: params?.userId || user?.Id
     }));
 };
-

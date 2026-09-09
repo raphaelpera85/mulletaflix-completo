@@ -2,6 +2,7 @@
  * "Shortcut" action handlers for BaseItems.
  */
 import { getPlaylistsApi } from '@jellyfin/sdk/lib/utils/api/playlists-api';
+import escapeHtml from 'escape-html';
 
 import { ItemAction } from 'constants/itemAction';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -73,9 +74,9 @@ function playAllFromHere(card: any, serverId: string, queue?: boolean): any {
 }
 
 function showProgramDialog(item: any): void {
-    import('./recordingcreator/recordingcreator').then(({ default: recordingCreator }) => {
-        recordingCreator.show(item.Id, item.ServerId);
-    });
+    import('./recordingcreator/recordingcreator')
+        .then(({ default: recordingCreator }) => recordingCreator.show(item.Id, item.ServerId))
+        .catch(error => console.error('[Shortcuts] Failed to open recording dialog', error));
 }
 
 function getItem(button: any): Promise<any> {
@@ -173,7 +174,7 @@ function showContextMenu(card: any, options: any = {}): void {
                 }
             })
             .catch(() => { /* no-op */ });
-    });
+    }).catch(() => { /* item loading failure is handled by the caller UI */ });
 }
 
 function getItemInfoFromCard(card: any): any {
@@ -200,11 +201,11 @@ function showPlayMenu(card: any, target: any): void {
     const item = getItemInfoFromCard(card);
 
     import('./playmenu').then((playMenu) => {
-        playMenu.show({
+        return playMenu.show({
             item: item,
             positionTo: target
         });
-    });
+    }).catch(error => console.error('[Shortcuts] Failed to open play menu', error));
 }
 
 function executeAction(card: any, target: any, action: string): void {
@@ -312,15 +313,13 @@ function executeAction(card: any, target: any, action: string): void {
             showPlayMenu(card, target);
             break;
         case ItemAction.Edit:
-            getItem(target).then(itemToEdit => {
-                editItem(itemToEdit, serverId as any);
-            });
+            void getItem(target).then(itemToEdit => editItem(itemToEdit, serverId as any)).catch((error: unknown) => console.error('[Shortcuts] failed to edit item', error));
             break;
         case ItemAction.PlayTrailer:
-            getItem(target).then(playTrailer);
+            void getItem(target).then(playTrailer).catch((error: unknown) => console.error('[Shortcuts] failed to load trailer item', error));
             break;
         case ItemAction.AddToPlaylist:
-            getItem(target).then(addToPlaylist);
+            void getItem(target).then(addToPlaylist).catch((error: unknown) => console.error('[Shortcuts] failed to load playlist item', error));
             break;
         case ItemAction.Custom: {
             const customAction = target.getAttribute('data-customaction');
@@ -353,9 +352,9 @@ function addToPlaylist(item: any): void {
 function playTrailer(item: any): void {
     const apiClient: any = ServerConnections.getApiClient(item.ServerId);
 
-    apiClient.getLocalTrailers(apiClient.getCurrentUserId(), item.Id).then((trailers: any[]) => {
+    void apiClient.getLocalTrailers(apiClient.getCurrentUserId(), item.Id).then((trailers: any[]) => {
         playbackManager.play({ items: trailers });
-    });
+    }).catch((error: unknown) => console.error('[Shortcuts] failed to load local trailers', error));
 }
 
 function editItem(item: any, serverId: string): Promise<void> {
@@ -367,17 +366,17 @@ function editItem(item: any, serverId: string): Promise<void> {
         if (item.Type === 'Timer') {
             if (item.ProgramId) {
                 import('./recordingcreator/recordingcreator').then(({ default: recordingCreator }) => {
-                    recordingCreator.show(item.ProgramId, currentServerId).then(resolve, reject);
-                });
+                    return recordingCreator.show(item.ProgramId, currentServerId).then(resolve, reject);
+                }).catch(reject);
             } else {
                 import('./recordingcreator/recordingeditor').then(({ default: recordingEditor }) => {
-                    recordingEditor.show(item.Id, currentServerId).then(resolve, reject);
-                });
+                    return recordingEditor.show(item.Id, currentServerId).then(resolve, reject);
+                }).catch(reject);
             }
         } else {
             import('./metadataEditor/metadataEditor').then(({ default: metadataEditor }) => {
-                metadataEditor.show(item.Id, currentServerId).then(resolve, reject);
-            });
+                return metadataEditor.show(item.Id, currentServerId).then(resolve, reject);
+            }).catch(reject);
         }
     });
 }
@@ -385,7 +384,8 @@ function editItem(item: any, serverId: string): Promise<void> {
 function onRecordCommand(serverId: string, id: string, type: string, timerId: string | null, seriesTimerId: string | null): void {
     if (type === 'Program' || timerId || seriesTimerId) {
         const programId = type === 'Program' ? id : null;
-        recordingHelper.toggleRecording(serverId, programId || '', timerId || '', seriesTimerId || '');
+        void recordingHelper.toggleRecording(serverId, programId || '', timerId || '', seriesTimerId || '')
+            .catch((error: unknown) => console.error('[Shortcuts] failed to toggle recording', error));
     }
 }
 
@@ -451,11 +451,11 @@ export function off(context: any, options?: any): void {
 }
 
 export function getShortcutAttributesHtml(item: any, serverId?: string): string {
-    let html = `data-id="${item.Id}" data-serverid="${serverId || item.ServerId}" data-type="${item.Type}" data-mediatype="${item.MediaType}" data-channelid="${item.ChannelId}" data-isfolder="${item.IsFolder}"`;
+    let html = `data-id="${escapeHtml(String(item.Id || ''))}" data-serverid="${escapeHtml(String(serverId || item.ServerId || ''))}" data-type="${escapeHtml(String(item.Type || ''))}" data-mediatype="${escapeHtml(String(item.MediaType || ''))}" data-channelid="${escapeHtml(String(item.ChannelId || ''))}" data-isfolder="${String(item.IsFolder)}"`;
 
     const collectionType = item.CollectionType;
     if (collectionType) {
-        html += ` data-collectiontype="${collectionType}"`;
+        html += ` data-collectiontype="${escapeHtml(String(collectionType))}"`;
     }
 
     return html;

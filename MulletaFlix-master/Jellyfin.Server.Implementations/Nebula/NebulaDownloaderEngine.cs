@@ -361,7 +361,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            var err = "The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.";
+            var err = "A requisição foi cancelada porque o timeout configurado do HttpClient (10 minutos) foi atingido.";
             LogError($"Erro no download de {strmFileName}: {err}");
             _failureTracker.RecordFailure(strmPath, err);
             return;
@@ -1118,45 +1118,17 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
     private static int GetCategoryPriority(string path)
     {
-        // 1º Prioridade: Filmes
-        if (path.Contains("filme", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("movie", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("cinema", StringComparison.OrdinalIgnoreCase))
-        {
-            return 1;
-        }
+        var mediaType = NebulaUploadEngine.ClassifyMediaType(
+            Path.GetDirectoryName(path),
+            Path.GetFileName(path));
 
-        // 2º Prioridade: Porno
-        if (path.Contains("porno", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("porn", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("xxx", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("adult", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("erotico", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("hentai", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("sex", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("+18", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("18+", StringComparison.OrdinalIgnoreCase))
+        return mediaType switch
         {
-            return 2;
-        }
-
-        // 3º Prioridade: Séries
-        if (path.Contains("serie", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("series", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("season", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("temporada", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("episodio", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("episode", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("novela", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("show", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("dorama", StringComparison.OrdinalIgnoreCase) ||
-            EpisodeRegex.IsMatch(Path.GetFileName(path)))
-        {
-            return 3;
-        }
-
-        return 4;
+            "FILME" => 1,
+            "PORNO" => 2,
+            "SERIE" => 3,
+            _ => 4
+        };
     }
 
     private static string GetCategoryDisplayName(int categoryPriority) => categoryPriority switch
@@ -1192,14 +1164,13 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
             try
             {
-                var files = Directory.GetFiles(currentDir, "*", SearchOption.AllDirectories);
-                var hasMedia = files.Any(f => VideoExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()) || f.EndsWith(".strm", StringComparison.OrdinalIgnoreCase));
+                var hasFiles = Directory.EnumerateFiles(currentDir, "*", SearchOption.AllDirectories).Any();
 
-                if (!hasMedia)
+                if (!hasFiles)
                 {
                     Directory.Delete(currentDir, true);
-                    LogInfo($"Pasta sem mídias removida: {currentDir}");
-                    _logger.LogInformation("[NEBULA-DOWNLOADER] Pasta sem mídias removida: {Dir}", currentDir);
+                    LogInfo($"Pasta vazia removida: {currentDir}");
+                    _logger.LogInformation("[NEBULA-DOWNLOADER] Pasta vazia removida: {Dir}", currentDir);
                     currentDir = Path.GetDirectoryName(currentDir);
                 }
                 else
@@ -1249,13 +1220,12 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
             if (Directory.Exists(dir))
             {
-                var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
-                var hasMedia = files.Any(f => VideoExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()) || f.EndsWith(".strm", StringComparison.OrdinalIgnoreCase));
-                if (!hasMedia)
+                var hasFiles = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Any();
+                if (!hasFiles)
                 {
                     Directory.Delete(dir, true);
-                    LogInfo($"Pasta sem mídias removida: {dir}");
-                    _logger.LogInformation("[NEBULA-DOWNLOADER] Pasta sem mídias removida: {Dir}", dir);
+                    LogInfo($"Pasta vazia removida: {dir}");
+                    _logger.LogInformation("[NEBULA-DOWNLOADER] Pasta vazia removida: {Dir}", dir);
                 }
             }
         }
@@ -1270,9 +1240,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         var dir = Path.GetDirectoryName(fullPath) ?? string.Empty;
         foreach (var src in sources)
         {
-            if (dir.StartsWith(src, StringComparison.OrdinalIgnoreCase))
+            if (IsPathWithinRoot(dir, src))
             {
-                var rel = dir[src.Length..].TrimStart('\\', '/');
+                var normalizedDir = Path.GetFullPath(dir).TrimEnd('\\', '/');
+                var normalizedSource = Path.GetFullPath(src).TrimEnd('\\', '/');
+                var rel = normalizedDir[normalizedSource.Length..].TrimStart('\\', '/');
                 var parts = rel.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
                 var filtered = parts.Where((p, idx) => !(idx == 0 && string.Equals(p, "strm", StringComparison.OrdinalIgnoreCase)));
                 return string.Join(Path.DirectorySeparatorChar, filtered);
@@ -1280,6 +1252,27 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
 
         return string.Empty;
+    }
+
+    internal static bool IsPathWithinRoot(string path, string root)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return fullPath.Equals(fullRoot, StringComparison.OrdinalIgnoreCase)
+                || fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private static string SelectBestStageDirectory(List<string> stageRoots)

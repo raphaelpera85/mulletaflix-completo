@@ -16,7 +16,6 @@ export declare global {
         'viewshow': CustomEvent;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     interface Document {
         registerElement(name: string, options: { prototype: any; extends?: string }): any;
     }

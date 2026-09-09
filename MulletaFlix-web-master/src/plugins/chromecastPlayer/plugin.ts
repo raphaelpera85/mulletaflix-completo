@@ -236,7 +236,7 @@ class CastPlayer {
         document.addEventListener('volumedownbutton', onVolumeDownKeyDown, false);
 
         Events.trigger(this, 'connect');
-        this.sendMessage({
+        void this.sendMessage({
             options: {},
             command: 'Identify'
         });
@@ -405,10 +405,10 @@ class CastPlayer {
 }
 
 function alertText(text: string, title: string): void {
-    alert({
+    void alert({
         text,
         title
-    });
+    }).catch((error: unknown) => console.error('[chromecastPlayer] failed to show alert', error));
 }
 
 function onVolumeUpKeyDown(): void {
@@ -570,7 +570,7 @@ class ChromecastPlayer {
         this.isLocalPlayer = false;
         this.lastPlayerData = {};
 
-        new CastSenderApi().load().then(() => {
+        void new CastSenderApi().load().then(() => {
             Events.on(ServerConnections, 'localusersignedin', () => {
                 initializeChromecast.call(this);
             });
@@ -578,7 +578,7 @@ class ChromecastPlayer {
             if ((ServerConnections.currentApiClient() as any)?.getCurrentUserId()) {
                 initializeChromecast.call(this);
             }
-        });
+        }).catch((error: unknown) => console.error('[chromecastPlayer] failed to load Cast SDK', error));
     }
 
     tryPair(): Promise<void> {
@@ -660,9 +660,9 @@ class ChromecastPlayer {
 
     playWithCommand(options: { items?: any[]; serverId?: string; ids?: string[] }, command: string): Promise<void> {
         if (!options.items) {
-        const apiClient = ServerConnections.getApiClient(options.serverId!) as any;
+            const apiClient = ServerConnections.getApiClient(options.serverId!) as any;
 
-        return apiClient.getItem(apiClient.getCurrentUserId(), options.ids![0]).then((item: any) => {
+            return apiClient.getItem(apiClient.getCurrentUserId(), options.ids![0]).then((item: any) => {
                 options.items = [item];
                 return this.playWithCommand(options, command);
             });
@@ -683,7 +683,7 @@ class ChromecastPlayer {
 
         position = position / 10000000;
 
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {
                 position: position
             },
@@ -692,7 +692,7 @@ class ChromecastPlayer {
     }
 
     setAudioStreamIndex(index: number): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {
                 index: index
             },
@@ -701,7 +701,7 @@ class ChromecastPlayer {
     }
 
     setSubtitleStreamIndex(index: number): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {
                 index: index
             },
@@ -710,7 +710,7 @@ class ChromecastPlayer {
     }
 
     setMaxStreamingBitrate(options: Record<string, unknown>): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: options,
             command: 'SetMaxStreamingBitrate'
         });
@@ -723,14 +723,14 @@ class ChromecastPlayer {
     }
 
     nextTrack(): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {},
             command: 'NextTrack'
         });
     }
 
     previousTrack(): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {},
             command: 'PreviousTrack'
         });
@@ -750,11 +750,11 @@ class ChromecastPlayer {
     endSession(): void {
         const instance = this;
 
-        this.stop().then(function () {
+        void this.stop().then(function () {
             setTimeout(function () {
                 instance._castPlayer!.stopApp();
             }, 1000);
-        });
+        }).catch((error: unknown) => console.error('[chromecastPlayer] failed to end session', error));
     }
 
     volumeUp(): void {
@@ -777,21 +777,21 @@ class ChromecastPlayer {
     }
 
     unpause(): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {},
             command: 'Unpause'
         });
     }
 
     playPause(): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {},
             command: 'PlayPause'
         });
     }
 
     pause(): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {},
             command: 'Pause'
         });
@@ -807,7 +807,7 @@ class ChromecastPlayer {
     }
 
     displayContent(options: Record<string, unknown>): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: options,
             command: 'DisplayContent'
         });
@@ -817,12 +817,12 @@ class ChromecastPlayer {
         const castPlayer = this._castPlayer!;
 
         if (isMuted) {
-            castPlayer.sendMessage({
+            void castPlayer.sendMessage({
                 options: {},
                 command: 'Mute'
             });
         } else {
-            castPlayer.sendMessage({
+            void castPlayer.sendMessage({
                 options: {},
                 command: 'Unmute'
             });
@@ -846,7 +846,7 @@ class ChromecastPlayer {
     }
 
     setRepeatMode(mode: unknown): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {
                 RepeatMode: mode
             },
@@ -859,7 +859,7 @@ class ChromecastPlayer {
     }
 
     toggleMute(): void {
-        this._castPlayer!.sendMessage({
+        void this._castPlayer!.sendMessage({
             options: {},
             command: 'ToggleMute'
         });
@@ -966,22 +966,22 @@ class ChromecastPlayer {
         const apiClient = ServerConnections.getApiClient(item.ServerId) as any;
         const userId = apiClient.getCurrentUserId();
 
-        apiClient.getItem(userId, item.Id).then((fetchedItem: any) => {
-            this.playWithCommand({
+        void apiClient.getItem(userId, item.Id).then((fetchedItem: any) => {
+            return this.playWithCommand({
                 items: [fetchedItem]
             }, 'Shuffle');
-        });
+        }).catch((error: unknown) => console.error('[chromecastPlayer] shuffle failed', error));
     }
 
     instantMix(item: { ServerId: string; Id: string }): void {
         const apiClient = ServerConnections.getApiClient(item.ServerId) as any;
         const userId = apiClient.getCurrentUserId();
 
-        apiClient.getItem(userId, item.Id).then((fetchedItem: any) => {
-            this.playWithCommand({
+        void apiClient.getItem(userId, item.Id).then((fetchedItem: any) => {
+            return this.playWithCommand({
                 items: [fetchedItem]
             }, 'InstantMix');
-        });
+        }).catch((error: unknown) => console.error('[chromecastPlayer] instant mix failed', error));
     }
 
     canPlayMediaType(mediaType: string): boolean {
@@ -994,11 +994,11 @@ class ChromecastPlayer {
     }
 
     queue(options: { items?: any[]; serverId?: string; ids?: string[] }): void {
-        this.playWithCommand(options, 'PlayLast');
+        void this.playWithCommand(options, 'PlayLast').catch((error: unknown) => console.error('[chromecastPlayer] queue failed', error));
     }
 
     queueNext(options: { items?: any[]; serverId?: string; ids?: string[] }): void {
-        this.playWithCommand(options, 'PlayNext');
+        void this.playWithCommand(options, 'PlayNext').catch((error: unknown) => console.error('[chromecastPlayer] queue next failed', error));
     }
 
     play(options: { items?: any[]; serverId?: string; ids?: string[] }): Promise<void> {

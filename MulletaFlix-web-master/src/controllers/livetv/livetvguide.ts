@@ -1,4 +1,4 @@
-import Guide from '../../components/guide/guide';
+import { createGuide, type GuideInstance } from '../../components/guide/guide';
 
 declare const ApiClient: {
     serverId(): string;
@@ -11,13 +11,12 @@ interface LiveTvGuideController {
 }
 
 export default function (this: LiveTvGuideController, view: HTMLElement, params: Record<string, string>, tabContent: HTMLElement): void {
-    let guideInstance: any;
+    let guideInstance: GuideInstance | null = null;
     const self = this;
-    const GuideCtor = Guide as any;
 
     self.renderTab = function (): void {
         if (!guideInstance) {
-            guideInstance = new GuideCtor({
+            guideInstance = createGuide({
                 element: tabContent,
                 serverId: ApiClient.serverId()
             });

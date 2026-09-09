@@ -166,14 +166,14 @@ function getProgramInfoHtml(item: MediaInfoItem, options: MediaInfoOptions): str
     if (item.ChannelName) {
         if (options.interactive && item.ChannelId) {
             miscInfo.push({
-                html: `<a is="emby-linkbutton" class="button-flat mediaInfoItem" href="${appRouter.getRouteUrl({
+                html: `<a is="emby-linkbutton" class="button-flat mediaInfoItem" href="${escapeHtml(appRouter.getRouteUrl({
 
                     ServerId: item.ServerId,
                     Type: 'TvChannel',
                     Name: item.ChannelName,
                     Id: item.ChannelId
 
-                })}">${escapeHtml(item.ChannelName)}</a>`
+                }))}">${escapeHtml(item.ChannelName)}</a>`
             });
         } else {
             miscInfo.push(escapeHtml(item.ChannelName));
@@ -449,7 +449,7 @@ function getMediaInfoItem(m: MediaInfoValue, cssClass?: string): string {
         }
     }
 
-    return `<div class="${cssClass}">${mediaInfoText}</div>`;
+    return `<div class="${cssClass}">${escapeHtml(String(mediaInfoText ?? ''))}</div>`;
 }
 
 function getStarIconsHtml(item: MediaInfoItem): string {

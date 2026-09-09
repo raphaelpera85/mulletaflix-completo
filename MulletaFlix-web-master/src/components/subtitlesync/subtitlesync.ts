@@ -39,7 +39,7 @@ function init(instance: SubtitleSync): void {
 
     subtitleSyncTextField.addEventListener('keydown', function (this: any, event: KeyboardEvent) {
         if (event.key === 'Enter') {
-            let inputOffset = /[-+]?\d+\.?\d*/g.exec(this.textContent);
+            const inputOffset = /[-+]?\d+\.?\d*/g.exec(this.textContent);
             if (inputOffset) {
                 const offsetStr = inputOffset[0];
                 const parsedOffset = parseFloat(offsetStr);

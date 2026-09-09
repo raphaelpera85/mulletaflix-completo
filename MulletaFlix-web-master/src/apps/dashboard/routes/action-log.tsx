@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
+import type { Api } from '@jellyfin/sdk';
+import type { AxiosRequestConfig } from 'axios';
 import globalize from 'lib/globalize';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from 'hooks/useApi';
 
 import Widget from 'apps/dashboard/components/widgets/Widget';
 import Paper from '@mui/material/Paper';
-import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -94,7 +95,7 @@ interface ActionLogQuery {
     category?: string;
 }
 
-const fetchActionLogs = async (api: any, query: ActionLogQuery, options?: any) => {
+const fetchActionLogs = async (api: Api, query: ActionLogQuery, options?: AxiosRequestConfig) => {
     const params = new URLSearchParams();
     if (query.startIndex !== undefined) params.set('startIndex', query.startIndex.toString());
     if (query.limit !== undefined) params.set('limit', query.limit.toString());
@@ -140,7 +141,7 @@ const ActionLogPage = () => {
         setQuery({ ...query, username: e.target.value, startIndex: 0 });
     };
 
-    const handleFilterChange = (field: string, value: any) => {
+    const handleFilterChange = (field: keyof ActionLogQuery, value: ActionLogQuery[keyof ActionLogQuery]) => {
         setQuery({ ...query, [field]: value, startIndex: 0 });
     };
 
@@ -184,87 +185,89 @@ const ActionLogPage = () => {
     const getStatusChip = (isSuccess: boolean) => (
         <Chip
             label={isSuccess ? globalize.translate('Success') : globalize.translate('Failed')}
-            icon={isSuccess ? <CheckCircleIcon fontSize="small" /> : <ErrorIcon fontSize="small" />}
+            icon={isSuccess ? <CheckCircleIcon fontSize='small' /> : <ErrorIcon fontSize='small' />}
             color={isSuccess ? 'success' : 'error'}
-            size="small"
-            variant="outlined"
+            size='small'
+            variant='outlined'
         />
     );
 
     const getCategoryChip = (category: string) => (
-        <Chip label={globalize.translate(`ActionLogCategory${category}`) || category} size="small" variant="outlined" />
+        <Chip label={globalize.translate(`ActionLogCategory${category}`) || category} size='small' variant='outlined' />
     );
 
     return (
-        <Widget title={globalize.translate('ActionLog')} href="/dashboard/action-log">
+        <Widget title={globalize.translate('ActionLog')} href='/dashboard/action-log'>
             <Toolbar sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
                 <TextField
                     placeholder={globalize.translate('SearchByUsername')}
                     value={query.username}
                     onChange={handleSearch}
-                    size="small"
+                    size='small'
                     sx={{ minWidth: 250 }}
-                    InputProps={{
-                        startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
+                    slotProps={{
+                        input: {
+                            startAdornment: <InputAdornment position='start'><SearchIcon /></InputAdornment>
+                        }
                     }}
                 />
-                <FormControl size="small" sx={{ minWidth: 180 }}>
-                    <InputLabel id="action-type-label">{globalize.translate('ActionType')}</InputLabel>
+                <FormControl size='small' sx={{ minWidth: 180 }}>
+                    <InputLabel id='action-type-label'>{globalize.translate('ActionType')}</InputLabel>
                     <Select
                         label={globalize.translate('ActionType')}
                         value={query.actionType}
-                        labelId="action-type-label"
+                        labelId='action-type-label'
                         onChange={(e) => handleFilterChange('actionType', e.target.value)}
                     >
-                        <MenuItem value="">{globalize.translate('All')}</MenuItem>
+                        <MenuItem value=''>{globalize.translate('All')}</MenuItem>
                         {ACTION_TYPES.map(type => (
                             <MenuItem key={type} value={type}>{globalize.translate(`ActionType${type}`) || type}</MenuItem>
                         ))}
                     </Select>
                 </FormControl>
-                <FormControl size="small" sx={{ minWidth: 180 }}>
-                    <InputLabel id="entity-type-label">{globalize.translate('EntityType')}</InputLabel>
+                <FormControl size='small' sx={{ minWidth: 180 }}>
+                    <InputLabel id='entity-type-label'>{globalize.translate('EntityType')}</InputLabel>
                     <Select
                         label={globalize.translate('EntityType')}
                         value={query.entityType}
-                        labelId="entity-type-label"
+                        labelId='entity-type-label'
                         onChange={(e) => handleFilterChange('entityType', e.target.value)}
                     >
-                        <MenuItem value="">{globalize.translate('All')}</MenuItem>
+                        <MenuItem value=''>{globalize.translate('All')}</MenuItem>
                         {ENTITY_TYPES.map(type => (
                             <MenuItem key={type} value={type}>{globalize.translate(`EntityType${type}`) || type}</MenuItem>
                         ))}
                     </Select>
                 </FormControl>
-                <FormControl size="small" sx={{ minWidth: 180 }}>
-                    <InputLabel id="category-label">{globalize.translate('Category')}</InputLabel>
+                <FormControl size='small' sx={{ minWidth: 180 }}>
+                    <InputLabel id='category-label'>{globalize.translate('Category')}</InputLabel>
                     <Select
                         label={globalize.translate('Category')}
                         value={query.category}
-                        labelId="category-label"
+                        labelId='category-label'
                         onChange={(e) => handleFilterChange('category', e.target.value)}
                     >
-                        <MenuItem value="">{globalize.translate('All')}</MenuItem>
+                        <MenuItem value=''>{globalize.translate('All')}</MenuItem>
                         {CATEGORIES.map(cat => (
                             <MenuItem key={cat} value={cat}>{globalize.translate(`ActionLogCategory${cat}`) || cat}</MenuItem>
                         ))}
                     </Select>
                 </FormControl>
-                <FormControl size="small" sx={{ minWidth: 150 }}>
-                    <InputLabel id="status-label">{globalize.translate('Status')}</InputLabel>
+                <FormControl size='small' sx={{ minWidth: 150 }}>
+                    <InputLabel id='status-label'>{globalize.translate('Status')}</InputLabel>
                     <Select
                         label={globalize.translate('Status')}
                         value={query.isSuccess === undefined ? '' : query.isSuccess.toString()}
-                        labelId="status-label"
+                        labelId='status-label'
                         onChange={(e) => handleFilterChange('isSuccess', e.target.value === '' ? undefined : e.target.value === 'true')}
                     >
-                        <MenuItem value="">{globalize.translate('All')}</MenuItem>
-                        <MenuItem value="true">{globalize.translate('Success')}</MenuItem>
-                        <MenuItem value="false">{globalize.translate('Failed')}</MenuItem>
+                        <MenuItem value=''>{globalize.translate('All')}</MenuItem>
+                        <MenuItem value='true'>{globalize.translate('Success')}</MenuItem>
+                        <MenuItem value='false'>{globalize.translate('Failed')}</MenuItem>
                     </Select>
                 </FormControl>
                 <Box sx={{ flexGrow: 1 }} />
-                <IconButton onClick={() => navigate('/dashboard/action-log/export')} color="primary">
+                <IconButton onClick={() => navigate('/dashboard/action-log/export')} color='primary'>
                     <DownloadIcon />
                 </IconButton>
             </Toolbar>
@@ -279,7 +282,7 @@ const ActionLogPage = () => {
                 </Paper>
             ) : items.length === 0 ? (
                 <Paper sx={{ p: 3, textAlign: 'center' }}>
-                    <Typography color="text.secondary">{globalize.translate('NoActionLogsFound')}</Typography>
+                    <Typography color='text.secondary'>{globalize.translate('NoActionLogsFound')}</Typography>
                 </Paper>
             ) : (
                 <>
@@ -341,11 +344,11 @@ const ActionLogPage = () => {
                                             {globalize.translate('Status')}
                                         </TableSortLabel>
                                     </TableCell>
-                                    <TableCell align="right">{globalize.translate('Actions')}</TableCell>
+                                    <TableCell align='right'>{globalize.translate('Actions')}</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {items.map((row, index) => (
+                                {items.map((row) => (
                                     <TableRow key={row.id} hover>
                                         <TableCell>{new Date(row.dateCreated).toLocaleString()}</TableCell>
                                         <TableCell>{globalize.translate(`ActionType${row.actionType}`) || row.actionType}</TableCell>
@@ -353,9 +356,9 @@ const ActionLogPage = () => {
                                         <TableCell>{row.username}</TableCell>
                                         <TableCell>{getCategoryChip(row.category)}</TableCell>
                                         <TableCell>{getStatusChip(row.isSuccess)}</TableCell>
-                                        <TableCell align="right">
+                                        <TableCell align='right'>
                                             <IconButton
-                                                size="small"
+                                                size='small'
                                                 onClick={(e) => openDetailMenu(e, row)}
                                                 aria-label={globalize.translate('ViewDetails')}
                                             >
@@ -369,7 +372,7 @@ const ActionLogPage = () => {
                     </TableContainer>
                     <TablePagination
                         rowsPerPageOptions={[10, 25, 50, 100]}
-                        component="div"
+                        component='div'
                         count={totalCount}
                         rowsPerPage={query.limit ?? 25}
                         page={(query.startIndex ?? 0) / (query.limit ?? 25)}
@@ -389,78 +392,78 @@ const ActionLogPage = () => {
                 {detailRow && (
                     <>
                         <MenuItem disabled>
-                            <Typography variant="subtitle1" fontWeight="bold">
+                            <Typography variant='subtitle1' fontWeight='bold'>
                                 {globalize.translate('ActionLogDetails')}
                             </Typography>
                         </MenuItem>
                         <MenuItem disabled>
-                            <Typography variant="body2">
+                            <Typography variant='body2'>
                                 <strong>{globalize.translate('ActionType')}:</strong> {globalize.translate(`ActionType${detailRow.actionType}`) || detailRow.actionType}
                             </Typography>
                         </MenuItem>
                         <MenuItem disabled>
-                            <Typography variant="body2">
+                            <Typography variant='body2'>
                                 <strong>{globalize.translate('EntityType')}:</strong> {globalize.translate(`EntityType${detailRow.entityType}`) || detailRow.entityType}
                             </Typography>
                         </MenuItem>
                         <MenuItem disabled>
-                            <Typography variant="body2">
+                            <Typography variant='body2'>
                                 <strong>{globalize.translate('EntityId')}:</strong> {detailRow.entityId || '—'}
                             </Typography>
                         </MenuItem>
                         <MenuItem disabled>
-                            <Typography variant="body2">
+                            <Typography variant='body2'>
                                 <strong>{globalize.translate('User')}:</strong> {detailRow.username}
                             </Typography>
                         </MenuItem>
                         <MenuItem disabled>
-                            <Typography variant="body2">
+                            <Typography variant='body2'>
                                 <strong>{globalize.translate('Date')}:</strong> {new Date(detailRow.dateCreated).toLocaleString()}
                             </Typography>
                         </MenuItem>
                         <MenuItem disabled>
-                            <Typography variant="body2">
+                            <Typography variant='body2'>
                                 <strong>{globalize.translate('Status')}:</strong> {detailRow.isSuccess ? globalize.translate('Success') : globalize.translate('Failed')}
                             </Typography>
                         </MenuItem>
                         {detailRow.details && (
                             <MenuItem disabled>
-                                <Typography variant="body2">
+                                <Typography variant='body2'>
                                     <strong>{globalize.translate('Details')}:</strong> {detailRow.details}
                                 </Typography>
                             </MenuItem>
                         )}
                         {detailRow.oldValues && (
                             <MenuItem disabled>
-                                <Typography variant="body2">
+                                <Typography variant='body2'>
                                     <strong>{globalize.translate('OldValues')}:</strong> {detailRow.oldValues}
                                 </Typography>
                             </MenuItem>
                         )}
                         {detailRow.newValues && (
                             <MenuItem disabled>
-                                <Typography variant="body2">
+                                <Typography variant='body2'>
                                     <strong>{globalize.translate('NewValues')}:</strong> {detailRow.newValues}
                                 </Typography>
                             </MenuItem>
                         )}
                         {detailRow.errorMessage && (
                             <MenuItem disabled>
-                                <Typography variant="body2" color="error">
+                                <Typography variant='body2' color='error'>
                                     <strong>{globalize.translate('Error')}:</strong> {detailRow.errorMessage}
                                 </Typography>
                             </MenuItem>
                         )}
                         {detailRow.ipAddress && (
                             <MenuItem disabled>
-                                <Typography variant="body2">
+                                <Typography variant='body2'>
                                     <strong>{globalize.translate('IPAddress')}:</strong> {detailRow.ipAddress}
                                 </Typography>
                             </MenuItem>
                         )}
                         {detailRow.userAgent && (
                             <MenuItem disabled>
-                                <Typography variant="body2">
+                                <Typography variant='body2'>
                                     <strong>{globalize.translate('UserAgent')}:</strong> {detailRow.userAgent}
                                 </Typography>
                             </MenuItem>

@@ -32,9 +32,9 @@ export default function (view: HTMLElement, params: UserHomeViewParams): void {
     let homescreenSettingsInstance: SettingsInstance | undefined;
 
     const userId = params.userId || ApiClient.getCurrentUserId();
-    const currentSettings: UserSettingsContract = userId === ApiClient.getCurrentUserId()
-        ? (userSettings as unknown as UserSettingsContract)
-        : (new UserSettings() as unknown as UserSettingsContract);
+    const currentSettings: UserSettingsContract = userId === ApiClient.getCurrentUserId() ?
+        (userSettings as unknown as UserSettingsContract) :
+        (new UserSettings() as unknown as UserSettingsContract);
 
     view.addEventListener('viewshow', function () {
         if (homescreenSettingsInstance) {

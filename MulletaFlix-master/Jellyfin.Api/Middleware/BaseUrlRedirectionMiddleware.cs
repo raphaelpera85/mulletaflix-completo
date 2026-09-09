@@ -48,7 +48,7 @@ public class BaseUrlRedirectionMiddleware
         if (string.IsNullOrEmpty(localPath)
             || string.Equals(localPath, baseUrlPrefix, StringComparison.OrdinalIgnoreCase)
             || string.Equals(localPath, baseUrlPrefix + "/", StringComparison.OrdinalIgnoreCase)
-            || !localPath.StartsWith(baseUrlPrefix, StringComparison.OrdinalIgnoreCase)
+            || !IsPathUnderBaseUrl(localPath, baseUrlPrefix)
            )
         {
             // Redirect health endpoint
@@ -75,5 +75,17 @@ public class BaseUrlRedirectionMiddleware
 
         await _next(httpContext).ConfigureAwait(false);
     }
-}
 
+    internal static bool IsPathUnderBaseUrl(string path, string baseUrlPrefix)
+    {
+        if (string.IsNullOrEmpty(baseUrlPrefix) || baseUrlPrefix == "/")
+        {
+            return true;
+        }
+
+        var normalizedPrefix = baseUrlPrefix.TrimEnd('/');
+        return string.Equals(path, normalizedPrefix, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(path, normalizedPrefix + "/", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(normalizedPrefix + "/", StringComparison.OrdinalIgnoreCase);
+    }
+}

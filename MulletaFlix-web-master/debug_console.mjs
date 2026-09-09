@@ -39,7 +39,7 @@ import { chromium } from '@playwright/test';
 
         // Wait for login page
         await page.waitForTimeout(2000);
-        
+
         // Fill manual login if visible
         const manualBtn = page.locator('.btnManual').first();
         if (await manualBtn.isVisible().catch(() => false)) {
@@ -53,12 +53,12 @@ import { chromium } from '@playwright/test';
         console.log('Logged in. Navigating to home page...');
         await page.goto('http://127.0.0.1:8096/web/#/home');
         await page.waitForTimeout(5000);
-        
+
         console.log('Checking DOM on home page...');
         const homePageHtml = await page.content().catch(e => `Error: ${e.message}`);
         console.log('Home Page Inner HTML Length:', homePageHtml.length);
         console.log('Has library section:', homePageHtml.includes('section'));
-        
+
         // Layout measurements
         const measurements = await page.evaluate(() => {
             const pageEl = document.querySelector('#devicesPage');
@@ -67,7 +67,7 @@ import { chromium } from '@playwright/test';
             const skinBodyEl = document.querySelector('.skinBody');
             const mainEl = document.querySelector('main');
             const bodyEl = document.body;
-            
+
             const getInfo = (el, name) => {
                 if (!el) return `${name} not found`;
                 const rect = el.getBoundingClientRect();
@@ -89,7 +89,7 @@ import { chromium } from '@playwright/test';
                     overflow: style.overflow
                 };
             };
-            
+
             return {
                 body: getInfo(bodyEl, 'body'),
                 main: getInfo(mainEl, 'main'),
@@ -99,9 +99,9 @@ import { chromium } from '@playwright/test';
                 table: getInfo(tableEl, 'table')
             };
         });
-        
+
         console.log('DOM Measurements:', JSON.stringify(measurements, null, 2));
-        
+
         console.log('Taking screenshot of devices...');
         await page.screenshot({ path: 'scratch_devices.png' });
 
@@ -116,10 +116,10 @@ import { chromium } from '@playwright/test';
             console.log('Search input found. Typing query "a"...');
             await searchInput.fill('a');
             await page.waitForTimeout(5000);
-            
+
             console.log('Taking search page screenshot...');
             await page.screenshot({ path: 'scratch_search.png' });
-            
+
             console.log('Checking search results DOM...');
             const searchHtml = await page.content();
             console.log('Search Page Content Length:', searchHtml.length);

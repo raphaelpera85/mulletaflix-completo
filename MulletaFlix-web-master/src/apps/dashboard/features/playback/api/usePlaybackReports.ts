@@ -103,12 +103,12 @@ export interface PlaybackReportStats {
     }>;
 }
 
-export type PlaybackReportSortBy = 
-    | 'DateCreated' 
-    | 'UserId' 
-    | 'ItemId' 
-    | 'DurationSeconds' 
-    | 'CompletionPercentage' 
+export type PlaybackReportSortBy =
+    | 'DateCreated'
+    | 'UserId'
+    | 'ItemId'
+    | 'DurationSeconds'
+    | 'CompletionPercentage'
     | 'Bitrate';
 
 const fetchPlaybackReports = async (

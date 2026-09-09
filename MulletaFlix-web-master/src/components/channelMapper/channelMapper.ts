@@ -5,6 +5,7 @@ import loading from '../loading/loading';
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import actionsheet from '../actionSheet/actionSheet';
+import toast from '../toast/toast';
 import '../../elements/emby-input/emby-input';
 import '../../elements/emby-button/paper-icon-button-light';
 import '../../elements/emby-button/emby-button';
@@ -63,6 +64,9 @@ export default class ChannelMapper {
                 button.setAttribute('data-providerid', mapping.ProviderChannelId);
                 (listItem!.querySelector('.secondary') as HTMLElement)!.innerText = getMappingSecondaryName(mapping, self.currentMappingOptions.ProviderName);
                 loading.hide();
+            }).catch(() => {
+                loading.hide();
+                toast(globalize.translate('MessageUnableToConnectToServer'));
             });
         }
 
@@ -86,6 +90,8 @@ export default class ChannelMapper {
                     items: menuItems
                 }).then((newChannelId: unknown) => {
                     mapChannel(btnMap, channelId, newChannelId as string);
+                }).catch(() => {
+                    // Closing the action sheet without selecting a channel is expected.
                 });
             }
         }
@@ -117,7 +123,7 @@ export default class ChannelMapper {
 
             html += '</div>';
             html += '</div>';
-            html += `<button class="btnMap autoSize" is="paper-icon-button-light" type="button" data-id="${channel.Id}" data-providerid="${channel.ProviderChannelId}"><span class="material-icons mode_edit" aria-hidden="true"></span></button>`;
+            html += `<button class="btnMap autoSize" is="paper-icon-button-light" type="button" data-id="${escapeHtml(channel.Id)}" data-providerid="${escapeHtml(channel.ProviderChannelId)}"><span class="material-icons mode_edit" aria-hidden="true"></span></button>`;
             html += '</div>';
             return html;
         }
@@ -137,13 +143,15 @@ export default class ChannelMapper {
         }
 
         function initEditor(dlg: HTMLElement, initOptions: ChannelMapperOptions): void {
-            getChannelMappingOptions(initOptions.serverId, initOptions.providerId).then(result => {
+            void getChannelMappingOptions(initOptions.serverId, initOptions.providerId).then(result => {
                 self.currentMappingOptions = result;
                 const channelsElement = dlg.querySelector('.channels')!;
                 channelsElement.innerHTML = result.TunerChannels.map(channel => {
                     return getTunerChannelHtml(channel, result.ProviderName);
                 }).join('');
                 channelsElement.addEventListener('click', onChannelsElementClick);
+            }).catch(() => {
+                toast(globalize.translate('MessageUnableToConnectToServer'));
             });
         }
 
@@ -171,8 +179,8 @@ export default class ChannelMapper {
                 dialogHelper.close(dlg);
             });
             return new Promise(resolve => {
-                dlg.addEventListener('close', resolve as any);
-                dialogHelper.open(dlg);
+                dlg.addEventListener('close', () => resolve());
+                void dialogHelper.open(dlg);
             });
         };
     }

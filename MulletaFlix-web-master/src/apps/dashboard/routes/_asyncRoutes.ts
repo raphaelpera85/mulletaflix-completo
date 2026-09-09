@@ -3,7 +3,6 @@ import { AppType } from 'constants/appType';
 import { MIDIA_STORAGE_ONLINE_ROUTE } from './midiaStorageOnline';
 
 const PLAYBACK_REPORTS_ROUTE = 'playback-reports';
-const SYNCPLAY_ROUTE = 'syncplay';
 const UPDATES_ROUTE = 'updates';
 
 export const ASYNC_ADMIN_ROUTES: AsyncRoute[] = [

@@ -38,7 +38,6 @@ function showActionSheet(select: HTMLSelectElement): void {
     const labelElem = getLabel(select);
     const title = labelElem ? (labelElem.textContent || labelElem.innerText) : undefined;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     actionsheet.show({
         items: Array.from(select.options) as any[],
         positionTo: select,

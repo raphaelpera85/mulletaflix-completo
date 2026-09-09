@@ -247,7 +247,8 @@ public sealed class NebulaStrmGenerator
         if (useHttp)
         {
             var httpPort = config.HttpStreamPort > 0 ? config.HttpStreamPort : 2123;
-            return $"http://{serverHost}:{httpPort}/stream?id={encodedPath}";
+            var encodedToken = Uri.EscapeDataString(config.HttpStreamToken ?? string.Empty);
+            return $"http://{serverHost}:{httpPort}/stream?id={encodedPath}&token={encodedToken}";
         }
 
         var port = config.ServerPort > 0 ? config.ServerPort : 2121;

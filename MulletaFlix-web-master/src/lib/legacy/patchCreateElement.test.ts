@@ -18,7 +18,7 @@ describe('patchCreateElement polyfill patch', () => {
     beforeAll(async () => {
         originalCreateElement = Document.prototype.createElement;
         originalCreateElementNS = Document.prototype.createElementNS;
-        
+
         Document.prototype.createElement = mockCreateElement;
         Document.prototype.createElementNS = mockCreateElementNS;
 

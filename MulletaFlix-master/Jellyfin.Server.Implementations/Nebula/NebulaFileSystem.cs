@@ -175,14 +175,14 @@ public sealed class NebulaFileSystem : IUnixFileSystem
     }
 
     /// <inheritdoc />
-    public async Task UnlinkAsync(IUnixFileSystemEntry entry, CancellationToken cancellationToken)
+    public Task UnlinkAsync(IUnixFileSystemEntry entry, CancellationToken cancellationToken)
     {
         if (entry is not NebulaFileEntry file)
         {
-            throw new NotSupportedException("Somente arquivos Nebula podem ser removidos.");
+            return Task.FromException(new NotSupportedException("Somente arquivos Nebula podem ser removidos."));
         }
 
-        await _mongoContext.DeleteByIdAsync(file.NodeId, cancellationToken).ConfigureAwait(false);
+        return Task.FromException(new NotSupportedException($"Arquivos Telegram são imutáveis e não podem ser removidos via FTP: {file.Name}"));
     }
 
     /// <inheritdoc />

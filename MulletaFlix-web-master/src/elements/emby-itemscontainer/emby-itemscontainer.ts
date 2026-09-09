@@ -531,7 +531,7 @@ interface ItemsContainerElement extends HTMLDivElement {
     refreshTimeout?: number | null;
 }
 
-declare var Events: {
+declare let Events: {
     on(owner: any, name: string, handler: Function): void;
     off(owner: any, name: string, handler: Function): void;
 };

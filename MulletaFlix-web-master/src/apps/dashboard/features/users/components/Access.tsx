@@ -25,7 +25,7 @@ const Access = ({ userId }: AccessProps) => {
     const [channelsItems, setChannelsItems] = useState<ItemsArr[]>([]);
     const [mediaFoldersItems, setMediaFoldersItems] = useState<ItemsArr[]>([]);
     const [devicesItems, setDevicesItems] = useState<ItemsArr[]>([]);
-    const libraryMenu = useMemo(async () => ((await import('scripts/libraryMenu')).default), []);
+    const libraryMenu = useMemo(() => import('scripts/libraryMenu').then(module => module.default), []);
 
     const element = useRef<HTMLDivElement>(null);
 
@@ -134,12 +134,14 @@ const Access = ({ userId }: AccessProps) => {
     }, []);
 
     const loadUser = useCallback((user: UserDto, mediaFolders: BaseItemDto[], channels: BaseItemDto[], devices: DeviceInfoDto[]) => {
-        void libraryMenu.then(menu => menu.setTitle(user.Name || ''));
+        libraryMenu
+            .then(menu => menu.setTitle(user.Name || ''))
+            .catch(error => console.error('[userlibraryaccess] failed to update page title', error));
         loadChannels(user, channels);
         loadMediaFolders(user, mediaFolders);
         loadDevices(user, devices);
         loading.hide();
-    }, [loadChannels, loadDevices, loadMediaFolders]);
+    }, [libraryMenu, loadChannels, loadDevices, loadMediaFolders]);
 
     const loadData = useCallback(() => {
         loading.show();
@@ -237,7 +239,7 @@ const Access = ({ userId }: AccessProps) => {
         });
 
         (page.querySelector('.userLibraryAccessForm') as HTMLFormElement).addEventListener('submit', onSubmit);
-    }, [loadData]);
+    }, [loadData, userId]);
 
     return (
         <div ref={element}>
@@ -330,4 +332,3 @@ const Access = ({ userId }: AccessProps) => {
 };
 
 export default Access;
-

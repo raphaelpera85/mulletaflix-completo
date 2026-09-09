@@ -64,21 +64,21 @@ const ServerHealthWidget = ({ tasks }: ServerHealthWidgetProps) => {
                     </Stack>
 
                     <Typography>
-                        {isAlertsPending
-                            ? <Skeleton width={220} />
-                            : `${runningTasks.length} running task(s), ${recentAlertsCount} recent alert(s)`}
+                        {isAlertsPending ?
+                            <Skeleton width={220} /> :
+                            `${runningTasks.length} running task(s), ${recentAlertsCount} recent alert(s)`}
                     </Typography>
 
                     <Typography>
-                        {refreshLibraryTaskRunning
-                            ? 'Library refresh is in progress'
-                            : 'No library refresh running'}
+                        {refreshLibraryTaskRunning ?
+                            'Library refresh is in progress' :
+                            'No library refresh running'}
                     </Typography>
 
                     <Typography>
-                        {isSystemInfoPending
-                            ? <Skeleton width={180} />
-                            : `${globalize.translate('LabelServerVersion')}: ${systemInfo?.Version ?? '—'}`}
+                        {isSystemInfoPending ?
+                            <Skeleton width={180} /> :
+                            `${globalize.translate('LabelServerVersion')}: ${systemInfo?.Version ?? '—'}`}
                     </Typography>
                 </Stack>
             </Paper>

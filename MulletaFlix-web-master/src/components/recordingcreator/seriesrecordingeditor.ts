@@ -199,7 +199,7 @@ function showEditor(itemId: string, serverId: string, options?: { enableCancel?:
         dlg.classList.add('recordingDialog');
 
         if (!layoutManager.tv) {
-        dlg.style.minWidth = '20%';
+            dlg.style.minWidth = '20%';
         }
 
         let html = '';

@@ -89,11 +89,11 @@ function getCurrentApiClient(): unknown {
 function lazyLoadViewMenuBarImages(): void {
     import('../components/images/imageLoader').then((imageLoader) => {
         imageLoader.lazyChildren(skinHeader);
-    });
+    }).catch((error: unknown) => console.error('Failed to lazy-load menu images', error));
 }
 
 function onBackClick(): void {
-    appRouter.back();
+    Promise.resolve(appRouter.back()).catch((error: unknown) => console.error('Failed to navigate back', error));
 }
 
 function retranslateUi(): void {
@@ -208,10 +208,31 @@ function updateUserInHeader(user?: UserInfo): void {
 function updateHeaderUserButton(src: string | null): void {
     if (src) {
         headerUserButton!.classList.add('headerUserButtonRound');
-        headerUserButton!.innerHTML = '<div class="headerButton headerButtonRight paper-icon-button-light headerUserButtonRound" style="background-image:url(\'' + src + "');\"></div>";
+        const image = document.createElement('div');
+        image.className = 'headerButton headerButtonRight paper-icon-button-light headerUserButtonRound';
+
+        try {
+            const imageUrl = new URL(src, window.location.origin);
+            if (imageUrl.protocol === 'http:' || imageUrl.protocol === 'https:') {
+                image.style.backgroundImage = `url("${imageUrl.href}")`;
+            }
+        } catch {
+            // Keep the default avatar when a malformed image URL is returned.
+        }
+
+        while (headerUserButton!.firstChild) {
+            headerUserButton!.removeChild(headerUserButton!.firstChild);
+        }
+        headerUserButton!.appendChild(image);
     } else {
         headerUserButton!.classList.remove('headerUserButtonRound');
-        headerUserButton!.innerHTML = '<span class="material-icons person" aria-hidden="true"></span>';
+        const icon = document.createElement('span');
+        icon.className = 'material-icons person';
+        icon.setAttribute('aria-hidden', 'true');
+        while (headerUserButton!.firstChild) {
+            headerUserButton!.removeChild(headerUserButton!.firstChild);
+        }
+        headerUserButton!.appendChild(icon);
     }
 }
 
@@ -231,11 +252,11 @@ function showSearch(): void {
 }
 
 function onHeaderUserButtonClick(): void {
-    Dashboard.navigate('mypreferencesmenu');
+    Promise.resolve(Dashboard.navigate('mypreferencesmenu')).catch((error: unknown) => console.error('Failed to open preferences', error));
 }
 
 function onHeaderHomeButtonClick(): void {
-    Dashboard.navigate('home');
+    Promise.resolve(Dashboard.navigate('home')).catch((error: unknown) => console.error('Failed to open home', error));
 }
 
 function showAudioPlayer(): unknown {
@@ -291,7 +312,7 @@ function onCastButtonClicked(this: HTMLElement): void {
 
     import('../components/playback/playerSelectionMenu').then((playerSelectionMenu) => {
         playerSelectionMenu.show(btn);
-    });
+    }).catch((error: unknown) => console.error('Failed to open player selection', error));
 }
 
 function onSyncButtonClicked(this: HTMLElement): void {
@@ -475,7 +496,7 @@ function updateLibraryMenu(user: UserInfo | null): void {
 
                 customMenuOptions.appendChild(option);
             });
-        });
+        }).catch((error: unknown) => console.error('Failed to load custom menu links', error));
     }
 
     const libraryMenuOptions = document.querySelector('.libraryMenuOptions');
@@ -488,8 +509,8 @@ function updateLibraryMenu(user: UserInfo | null): void {
                 const icon = (i as Record<string, string>).icon || imageHelper.getLibraryIcon((i as Record<string, string>).CollectionType as string);
                 const itemId = i.Id;
 
-                return `<a is="emby-linkbutton" data-itemid="${itemId}" class="lnkMediaFolder navMenuOption" href="${getItemHref(i, (i as Record<string, string>).CollectionType as string)}">
-                                    <span class="material-icons navMenuOptionIcon ${icon}" aria-hidden="true"></span>
+                return `<a is="emby-linkbutton" data-itemid="${escapeHtml(String(itemId || ''))}" class="lnkMediaFolder navMenuOption" href="${escapeHtml(getItemHref(i, (i as Record<string, string>).CollectionType as string))}">
+                                    <span class="material-icons navMenuOptionIcon ${escapeHtml(icon)}" aria-hidden="true"></span>
                                     <span class="sectionName navMenuOptionText">${escapeHtml((i as Record<string, string>).Name as string)}</span>
                                   </a>`;
             }).join('');
@@ -501,7 +522,7 @@ function updateLibraryMenu(user: UserInfo | null): void {
                 sidebarLink.removeEventListener('click', onSidebarLinkClick as EventListenerOrEventListenerObject);
                 sidebarLink.addEventListener('click', onSidebarLinkClick as EventListenerOrEventListenerObject);
             }
-        });
+        }).catch((error: unknown) => console.error('Failed to load user views', error));
     }
 }
 
@@ -520,7 +541,7 @@ function onSelectServerClick(): void {
 }
 
 function onSettingsClick(): void {
-    Dashboard.navigate('mypreferencesmenu');
+    Promise.resolve(Dashboard.navigate('mypreferencesmenu')).catch((error: unknown) => console.error('Failed to open settings', error));
 }
 
 function onExitAppClick(): void {
@@ -623,7 +644,9 @@ function updateMenuForPageType(isDashboardPage: boolean, isLibraryPage: boolean)
     }
 
     if (requiresUserRefresh) {
-        ServerConnections.user(getCurrentApiClient() as any).then(updateUserInHeader as any);
+        ServerConnections.user(getCurrentApiClient() as any)
+            .then(updateUserInHeader as any)
+            .catch((error: unknown) => console.error('Failed to refresh current user', error));
     }
 }
 
@@ -653,16 +676,16 @@ function initHeadRoom(elem: HTMLElement): void {
 }
 
 function refreshLibraryDrawer(user?: UserInfo): void {
-    loadNavDrawer();
+    loadNavDrawer().catch((error: unknown) => console.error('Failed to load navigation drawer', error));
     currentDrawerType = 'library';
 
     if (user) {
-        Promise.resolve(user);
+        return;
     } else {
         ServerConnections.user(getCurrentApiClient() as any).then(function (userResult: any) {
             refreshLibraryInfoInDrawer(userResult);
             updateLibraryMenu(userResult.localUser ? userResult : null);
-        });
+        }).catch((error: unknown) => console.error('Failed to refresh library drawer user', error));
     }
 }
 
@@ -685,7 +708,7 @@ function loadNavDrawer(): Promise<unknown> {
     navDrawerElement = document.querySelector('.mainDrawer') as HTMLElement;
     navDrawerScrollContainer = navDrawerElement.querySelector('.scrollContainer') as HTMLElement;
     navDrawerScrollContainer.addEventListener('click', onMainDrawerClick as EventListenerOrEventListenerObject);
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
         import('../lib/navdrawer/navdrawer').then(({ default: NavDrawer }) => {
             navDrawerInstance = new NavDrawer(getNavDrawerOptions() as any);
 
@@ -694,7 +717,7 @@ function loadNavDrawer(): Promise<unknown> {
             }
 
             resolve(navDrawerInstance);
-        });
+        }).catch((error: unknown) => reject(error));
     });
 }
 
@@ -722,15 +745,15 @@ let requiresUserRefresh = true;
 function setTabs(type: string | null, selectedIndex: number, builder: () => unknown[]): void {
     Events.trigger(document, EventType.SET_TABS, type ? [ type, selectedIndex, builder()] : []);
 
-        import('../components/maintabsmanager').then((mainTabsManager) => {
-            if (type) {
+    import('../components/maintabsmanager').then((mainTabsManager) => {
+        if (type) {
             mainTabsManager.setTabs(viewManager.getCurrentView(), selectedIndex, builder, function () {
                 return [];
             });
         } else {
             mainTabsManager.setTabs(null);
         }
-    });
+    }).catch((error: unknown) => console.error('Failed to load main tabs manager', error));
 }
 
 /**
@@ -742,12 +765,12 @@ const fetchServerName = (_apiClient?: { getPublicSystemInfo?: () => Promise<{ Se
         _apiClient
             .getPublicSystemInfo()
             .then(({ ServerName }) => {
-            documentTitle = ServerName || documentTitle;
-            document.title = documentTitle;
-        })
-        .catch((err: unknown) => {
-            console.error('[LibraryMenu] failed to fetch system info', err);
-        });
+                documentTitle = ServerName || documentTitle;
+                document.title = documentTitle;
+            })
+            .catch((err: unknown) => {
+                console.error('[LibraryMenu] failed to fetch system info', err);
+            });
     }
 };
 
@@ -852,12 +875,12 @@ Events.on(ServerConnections, 'localusersignedin', function (_e: unknown, user: {
         localUser: user as unknown as UserInfo['localUser']
     };
 
-    loadNavDrawer();
+    loadNavDrawer().catch((error: unknown) => console.error('Failed to load navigation drawer', error));
 
     ServerConnections.user(currentApiClient as any).then(function (userResult: any) {
         currentUser = userResult;
         updateUserInHeader(userResult);
-    });
+    }).catch((error: unknown) => console.error('Failed to load signed-in user', error));
 });
 
 Events.on(ServerConnections, 'localusersignedout', function () {
@@ -868,7 +891,7 @@ Events.on(ServerConnections, 'localusersignedout', function () {
 Events.on(playbackManager, 'playerchange', updateCastIcon);
 
 fetchServerName(getCurrentApiClient() as Parameters<typeof fetchServerName>[0]);
-loadNavDrawer();
+loadNavDrawer().catch((error: unknown) => console.error('Failed to load navigation drawer', error));
 
 const LibraryMenu = {
     getTopParentId,

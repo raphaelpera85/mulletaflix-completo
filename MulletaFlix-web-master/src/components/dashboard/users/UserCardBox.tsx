@@ -77,15 +77,15 @@ const UserCardBox: FunctionComponent<IProps> = ({ user = {} }: IProps) => {
                     <div className='cardText'>
                         <span>{user.Name}</span>
                         {license && (
-                            <span 
-                                style={{ 
-                                    fontSize: '0.75em', 
-                                    marginLeft: '8px', 
+                            <span
+                                style={{
+                                    fontSize: '0.75em',
+                                    marginLeft: '8px',
                                     fontWeight: 'bold',
-                                    color: license.IsExpired ? '#f44336' : license.IsUnlimited ? '#2196f3' : '#4caf50' 
+                                    color: license.IsExpired ? '#f44336' : license.IsUnlimited ? '#2196f3' : '#4caf50'
                                 }}
                             >
-                                {license.IsExpired ? 'â€¢ Exp' : license.IsUnlimited ? 'â€¢ Ilim' : `â€¢ Ativo`}
+                                {license.IsExpired ? 'â€¢ Exp' : license.IsUnlimited ? 'â€¢ Ilim' : 'â€¢ Ativo'}
                             </span>
                         )}
                     </div>

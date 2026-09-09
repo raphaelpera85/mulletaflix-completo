@@ -1,3 +1,5 @@
+import escapeHtml from 'escape-html';
+
 import dialogHelper from '../dialogHelper/dialogHelper';
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -75,7 +77,7 @@ function renderRecording(context: Element, defaultTimer: any, program: any, apiC
         const imageContainer = context.querySelector('.recordingDialog-imageContainer')!;
 
         if (imgUrl) {
-            imageContainer.innerHTML = `<img src="${PlaceholderImage}" data-src="${imgUrl}" class="recordingDialog-img lazy" />`;
+            imageContainer.innerHTML = `<img src="${escapeHtml(PlaceholderImage)}" data-src="${escapeHtml(imgUrl)}" class="recordingDialog-img lazy" />`;
             imageContainer.classList.remove('hide');
 
             imageLoader.lazyChildren(imageContainer);

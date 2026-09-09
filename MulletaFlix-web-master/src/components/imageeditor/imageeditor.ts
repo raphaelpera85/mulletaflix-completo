@@ -201,10 +201,10 @@ function getCardHtml(image: any, apiClient: any, options: CardOptions): string {
 
 function deleteImage(context: HTMLElement, itemId: string, type: string, index: number | null, apiClient: any, enableConfirmation: boolean): void {
     const afterConfirm = function () {
-        apiClient.deleteItemImage(itemId, type, index).then(function () {
+        void apiClient.deleteItemImage(itemId, type, index).then(function () {
             hasChanges = true;
             reload(context);
-        });
+        }).catch((error: unknown) => console.error('Failed to delete image', error));
     };
 
     if (!enableConfirmation) {
@@ -212,11 +212,11 @@ function deleteImage(context: HTMLElement, itemId: string, type: string, index: 
         return;
     }
 
-    confirm({
+    void confirm({
         text: globalize.translate('ConfirmDeleteImage'),
         confirmText: globalize.translate('Delete'),
         primary: 'delete'
-    }).then(afterConfirm);
+    }).then(afterConfirm).catch((error: unknown) => console.error('Failed to confirm image deletion', error));
 }
 
 function moveImage(context: HTMLElement, apiClient: any, itemId: string, type: string, index: number, newIndex: number, focusContext: HTMLElement | null): void {
@@ -224,7 +224,7 @@ function moveImage(context: HTMLElement, apiClient: any, itemId: string, type: s
         hasChanges = true;
         reload(context, null, focusContext || undefined);
     }, function () {
-        alert(globalize.translate('ErrorDefault'));
+        void alert(globalize.translate('ErrorDefault')).catch((error: unknown) => console.error('Failed to show image error', error));
     });
 }
 
@@ -274,8 +274,8 @@ function renderBackdrops(page: HTMLElement, apiClient: any, item: any, imageInfo
 }
 
 function showImageDownloader(page: HTMLElement, imageType: string): void {
-    import('../imageDownloader/imageDownloader').then((ImageDownloader) => {
-        ImageDownloader.show(
+    void import('../imageDownloader/imageDownloader').then((ImageDownloader) => {
+        return ImageDownloader.show(
             currentItem.Id,
             currentItem.ServerId,
             currentItem.Type,
@@ -287,7 +287,7 @@ function showImageDownloader(page: HTMLElement, imageType: string): void {
         }).catch(function () {
             // image downloader closed
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open image downloader', error));
 }
 
 function showActionSheet(context: HTMLElement, imageCard: HTMLElement): void {
@@ -300,7 +300,7 @@ function showActionSheet(context: HTMLElement, imageCard: HTMLElement): void {
     const providerCount = parseInt(imageCard.getAttribute('data-providers')!, 10);
     const numImages = parseInt(imageCard.getAttribute('data-numimages')!, 10);
 
-    import('../actionSheet/actionSheet').then(({ default: actionSheet }) => {
+    void import('../actionSheet/actionSheet').then(({ default: actionSheet }) => {
         const commands: { name: string; id: string }[] = [];
 
         commands.push({
@@ -331,7 +331,7 @@ function showActionSheet(context: HTMLElement, imageCard: HTMLElement): void {
             });
         }
 
-        actionSheet.show({
+        return actionSheet.show({
 
             items: commands,
             positionTo: imageCard
@@ -354,7 +354,7 @@ function showActionSheet(context: HTMLElement, imageCard: HTMLElement): void {
                     break;
             }
         });
-    });
+    }).catch((error: unknown) => console.error('Failed to open image actions', error));
 }
 
 interface EditorOptions {
@@ -377,8 +377,8 @@ function initEditor(context: HTMLElement, options: EditorOptions): void {
     addListeners(context, 'btnOpenUploadMenu', 'click', function (this: HTMLElement) {
         const imageType = this.getAttribute('data-imagetype')!;
 
-        import('../imageUploader/imageUploader').then(({ default: imageUploader }) => {
-            imageUploader.show({
+        void import('../imageUploader/imageUploader').then(({ default: imageUploader }) => {
+            return imageUploader.show({
 
                 imageType: imageType,
                 itemId: currentItem.Id,
@@ -390,7 +390,7 @@ function initEditor(context: HTMLElement, options: EditorOptions): void {
                     reload(context);
                 }
             });
-        });
+        }).catch((error: unknown) => console.error('Failed to open image uploader', error));
     });
 
     addListeners(context, 'btnSearchImages', 'click', function (this: HTMLElement) {
@@ -429,7 +429,7 @@ function showEditor(options: EditorOptions, resolve: () => void, reject: () => v
     loading.show();
 
     const apiClient: any = ServerConnections.getApiClient(serverId);
-    apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: any) {
+    void apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: any) {
         const dialogOptions: any = {
             removeOnClose: true
         };
@@ -467,13 +467,16 @@ function showEditor(options: EditorOptions, resolve: () => void, reject: () => v
             }
         });
 
-        dialogHelper.open(dlg);
+        void dialogHelper.open(dlg).catch((error: unknown) => console.error('Failed to open image editor dialog', error));
 
         reload(dlg, item);
 
         dlg.querySelector('.btnCancel')!.addEventListener('click', function () {
             dialogHelper.close(dlg);
         });
+    }).catch((error: unknown) => {
+        loading.hide();
+        console.error('Failed to load image editor item', error);
     });
 }
 

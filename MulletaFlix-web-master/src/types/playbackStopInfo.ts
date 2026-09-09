@@ -61,4 +61,3 @@ export interface PlaybackStopInfo {
     nextMediaType: MediaType | null;
 }
 
-

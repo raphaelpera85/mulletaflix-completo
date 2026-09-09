@@ -181,7 +181,7 @@ function canPlayNativeHlsInFmp4(): boolean {
 
 function canPlayHlsWithMSE(): boolean {
     // text tracks don't work with this in firefox
-    return window.MediaSource != null; /* eslint-disable-line compat/compat */
+    return window.MediaSource != null;
 }
 
 function supportsAc3(videoTestElement: HTMLVideoElement): boolean | string {
@@ -525,7 +525,7 @@ function getSpeakerCount(): number {
 
     maxChannelCount = -1;
 
-    const AudioContextClass = window.AudioContext || (window as unknown as Record<string, unknown>).webkitAudioContext || false; /* eslint-disable-line compat/compat */
+    const AudioContextClass = window.AudioContext || (window as unknown as Record<string, unknown>).webkitAudioContext || false;
 
     if (AudioContextClass) {
         const audioCtx = new AudioContextClass();

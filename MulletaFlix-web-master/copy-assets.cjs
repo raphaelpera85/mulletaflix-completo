@@ -47,7 +47,8 @@ const libraries = [
     { from: '@jellyfin/libass-wasm/dist/js/subtitles-octopus-worker.js', to: 'subtitles-octopus-worker.js' },
     { from: '@jellyfin/libass-wasm/dist/js/subtitles-octopus-worker.wasm', to: 'subtitles-octopus-worker.wasm' },
     { from: '@jellyfin/libass-wasm/dist/js/subtitles-octopus-worker-legacy.js', to: 'subtitles-octopus-worker-legacy.js' },
-    { from: 'pdfjs-dist/build/pdf.worker.js', to: 'pdf.worker.js' },
+    // PDF.js 6 ships the worker as an ES module.
+    { from: 'pdfjs-dist/build/pdf.worker.mjs', to: 'pdf.worker.mjs' },
     { from: 'libpgs/dist/libpgs.worker.js', to: 'libpgs.worker.js' }
 ];
 

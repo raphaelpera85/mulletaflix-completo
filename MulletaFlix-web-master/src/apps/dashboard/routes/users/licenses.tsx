@@ -136,9 +136,9 @@ const getStatus = (
         return {
             label: 'Expirada',
             color: 'error',
-            details: license.ExpirationDate
-                ? `Expirou em ${new Date(license.ExpirationDate).toLocaleString()}.`
-                : 'A licença expirou.'
+            details: license.ExpirationDate ?
+                `Expirou em ${new Date(license.ExpirationDate).toLocaleString()}.` :
+                'A licença expirou.'
         };
     }
 
@@ -257,9 +257,9 @@ export const Component = () => {
     const handleRevoke = useCallback((userId: string, userName?: string | null) => {
         confirm({
             title: 'Revogar licença',
-            text: userName
-                ? `Tem certeza que deseja revogar a licença de ${userName}?`
-                : 'Tem certeza que deseja revogar esta licença?',
+            text: userName ?
+                `Tem certeza que deseja revogar a licença de ${userName}?` :
+                'Tem certeza que deseja revogar esta licença?',
             confirmText: 'Revogar',
             cancelText: 'Cancelar'
         }).then(() => {

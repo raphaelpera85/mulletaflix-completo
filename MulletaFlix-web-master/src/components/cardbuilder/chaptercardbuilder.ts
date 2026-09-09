@@ -136,8 +136,8 @@ function buildChapterCard(
         cardImageContainerClass += ' coveredImage';
     }
 
-    const dataAttributes = ` data-action="play" data-isfolder="${item.IsFolder}" data-id="${item.Id}" data-serverid="${item.ServerId}" data-type="${item.Type}" data-mediatype="${item.MediaType}" data-positionticks="${chapter.StartPositionTicks}"`;
-    let cardImageContainer = imgUrl ? `<div class="${cardImageContainerClass} lazy" data-src="${imgUrl}">` : `<div class="${cardImageContainerClass}">`;
+    const dataAttributes = ` data-action="play" data-isfolder="${escapeHtml(String(item.IsFolder))}" data-id="${escapeHtml(item.Id)}" data-serverid="${escapeHtml(item.ServerId)}" data-type="${escapeHtml(item.Type || '')}" data-mediatype="${escapeHtml(item.MediaType || '')}" data-positionticks="${escapeHtml(String(chapter.StartPositionTicks))}"`;
+    let cardImageContainer = imgUrl ? `<div class="${cardImageContainerClass} lazy" data-src="${escapeHtml(imgUrl)}">` : `<div class="${cardImageContainerClass}">`;
 
     if (!imgUrl) {
         cardImageContainer += '<span class="material-icons cardImageIcon local_movies" aria-hidden="true"></span>';

@@ -6,7 +6,7 @@ import {
     loadOrCreateSharedUser,
     loginWithManualForm,
     openUserTab,
-    ensureWizardCompleted,
+    ensureWizardCompleted
 } from '../support/admin-user.mjs';
 import { navigateStage, STAGE_ROUTES } from '../support/stage.mjs';
 
@@ -70,7 +70,7 @@ test.describe.serial('10 - Admin', () => {
             { route: '/dashboard/devices', selector: '#devicesPage' },
             { route: '/dashboard/plugins', selector: '#pluginsPage' },
             { route: '/dashboard/plugins/repositories', selector: '#repositories' },
-            { route: '/dashboard/branding', selector: '#brandingPage' },
+            { route: '/dashboard/branding', selector: '#brandingPage' }
         ];
 
         for (const entry of routes) {

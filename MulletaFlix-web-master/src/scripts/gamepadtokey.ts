@@ -259,7 +259,7 @@ function raiseKeyEvent(
 let inputLoopTimer: number | undefined;
 function runInputLoop(): void {
     // Get the latest gamepad state.
-    const gamepads = navigator.getGamepads(); /* eslint-disable-line compat/compat */
+    const gamepads = navigator.getGamepads();
     for (let i = 0, len = gamepads.length; i < len; i++) {
         const gamepad = gamepads[i];
         if (!gamepad) {
@@ -367,7 +367,7 @@ function stopInputLoop(): void {
 }
 
 function isGamepadConnected(): boolean {
-    const gamepads = navigator.getGamepads(); /* eslint-disable-line compat/compat */
+    const gamepads = navigator.getGamepads();
     for (let i = 0, len = gamepads.length; i < len; i++) {
         const gamepad = gamepads[i];
         if (gamepad?.connected) {

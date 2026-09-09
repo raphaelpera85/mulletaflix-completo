@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Reflection;
 using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using MulletaFlix.Server.Implementations.Nebula;
@@ -31,6 +32,35 @@ public class NebulaUploadEngineTests
         Assert.Equal(321, result.MessageId);
         Assert.Equal(-1004391811380L, result.ChatId);
         Assert.Equal("telegram-file-id", result.FileId);
+    }
+
+    [Theory]
+    [InlineData("stream-secret", "stream-secret", true)]
+    [InlineData("stream-secret", "stream-secret-2", false)]
+    [InlineData("stream-secret", "", false)]
+    [InlineData("", "stream-secret", false)]
+    public void HttpStreamServer_ComparesTokensWithoutAcceptingEmptyValues(string expected, string provided, bool shouldAuthorize)
+    {
+        var compareMethod = typeof(NebulaHttpStreamServer).GetMethod(
+            "AreTokensEqual",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(compareMethod);
+        var actual = Assert.IsType<bool>(compareMethod.Invoke(null, [expected, provided]));
+
+        Assert.Equal(shouldAuthorize, actual);
+    }
+
+    [Fact]
+    public void MongoContext_PathContainment_RejectsSiblingAndTraversalPaths()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nebula-root");
+        var nested = Path.Combine(root, "nested", "movie.mkv");
+        var sibling = root + "-other\\movie.mkv";
+
+        Assert.True(NebulaMongoContext.IsPathWithinRoot(nested, root));
+        Assert.False(NebulaMongoContext.IsPathWithinRoot(Path.Combine(root, "..", "movie.mkv"), root));
+        Assert.False(NebulaMongoContext.IsPathWithinRoot(sibling, root));
     }
 
     [Fact]
@@ -143,6 +173,9 @@ public class NebulaUploadEngineTests
     [InlineData(null, "Stranger.Things.4x01.mp4", "SERIE")]
     [InlineData("Adulto", "video_xxx.mp4", "PORNO")]
     [InlineData(null, "Hentai Episode 1.mkv", "PORNO")]
+    [InlineData("Filmes", "Essex.mkv", "FILME")]
+    [InlineData(null, "Sex Education S01E01.mkv", "SERIE")]
+    [InlineData("Filmes", "The Matrix.mkv", "FILME")]
     public void UploadEngine_ClassifyMediaType_ClassifiesProperly(string? parent, string filename, string expectedType)
     {
         var actual = NebulaUploadEngine.ClassifyMediaType(parent, filename);
@@ -179,6 +212,30 @@ public class NebulaUploadEngineTests
         Assert.False(NebulaUploadEngine.IsCompletedUploadForFile(doc, 32L, 3));
     }
 
+    [Theory]
+    [InlineData(0, 16L, "completed", true)]
+    [InlineData(1, 16L, "completed", true)]
+    [InlineData(1, 15L, "completed", false)]
+    [InlineData(2, 16L, "completed", false)]
+    [InlineData(0, 16L, "uploading", false)]
+    public void UploadEngine_PartialResume_RequiresExpectedPartShape(
+        int partNumber,
+        long partSize,
+        string status,
+        bool expected)
+    {
+        var actual = NebulaUploadEngine.IsReusablePart(
+            partNumber,
+            partSize,
+            "telegram-file",
+            status,
+            totalSize: 32L,
+            totalParts: 2,
+            logicalChunkSize: 16);
+
+        Assert.Equal(expected, actual);
+    }
+
     [Fact]
     public void Downloader_ValidateRangeResponse_RejectsServerThatIgnoresRange()
     {
@@ -202,6 +259,32 @@ public class NebulaUploadEngineTests
         response.Content.Headers.ContentRange = new ContentRangeHeaderValue(0, 9, 100);
 
         NebulaDownloaderEngine.ValidateRangeResponse(response, 0, 9, 100, 10);
+    }
+
+    [Fact]
+    public void TelegramPool_BotApiChunkValidation_RejectsRangeIgnoredForLaterChunk()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.OK);
+
+        Assert.False(NebulaTelegramPool.IsValidBotApiChunkResponse(response, 1024, 128, 4096));
+    }
+
+    [Fact]
+    public void TelegramPool_BotApiChunkValidation_RequiresMatchingContentRange()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.PartialContent);
+        response.Content.Headers.ContentRange = new ContentRangeHeaderValue(0, 127, 4096);
+
+        Assert.False(NebulaTelegramPool.IsValidBotApiChunkResponse(response, 128, 128, 128));
+    }
+
+    [Fact]
+    public void TelegramPool_BotApiChunkValidation_AcceptsMatchingPartialContent()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.PartialContent);
+        response.Content.Headers.ContentRange = new ContentRangeHeaderValue(128, 255, 4096);
+
+        Assert.True(NebulaTelegramPool.IsValidBotApiChunkResponse(response, 128, 128, 128));
     }
 
     [Fact]
@@ -403,6 +486,46 @@ public class NebulaUploadEngineTests
     }
 
     [Theory]
+    [InlineData(@"N:\Nebula\Filmes\Avatar.strm", @"N:\Nebula", true)]
+    [InlineData(@"N:\Nebula", @"N:\Nebula", true)]
+    [InlineData(@"N:\NebulaBackup\Avatar.strm", @"N:\Nebula", false)]
+    [InlineData(@"N:\Outro\Avatar.strm", @"N:\Nebula", false)]
+    public void MetadataExport_PathContainment_DoesNotAcceptPrefixCollisions(string path, string root, bool expected)
+    {
+        Assert.Equal(expected, NebulaMetadataExportService.IsPathWithinRoot(path, root));
+    }
+
+    [Theory]
+    [InlineData(ImageType.Primary, 0, "poster.jpg")]
+    [InlineData(ImageType.Primary, 1, "poster1.jpg")]
+    [InlineData(ImageType.Logo, 0, "logo.png")]
+    [InlineData(ImageType.Logo, 1, "logo1.png")]
+    [InlineData(ImageType.Backdrop, 0, "fanart.jpg")]
+    [InlineData(ImageType.Backdrop, 1, "fanart1.jpg")]
+    public void MetadataExport_DoesNotOverwriteAdditionalImages(ImageType type, int index, string expected)
+    {
+        var item = new MediaBrowser.Controller.Entities.Movies.Movie
+        {
+            Path = @"N:\Nebula\Filmes\Avatar.strm"
+        };
+
+        Assert.Equal(expected, NebulaMetadataExportService.GetImageFileName(item, type, index, expected));
+    }
+
+    [Theory]
+    [InlineData("poster.nfo", true)]
+    [InlineData("poster.jpg", true)]
+    [InlineData("poster.avif", true)]
+    [InlineData("poster.gif", true)]
+    [InlineData("poster.tiff", true)]
+    [InlineData("movie.mkv", false)]
+    [InlineData("movie.strm", false)]
+    public void MetadataExport_RecognizesEveryExportedSidecarExtension(string fileName, bool expected)
+    {
+        Assert.Equal(expected, NebulaMetadataExportService.IsMetadataSidecarPath(fileName));
+    }
+
+    [Theory]
     [InlineData(@"C:\staging\strm\Filmes\Avatar\Avatar.mkv", @"C:\staging", "Filmes/Avatar")]
     [InlineData(@"C:\staging\Filmes\Avatar\Avatar.mkv", @"C:\staging", "Filmes/Avatar")]
     [InlineData(@"C:\staging\strm\Series\Breaking Bad\S01E01.mp4", @"C:\staging", "Series/Breaking Bad")]
@@ -419,6 +542,87 @@ public class NebulaUploadEngineTests
     }
 
     [Theory]
+    [InlineData(@"C:\staging_backup\Filmes\Avatar", @"C:\staging", false)]
+    [InlineData(@"C:\staging\Filmes\Avatar", @"C:\staging", true)]
+    public void NebulaStagingWatcher_PathContainment_DoesNotAcceptPrefixCollisions(string filePath, string stagingRoot, bool expected)
+    {
+        var getRelDirMethod = typeof(NebulaStagingWatcher).GetMethod(
+            "GetRelativeDirectory",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(getRelDirMethod);
+        var result = (string?)getRelDirMethod.Invoke(null, [Path.Combine(filePath, "video.mkv"), new[] { stagingRoot }]);
+
+        Assert.Equal(expected, !string.IsNullOrEmpty(result));
+    }
+
+    [Fact]
+    public void DownloaderCleanup_PreservesDirectoriesContainingSidecars()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nebula-cleanup-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "movie.nfo"), "<movie />");
+
+        try
+        {
+            using var engine = new NebulaDownloaderEngine(
+                null!,
+                null!,
+                NullLogger<NebulaDownloaderEngine>.Instance);
+            var cleanupMethod = typeof(NebulaDownloaderEngine).GetMethod(
+                "CleanDirectoryRecursive",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(cleanupMethod);
+            cleanupMethod.Invoke(engine, [root]);
+
+            Assert.True(Directory.Exists(root));
+            Assert.True(File.Exists(Path.Combine(root, "movie.nfo")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void MetadataExport_PendingMarkerIsRemovedOnlyByExplicitRelease()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "nebula-metadata-marker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var marker = Path.Combine(directory, NebulaMetadataExportService.PendingMarkerFileName);
+        File.WriteAllText(marker, "pending");
+
+        try
+        {
+            Assert.True(File.Exists(marker));
+
+            NebulaMetadataExportService.RemovePendingMarker(directory);
+
+            Assert.False(File.Exists(marker));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("/raphael", true)]
+    [InlineData("/raphael/Filmes", true)]
+    [InlineData("/raphaelBackup", false)]
+    public void NebulaMongoContext_RaphaelPath_DoesNotAcceptPrefixCollisions(string path, bool expected)
+    {
+        Assert.Equal(expected, NebulaMongoContext.IsRaphaelPath(path));
+    }
+
+    [Theory]
     [InlineData(@"D:\midias\strm\Filmes\Avatar\Avatar.strm", @"D:\midias", "Filmes" + @"\Avatar")]
     [InlineData(@"D:\midias\Filmes\Avatar\Avatar.strm", @"D:\midias", "Filmes" + @"\Avatar")]
     public void NebulaDownloaderEngine_GetRelativePathFromSource_StripsLeadingStrm(string filePath, string monitorRoot, string expectedRelPath)
@@ -431,6 +635,13 @@ public class NebulaUploadEngineTests
         var result = (string?)getRelPathMethod.Invoke(null, [filePath, new System.Collections.Generic.List<string> { monitorRoot }]);
 
         Assert.Equal(expectedRelPath, result);
+    }
+
+    [Fact]
+    public void NebulaDownloader_PathContainment_DoesNotAcceptPrefixCollisions()
+    {
+        Assert.False(NebulaDownloaderEngine.IsPathWithinRoot(@"D:\midias_backup\Filmes", @"D:\midias"));
+        Assert.True(NebulaDownloaderEngine.IsPathWithinRoot(@"D:\midias\Filmes", @"D:\midias"));
     }
 
     [Theory]
@@ -525,5 +736,19 @@ public class NebulaUploadEngineTests
         Assert.StartsWith("ftp://10.0.0.5:2121/", url, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Series/Dark/Season%2001/Dark.S01E01.mkv", url, StringComparison.Ordinal);
     }
-}
 
+    [Fact]
+    public void NebulaStrmGenerator_BuildStrmTargetUrl_HttpIncludesStreamToken()
+    {
+        var config = new MediaBrowser.Model.Configuration.NebulaFtpConfiguration
+        {
+            ServerHost = "192.168.1.100",
+            HttpStreamPort = 2123,
+            HttpStreamToken = "token with spaces"
+        };
+
+        var url = NebulaStrmGenerator.BuildStrmTargetUrl(config, "Filmes", "Movie.mp4", useHttp: true);
+
+        Assert.Equal("http://192.168.1.100:2123/stream?id=Filmes/Movie.mp4&token=token%20with%20spaces", url);
+    }
+}

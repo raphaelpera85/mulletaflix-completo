@@ -1,8 +1,9 @@
+import escapeHtml from 'escape-html';
+
 import dom from '../../utils/dom';
 import dialogHelper from '../dialogHelper/dialogHelper';
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
-import type ApiClient from 'jellyfin-apiclient';
 import union from 'lodash-es/union';
 import Events from '../../utils/events.ts';
 import '../../elements/emby-checkbox/emby-checkbox';
@@ -71,8 +72,8 @@ function renderOptions(context: HTMLElement, selector: string, cssClass: string,
         let itemHtml = '';
         const checkedHtml = isCheckedFn(filter) ? 'checked' : '';
         itemHtml += '<label>';
-        itemHtml += `<input is="emby-checkbox" type="checkbox" ${checkedHtml} data-filter="${filter}" class="${cssClass}"/>`;
-        itemHtml += `<span>${filter}</span>`;
+        itemHtml += `<input is="emby-checkbox" type="checkbox" ${checkedHtml} data-filter="${escapeHtml(filter)}" class="${escapeHtml(cssClass)}"/>`;
+        itemHtml += `<span>${escapeHtml(filter)}</span>`;
         itemHtml += '</label>';
         return itemHtml;
     }).join('');

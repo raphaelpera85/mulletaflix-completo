@@ -15,7 +15,6 @@ import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import datetime from 'scripts/datetime';
 import libraryMenu from 'scripts/libraryMenu';
-import dom from 'utils/dom';
 
 import 'elements/emby-button/emby-button';
 import 'elements/emby-itemscontainer/emby-itemscontainer';
@@ -71,7 +70,7 @@ function renderPoster(view: HTMLElement, item: any, apiClient: any): void {
 
     containers.forEach(container => {
         if (imgUrl) {
-            container.innerHTML = `<img class="itemDetailImage" src="${imgUrl}" alt="${escapeHtml(item.Name || '')}" />`;
+            container.innerHTML = `<img class="itemDetailImage" src="${escapeHtml(imgUrl)}" alt="${escapeHtml(item.Name || '')}" />`;
             container.classList.remove('hide');
         } else {
             container.innerHTML = '';
@@ -90,7 +89,7 @@ function renderLogo(view: HTMLElement, item: any, apiClient: any): void {
             maxHeight: 120,
             tag: item.ImageTags.Logo
         });
-        logoContainer.innerHTML = `<img src="${logoUrl}" alt="${escapeHtml(item.Name || '')}" />`;
+        logoContainer.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(item.Name || '')}" />`;
         logoContainer.classList.remove('hide');
     } else if (item.ParentLogoImageTag && item.ParentLogoItemId) {
         const logoUrl = apiClient.getImageUrl(item.ParentLogoItemId, {
@@ -98,7 +97,7 @@ function renderLogo(view: HTMLElement, item: any, apiClient: any): void {
             maxHeight: 120,
             tag: item.ParentLogoImageTag
         });
-        logoContainer.innerHTML = `<img src="${logoUrl}" alt="${escapeHtml(item.Name || '')}" />`;
+        logoContainer.innerHTML = `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(item.Name || '')}" />`;
         logoContainer.classList.remove('hide');
     } else {
         logoContainer.innerHTML = '';
@@ -114,7 +113,9 @@ function renderName(view: HTMLElement, item: any): void {
 
     if (item.Type === 'Episode') {
         if (item.SeriesName && item.SeriesId) {
-            html += `<h2 class="parentNameContainer" style="margin:0 0 0.3em;"><a class="button-link" is="emby-linkbutton" href="#/details?id=${item.SeriesId}&serverId=${item.ServerId || ''}">${escapeHtml(item.SeriesName)}</a></h2>`;
+            const seriesId = encodeURIComponent(String(item.SeriesId));
+            const serverId = encodeURIComponent(String(item.ServerId || ''));
+            html += `<h2 class="parentNameContainer" style="margin:0 0 0.3em;"><a class="button-link" is="emby-linkbutton" href="#/details?id=${escapeHtml(seriesId)}&serverId=${escapeHtml(serverId)}">${escapeHtml(item.SeriesName)}</a></h2>`;
         }
         html += `<h1 class="itemName" style="margin:0;">${escapeHtml(itemHelper.getDisplayName(item))}</h1>`;
     } else {
@@ -162,9 +163,9 @@ function renderMetadata(view: HTMLElement, item: any): void {
                 overviewExpandEl.onclick = (e) => {
                     e.preventDefault();
                     overviewEl.classList.toggle('overview-expanded');
-                    overviewExpandEl.textContent = overviewEl.classList.contains('overview-expanded')
-                        ? globalize.translate('ShowLess') || 'Show Less'
-                        : globalize.translate('ShowMore') || 'Show More';
+                    overviewExpandEl.textContent = overviewEl.classList.contains('overview-expanded') ?
+                        globalize.translate('ShowLess') || 'Show Less' :
+                        globalize.translate('ShowMore') || 'Show More';
                 };
             } else if (overviewExpandEl) {
                 overviewExpandEl.classList.add('hide');
@@ -277,7 +278,7 @@ function setupTrackSelections(view: HTMLElement, item: any): void {
         if (sources.length > 1) {
             selectSourceContainer.classList.remove('hide');
             selectSource.innerHTML = sources.map((s: any, index: number) =>
-                `<option value="${s.Id || index}">${escapeHtml(s.Name || s.Path || `Source ${index + 1}`)}</option>`
+                `<option value="${escapeHtml(String(s.Id || index))}">${escapeHtml(s.Name || s.Path || `Source ${index + 1}`)}</option>`
             ).join('');
         } else {
             selectSourceContainer.classList.add('hide');

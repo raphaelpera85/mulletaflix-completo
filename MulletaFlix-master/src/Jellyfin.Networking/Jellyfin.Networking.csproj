@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Open.Nat" />
+    <PackageReference Include="Open.Nat.V2" />
   </ItemGroup>
 
 </Project>

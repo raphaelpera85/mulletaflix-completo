@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Typography from '@mui/material/Typography';
@@ -11,7 +11,6 @@ import Stack from '@mui/material/Stack';
 import Box from '@mui/material/Box';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
-import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
 
 import { useUserLicense, useSetUserLicense, useRevokeUserLicense } from '../api/useUserLicense';
@@ -41,11 +40,11 @@ const License = ({ userId }: LicenseProps) => {
     const isNoLicense = isError && (error as ApiError)?.response?.status === 404;
     const hasLicense = !!license && !isNoLicense;
 
-    const handleDurationChange = (event: SelectChangeEvent) => {
+    const handleDurationChange = useCallback((event: SelectChangeEvent) => {
         setDurationHours(event.target.value);
-    };
+    }, []);
 
-    const handleSave = () => {
+    const handleSave = useCallback(() => {
         if (!durationHours) {
             toast('Por favor, selecione uma duração para a licença.');
             return;
@@ -69,9 +68,9 @@ const License = ({ userId }: LicenseProps) => {
                 toast(`Erro ao salvar licença: ${(err as ApiError)?.message || 'Erro desconhecido'}`);
             }
         });
-    };
+    }, [adminNotes, durationHours, refetch, setLicenseMutation, userId]);
 
-    const handleRevoke = () => {
+    const handleRevoke = useCallback(() => {
         confirm({
             title: 'Revogar Licença',
             text: 'Tem certeza que deseja revogar a licença deste usuário? O acesso do usuário será liberado (sem restrição de tempo) até que uma nova licença seja atribuída.',
@@ -90,11 +89,15 @@ const License = ({ userId }: LicenseProps) => {
         }).catch(() => {
             // Cancelled
         });
-    };
+    }, [refetch, revokeLicenseMutation, userId]);
+
+    const handleNotesChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        setAdminNotes(event.target.value);
+    }, []);
 
     if (isLoading) {
         return (
-            <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+            <Box display='flex' justifyContent='center' alignItems='center' minHeight='200px'>
                 <CircularProgress />
             </Box>
         );
@@ -126,46 +129,46 @@ const License = ({ userId }: LicenseProps) => {
             {/* Status Section */}
             <Card sx={{ borderRadius: 3, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', overflow: 'hidden' }}>
                 <Box sx={{ p: 3, background: 'linear-gradient(135deg, rgba(33,150,243,0.08) 0%, rgba(30,136,229,0.03) 100%)', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
-                        <Typography variant="h5" fontWeight="bold">
+                    <Stack direction='row' justifyContent='space-between' alignItems='center' spacing={2}>
+                        <Typography variant='h5' fontWeight='bold'>
                             Status da Assinatura
                         </Typography>
-                        <Chip label={statusLabel} color={chipColor} variant="filled" sx={{ fontWeight: 'bold', fontSize: '1rem', height: 36 }} />
+                        <Chip label={statusLabel} color={chipColor} variant='filled' sx={{ fontWeight: 'bold', fontSize: '1rem', height: 36 }} />
                     </Stack>
                 </Box>
                 <CardContent sx={{ p: 3 }}>
                     <Stack spacing={2}>
-                        <Typography variant="body1" sx={{ color: 'text.secondary' }}>
+                        <Typography variant='body1' sx={{ color: 'text.secondary' }}>
                             {statusDetails}
                         </Typography>
 
                         {hasLicense && license && (
                             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2, mt: 1, p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">
+                                    <Typography variant='caption' color='text.secondary' display='block'>
                                         Data de Início
                                     </Typography>
-                                    <Typography variant="body2" fontWeight="medium">
+                                    <Typography variant='body2' fontWeight='medium'>
                                         {new Date(license.StartDate).toLocaleString()}
                                     </Typography>
                                 </Box>
                                 {!license.IsUnlimited && license.ExpirationDate && (
                                     <Box>
-                                        <Typography variant="caption" color="text.secondary" display="block">
+                                        <Typography variant='caption' color='text.secondary' display='block'>
                                             Data de Expiração
                                         </Typography>
-                                        <Typography variant="body2" fontWeight="medium">
+                                        <Typography variant='body2' fontWeight='medium'>
                                             {new Date(license.ExpirationDate).toLocaleString()}
                                         </Typography>
                                     </Box>
                                 )}
                                 {license.AdminNotes && (
                                     <Box sx={{ gridColumn: '1 / -1' }}>
-                                        <Typography variant="caption" color="text.secondary" display="block">
+                                        <Typography variant='caption' color='text.secondary' display='block'>
                                             Observações do Administrador
                                         </Typography>
-                                        <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
-                                            "{license.AdminNotes}"
+                                        <Typography variant='body2' sx={{ fontStyle: 'italic' }}>
+                                            &quot;{license.AdminNotes}&quot;
                                         </Typography>
                                     </Box>
                                 )}
@@ -178,46 +181,46 @@ const License = ({ userId }: LicenseProps) => {
             {/* Management Form */}
             <Card sx={{ borderRadius: 3, boxShadow: '0 8px 30px rgba(0,0,0,0.08)' }}>
                 <Box sx={{ p: 3, borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
-                    <Typography variant="h5" fontWeight="bold">
+                    <Typography variant='h5' fontWeight='bold'>
                         Configurar / Renovar Licença
                     </Typography>
                 </Box>
                 <CardContent sx={{ p: 3 }}>
                     <Stack spacing={3}>
-                        <FormControl fullWidth variant="outlined">
-                            <InputLabel id="duration-select-label">Duração da Licença</InputLabel>
+                        <FormControl fullWidth variant='outlined'>
+                            <InputLabel id='duration-select-label'>Duração da Licença</InputLabel>
                             <Select
-                                labelId="duration-select-label"
+                                labelId='duration-select-label'
                                 value={durationHours}
                                 onChange={handleDurationChange}
-                                label="Duração da Licença"
+                                label='Duração da Licença'
                             >
-                                <MenuItem value=""><em>Selecione...</em></MenuItem>
-                                <MenuItem value="1">Teste (1 Hora)</MenuItem>
-                                <MenuItem value="730">1 Mês (~30 dias)</MenuItem>
-                                <MenuItem value="2190">3 Meses (~90 dias)</MenuItem>
-                                <MenuItem value="4380">6 Meses (~180 dias)</MenuItem>
-                                <MenuItem value="8760">12 Meses (1 Ano)</MenuItem>
-                                <MenuItem value="-1">♾️ Tempo Ilimitado</MenuItem>
+                                <MenuItem value=''><em>Selecione...</em></MenuItem>
+                                <MenuItem value='1'>Teste (1 Hora)</MenuItem>
+                                <MenuItem value='730'>1 Mês (~30 dias)</MenuItem>
+                                <MenuItem value='2190'>3 Meses (~90 dias)</MenuItem>
+                                <MenuItem value='4380'>6 Meses (~180 dias)</MenuItem>
+                                <MenuItem value='8760'>12 Meses (1 Ano)</MenuItem>
+                                <MenuItem value='-1'>♾️ Tempo Ilimitado</MenuItem>
                             </Select>
                         </FormControl>
 
                         <TextField
-                            label="Observações do Administrador"
+                            label='Observações do Administrador'
                             multiline
                             rows={3}
-                            placeholder="Adicione notas sobre o pagamento ou detalhes do usuário..."
+                            placeholder='Adicione notas sobre o pagamento ou detalhes do usuário...'
                             value={adminNotes}
-                            onChange={(e) => setAdminNotes(e.target.value)}
-                            variant="outlined"
+                            onChange={handleNotesChange}
+                            variant='outlined'
                             fullWidth
                         />
 
-                        <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 1 }}>
+                        <Stack direction='row' spacing={2} justifyContent='flex-end' sx={{ mt: 1 }}>
                             {hasLicense && (
                                 <Button
-                                    variant="outlined"
-                                    color="error"
+                                    variant='outlined'
+                                    color='error'
                                     onClick={handleRevoke}
                                     disabled={revokeLicenseMutation.isPending}
                                 >
@@ -225,8 +228,8 @@ const License = ({ userId }: LicenseProps) => {
                                 </Button>
                             )}
                             <Button
-                                variant="contained"
-                                color="primary"
+                                variant='contained'
+                                color='primary'
                                 onClick={handleSave}
                                 disabled={!durationHours || setLicenseMutation.isPending}
                             >

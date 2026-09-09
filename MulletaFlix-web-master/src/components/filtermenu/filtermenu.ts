@@ -17,13 +17,57 @@ import '../formdialog.scss';
 import '../../styles/flexstyles.scss';
 import template from './filtermenu.template.html';
 
-function onSubmit(e: any): boolean {
+type FilterItem = {
+    Id?: string | null;
+    Name?: string | null;
+};
+type FilterSettings = {
+    IsPlayed: boolean;
+    IsUnplayed: boolean;
+    IsFavorite: boolean;
+    IsResumable: boolean;
+    Is4K: boolean;
+    IsHD: boolean;
+    IsSD: boolean;
+    Is3D: boolean;
+    VideoTypes: string;
+    SeriesStatus: string;
+    HasSubtitles: string;
+    HasTrailer: string;
+    HasSpecialFeature: string;
+    HasThemeSong: string;
+    HasThemeVideo: string;
+    GenreIds: string;
+};
+type FilterOptions = {
+    settingsKey: string;
+    settings: FilterSettings;
+    visibleSettings: string[];
+    onChange?: () => void;
+    parentId?: string;
+    itemTypes: string[];
+    serverId?: string;
+    filterMenuOptions: Record<string, unknown>;
+};
+type FilterResult = {
+    Genres?: FilterItem[];
+};
+type FilterApiClient = {
+    getCurrentUserId: () => string;
+    getFilters: (options: Record<string, unknown>) => Promise<FilterResult>;
+};
+
+function onSubmit(e: SubmitEvent): boolean {
     e.preventDefault();
     return false;
 }
 
-function renderOptions(context: any, selector: string, cssClass: string, items: any[], isCheckedFn: (item: any) => boolean): void {
-    const elem: any = context.querySelector(selector);
+function renderOptions(context: HTMLElement, selector: string, cssClass: string, items: FilterItem[], isCheckedFn: (item: FilterItem) => boolean): void {
+    const elem = context.querySelector<HTMLElement>(selector);
+    const filterOptions = elem?.querySelector<HTMLElement>('.filterOptions');
+    if (!elem || !filterOptions) {
+        return;
+    }
 
     if (items.length) {
         elem.classList.remove('hide');
@@ -38,30 +82,33 @@ function renderOptions(context: any, selector: string, cssClass: string, items: 
 
         const checkedHtml = isCheckedFn(filter) ? ' checked' : '';
         itemHtml += '<label>';
-        itemHtml += '<input is="emby-checkbox" type="checkbox"' + checkedHtml + ' data-filter="' + filter.Id + '" class="' + cssClass + '"/>';
+        itemHtml += '<input is="emby-checkbox" type="checkbox"' + checkedHtml + ' data-filter="' + escapeHtml(String(filter.Id ?? '')) + '" class="' + escapeHtml(cssClass) + '"/>';
         itemHtml += '<span>' + escapeHtml(filter.Name) + '</span>';
         itemHtml += '</label>';
 
         return itemHtml;
     }).join('');
 
-    elem.querySelector('.filterOptions').innerHTML = html;
+    filterOptions.innerHTML = html;
 }
 
-function renderDynamicFilters(context: any, result: any, options: any): void {
-    renderOptions(context, '.genreFilters', 'chkGenreFilter', result.Genres, function (i) {
-        const delimeter = (options.settings.GenreIds || '').indexOf('|') === -1 ? ',' : '|';
-        return (delimeter + (options.settings.GenreIds || '') + delimeter).indexOf(delimeter + i.Id + delimeter) !== -1;
+function renderDynamicFilters(context: HTMLElement, result: FilterResult, options: FilterOptions): void {
+    renderOptions(context, '.genreFilters', 'chkGenreFilter', result.Genres ?? [], function (i) {
+        const delimeter = options.settings.GenreIds.indexOf('|') === -1 ? ',' : '|';
+        return (delimeter + options.settings.GenreIds + delimeter).indexOf(delimeter + (i.Id || '') + delimeter) !== -1;
     });
 }
 
-function setBasicFilter(context: any, key: string, elem: any): void {
-    let value = elem.checked;
-    value = value || null;
-    userSettings.setFilter(key, value);
+function setBasicFilter(key: string, elem: HTMLInputElement): void {
+    userSettings.setFilter(key, elem.checked ? 'true' : '');
 }
 
-function moveCheckboxFocus(elem: any, offset: number): void {
+function isSettingEnabled(settings: FilterSettings, key: string): boolean {
+    const value = (settings as unknown as Record<string, unknown>)[key];
+    return value === true || value === 'true';
+}
+
+function moveCheckboxFocus(elem: HTMLElement, offset: number): void {
     const parent = dom.parentWithClass(elem, 'checkboxList-verticalwrap');
     const elems = focusManager.getFocusableElements(parent);
 
@@ -83,21 +130,22 @@ function moveCheckboxFocus(elem: any, offset: number): void {
     }
 }
 
-function centerFocus(elem: any, horiz: boolean, on: boolean): void {
-    import('../../scripts/scrollHelper').then((scrollHelper: any) => {
+function centerFocus(elem: Element, horiz: boolean, on: boolean): void {
+    import('../../scripts/scrollHelper').then((scrollHelper) => {
         const fn = on ? 'on' : 'off';
         scrollHelper.centerFocus[fn](elem, horiz);
-    });
+    }).catch(error => console.error('[FilterMenu] failed to center focus', error));
 }
 
-function onInputCommand(e: any): void {
-    switch (e.detail.command) {
+function onInputCommand(e: Event): void {
+    const commandEvent = e as CustomEvent<{ command?: string }>;
+    switch (commandEvent.detail?.command) {
         case 'left':
-            moveCheckboxFocus(e.target, -1);
+            moveCheckboxFocus(commandEvent.target as HTMLElement, -1);
             e.preventDefault();
             break;
         case 'right':
-            moveCheckboxFocus(e.target, 1);
+            moveCheckboxFocus(commandEvent.target as HTMLElement, 1);
             e.preventDefault();
             break;
         default:
@@ -105,42 +153,42 @@ function onInputCommand(e: any): void {
     }
 }
 
-function saveValues(context: any, settings: any, settingsKey: string): void {
-    context.querySelectorAll('.simpleFilter').forEach((elem: any) => {
-        if (elem.tagName === 'INPUT') {
-            setBasicFilter(context, settingsKey + '-filter-' + elem.getAttribute('data-settingname'), elem);
-        } else {
-            setBasicFilter(context, settingsKey + '-filter-' + elem.getAttribute('data-settingname'), elem.querySelector('input'));
+function saveValues(context: HTMLElement, settingsKey: string): void {
+    context.querySelectorAll<HTMLElement>('.simpleFilter').forEach(elem => {
+        const input = elem instanceof HTMLInputElement ? elem : elem.querySelector<HTMLInputElement>('input');
+        const settingName = elem.getAttribute('data-settingname');
+        if (input && settingName) {
+            setBasicFilter(settingsKey + '-filter-' + settingName, input);
         }
     });
 
     const videoTypes: string[] = [];
-    context.querySelectorAll('.chkVideoTypeFilter').forEach((elem: any) => {
-        if (elem.checked) {
-            videoTypes.push(elem.getAttribute('data-filter'));
+    context.querySelectorAll<HTMLInputElement>('.chkVideoTypeFilter').forEach(elem => {
+        if (elem.checked && elem.getAttribute('data-filter')) {
+            videoTypes.push(elem.getAttribute('data-filter') as string);
         }
     });
     userSettings.setFilter(settingsKey + '-filter-VideoTypes', videoTypes.join(','));
 
     const seriesStatuses: string[] = [];
-    context.querySelectorAll('.chkSeriesStatus').forEach((elem: any) => {
-        if (elem.checked) {
-            seriesStatuses.push(elem.getAttribute('data-filter'));
+    context.querySelectorAll<HTMLInputElement>('.chkSeriesStatus').forEach(elem => {
+        if (elem.checked && elem.getAttribute('data-filter')) {
+            seriesStatuses.push(elem.getAttribute('data-filter') as string);
         }
     });
     userSettings.setFilter(`${settingsKey}-filter-SeriesStatus`, seriesStatuses.join(','));
 
     const genres: string[] = [];
-    context.querySelectorAll('.chkGenreFilter').forEach((elem: any) => {
-        if (elem.checked) {
-            genres.push(elem.getAttribute('data-filter'));
+    context.querySelectorAll<HTMLInputElement>('.chkGenreFilter').forEach(elem => {
+        if (elem.checked && elem.getAttribute('data-filter')) {
+            genres.push(elem.getAttribute('data-filter') as string);
         }
     });
     userSettings.setFilter(settingsKey + '-filter-GenreIds', genres.join(','));
 }
 
-function bindCheckboxInput(context: any, on: boolean): void {
-    const elems = context.querySelectorAll('.checkboxList-verticalwrap');
+function bindCheckboxInput(context: HTMLElement, on: boolean): void {
+    const elems = context.querySelectorAll<HTMLElement>('.checkboxList-verticalwrap');
     for (let i = 0, length = elems.length; i < length; i++) {
         if (on) {
             inputManager.on(elems[i], onInputCommand);
@@ -150,64 +198,71 @@ function bindCheckboxInput(context: any, on: boolean): void {
     }
 }
 
-function initEditor(context: any, settings: any): void {
-    context.querySelector('form').addEventListener('submit', onSubmit);
+function initEditor(context: HTMLElement, settings: FilterSettings): void {
+    context.querySelector('form')?.addEventListener('submit', onSubmit);
 
-    let elems: any = context.querySelectorAll('.simpleFilter');
+    let elems = context.querySelectorAll<HTMLElement>('.simpleFilter');
     let i: number;
     let length: number;
 
     for (i = 0, length = elems.length; i < length; i++) {
         if (elems[i].tagName === 'INPUT') {
-            elems[i].checked = settings[elems[i].getAttribute('data-settingname')] || false;
+            const input = elems[i] as HTMLInputElement;
+            input.checked = isSettingEnabled(settings, elems[i].getAttribute('data-settingname') || '');
         } else {
-            elems[i].querySelector('input').checked = settings[elems[i].getAttribute('data-settingname')] || false;
+            const input = elems[i].querySelector<HTMLInputElement>('input');
+            if (input) {
+                input.checked = isSettingEnabled(settings, elems[i].getAttribute('data-settingname') || '');
+            }
         }
     }
 
     const videoTypes = settings.VideoTypes ? settings.VideoTypes.split(',') : [];
-    elems = context.querySelectorAll('.chkVideoTypeFilter');
+    elems = context.querySelectorAll<HTMLElement>('.chkVideoTypeFilter');
     for (i = 0, length = elems.length; i < length; i++) {
-        elems[i].checked = videoTypes.indexOf(elems[i].getAttribute('data-filter')) !== -1;
+        (elems[i] as HTMLInputElement).checked = videoTypes.indexOf(elems[i].getAttribute('data-filter') || '') !== -1;
     }
 
     const seriesStatuses = settings.SeriesStatus ? settings.SeriesStatus.split(',') : [];
-    elems = context.querySelectorAll('.chkSeriesStatus');
+    elems = context.querySelectorAll<HTMLElement>('.chkSeriesStatus');
     for (i = 0, length = elems.length; i < length; i++) {
-        elems[i].checked = seriesStatuses.indexOf(elems[i].getAttribute('data-filter')) !== -1;
+        (elems[i] as HTMLInputElement).checked = seriesStatuses.indexOf(elems[i].getAttribute('data-filter') || '') !== -1;
     }
 
     if (context.querySelector('.basicFilterSection .viewSetting:not(.hide)')) {
-        context.querySelector('.basicFilterSection').classList.remove('hide');
+        context.querySelector<HTMLElement>('.basicFilterSection')?.classList.remove('hide');
     } else {
-        context.querySelector('.basicFilterSection').classList.add('hide');
+        context.querySelector<HTMLElement>('.basicFilterSection')?.classList.add('hide');
     }
 
     if (context.querySelector('.featureSection .viewSetting:not(.hide)')) {
-        context.querySelector('.featureSection').classList.remove('hide');
+        context.querySelector<HTMLElement>('.featureSection')?.classList.remove('hide');
     } else {
-        context.querySelector('.featureSection').classList.add('hide');
+        context.querySelector<HTMLElement>('.featureSection')?.classList.add('hide');
     }
 }
 
-function loadDynamicFilters(context: any, options: any): void {
-    const apiClient: any = ServerConnections.getApiClient(options.serverId);
+function loadDynamicFilters(context: HTMLElement, options: FilterOptions): void {
+    if (!options.serverId) {
+        return;
+    }
+    const apiClient = ServerConnections.getApiClient(options.serverId) as unknown as FilterApiClient;
 
-    const filterMenuOptions = Object.assign(options.filterMenuOptions, {
+    const filterMenuOptions = Object.assign({}, options.filterMenuOptions, {
         UserId: apiClient.getCurrentUserId(),
         ParentId: options.parentId,
         IncludeItemTypes: options.itemTypes.join(',')
     });
 
-    apiClient.getFilters(filterMenuOptions).then((result: any) => {
+    apiClient.getFilters(filterMenuOptions).then((result: FilterResult) => {
         renderDynamicFilters(context, result, options);
-    });
+    }).catch((error: unknown) => console.error('[FilterMenu] failed to load dynamic filters', error));
 }
 
 class FilterMenu {
-    show(options: any): Promise<any> {
+    show(options: FilterOptions): Promise<void> {
         return new Promise<void>((resolve) => {
-            const dialogOptions: any = {
+            const dialogOptions: { removeOnClose: boolean; scrollY: boolean; size?: string } = {
                 removeOnClose: true,
                 scrollY: false
             };
@@ -217,7 +272,7 @@ class FilterMenu {
                 dialogOptions.size = 'small';
             }
 
-            const dlg: any = dialogHelper.createDialog(dialogOptions);
+            const dlg = dialogHelper.createDialog(dialogOptions) as HTMLElement;
             dlg.classList.add('formDialog');
 
             let html = '';
@@ -231,7 +286,7 @@ class FilterMenu {
 
             const settingElements = dlg.querySelectorAll('.viewSetting');
             for (let i = 0, length = settingElements.length; i < length; i++) {
-                if (options.visibleSettings.indexOf(settingElements[i].getAttribute('data-settingname')) === -1) {
+                if (options.visibleSettings.indexOf(settingElements[i].getAttribute('data-settingname') || '') === -1) {
                     settingElements[i].classList.add('hide');
                 } else {
                     settingElements[i].classList.remove('hide');
@@ -242,16 +297,19 @@ class FilterMenu {
             loadDynamicFilters(dlg, options);
 
             bindCheckboxInput(dlg, true);
-            dlg.querySelector('.btnCancel').addEventListener('click', function () {
+            dlg.querySelector<HTMLElement>('.btnCancel')?.addEventListener('click', function () {
                 dialogHelper.close(dlg);
             });
 
             if (layoutManager.tv) {
-                centerFocus(dlg.querySelector('.formDialogContent'), false, true);
+                const content = dlg.querySelector('.formDialogContent');
+                if (content) {
+                    centerFocus(content, false, true);
+                }
             }
 
             let submitted: boolean | undefined;
-            dlg.querySelector('form').addEventListener('change', function () {
+            dlg.querySelector('form')?.addEventListener('change', function () {
                 submitted = true;
             }, true);
 
@@ -259,14 +317,21 @@ class FilterMenu {
                 bindCheckboxInput(dlg, false);
 
                 if (layoutManager.tv) {
-                    centerFocus(dlg.querySelector('.formDialogContent'), false, false);
+                    const content = dlg.querySelector('.formDialogContent');
+                    if (content) {
+                        centerFocus(content, false, false);
+                    }
                 }
 
                 if (submitted) {
-                    saveValues(dlg, options.settings, options.settingsKey);
+                    saveValues(dlg, options.settingsKey);
                     return resolve();
                 }
                 return resolve();
+            }).catch((error: unknown) => {
+                bindCheckboxInput(dlg, false);
+                console.error('[FilterMenu] failed to open dialog', error);
+                resolve();
             });
         });
     }

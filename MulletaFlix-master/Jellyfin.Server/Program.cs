@@ -29,6 +29,7 @@ using MediaBrowser.Controller.SystemBackupService;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -368,10 +369,16 @@ namespace MulletaFlix.Server
         public static async Task ApplyStartupMigrationAsync(ServerApplicationPaths appPaths, IConfiguration startupConfig, StartupOptions startupOptions)
         {
             _migrationLogger = StartupLogger.Logger.BeginGroup<MulletaFlixMigrationService>($"Migration Service");
-            var startupConfigurationManager = new ServerConfigurationManager(appPaths, _loggerFactory, new MyXmlSerializer());
+            // Startup migrations run from a temporary service provider. Keep their logger
+            // factory independent from the application host so host disposal cannot leave
+            // the migration service with a disposed factory.
+            var migrationLoggerFactory = new SerilogLoggerFactory();
+            var startupConfigurationManager = new ServerConfigurationManager(appPaths, migrationLoggerFactory, new MyXmlSerializer());
             startupConfigurationManager.AddParts([new DatabaseConfigurationFactory(), new NebulaFtpConfigurationFactory()]);
             var migrationStartupServiceProvider = new ServiceCollection()
                 .AddLogging(d => d.AddSerilog())
+                .RemoveAll<ILoggerFactory>()
+                .AddSingleton<ILoggerFactory>(migrationLoggerFactory)
                 .AddMulletaFlixDbContext(startupConfigurationManager, startupConfig)
                 .AddSingleton<IApplicationPaths>(appPaths)
                 .AddSingleton<ServerApplicationPaths>(appPaths)
@@ -380,7 +387,7 @@ namespace MulletaFlix.Server
             migrationStartupServiceProvider.AddSingleton(migrationStartupServiceProvider);
             var startupService = migrationStartupServiceProvider.BuildServiceProvider();
 
-            var migrationService = ActivatorUtilities.CreateInstance<MulletaFlixMigrationService>(startupService);
+            var migrationService = ActivatorUtilities.CreateInstance<MulletaFlixMigrationService>(startupService, migrationLoggerFactory);
             await migrationService.CheckFirstTimeRunOrMigration(appPaths, startupOptions).ConfigureAwait(false);
             await migrationService.MigrateStepAsync(Migrations.Stages.MulletaFlixMigrationStageTypes.PreInitialisation, startupService).ConfigureAwait(false);
         }

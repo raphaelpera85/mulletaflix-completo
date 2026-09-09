@@ -13,26 +13,36 @@ interface ProviderFactory {
 }
 
 function onListingsSubmitted(): void {
-    Dashboard.navigate('dashboard/livetv');
+    void Dashboard.navigate('dashboard/livetv');
 }
 
 function init(page: HTMLElement, type: string, providerId: string | null): void {
-    import(`components/tvproviders/${type}`).then(({ default: ProviderFactoryClass }) => {
-        const Provider = ProviderFactoryClass as ProviderFactory;
-        const instance = new Provider(page, providerId, {});
-        Events.on(instance, 'submitted', onListingsSubmitted);
-        instance.init();
-    });
+    void import(`components/tvproviders/${type}`)
+        .then(({ default: ProviderFactoryClass }) => {
+            const Provider = ProviderFactoryClass as ProviderFactory;
+            const instance = new Provider(page, providerId, {});
+            Events.on(instance, 'submitted', onListingsSubmitted);
+            instance.init();
+        })
+        .catch((error: unknown) => {
+            console.error('Failed to load Live TV provider', error);
+            loading.hide();
+        });
 }
 
 function loadTemplate(page: HTMLElement, type: string, providerId: string | null): void {
-    import(`components/tvproviders/${type}.template.html`).then(({ default: html }) => {
-        const template = page.querySelector<HTMLElement>('.providerTemplate');
-        if (template) {
-            template.innerHTML = globalize.translateHtml(html);
-        }
-        init(page, type, providerId);
-    });
+    void import(`components/tvproviders/${type}.template.html`)
+        .then(({ default: html }) => {
+            const template = page.querySelector<HTMLElement>('.providerTemplate');
+            if (template) {
+                template.innerHTML = globalize.translateHtml(html);
+            }
+            init(page, type, providerId);
+        })
+        .catch((error: unknown) => {
+            console.error('Failed to load Live TV provider template', error);
+            loading.hide();
+        });
 }
 
 pageIdOn('pageshow', 'liveTvGuideProviderPage', function (this: HTMLElement) {

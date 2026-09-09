@@ -224,11 +224,11 @@ async function writeSummary(summaryFile, summary) {
     const content = [
         '# Relatorio Selenium Cucumber',
         '',
-        `## Conclusao`,
+        '## Conclusao',
         '',
-        summary.status === 'success'
-            ? 'A execucao Selenium Cucumber passou no stage limpo e validou a trilha principal planejada.'
-            : 'A execucao Selenium Cucumber falhou e precisa de ajuste antes de ser usada como regressao confiavel.',
+        summary.status === 'success' ?
+            'A execucao Selenium Cucumber passou no stage limpo e validou a trilha principal planejada.' :
+            'A execucao Selenium Cucumber falhou e precisa de ajuste antes de ser usada como regressao confiavel.',
         '',
         '### Resumo',
         '',
@@ -243,15 +243,15 @@ async function writeSummary(summaryFile, summary) {
         '',
         '### Conclusao Tecnica',
         '',
-        summary.status === 'success'
-            ? '- O runner consegue abrir wizard, admin e usuario comum a partir do stage limpo.'
-            : '- Verifique o step que falhou e ajuste seletor, espera ou fluxo de navegacao.',
+        summary.status === 'success' ?
+            '- O runner consegue abrir wizard, admin e usuario comum a partir do stage limpo.' :
+            '- Verifique o step que falhou e ajuste seletor, espera ou fluxo de navegacao.',
         '',
         '### Proximo Passo',
         '',
-        summary.status === 'success'
-            ? 'Expandir a suite para backend/API, BD e IPTV mantendo a mesma ordem de prioridade.'
-            : 'Corrigir a falha atual antes de ampliar a cobertura.'
+        summary.status === 'success' ?
+            'Expandir a suite para backend/API, BD e IPTV mantendo a mesma ordem de prioridade.' :
+            'Corrigir a falha atual antes de ampliar a cobertura.'
     ].join('\n');
 
     await ensureDir(summaryFile);

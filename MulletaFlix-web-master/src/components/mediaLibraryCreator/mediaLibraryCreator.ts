@@ -92,7 +92,7 @@ interface CollectionTypeOption {
 
 function getCollectionTypeOptionsHtml(collectionTypeOptions: CollectionTypeOption[]): string {
     return collectionTypeOptions.map(i => {
-        return `<option value="${i.value}">${i.name}</option>`;
+        return `<option value="${escapeHtml(i.value)}">${escapeHtml(i.name)}</option>`;
     }).join('');
 }
 

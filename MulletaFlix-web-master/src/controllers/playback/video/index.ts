@@ -35,6 +35,10 @@ import { pluginManager } from '../../../components/pluginManager';
 import { PluginType } from '../../../types/plugin.ts';
 import type { ItemDto } from '../../../types/base/models/item-dto';
 
+function logVideoPlaybackError(action: string, error: unknown): void {
+    console.error(`[VideoPlayback] ${action}`, error);
+}
+
 function getOpenedDialog() {
     return document.querySelector('.dialogContainer .dialog.opened');
 }
@@ -80,9 +84,9 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                         button: view.querySelector('.btnRecord') as HTMLElement
                     });
                     view.querySelector('.btnRecord')!.classList.remove('hide');
-                });
+                }).catch((error: unknown) => logVideoPlaybackError('failed to load recording button', error));
             }
-        });
+        }).catch((error: unknown) => logVideoPlaybackError('failed to load current user', error));
     }
 
     function updateDisplayItem(itemInfo: { originalItem: ItemDto; displayItem?: ItemDto }) {
@@ -486,7 +490,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
     function onFullscreenChanged() {
         if (currentPlayer.forcedFullscreen && !playbackManager.isFullscreen(currentPlayer)) {
-            appRouter.back();
+            void appRouter.back().catch((error: unknown) => logVideoPlaybackError('failed to return from forced fullscreen', error));
             return;
         }
 
@@ -520,7 +524,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         if (state.NowPlayingItem) {
             isEnabled = true;
             updatePlayerStateInternal(event, player, state);
-            updatePlaylist();
+            void updatePlaylist().catch((error: unknown) => logVideoPlaybackError('failed to update playlist', error));
             enableStopOnBack(true);
             updatePlaybackRate(player);
         }
@@ -563,7 +567,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
         if (state.NextMediaType !== 'Video') {
             view.removeEventListener('viewbeforehide', onViewHideStopPlayback);
-            appRouter.back();
+            void appRouter.back().catch((error: unknown) => logVideoPlaybackError('failed to return after playback stop', error));
         }
     }
 
@@ -695,9 +699,12 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                         nextItem: nextItem
                     });
                     Events.on(currentUpNextDialog, 'hide', onUpNextHidden);
-                }, onUpNextHidden);
+                }, onUpNextHidden).catch((error: unknown) => {
+                    onUpNextHidden();
+                    logVideoPlaybackError('failed to load next item', error);
+                });
             }
-        });
+        }).catch((error: unknown) => logVideoPlaybackError('failed to load up-next dialog', error));
     }
 
     function refreshProgramInfoIfNeeded(player: any, item: any) {
@@ -979,11 +986,11 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                     onOption: onSettingsOption
                 } as any).finally(() => {
                     resetIdle();
-                });
+                }).catch((error: unknown) => logVideoPlaybackError('failed to open player settings', error));
 
                 setTimeout(resetIdle, 0);
             }
-        });
+        }).catch((error: unknown) => logVideoPlaybackError('failed to load player settings menu', error));
     }
 
     function onSettingsOption(selectedOption: string) {
@@ -1011,7 +1018,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                     });
                 }
             }
-        });
+        }).catch((error: unknown) => logVideoPlaybackError('failed to load player statistics', error));
     }
 
     function destroyStats() {
@@ -1052,10 +1059,10 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                 }
             }).finally(() => {
                 resetIdle();
-            });
+            }).catch((error: unknown) => logVideoPlaybackError('failed to select audio track', error));
 
             setTimeout(resetIdle, 0);
-        });
+        }).catch((error: unknown) => logVideoPlaybackError('failed to load audio track menu', error));
     }
 
     function showSecondarySubtitlesMenu(actionsheet: any, positionTo: any) {
@@ -1100,7 +1107,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         })
             .finally(() => {
                 resetIdle();
-            });
+            }).catch((error: unknown) => logVideoPlaybackError('failed to select secondary subtitle', error));
 
         setTimeout(resetIdle, 0);
     }
@@ -1169,7 +1176,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                         console.error(e);
                     }
                 } else {
-                const index = parseInt(String(id), 10);
+                    const index = parseInt(String(id), 10);
 
                     if (index !== currentIndex) {
                         playbackManager.setSubtitleStreamIndex(index, player);
@@ -1179,10 +1186,10 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                 toggleSubtitleSync();
             }).finally(() => {
                 resetIdle();
-            });
+            }).catch((error: unknown) => logVideoPlaybackError('failed to select subtitle track', error));
 
             setTimeout(resetIdle, 0);
-        });
+        }).catch((error: unknown) => logVideoPlaybackError('failed to load subtitle track menu', error));
     }
 
     function toggleSubtitleSync(action?: string) {
@@ -1668,7 +1675,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         try {
             Events.on(playbackManager, 'playerchange', onPlayerChange);
             bindToPlayer(playbackManager.getCurrentPlayer());
-            /* eslint-disable-next-line compat/compat */
+
             dom.addEventListener(document, window.PointerEvent ? 'pointermove' : 'mousemove', onPointerMove, {
                 passive: true
             });
@@ -1680,12 +1687,12 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                 passive: true
             });
             document.addEventListener('wheel', onWheel);
-            /* eslint-disable-next-line compat/compat */
+
             dom.addEventListener(window, window.PointerEvent ? 'pointerdown' : 'mousedown', onWindowMouseDown, {
                 capture: true,
                 passive: true
             });
-            /* eslint-disable-next-line compat/compat */
+
             dom.addEventListener(window, window.PointerEvent ? 'pointerup' : 'mouseup', onWindowMouseUp, {
                 capture: true,
                 passive: true
@@ -1723,12 +1730,12 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             passive: true
         });
         document.removeEventListener('wheel', onWheel);
-        /* eslint-disable-next-line compat/compat */
+
         dom.removeEventListener(window, window.PointerEvent ? 'pointerdown' : 'mousedown', onWindowMouseDown, {
             capture: true,
             passive: true
         });
-        /* eslint-disable-next-line compat/compat */
+
         dom.removeEventListener(window, window.PointerEvent ? 'pointerup' : 'mouseup', onWindowMouseUp, {
             capture: true,
             passive: true
@@ -1753,7 +1760,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         stopOsdHideTimer();
         headerElement.classList.remove('osdHeader');
         headerElement.classList.remove('osdHeader-hidden');
-        /* eslint-disable-next-line compat/compat */
+
         dom.removeEventListener(document, window.PointerEvent ? 'pointermove' : 'mousemove', onPointerMove, {
             passive: true
         });
@@ -1790,7 +1797,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         destroySubtitleSync();
     });
     let lastPointerDown = 0;
-    /* eslint-disable-next-line compat/compat */
+
     dom.addEventListener(view, window.PointerEvent ? 'pointerdown' : 'click', function (e: any) {
         const target = e.target as HTMLElement | null;
         if (target && dom.parentWithClass(target, ['videoOsdBottom', 'upNextContainer'])) {
@@ -2067,5 +2074,3 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         });
     }
 }
-
-

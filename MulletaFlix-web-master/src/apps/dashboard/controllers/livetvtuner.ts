@@ -7,6 +7,7 @@ import 'elements/emby-checkbox/emby-checkbox';
 import 'elements/emby-select/emby-select';
 import Dashboard from 'utils/dashboard';
 import { getParameterByName } from 'utils/url';
+import escapeHtml from 'escape-html';
 
 declare const ApiClient: {
     getJSON(url: string): Promise<Array<{ Id: string; Name: string }>>;
@@ -65,7 +66,7 @@ function fillTypes(view: PageElements, currentId?: string): Promise<void> {
 
         let html = '';
         html += types.map((tuner) => {
-            return '<option value="' + tuner.Id + '">' + tuner.Name + '</option>';
+            return '<option value="' + escapeHtml(tuner.Id) + '">' + escapeHtml(tuner.Name) + '</option>';
         }).join('');
         html += '<option value="other">';
         html += globalize.translate('TabOther');
@@ -86,19 +87,17 @@ function reload(view: PageElements, providerId?: string): void {
     if (favorite) {
         favorite.checked = false;
     }
-    if (devicePath) {
-        devicePath.value = '';
-    }
-
     if (providerId) {
-        ApiClient.getNamedConfiguration('livetv').then((config: TunerHostConfig) => {
-            const info = config.TunerHosts.filter((item) => {
-                return item.Id === providerId;
-            })[0];
-            if (info) {
-                fillTunerHostInfo(view, info);
-            }
-        });
+        void ApiClient.getNamedConfiguration('livetv')
+            .then((config: TunerHostConfig) => {
+                const info = config.TunerHosts.find((item) => item.Id === providerId);
+                if (info) {
+                    fillTunerHostInfo(view, info);
+                }
+            })
+            .catch((error: unknown) => {
+                console.error('Failed to load Live TV tuner configuration', error);
+            });
     }
 }
 
@@ -161,14 +160,14 @@ function submitForm(page: PageElements): void {
         info.Id = id;
     }
 
-    ApiClient.ajax({
+    void ApiClient.ajax({
         type: 'POST',
         url: ApiClient.getUrl('LiveTv/TunerHosts'),
         data: JSON.stringify(info),
         contentType: 'application/json'
     }).then(() => {
         Dashboard.processServerConfigurationUpdateResult();
-        Dashboard.navigate('dashboard/livetv');
+        void Dashboard.navigate('dashboard/livetv');
     }, () => {
         loading.hide();
         Dashboard.alert({
@@ -181,6 +180,10 @@ function getDetectedDevice(): Promise<TunerHostInfo> {
     return import('components/tunerPicker').then(({ default: TunerPicker }) => {
         return new TunerPicker().show();
     });
+}
+
+function setFieldVisibility(view: PageElements, selector: string, visible: boolean): void {
+    view.querySelector(selector)?.classList.toggle('hide', !visible);
 }
 
 function onTypeChange(this: HTMLSelectElement): void {
@@ -203,79 +206,31 @@ function onTypeChange(this: HTMLSelectElement): void {
     const supportsSelectablePath = supportsTunerFileOrUrl;
     const txtDevicePath = view.querySelector('.txtDevicePath') as LabeledInputElement;
 
+    let pathLabel: string | undefined;
     if (supportsTunerIpAddress) {
-        txtDevicePath.label(globalize.translate('LabelTunerIpAddress'));
-        view.querySelector('.fldPath')?.classList.remove('hide');
+        pathLabel = 'LabelTunerIpAddress';
     } else if (supportsTunerFileOrUrl) {
-        txtDevicePath.label(globalize.translate('LabelFileOrUrl'));
-        view.querySelector('.fldPath')?.classList.remove('hide');
-    } else {
-        view.querySelector('.fldPath')?.classList.add('hide');
+        pathLabel = 'LabelFileOrUrl';
     }
-
-    if (supportsSelectablePath) {
-        view.querySelector('.btnSelectPath')?.classList.remove('hide');
-        txtDevicePath.setAttribute('required', 'required');
-    } else {
-        view.querySelector('.btnSelectPath')?.classList.add('hide');
-        txtDevicePath.removeAttribute('required');
+    if (pathLabel) {
+        txtDevicePath.label(globalize.translate(pathLabel));
     }
-
-    if (supportsUserAgent) {
-        view.querySelector('.fldUserAgent')?.classList.remove('hide');
-    } else {
-        view.querySelector('.fldUserAgent')?.classList.add('hide');
-    }
-
-    if (supportsFavorites) {
-        view.querySelector('.fldFavorites')?.classList.remove('hide');
-    } else {
-        view.querySelector('.fldFavorites')?.classList.add('hide');
-    }
-
-    if (supportsTranscoding) {
-        view.querySelector('.fldTranscode')?.classList.remove('hide');
-    } else {
-        view.querySelector('.fldTranscode')?.classList.add('hide');
-    }
-
-    view.querySelector('.fldFmp4Container')?.classList.toggle('hide', !supportsFmp4Container);
-    view.querySelector('.fldStreamSharing')?.classList.toggle('hide', !supportsStreamSharing);
-    view.querySelector('.fldFallbackMaxStreamingBitrate')?.classList.toggle('hide', !supportsFallbackBitrate);
-
-    if (supportsStreamLooping) {
-        view.querySelector('.fldStreamLoop')?.classList.remove('hide');
-    } else {
-        view.querySelector('.fldStreamLoop')?.classList.add('hide');
-    }
-
-    if (supportsIgnoreDts) {
-        view.querySelector('.fldIgnoreDts')?.classList.remove('hide');
-    } else {
-        view.querySelector('.fldIgnoreDts')?.classList.add('hide');
-    }
-
-    view.querySelector('.fldReadInputAtNativeFramerate')?.classList.toggle('hide', !supportsReadInputAtNativeFramerate);
-
-    if (supportsTunerCount) {
-        view.querySelector('.fldTunerCount')?.classList.remove('hide');
-        (view.querySelector('.txtTunerCount') as HTMLInputElement)?.setAttribute('required', 'required');
-    } else {
-        view.querySelector('.fldTunerCount')?.classList.add('hide');
-        (view.querySelector('.txtTunerCount') as HTMLInputElement)?.removeAttribute('required');
-    }
-
-    if (mayIncludeUnsupportedDrmChannels) {
-        view.querySelector('.drmMessage')?.classList.remove('hide');
-    } else {
-        view.querySelector('.drmMessage')?.classList.add('hide');
-    }
-
-    if (suppportsSubmit) {
-        view.querySelector('.button-submit')?.classList.remove('hide');
-    } else {
-        view.querySelector('.button-submit')?.classList.add('hide');
-    }
+    setFieldVisibility(view, '.fldPath', pathLabel !== undefined);
+    setFieldVisibility(view, '.btnSelectPath', supportsSelectablePath);
+    txtDevicePath.toggleAttribute('required', supportsSelectablePath);
+    setFieldVisibility(view, '.fldUserAgent', supportsUserAgent);
+    setFieldVisibility(view, '.fldFavorites', supportsFavorites);
+    setFieldVisibility(view, '.fldTranscode', supportsTranscoding);
+    setFieldVisibility(view, '.fldFmp4Container', supportsFmp4Container);
+    setFieldVisibility(view, '.fldStreamSharing', supportsStreamSharing);
+    setFieldVisibility(view, '.fldFallbackMaxStreamingBitrate', supportsFallbackBitrate);
+    setFieldVisibility(view, '.fldStreamLoop', supportsStreamLooping);
+    setFieldVisibility(view, '.fldIgnoreDts', supportsIgnoreDts);
+    setFieldVisibility(view, '.fldReadInputAtNativeFramerate', supportsReadInputAtNativeFramerate);
+    setFieldVisibility(view, '.fldTunerCount', supportsTunerCount);
+    (view.querySelector('.txtTunerCount') as HTMLInputElement)?.toggleAttribute('required', supportsTunerCount);
+    setFieldVisibility(view, '.drmMessage', mayIncludeUnsupportedDrmChannels);
+    setFieldVisibility(view, '.button-submit', suppportsSubmit);
 }
 
 export default function (view: PageElements, params: { id?: string }): void {
@@ -285,9 +240,13 @@ export default function (view: PageElements, params: { id?: string }): void {
 
     view.addEventListener('viewshow', () => {
         const currentId = params.id;
-        fillTypes(view, currentId).then(() => {
-            reload(view, currentId);
-        });
+        void fillTypes(view, currentId)
+            .then(() => {
+                reload(view, currentId);
+            })
+            .catch((error: unknown) => {
+                console.error('Failed to load Live TV tuner types', error);
+            });
     });
     (view.querySelector('form') as HTMLFormElement)?.addEventListener('submit', (e) => {
         submitForm(view);
@@ -297,23 +256,31 @@ export default function (view: PageElements, params: { id?: string }): void {
     });
     (view.querySelector('.selectType') as HTMLSelectElement)?.addEventListener('change', onTypeChange);
     (view.querySelector('.btnDetect') as HTMLElement)?.addEventListener('click', () => {
-        getDetectedDevice().then((info) => {
-            fillTunerHostInfo(view, info);
-        });
+        void getDetectedDevice()
+            .then((info) => {
+                fillTunerHostInfo(view, info);
+            })
+            .catch((error: unknown) => {
+                console.error('Failed to detect Live TV tuner', error);
+            });
     });
     (view.querySelector('.btnSelectPath') as HTMLElement)?.addEventListener('click', () => {
-        import('components/directorybrowser/directorybrowser').then(({ default: DirectoryBrowser }) => {
-            const picker = new DirectoryBrowser();
-            picker.show({
-                includeFiles: true,
-                callback: (path: string) => {
-                    if (path) {
-                        (view.querySelector('.txtDevicePath') as HTMLInputElement).value = path;
-                    }
+        void import('components/directorybrowser/directorybrowser')
+            .then(({ default: DirectoryBrowser }) => {
+                const picker = new DirectoryBrowser();
+                picker.show({
+                    includeFiles: true,
+                    callback: (path: string) => {
+                        if (path) {
+                            (view.querySelector('.txtDevicePath') as HTMLInputElement).value = path;
+                        }
 
-                    picker.close();
-                }
+                        picker.close();
+                    }
+                });
+            })
+            .catch((error: unknown) => {
+                console.error('Failed to open directory browser', error);
             });
-        });
     });
 }

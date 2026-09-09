@@ -52,7 +52,7 @@ function getIndex(item: ItemDto, options: Pick<ListViewOptions, 'index' | 'sortB
     let code;
     let name;
 
-    if (sortBy.indexOf('sortname') === 0) {
+    if (sortBy.startsWith('sortname')) {
         if (item.Type === 'Episode') {
             return '';
         }
@@ -67,24 +67,24 @@ function getIndex(item: ItemDto, options: Pick<ListViewOptions, 'index' | 'sortB
 
         return name.toUpperCase();
     }
-    if (sortBy.indexOf('officialrating') === 0) {
+    if (sortBy.startsWith('officialrating')) {
         return item.OfficialRating || globalize.translate('Unrated');
     }
-    if (sortBy.indexOf('communityrating') === 0) {
+    if (sortBy.startsWith('communityrating')) {
         if (item.CommunityRating == null) {
             return globalize.translate('Unrated');
         }
 
         return String(Math.floor(item.CommunityRating));
     }
-    if (sortBy.indexOf('criticrating') === 0) {
+    if (sortBy.startsWith('criticrating')) {
         if (item.CriticRating == null) {
             return globalize.translate('Unrated');
         }
 
         return String(Math.floor(item.CriticRating));
     }
-    if (sortBy.indexOf('albumartist') === 0) {
+    if (sortBy.startsWith('albumartist')) {
         // SortName
         if (!item.AlbumArtist) {
             return '';
@@ -112,7 +112,7 @@ function getImageUrl(item: ItemDto, size: number): string | null {
                 type: 'Primary';
                 tag?: string;
             }
-            ) => string;
+        ) => string;
     };
 
     const apiClient = ServerConnections.getApiClient(item.ServerId as string) as unknown as ListViewApiClient;
@@ -160,7 +160,7 @@ function getChannelImageUrl(item: ItemDto, size: number): string | null {
                 type: 'Primary';
                 tag?: string;
             }
-            ) => string;
+        ) => string;
     };
 
     const apiClient = ServerConnections.getApiClient(item.ServerId as string) as unknown as ListViewApiClient;
@@ -225,7 +225,7 @@ function getRightButtonsHtml(rightButtons: ListViewButton[]): string {
     for (let i = 0, length = rightButtons.length; i < length; i++) {
         const button = rightButtons[i];
 
-        html += `<button is="paper-icon-button-light" class="listItemButton itemAction" data-action="${ItemAction.Custom}" data-customaction="${button.id}" title="${button.title}"><span class="material-icons ${button.icon}" aria-hidden="true"></span></button>`;
+        html += `<button is="paper-icon-button-light" class="listItemButton itemAction" data-action="${ItemAction.Custom}" data-customaction="${escapeHtml(button.id)}" title="${escapeHtml(button.title)}"><span class="material-icons ${escapeHtml(button.icon)}" aria-hidden="true"></span></button>`;
     }
 
     return html;
@@ -301,20 +301,20 @@ export function getListViewHtml(options: ListViewOptions): string {
             downloadWidth = 500;
         }
 
-        const playlistItemId = item.PlaylistItemId ? (` data-playlistitemid="${item.PlaylistItemId}"`) : '';
+        const playlistItemId = item.PlaylistItemId ? (` data-playlistitemid="${escapeHtml(String(item.PlaylistItemId))}"`) : '';
 
-        const positionTicksData = item.UserData?.PlaybackPositionTicks ? (` data-positionticks="${item.UserData.PlaybackPositionTicks}"`) : '';
-        const collectionIdData = options.collectionId ? (` data-collectionid="${options.collectionId}"`) : '';
-        const playlistIdData = options.playlistId ? (` data-playlistid="${options.playlistId}"`) : '';
-        const mediaTypeData = item.MediaType ? (` data-mediatype="${item.MediaType}"`) : '';
-        const collectionTypeData = item.CollectionType ? (` data-collectiontype="${item.CollectionType}"`) : '';
-        const channelIdData = item.ChannelId ? (` data-channelid="${item.ChannelId}"`) : '';
+        const positionTicksData = item.UserData?.PlaybackPositionTicks ? (` data-positionticks="${escapeHtml(String(item.UserData.PlaybackPositionTicks))}"`) : '';
+        const collectionIdData = options.collectionId ? (` data-collectionid="${escapeHtml(String(options.collectionId))}"`) : '';
+        const playlistIdData = options.playlistId ? (` data-playlistid="${escapeHtml(String(options.playlistId))}"`) : '';
+        const mediaTypeData = item.MediaType ? (` data-mediatype="${escapeHtml(String(item.MediaType))}"`) : '';
+        const collectionTypeData = item.CollectionType ? (` data-collectiontype="${escapeHtml(String(item.CollectionType))}"`) : '';
+        const channelIdData = item.ChannelId ? (` data-channelid="${escapeHtml(String(item.ChannelId))}"`) : '';
 
         if (enableContentWrapper) {
             cssClass += ' listItem-withContentWrapper';
         }
 
-        html += `<${outerTagName} class="${cssClass}"${playlistItemId} data-action="${action}" data-isfolder="${item.IsFolder}" data-id="${item.Id}" data-serverid="${item.ServerId}" data-type="${item.Type}"${mediaTypeData}${collectionTypeData}${channelIdData}${positionTicksData}${collectionIdData}${playlistIdData}>`;
+        html += `<${outerTagName} class="${cssClass}"${playlistItemId} data-action="${escapeHtml(String(action))}" data-isfolder="${String(item.IsFolder)}" data-id="${escapeHtml(String(item.Id || ''))}" data-serverid="${escapeHtml(String(item.ServerId || ''))}" data-type="${escapeHtml(String(item.Type || ''))}"${mediaTypeData}${collectionTypeData}${channelIdData}${positionTicksData}${collectionIdData}${playlistIdData}>`;
 
         if (enableContentWrapper) {
             html += '<div class="listItem-content">';

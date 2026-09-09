@@ -51,17 +51,19 @@ export const useSetUserLicense = () => {
     return useMutation({
         mutationFn: ({ userId, request }: { userId: string, request: SetUserLicenseRequest }) =>
             api!.axiosInstance.post<UserLicenseDto>(`/Users/${userId}/License`, request),
-        onSuccess: (response, variables) => {
-            void queryClient.setQueryData(
+        onSuccess: async (response, variables) => {
+            queryClient.setQueryData(
                 [USER_LICENSE_QUERY_KEY, api?.basePath, variables.userId],
                 response.data
             );
-            void queryClient.invalidateQueries({
-                queryKey: ['User', api?.basePath, variables.userId]
-            });
-            void queryClient.invalidateQueries({
-                queryKey: ['ActivityLogEntries']
-            });
+            await Promise.all([
+                queryClient.invalidateQueries({
+                    queryKey: ['User', api?.basePath, variables.userId]
+                }),
+                queryClient.invalidateQueries({
+                    queryKey: ['ActivityLogEntries']
+                })
+            ]);
         }
     });
 };
@@ -72,20 +74,21 @@ export const useRevokeUserLicense = () => {
     return useMutation({
         mutationFn: (userId: string) =>
             api!.axiosInstance.delete(`/Users/${userId}/License`),
-        onSuccess: (_, userId) => {
-            void queryClient.removeQueries({
+        onSuccess: async (_, userId) => {
+            queryClient.removeQueries({
                 queryKey: [USER_LICENSE_QUERY_KEY, api?.basePath, userId]
             });
-            void queryClient.invalidateQueries({
-                queryKey: [USER_LICENSE_QUERY_KEY, api?.basePath, userId]
-            });
-            void queryClient.invalidateQueries({
-                queryKey: ['User', api?.basePath, userId]
-            });
-            void queryClient.invalidateQueries({
-                queryKey: ['ActivityLogEntries']
-            });
+            await Promise.all([
+                queryClient.invalidateQueries({
+                    queryKey: [USER_LICENSE_QUERY_KEY, api?.basePath, userId]
+                }),
+                queryClient.invalidateQueries({
+                    queryKey: ['User', api?.basePath, userId]
+                }),
+                queryClient.invalidateQueries({
+                    queryKey: ['ActivityLogEntries']
+                })
+            ]);
         }
     });
 };
-

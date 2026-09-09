@@ -1,5 +1,6 @@
 import { getLibraryApi } from '@jellyfin/sdk/lib/utils/api/library-api';
 import { Archive } from 'libarchive.js';
+import escapeHtml from 'escape-html';
 
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { toApi } from 'utils/jellyfin-apiclient/compat';
@@ -276,7 +277,7 @@ export class ComicsPlayer {
 
             elem.id = 'comicsPlayer';
             elem.classList.add('slideshowDialog');
-            elem.innerHTML = `<div dir=${this.comicsPlayerSettings.langDir} class="slideshowSwiperContainer">
+            elem.innerHTML = `<div dir="${escapeHtml(this.comicsPlayerSettings.langDir || 'ltr')}" class="slideshowSwiperContainer">
                                 <div class="swiper-wrapper"></div>
                                 <div class="swiper-button-next actionButtonIcon"></div>
                                 <div class="swiper-button-prev actionButtonIcon"></div>
@@ -284,17 +285,17 @@ export class ComicsPlayer {
                             </div>
                             <div class="actionButtons">
                                 <button is="paper-icon-button-light" class="autoSize btnToggleLangDir" tabindex="-1">
-                                    <span class="material-icons actionButtonIcon ${dirIcon}" aria-hidden="true"></span>
+                                <span class="material-icons actionButtonIcon ${escapeHtml(dirIcon)}" aria-hidden="true"></span>
                                 </button>
                                 <button is="paper-icon-button-light" class="autoSize btnToggleView" tabindex="-1">
-                                    <span class="material-icons actionButtonIcon ${viewIcon}" aria-hidden="true"></span>
+                                    <span class="material-icons actionButtonIcon ${escapeHtml(viewIcon)}" aria-hidden="true"></span>
                                 </button>
                                 <button is="paper-icon-button-light" class="autoSize btnExit" tabindex="-1">
                                     <span class="material-icons actionButtonIcon close" aria-hidden="true"></span>
                                 </button>
                             </div>`;
 
-            dialogHelper.open(elem);
+            void dialogHelper.open(elem);
         }
 
         this.mediaElement = elem;
@@ -332,7 +333,7 @@ export class ComicsPlayer {
         this.archiveSource = new ArchiveSource(downloadUrl);
 
         //eslint-disable-next-line import/no-unresolved
-        import('swiper/css/bundle');
+        void import('swiper/css/bundle');
 
         return this.archiveSource.load()
             // eslint-disable-next-line import/no-unresolved
@@ -391,7 +392,7 @@ export class ComicsPlayer {
     getImgFromUrl(url: string): string {
         return `<div class="swiper-slide">
                    <div class="slider-zoom-container">
-                       <img src="${url}" class="swiper-slide-img">
+                       <img src="${escapeHtml(url)}" class="swiper-slide-img">
                    </div>
                </div>`;
     }

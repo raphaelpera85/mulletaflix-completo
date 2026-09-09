@@ -52,6 +52,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private bool _isDownloaderRunning;
     private readonly SemaphoreSlim _envioLock = new(1, 1);
     private readonly SemaphoreSlim _downloaderLock = new(1, 1);
+    private readonly SemaphoreSlim _sharedRuntimeLock = new(1, 1);
     private readonly SemaphoreSlim _mountLock = new(1, 1);
 
     private readonly ConcurrentDictionary<string, NebulaWorkerItemDto> _activeUploads = new(StringComparer.OrdinalIgnoreCase);
@@ -153,7 +154,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         return dir;
     }
 
-    public Task<NebulaStatusDto> GetStatusAsync(CancellationToken cancellationToken = default)
+    public async Task<NebulaStatusDto> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         var config = Config;
         var isDriveNMounted = IsDriveNAccessible();
@@ -241,9 +242,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         // Query active uploads (in-memory real-time first, fallback to Mongo)
         if (status.IsEnvioRunning)
         {
-            status.QueuedUploads = QueryMongoQueuedUploads(config);
+            status.QueuedUploads = await QueryMongoQueuedUploadsAsync(config, cancellationToken).ConfigureAwait(false);
             status.UploadQueueCount = status.QueuedUploads.Count;
-            var mongoActive = QueryMongoActiveUploads(config);
+            var mongoActive = await QueryMongoActiveUploadsAsync(config, cancellationToken).ConfigureAwait(false);
             if (mongoActive.Count > 0)
             {
                 status.ActiveUploads = mongoActive;
@@ -257,10 +258,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
         }
 
-        return Task.FromResult(status);
+        return status;
     }
 
-    private List<NebulaWorkerItemDto> QueryMongoActiveUploads(NebulaFtpConfiguration config)
+    private async Task<List<NebulaWorkerItemDto>> QueryMongoActiveUploadsAsync(
+        NebulaFtpConfiguration config,
+        CancellationToken cancellationToken)
     {
         var results = new List<NebulaWorkerItemDto>();
         try
@@ -280,7 +283,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             try
             {
-                var docs = mongo.GetActiveUploadsAsync().GetAwaiter().GetResult();
+                var docs = await mongo.GetActiveUploadsAsync(cancellationToken).ConfigureAwait(false);
                 foreach (var d in docs)
                 {
                     var name = d.Contains("name") ? d["name"].AsString : string.Empty;
@@ -340,6 +343,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 tempMongo?.Dispose();
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Falha ao consultar uploads ativos no MongoDB em C#");
@@ -348,7 +355,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         return results;
     }
 
-    private List<NebulaWorkerItemDto> QueryMongoQueuedUploads(NebulaFtpConfiguration config)
+    private async Task<List<NebulaWorkerItemDto>> QueryMongoQueuedUploadsAsync(
+        NebulaFtpConfiguration config,
+        CancellationToken cancellationToken)
     {
         var results = new List<NebulaWorkerItemDto>();
         try
@@ -368,7 +377,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             try
             {
-                var docs = mongo.GetQueuedUploadsAsync().GetAwaiter().GetResult();
+                var docs = await mongo.GetQueuedUploadsAsync(cancellationToken).ConfigureAwait(false);
                 foreach (var d in docs)
                 {
                     var name = d.Contains("name") ? d["name"].AsString : string.Empty;
@@ -388,6 +397,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             {
                 tempMongo?.Dispose();
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -445,6 +458,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             var config = NormalizeRuntimeConfiguration(Config);
+            _configManager.SaveConfiguration("nebulaftp", config);
             EnsureLocalMediaLibraryPaths(config);
             _activeUploads.Clear();
             EmitRawLog(streamOnly ? "Iniciando NebulaFTP Server (Modo Somente Streaming)." : "Iniciando NebulaFTP Server (Modo Envio de Mídias).");
@@ -494,7 +508,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             EmitServerLog("INFO", "Índices MongoDB verificados.");
             EmitServerLog("WARNING", "FTPS disabled. Plain FTP must not be exposed beyond a trusted network.");
             EmitServerLog("INFO", $"🚀 Nebula FTP (MonoBot) Rodando na porta {config.ServerPort}");
-            EmitServerLog("INFO", "HTTP Stream local: http://127.0.0.1:2122");
+            EmitServerLog("INFO", $"HTTP Stream local: http://127.0.0.1:{config.HttpStreamPort}");
 
             Func<string, Task> logQueueState = async evt =>
             {
@@ -553,7 +567,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _telegramPool,
                 config.ServerHost,
                 config.HttpStreamPort,    // HTTP Stream port (default 2123 for MulletaFlix)
-                _loggerFactory.CreateLogger<NebulaHttpStreamServer>());
+                _loggerFactory.CreateLogger<NebulaHttpStreamServer>(),
+                config.HttpStreamToken);
             _httpStreamServer.Start();
 
             if (poolInitTask != null)
@@ -631,10 +646,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             // estar sendo compartilhados pelo Downloader STRM.
             try
             {
-                _cleanupCts?.Cancel();
-                _cleanupCts?.Dispose();
-                _cleanupCts = null;
-                _cleanupTask = null;
+                if (!_isDownloaderRunning)
+                {
+                    await DisposeSharedRuntimeResourcesAsync().ConfigureAwait(false);
+                }
 
                 _supabaseSyncService?.Dispose();
                 _supabaseSyncService = null;
@@ -691,15 +706,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     public async Task<bool> StopEnvioAsync(CancellationToken cancellationToken = default)
     {
-        _isEnvioRunning = false;
-        _activeUploads.Clear();
+        await _envioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
-            _cleanupCts?.Cancel();
-            _cleanupCts?.Dispose();
-            _cleanupCts = null;
-            _cleanupTask = null;
+            _isEnvioRunning = false;
+            _activeUploads.Clear();
 
             // Only unmount drive N: if NO service (Envio or Downloader) needs it anymore
             if (!_isDownloaderRunning)
@@ -719,10 +731,18 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 AddServerLog("[NEBULA-MOUNT] Unidade N: mantida montada pois Downloader ainda está ativo.");
             }
 
-            if (_supabaseSyncService != null)
+            await _sharedRuntimeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                _supabaseSyncService.Dispose();
-                _supabaseSyncService = null;
+                if (_supabaseSyncService != null)
+                {
+                    _supabaseSyncService.Dispose();
+                    _supabaseSyncService = null;
+                }
+            }
+            finally
+            {
+                _sharedRuntimeLock.Release();
             }
 
             if (_stagingWatcher != null)
@@ -751,18 +771,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _uploadEngine = null;
             }
 
-            if (_telegramPool != null)
-            {
-                await _telegramPool.DisposeAsync().ConfigureAwait(false);
-                _telegramPool = null;
-            }
-
-            if (_mongoContext != null)
-            {
-                _mongoContext.Dispose();
-                _mongoContext = null;
-            }
-
             AddServerLog("NebulaFTP Server nativo em C# encerrado com sucesso.");
             return true;
         }
@@ -771,6 +779,19 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             _logger.LogError(ex, "Failed to stop NebulaFTP server");
             AddServerLog($"[ERRO] Falha ao parar serviços: {ex.Message}");
             return false;
+        }
+        finally
+        {
+            try
+            {
+                await DisposeSharedRuntimeResourcesAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupException)
+            {
+                _logger.LogError(cleanupException, "Falha ao liberar recursos compartilhados após parar o Envio.");
+            }
+
+            _envioLock.Release();
         }
     }
 
@@ -788,6 +809,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
 
         var config = NormalizeRuntimeConfiguration(Config);
+        _configManager.SaveConfiguration("nebulaftp", config);
 
         var monitorSources = (config.MonitorPaths ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
         if (monitorSources.Count == 0)
@@ -795,6 +817,27 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             _downloaderLock.Release();
             AddDownloaderLog("[ERRO] Nenhuma pasta de monitoramento configurada.");
             return false;
+        }
+
+        // StartEnvioAsync and StartDownloaderAsync share the Mongo context and
+        // Telegram pool. Serialize their startup paths so both cannot create
+        // duplicate shared resources at the same time.
+        bool runtimeLockAcquired;
+        try
+        {
+            runtimeLockAcquired = _envioLock.Wait(0, cancellationToken);
+        }
+        catch
+        {
+            _downloaderLock.Release();
+            throw;
+        }
+
+        if (!runtimeLockAcquired)
+        {
+            _downloaderLock.Release();
+            AddDownloaderLog("[NEBULA] Inicialização do Envio já está em andamento. Aguarde e tente o Downloader novamente.");
+            return true;
         }
 
         try
@@ -820,11 +863,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 await _telegramPool.InitializeAsync(emitLog: null, cancellationToken).ConfigureAwait(false);
             }
 
-        _downloaderEngine = new NebulaDownloaderEngine(
-            _mongoContext,
-            _telegramPool,
-            _loggerFactory.CreateLogger<NebulaDownloaderEngine>(),
-            _metadataExportService);
+            _downloaderEngine = new NebulaDownloaderEngine(
+                _mongoContext,
+                _telegramPool,
+                _loggerFactory.CreateLogger<NebulaDownloaderEngine>(),
+                _metadataExportService);
             _downloaderEngine.OnLog += msg => AddDownloaderLog(msg);
             _downloaderEngine.OnProgressChanged += st =>
             {
@@ -877,15 +920,18 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
         finally
         {
+            _envioLock.Release();
             _downloaderLock.Release();
         }
     }
 
     public async Task<bool> StopDownloaderAsync(CancellationToken cancellationToken = default)
     {
-        _isDownloaderRunning = false;
+        await _downloaderLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+
         try
         {
+            _isDownloaderRunning = false;
             if (_downloaderEngine != null)
             {
                 await _downloaderEngine.StopAsync().ConfigureAwait(false);
@@ -926,42 +972,104 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             AddDownloaderLog($"[ERRO] Falha ao parar Downloader: {ex.Message}");
             return false;
         }
+        finally
+        {
+            try
+            {
+                await DisposeSharedRuntimeResourcesAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupException)
+            {
+                _logger.LogError(cleanupException, "Falha ao liberar recursos compartilhados após parar o Downloader.");
+            }
+
+            _downloaderLock.Release();
+        }
+    }
+
+    private async Task DisposeSharedRuntimeResourcesAsync()
+    {
+        await _sharedRuntimeLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_isEnvioRunning || _isDownloaderRunning)
+            {
+                return;
+            }
+
+            var cleanupTask = _cleanupTask;
+            _cleanupCts?.Cancel();
+
+            if (cleanupTask != null)
+            {
+                try
+                {
+                    await Task.WhenAny(cleanupTask, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Erro ao aguardar encerramento da limpeza contínua do Nebula.");
+                }
+            }
+
+            _cleanupCts?.Dispose();
+            _cleanupCts = null;
+            _cleanupTask = null;
+
+            if (_telegramPool != null)
+            {
+                await _telegramPool.DisposeAsync().ConfigureAwait(false);
+                _telegramPool = null;
+            }
+
+            if (_mongoContext != null)
+            {
+                _mongoContext.Dispose();
+                _mongoContext = null;
+            }
+        }
+        finally
+        {
+            _sharedRuntimeLock.Release();
+        }
     }
 
     public async Task<bool> GenerateStrmAsync(CancellationToken cancellationToken = default)
     {
         var config = Config;
+        config = NormalizeRuntimeConfiguration(config);
+        _configManager.SaveConfiguration("nebulaftp", config);
         AddServerLog("[STRM] Iniciando geração da biblioteca STRM em C# nativo...");
 
-        _ = Task.Run(
-            async () =>
+        try
+        {
+            using var mongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
+            if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
             {
-                using var mongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
-                if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
+                var count = await mongo.CountFilesAsync(cancellationToken).ConfigureAwait(false);
+                if (count == 0)
                 {
-                    var count = await mongo.CountFilesAsync(CancellationToken.None).ConfigureAwait(false);
-                    if (count == 0)
-                    {
-                        AddServerLog("[STRM] MongoDB vazio detectado. Restaurando acervo do Supabase antes de gerar STRM...");
-                        var sync = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
-                        await sync.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, CancellationToken.None).ConfigureAwait(false);
-                    }
+                    AddServerLog("[STRM] MongoDB vazio detectado. Restaurando acervo do Supabase antes de gerar STRM...");
+                    var sync = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+                    await sync.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
                 }
+            }
 
-                var generator = new NebulaStrmGenerator(mongo, _loggerFactory.CreateLogger<NebulaStrmGenerator>());
-                try
-                {
-                    await generator.GenerateAsync(config, msg => AddServerLog(msg), CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    AddServerLog($"[STRM-ERRO] Falha ao gerar STRM: {ex.Message}");
-                    _logger.LogError(ex, "[NEBULA-STRM] Falha ao gerar STRM.");
-                }
-            },
-            CancellationToken.None);
-
-        return true;
+            var generator = new NebulaStrmGenerator(mongo, _loggerFactory.CreateLogger<NebulaStrmGenerator>());
+            await generator.GenerateAsync(config, msg => AddServerLog(msg), cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            AddServerLog("[STRM] Geração cancelada.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AddServerLog($"[STRM-ERRO] Falha ao gerar STRM: {ex.Message}");
+            _logger.LogError(ex, "[NEBULA-STRM] Falha ao gerar STRM.");
+            return false;
+        }
     }
 
     public async Task<bool> PruneCompletedAsync(CancellationToken cancellationToken = default)
@@ -969,24 +1077,24 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         var config = Config;
         AddDownloaderLog("[LIMPEZA] Executando limpeza de registros inconsistentes no MongoDB...");
 
-        _ = Task.Run(
-            async () =>
-            {
-                try
-                {
-                    using var mongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
-                    var deleted = await mongo.PruneCompletedAsync(CancellationToken.None).ConfigureAwait(false);
-                    AddDownloaderLog($"[LIMPEZA] Limpeza concluída: {deleted} registros corrigidos.");
-                }
-                catch (Exception ex)
-                {
-                    AddDownloaderLog($"[LIMPEZA-ERRO] {ex.Message}");
-                    _logger.LogError(ex, "[NEBULA-CLEANUP] Erro durante a limpeza.");
-                }
-            },
-            CancellationToken.None);
-
-        return true;
+        try
+        {
+            using var mongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
+            var deleted = await mongo.PruneCompletedAsync(cancellationToken).ConfigureAwait(false);
+            AddDownloaderLog($"[LIMPEZA] Limpeza concluída: {deleted} registros corrigidos.");
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            AddDownloaderLog("[LIMPEZA] Limpeza cancelada.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AddDownloaderLog($"[LIMPEZA-ERRO] {ex.Message}");
+            _logger.LogError(ex, "[NEBULA-CLEANUP] Erro durante a limpeza.");
+            return false;
+        }
     }
 
 
@@ -1010,7 +1118,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
         EmitCleanupLog("Bot de limpeza contínua ativado.");
         EmitCleanupLog("=== Bot de Limpeza de Mídias Concluídas ===");
-        EmitCleanupLog($"MongoDB URI: {config.MongoDbConnectionString}");
+        EmitCleanupLog("MongoDB: configurado (URI ocultada por segurança)");
         EmitCleanupLog("Database: ftp");
         EmitCleanupLog($"Fontes monitoradas: [{sourceListStr}]");
         EmitCleanupLog("Modo: Contínuo (a cada 30s)");
@@ -1077,8 +1185,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             return;
         }
 
-        var completedSet = await _mongoContext.GetCompletedTelegramItemsAsync(cancellationToken).ConfigureAwait(false);
-        if (completedSet.Count == 0)
+        var completedPaths = await _mongoContext.GetCompletedTelegramLocalPathsAsync(cancellationToken).ConfigureAwait(false);
+        if (completedPaths.Count == 0)
         {
             return;
         }
@@ -1100,10 +1208,18 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                         return;
                     }
 
-                    var fileName = Path.GetFileName(file);
-                    var normName = NebulaMongoContext.NormalizeCleanupString(fileName);
+                    string fullPath;
+                    try
+                    {
+                        fullPath = Path.GetFullPath(file);
+                    }
+                    catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+                    {
+                        _logger.LogDebug(ex, "Caminho inválido ignorado na limpeza contínua: {File}", file);
+                        continue;
+                    }
 
-                    if (completedSet.Contains(normName))
+                    if (completedPaths.Contains(fullPath))
                     {
                         var fi = new FileInfo(file);
                         if (fi.Exists)
@@ -1111,7 +1227,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                             try
                             {
                                 fi.Delete();
-                                EmitCleanupLog($"Arquivo removido (já no Telegram): {fileName}");
+                                EmitCleanupLog($"Arquivo removido (já no Telegram): {fullPath}");
                             }
                             catch (Exception delEx)
                             {
@@ -1580,157 +1696,174 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         return dto;
     }
 
-    public Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(CancellationToken cancellationToken = default)
+    public async Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(CancellationToken cancellationToken = default)
     {
         var config = Config;
         if (string.IsNullOrWhiteSpace(config.SupabaseUrl) || string.IsNullOrWhiteSpace(config.SupabaseKey))
         {
-            return Task.FromResult(new NebulaSupabaseBackupResultDto
+            return new NebulaSupabaseBackupResultDto
             {
                 Success = false,
                 Message = "Configure a URL e a API Key do Supabase antes de iniciar o backup."
-            });
+            };
         }
 
         AddServerLog("[SUPABASE-BACKUP] Iniciando sincronização do MongoDB para o Supabase (Nativo C#)...");
+        await _sharedRuntimeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        _ = Task.Run(
-            async () =>
-            {
-                NebulaMongoContext? tempMongo = null;
-                NebulaSupabaseSyncService? tempSyncService = null;
-                try
-                {
-                    var syncService = _supabaseSyncService;
-                    if (syncService == null)
-                    {
-                        var mongo = _mongoContext;
-                        if (mongo == null && !string.IsNullOrWhiteSpace(config.MongoDbConnectionString))
-                        {
-                            tempMongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
-                            mongo = tempMongo;
-                        }
-
-                        if (mongo != null)
-                        {
-                            tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
-                            syncService = tempSyncService;
-                        }
-                    }
-
-                    if (syncService == null)
-                    {
-                        AddServerLog("[SUPABASE-ERRO] Contexto do MongoDB ou Supabase não pôde ser instanciado.");
-                        return;
-                    }
-
-                    var res = await syncService.PerformBackupAsync(config.SupabaseUrl, config.SupabaseKey, AddServerLog, CancellationToken.None).ConfigureAwait(false);
-                    if (res.Success)
-                    {
-                        AddServerLog($"[SUPABASE] {res.Message}");
-                        config.SupabaseLastBackupTime = DateTime.UtcNow;
-                        config.SupabaseLastBackupStatus = $"Backup realizado com sucesso ({res.FilesBackedUp} arquivos) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
-                        _configManager.SaveConfiguration("nebulaftp", config);
-                    }
-                    else
-                    {
-                        AddServerLog($"[SUPABASE-ERRO] Falha na sincronização: {res.Message}");
-                        config.SupabaseLastBackupStatus = $"Falha no backup às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {res.Message}";
-                        _configManager.SaveConfiguration("nebulaftp", config);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    AddServerLog($"[SUPABASE-ERRO] Exceção durante o backup nativo: {ex.Message}");
-                }
-                finally
-                {
-                    tempSyncService?.Dispose();
-                    tempMongo?.Dispose();
-                }
-            },
-            CancellationToken.None);
-
-        return Task.FromResult(new NebulaSupabaseBackupResultDto
+        NebulaMongoContext? tempMongo = null;
+        NebulaSupabaseSyncService? tempSyncService = null;
+        try
         {
-            Success = true,
-            Message = "Processo de sincronização nativo em C# iniciado em segundo plano.",
-            Timestamp = DateTime.UtcNow
-        });
+            var syncService = _supabaseSyncService;
+            if (syncService == null)
+            {
+                var mongo = _mongoContext;
+                if (mongo == null && !string.IsNullOrWhiteSpace(config.MongoDbConnectionString))
+                {
+                    tempMongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
+                    mongo = tempMongo;
+                }
+
+                if (mongo != null)
+                {
+                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+                    syncService = tempSyncService;
+                }
+            }
+
+            if (syncService == null)
+            {
+                AddServerLog("[SUPABASE-ERRO] Contexto do MongoDB ou Supabase não pôde ser instanciado.");
+                return new NebulaSupabaseBackupResultDto
+                {
+                    Success = false,
+                    Message = "Contexto do MongoDB ou Supabase não pôde ser instanciado.",
+                    Timestamp = DateTime.UtcNow
+                };
+            }
+
+            var result = await syncService.PerformBackupAsync(config.SupabaseUrl, config.SupabaseKey, AddServerLog, cancellationToken).ConfigureAwait(false);
+            if (result.Success)
+            {
+                AddServerLog($"[SUPABASE] {result.Message}");
+                config.SupabaseLastBackupTime = DateTime.UtcNow;
+                config.SupabaseLastBackupStatus = $"Backup realizado com sucesso ({result.FilesBackedUp} arquivos) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
+            }
+            else
+            {
+                AddServerLog($"[SUPABASE-ERRO] Falha na sincronização: {result.Message}");
+                config.SupabaseLastBackupStatus = $"Falha no backup às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {result.Message}";
+            }
+
+            _configManager.SaveConfiguration("nebulaftp", config);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            AddServerLog("[SUPABASE-BACKUP] Backup cancelado.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AddServerLog($"[SUPABASE-ERRO] Exceção durante o backup nativo: {ex.Message}");
+            _logger.LogError(ex, "Erro durante o backup nativo para Supabase.");
+            return new NebulaSupabaseBackupResultDto
+            {
+                Success = false,
+                Message = $"Erro durante o backup: {ex.Message}",
+                Timestamp = DateTime.UtcNow
+            };
+        }
+        finally
+        {
+            tempSyncService?.Dispose();
+            tempMongo?.Dispose();
+            _sharedRuntimeLock.Release();
+        }
     }
 
-    public Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(CancellationToken cancellationToken = default)
+    public async Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(CancellationToken cancellationToken = default)
     {
         var config = NormalizeRuntimeConfiguration(Config);
         if (string.IsNullOrWhiteSpace(config.SupabaseUrl) || string.IsNullOrWhiteSpace(config.SupabaseKey))
         {
-            return Task.FromResult(new NebulaSupabaseRestoreResultDto
+            return new NebulaSupabaseRestoreResultDto
             {
                 Success = false,
                 Message = "Configure a URL e a API Key do Supabase antes de iniciar a restauração."
-            });
+            };
         }
 
         AddServerLog("[SUPABASE-RESTORE] Iniciando restauração do acervo a partir do Supabase (Nativo C#)...");
+        await _sharedRuntimeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        _ = Task.Run(
-            async () =>
-            {
-                NebulaMongoContext? tempMongo = null;
-                NebulaSupabaseSyncService? tempSyncService = null;
-                try
-                {
-                    var syncService = _supabaseSyncService;
-                    if (syncService == null)
-                    {
-                        var mongo = _mongoContext;
-                        if (mongo == null && !string.IsNullOrWhiteSpace(config.MongoDbConnectionString))
-                        {
-                            tempMongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
-                            mongo = tempMongo;
-                        }
-
-                        if (mongo != null)
-                        {
-                            tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
-                            syncService = tempSyncService;
-                        }
-                    }
-
-                    if (syncService == null)
-                    {
-                        AddServerLog("[SUPABASE-RESTORE-ERRO] Contexto do MongoDB ou Supabase não pôde ser instanciado.");
-                        return;
-                    }
-
-                    var res = await syncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, AddServerLog, CancellationToken.None).ConfigureAwait(false);
-                    if (res.Success)
-                    {
-                        AddServerLog($"[SUPABASE-RESTORE] {res.Message}");
-                    }
-                    else
-                    {
-                        AddServerLog($"[SUPABASE-RESTORE-ERRO] Falha na restauração: {res.Message}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    AddServerLog($"[SUPABASE-RESTORE-ERRO] Exceção durante a restauração nativa: {ex.Message}");
-                }
-                finally
-                {
-                    tempSyncService?.Dispose();
-                    tempMongo?.Dispose();
-                }
-            },
-            CancellationToken.None);
-
-        return Task.FromResult(new NebulaSupabaseRestoreResultDto
+        NebulaMongoContext? tempMongo = null;
+        NebulaSupabaseSyncService? tempSyncService = null;
+        try
         {
-            Success = true,
-            Message = "Processo de restauração nativo em C# iniciado em segundo plano.",
-            Timestamp = DateTime.UtcNow
-        });
+            var syncService = _supabaseSyncService;
+            if (syncService == null)
+            {
+                var mongo = _mongoContext;
+                if (mongo == null && !string.IsNullOrWhiteSpace(config.MongoDbConnectionString))
+                {
+                    tempMongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
+                    mongo = tempMongo;
+                }
+
+                if (mongo != null)
+                {
+                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+                    syncService = tempSyncService;
+                }
+            }
+
+            if (syncService == null)
+            {
+                AddServerLog("[SUPABASE-RESTORE-ERRO] Contexto do MongoDB ou Supabase não pôde ser instanciado.");
+                return new NebulaSupabaseRestoreResultDto
+                {
+                    Success = false,
+                    Message = "Contexto do MongoDB ou Supabase não pôde ser instanciado.",
+                    Timestamp = DateTime.UtcNow
+                };
+            }
+
+            var result = await syncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, AddServerLog, cancellationToken).ConfigureAwait(false);
+            if (result.Success)
+            {
+                AddServerLog($"[SUPABASE-RESTORE] {result.Message}");
+            }
+            else
+            {
+                AddServerLog($"[SUPABASE-RESTORE-ERRO] Falha na restauração: {result.Message}");
+            }
+
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            AddServerLog("[SUPABASE-RESTORE] Restauração cancelada.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AddServerLog($"[SUPABASE-RESTORE-ERRO] Exceção durante a restauração nativa: {ex.Message}");
+            _logger.LogError(ex, "Erro durante a restauração nativa do Supabase.");
+            return new NebulaSupabaseRestoreResultDto
+            {
+                Success = false,
+                Message = $"Erro durante a restauração: {ex.Message}",
+                Timestamp = DateTime.UtcNow
+            };
+        }
+        finally
+        {
+            tempSyncService?.Dispose();
+            tempMongo?.Dispose();
+            _sharedRuntimeLock.Release();
+        }
     }
 
     public string GetSupabaseSqlScript()
@@ -1871,6 +2004,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
             _envioLock.Dispose();
             _downloaderLock.Dispose();
+            _sharedRuntimeLock.Dispose();
             _mountLock.Dispose();
         }
         catch (Exception ex)
@@ -1883,6 +2017,10 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     {
         config.ServerPort = config.ServerPort is >= 1 and <= 65535 ? config.ServerPort : 2121;
         config.HttpStreamPort = config.HttpStreamPort is >= 1 and <= 65535 ? config.HttpStreamPort : 2123;
+        if (string.IsNullOrWhiteSpace(config.HttpStreamToken))
+        {
+            config.HttpStreamToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        }
         config.MaxWorkers = Math.Clamp(config.MaxWorkers, 1, 64);
         config.ChunkSizeMb = Math.Clamp(config.ChunkSizeMb, 1, 512);
         config.DownloadParts = Math.Clamp(config.DownloadParts, 1, 32);
@@ -1985,7 +2123,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         var config = NormalizeRuntimeConfiguration(Config);
         if (!config.UseMappedDrive)
         {
-            AddServerLog("[NEBULA-MOUNT] UseMappedDrive=false: montagem da unidade N: desativada. Use HTTP (2123) ou FTP (2121) direto.");
+            AddServerLog($"[NEBULA-MOUNT] UseMappedDrive=false: montagem da unidade N: desativada. Use HTTP ({config.HttpStreamPort}) ou FTP ({config.ServerPort}) direto.");
             return false;
         }
 
@@ -2412,19 +2550,9 @@ no_check_certificate = true
                 catch { }
             }
 
-            foreach (var proc in Process.GetProcessesByName("rclone"))
-            {
-                try
-                {
-                    if (!proc.HasExited)
-                    {
-                        proc.Kill(entireProcessTree: true);
-                        proc.WaitForExit(1000);
-                    }
-                    proc.Dispose();
-                }
-                catch { }
-            }
+            // Nunca mate processos rclone globais: eles podem pertencer a outro
+            // serviço ou a uma montagem do usuário. O processo iniciado pelo
+            // Nebula já foi encerrado acima e o comando unmount é limitado a N:.
         }
         catch (Exception ex)
         {

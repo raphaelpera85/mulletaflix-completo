@@ -88,7 +88,7 @@ function renderViews(page: HTMLElement, user: User, result: Array<{ Id: string; 
         const checkedHtml = isChecked ? ' checked="checked"' : '';
 
         currentHtml += '<label>';
-        currentHtml += `<input type="checkbox" is="emby-checkbox" class="chkGroupFolder" data-folderid="${i.Id}" id="${id}"${checkedHtml}/>`;
+        currentHtml += `<input type="checkbox" is="emby-checkbox" class="chkGroupFolder" data-folderid="${escapeHtml(i.Id || '')}" id="${escapeHtml(id)}"${checkedHtml}/>`;
         currentHtml += `<span>${escapeHtml(i.Name || '')}</span>`;
         currentHtml += '</label>';
 
@@ -310,7 +310,7 @@ function getLandingScreenOptionsHtml(type: string, userValue: string | undefined
         const selectedHtml = selected ? ' selected' : '';
         const optionValue = o.isDefault ? '' : o.value;
 
-        return `<option value="${optionValue}"${selectedHtml}>${escapeHtml(o.name)}</option>`;
+        return `<option value="${escapeHtml(optionValue)}"${selectedHtml}>${escapeHtml(o.name)}</option>`;
     }).join('');
 }
 
@@ -320,7 +320,7 @@ function renderViewOrder(context: HTMLElement, user: User, result: UserViewsResu
     html += result.Items.map((view) => {
         let currentHtml = '';
 
-        currentHtml += `<div class="listItem viewItem" data-viewid="${view.Id}">`;
+        currentHtml += `<div class="listItem viewItem" data-viewid="${escapeHtml(view.Id || '')}">`;
 
         currentHtml += '<span class="material-icons listItemIcon folder_open" aria-hidden="true"></span>';
 
@@ -375,7 +375,7 @@ function getPerLibrarySettingsHtml(item: UserView, user: User, userSettingsInsta
         isChecked = !(user.Configuration.MyMediaExcludes || []).includes(item.Id);
         html += '<div>';
         html += '<label>';
-        html += `<input type="checkbox" is="emby-checkbox" class="chkIncludeInMyMedia" data-folderid="${item.Id}"${isChecked ? ' checked="checked"' : ''}/>`;
+        html += `<input type="checkbox" is="emby-checkbox" class="chkIncludeInMyMedia" data-folderid="${escapeHtml(item.Id || '')}"${isChecked ? ' checked="checked"' : ''}/>`;
         html += `<span>${globalize.translate('DisplayInMyMedia')}</span>`;
         html += '</label>';
         html += '</div>';
@@ -385,7 +385,7 @@ function getPerLibrarySettingsHtml(item: UserView, user: User, userSettingsInsta
     if (!excludeFromLatest.includes(collectionType || '')) {
         isChecked = !user.Configuration.LatestItemsExcludes?.includes(item.Id);
         html += '<label class="fldIncludeInLatest">';
-        html += `<input type="checkbox" is="emby-checkbox" class="chkIncludeInLatest" data-folderid="${item.Id}"${isChecked ? ' checked="checked"' : ''}/>`;
+        html += `<input type="checkbox" is="emby-checkbox" class="chkIncludeInLatest" data-folderid="${escapeHtml(item.Id || '')}"${isChecked ? ' checked="checked"' : ''}/>`;
         html += `<span>${globalize.translate('DisplayInOtherHomeScreenSections')}</span>`;
         html += '</label>';
     }
@@ -398,7 +398,7 @@ function getPerLibrarySettingsHtml(item: UserView, user: User, userSettingsInsta
     if (landingScreenTypes.includes(collectionType || '')) {
         const idForLanding = collectionType === 'livetv' ? collectionType : item.Id;
         html += '<div class="selectContainer">';
-        html += `<select is="emby-select" class="selectLanding" data-folderid="${idForLanding}" label="${globalize.translate('LabelDefaultScreen')}">`;
+        html += `<select is="emby-select" class="selectLanding" data-folderid="${escapeHtml(idForLanding || '')}" label="${escapeHtml(globalize.translate('LabelDefaultScreen'))}">`;
 
         const userValue = userSettingsInstance.get(`landing-${idForLanding}`);
 

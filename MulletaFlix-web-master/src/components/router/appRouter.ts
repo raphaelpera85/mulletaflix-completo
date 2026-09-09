@@ -124,7 +124,7 @@ class AppRouter {
             path = path.substring(1);
         }
 
-        if (path.indexOf('/') !== 0 && path.indexOf('://') === -1) {
+        if (!path.startsWith('/') && path.indexOf('://') === -1) {
             path = '/' + path;
         }
 
@@ -178,9 +178,9 @@ class AppRouter {
     showItem(item: RouteTarget | null | undefined, serverId?: string | RouteOptions | null, options?: RouteOptions): void {
         // TODO: Refactor this so it only gets items, not strings.
         if (typeof item === 'string') {
-            const apiClient = (typeof serverId === 'string'
-                ? ServerConnections.getApiClient(serverId)
-                : ServerConnections.currentApiClient()) as ApiClientWithUserId | undefined;
+            const apiClient = (typeof serverId === 'string' ?
+                ServerConnections.getApiClient(serverId) :
+                ServerConnections.currentApiClient()) as ApiClientWithUserId | undefined;
             if (!apiClient) {
                 throw new Error('No api client available');
             }

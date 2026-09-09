@@ -537,10 +537,11 @@ namespace MulletaFlix.LiveTv
             return Task.CompletedTask;
         }
 
-        private async void OnTimerManagerTimerFired(object sender, GenericEventArgs<TimerInfo> e)
-        {
-            var timer = e.Argument;
+        private void OnTimerManagerTimerFired(object sender, GenericEventArgs<TimerInfo> e)
+            => _ = HandleTimerManagerTimerFiredAsync(e.Argument);
 
+        private async Task HandleTimerManagerTimerFiredAsync(TimerInfo timer)
+        {
             _logger.LogInformation("Recording timer fired for {0}.", timer.Name);
 
             try
@@ -1000,4 +1001,3 @@ namespace MulletaFlix.LiveTv
         }
     }
 }
-

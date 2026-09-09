@@ -1,3 +1,5 @@
+import escapeHtml from 'escape-html';
+
 const ADSENSE_SCRIPT_ID = 'mulletaFlix-adsense-script';
 
 interface BrandingConfiguration {
@@ -68,8 +70,8 @@ export function showAdSenseInterstitial(apiClient: AdSenseApiClient, placement: 
                     <div class="adsenseInterstitialBody">
                         <ins class="adsbygoogle"
                             style="display:block;min-width:320px;min-height:250px"
-                            data-ad-client="${config.AdSenseClientId}"
-                            data-ad-slot="${config.AdSenseSlotId}"
+                            data-ad-client="${escapeHtml(config.AdSenseClientId)}"
+                            data-ad-slot="${escapeHtml(config.AdSenseSlotId)}"
                             data-ad-format="auto"
                             data-full-width-responsive="true"></ins>
                     </div>

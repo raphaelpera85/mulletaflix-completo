@@ -3,14 +3,14 @@ import { expect, test } from '@playwright/test';
 import {
     getAdminCredentials,
     loginWithManualForm,
-    logoutViaDashboard,
+    logoutViaDashboard
 } from '../support/admin-user.mjs';
 import { ensureWizardCompleted } from '../support/wizard.mjs';
 import { fetchStagePublicInfo, navigateStage } from '../support/stage.mjs';
 import {
     ensureMediaLibrariesReady,
     getVirtualFolderByLibrary,
-    MOVIES_LIBRARY,
+    MOVIES_LIBRARY
 } from '../support/media-library.mjs';
 
 async function getTwoPlayableItems(page, folderId) {

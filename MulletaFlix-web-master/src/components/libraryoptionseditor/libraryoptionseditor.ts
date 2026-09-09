@@ -71,7 +71,7 @@ function populateLanguagesIntoSelect(select: HTMLSelectElement, languages: Cultu
     let html = '';
     html += "<option value=''></option>";
     for (const culture of languages) {
-        html += `<option value='${culture.Name}' data-culture-name='${culture.Name}'>${culture.DisplayName}</option>`;
+        html += `<option value='${escapeHtml(culture.Name || '')}' data-culture-name='${escapeHtml(culture.Name || '')}'>${escapeHtml(culture.DisplayName || '')}</option>`;
     }
     select.innerHTML = html;
 }
@@ -79,7 +79,7 @@ function populateLanguagesIntoSelect(select: HTMLSelectElement, languages: Cultu
 function populateLanguagesIntoList(element: HTMLElement, languages: CultureDto[]) {
     let html = '';
     for (const culture of languages) {
-        html += `<label><input type="checkbox" is="emby-checkbox" class="chkSubtitleLanguage" data-lang="${(culture.ThreeLetterISOLanguageName ?? '').toLowerCase()}" /><span>${culture.DisplayName}</span></label>`;
+        html += `<label><input type="checkbox" is="emby-checkbox" class="chkSubtitleLanguage" data-lang="${escapeHtml((culture.ThreeLetterISOLanguageName ?? '').toLowerCase())}" /><span>${escapeHtml(culture.DisplayName || '')}</span></label>`;
     }
     element.innerHTML = html;
 }
@@ -588,9 +588,9 @@ function showImageOptionsForType(type: string) {
             };
             (currentLibraryOptions!.TypeOptions ??= []).push(typeOptions);
         }
-        const availableOptions = currentAvailableOptions
-            ? getTypeOptions(currentAvailableOptions as unknown as EditorLibraryOptions, type)
-            : null;
+        const availableOptions = currentAvailableOptions ?
+            getTypeOptions(currentAvailableOptions as unknown as EditorLibraryOptions, type) :
+            null;
         const imageOptionsEditor = new ImageOptionsEditor();
         imageOptionsEditor.show(type, typeOptions as any, availableOptions as any);
     });
@@ -1012,6 +1012,3 @@ export default {
     getLibraryOptions,
     setLibraryOptions
 };
-
-
-

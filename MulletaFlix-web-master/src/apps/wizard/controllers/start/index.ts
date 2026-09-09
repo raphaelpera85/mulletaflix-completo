@@ -1,4 +1,5 @@
 import loading from 'components/loading/loading';
+import escapeHtml from 'escape-html';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import Dashboard from 'utils/dashboard';
 import dom from 'utils/dom';
@@ -36,8 +37,6 @@ interface WizardStartApiClient {
     }): Promise<void>;
 }
 
-declare const ApiClient: WizardStartApiClient;
-
 function loadPage(page: WizardStartPage, systemInfo: WizardStartSystemInfo, config: WizardStartConfiguration, languageOptions: WizardStartLanguageOption[]): void {
     const serverNameElem = page.querySelector<HTMLInputElement>('#txtServerName');
     if (serverNameElem) {
@@ -47,7 +46,7 @@ function loadPage(page: WizardStartPage, systemInfo: WizardStartSystemInfo, conf
     const languageElem = page.querySelector<HTMLSelectElement>('#selectLocalizationLanguage');
     if (languageElem) {
         languageElem.innerHTML = languageOptions.map(function (languageOption) {
-            return '<option value="' + languageOption.Value + '">' + languageOption.Name + '</option>';
+            return '<option value="' + escapeHtml(languageOption.Value) + '">' + escapeHtml(languageOption.Name) + '</option>';
         }).join('');
         languageElem.value = config.UICulture || '';
     }
@@ -59,7 +58,7 @@ function save(page: WizardStartPage): void {
     loading.show();
     const apiClient = ServerConnections.currentApiClient() as unknown as WizardStartApiClient;
 
-    apiClient.getJSON(apiClient.getUrl('Startup/Configuration')).then(function (config) {
+    void apiClient.getJSON(apiClient.getUrl('Startup/Configuration')).then(function (config) {
         const typedConfig = config as WizardStartConfiguration;
         const serverNameElem = page.querySelector<HTMLInputElement>('#txtServerName');
         const languageElem = page.querySelector<HTMLSelectElement>('#selectLocalizationLanguage');
@@ -67,14 +66,16 @@ function save(page: WizardStartPage): void {
         typedConfig.ServerName = serverNameElem?.value || 'Mulletaflix';
         typedConfig.UICulture = languageElem?.value || '';
 
-        apiClient.ajax({
+        return apiClient.ajax({
             type: 'POST',
             data: JSON.stringify(typedConfig),
             url: apiClient.getUrl('Startup/Configuration'),
             contentType: 'application/json'
-        }).then(function () {
-            Dashboard.navigate('wizard/user');
         });
+    }).then(function () {
+        void Dashboard.navigate('wizard/user');
+    }).catch(function () {
+        loading.hide();
     });
 }
 
@@ -92,12 +93,14 @@ export default function (view: WizardStartPage): void {
         loading.show();
         const apiClient = ServerConnections.currentApiClient() as unknown as WizardStartApiClient;
 
-        Promise.all([
+        void Promise.all([
             apiClient.getPublicSystemInfo(),
             apiClient.getJSON(apiClient.getUrl('Startup/Configuration')),
             apiClient.getJSON(apiClient.getUrl('Localization/Options'))
         ]).then(([ systemInfo, config, languageOptions ]) => {
             loadPage(view, systemInfo, config as WizardStartConfiguration, languageOptions as WizardStartLanguageOption[]);
+        }).catch(function () {
+            loading.hide();
         });
     });
 

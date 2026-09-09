@@ -2,19 +2,16 @@ import { Credentials } from 'jellyfin-apiclient';
 
 import { appHost } from 'components/apphost';
 import appSettings from 'scripts/settings/appSettings';
-import { setUserInfo } from 'scripts/settings/userSettings';
 import { detectBitrate } from 'utils/bitrateTest';
-import Dashboard from 'utils/dashboard';
+import { getClientCapabilities } from 'utils/clientCapabilities';
 import Events from 'utils/events';
 import { toApi } from 'utils/jellyfin-apiclient/compat';
 import { createApiClient } from 'utils/jellyfin-apiclient/createApiClient';
 
-import ConnectionManager from './connectionManager';
-import { ConnectOptions, ConnectResult, LocalUser } from './connectionManager';
-import { ConnectionState } from './connectionState';
+import ConnectionManager, { ConnectOptions, ConnectResult, LocalUser } from './connectionManager';
 
 const credentialProvider = new Credentials();
-const capabilities = Dashboard.capabilities(appHost);
+const capabilities = getClientCapabilities(appHost);
 
 interface ImageOptions {
     quality?: number;
@@ -48,11 +45,6 @@ const getMaxBandwidth = (): number | null => {
     return null;
 };
 
-interface ServerInfo {
-    Id?: string;
-    [key: string]: unknown;
-}
-
 interface ApiClient {
     serverAddress(): string;
     accessToken(): string;
@@ -77,7 +69,9 @@ class ServerConnections extends ConnectionManager {
         this.firstConnection = null as unknown as boolean;
 
         Events.on(this, 'localusersignedout', (_e: unknown, logoutInfo: unknown) => {
-            setUserInfo(undefined, undefined as unknown as never);
+            void import('scripts/settings/userSettings')
+                .then(({ setUserInfo }) => setUserInfo(undefined, undefined as unknown as never))
+                .catch((error: unknown) => console.warn('Unable to clear local user settings', error));
             // Ensure the updated credentials are persisted to storage
             const creds = this.credentialProvider();
             creds.credentials(creds.credentials());
@@ -99,7 +93,7 @@ class ServerConnections extends ConnectionManager {
                 if (!serverUrl) {
                     console.warn('Cannot subscribe: apiClient serverAddress is not set yet.');
                     return {
-                        close: () => {}
+                        close: () => undefined
                     };
                 }
                 if (!_sdkApi) {
@@ -208,13 +202,13 @@ class ServerConnections extends ConnectionManager {
         const apiClient = this.getApiClient(user.ServerId!);
         this.setLocalApiClient(apiClient as unknown as ApiClient);
         setTimeout(() => detectBitrate(toApi(apiClient as never), true), 6000);
-        return setUserInfo(user.Id, apiClient as never).then(() => {
+        return import('scripts/settings/userSettings').then(({ setUserInfo }) => setUserInfo(user.Id, apiClient as never)).then(() => {
             if (window.NativeShell && typeof window.NativeShell.onLocalUserSignedIn === 'function') {
                 return window.NativeShell.onLocalUserSignedIn(user, (apiClient as unknown as ApiClient).accessToken());
             }
             return Promise.resolve();
         });
-    }
+    };
 }
 
 export default new ServerConnections();

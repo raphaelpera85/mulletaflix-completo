@@ -134,6 +134,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
     private void EnqueueFile(string fullPath, ObjectId? nodeId = null, string? parentId = null)
     {
         if (string.IsNullOrWhiteSpace(fullPath) ||
+            string.Equals(Path.GetFileName(fullPath), NebulaMetadataExportService.PendingMarkerFileName, StringComparison.OrdinalIgnoreCase) ||
             fullPath.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ||
             fullPath.EndsWith(".download", StringComparison.OrdinalIgnoreCase) ||
             fullPath.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) ||
@@ -154,6 +155,16 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 NodeId = nodeId
             });
         }
+    }
+
+    private static bool IsMetadataSidecar(string path)
+        => NebulaMetadataExportService.IsMetadataSidecarPath(path);
+
+    private static bool HasPendingMetadataMarker(string path)
+    {
+        var directory = Path.GetDirectoryName(path);
+        return !string.IsNullOrWhiteSpace(directory)
+            && File.Exists(Path.Combine(directory, NebulaMetadataExportService.PendingMarkerFileName));
     }
 
     private async Task RunMasterLoopAsync(int workerCount, CancellationToken cancellationToken)
@@ -284,6 +295,13 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             {
                 try
                 {
+                    if (IsMetadataSidecar(item.FilePath) && HasPendingMetadataMarker(item.FilePath))
+                    {
+                        _pendingFiles.Enqueue(item);
+                        await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+
                     if (File.Exists(item.FilePath) && await IsFileReadyAsync(item.FilePath, cancellationToken).ConfigureAwait(false))
                     {
                         var parentId = item.ParentId;
@@ -403,7 +421,9 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             var normalizedRoot = Path.GetFullPath(root).TrimEnd('\\', '/');
             var normalizedDir = Path.GetFullPath(fileDir).TrimEnd('\\', '/');
 
-            if (normalizedDir.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(normalizedDir, normalizedRoot, StringComparison.OrdinalIgnoreCase)
+                || normalizedDir.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || normalizedDir.StartsWith(normalizedRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             {
                 var rel = normalizedDir[normalizedRoot.Length..].TrimStart('\\', '/').Replace('\\', '/');
                 var parts = rel.Split('/', StringSplitOptions.RemoveEmptyEntries);

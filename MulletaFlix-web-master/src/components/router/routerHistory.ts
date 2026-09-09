@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type { Router, RouterState } from '@remix-run/router';
+import type { createHashRouter } from 'react-router-dom';
 import type { History, Listener, To } from 'history';
 
 import Events, { type Event } from 'utils/events';
 
 const HISTORY_UPDATE_EVENT = 'HISTORY_UPDATE';
+type Router = ReturnType<typeof createHashRouter>;
+type RouterState = Router['state'];
 
 export class RouterHistory implements History {
     _router: Router;
@@ -13,7 +15,7 @@ export class RouterHistory implements History {
     constructor(router: Router) {
         this._router = router;
 
-        this._router.subscribe(state => {
+        this._router.subscribe((state: RouterState) => {
             console.debug('[RouterHistory] history update', state);
             Events.trigger(document, HISTORY_UPDATE_EVENT, [ state ]);
         });

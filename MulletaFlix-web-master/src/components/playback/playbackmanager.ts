@@ -776,10 +776,10 @@ function validatePlaybackInfoResult(instance, result) {
 }
 
 function showPlaybackInfoErrorMessage(instance, errorCode) {
-    alert({
+    void alert({
         text: globalize.translate(errorCode),
         title: globalize.translate('HeaderPlaybackError')
-    });
+    }).catch((error: unknown) => console.error('Failed to show playback error', error));
 }
 
 function normalizePlayOptions(playOptions) {
@@ -1291,7 +1291,7 @@ export class PlaybackManager {
                 if (!brightnessOsdLoaded) {
                     brightnessOsdLoaded = true;
                     // TODO: Have this trigger an event instead to get the osd out of here
-                    import('./brightnessosd').then();
+                    void import('./brightnessosd').catch((error: unknown) => console.error('Failed to load brightness OSD', error));
                 }
                 player.setBrightness(val);
             }
@@ -1474,7 +1474,7 @@ export class PlaybackManager {
                 getPlayerData(player).audioStreamIndex = index;
             } else {
                 // See if the player supports the track without transcoding
-                player.getDeviceProfile(self.currentItem(player)).then(function (profile: any) {
+                void player.getDeviceProfile(self.currentItem(player)).then(function (profile: any) {
                     if (isAudioStreamSupported(self.currentMediaSource(player), index, profile)) {
                         player.setAudioStreamIndex(index);
                         getPlayerData(player).audioStreamIndex = index;
@@ -1482,7 +1482,7 @@ export class PlaybackManager {
                         changeStream(player, getCurrentTicks(player), { AudioStreamIndex: index });
                         getPlayerData(player).audioStreamIndex = index;
                     }
-                });
+                }).catch((error: unknown) => console.error('Failed to change audio stream', error));
             }
         };
 
@@ -1553,13 +1553,13 @@ export class PlaybackManager {
                     promise = Promise.resolve(options.maxBitrate);
                 }
 
-                promise.then(function (bitrate: any) {
+                void promise.then(function (bitrate: any) {
                     appSettings.maxStreamingBitrate(endpointInfo.IsInNetwork, mediaType, bitrate);
 
                     changeStream(player, getCurrentTicks(player), {
                         MaxStreamingBitrate: bitrate
                     });
-                });
+                }).catch((error: unknown) => console.error('Failed to apply streaming bitrate', error));
             });
         };
 
@@ -1584,7 +1584,7 @@ export class PlaybackManager {
             }
 
             if (Screenfull.isEnabled) {
-                Screenfull.toggle();
+                void Screenfull.toggle().catch((error: unknown) => console.error('Failed to toggle fullscreen', error));
             } else if (document.webkitIsFullScreen && document.webkitCancelFullscreen) {
                 // iOS Safari
                 document.webkitCancelFullscreen();
@@ -1878,7 +1878,7 @@ export class PlaybackManager {
                     allowAudioStreamCopy: params.AllowAudioStreamCopy
                 };
 
-                getPlaybackInfo(player, apiClient, currentItem, deviceProfile, currentMediaSource.Id, liveStreamId, options).then(function (result: any) {
+                void getPlaybackInfo(player, apiClient, currentItem, deviceProfile, currentMediaSource.Id, liveStreamId, options).then(function (result: any) {
                     if (validatePlaybackInfoResult(self, result)) {
                         currentMediaSource = result.MediaSources[0];
 
@@ -1900,7 +1900,7 @@ export class PlaybackManager {
 
                         changeStreamToUrl(apiClient, player, playSessionId, streamInfo);
                     }
-                });
+                }).catch((error: unknown) => console.error('Failed to get playback info', error));
             });
         }
 
@@ -3192,9 +3192,9 @@ export class PlaybackManager {
             if (newItem.Item) {
                 const newItemPlayOptions = newItem.Item.playOptions || getDefaultPlayOptions();
 
-                playInternal(newItem.Item, newItemPlayOptions, function () {
+                void playInternal(newItem.Item, newItemPlayOptions, function () {
                     setPlaylistState(newItem.Item.PlaylistItemId, newItem.Index);
-                });
+                }).catch((error: unknown) => console.error('Failed to play playlist item', error));
             }
         };
 
@@ -3301,9 +3301,9 @@ export class PlaybackManager {
 
                 const newItemPlayOptions = newItemInfo.item.playOptions || getDefaultPlayOptions();
 
-                playInternal(newItemInfo.item, newItemPlayOptions, function () {
+                void playInternal(newItemInfo.item, newItemPlayOptions, function () {
                     setPlaylistState(newItemInfo.item.PlaylistItemId, newItemInfo.index);
-                }, getPreviousSource(player));
+                }, getPreviousSource(player)).catch((error: unknown) => console.error('Failed to play next track', error));
             }
         };
 
@@ -3322,9 +3322,9 @@ export class PlaybackManager {
                     const newItemPlayOptions = newItem.playOptions || getDefaultPlayOptions();
                     newItemPlayOptions.startPositionTicks = 0;
 
-                    playInternal(newItem, newItemPlayOptions, function () {
+                    void playInternal(newItem, newItemPlayOptions, function () {
                         setPlaylistState(newItem.PlaylistItemId, newIndex);
-                    }, getPreviousSource(player));
+                    }, getPreviousSource(player)).catch((error: unknown) => console.error('Failed to play previous track', error));
                 }
             }
         };
@@ -3388,15 +3388,15 @@ export class PlaybackManager {
             if (queueDirectToPlayer) {
                 const apiClient = ServerConnections.getApiClient(items[0].ServerId);
 
-                player.getDeviceProfile(items[0]).then(function (profile: any) {
-                    setStreamUrls(items, profile, self.getMaxStreamingBitrate(player), apiClient, 0).then(function () {
+                void player.getDeviceProfile(items[0]).then(function (profile: any) {
+                    return setStreamUrls(items, profile, self.getMaxStreamingBitrate(player), apiClient, 0).then(function () {
                         if (mode === 'next') {
                             player.queueNext(items);
                         } else {
                             player.queue(items);
                         }
                     });
-                });
+                }).catch((error: unknown) => console.error('Failed to queue media on player', error));
 
                 return;
             }
@@ -3663,7 +3663,7 @@ export class PlaybackManager {
             } else if (newPlayer) {
                 const apiClient = ServerConnections.getApiClient(nextItem.item.ServerId);
 
-                apiClient.getCurrentUser().then(function (user: any) {
+                void apiClient.getCurrentUser().then(function (user: any) {
                     if (user.Configuration.EnableNextEpisodeAutoPlay || nextMediaType !== MediaType.Video) {
                         self.nextTrack();
 
@@ -3676,7 +3676,7 @@ export class PlaybackManager {
                             }]);
                         }
                     }
-                });
+                }).catch((error: unknown) => console.error('Failed to load user for next episode', error));
             }
         }
 
@@ -4498,4 +4498,3 @@ window.addEventListener('beforeunload', function () {
         console.error('error in onAppClose: ' + err);
     }
 });
-
