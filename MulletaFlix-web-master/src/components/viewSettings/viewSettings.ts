@@ -48,11 +48,13 @@ function saveValues(context: HTMLElement, settings: Record<string, unknown>, set
 }
 
 function centerFocus(elem: HTMLElement | null, horiz: boolean, on: boolean): void {
-    import('../../scripts/scrollHelper').then((scrollHelper) => {
+    void import('../../scripts/scrollHelper').then((scrollHelper) => {
         const fn = on ? 'on' : 'off';
         if (elem) {
             scrollHelper.centerFocus[fn](elem, horiz);
         }
+    }).catch((error: unknown) => {
+        console.error('[ViewSettings] failed to load scroll helper', error);
     });
 }
 
@@ -133,7 +135,7 @@ class ViewSettings {
                 submitted = true;
             }, true);
 
-            dialogHelper.open(dlg).then(function () {
+            void dialogHelper.open(dlg).then(function () {
                 if (layoutManager.tv) {
                     centerFocus(dlg.querySelector('.formDialogContent') as HTMLElement, false, false);
                 }
@@ -144,6 +146,9 @@ class ViewSettings {
                 }
 
                 return resolve();
+            }).catch((error: unknown) => {
+                console.error('[ViewSettings] failed to open dialog', error);
+                resolve();
             });
         });
     }

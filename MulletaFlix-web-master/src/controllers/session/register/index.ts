@@ -45,7 +45,7 @@ function registerUser(apiClient: ApiClient, email: string, password: string): Pr
                 throw data;
             });
         }
-        throw { Message: globalize.translate('MessageRegisterError') };
+        throw new Error(globalize.translate('MessageRegisterError'));
     });
 }
 
@@ -107,9 +107,11 @@ export default function (apiClient: ApiClient | null): void {
 
     dlg.style.minWidth = `${Math.min(400, dom.getWindowSize().innerWidth - 50)}px`;
 
-    dialogHelper.open(dlg).then(function () {
+    void dialogHelper.open(dlg).then(function () {
         if (layoutManager.tv) {
             scrollHelper.centerFocus.off(dlg.querySelector('.formDialogContent')!, false);
         }
+    }).catch((error: unknown) => {
+        console.error('[Register] failed to open registration dialog', error);
     });
 }

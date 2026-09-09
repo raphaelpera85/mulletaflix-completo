@@ -20,6 +20,10 @@ interface RefreshDialogOptions {
     mode?: string;
 }
 
+interface RefreshApiClient {
+    refreshItem: (itemId: string, options: Record<string, unknown>) => Promise<unknown>;
+}
+
 function getEditorHtml(): string {
     let html = '';
 
@@ -64,20 +68,21 @@ function getEditorHtml(): string {
 }
 
 function centerFocus(elem: Element | null, horiz: boolean, on: boolean): void {
-    import('../../scripts/scrollHelper').then((scrollHelper) => {
-        const fn = on ? 'on' : 'off';
-        (scrollHelper.centerFocus as any)[fn](elem, horiz);
-    });
+    if (!elem) return;
+
+    void import('../../scripts/scrollHelper').then((scrollHelper) => {
+        const focus = on ? scrollHelper.centerFocus.on : scrollHelper.centerFocus.off;
+        focus(elem, horiz);
+    }).catch((error: unknown) => console.error('[RefreshDialog] failed to center focus', error));
 }
 
 function onSubmit(this: RefreshDialog, e: Event): void {
     loading.show();
 
-    const instance = this;
     const dlg = dom.parentWithClass(e.target as HTMLElement, 'dialog')!;
-    const options = instance.options;
+    const options = this.options;
 
-    const apiClient = ServerConnections.getApiClient(options.serverId!) as any;
+    const apiClient = ServerConnections.getApiClient(options.serverId!) as unknown as RefreshApiClient;
 
     const replaceAllMetadata = (dlg.querySelector('#selectMetadataRefreshMode') as HTMLSelectElement).value === 'all';
 
@@ -85,8 +90,8 @@ function onSubmit(this: RefreshDialog, e: Event): void {
     const replaceAllImages = mode === 'FullRefresh' && (dlg.querySelector('.chkReplaceImages') as HTMLInputElement).checked;
     const replaceTrickplayImages = mode === 'FullRefresh' && (dlg.querySelector('.chkReplaceTrickplayImages') as HTMLInputElement).checked;
 
-    options.itemIds.forEach(function (itemId: string) {
-        apiClient.refreshItem(itemId, {
+    const refreshTasks = options.itemIds.map(function (itemId: string) {
+        return apiClient.refreshItem(itemId, {
             Recursive: true,
             ImageRefreshMode: mode,
             MetadataRefreshMode: mode,
@@ -94,6 +99,12 @@ function onSubmit(this: RefreshDialog, e: Event): void {
             RegenerateTrickplay: replaceTrickplayImages,
             ReplaceAllMetadata: replaceAllMetadata
         });
+    });
+    void Promise.allSettled(refreshTasks).then((results) => {
+        const failures = results.filter((result) => result.status === 'rejected');
+        if (failures.length > 0) {
+            console.error(`[RefreshDialog] failed to refresh ${failures.length} item(s)`, failures);
+        }
     });
 
     dialogHelper.close(dlg);
@@ -103,7 +114,6 @@ function onSubmit(this: RefreshDialog, e: Event): void {
     loading.hide();
 
     e.preventDefault();
-    return undefined as unknown as void;
 }
 
 class RefreshDialog {
@@ -114,7 +124,7 @@ class RefreshDialog {
     }
 
     show(): Promise<void> {
-        const dialogOptions: Record<string, any> = {
+        const dialogOptions: Record<string, unknown> = {
             removeOnClose: true,
             scrollY: false
         };
@@ -177,7 +187,9 @@ class RefreshDialog {
             }
 
             dlg.addEventListener('close', resolve);
-            dialogHelper.open(dlg);
+            void dialogHelper.open(dlg).catch((error: unknown) => {
+                console.error('[RefreshDialog] failed to open dialog', error);
+            });
         });
     }
 }

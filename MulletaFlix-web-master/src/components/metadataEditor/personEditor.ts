@@ -17,15 +17,17 @@ interface Person {
 }
 
 function centerFocus(elem: Element | null, horiz: boolean, on: boolean): void {
-    import('../../scripts/scrollHelper').then((scrollHelper) => {
-        const fn = on ? 'on' : 'off';
-        (scrollHelper as any).centerFocus[fn](elem, horiz);
-    });
+    if (!elem) return;
+
+    void import('../../scripts/scrollHelper').then((scrollHelper) => {
+        const focus = on ? scrollHelper.centerFocus.on : scrollHelper.centerFocus.off;
+        focus(elem, horiz);
+    }).catch((error: unknown) => console.error('[PersonEditor] failed to center focus', error));
 }
 
 function show(person: Person): Promise<Person> {
     return new Promise(function (resolve, reject) {
-        const dialogOptions: any = {
+        const dialogOptions: Record<string, unknown> = {
             removeOnClose: true,
             scrollY: false
         };
@@ -55,7 +57,9 @@ function show(person: Person): Promise<Person> {
             centerFocus(dlg.querySelector('.formDialogContent') as HTMLElement, false, true);
         }
 
-        dialogHelper.open(dlg);
+        void dialogHelper.open(dlg).catch((error: unknown) => {
+            console.error('[PersonEditor] failed to open dialog', error);
+        });
 
         dlg.addEventListener('close', function () {
             if (layoutManager.tv) {
@@ -82,7 +86,7 @@ function show(person: Person): Promise<Person> {
         (dlg.querySelector('.selectPersonType') as HTMLSelectElement).addEventListener('change', function (this: HTMLSelectElement) {
             dlg.querySelector('.fldRole')?.classList.toggle(
                 'hide',
-                ![ PersonKind.Actor, PersonKind.GuestStar ].includes(this.value as any));
+                !([ PersonKind.Actor, PersonKind.GuestStar ] as string[]).includes(this.value));
         });
 
         dlg.querySelector('.btnCancel')?.addEventListener('click', function () {

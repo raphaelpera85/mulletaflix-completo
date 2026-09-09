@@ -53,8 +53,8 @@ export default function (view: UserControlsView): void {
         form?.addEventListener('submit', submit);
         saveButton?.classList.remove('hide');
 
-        import('../../../components/autoFocuser').then(({ default: autoFocuser }) => {
+        void import('../../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(view);
-        });
+        }).catch((error: unknown) => console.error('[UserControls] failed to focus settings view', error));
     });
 }

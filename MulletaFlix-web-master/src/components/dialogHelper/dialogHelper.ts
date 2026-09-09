@@ -84,10 +84,6 @@ function isHistoryEnabled(dlg: DialogElement): boolean {
     return dlg.getAttribute('data-history') === 'true';
 }
 
-function isOpened(dlg: DialogElement): boolean {
-    return !dlg.classList.contains('hide');
-}
-
 function removeBackdrop(dlg: DialogElement): void {
     const backdrop = dlg.backdrop;
 
@@ -111,10 +107,10 @@ function removeBackdrop(dlg: DialogElement): void {
 }
 
 function centerFocus(elem: DialogElement, horiz: boolean, on: boolean): void {
-    import('../../scripts/scrollHelper').then((scrollHelper) => {
+    void import('../../scripts/scrollHelper').then((scrollHelper) => {
         const fn = on ? 'on' : 'off';
         scrollHelper.centerFocus[fn](elem, horiz);
-    });
+    }).catch((error: unknown) => console.error('[DialogHelper] failed to center focus', error));
 }
 
 function getAnimationEndHandler(dlg: DialogElement, callback: () => void): EventListener {
@@ -210,7 +206,7 @@ function addBackdropOverlay(dlg: DialogElement): void {
     backdropParent.parentNode?.insertBefore(backdrop, backdropParent);
     dlg.backdrop = backdrop;
 
-    void backdrop.offsetWidth;
+    backdrop.getBoundingClientRect();
     backdrop.classList.add('dialogBackdropOpened');
 
     let clickedElement: EventTarget | null = null;
@@ -220,7 +216,8 @@ function addBackdropOverlay(dlg: DialogElement): void {
     });
 
     dom.addEventListener((dlg.dialogContainer || backdrop), 'click', e => {
-        if (e.target === dlg.dialogContainer && e.target == clickedElement) {
+        const dialogContainer = dlg.dialogContainer as EventTarget | null;
+        if (e.target === dialogContainer && e.target === clickedElement) {
             close(dlg);
         }
     }, {
@@ -228,7 +225,8 @@ function addBackdropOverlay(dlg: DialogElement): void {
     });
 
     dom.addEventListener((dlg.dialogContainer || backdrop), 'contextmenu', e => {
-        if (e.target === dlg.dialogContainer) {
+        const dialogContainer = dlg.dialogContainer as EventTarget | null;
+        if (e.target === dialogContainer) {
             close(dlg);
             e.preventDefault();
         }
@@ -373,7 +371,7 @@ export function open(dlg: HTMLElement): Promise<{ element: DialogElement }> {
                 }
             );
 
-            unlistenRef.current = history.listen(() => {});
+            unlistenRef.current = history.listen(() => undefined);
         } else {
             inputManager.on(dialog, onBackCommand);
         }

@@ -53,10 +53,10 @@ function initEditor(context: HTMLElement, settings: SortSettings): void {
 }
 
 function centerFocus(elem: HTMLElement, horiz: boolean, on: boolean): void {
-    import('../../scripts/scrollHelper').then((scrollHelper) => {
+    void import('../../scripts/scrollHelper').then((scrollHelper) => {
         const fn = on ? 'on' : 'off';
         scrollHelper.centerFocus[fn](elem, horiz);
-    });
+    }).catch((error: unknown) => console.error('[SortMenu] failed to center focus', error));
 }
 
 function fillSortBy(context: HTMLElement, options: SortOption[]): void {
@@ -128,7 +128,7 @@ class SortMenu {
                 }, true);
             }
 
-            dialogHelper.open(dlg).then(() => {
+            void dialogHelper.open(dlg).then(() => {
                 if (layoutManager.tv) {
                     const content = dlg.querySelector<HTMLElement>('.formDialogContent');
                     if (content) {
@@ -143,6 +143,9 @@ class SortMenu {
                 }
 
                 reject();
+            }).catch((error: unknown) => {
+                console.error('[SortMenu] failed to open dialog', error);
+                reject(error);
             });
         });
     }

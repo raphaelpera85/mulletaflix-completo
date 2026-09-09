@@ -142,7 +142,7 @@ class PlaybackCore {
      */
     onReady(): void {
         this.playerIsBuffering = false;
-        this.sendBufferingRequest(false);
+        void this.sendBufferingRequest(false).catch((error: unknown) => console.error('SyncPlay failed to send ready buffering state', error));
         Events.trigger(this.manager, 'ready');
     }
 
@@ -151,7 +151,7 @@ class PlaybackCore {
      */
     onBuffering(): void {
         this.playerIsBuffering = true;
-        this.sendBufferingRequest(true);
+        void this.sendBufferingRequest(true).catch((error: unknown) => console.error('SyncPlay failed to send buffering state', error));
         Events.trigger(this.manager, 'buffering');
     }
 
@@ -244,7 +244,7 @@ class PlaybackCore {
                         this.scheduleSeek(command.When, command.PositionTicks + randomOffsetTicks);
                         console.debug('SyncPlay applyCommand: adding random offset to force seek:', randomOffsetTicks, command);
                     } else {
-                        this.sendBufferingRequest(false);
+                        void this.sendBufferingRequest(false).catch((error: unknown) => console.error('SyncPlay failed to clear buffering state', error));
                     }
                     break;
                 default:
@@ -315,9 +315,9 @@ class PlaybackCore {
             console.debug('Scheduled unpause in', playTimeout / 1000.0, 'seconds.');
         } else {
             const serverPositionTicks = this.estimateCurrentTicks(positionTicks, playAtTime);
-            Helper.waitForEventOnce(this.manager, 'unpause').then(() => {
+            void Helper.waitForEventOnce(this.manager, 'unpause').then(() => {
                 this.localSeek(serverPositionTicks);
-            });
+            }).catch((error: unknown) => console.error('SyncPlay did not receive unpause event', error));
             this.localUnpause();
             setTimeout(() => {
                 Events.trigger(this.manager, 'notify-osd', ['unpause']);
@@ -401,7 +401,7 @@ class PlaybackCore {
 
             Helper.waitForEventOnce(this.manager, 'ready', Helper.WaitForEventDefaultTimeout).then(() => {
                 this.localPause();
-                this.sendBufferingRequest(false);
+                void this.sendBufferingRequest(false).catch((error: unknown) => console.error('SyncPlay failed to clear seek buffering state', error));
             }).catch((error: any) => {
                 console.error(`Timed out while waiting for 'ready' event! Seeking to ${positionTicks}.`, error);
                 this.localSeek(positionTicks);

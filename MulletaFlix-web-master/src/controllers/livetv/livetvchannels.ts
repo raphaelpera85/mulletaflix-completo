@@ -99,9 +99,9 @@ export default function (
             if (userSettings.libraryPageSize() > 0) {
                 query.StartIndex += query.Limit!;
             }
-            reloadItems(context).then(() => {
+            void reloadItems(context).then(() => {
                 window.scrollTo(0, 0);
-            });
+            }).catch((error: unknown) => console.error('Failed to load next TV channel page', error));
         }
 
         function onPreviousPageClick(): void {
@@ -112,9 +112,9 @@ export default function (
             if (userSettings.libraryPageSize() > 0) {
                 query.StartIndex = Math.max(0, query.StartIndex - query.Limit!);
             }
-            reloadItems(context).then(() => {
+            void reloadItems(context).then(() => {
                 window.scrollTo(0, 0);
-            });
+            }).catch((error: unknown) => console.error('Failed to load previous TV channel page', error));
         }
 
         for (const elem of context.querySelectorAll<HTMLElement>('.paging')) {
@@ -145,17 +145,17 @@ export default function (
     }
 
     function showFilterMenu(context: HTMLElement): void {
-        import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
+        void import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
                 query: getQuery(),
                 mode: 'livetvchannels',
                 serverId: ApiClient.serverId()
             });
             Events.on(filterDialog, 'filterchange', function () {
-                reloadItems(context);
+                void reloadItems(context).catch((error: unknown) => console.error('Failed to apply TV channel filter', error));
             });
             filterDialog.show();
-        });
+        }).catch((error: unknown) => console.error('Failed to open TV channel filter', error));
     }
 
     function reloadItems(context: HTMLElement): Promise<void> {
@@ -171,9 +171,13 @@ export default function (
             loading.hide();
             isLoading = false;
 
-            import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+            void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(context);
-            });
+            }).catch((error: unknown) => console.error('Failed to focus TV channels', error));
+        }).catch((error: unknown) => {
+            loading.hide();
+            isLoading = false;
+            console.error('Failed to load TV channels', error);
         });
     }
 
@@ -183,6 +187,6 @@ export default function (
     });
 
     self.renderTab = function (): void {
-        reloadItems(tabContent);
+        void reloadItems(tabContent).catch((error: unknown) => console.error('Failed to render TV channels tab', error));
     };
 }

@@ -247,8 +247,10 @@ export default function (this: any, options: SlideshowOptions): void {
 
         setUserScalable(true);
 
-        dialogHelper.open(dialog).then(function () {
+        void dialogHelper.open(dialog).then(function () {
             setUserScalable(false);
+        }).catch((error: unknown) => {
+            console.error('[Slideshow] failed to open dialog', error);
         });
 
         inputManager.on(window, onInputCommand);
@@ -321,10 +323,12 @@ export default function (this: any, options: SlideshowOptions): void {
         }
 
         // @ts-ignore
-        import('swiper/css/bundle');
+        void import('swiper/css/bundle').catch((error: unknown) => {
+            console.error('[Slideshow] failed to load Swiper styles', error);
+        });
 
         // @ts-ignore
-        import('swiper/bundle').then(({ Swiper }) => {
+        void import('swiper/bundle').then(({ Swiper }) => {
             swiperInstance = new Swiper(dialogElement.querySelector('.slideshowSwiperContainer') as HTMLElement, {
                 direction: 'horizontal',
                 loop: false,
@@ -362,6 +366,8 @@ export default function (this: any, options: SlideshowOptions): void {
             }
 
             if (swiperInstance.autoplay?.running) onAutoplayStart();
+        }).catch((error: unknown) => {
+            console.error('[Slideshow] failed to load Swiper', error);
         });
     }
 
@@ -431,27 +437,40 @@ export default function (this: any, options: SlideshowOptions): void {
 
     function download(): void {
         const imageInfo = getCurrentImageInfo();
+        if (!imageInfo) return;
 
-        import('../../scripts/fileDownloader').then((fileDownloader) => {
+        void import('../../scripts/fileDownloader').then((fileDownloader) => {
             fileDownloader.download([imageInfo as any]);
+        }).catch((error: unknown) => {
+            console.error('[Slideshow] failed to download image', error);
         });
     }
 
     function share(): void {
         const imageInfo = getCurrentImageInfo()!;
 
-        navigator.share({
+        void navigator.share({
             url: imageInfo.shareUrl!
+        }).catch((error: unknown) => {
+            console.error('[Slideshow] failed to share image', error);
         });
     }
 
     function fullscreen(): void {
-        if (!screenfull.isFullscreen) screenfull.request();
+        if (!screenfull.isFullscreen) {
+            void screenfull.request().catch((error: unknown) => {
+                console.error('[Slideshow] failed to enter fullscreen', error);
+            });
+        }
         toggleFullscreenButtons(true);
     }
 
     function fullscreenExit(): void {
-        if (screenfull.isFullscreen) screenfull.exit();
+        if (screenfull.isFullscreen) {
+            void screenfull.exit().catch((error: unknown) => {
+                console.error('[Slideshow] failed to exit fullscreen', error);
+            });
+        }
         toggleFullscreenButtons(false);
     }
 
