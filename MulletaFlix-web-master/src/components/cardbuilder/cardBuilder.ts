@@ -1163,7 +1163,7 @@ function updateUserData(card: any, userData: any) {
             indicatorsElem = ensureIndicators(card, indicatorsElem);
             indicatorsElem.appendChild(countIndicator);
         }
-        countIndicator.innerHTML = userData.UnplayedItemCount;
+        countIndicator.textContent = String(userData.UnplayedItemCount);
     } else if (enableCountIndicator) {
         countIndicator = card.querySelector('.countIndicator');
         if (countIndicator) {

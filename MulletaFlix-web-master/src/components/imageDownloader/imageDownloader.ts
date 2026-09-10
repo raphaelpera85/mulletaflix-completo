@@ -5,6 +5,7 @@ import dom from '../../utils/dom';
 import loading from '../loading/loading';
 import { appHost } from '../apphost';
 import dialogHelper from '../dialogHelper/dialogHelper';
+import toast from '../toast/toast';
 import imageLoader from '../images/imageLoader';
 import browser from '../../scripts/browser';
 import layoutManager from '../layoutManager';
@@ -88,6 +89,10 @@ function reloadBrowsableImages(page: HTMLElement, apiClient: any): void {
         selectImageProvider.value = provider;
 
         loading.hide();
+    }).catch((error: unknown) => {
+        loading.hide();
+        console.error('Failed to load remote images', error);
+        toast(globalize.translate('ErrorDefault'));
     });
 }
 
@@ -153,10 +158,16 @@ function getPagingHtml(startIndex: number, limit: number, totalRecordCount: numb
 }
 
 function downloadRemoteImage(page: HTMLElement, apiClient: any, url: string, type: string, provider: string): void {
+    const safeUrl = getSafeHttpUrl(url);
+    if (!safeUrl || !type || !provider) {
+        toast(globalize.translate('ErrorDefault'));
+        return;
+    }
+
     const options = getBaseRemoteOptions(page, true);
 
     options.Type = type;
-    options.ImageUrl = url;
+    options.ImageUrl = safeUrl;
     options.ProviderName = provider;
 
     loading.show();
@@ -165,6 +176,10 @@ function downloadRemoteImage(page: HTMLElement, apiClient: any, url: string, typ
         hasChanges = true;
         const dlg = dom.parentWithClass(page, 'dialog') as HTMLElement;
         dialogHelper.close(dlg);
+    }).catch((error: unknown) => {
+        loading.hide();
+        console.error('Failed to download remote image', error);
+        toast(globalize.translate('ErrorDefault'));
     });
 }
 
@@ -252,7 +267,7 @@ function getRemoteImageFooterHtml(image: RemoteImage, enableFooterButtons: boole
 
     if (enableFooterButtons) {
         footer += '<div class="cardText cardTextCentered">'
-            + `<button is="paper-icon-button-light" class="btnDownloadRemoteImage autoSize" raised" title="${globalize.translate('Download')}"><span class="material-icons cloud_download" aria-hidden="true"></span></button>`
+            + `<button is="paper-icon-button-light" class="btnDownloadRemoteImage autoSize" raised" title="${escapeHtml(globalize.translate('Download'))}"><span class="material-icons cloud_download" aria-hidden="true"></span></button>`
             + '</div>';
     }
 
@@ -263,6 +278,9 @@ function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
     const tagName = layoutManager.tv ? 'button' : 'div';
     const shape = getRemoteImageShape(imageType);
     const safeImageUrl = getSafeHttpUrl(image.Url);
+    if (!safeImageUrl) {
+        return '';
+    }
     let cssClass = 'card scalableCard imageEditorCard ' + shape + 'Card ' + shape + 'Card-scalable';
 
     if (tagName === 'button') {

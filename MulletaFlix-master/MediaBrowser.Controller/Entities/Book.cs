@@ -90,7 +90,7 @@ namespace MediaBrowser.Controller.Entities
             return info;
         }
 
-        public IReadOnlyList<MediaSourceInfo> GetMediaSources(bool enablePathSubstitution)
+        public override IReadOnlyList<MediaSourceInfo> GetMediaSources(bool enablePathSubstitution)
         {
             return
             [
@@ -115,10 +115,9 @@ namespace MediaBrowser.Controller.Entities
             ];
         }
 
-        public IReadOnlyList<MediaStream> GetMediaStreams()
+        public override IReadOnlyList<MediaStream> GetMediaStreams()
         {
             return [];
         }
     }
 }
-

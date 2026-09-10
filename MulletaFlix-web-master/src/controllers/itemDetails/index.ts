@@ -295,7 +295,7 @@ function setupTrackSelections(view: HTMLElement, item: any): void {
             selectAudio.innerHTML = audioStreams.map((s: any) => {
                 const label = s.DisplayTitle || s.Title || s.Language || `Audio (${s.Codec || ''})`;
                 const selected = s.Index === currentSource.DefaultAudioStreamIndex ? 'selected' : '';
-                return `<option value="${s.Index}" ${selected}>${escapeHtml(label)}</option>`;
+                return `<option value="${escapeHtml(String(s.Index ?? ''))}" ${selected}>${escapeHtml(label)}</option>`;
             }).join('');
         } else {
             selectAudioContainer.classList.add('hide');
@@ -310,7 +310,7 @@ function setupTrackSelections(view: HTMLElement, item: any): void {
             subHtml += subStreams.map((s: any) => {
                 const label = s.DisplayTitle || s.Title || s.Language || `Subtitle (${s.Codec || ''})`;
                 const selected = s.Index === currentSource.DefaultSubtitleStreamIndex ? 'selected' : '';
-                return `<option value="${s.Index}" ${selected}>${escapeHtml(label)}</option>`;
+                return `<option value="${escapeHtml(String(s.Index ?? ''))}" ${selected}>${escapeHtml(label)}</option>`;
             }).join('');
             selectSubtitles.innerHTML = subHtml;
         } else {

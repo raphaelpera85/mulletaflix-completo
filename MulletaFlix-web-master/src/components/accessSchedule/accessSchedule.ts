@@ -16,7 +16,6 @@ interface AccessScheduleOptions {
         DayOfWeek?: string;
         StartHour?: number;
         EndHour?: number;
-        [key: string]: any;
     };
 }
 

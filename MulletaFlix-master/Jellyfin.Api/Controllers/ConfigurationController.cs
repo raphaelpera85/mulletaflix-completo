@@ -33,8 +33,9 @@ public class ConfigurationController : BaseMulletaFlixApiController
     /// <summary>
     /// Initializes a new instance of the <see cref="ConfigurationController"/> class.
     /// </summary>
-    /// <param name="configurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
-    /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
+        /// <param name="configurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
+        /// <param name="localizationManager">Instance of the <see cref="ILocalizationManager"/> interface.</param>
+        /// <param name="mediaEncoder">Instance of the <see cref="IMediaEncoder"/> interface.</param>
     public ConfigurationController(
         IServerConfigurationManager configurationManager,
         ILocalizationManager localizationManager,

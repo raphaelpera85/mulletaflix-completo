@@ -183,7 +183,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             html = getDisplayTimeWithoutAmPm(parsedDate);
         }
 
-        elem.innerHTML = html || '';
+        elem.textContent = html || '';
     }
 
     function shouldEnableProgressByTimeOfDay(item: ItemDto) {

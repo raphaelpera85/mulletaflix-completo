@@ -26,9 +26,10 @@ public sealed class DeviceAccessHost : IHostedService
     /// <summary>
     /// Initializes a new instance of the <see cref="DeviceAccessHost"/> class.
     /// </summary>
-    /// <param name="userManager">The <see cref="IUserManager"/>.</param>
-    /// <param name="deviceManager">The <see cref="IDeviceManager"/>.</param>
-    /// <param name="sessionManager">The <see cref="ISessionManager"/>.</param>
+        /// <param name="userManager">The <see cref="IUserManager"/>.</param>
+        /// <param name="deviceManager">The <see cref="IDeviceManager"/>.</param>
+        /// <param name="sessionManager">The <see cref="ISessionManager"/>.</param>
+        /// <param name="logger">The <see cref="ILogger{DeviceAccessHost}"/>.</param>
     public DeviceAccessHost(
         IUserManager userManager,
         IDeviceManager deviceManager,

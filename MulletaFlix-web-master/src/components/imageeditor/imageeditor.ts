@@ -68,9 +68,9 @@ function reload(page: HTMLElement, item?: ImageEditorItem | null, focusContext?:
         reloadItem(page, item, apiClient, focusContext);
     } else {
         apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as ImageEditorApiClient;
-        apiClient.getItem(apiClient.getCurrentUserId(), currentItem.Id).then(function (itemToReload: ImageEditorItem) {
+        void apiClient.getItem(apiClient.getCurrentUserId(), currentItem.Id).then(function (itemToReload: ImageEditorItem) {
             reloadItem(page, itemToReload, apiClient, focusContext);
-        });
+        }).catch(() => loading.hide());
     }
 }
 
@@ -87,7 +87,7 @@ function addListeners(container: HTMLElement, className: string, eventName: stri
 function reloadItem(page: HTMLElement, item: ImageEditorItem, apiClient: ImageEditorApiClient, focusContext?: HTMLElement): void {
     currentItem = item;
 
-    apiClient.getRemoteImageProviders(getBaseRemoteOptions()).then(function (providers: unknown[]) {
+    void apiClient.getRemoteImageProviders(getBaseRemoteOptions()).then(function (providers: unknown[]) {
         const btnBrowseAllImages = page.querySelectorAll('.btnBrowseAllImages');
         for (let i = 0, length = btnBrowseAllImages.length; i < length; i++) {
             if (providers.length) {
@@ -97,7 +97,7 @@ function reloadItem(page: HTMLElement, item: ImageEditorItem, apiClient: ImageEd
             }
         }
 
-        apiClient.getItemImageInfos(currentItem.Id).then(function (imageInfos: ImageInfo[]) {
+        return apiClient.getItemImageInfos(currentItem.Id).then(function (imageInfos: ImageInfo[]) {
             renderStandardImages(page, apiClient, item, imageInfos, providers);
             renderBackdrops(page, apiClient, item, imageInfos, providers);
             loading.hide();
@@ -106,7 +106,7 @@ function reloadItem(page: HTMLElement, item: ImageEditorItem, apiClient: ImageEd
                 focusManager.autoFocus((focusContext || page));
             }
         });
-    });
+    }).catch(() => loading.hide());
 }
 
 interface ImageUrlOptions {
@@ -122,15 +122,15 @@ function getImageUrl(item: ImageEditorItem, apiClient: ImageEditorApiClient, typ
     options.index = index;
 
     if (type === 'Backdrop') {
-        options.tag = item.BackdropImageTags[index];
+        options.tag = item.BackdropImageTags?.[index] || '';
     } else if (type === 'Primary') {
-        options.tag = item.PrimaryImageTag || item.ImageTags[type];
+        options.tag = item.PrimaryImageTag || item.ImageTags?.[type] || '';
     } else {
-        options.tag = item.ImageTags[type];
+        options.tag = item.ImageTags?.[type] || '';
     }
 
     // For search hints
-    return apiClient.getScaledImageUrl(item.Id || item.ItemId, options);
+    return apiClient.getScaledImageUrl(item.Id || item.ItemId || '', options);
 }
 
 interface CardOptions {
@@ -140,6 +140,32 @@ interface CardOptions {
     imageSize: number;
     tagName: string;
     enableFooterButtons: boolean;
+}
+
+function renderImageFooter(image: ImageInfo, options: CardOptions): string {
+    if (!options.enableFooterButtons) {
+        return '';
+    }
+
+    let html = '<div class="cardText cardTextCentered">';
+    if (image.ImageType === 'Backdrop') {
+        if (options.index > 0) {
+            html += '<button type="button" is="paper-icon-button-light" class="btnMoveImage autoSize" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex)) + '" data-newindex="' + escapeHtml(String(image.ImageIndex - 1)) + '" title="' + escapeHtml(globalize.translate('MoveLeft')) + '"><span class="material-icons chevron_left"></span></button>';
+        } else {
+            html += '<button type="button" is="paper-icon-button-light" class="autoSize" disabled title="' + escapeHtml(globalize.translate('MoveLeft')) + '"><span class="material-icons chevron_left" aria-hidden="true"></span></button>';
+        }
+
+        if (options.index < options.numImages - 1) {
+            html += '<button type="button" is="paper-icon-button-light" class="btnMoveImage autoSize" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex)) + '" data-newindex="' + escapeHtml(String(image.ImageIndex + 1)) + '" title="' + escapeHtml(globalize.translate('MoveRight')) + '"><span class="material-icons chevron_right" aria-hidden="true"></span></button>';
+        } else {
+            html += '<button type="button" is="paper-icon-button-light" class="autoSize" disabled title="' + escapeHtml(globalize.translate('MoveRight')) + '"><span class="material-icons chevron_right" aria-hidden="true"></span></button>';
+        }
+    } else if (options.imageProviders.length) {
+        html += '<button type="button" is="paper-icon-button-light" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" class="btnSearchImages autoSize" title="' + escapeHtml(globalize.translate('Search')) + '"><span class="material-icons search" aria-hidden="true"></span></button>';
+    }
+
+    html += '<button type="button" is="paper-icon-button-light" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex != null ? image.ImageIndex : 'null')) + '" class="btnDeleteImage autoSize" title="' + escapeHtml(globalize.translate('Delete')) + '"><span class="material-icons delete" aria-hidden="true"></span></button>';
+    return html + '</div>';
 }
 
 function getCardHtml(image: ImageInfo, apiClient: ImageEditorApiClient, options: CardOptions): string {
@@ -177,8 +203,9 @@ function getCardHtml(image: ImageInfo, apiClient: ImageEditorApiClient, options:
     html += '<div class="cardContent">';
 
     const imageUrl = getImageUrl(currentItem, apiClient, image.ImageType, image.ImageIndex, { maxWidth: options.imageSize });
+    const safeImageUrl = imageUrl.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]/g, '');
 
-    html += '<div class="cardImageContainer" style="background-image:url(\'' + imageUrl + '\');background-position:center center;background-size:contain;"></div>';
+    html += '<div class="cardImageContainer" style="background-image:url(\'' + safeImageUrl + '\');background-position:center center;background-size:contain;"></div>';
 
     html += '</div>';
     html += '</div>';
@@ -195,28 +222,7 @@ function getCardHtml(image: ImageInfo, apiClient: ImageEditorApiClient, options:
     }
     html += '</div>';
 
-    if (options.enableFooterButtons) {
-        html += '<div class="cardText cardTextCentered">';
-
-        if (image.ImageType === 'Backdrop') {
-            if (options.index > 0) {
-                html += '<button type="button" is="paper-icon-button-light" class="btnMoveImage autoSize" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex)) + '" data-newindex="' + escapeHtml(String(image.ImageIndex - 1)) + '" title="' + escapeHtml(globalize.translate('MoveLeft')) + '"><span class="material-icons chevron_left"></span></button>';
-            } else {
-                html += '<button type="button" is="paper-icon-button-light" class="autoSize" disabled title="' + escapeHtml(globalize.translate('MoveLeft')) + '"><span class="material-icons chevron_left" aria-hidden="true"></span></button>';
-            }
-
-            if (options.index < options.numImages - 1) {
-                html += '<button type="button" is="paper-icon-button-light" class="btnMoveImage autoSize" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex)) + '" data-newindex="' + escapeHtml(String(image.ImageIndex + 1)) + '" title="' + escapeHtml(globalize.translate('MoveRight')) + '"><span class="material-icons chevron_right" aria-hidden="true"></span></button>';
-            } else {
-                html += '<button type="button" is="paper-icon-button-light" class="autoSize" disabled title="' + escapeHtml(globalize.translate('MoveRight')) + '"><span class="material-icons chevron_right" aria-hidden="true"></span></button>';
-            }
-        } else if (options.imageProviders.length) {
-            html += '<button type="button" is="paper-icon-button-light" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" class="btnSearchImages autoSize" title="' + escapeHtml(globalize.translate('Search')) + '"><span class="material-icons search" aria-hidden="true"></span></button>';
-        }
-
-        html += '<button type="button" is="paper-icon-button-light" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex != null ? image.ImageIndex : 'null')) + '" class="btnDeleteImage autoSize" title="' + escapeHtml(globalize.translate('Delete')) + '"><span class="material-icons delete" aria-hidden="true"></span></button>';
-        html += '</div>';
-    }
+    html += renderImageFooter(image, options);
 
     html += '</div>';
     html += '</div>';
@@ -304,9 +310,9 @@ function showImageDownloader(page: HTMLElement, imageType: string): void {
         return ImageDownloader.show(
             currentItem.Id,
             currentItem.ServerId,
-            currentItem.Type,
+            currentItem.Type || '',
             imageType,
-            currentItem.Type == 'Season' ? currentItem.ParentId : null
+            currentItem.Type == 'Season' ? currentItem.ParentId || undefined : undefined
         ).then(function () {
             hasChanges = true;
             reload(page);
@@ -319,7 +325,7 @@ function showImageDownloader(page: HTMLElement, imageType: string): void {
 function showActionSheet(context: HTMLElement, imageCard: HTMLElement): void {
     const itemId = imageCard.getAttribute('data-id')!;
     const serverId = imageCard.getAttribute('data-serverid')!;
-    const apiClient = ServerConnections.getApiClient(serverId);
+    const apiClient = ServerConnections.getApiClient(serverId) as unknown as ImageEditorApiClient;
 
     const type = imageCard.getAttribute('data-imagetype')!;
     const index = parseInt(imageCard.getAttribute('data-index')!, 10);
@@ -410,7 +416,7 @@ function initEditor(context: HTMLElement): void {
                 itemId: currentItem.Id,
                 serverId: currentItem.ServerId
 
-            } as any).then(function (hasChanged: boolean) {
+            }).then(function (hasChanged: boolean) {
                 if (hasChanged) {
                     hasChanges = true;
                     reload(context);
@@ -435,15 +441,15 @@ function initEditor(context: HTMLElement): void {
         const type = this.getAttribute('data-imagetype')!;
         let index: number | string | null = this.getAttribute('data-index');
         index = index === 'null' ? null : parseInt(index!, 10);
-        const apiClient = ServerConnections.getApiClient(currentItem.ServerId);
-        deleteImage(context, currentItem.Id, type, index as number, apiClient, true);
+        const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as ImageEditorApiClient;
+        deleteImage(context, currentItem.Id, type, index, apiClient, true);
     });
 
     addListeners(context, 'btnMoveImage', 'click', function (this: HTMLElement) {
         const type = this.getAttribute('data-imagetype')!;
         const index = parseInt(this.getAttribute('data-index')!, 10);
         const newIndex = parseInt(this.getAttribute('data-newindex')!, 10);
-        const apiClient = ServerConnections.getApiClient(currentItem.ServerId);
+        const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as ImageEditorApiClient;
         moveImage(context, apiClient, currentItem.Id, type, index, newIndex, dom.parentWithClass(this, 'itemsContainer') as HTMLElement);
     });
 }
@@ -454,9 +460,9 @@ function showEditor(options: EditorOptions, resolve: () => void, reject: () => v
 
     loading.show();
 
-    const apiClient: any = ServerConnections.getApiClient(serverId);
-    void apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: any) {
-        const dialogOptions: any = {
+    const apiClient = ServerConnections.getApiClient(serverId) as unknown as ImageEditorApiClient;
+    apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: ImageEditorItem) {
+        const dialogOptions: Record<string, boolean | string> = {
             removeOnClose: true
         };
 
