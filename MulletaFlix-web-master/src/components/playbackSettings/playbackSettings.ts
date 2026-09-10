@@ -20,7 +20,17 @@ import template from './playbackSettings.template.html';
 import '../../elements/emby-select/emby-select';
 import '../../elements/emby-checkbox/emby-checkbox';
 
-function fillSkipLengths(select: any): void {
+type LanguageOption = {
+    ThreeLetterISOLanguageName?: string;
+    DisplayName?: string;
+};
+
+type QualityOption = {
+    bitrate?: number;
+    name?: string;
+};
+
+function fillSkipLengths(select: HTMLSelectElement): void {
     const options = [5, 10, 15, 20, 25, 30];
 
     select.innerHTML = options.map(option => {
@@ -33,7 +43,7 @@ function fillSkipLengths(select: any): void {
     }).join('');
 }
 
-function populateLanguages(select: any, languages: any[]): void {
+function populateLanguages(select: HTMLSelectElement, languages: LanguageOption[]): void {
     let html = '';
 
     html += `<option value=''>${globalize.translate('AnyLanguage')}</option>`;
@@ -81,7 +91,7 @@ function populateMediaSegments(container: any, userSettings: any): void {
     });
 }
 
-function fillQuality(select: any, isInNetwork: boolean, mediatype: string): void {
+function fillQuality(select: HTMLSelectElement, isInNetwork: boolean, mediatype: string): void {
     const options = mediatype === 'Audio' ? qualityoptions.getAudioQualityOptions({
         currentMaxBitrate: appSettings.maxStreamingBitrate(isInNetwork, mediatype),
         isAutomaticBitrateEnabled: appSettings.enableAutomaticBitrateDetection(isInNetwork, mediatype),
@@ -92,7 +102,7 @@ function fillQuality(select: any, isInNetwork: boolean, mediatype: string): void
         enableAuto: true
     } as any);
 
-    select.innerHTML = options.map((i: any) => {
+    select.innerHTML = options.map((i: QualityOption) => {
         return `<option value="${escapeHTML(String(i.bitrate || ''))}">${escapeHTML(String(i.name || ''))}</option>`;
     }).join('');
 }
@@ -107,18 +117,18 @@ function setMaxBitrateIntoField(select: any, isInNetwork: boolean, mediatype: st
     }
 }
 
-function fillChromecastQuality(select: any): void {
+function fillChromecastQuality(select: HTMLSelectElement): void {
     const options = qualityoptions.getVideoQualityOptions({
         currentMaxBitrate: appSettings.maxChromecastBitrate(),
         isAutomaticBitrateEnabled: !appSettings.maxChromecastBitrate(),
         enableAuto: true
     } as any);
 
-    select.innerHTML = options.map((i: any) => {
+    select.innerHTML = options.map((i: QualityOption) => {
         return `<option value="${escapeHTML(String(i.bitrate || ''))}">${escapeHTML(String(i.name || ''))}</option>`;
     }).join('');
 
-    select.value = appSettings.maxChromecastBitrate() || '';
+    select.value = String(appSettings.maxChromecastBitrate() || '');
 }
 
 function setMaxBitrateFromField(select: any, isInNetwork: boolean, mediatype: string): void {
