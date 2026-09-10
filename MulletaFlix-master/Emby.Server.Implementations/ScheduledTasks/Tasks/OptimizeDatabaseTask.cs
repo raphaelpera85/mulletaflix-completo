@@ -16,22 +16,22 @@ public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
 {
     private readonly ILogger<OptimizeDatabaseTask> _logger;
     private readonly ILocalizationManager _localization;
-    private readonly IMulletaFlixDatabaseProvider _MulletaFlixDatabaseProvider;
+    private readonly IMulletaFlixDatabaseProvider _mulletaFlixDatabaseProvider;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OptimizeDatabaseTask" /> class.
     /// </summary>
     /// <param name="logger">Instance of the <see cref="ILogger"/> interface.</param>
     /// <param name="localization">Instance of the <see cref="ILocalizationManager"/> interface.</param>
-    /// <param name="MulletaFlixDatabaseProvider">Instance of the MulletaFlixDatabaseProvider that can be used for provider specific operations.</param>
+    /// <param name="mulletaFlixDatabaseProvider">Instance of the MulletaFlixDatabaseProvider that can be used for provider specific operations.</param>
     public OptimizeDatabaseTask(
         ILogger<OptimizeDatabaseTask> logger,
         ILocalizationManager localization,
-        IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider)
+        IMulletaFlixDatabaseProvider mulletaFlixDatabaseProvider)
     {
         _logger = logger;
         _localization = localization;
-        _MulletaFlixDatabaseProvider = MulletaFlixDatabaseProvider;
+        _mulletaFlixDatabaseProvider = mulletaFlixDatabaseProvider;
     }
 
     /// <inheritdoc />
@@ -72,7 +72,7 @@ public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
 
         try
         {
-            await _MulletaFlixDatabaseProvider.RunScheduledOptimisation(cancellationToken).ConfigureAwait(false);
+            await _mulletaFlixDatabaseProvider.RunScheduledOptimisation(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception e)
         {
@@ -80,4 +80,3 @@ public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
         }
     }
 }
-

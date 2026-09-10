@@ -548,6 +548,17 @@ public class NebulaUploadEngineTests
     }
 
     [Theory]
+    [InlineData("movie.wmv", true)]
+    [InlineData("poster.nfo", true)]
+    [InlineData("poster.jpg", true)]
+    [InlineData("movie.strm", false)]
+    [InlineData("movie.txt", false)]
+    public void MetadataExport_OnlyMediaAndSidecarsAreUploadable(string fileName, bool expected)
+    {
+        Assert.Equal(expected, NebulaMetadataExportService.IsUploadablePath(fileName));
+    }
+
+    [Theory]
     [InlineData(@"strm\Filmes\Matrix\Matrix.strm", "Filmes/Matrix")]
     [InlineData(@"strm\Series\Dark\Season 1\Dark.S01E01.strm", "Series/Dark/Season 1")]
     [InlineData(@"strm\Porno\Studio\Cena.strm", "Porno")]

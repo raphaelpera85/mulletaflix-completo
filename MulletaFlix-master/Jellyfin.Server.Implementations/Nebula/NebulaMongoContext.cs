@@ -1294,7 +1294,7 @@ public sealed class NebulaMongoContext : IDisposable
     {
         var validExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".ts", ".webm"
+            ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".webm"
         };
 
         foreach (var stageRoot in stagingDirs)

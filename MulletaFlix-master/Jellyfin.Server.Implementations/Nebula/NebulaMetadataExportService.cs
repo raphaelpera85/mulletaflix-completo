@@ -326,6 +326,9 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
             && !string.Equals(Path.GetExtension(path), ".strm", StringComparison.OrdinalIgnoreCase)
             && VideoExtensions.Contains(Path.GetExtension(path));
 
+    internal static bool IsUploadablePath(string path)
+        => IsMediaPayloadPath(path) || IsMetadataSidecarPath(path);
+
     internal static bool IsOrphanPendingMarkerDirectory(string directory)
     {
         if (!Directory.Exists(directory))

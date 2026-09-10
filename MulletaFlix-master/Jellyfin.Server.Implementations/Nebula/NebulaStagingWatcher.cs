@@ -143,6 +143,14 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             return;
         }
 
+        // FileSystemWatcher also reports unrelated files created in the stage.
+        // Keep its event path aligned with the Mongo scanner and never enqueue
+        // a source STRM or an arbitrary temporary/auxiliary file.
+        if (!NebulaMetadataExportService.IsUploadablePath(fullPath))
+        {
+            return;
+        }
+
         var fileName = Path.GetFileName(fullPath);
         var queueKey = Path.GetFullPath(fullPath);
         if (_queuedFiles.TryAdd(queueKey, 0))
