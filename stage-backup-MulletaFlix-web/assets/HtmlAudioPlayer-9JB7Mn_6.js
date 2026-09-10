@@ -1,1 +1,0 @@
-import i from"./HtmlVideoPlayer-wtPGDn4T.js";import"./NoActivePlayer-BNXptwja.js";import"./index-6F8mVyyU.js";import"./QueueManager-r5bCJbFv.js";import"./GenericPlayer-BdvcMLyG.js";const t=class t extends i{};t.type="htmlaudioplayer";let p=t;export{p as default};

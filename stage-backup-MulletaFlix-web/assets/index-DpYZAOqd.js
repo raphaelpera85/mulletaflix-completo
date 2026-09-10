@@ -1,1 +1,0 @@
-import{r as n,t}from"./index-DdpBMamt.js";import{a as o}from"./index-DBRXqsHm.js";function u(e,a){n(2,arguments);var i=t(e),s=t(a),r=i.getTime()-s.getTime();return r<0?-1:r>0?1:r}function c(e){return o({},e)}export{c as a,u as c};

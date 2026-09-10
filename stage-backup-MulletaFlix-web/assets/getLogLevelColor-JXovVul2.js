@@ -1,1 +1,0 @@
-const r={Trace:"Trace",Debug:"Debug",Information:"Information",Warning:"Warning",Error:"Error",Critical:"Critical",None:"None"},e=n=>{switch(n){case r.Information:return"info";case r.Warning:return"warning";case r.Error:case r.Critical:return"error"}};export{r as L,e as g};

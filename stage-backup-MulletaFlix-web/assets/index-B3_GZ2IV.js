@@ -1,5 +1,0 @@
-const e=`<div id="displayPreferencesPage" data-role="page" class="page libraryPage userPreferencesPage noSecondaryNavPage" data-title="\${Display}" data-backbutton="true">
-    <div class="settingsContainer padded-left padded-right padded-bottom-page">
-    </div>
-</div>
-`;export{e as default};

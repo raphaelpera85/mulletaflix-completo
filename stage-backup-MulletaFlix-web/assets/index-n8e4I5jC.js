@@ -1,1 +1,0 @@
-import{r,t as a}from"./index-DdpBMamt.js";function o(e){r(1,arguments);var t=a(e);return t.setHours(23,59,59,999),t}function u(e){r(1,arguments);var t=a(e),n=t.getMonth();return t.setFullYear(t.getFullYear(),n+1,0),t.setHours(23,59,59,999),t}export{u as a,o as e};

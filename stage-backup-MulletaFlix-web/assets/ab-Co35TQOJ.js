@@ -1,1 +1,0 @@
-const t="абсолют",s="Анеира иахьа иаԥыхуп. Ҳаԥшәышәала, ашьҭахь даҽазнык шәҽазышәа.",c="Актер",e={Absolute:t,AccessRestrictedTryAgainLater:s,Actor:c};export{t as Absolute,s as AccessRestrictedTryAgainLater,c as Actor,e as default};

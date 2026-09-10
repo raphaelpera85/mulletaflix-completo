@@ -1,1 +1,0 @@
-import{a2 as e,S as i}from"./index-6F8mVyyU.js";function o(){e.show();const t=i.currentApiClient();if(!t){e.hide();return}t.ajax({url:t.getUrl("Startup/Complete"),type:"POST"}).then(()=>{e.hide(),window.location.href=""}).catch(()=>e.hide())}function a(t){const n=t.querySelector(".btnWizardNext");n&&n.addEventListener("click",o)}export{a as default};

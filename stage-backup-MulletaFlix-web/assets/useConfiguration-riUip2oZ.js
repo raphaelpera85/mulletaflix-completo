@@ -1,1 +1,0 @@
-import{g as a}from"./configuration-api-YcJsrczW.js";import{ac as t,ad as e}from"./index-6F8mVyyU.js";const r="Configuration",s=async(n,o)=>(await a(n).getConfiguration(o)).data,f=()=>{const{api:n}=t();return e({queryKey:[r,n?.basePath],queryFn:({signal:o})=>s(n,{signal:o}),enabled:!!n})};export{r as Q,f as u};
