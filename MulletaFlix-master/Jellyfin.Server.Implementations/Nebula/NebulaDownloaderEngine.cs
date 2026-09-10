@@ -301,10 +301,16 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         var targetMediaFilePath = Path.Combine(targetStageDir, finalMediaFileName);
 
         // 1. Checa se o arquivo já está completado ou ativo no MongoDB por Título, Link ou ID
-        var (isDuplicate, reason) = await CheckMediaDuplicateInMongoAsync(strmPath, finalMediaFileName, url, cancellationToken).ConfigureAwait(false);
+        var (isDuplicate, isCompletedDuplicate, reason) = await CheckMediaDuplicateInMongoAsync(strmPath, finalMediaFileName, url, cancellationToken).ConfigureAwait(false);
         if (isDuplicate)
         {
-            LogInfo($"Mídia já concluída ou ativa no Nebula ({reason}). Removendo .strm: {strmFileName}");
+            if (!isCompletedDuplicate)
+            {
+                LogInfo($"Mídia já está ativa no Nebula ({reason}). Preservando .strm até a publicação ser concluída: {strmFileName}");
+                return;
+            }
+
+            LogInfo($"Mídia já concluída no Nebula ({reason}). Removendo .strm: {strmFileName}");
             _failureTracker.RecordSuccess(strmPath);
 
             // Recognition may have created a pending marker before the
@@ -929,14 +935,14 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         return (currentParent, currentPath);
     }
 
-    private async Task<(bool IsDuplicate, string Reason)> CheckMediaDuplicateInMongoAsync(
+    private async Task<(bool IsDuplicate, bool IsCompleted, string Reason)> CheckMediaDuplicateInMongoAsync(
         string strmPath,
         string finalMediaFileName,
         string url,
         CancellationToken cancellationToken)
     {
         var fileNameWithoutExt = Path.GetFileNameWithoutExtension(strmPath);
-        var files = await _mongoContext.GetAllCompletedFilesAsync(cancellationToken).ConfigureAwait(false);
+        var files = await _mongoContext.GetCompletedOrActiveFilesAsync(cancellationToken).ConfigureAwait(false);
 
         // 1. Checa por ID na URL do STRM (ex: ?id=64f... ou /stream?id=... ou /12345.mkv)
         if (!string.IsNullOrWhiteSpace(url))
@@ -949,7 +955,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 if (matchingDoc != null)
                 {
                     var matchedName = matchingDoc.GetValue("name", string.Empty).AsString;
-                    return (true, $"Mídia '{matchedName}' com ID ({idStr}) já enviada");
+                    var isCompleted = string.Equals(matchingDoc.GetValue("status", string.Empty).AsString, "completed", StringComparison.OrdinalIgnoreCase);
+                    return (true, isCompleted, $"Mídia '{matchedName}' com ID ({idStr}) já encontrada");
                 }
             }
         }
@@ -972,7 +979,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             if (!string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(docUrl) &&
                 string.Equals(url.Trim(), docUrl.Trim(), StringComparison.OrdinalIgnoreCase))
             {
-                return (true, $"Mídia '{name}' possui link idêntico já enviado");
+                var isCompleted = string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase);
+                return (true, isCompleted, $"Mídia '{name}' possui link idêntico já encontrado");
             }
 
             if (string.Equals(name, finalMediaFileName, StringComparison.OrdinalIgnoreCase) ||
@@ -980,10 +988,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             {
                 if (status is "staging" or "queued" or "uploading")
                 {
-                    return (true, $"Mídia '{fileNameWithoutExt}' já está ativa/em fila no Nebula");
+                    return (true, false, $"Mídia '{fileNameWithoutExt}' já está ativa/em fila no Nebula");
                 }
 
-                return (true, $"Mídia '{name}' com título idêntico já concluída/enviada");
+                return (true, true, $"Mídia '{name}' com título idêntico já concluída/enviada");
             }
 
             // Identidade de Filme
@@ -996,10 +1004,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 {
                     if (status is "staging" or "queued" or "uploading")
                     {
-                        return (true, $"Mídia '{fileNameWithoutExt}' já está ativa/em fila no Nebula");
+                        return (true, false, $"Mídia '{fileNameWithoutExt}' já está ativa/em fila no Nebula");
                     }
 
-                    return (true, $"Filme '{name}' ({movieIdent.Value.Year}) já concluído no Nebula");
+                    return (true, true, $"Filme '{name}' ({movieIdent.Value.Year}) já concluído no Nebula");
                 }
             }
 
@@ -1012,12 +1020,13 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     epIdent.Value.Season == docEpIdent.Value.Season &&
                     epIdent.Value.Episode == docEpIdent.Value.Episode)
                 {
-                    return (true, $"Episódio '{epIdent.Value.Series} S{epIdent.Value.Season:02d}E{epIdent.Value.Episode:02d}' já concluído no Nebula");
+                    var isCompleted = string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase);
+                    return (true, isCompleted, $"Episódio '{epIdent.Value.Series} S{epIdent.Value.Season:02d}E{epIdent.Value.Episode:02d}' já encontrado no Nebula");
                 }
             }
         }
 
-        return (false, string.Empty);
+        return (false, false, string.Empty);
     }
 
     private static string NormalizeMediaTitle(string value)

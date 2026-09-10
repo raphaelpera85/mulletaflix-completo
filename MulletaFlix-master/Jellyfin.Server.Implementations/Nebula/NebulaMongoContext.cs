@@ -610,6 +610,23 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Returns published files and media that is already staged, queued, or being uploaded.
+    /// This is used by the downloader to prevent a second STRM from creating a
+    /// competing upload for the same media while the first one is still active.
+    /// </summary>
+    public async Task<List<BsonDocument>> GetCompletedOrActiveFilesAsync(CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Ne("type", "dir"),
+            Builders<BsonDocument>.Filter.In(
+                "status",
+                new[] { "completed", "staging", "queued", "uploading" }));
+
+        using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Constrói um mapa de caminhos de diretórios em memória para resolver o caminho completo de qualquer nó de forma ultra rápida.
     /// </summary>
     public async Task<Dictionary<string, string>> BuildDirectoryPathMapAsync(CancellationToken cancellationToken = default)
