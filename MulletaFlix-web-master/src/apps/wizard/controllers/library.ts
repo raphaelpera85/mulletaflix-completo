@@ -386,7 +386,7 @@ function getVirtualFolderImageHtml(virtualFolder: WizardVirtualFolder): string {
     if (!imgUrl && virtualFolder.showNameWithIcon) {
         html += '<h3 class="cardImageContainer addLibrary" style="position:absolute;top:0;left:0;right:0;bottom:0;cursor:pointer;flex-direction:column;">';
         html += `<span class="cardImageIcon material-icons ${escapeHtml(virtualFolder.icon || imageHelper.getLibraryIcon(virtualFolder.CollectionType))}" aria-hidden="true"></span>`;
-        html += '<div style="margin:1em 0;position:width:100%;">' + escapeHtml(String(virtualFolder.Name ?? '')) + '</div></h3>';
+        html += '<div style="margin:1em 0;width:100%;">' + escapeHtml(String(virtualFolder.Name ?? '')) + '</div></h3>';
     }
 
     return html;

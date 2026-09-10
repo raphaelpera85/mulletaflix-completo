@@ -165,6 +165,8 @@ function showHideQualityFields(context: any, user: any, apiClient: any): void {
                 context.querySelector('.musicQualitySection').classList.add('hide');
             }
         }
+    }).catch((error: unknown) => {
+        console.error('[PlaybackSettings] failed to load endpoint information', error);
     });
 }
 
@@ -188,6 +190,9 @@ function loadForm(context: any, user: any, userSettings: any, systemInfo: any, a
         populateLanguages(context.querySelector('#selectAudioLanguage'), allCultures);
         context.querySelector('#selectAudioLanguage', context).value = user.Configuration.AudioLanguagePreference || '';
         context.querySelector('.chkEpisodeAutoPlay').checked = user.Configuration.EnableNextEpisodeAutoPlay || false;
+    }).catch((error: unknown) => {
+        console.error('[PlaybackSettings] failed to load cultures', error);
+        toast(globalize.translate('ErrorDefault'));
     });
 
     if (appHost.supports(AppFeature.ExternalPlayerIntent) && userId === loggedInUserId) {
@@ -303,17 +308,18 @@ function saveUser(context: any, user: any, userSettingsInstance: any, apiClient:
 function save(instance: any, context: any, userId: string, userSettings: any, apiClient: any, enableSaveConfirmation: boolean): void {
     loading.show();
 
-    apiClient.getUser(userId).then((user: any) => {
-        saveUser(context, user, userSettings, apiClient).then(() => {
-            loading.hide();
-            if (enableSaveConfirmation) {
-                toast(globalize.translate('SettingsSaved'));
-            }
+    void apiClient.getUser(userId).then((user: unknown) => {
+        return saveUser(context, user, userSettings, apiClient);
+    }).then(() => {
+        loading.hide();
+        if (enableSaveConfirmation) {
+            toast(globalize.translate('SettingsSaved'));
+        }
 
-            Events.trigger(instance, 'saved');
-        }, () => {
-            loading.hide();
-        });
+        Events.trigger(instance, 'saved');
+    }).catch(() => {
+        loading.hide();
+        toast(globalize.translate('ErrorDefault'));
     });
 }
 
@@ -323,9 +329,12 @@ function onSubmit(this: any, e: any): boolean {
     const userId = self.options.userId;
     const userSettings = self.options.userSettings;
 
-    userSettings.setUserInfo(userId, apiClient).then(() => {
+    void userSettings.setUserInfo(userId, apiClient).then(() => {
         const enableSaveConfirmation = self.options.enableSaveConfirmation;
         save(self, self.options.element, userId, userSettings, apiClient, enableSaveConfirmation);
+    }).catch(() => {
+        loading.hide();
+        toast(globalize.translate('ErrorDefault'));
     });
 
     if (e) {
@@ -370,14 +379,16 @@ class PlaybackSettings {
         const apiClient: any = ServerConnections.getApiClient(self.options.serverId);
         const userSettings = self.options.userSettings;
 
-        apiClient.getUser(userId).then((user: any) => {
-            apiClient.getSystemInfo().then((systemInfo: any) => {
-                userSettings.setUserInfo(userId, apiClient).then(() => {
-                    self.dataLoaded = true;
-                    loadForm(context, user, userSettings, systemInfo, apiClient);
-                });
+        apiClient.getUser(userId)
+            .then((user: unknown) => apiClient.getSystemInfo().then((systemInfo: unknown) => ({ user, systemInfo })))
+            .then(({ user, systemInfo }: { user: unknown; systemInfo: unknown }) => userSettings.setUserInfo(userId, apiClient).then(() => {
+                self.dataLoaded = true;
+                loadForm(context, user, userSettings, systemInfo, apiClient);
+            }))
+            .catch(() => {
+                loading.hide();
+                toast(globalize.translate('ErrorDefault'));
             });
-        });
     }
 
     submit(): void {

@@ -240,7 +240,9 @@ public sealed class SqliteDatabaseProvider : IMulletaFlixDatabaseProvider
         foreach (var tableName in tableNames)
         {
             var quotedTableName = QuoteIdentifier(tableName);
+#pragma warning disable EF1002 // Table names are validated by QuoteIdentifier and cannot be parameterized.
             dbContext.Database.ExecuteSqlRaw($"DELETE FROM {quotedTableName}");
+#pragma warning restore EF1002
         }
 
         return Task.CompletedTask;

@@ -315,7 +315,9 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
             foreach (var tableName in tableNames)
             {
                 var quotedTableName = string.Join('.', tableName.Split('.').Select(QuoteIdentifier));
+#pragma warning disable EF1002 // Table names are validated by QuoteIdentifier and cannot be parameterized.
                 await dbContext.Database.ExecuteSqlRawAsync($"DELETE FROM {quotedTableName};").ConfigureAwait(false);
+#pragma warning restore EF1002
             }
         }
         finally

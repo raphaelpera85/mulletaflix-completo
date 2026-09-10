@@ -36,6 +36,7 @@ namespace Emby.Server.Implementations.EntryPoints
         /// <param name="userDataManager">The <see cref="IUserDataManager"/>.</param>
         /// <param name="sessionManager">The <see cref="ISessionManager"/>.</param>
         /// <param name="userManager">The <see cref="IUserManager"/>.</param>
+        /// <param name="logger">The logger.</param>
         public UserDataChangeNotifier(
             IUserDataManager userDataManager,
             ISessionManager sessionManager,

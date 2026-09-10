@@ -211,6 +211,28 @@ interface PublicUser {
     PrimaryImageTag?: string;
 }
 
+function isSafeUserImageUrl(imageUrl: string): boolean {
+    try {
+        const url = new URL(imageUrl, window.location.href);
+        return url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'blob:'
+            || (url.protocol === 'data:' && url.pathname.toLowerCase().startsWith('image/'));
+    } catch {
+        return false;
+    }
+}
+
+function applyUserImageStyles(container: HTMLElement): void {
+    container.querySelectorAll<HTMLElement>('[data-user-image-url]').forEach((element) => {
+        const imageUrl = element.dataset.userImageUrl;
+        if (!imageUrl || !isSafeUserImageUrl(imageUrl)) {
+            return;
+        }
+
+        const escapedCssUrl = imageUrl.replace(/["\\\r\n]/g, '\\$&');
+        element.style.backgroundImage = `url("${escapedCssUrl}")`;
+    });
+}
+
 function loadUserList(context: HTMLElement, apiClient: ApiClientType, users: PublicUser[]): void {
     let html: string = '';
 
@@ -240,7 +262,7 @@ function loadUserList(context: HTMLElement, apiClient: ApiClientType, users: Pub
                 type: 'Primary'
             });
 
-            html += '<div class="cardImageContainer coveredImage" style="background-image:url(\'' + escapeHtml(imgUrl) + "');\"></div>";
+            html += '<div class="cardImageContainer coveredImage" data-user-image-url="' + escapeHtml(imgUrl) + '"></div>';
         } else {
             html += `<div class="cardImage flex align-items-center justify-content-center ${getDefaultBackgroundClass()}">`;
             html += '<span class="material-icons cardImageIcon person" aria-hidden="true"></span>';
@@ -256,7 +278,9 @@ function loadUserList(context: HTMLElement, apiClient: ApiClientType, users: Pub
         html += '</button>';
     }
 
-    context.querySelector('#divUsers')!.innerHTML = html;
+    const usersContainer = context.querySelector<HTMLElement>('#divUsers')!;
+    usersContainer.innerHTML = html;
+    applyUserImageStyles(usersContainer);
 }
 
 export default function (view: HTMLElement, params: LoginPageParams): void {

@@ -31,6 +31,14 @@ public class ItemPersistenceService : IItemPersistenceService
     internal static readonly IEqualityComparer<(ItemValueType MagicNumber, string Value)> ItemValueKeyComparer = new ItemValueKeyEqualityComparer();
     private static readonly SemaphoreSlim[] _updateOrInsertLocks = Enumerable.Range(0, 16).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
+    // Path is retained only for migrating legacy links that predate ItemId.
+    private static string? GetLegacyLinkedChildPath(LinkedChild linkedChild)
+    {
+#pragma warning disable CS0618
+        return linkedChild.Path;
+#pragma warning restore CS0618
+    }
+
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
     private readonly IServerApplicationHost _appHost;
     private readonly ILogger<ItemPersistenceService> _logger;
@@ -728,8 +736,10 @@ public class ItemPersistenceService : IItemPersistenceService
         var allFolderPathsToResolve = tuples
             .Where(t => t.Item is Folder)
             .SelectMany(t => ((Folder)t.Item).LinkedChildren)
-            .Where(lc => (!lc.ItemId.HasValue || lc.ItemId.Value.IsEmpty()) && !string.IsNullOrEmpty(lc.Path))
-            .Select(lc => lc.Path)
+            .Where(lc => (!lc.ItemId.HasValue || lc.ItemId.Value.IsEmpty()) && !string.IsNullOrEmpty(GetLegacyLinkedChildPath(lc)))
+            .Select(GetLegacyLinkedChildPath)
+            .Where(path => path is not null)
+            .Select(path => path!)
             .Distinct();
 
         var allVideoPathsToResolve = tuples
@@ -760,9 +770,10 @@ public class ItemPersistenceService : IItemPersistenceService
                 foreach (var linkedChild in folder.LinkedChildren)
                 {
                     var childId = linkedChild.ItemId;
-                    if ((!childId.HasValue || childId.Value.IsEmpty()) && !string.IsNullOrEmpty(linkedChild.Path))
+                    var legacyPath = GetLegacyLinkedChildPath(linkedChild);
+                    if ((!childId.HasValue || childId.Value.IsEmpty()) && !string.IsNullOrEmpty(legacyPath))
                     {
-                        if (pathToIdMap.TryGetValue(linkedChild.Path, out var resolvedId))
+                        if (pathToIdMap.TryGetValue(legacyPath, out var resolvedId))
                         {
                             childId = resolvedId;
                         }
@@ -869,7 +880,8 @@ public class ItemPersistenceService : IItemPersistenceService
                         var childItemId = linkedChild.ItemId;
                         if (!childItemId.HasValue || childItemId.Value.IsEmpty())
                         {
-                            if (!string.IsNullOrEmpty(linkedChild.Path) && pathToIdMap.TryGetValue(linkedChild.Path, out var resolvedId))
+                            var legacyPath = GetLegacyLinkedChildPath(linkedChild);
+                            if (!string.IsNullOrEmpty(legacyPath) && pathToIdMap.TryGetValue(legacyPath, out var resolvedId))
                             {
                                 childItemId = resolvedId;
                             }

@@ -14,23 +14,23 @@ using Microsoft.Extensions.Logging;
 namespace MulletaFlix.Database.Implementations;
 
 /// <inheritdoc/>
-/// <summary>
-/// Initializes a new instance of the <see cref="MulletaFlixDbContext"/> class.
-/// </summary>
-/// <param name="options">The database context options.</param>
-/// <param name="logger">Logger.</param>
-/// <param name="MulletaFlixDatabaseProvider">The provider for the database engine specific operations.</param>
-/// <param name="entityFrameworkCoreLocking">The locking behavior.</param>
 public class MulletaFlixDbContext : DbContext
 {
     private readonly ILogger<MulletaFlixDbContext> _logger;
     private readonly IMulletaFlixDatabaseProvider _mulletaFlixDatabaseProvider;
     private readonly IEntityFrameworkCoreLockingBehavior _entityFrameworkCoreLocking;
 
-    public MulletaFlixDbContext(DbContextOptions<MulletaFlixDbContext> options, ILogger<MulletaFlixDbContext> logger, IMulletaFlixDatabaseProvider MulletaFlixDatabaseProvider, IEntityFrameworkCoreLockingBehavior entityFrameworkCoreLocking) : base(options)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MulletaFlixDbContext"/> class.
+    /// </summary>
+    /// <param name="options">The database context options.</param>
+    /// <param name="logger">Logger.</param>
+    /// <param name="mulletaFlixDatabaseProvider">The provider for the database engine specific operations.</param>
+    /// <param name="entityFrameworkCoreLocking">The locking behavior.</param>
+    public MulletaFlixDbContext(DbContextOptions<MulletaFlixDbContext> options, ILogger<MulletaFlixDbContext> logger, IMulletaFlixDatabaseProvider mulletaFlixDatabaseProvider, IEntityFrameworkCoreLockingBehavior entityFrameworkCoreLocking) : base(options)
     {
         _logger = logger;
-        _mulletaFlixDatabaseProvider = MulletaFlixDatabaseProvider;
+        _mulletaFlixDatabaseProvider = mulletaFlixDatabaseProvider;
         _entityFrameworkCoreLocking = entityFrameworkCoreLocking;
     }
     /// <summary>

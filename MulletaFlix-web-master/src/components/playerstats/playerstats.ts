@@ -171,7 +171,10 @@ function getTranscodingStats(session: any, player: any, displayPlayMethod: strin
     if (session.TranscodingInfo.TranscodeReasons?.length) {
         sessionStats.push({
             label: globalize.translate('LabelReasons'),
-            value: session.TranscodingInfo.TranscodeReasons.map(translateReason).join('<br/>')
+            // renderStats escapes values before inserting them into the DOM;
+            // use plain text separators instead of embedding markup that would
+            // otherwise be displayed literally.
+            value: session.TranscodingInfo.TranscodeReasons.map(translateReason).join(', ')
         });
     }
 
