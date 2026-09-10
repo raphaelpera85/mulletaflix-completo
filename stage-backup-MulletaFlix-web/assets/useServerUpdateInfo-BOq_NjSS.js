@@ -1,0 +1,1 @@
+import{ac as s,ad as t}from"./index-6F8mVyyU.js";const n=async(e,a)=>(await e.axiosInstance.get("/System/UpdateInfo",{signal:a})).data,p=()=>{const{api:e}=s();return t({queryKey:["UpdateInfo",e?.basePath],queryFn:({signal:a})=>n(e,a),enabled:!!e})};export{p as u};

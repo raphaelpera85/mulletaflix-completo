@@ -1,0 +1,1 @@
+import{ai as o,aK as s,aj as i,aL as r}from"./index-6F8mVyyU.js";const e=({user:a,sx:t})=>a?.Id?o.jsx(s,{size:"large",color:"inherit",sx:{padding:0,...t},title:a.Name||void 0,component:i,to:`/dashboard/users/${a.Id}/profile`,children:o.jsx(r,{user:a})}):void 0;export{e as U};

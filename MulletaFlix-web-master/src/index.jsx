@@ -86,7 +86,7 @@ build: ${__JF_BUILD_VERSION__}`);
     });
 
     // Initialize app host
-    await appHost.init();
+    await withBootstrapTimeout(appHost.init(), 'inicialização do host');
 
     // Initialize the api client
     const serverUrl = await withBootstrapTimeout(serverAddress(), 'descoberta do servidor');

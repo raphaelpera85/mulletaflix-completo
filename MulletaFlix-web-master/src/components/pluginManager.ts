@@ -2,14 +2,11 @@ import Events from '../utils/events.ts';
 import globalize from '../lib/globalize';
 import loading from './loading/loading';
 import appSettings from '../scripts/settings/appSettings';
-import { playbackManager } from './playback/playbackmanager';
 import { appHost } from '../components/apphost';
-import { appRouter } from './router/appRouter';
 import * as inputManager from '../scripts/inputManager';
 import toast from '../components/toast/toast';
 import confirm from '../components/confirm/confirm';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
-import * as dashboard from '../utils/dashboard';
 
 const cacheParam = new Date().getTime();
 
@@ -63,6 +60,14 @@ class PluginManager {
 
     async loadPlugin(pluginSpec: any): Promise<any> {
         let plugin: any;
+        // Load this dependency only after both modules have been initialized.
+        // A static import here creates a cycle with playbackmanager, whose
+        // constructor subscribes to this manager during module evaluation.
+        const [{ playbackManager }, { appRouter }, dashboardModule] = await Promise.all([
+            import('./playback/playbackmanager'),
+            import('./router/appRouter'),
+            import('../utils/dashboard')
+        ]);
 
         if (typeof pluginSpec === 'string') {
             const win = window as any;
@@ -90,7 +95,7 @@ class PluginManager {
                     inputManager,
                     toast,
                     confirm,
-                    dashboard,
+                    dashboard: dashboardModule,
                     ServerConnections
                 });
             } else {

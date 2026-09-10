@@ -1,0 +1,1 @@
+import a from"./TimeSync-gAUD-DL9.js";import"./index-6F8mVyyU.js";class m extends a{async requestPing(){const t=this.manager.getApiClient(),n=new Date,s=await t.getServerTime(),i=new Date,e=await s.json();return{requestSent:n,requestReceived:new Date(e.RequestReceptionTime),responseSent:new Date(e.ResponseTransmissionTime),responseReceived:i}}}export{m as default};

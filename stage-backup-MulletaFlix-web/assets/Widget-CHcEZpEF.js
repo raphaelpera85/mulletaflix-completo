@@ -1,0 +1,1 @@
+import{ai as o,aH as r,aI as s,aj as i,aJ as e}from"./index-6F8mVyyU.js";import{C as m}from"./ChevronRight-jFAj9qaw.js";const c=({title:n,href:t,children:a})=>o.jsxs(r,{children:[o.jsx(s,{component:i,to:t,variant:"text",color:"inherit",endIcon:o.jsx(m,{}),sx:{marginTop:1,marginBottom:1},children:o.jsx(e,{variant:"h3",component:"span",children:n})}),a]});export{c as W};

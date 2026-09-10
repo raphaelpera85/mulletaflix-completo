@@ -15,7 +15,6 @@ import Events from '../../utils/events.ts';
 import datetime from '../../scripts/datetime';
 import appSettings from '../../scripts/settings/appSettings';
 import itemHelper from '../itemHelper';
-import { pluginManager } from '../pluginManager';
 import PlayQueueManager from './playqueuemanager';
 import * as userSettings from '../../scripts/settings/userSettings';
 import globalize from '../../lib/globalize';
@@ -2586,7 +2585,7 @@ export class PlaybackManager {
         }
 
         function runInterceptors(item, playOptions) {
-            return new Promise(function (resolve: any, reject: any) {
+            return import('../pluginManager').then(({ pluginManager }) => new Promise(function (resolve: any, reject: any) {
                 const interceptors = pluginManager.ofType(PluginType.PreplayIntercept);
 
                 interceptors.sort(function (a: any, b: any) {
@@ -2604,7 +2603,7 @@ export class PlaybackManager {
                 options.item = item;
 
                 runNextPrePlay(interceptors, 0, options, resolve, reject);
-            });
+            }));
         }
 
         function runNextPrePlay(interceptors, index, options, resolve, reject) {
@@ -3825,13 +3824,18 @@ export class PlaybackManager {
             bindStopped(player);
         }
 
-        Events.on(pluginManager, 'registered', function (e: any, plugin: any) {
-            if (plugin.type === PluginType.MediaPlayer) {
-                initMediaPlayer(plugin);
-            }
-        });
+        // Resolve the plugin manager after this module has finished evaluating.
+        // A static import here creates a cycle with pluginManager -> appRouter
+        // -> backdrop -> playbackmanager.
+        void import('../pluginManager').then(({ pluginManager }) => {
+            Events.on(pluginManager, 'registered', function (e: any, plugin: any) {
+                if (plugin.type === PluginType.MediaPlayer) {
+                    initMediaPlayer(plugin);
+                }
+            });
 
-        pluginManager.ofType(PluginType.MediaPlayer).forEach(initMediaPlayer);
+            pluginManager.ofType(PluginType.MediaPlayer).forEach(initMediaPlayer);
+        });
 
         function sendProgressUpdate(player, progressEventName, reportPlaylist) {
             if (!player) {

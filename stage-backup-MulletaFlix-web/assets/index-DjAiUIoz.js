@@ -1,0 +1,4 @@
+const e=`<div id="homeScreenPreferencesPage" data-role="page" class="page libraryPage userPreferencesPage noSecondaryNavPage" data-title="\${Subtitles}" data-backbutton="true">
+    <div class="settingsContainer padded-left padded-right padded-bottom-page"></div>
+</div>
+`;export{e as default};

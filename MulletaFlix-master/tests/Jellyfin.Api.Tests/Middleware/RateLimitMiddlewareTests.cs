@@ -22,6 +22,18 @@ public sealed class RateLimitMiddlewareTests
     }
 
     [Theory]
+    [InlineData("/assets/index.js", true)]
+    [InlineData("/web/assets/index.js", true)]
+    [InlineData("/serviceworker.js", true)]
+    [InlineData("/config.json", true)]
+    [InlineData("/Users/Authenticate", false)]
+    [InlineData("/web/ConfigurationPages", false)]
+    public void IsStaticWebAssetPath_DoesNotIncludeApiRoutes(string path, bool expected)
+    {
+        Assert.Equal(expected, RateLimitMiddleware.IsStaticWebAssetPath(path));
+    }
+
+    [Theory]
     [InlineData("/media", "/media", true)]
     [InlineData("/media/", "/media", true)]
     [InlineData("/media/items", "/media", true)]
@@ -55,5 +67,26 @@ public sealed class RateLimitMiddlewareTests
         await middleware.Invoke(blocked);
 
         Assert.Equal(StatusCodes.Status429TooManyRequests, blocked.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AnonymousStaticAssets_AreNotCountedAgainstRequestLimit()
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+
+        for (var i = 0; i < 40; i++)
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.18");
+            context.Request.Path = "/assets/index.js";
+            await middleware.Invoke(context);
+            Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        }
     }
 }

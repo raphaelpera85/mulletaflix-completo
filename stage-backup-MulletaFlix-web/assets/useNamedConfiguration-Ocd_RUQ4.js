@@ -1,0 +1,1 @@
+import{g as o}from"./configuration-api-YcJsrczW.js";import{ac as t,ad as r}from"./index-6F8mVyyU.js";const s="NamedConfiguration",i=async(e,a,n)=>(await o(e).getNamedConfiguration({key:a},n)).data,g=e=>{const{api:a}=t();return r({queryKey:[s,a?.basePath,e],queryFn:({signal:n})=>i(a,e,{signal:n}),enabled:!!a})};export{s as Q,g as u};

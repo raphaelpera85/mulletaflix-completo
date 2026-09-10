@@ -1,0 +1,1 @@
+import{ac as r,al as u,O as o,aC as c}from"./index-6F8mVyyU.js";import{u as n,Q as i}from"./useTasks-BR_rl1oi.js";const f=e=>{const{api:s}=r(),a=n(e);return u.useEffect(()=>s?.subscribe([o.ScheduledTasksInfo],({Data:t})=>{c.setQueryData([i,s?.basePath],t??[])}),[s]),a};export{f as u};

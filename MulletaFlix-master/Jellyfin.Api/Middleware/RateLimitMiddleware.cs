@@ -21,6 +21,34 @@ public class RateLimitMiddleware
     private static readonly TimeSpan AnonymousWindow = TimeSpan.FromSeconds(10);
     private const int MaxAnonymousRequests = 30;
 
+    private static readonly string[] StaticWebPaths =
+    [
+        "/assets",
+        "/apps",
+        "/controllers",
+        "/libraries",
+        "/themes",
+        "/branding",
+        "/web/assets",
+        "/web/apps",
+        "/web/controllers",
+        "/web/libraries",
+        "/web/themes",
+        "/web/branding",
+        "/index.html",
+        "/web/index.html",
+        "/config.json",
+        "/web/config.json",
+        "/manifest.json",
+        "/web/manifest.json",
+        "/serviceworker.js",
+        "/web/serviceworker.js",
+        "/robots.txt",
+        "/web/robots.txt",
+        "/sitemap.xml",
+        "/web/sitemap.xml"
+    ];
+
     /// <summary>
     /// Maximum number of distinct IP entries retained per dictionary to prevent
     /// unbounded memory growth from IP rotation attacks.
@@ -54,6 +82,7 @@ public class RateLimitMiddleware
 
         var isAuth = context.User?.Identity?.IsAuthenticated ?? false;
         var path = context.Request.Path.Value;
+        var isStaticWebAsset = path is not null && IsStaticWebAssetPath(path);
         var isLoginAttempt = path is not null && (
             IsPathOrDescendant(path, "/Users/Authenticate")
             || IsPathOrDescendant(path, "/Users/Register"));
@@ -67,7 +96,7 @@ public class RateLimitMiddleware
                 return;
             }
         }
-        else if (!isAuth)
+        else if (!isAuth && !isStaticWebAsset)
         {
             if (IsBlocked(_anonymousRequests, ip, AnonymousWindow, MaxAnonymousRequests))
             {
@@ -83,7 +112,7 @@ public class RateLimitMiddleware
         {
             RecordAttempt(_failedLogins, ip, LoginWindow);
         }
-        else if (!isAuth && !isLoginAttempt)
+        else if (!isAuth && !isLoginAttempt && !isStaticWebAsset)
         {
             RecordAttempt(_anonymousRequests, ip, AnonymousWindow);
         }
@@ -92,6 +121,9 @@ public class RateLimitMiddleware
     internal static bool IsPathOrDescendant(string path, string route)
         => string.Equals(path, route, StringComparison.OrdinalIgnoreCase)
             || path.StartsWith(route + "/", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsStaticWebAssetPath(string path)
+        => StaticWebPaths.Any(route => IsPathOrDescendant(path, route));
 
     private static bool IsBlocked(ConcurrentDictionary<string, RateLimitEntry> store, string key, TimeSpan window, int max)
     {

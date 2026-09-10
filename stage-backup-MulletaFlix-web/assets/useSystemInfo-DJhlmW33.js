@@ -1,0 +1,1 @@
+import{ac as t,ad as a,ae as n,af as o}from"./index-6F8mVyyU.js";const r=async(e,s)=>(await o(e).getSystemInfo(s)).data,y=e=>n({queryKey:["SystemInfo",e?.basePath],queryFn:({signal:s})=>r(e,{signal:s,headers:{"Cache-Control":"no-cache"}}),staleTime:1e3,enabled:!!e}),m=()=>{const{api:e}=t();return a(y(e))};export{m as u};
