@@ -1,5 +1,6 @@
 interface FetchOptions {
     cache?: string
+    timeout?: number
 }
 
 const URL_RESOLVER = document.createElement('a');
@@ -30,7 +31,12 @@ export default async function fetchLocal(url: string, options?: FetchOptions) {
             reject(new TypeError('Local request failed'));
         };
 
+        xhr.ontimeout = () => {
+            reject(new TypeError(`Local request timed out after ${options?.timeout ?? 10000}ms`));
+        };
+
         xhr.open('GET', url);
+        xhr.timeout = options?.timeout ?? 10000;
 
         if (options?.cache) {
             xhr.setRequestHeader('Cache-Control', options.cache);

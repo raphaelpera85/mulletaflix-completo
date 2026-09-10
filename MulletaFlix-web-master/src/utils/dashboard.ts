@@ -19,6 +19,8 @@ import { getLocationSearch } from './url';
 import { queryClient } from './query/queryClient';
 import { getClientCapabilities } from './clientCapabilities';
 
+const SERVER_DISCOVERY_TIMEOUT_MS = 5000;
+
 export function getCurrentUser(): unknown {
     return window.ApiClient.getCurrentUser(false);
 }
@@ -55,27 +57,35 @@ export async function serverAddress(): Promise<string | undefined> {
 
     console.debug('URL candidates:', urls);
 
-    const promises = urls.map(url => {
-        return fetch(`${url}/System/Info/Public`, { cache: 'no-cache' })
-            .then(async resp => {
-                if (!resp.ok) {
-                    return;
-                }
+    const promises = urls.map(async url => {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), SERVER_DISCOVERY_TIMEOUT_MS);
 
-                let config: Record<string, unknown>;
-                try {
-                    config = await resp.json();
-                } catch {
-                    return;
-                }
-
-                return {
-                    url,
-                    config
-                };
-            }).catch(error => {
-                console.error(error);
+        try {
+            const resp = await fetch(`${url}/System/Info/Public`, {
+                cache: 'no-cache',
+                signal: controller.signal
             });
+            if (!resp.ok) {
+                return;
+            }
+
+            let config: Record<string, unknown>;
+            try {
+                config = await resp.json();
+            } catch {
+                return;
+            }
+
+            return {
+                url,
+                config
+            };
+        } catch (error) {
+            console.error(error);
+        } finally {
+            window.clearTimeout(timeoutId);
+        }
     });
 
     return Promise.all(promises).then(responses => {

@@ -47,6 +47,24 @@ import './styles/dashboard.scss';
 import './styles/detailtable.scss';
 import './styles/librarybrowser.scss';
 
+const BOOTSTRAP_TIMEOUT_MS = 10000;
+
+function withBootstrapTimeout(promise, label, timeout = BOOTSTRAP_TIMEOUT_MS) {
+    let timeoutId;
+
+    const timeoutPromise = new Promise((resolve) => {
+        timeoutId = window.setTimeout(() => {
+            console.warn(`[bootstrap] ${label} excedeu ${timeout}ms; continuando sem bloquear a interface.`);
+            resolve(undefined);
+        }, timeout);
+    });
+
+    return Promise.race([Promise.resolve(promise).catch((error) => {
+        console.warn(`[bootstrap] ${label} falhou; continuando sem bloquear a interface.`, error);
+        return undefined;
+    }), timeoutPromise]).finally(() => window.clearTimeout(timeoutId));
+}
+
 async function init() {
     // Log current version to console to help out with issue triage and debugging
     console.info(
@@ -71,7 +89,7 @@ build: ${__JF_BUILD_VERSION__}`);
     await appHost.init();
 
     // Initialize the api client
-    const serverUrl = await serverAddress();
+    const serverUrl = await withBootstrapTimeout(serverAddress(), 'descoberta do servidor');
     if (serverUrl) {
         ServerConnections.initApiClient(serverUrl);
     }
@@ -80,7 +98,7 @@ build: ${__JF_BUILD_VERSION__}`);
     initializeAutoCast();
 
     // Load the translation dictionary
-    await loadCoreDictionary();
+    await withBootstrapTimeout(loadCoreDictionary(), 'dicionário principal');
     // Update localization on user changes
     Events.on(ServerConnections, 'localusersignedin', globalize.updateCurrentCulture);
     Events.on(ServerConnections, 'localusersignedout', globalize.updateCurrentCulture);
@@ -94,7 +112,7 @@ build: ${__JF_BUILD_VERSION__}`);
     }
 
     // Load frontend plugins
-    await loadPlugins();
+    await withBootstrapTimeout(loadPlugins(), 'carregamento dos plugins');
 
     // Register API request error handlers
     ServerConnections.getApiClients().forEach(apiClient => {
@@ -138,7 +156,7 @@ async function loadPlugins() {
     console.groupCollapsed('loading installed plugins');
     console.dir(pluginManager);
 
-    let list = await getPlugins();
+    let list = await withBootstrapTimeout(getPlugins(), 'configuração dos plugins') || [];
     if (!appHost.supports(AppFeature.RemoteControl)) {
         // Disable remote player plugins if not supported
         list = list.filter(plugin => !plugin.startsWith('sessionPlayer')
@@ -154,7 +172,13 @@ async function loadPlugins() {
     }
 
     try {
-        await Promise.all(list.map(plugin => pluginManager.loadPlugin(plugin)));
+        const results = await Promise.allSettled(list.map(plugin =>
+            withBootstrapTimeout(pluginManager.loadPlugin(plugin), `plugin ${plugin}`)
+        ));
+        const failures = results.filter(result => result.status === 'rejected');
+        if (failures.length) {
+            console.warn(`falha ao carregar ${failures.length} plugin(s); a interface continuará disponível`, failures);
+        }
         console.debug('finished loading plugins');
     } catch (e) {
         console.warn('failed loading plugins', e);
@@ -213,4 +237,3 @@ async function renderApp() {
 }
 
 init();
-
