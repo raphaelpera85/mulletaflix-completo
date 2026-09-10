@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -770,6 +771,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.NotFound && body.Contains("PGRST205", StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "[SUPABASE-SYNC] A tabela mulletaflix_users não existe no projeto remoto; backup dos usuários do aplicativo foi ignorado. Crie a tabela/migração para habilitar esta etapa.");
+                return 0;
+            }
+
             throw new InvalidOperationException($"Falha ao salvar usuários do MulletaFlix no Supabase: HTTP {(int)response.StatusCode} - {body}");
         }
 

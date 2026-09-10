@@ -616,5 +616,14 @@ Function .onSelChange
 FunctionEnd
 
 Function .onInstSuccess
-    ; TODO - Eventually add an option to launch tray app or service instead, and remind/offer to start browser
+    ; Basic installs do not create a Windows service. Start the tray host so it
+    ; can launch MulletaFlix.exe and keep the local server available after setup.
+    ${If} $_INSTALLSERVICE_ == "No"
+        ${If} ${FileExists} "$INSTDIR\mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe"
+            Exec '"$INSTDIR\mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe"'
+            DetailPrint "MulletaFlix Tray App started for basic installation"
+        ${Else}
+            DetailPrint "MulletaFlix Tray App not found; server must be started manually"
+        ${EndIf}
+    ${EndIf}
 FunctionEnd

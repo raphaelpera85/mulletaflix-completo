@@ -65,6 +65,31 @@ function Assert-Path {
     }
 }
 
+function Assert-WebBuildIntegrity {
+    param(
+        [string]$WebDirectory
+    )
+
+    $indexPath = Join-Path $WebDirectory 'index.html'
+    Assert-Path $indexPath 'Web index'
+
+    $index = Get-Content -LiteralPath $indexPath -Raw
+    $assetReferences = [regex]::Matches($index, '(?:src|href)="(\.\/assets\/[^"?]+)"') |
+        ForEach-Object { $_.Groups[1].Value.Substring(2) } |
+        Sort-Object -Unique
+
+    if ($assetReferences.Count -eq 0) {
+        throw "Web index does not reference any assets: $indexPath"
+    }
+
+    foreach ($asset in $assetReferences) {
+        $assetPath = Join-Path $WebDirectory $asset
+        if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
+            throw "Web index references a missing asset: $assetPath"
+        }
+    }
+}
+
 function Copy-DirectoryContents {
     param(
         [string]$Source,
@@ -113,6 +138,7 @@ function Build-Web {
     }
 
     Copy-DirectoryContents -Source $webDist -Destination $stageWeb
+    Assert-WebBuildIntegrity -WebDirectory $stageWeb
     Write-Host "Web copied to: $stageWeb" -ForegroundColor Green
 }
 

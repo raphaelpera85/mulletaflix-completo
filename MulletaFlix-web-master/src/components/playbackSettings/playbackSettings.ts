@@ -1,5 +1,6 @@
 import { MediaSegmentType } from '@jellyfin/sdk/lib/generated-client/models/media-segment-type';
 import escapeHTML from 'escape-html';
+import type { ApiClient } from 'jellyfin-apiclient';
 
 import { MediaSegmentAction } from 'apps/stable/features/playback/constants/mediaSegmentAction';
 import { getId, getMediaSegmentAction } from 'apps/stable/features/playback/utils/mediaSegmentSettings';
@@ -7,6 +8,7 @@ import { AppFeature } from 'constants/appFeature';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 
 import appSettings from '../../scripts/settings/appSettings';
+import { UserSettings } from '../../scripts/settings/userSettings';
 import { appHost } from '../apphost';
 import browser from '../../scripts/browser';
 import focusManager from '../focusManager';
@@ -21,14 +23,73 @@ import '../../elements/emby-select/emby-select';
 import '../../elements/emby-checkbox/emby-checkbox';
 
 type LanguageOption = {
-    ThreeLetterISOLanguageName?: string;
-    DisplayName?: string;
+    ThreeLetterISOLanguageName?: string | null;
+    DisplayName?: string | null;
 };
 
 type QualityOption = {
     bitrate?: number;
     name?: string;
 };
+
+type PlaybackApiClient = ApiClient;
+
+function getPlaybackApiClient(serverId: string): PlaybackApiClient {
+    return ServerConnections.getApiClient(serverId) as unknown as PlaybackApiClient;
+}
+
+type PlaybackUser = {
+    Id?: string;
+    Policy: {
+        EnableVideoPlaybackTranscoding: boolean;
+        EnableAudioPlaybackTranscoding: boolean;
+    };
+    Configuration: {
+        AudioLanguagePreference?: string;
+        EnableNextEpisodeAutoPlay?: boolean;
+        PlayDefaultAudioTrack?: boolean;
+        RememberAudioSelections?: boolean;
+        RememberSubtitleSelections?: boolean;
+        CastReceiverId?: string;
+    };
+};
+
+type PlaybackSystemInfo = {
+    CastReceiverApplications: Array<{
+        Id: string;
+        Name: string;
+    }>;
+};
+
+type ApiPlaybackUser = Awaited<ReturnType<PlaybackApiClient['getUser']>>;
+type ApiPlaybackSystemInfo = Awaited<ReturnType<PlaybackApiClient['getSystemInfo']>>;
+
+function normalizePlaybackUser(user: ApiPlaybackUser): PlaybackUser {
+    return {
+        Id: user.Id,
+        Policy: {
+            EnableVideoPlaybackTranscoding: user.Policy?.EnableVideoPlaybackTranscoding === true,
+            EnableAudioPlaybackTranscoding: user.Policy?.EnableAudioPlaybackTranscoding === true
+        },
+        Configuration: {
+            AudioLanguagePreference: user.Configuration?.AudioLanguagePreference ?? undefined,
+            EnableNextEpisodeAutoPlay: user.Configuration?.EnableNextEpisodeAutoPlay === true,
+            PlayDefaultAudioTrack: user.Configuration?.PlayDefaultAudioTrack === true,
+            RememberAudioSelections: user.Configuration?.RememberAudioSelections === true,
+            RememberSubtitleSelections: user.Configuration?.RememberSubtitleSelections === true,
+            CastReceiverId: user.Configuration?.CastReceiverId ?? undefined
+        }
+    };
+}
+
+function normalizePlaybackSystemInfo(systemInfo: ApiPlaybackSystemInfo): PlaybackSystemInfo {
+    return {
+        CastReceiverApplications: (systemInfo.CastReceiverApplications ?? []).map(application => ({
+            Id: application.Id || '',
+            Name: application.Name || ''
+        }))
+    };
+}
 
 function fillSkipLengths(select: HTMLSelectElement): void {
     const options = [5, 10, 15, 20, 25, 30];
@@ -57,8 +118,8 @@ function populateLanguages(select: HTMLSelectElement, languages: LanguageOption[
     select.innerHTML = html;
 }
 
-function populateMediaSegments(container: any, userSettings: any): void {
-    const selectedValues: Record<string, any> = {};
+function populateMediaSegments(container: HTMLElement, userSettings: UserSettings): void {
+    const selectedValues: Record<string, MediaSegmentAction> = {};
     const actionOptions = Object.values(MediaSegmentAction)
         .map(action => {
             const actionLabel = globalize.translate(`MediaSegmentAction.${action}`);
@@ -86,7 +147,7 @@ function populateMediaSegments(container: any, userSettings: any): void {
     container.innerHTML = segmentSettings;
 
     Object.entries(selectedValues).forEach(([id, value]) => {
-        const field = container.querySelector(`#${id}`) as any;
+        const field = container.querySelector(`#${CSS.escape(id)}`) as HTMLSelectElement | null;
         if (field) field.value = value;
     });
 }
@@ -107,7 +168,7 @@ function fillQuality(select: HTMLSelectElement, isInNetwork: boolean, mediatype:
     }).join('');
 }
 
-function setMaxBitrateIntoField(select: any, isInNetwork: boolean, mediatype: string): void {
+function setMaxBitrateIntoField(select: HTMLSelectElement, isInNetwork: boolean, mediatype: string): void {
     fillQuality(select, isInNetwork, mediatype);
 
     if (appSettings.enableAutomaticBitrateDetection(isInNetwork, mediatype)) {
@@ -131,7 +192,7 @@ function fillChromecastQuality(select: HTMLSelectElement): void {
     select.value = String(appSettings.maxChromecastBitrate() || '');
 }
 
-function setMaxBitrateFromField(select: any, isInNetwork: boolean, mediatype: string): void {
+function setMaxBitrateFromField(select: HTMLSelectElement, isInNetwork: boolean, mediatype: string): void {
     if (select.value) {
         appSettings.maxStreamingBitrate(isInNetwork, mediatype, select.value);
         appSettings.enableAutomaticBitrateDetection(isInNetwork, mediatype, false);
@@ -140,7 +201,7 @@ function setMaxBitrateFromField(select: any, isInNetwork: boolean, mediatype: st
     }
 }
 
-function showHideQualityFields(context: any, user: any, apiClient: any): void {
+function showHideQualityFields(context: any, user: PlaybackUser, apiClient: PlaybackApiClient): void {
     if (user.Policy.EnableVideoPlaybackTranscoding) {
         context.querySelector('.videoQualitySection').classList.remove('hide');
     } else {
@@ -180,7 +241,7 @@ function showHideQualityFields(context: any, user: any, apiClient: any): void {
     });
 }
 
-function loadForm(context: any, user: any, userSettings: any, systemInfo: any, apiClient: any): void {
+function loadForm(context: any, user: PlaybackUser, userSettings: UserSettings, systemInfo: PlaybackSystemInfo, apiClient: PlaybackApiClient): void {
     const loggedInUserId = apiClient.getCurrentUserId();
     const userId = user.Id;
 
@@ -196,7 +257,7 @@ function loadForm(context: any, user: any, userSettings: any, systemInfo: any, a
 
     context.querySelector('#selectAllowedAudioChannels').value = userSettings.allowedAudioChannels();
 
-    apiClient.getCultures().then((allCultures: any[]) => {
+    apiClient.getCultures().then((allCultures: LanguageOption[]) => {
         populateLanguages(context.querySelector('#selectAudioLanguage'), allCultures);
         context.querySelector('#selectAudioLanguage', context).value = user.Configuration.AudioLanguagePreference || '';
         context.querySelector('.chkEpisodeAutoPlay').checked = user.Configuration.EnableNextEpisodeAutoPlay || false;
@@ -274,7 +335,7 @@ function loadForm(context: any, user: any, userSettings: any, systemInfo: any, a
     loading.hide();
 }
 
-function saveUser(context: any, user: any, userSettingsInstance: any, apiClient: any): Promise<any> {
+function saveUser(context: any, user: PlaybackUser, userSettingsInstance: UserSettings, apiClient: PlaybackApiClient): Promise<unknown> {
     appSettings.enableSystemExternalPlayers(context.querySelector('.chkExternalVideoPlayer').checked);
     appSettings.maxChromecastBitrate(context.querySelector('.selectChromecastVideoQuality').value);
     appSettings.maxVideoWidth(context.querySelector('.selectMaxVideoWidth').value);
@@ -312,14 +373,14 @@ function saveUser(context: any, user: any, userSettingsInstance: any, apiClient:
         userSettingsInstance.set(actionEl.id, actionEl.value, false);
     });
 
-    return apiClient.updateUserConfiguration(user.Id, user.Configuration);
+    return apiClient.updateUserConfiguration(user.Id || '', user.Configuration);
 }
 
-function save(instance: any, context: any, userId: string, userSettings: any, apiClient: any, enableSaveConfirmation: boolean): void {
+function save(instance: any, context: any, userId: string, userSettings: UserSettings, apiClient: PlaybackApiClient, enableSaveConfirmation: boolean): void {
     loading.show();
 
-    void apiClient.getUser(userId).then((user: unknown) => {
-        return saveUser(context, user, userSettings, apiClient);
+    apiClient.getUser(userId).then(user => {
+        return saveUser(context, normalizePlaybackUser(user), userSettings, apiClient);
     }).then(() => {
         loading.hide();
         if (enableSaveConfirmation) {
@@ -335,11 +396,11 @@ function save(instance: any, context: any, userId: string, userSettings: any, ap
 
 function onSubmit(this: any, e: any): boolean {
     const self: any = this;
-    const apiClient: any = ServerConnections.getApiClient(self.options.serverId);
+    const apiClient = getPlaybackApiClient(self.options.serverId);
     const userId = self.options.userId;
     const userSettings = self.options.userSettings;
 
-    void userSettings.setUserInfo(userId, apiClient).then(() => {
+    userSettings.setUserInfo(userId, apiClient).then(() => {
         const enableSaveConfirmation = self.options.enableSaveConfirmation;
         save(self, self.options.element, userId, userSettings, apiClient, enableSaveConfirmation);
     }).catch(() => {
@@ -386,12 +447,15 @@ class PlaybackSettings {
         loading.show();
 
         const userId = self.options.userId;
-        const apiClient: any = ServerConnections.getApiClient(self.options.serverId);
+        const apiClient = getPlaybackApiClient(self.options.serverId);
         const userSettings = self.options.userSettings;
 
         apiClient.getUser(userId)
-            .then((user: unknown) => apiClient.getSystemInfo().then((systemInfo: unknown) => ({ user, systemInfo })))
-            .then(({ user, systemInfo }: { user: unknown; systemInfo: unknown }) => userSettings.setUserInfo(userId, apiClient).then(() => {
+            .then(user => apiClient.getSystemInfo().then(systemInfo => ({
+                user: normalizePlaybackUser(user),
+                systemInfo: normalizePlaybackSystemInfo(systemInfo)
+            })))
+            .then(({ user, systemInfo }: { user: PlaybackUser; systemInfo: PlaybackSystemInfo }) => userSettings.setUserInfo(userId, apiClient).then(() => {
                 self.dataLoaded = true;
                 loadForm(context, user, userSettings, systemInfo, apiClient);
             }))
