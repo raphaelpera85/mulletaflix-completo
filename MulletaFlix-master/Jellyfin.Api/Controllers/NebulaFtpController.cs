@@ -143,8 +143,14 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
 
     [HttpPost("Bots")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<System.Collections.Generic.List<NebulaBotDto>> SaveBot([FromBody] NebulaSaveBotRequest request)
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult<System.Collections.Generic.List<NebulaBotDto>> SaveBot([FromBody] NebulaSaveBotRequest? request)
     {
+        if (request is null)
+        {
+            return BadRequest();
+        }
+
         var bots = _nebulaManager.SaveBot(request);
         return Ok(bots);
     }

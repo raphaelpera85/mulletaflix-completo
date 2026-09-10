@@ -18,7 +18,7 @@ test.describe.serial('10 - Admin', () => {
 
     test('creates a common user and walks through profile, access, parental and password tabs', async ({ page }) => {
         const userName = process.env.MFLX_COMMON_USER || 'mflx-user';
-        const userPassword = process.env.MFLX_COMMON_PASSWORD || 'User@12345';
+        const userPassword = TEST_USERS.common.password;
 
         await page.goto('/#/dashboard/users/add');
         await expect(page.locator('#newUserPage')).toBeVisible({ timeout: 30_000 });
@@ -37,8 +37,8 @@ test.describe.serial('10 - Admin', () => {
 
         await page.getByRole('tab', { name: /Profile/i }).click();
         await expect(page.locator('.editUserProfileForm')).toBeVisible();
-        await page.locator('.chkIsAdmin').uncheck().catch(() => {});
-        await page.locator('.chkIsHidden').uncheck().catch(() => {});
+        await page.locator('.chkIsAdmin').uncheck().catch(() => undefined);
+        await page.locator('.chkIsHidden').uncheck().catch(() => undefined);
         await page.locator('.editUserProfileForm .button-submit').click();
 
         await expect(page.locator('#userProfilesPage')).toBeVisible({ timeout: 30_000 });

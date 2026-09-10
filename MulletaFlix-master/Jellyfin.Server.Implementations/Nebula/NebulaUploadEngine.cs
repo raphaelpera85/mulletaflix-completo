@@ -271,7 +271,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     _logger.LogInformation("[NEBULA-UPLOAD] Arquivo '{Name}' já está 100% concluído no Nebula.", targetFileName);
                     if (_deleteSourceAfterUpload)
                     {
-                        try { File.Delete(localFilePath); } catch { /* ignore */ }
+                        try
+                        {
+                            File.Delete(localFilePath);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível remover staging file já concluído: {Path}", localFilePath);
+                        }
                     }
 
                     // A recognition marker may have been created before this

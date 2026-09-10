@@ -238,6 +238,12 @@ namespace MulletaFlix.Server
 
                 if (appConfig.HostWebClient())
                 {
+                    // A fresh install or an isolated integration host may not
+                    // have a web directory yet. PhysicalFileProvider requires
+                    // the root to exist, so create it before registering the
+                    // static-file middleware instead of failing host startup.
+                    Directory.CreateDirectory(_serverConfigurationManager.ApplicationPaths.WebPath);
+
                     var extensionProvider = new FileExtensionContentTypeProvider();
 
                     // subtitles octopus requires .data, .mem files.

@@ -46,8 +46,14 @@ import { chromium } from '@playwright/test';
             await manualBtn.click();
         }
 
-        await page.locator('#txtManualName').first().fill('Raphael');
-        await page.locator('#txtManualPassword').first().fill('Bug309c*');
+        const adminUser = process.env.MFLX_ADMIN_USER?.trim();
+        const adminPassword = process.env.MFLX_ADMIN_PASSWORD?.trim();
+        if (!adminUser || !adminPassword) {
+            throw new Error('Set MFLX_ADMIN_USER and MFLX_ADMIN_PASSWORD before running debug_console.mjs.');
+        }
+
+        await page.locator('#txtManualName').first().fill(adminUser);
+        await page.locator('#txtManualPassword').first().fill(adminPassword);
         await page.locator('button[type="submit"]').first().click();
 
         console.log('Logged in. Navigating to home page...');

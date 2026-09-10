@@ -14,42 +14,42 @@ namespace Jellyfin.Server.Implementations.Nebula;
 public sealed class NebulaStreamPart
 {
     /// <summary>
-    /// Índice sequencial da parte.
+    /// Gets or sets o índice sequencial da parte.
     /// </summary>
     public int PartIndex { get; set; }
 
     /// <summary>
-    /// Deslocamento em bytes da parte dentro do arquivo consolidado.
+    /// Gets or sets o deslocamento em bytes da parte dentro do arquivo consolidado.
     /// </summary>
     public long FileOffset { get; set; }
 
     /// <summary>
-    /// Tamanho em bytes desta parte.
+    /// Gets or sets o tamanho em bytes desta parte.
     /// </summary>
     public long Size { get; set; }
 
     /// <summary>
-    /// Identificador do arquivo no Telegram (Pyrogram/Bot API).
+    /// Gets or sets o identificador do arquivo no Telegram (Pyrogram/Bot API).
     /// </summary>
     public string? FileId { get; set; }
 
     /// <summary>
-    /// Índice do bot responsável pelo upload original.
+    /// Gets or sets o índice do bot responsável pelo upload original.
     /// </summary>
     public int BotIndex { get; set; }
 
     /// <summary>
-    /// ID do canal onde a mensagem foi publicada.
+    /// Gets or sets o ID do canal onde a mensagem foi publicada.
     /// </summary>
     public long ChatId { get; set; }
 
     /// <summary>
-    /// ID da mensagem no canal do Telegram.
+    /// Gets or sets o ID da mensagem no canal do Telegram.
     /// </summary>
     public int MessageId { get; set; }
 
     /// <summary>
-    /// Caminho local em disco caso o arquivo ainda esteja em staging ou cache local.
+    /// Gets or sets o caminho local em disco caso o arquivo ainda esteja em staging ou cache local.
     /// </summary>
     public string? LocalPath { get; set; }
 }

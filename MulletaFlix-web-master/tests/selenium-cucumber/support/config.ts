@@ -22,6 +22,15 @@ function getRequiredSecret(name) {
     return value;
 }
 
+function getRequiredPath(name) {
+    const value = process.env[name]?.trim();
+    if (!value) {
+        throw new Error(`Set ${name} before running Selenium/Cucumber tests.`);
+    }
+
+    return value;
+}
+
 module.exports = {
     ROOT_URL,
     ADMIN_USER: process.env.MFLX_ADMIN_USER || 'Raphael',
@@ -32,9 +41,15 @@ module.exports = {
     get COMMON_PASSWORD() {
         return getRequiredSecret('MFLX_COMMON_PASSWORD');
     },
-    MOVIES_PATH: process.env.MFLX_MOVIES_PATH || 'D:\\Users\\Raphael\\Videos\\Filmes',
-    SERIES_PATH: process.env.MFLX_SERIES_PATH || 'D:\\Users\\Raphael\\Videos\\Series',
-    IPTV_PATH: process.env.MFLX_IPTV_PATH || 'D:\\Users\\Raphael\\Documents\\Projetos\\m3u\\canais.m3u8',
+    get MOVIES_PATH() {
+        return getRequiredPath('MFLX_MOVIES_PATH');
+    },
+    get SERIES_PATH() {
+        return getRequiredPath('MFLX_SERIES_PATH');
+    },
+    get IPTV_PATH() {
+        return getRequiredPath('MFLX_IPTV_PATH');
+    },
     REPORT_DIR: process.env.SELENIUM_CUCUMBER_REPORT_DIR
         || path.join(process.cwd(), 'tests', 'selenium-cucumber', 'reports'),
     RAW_REPORT_FILE: process.env.SELENIUM_CUCUMBER_RAW_REPORT
