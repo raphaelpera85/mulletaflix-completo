@@ -550,7 +550,10 @@ public sealed class NebulaMongoContext : IDisposable
     /// <returns>Documento encontrado ou null.</returns>
     public async Task<BsonDocument?> FindFileByIdAsync(ObjectId id, CancellationToken cancellationToken = default)
     {
-        var filter = Builders<BsonDocument>.Filter.Eq("_id", id);
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Ne("type", "dir"),
+            Builders<BsonDocument>.Filter.Eq("status", "completed"));
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -577,11 +580,15 @@ public sealed class NebulaMongoContext : IDisposable
             }
         }
 
-        var filter = Builders<BsonDocument>.Filter.Or(
+        var identifierFilter = Builders<BsonDocument>.Filter.Or(
             Builders<BsonDocument>.Filter.Eq("name", pathOrName),
             Builders<BsonDocument>.Filter.Eq("local_path", pathOrName),
             Builders<BsonDocument>.Filter.Eq("tg_file_id", pathOrName),
             Builders<BsonDocument>.Filter.Eq("tg_file", pathOrName));
+        var filter = Builders<BsonDocument>.Filter.And(
+            identifierFilter,
+            Builders<BsonDocument>.Filter.Ne("type", "dir"),
+            Builders<BsonDocument>.Filter.Eq("status", "completed"));
 
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);

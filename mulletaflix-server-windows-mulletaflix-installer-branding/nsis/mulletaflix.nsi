@@ -198,6 +198,11 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
     ; Allow MariaDB through firewall
     ExecWait 'netsh advfirewall firewall add rule name="MulletaFlix MariaDB" dir=in action=allow program="$INSTDIR\mariadb\bin\mysqld.exe" enable=yes' $0
 
+    ; HttpListener usa HTTP.sys. Reserve a porta padrão do Nebula para que o
+    ; streaming HTTP em LAN não falhe com "Access is denied".
+    DetailPrint "Configurando reserva HTTP do Nebula (porta 2123)..."
+    ExecWait 'netsh http add urlacl url=http://+:2123/ sddl=D:(A;;GX;;;WD)' $0
+
     ; Create uninstaller
     WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
@@ -370,6 +375,7 @@ Section "Uninstall"
 
     ; Remove MariaDB firewall rule
     ExecWait 'netsh advfirewall firewall delete rule name="MulletaFlix MariaDB"' $0
+    ExecWait 'netsh http delete urlacl url=http://+:2123/' $0
 
     Sleep 3000 ; Give time for Windows to catchup
 
