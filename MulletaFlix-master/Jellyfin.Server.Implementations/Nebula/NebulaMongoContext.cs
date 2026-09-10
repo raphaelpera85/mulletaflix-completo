@@ -685,6 +685,16 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Obtém a quantidade de usuários locais sem carregar os documentos inteiros.
+    /// </summary>
+    public Task<long> CountUsersAsync(CancellationToken cancellationToken = default)
+    {
+        return _usersCollection.CountDocumentsAsync(
+            Builders<BsonDocument>.Filter.Empty,
+            cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
     /// Busca somente os arquivos que estão sendo enviados neste momento.
     /// </summary>
     public async Task<List<BsonDocument>> GetActiveUploadsAsync(CancellationToken cancellationToken = default)

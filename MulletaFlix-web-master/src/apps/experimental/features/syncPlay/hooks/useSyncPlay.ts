@@ -14,6 +14,10 @@ interface SyncPlayInstance {
         isPlaylistEmpty: () => boolean
         haltGroupPlayback: (apiClient: ApiClient) => void
         resumeGroupPlayback: (apiClient: ApiClient) => void
+        getController: () => {
+            nextItem: () => void
+            previousItem: () => void
+        }
     }
 }
 
@@ -71,4 +75,3 @@ export function useSyncPlay() {
         syncPlay
     };
 }
-

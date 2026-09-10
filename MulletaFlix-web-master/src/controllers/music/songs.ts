@@ -9,6 +9,8 @@ import globalize from '../../lib/globalize';
 import Dashboard from '../../utils/dashboard';
 import Events from '../../utils/events.ts';
 import { setFilterStatus } from 'components/filterdialog/filterIndicator';
+import type { ItemDto } from 'types/base/models/item-dto';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import '../../elements/emby-itemscontainer/emby-itemscontainer';
 
@@ -54,7 +56,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 pageData.query['Limit'] = userSettings.libraryPageSize();
             }
 
-            userSettings.loadQuerySettings(key, pageData.query as any);
+            userSettings.loadQuerySettings(key, pageData.query as unknown as Record<string, unknown>);
         }
 
         return pageData!;
@@ -74,7 +76,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
         const query = getQuery();
         setFilterStatus(tabContent, query);
 
-        ApiClient.getItems(Dashboard.getCurrentUserId(), query).then(function (result: any) {
+        ApiClient.getItems(Dashboard.getCurrentUserId(), query).then(function (result: ItemDtoQueryResult) {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -101,13 +103,13 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
             const pagingHtml = libraryBrowser.getQueryPagingHtml({
                 startIndex: query.StartIndex,
                 limit: query.Limit ?? 0,
-                totalRecordCount: result.TotalRecordCount,
+                totalRecordCount: result.TotalRecordCount ?? 0,
                 addLayoutButton: false,
                 sortButton: false,
                 filterButton: false
             });
             const html = listView.getListViewHtml({
-                items: result.Items,
+                items: result.Items ?? [],
                 action: 'playallfromhere',
                 smallIcon: true,
                 artist: true,
@@ -129,28 +131,36 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 elems[i].addEventListener('click', onPreviousPageClick);
             }
 
-            const itemsContainer = tabContent.querySelector('.itemsContainer')!;
+            const itemsContainer = tabContent.querySelector('.itemsContainer');
+            if (!itemsContainer) {
+                loading.hide();
+                isLoading = false;
+                return;
+            }
             itemsContainer.innerHTML = html;
             imageLoader.lazyChildren(itemsContainer);
-            userSettings.saveQuerySettings(getSavedQueryKey(), query as any);
+            userSettings.saveQuerySettings(getSavedQueryKey(), query as unknown as Record<string, unknown>);
 
-            tabContent.querySelector('.btnShuffle')!.classList.toggle('hide', result.TotalRecordCount < 1);
+            tabContent.querySelector('.btnShuffle')?.classList.toggle('hide', (result.TotalRecordCount ?? 0) < 1);
 
             loading.hide();
             isLoading = false;
 
-            import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+            void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(page);
-            });
+            }).catch((error: unknown) => console.error('[Songs] failed to focus page', error));
+        }).catch((error: unknown) => {
+            console.error('[Songs] failed to load songs', error);
+            loading.hide();
+            isLoading = false;
         });
     }
 
-    const self = this;
     const data: Record<string, PageData> = {};
     let isLoading = false;
 
-    self.showFilterMenu = function () {
-        import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
+    const showFilterMenu = function () {
+        void import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
                 query: getQuery() as unknown as Record<string, unknown>,
                 mode: 'songs',
@@ -160,25 +170,25 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 getQuery().StartIndex = 0;
                 reloadItems();
             });
-            filterDialog.show();
-        });
+            void filterDialog.show().catch((error: unknown) => console.error('[Songs] filter dialog failed', error));
+        }).catch((error: unknown) => console.error('[Songs] failed to open filter dialog', error));
     };
 
     function shuffle(): void {
-        ApiClient.getItem(ApiClient.getCurrentUserId(), params.topParentId).then(function (item: any) {
+        ApiClient.getItem(ApiClient.getCurrentUserId(), params.topParentId).then(function (item: ItemDto) {
             playbackManager.shuffle(item);
-        });
+        }).catch((error: unknown) => console.error('[Songs] failed to shuffle songs', error));
     }
 
-    self.getCurrentViewStyle = function () {
+    const getCurrentViewStyle = function () {
         return getPageData().view;
     };
 
     function initPage(tabElement: HTMLElement): void {
-        tabElement.querySelector('.btnFilter')!.addEventListener('click', function () {
-            self.showFilterMenu();
+        tabElement.querySelector('.btnFilter')?.addEventListener('click', function () {
+            showFilterMenu();
         });
-        tabElement.querySelector('.btnSort')!.addEventListener('click', function (e: Event) {
+        tabElement.querySelector('.btnSort')?.addEventListener('click', function () {
             libraryBrowser.showSortMenu({
                 items: [{
                     name: globalize.translate('OptionTrackName'),
@@ -218,12 +228,16 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 query: getQuery()
             });
         });
-        tabElement.querySelector('.btnShuffle')!.addEventListener('click', shuffle);
+        tabElement.querySelector('.btnShuffle')?.addEventListener('click', shuffle);
     }
 
     initPage(tabContent);
 
-    self.renderTab = function () {
+    const renderTab = function () {
         reloadItems(tabContent);
     };
+
+    this.showFilterMenu = showFilterMenu;
+    this.getCurrentViewStyle = getCurrentViewStyle;
+    this.renderTab = renderTab;
 }

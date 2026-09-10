@@ -1,6 +1,7 @@
 import cardBuilder from '../../components/cardbuilder/cardBuilder';
 import imageLoader from '../../components/images/imageLoader';
 import loading from '../../components/loading/loading';
+import type { ItemDto } from '../../types/base/models/item-dto';
 import '../../elements/emby-button/paper-icon-button-light';
 import '../../elements/emby-button/emby-button';
 
@@ -14,23 +15,7 @@ interface QueryParams {
 }
 
 interface LiveTvSeriesTimersResponse {
-    Items: any[];
-}
-
-interface CardBuilderGetCardsHtmlParams {
-    items: any[];
-    shape: string;
-    defaultShape: string;
-    showTitle: boolean;
-    cardLayout: boolean;
-    preferThumb: string;
-    coverImage: boolean;
-    overlayText: boolean;
-    showSeriesTimerTime: boolean;
-    showSeriesTimerChannel: boolean;
-    centerText: boolean;
-    overlayMoreButton: boolean;
-    lines: number;
+    Items: ItemDto[];
 }
 
 interface SeriesTimersController {
@@ -38,8 +23,8 @@ interface SeriesTimersController {
     renderTab: () => void;
 }
 
-function renderTimers(context: HTMLElement, timers: any[]): void {
-    const html = (cardBuilder as any).getCardsHtml({
+function renderTimers(context: HTMLElement, timers: ItemDto[]): void {
+    const html = cardBuilder.getCardsHtml({
         items: timers,
         shape: 'auto',
         defaultShape: 'portrait',
@@ -53,17 +38,20 @@ function renderTimers(context: HTMLElement, timers: any[]): void {
         centerText: true,
         overlayMoreButton: true,
         lines: 3
-    } as CardBuilderGetCardsHtmlParams);
+    });
     const elem = context.querySelector('#items') as HTMLElement;
     elem.innerHTML = html;
-    (imageLoader as any).lazyChildren(elem);
-    (loading as any).hide();
+    imageLoader.lazyChildren(elem);
+    loading.hide();
 }
 
 function reload(context: HTMLElement, promise: Promise<LiveTvSeriesTimersResponse>): void {
-    (loading as any).show();
+    loading.show();
     promise.then(function (result: LiveTvSeriesTimersResponse): void {
         renderTimers(context, result.Items);
+    }).catch((error: unknown) => {
+        loading.hide();
+        console.error('[LiveTvSeriesTimers] failed to load timers', error);
     });
 }
 
@@ -74,13 +62,12 @@ const query: QueryParams = {
 
 export default function (this: SeriesTimersController, view: HTMLElement, params: Record<string, string>, tabContent: HTMLElement): void {
     let timersPromise: Promise<LiveTvSeriesTimersResponse>;
-    const self = this;
 
-    self.preRender = function (): void {
+    this.preRender = function (): void {
         timersPromise = ApiClient.getLiveTvSeriesTimers(query);
     };
 
-    self.renderTab = function (): void {
+    this.renderTab = function (): void {
         reload(tabContent, timersPromise);
     };
 }

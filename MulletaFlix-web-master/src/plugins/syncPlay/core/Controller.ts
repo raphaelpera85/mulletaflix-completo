@@ -94,25 +94,25 @@ class Controller {
     queue(options: any, mode = 'Queue'): void {
         const apiClient = this.manager.getApiClient();
         if (options.items) {
-            Helper.translateItemsForPlayback(apiClient, options.items, options).then((items) => {
+            void Helper.translateItemsForPlayback(apiClient, options.items, options).then((items) => {
                 const itemIds = items.map(item => item.Id);
-                apiClient.requestSyncPlayQueue({
+                return apiClient.requestSyncPlayQueue({
                     ItemIds: itemIds,
                     Mode: mode
                 });
-            });
+            }).catch((error: unknown) => console.error('SyncPlay failed to queue items', error));
         } else {
-            Helper.getItemsForPlayback(apiClient, {
+            void Helper.getItemsForPlayback(apiClient, {
                 Ids: options.ids.join(',')
             }).then((result) => {
-                Helper.translateItemsForPlayback(apiClient, result.Items, options).then((items) => {
+                return Helper.translateItemsForPlayback(apiClient, result.Items, options).then((items) => {
                     const itemIds = items.map(item => item.Id);
-                    apiClient.requestSyncPlayQueue({
+                    return apiClient.requestSyncPlayQueue({
                         ItemIds: itemIds,
                         Mode: mode
                     });
                 });
-            });
+            }).catch((error: unknown) => console.error('SyncPlay failed to queue items', error));
         }
     }
 

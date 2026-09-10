@@ -233,6 +233,42 @@ function addBackdropOverlay(dlg: DialogElement): void {
     });
 }
 
+function restoreDialogHistory(
+    dlg: DialogElement,
+    hash: string,
+    finishClose: () => void,
+    unlistenRef: { current: (() => void) | null }
+): void {
+    if (!isHistoryEnabled(dlg)) {
+        return;
+    }
+
+    const state = (history.location.state || {}) as DialogHistoryState;
+    const dialogs = state.dialogs || [];
+    if (dialogs.length === 0) {
+        return;
+    }
+
+    if (dialogs[dialogs.length - 1] === hash) {
+        unlistenRef.current = history.listen(finishClose);
+        history.back();
+        return;
+    }
+
+    if (dialogs.includes(hash)) {
+        console.warn('[dialogHelper] dialog "%s" was closed, but is not the last dialog opened', hash);
+
+        unlistenRef.current = history.listen(finishClose);
+        history.replace(
+            `${history.location.pathname}${history.location.search}`,
+            {
+                ...state,
+                dialogs: dialogs.filter((dialog: string) => dialog !== hash)
+            }
+        );
+    }
+}
+
 function onDialogClosed(dlg: DialogElement, removeScrollLockOnClose: boolean, hash: string, finishClose: () => void, unlistenRef: { current: (() => void) | null }, activeElement: Element | null): void {
     dlg.dispatchEvent(new CustomEvent('close', {
         bubbles: false,
@@ -257,27 +293,7 @@ function onDialogClosed(dlg: DialogElement, removeScrollLockOnClose: boolean, ha
         document.body.classList.remove('noScroll');
     }
 
-    if (isHistoryEnabled(dlg)) {
-        const state = (history.location.state || {}) as DialogHistoryState;
-        const dialogs = state.dialogs || [];
-        if (dialogs.length > 0) {
-            if (dialogs[dialogs.length - 1] === hash) {
-                unlistenRef.current = history.listen(finishClose);
-                history.back();
-            } else if (dialogs.includes(hash)) {
-                console.warn('[dialogHelper] dialog "%s" was closed, but is not the last dialog opened', hash);
-
-                unlistenRef.current = history.listen(finishClose);
-                history.replace(
-                    `${history.location.pathname}${history.location.search}`,
-                    {
-                        ...state,
-                        dialogs: dialogs.filter((dialog: string) => dialog !== hash)
-                    }
-                );
-            }
-        }
-    }
+    restoreDialogHistory(dlg, hash, finishClose, unlistenRef);
 
     if (layoutManager.tv) {
         focusManager.focus(activeElement);
@@ -401,6 +417,47 @@ export function close(dlg: HTMLElement): void {
     }
 }
 
+function configureDialogAnimation(
+    dlg: DialogElement,
+    entryAnimation: string,
+    exitAnimation: string,
+    entryAnimationDuration: number,
+    exitAnimationDuration: number
+): void {
+    dlg.animationConfig = {
+        entry: {
+            name: entryAnimation,
+            timing: {
+                duration: entryAnimationDuration,
+                easing: 'ease-out'
+            }
+        },
+        exit: {
+            name: exitAnimation,
+            timing: {
+                duration: exitAnimationDuration,
+                easing: 'ease-out',
+                fill: 'both'
+            }
+        }
+    };
+
+    if (!enableAnimation()) {
+        return;
+    }
+
+    const animations: Record<string, string> = {
+        fadein: `fadein ${entryAnimationDuration}ms ease-out normal`,
+        scaleup: `scaleup ${entryAnimationDuration}ms ease-out normal both`,
+        slideup: `slideup ${entryAnimationDuration}ms ease-out normal`,
+        slidedown: `slidedown ${entryAnimationDuration}ms ease-out normal`
+    };
+    const animation = animations[entryAnimation];
+    if (animation) {
+        dlg.style.animation = animation;
+    }
+}
+
 export function createDialog(options: DialogOptions = {}): DialogElement {
     const dlg = document.createElement('div') as DialogElement;
 
@@ -434,23 +491,7 @@ export function createDialog(options: DialogOptions = {}): DialogElement {
     const entryAnimationDuration = options.entryAnimationDuration || (options.size !== 'fullscreen' ? 180 : 280);
     const exitAnimationDuration = options.exitAnimationDuration || (options.size !== 'fullscreen' ? 120 : 220);
 
-    dlg.animationConfig = {
-        entry: {
-            name: entryAnimation,
-            timing: {
-                duration: entryAnimationDuration,
-                easing: 'ease-out'
-            }
-        },
-        exit: {
-            name: exitAnimation,
-            timing: {
-                duration: exitAnimationDuration,
-                easing: 'ease-out',
-                fill: 'both'
-            }
-        }
-    };
+    configureDialogAnimation(dlg, entryAnimation, exitAnimation, entryAnimationDuration, exitAnimationDuration);
 
     dlg.classList.add('dialog');
 
@@ -476,25 +517,6 @@ export function createDialog(options: DialogOptions = {}): DialogElement {
     if (options.size) {
         dlg.classList.add('dialog-fixedSize');
         dlg.classList.add(`dialog-${options.size}`);
-    }
-
-    if (enableAnimation()) {
-        switch (dlg.animationConfig.entry.name) {
-            case 'fadein':
-                dlg.style.animation = `fadein ${entryAnimationDuration}ms ease-out normal`;
-                break;
-            case 'scaleup':
-                dlg.style.animation = `scaleup ${entryAnimationDuration}ms ease-out normal both`;
-                break;
-            case 'slideup':
-                dlg.style.animation = `slideup ${entryAnimationDuration}ms ease-out normal`;
-                break;
-            case 'slidedown':
-                dlg.style.animation = `slidedown ${entryAnimationDuration}ms ease-out normal`;
-                break;
-            default:
-                break;
-        }
     }
 
     return dlg;

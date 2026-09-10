@@ -22,7 +22,7 @@ function onAnchorClick(this: HTMLAnchorElement, e: Event): void {
             }
         } else {
             e.preventDefault();
-            appRouter.show(href);
+            appRouter.show(href).catch(() => undefined);
         }
     } else {
         e.preventDefault();

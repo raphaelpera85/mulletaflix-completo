@@ -8,11 +8,10 @@ function enableScrollX(): boolean {
     return !layoutManager.desktop;
 }
 
-interface TimerItem {
+export interface TimerItem {
     Type?: string;
     StartDate?: string;
     Id?: string;
-    [key: string]: any;
 }
 
 interface TimerGroup {
@@ -20,38 +19,35 @@ interface TimerGroup {
     items: TimerItem[];
 }
 
-interface TimerOptions {
+export interface TimerOptions {
     indexByDate?: boolean;
-    [key: string]: any;
 }
 
-export function getTimersHtml(timers: TimerItem[], options?: TimerOptions): Promise<string> {
-    options = options || {};
+function getTimerDateText(item: TimerItem, indexByDate: boolean): string {
+    if (!indexByDate || !item.StartDate) {
+        return '';
+    }
 
-    const items: TimerItem[] = timers.map(function (t) {
-        t.Type = 'Timer';
-        return t;
-    });
+    try {
+        const premiereDate = datetime.parseISO8601Date(item.StartDate, true);
+        return datetime.toLocaleDateString(premiereDate, {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric'
+        });
+    } catch (err) {
+        console.error('error parsing premiereDate:' + item.StartDate + '; error: ' + err);
+        return '';
+    }
+}
 
+function groupTimers(items: TimerItem[], indexByDate: boolean): TimerGroup[] {
     const groups: TimerGroup[] = [];
     let currentGroupName = '';
     let currentGroup: TimerItem[] = [];
 
     for (const item of items) {
-        let dateText = '';
-
-        if (options.indexByDate !== false && item.StartDate) {
-            try {
-                const premiereDate = datetime.parseISO8601Date(item.StartDate, true);
-                dateText = datetime.toLocaleDateString(premiereDate, {
-                    weekday: 'long',
-                    month: 'short',
-                    day: 'numeric'
-                });
-            } catch (err) {
-                console.error('error parsing premiereDate:' + item.StartDate + '; error: ' + err);
-            }
-        }
+        const dateText = getTimerDateText(item, indexByDate);
 
         if (dateText != currentGroupName) {
             if (currentGroup.length) {
@@ -74,24 +70,27 @@ export function getTimersHtml(timers: TimerItem[], options?: TimerOptions): Prom
             items: currentGroup
         });
     }
-    let html = '';
-    for (const group of groups) {
-        if (group.name) {
-            html += '<div class="verticalSection">';
-            html += '<h2 class="sectionTitle sectionTitle-cards padded-left">' + group.name + '</h2>';
+    return groups;
+}
+
+function renderTimerGroup(group: TimerGroup): string {
+    let heading = '';
+    if (group.name) {
+        heading = '<div class="verticalSection"><h2 class="sectionTitle sectionTitle-cards padded-left">' + group.name + '</h2>';
+    }
+    let containerClass = 'itemsContainer vertical-wrap padded-left padded-right';
+    if (enableScrollX()) {
+        let scrollClass = 'scrollX hiddenScrollX';
+        if (layoutManager.tv) {
+            scrollClass += ' smoothScrollX';
         }
 
-        if (enableScrollX()) {
-            let scrollXClass = 'scrollX hiddenScrollX';
-            if (layoutManager.tv) {
-                scrollXClass += ' smoothScrollX';
-            }
-            html += '<div is="emby-itemscontainer" class="itemsContainer ' + scrollXClass + ' padded-left padded-right">';
-        } else {
-            html += '<div is="emby-itemscontainer" class="itemsContainer vertical-wrap padded-left padded-right">';
-        }
+        containerClass = 'itemsContainer ' + scrollClass + ' padded-left padded-right';
+    }
 
-        html += cardBuilder.getCardsHtml({
+    return heading
+        + '<div is="emby-itemscontainer" class="' + containerClass + '">'
+        + cardBuilder.getCardsHtml({
             items: group.items,
             shape: getBackdropShape(enableScrollX()),
             showTitle: true,
@@ -109,13 +108,13 @@ export function getTimersHtml(timers: TimerItem[], options?: TimerOptions): Prom
             allowBottomPadding: false,
             overlayText: false,
             showChannelLogo: true
-        });
+        })
+        + '</div>'
+        + (group.name ? '</div>' : '');
+}
 
-        html += '</div>';
-
-        if (group.name) {
-            html += '</div>';
-        }
-    }
-    return Promise.resolve(html);
+export function getTimersHtml(timers: TimerItem[], options: TimerOptions = {}): Promise<string> {
+    const items = timers.map((timer) => ({ ...timer, Type: 'Timer' }));
+    const groups = groupTimers(items, options.indexByDate !== false);
+    return Promise.resolve(groups.map(renderTimerGroup).join(''));
 }

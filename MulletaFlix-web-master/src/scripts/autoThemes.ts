@@ -41,7 +41,8 @@ applyTheme(userSettings.theme())
     /* this keeps the scrollbar always present in all pages, so we avoid clipping while switching between pages
        that need the scrollbar and pages that don't.
      */
-    .then(() => document.body.classList.add('force-scroll'));
+    .then(() => document.body.classList.add('force-scroll'))
+    .catch(() => undefined);
 
 // set the saved theme once a user authenticates
 Events.on(ServerConnections, 'localusersignedin', () => {

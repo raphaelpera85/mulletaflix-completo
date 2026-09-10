@@ -66,8 +66,8 @@ function displayContent(cmd: CommandData, apiClient: any): void {
 
 function playTrailers(apiClient: any, itemId: string): void {
     apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: any) {
-        playbackManager.playTrailers(item);
-    });
+        playbackManager.playTrailers(item).catch(() => undefined);
+    }).catch(() => undefined);
 }
 
 function processGeneralCommand(cmd: CommandData, apiClient: any): void {

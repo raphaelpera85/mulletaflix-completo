@@ -122,6 +122,6 @@ export default class TableOfContents {
         this.elem = elem;
 
         this.bindEvents();
-        dialogHelper.open(elem);
+        dialogHelper.open(elem).catch(() => undefined);
     }
 }

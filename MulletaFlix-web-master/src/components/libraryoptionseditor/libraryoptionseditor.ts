@@ -593,7 +593,7 @@ function showImageOptionsForType(type: string) {
             null;
         const imageOptionsEditor = new ImageOptionsEditor();
         imageOptionsEditor.show(type, typeOptions as any, availableOptions as any);
-    });
+    }).catch(() => undefined);
 }
 
 function onImageFetchersContainerClick(this: HTMLElement, e: Event) {
@@ -687,7 +687,7 @@ export async function embed(parent: HTMLElement, contentType: string | null | un
             setLibraryOptions(parent, libraryOptions || getNewLibraryOptions(serverConfiguration) as EditorLibraryOptions);
             bindEvents(parent);
         });
-    });
+    }).catch(() => undefined);
 }
 
 const CHAPTER_CONTENT_TYPES = [

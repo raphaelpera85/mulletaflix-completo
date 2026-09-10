@@ -80,7 +80,7 @@ export function deleteItem(options: DeleteOptions): Promise<void> {
                 if (parentId) {
                     appRouter.showItem(parentId, item.ServerId);
                 } else {
-                    appRouter.goHome();
+                    appRouter.goHome().catch(() => undefined);
                 }
             }
         }, function (err: unknown) {

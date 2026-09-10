@@ -41,38 +41,35 @@ export default class PhotoPlayer {
         this.priority = 1;
     }
 
-    play(options: PlayOptions): Promise<void> {
-        return new Promise<void>(function (resolve) {
-            import('../../components/slideshow/slideshow').then(({ default: Slideshow }) => {
-                const index = options.startIndex || 0;
+    async play(options: PlayOptions): Promise<void> {
+        try {
+            const { default: Slideshow } = await import('../../components/slideshow/slideshow');
+            const index = options.startIndex || 0;
+            const apiClient = ServerConnections.currentApiClient() as PhotoApiClient | undefined;
+            if (!apiClient) {
+                return;
+            }
 
-                const apiClient = ServerConnections.currentApiClient() as PhotoApiClient | undefined;
-                if (!apiClient) {
-                    resolve();
-                    return;
-                }
-
-                apiClient.getCurrentUser().then(function(result: any) {
-                    const slideshowCtor = Slideshow as any as new (options: PhotoSlideshowOptions) => PhotoSlideshowInstance;
-                    const newSlideShow = new slideshowCtor({
-                        showTitle: false,
-                        cover: false,
-                        items: options.items,
-                        startIndex: index,
-                        interval: 11000,
-                        interactive: true,
-                        // playbackManager.shuffle has no options. So treat 'shuffle' as a 'play' action
-                        autoplay: {
-                            delay: userSettings.slideshowInterval() * 1000
-                        },
-                        user: result
-                    });
-
-                    newSlideShow.show();
-                    resolve();
-                });
+            const result = await apiClient.getCurrentUser();
+            const slideshowCtor = Slideshow as any as new (options: PhotoSlideshowOptions) => PhotoSlideshowInstance;
+            const newSlideShow = new slideshowCtor({
+                showTitle: false,
+                cover: false,
+                items: options.items,
+                startIndex: index,
+                interval: 11000,
+                interactive: true,
+                // playbackManager.shuffle has no options. So treat 'shuffle' as a 'play' action
+                autoplay: {
+                    delay: userSettings.slideshowInterval() * 1000
+                },
+                user: result
             });
-        });
+
+            newSlideShow.show();
+        } catch {
+            // A missing client or failed user lookup should not leave playback pending.
+        }
     }
 
     canPlayMediaType(mediaType: string): boolean {

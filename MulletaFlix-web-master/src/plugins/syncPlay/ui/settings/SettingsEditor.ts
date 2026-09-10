@@ -22,10 +22,10 @@ function centerFocus(elem: Element | null, horiz: boolean, on: boolean): void {
         return;
     }
 
-    import('../../../../scripts/scrollHelper').then((scrollHelper) => {
+    void import('../../../../scripts/scrollHelper').then((scrollHelper) => {
         const fn = on ? 'on' : 'off';
         scrollHelper.centerFocus[fn](elem as HTMLElement, horiz);
-    });
+    }).catch((error: unknown) => console.error('SyncPlay settings failed to focus control', error));
 }
 
 interface SyncPlaySettingsEditorOptions {
@@ -119,7 +119,7 @@ class SettingsEditor {
     }
 
     onSubmit(): void {
-        this.save();
+        void this.save().catch((error: unknown) => console.error('SyncPlay settings failed to save', error));
         dialogHelper.close(this.context);
     }
 

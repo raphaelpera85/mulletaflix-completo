@@ -5,7 +5,7 @@ const EmbyTogglePrototype = Object.create(HTMLInputElement.prototype);
 
 function onKeyDown(this: HTMLInputElement, e: KeyboardEvent): void {
     // Don't submit form on enter
-    if (e.keyCode === 13) {
+    if (e.key === 'Enter') {
         e.preventDefault();
 
         this.checked = !this.checked;
@@ -14,7 +14,6 @@ function onKeyDown(this: HTMLInputElement, e: KeyboardEvent): void {
             bubbles: true
         }));
 
-        return;
     }
 }
 

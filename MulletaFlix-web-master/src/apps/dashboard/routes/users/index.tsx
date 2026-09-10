@@ -30,6 +30,9 @@ const UserProfiles = () => {
     const navigate = useNavigate();
     const { data: users, isPending } = useUsers();
     const deleteUser = useDeleteUser();
+    const navigateSafely = useCallback((to: string) => {
+        Promise.resolve(navigate(to)).catch((error: unknown) => console.error('[userprofiles] failed to navigate', error));
+    }, [navigate]);
 
     const handleToastClose = useCallback(() => {
         setIsSettingsSavedToastOpen(false);
@@ -93,19 +96,19 @@ const UserProfiles = () => {
                     callback: function (id: string) {
                         switch (id) {
                             case 'open':
-                                navigate(`/dashboard/users/${userId}/${UserTab.Profile}`);
+                                navigateSafely(`/dashboard/users/${userId}/${UserTab.Profile}`);
                                 break;
 
                             case 'access':
-                                navigate(`/dashboard/users/${userId}/${UserTab.Access}`);
+                                navigateSafely(`/dashboard/users/${userId}/${UserTab.Access}`);
                                 break;
 
                             case 'parentalcontrol':
-                                navigate(`/dashboard/users/${userId}/${UserTab.ParentalControl}`);
+                                navigateSafely(`/dashboard/users/${userId}/${UserTab.ParentalControl}`);
                                 break;
 
                             case 'license':
-                                navigate('/dashboard/users/licenses');
+                                navigateSafely('/dashboard/users/licenses');
                                 break;
 
                             case 'delete':
@@ -147,7 +150,7 @@ const UserProfiles = () => {
         };
 
         const onAddUserClick = function() {
-            navigate('/dashboard/users/add');
+            navigateSafely('/dashboard/users/add');
         };
 
         page.addEventListener('click', onPageClick);
@@ -157,7 +160,7 @@ const UserProfiles = () => {
             page.removeEventListener('click', onPageClick);
             (page.querySelector('#btnAddUser') as HTMLButtonElement).removeEventListener('click', onAddUserClick);
         };
-    }, [navigate, deleteUser, location.state?.openSavedToast]);
+    }, [navigateSafely, deleteUser, location.state?.openSavedToast]);
 
     if (isPending) {
         return <Loading />;

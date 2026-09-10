@@ -8,19 +8,47 @@ import globalize from '../../lib/globalize';
 import Dashboard from '../../utils/dashboard';
 import Events from '../../utils/events';
 import { setFilterStatus } from 'components/filterdialog/filterIndicator';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import '../../elements/emby-itemscontainer/emby-itemscontainer';
 
 interface PageData {
-    query: any;
+    query: QueryParams;
     view: string;
+}
+
+interface QueryParams {
+    [key: string]: unknown;
+    SortBy: string;
+    SortOrder: string;
+    IncludeItemTypes: string;
+    Recursive: boolean;
+    Fields: string;
+    IsMissing: boolean;
+    ImageTypeLimit: number;
+    EnableImageTypes: string;
+    StartIndex: number;
+    Limit?: number;
+    ParentId?: string;
+    NameStartsWith?: string;
+    NameLessThan?: string;
 }
 
 interface ViewParams {
     topParentId: string;
 }
 
-export default function (this: any, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
+interface EpisodesController {
+    showFilterMenu: () => void;
+    getCurrentViewStyle: () => string;
+    renderTab: () => void;
+}
+
+interface LayoutChangeEvent extends Event {
+    detail: { viewStyle: string };
+}
+
+export default function (this: EpisodesController, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
     function getPageData(): PageData {
         const key = getSavedQueryKey();
         let pageData = data[key];
@@ -52,7 +80,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         return pageData;
     }
 
-    function getQuery(): any {
+    function getQuery(): QueryParams {
         return getPageData().query;
     }
 
@@ -60,8 +88,10 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         return `${params.topParentId}-episodes`;
     }
 
+    const getCurrentViewStyle = (): string => getPageData().view;
+
     function onViewStyleChange(): void {
-        const viewStyle = self.getCurrentViewStyle();
+        const viewStyle = getCurrentViewStyle();
         const itemsContainer = tabContent.querySelector('.itemsContainer') as HTMLElement;
 
         if (viewStyle == 'List') {
@@ -81,14 +111,14 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         const query = getQuery();
         setFilterStatus(page, query);
 
-        ApiClient.getItems(Dashboard.getCurrentUserId(), query).then(function (result: any) {
+        ApiClient.getItems(Dashboard.getCurrentUserId(), query).then(function (result: ItemDtoQueryResult) {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
                 }
 
                 if (userSettings.libraryPageSize() > 0) {
-                    query.StartIndex += query.Limit;
+                    query.StartIndex += query.Limit ?? 0;
                 }
                 reloadItems(tabContent);
             }
@@ -99,34 +129,32 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 }
 
                 if (userSettings.libraryPageSize() > 0) {
-                    query.StartIndex = Math.max(0, query.StartIndex - query.Limit);
+                    query.StartIndex = Math.max(0, query.StartIndex - (query.Limit ?? 0));
                 }
                 reloadItems(tabContent);
             }
 
             window.scrollTo(0, 0);
             let html: string;
-            const pagingHtml = (libraryBrowser as any).getQueryPagingHtml({
+            const pagingHtml = libraryBrowser.getQueryPagingHtml({
                 startIndex: query.StartIndex,
-                limit: query.Limit,
-                totalRecordCount: result.TotalRecordCount,
-                showLimit: false,
-                updatePageSizeSetting: false,
+                limit: query.Limit ?? 0,
+                totalRecordCount: result.TotalRecordCount ?? 0,
                 addLayoutButton: false,
                 sortButton: false,
                 filterButton: false
             });
-            const viewStyle = self.getCurrentViewStyle();
+            const viewStyle = getCurrentViewStyle();
             const itemsContainer = tabContent.querySelector('.itemsContainer') as HTMLElement;
             if (viewStyle == 'List') {
                 html = listView.getListViewHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     sortBy: query.SortBy,
                     showParentTitle: true
                 });
             } else if (viewStyle == 'PosterCard') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'backdrop',
                     showTitle: true,
                     showParentTitle: true,
@@ -135,7 +163,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 });
             } else {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'backdrop',
                     showTitle: true,
                     showParentTitle: true,
@@ -168,18 +196,21 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             loading.hide();
             isLoading = false;
 
-            import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+            void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(page);
-            });
+            }).catch((error: unknown) => console.error('[Episodes] failed to focus page', error));
+        }).catch((error: unknown) => {
+            loading.hide();
+            isLoading = false;
+            console.error('[Episodes] failed to load episodes', error);
         });
     }
 
-    const self = this;
     const data: Record<string, PageData> = {};
     let isLoading = false;
 
-    self.showFilterMenu = function (): void {
-        import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
+    const showFilterMenu = function (): void {
+        void import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
                 query: getQuery(),
                 mode: 'episodes',
@@ -189,20 +220,16 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 getQuery().StartIndex = 0;
                 reloadItems(tabContent);
             });
-            filterDialog.show();
-        });
-    };
-
-    self.getCurrentViewStyle = function (): string {
-        return getPageData().view;
+            void filterDialog.show().catch((error: unknown) => console.error('[Episodes] filter dialog failed', error));
+        }).catch((error: unknown) => console.error('[Episodes] failed to open filter dialog', error));
     };
 
     function initPage(tabElement: HTMLElement): void {
         tabElement.querySelector('.btnFilter')!.addEventListener('click', function () {
-            self.showFilterMenu();
+            showFilterMenu();
         });
-        tabElement.querySelector('.btnSort')!.addEventListener('click', function (e: Event) {
-            (libraryBrowser as any).showSortMenu({
+        tabElement.querySelector('.btnSort')!.addEventListener('click', function () {
+            libraryBrowser.showSortMenu({
                 items: [{
                     name: globalize.translate('Name'),
                     id: 'SeriesSortName,SortName'
@@ -231,16 +258,15 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 callback: function () {
                     reloadItems(tabElement);
                 },
-                query: getQuery(),
-                button: e.target
+                query: getQuery()
             });
         });
         const btnSelectView = tabElement.querySelector('.btnSelectView') as HTMLElement;
         btnSelectView.addEventListener('click', function (e: Event) {
-            libraryBrowser.showLayoutMenu(e.target as HTMLElement, self.getCurrentViewStyle(), 'List,Poster,PosterCard'.split(','));
+            libraryBrowser.showLayoutMenu(e.target as HTMLElement, getCurrentViewStyle(), 'List,Poster,PosterCard'.split(','));
         });
-        btnSelectView.addEventListener('layoutchange', function (e: any) {
-            const viewStyle = e.detail.viewStyle;
+        btnSelectView.addEventListener('layoutchange', function (event: Event) {
+            const viewStyle = (event as LayoutChangeEvent).detail.viewStyle;
             getPageData().view = viewStyle;
             userSettings.saveViewSetting(getSavedQueryKey(), viewStyle);
             onViewStyleChange();
@@ -251,7 +277,11 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
     initPage(tabContent);
     onViewStyleChange();
 
-    self.renderTab = function (): void {
+    const renderTab = function (): void {
         reloadItems(tabContent);
     };
+
+    this.showFilterMenu = showFilterMenu;
+    this.getCurrentViewStyle = getCurrentViewStyle;
+    this.renderTab = renderTab;
 }

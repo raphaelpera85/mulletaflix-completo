@@ -8,18 +8,21 @@ import globalize from '../../lib/globalize';
 import Events from '../../utils/events';
 import { playbackManager } from '../../components/playback/playbackmanager';
 import { getFilterStatus, setFilterStatus } from 'components/filterdialog/filterIndicator';
+import type { ItemDto } from 'types/base/models/item-dto';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import '../../elements/emby-itemscontainer/emby-itemscontainer';
 
 interface QueryOptions {
-    SortBy?: string;
-    SortOrder?: string;
+    [key: string]: unknown;
+    SortBy: string;
+    SortOrder: string;
     IncludeItemTypes?: string;
     Recursive?: boolean;
     Fields?: string;
     ImageTypeLimit?: number;
     EnableImageTypes?: string;
-    StartIndex?: number;
+    StartIndex: number;
     ParentId?: string;
     Limit?: number;
     NameLessThan?: string;
@@ -36,7 +39,31 @@ interface TabOptions {
     mode?: string;
 }
 
-export default function (this: any, view: HTMLElement, params: ViewParams, tabContent: HTMLElement, options: TabOptions): void {
+interface MoviesController {
+    getCurrentViewStyle: () => string;
+    showFilterMenu: () => void;
+    renderTab: () => void;
+    initTab: () => void;
+    destroy: () => void;
+    alphaPicker?: AlphaPicker;
+}
+
+interface ItemsContainerElement extends HTMLElement {
+    fetchData?: (() => Promise<ItemDtoQueryResult>) | null;
+    getItemsHtml?: ((items: ItemDto[]) => string) | null;
+    afterRefresh?: (result: ItemDtoQueryResult) => void;
+    refreshItems(): Promise<void>;
+}
+
+interface AlphaValueChangeEvent extends Event {
+    detail: { value: string };
+}
+
+interface LayoutChangeEvent extends Event {
+    detail: { viewStyle: string };
+}
+
+export default function (this: MoviesController, view: HTMLElement, params: ViewParams, tabContent: HTMLElement, options: TabOptions): void {
     const onViewStyleChange = (): void => {
         if (this.getCurrentViewStyle() == 'List') {
             itemsContainer.classList.add('vertical-list');
@@ -49,35 +76,36 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         itemsContainer.innerHTML = '';
     };
 
-    function fetchData(): Promise<any> {
+    function fetchData(): Promise<ItemDtoQueryResult> {
         isLoading = true;
         loading.show();
         return ApiClient.getItems(ApiClient.getCurrentUserId(), query);
     }
 
     function playAll(): void {
-        ApiClient.getItem(ApiClient.getCurrentUserId(), params.topParentId).then(function (item: any) {
+        ApiClient.getItem(ApiClient.getCurrentUserId(), params.topParentId).then(function (item: ItemDto) {
             playbackManager.play({
                 items: [item]
             });
-        });
+        }).catch((error: unknown) => console.error('[Movies] failed to load item for play all', error));
     }
 
     function shuffle(): Promise<void> {
         isLoading = true;
         loading.show();
         const newQuery = { ...query, SortBy: 'Random', StartIndex: 0, Limit: 300, Fields: 'PrimaryImageAspectRatio,MediaSourceCount,Chapters,Trickplay' };
-        return ApiClient.getItems(ApiClient.getCurrentUserId(), newQuery).then(({ Items }: any) => {
+        return ApiClient.getItems(ApiClient.getCurrentUserId(), newQuery).then(({ Items }: ItemDtoQueryResult) => {
             playbackManager.play({
                 items: Items,
                 autoplay: true
             });
         }).finally(() => {
             isLoading = false;
+            loading.hide();
         });
     }
 
-    const afterRefresh = (result: any): void => {
+    const afterRefresh = (result: ItemDtoQueryResult): void => {
         setFilterStatus(tabContent, query);
 
         function onNextPageClick(): void {
@@ -88,7 +116,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             if (userSettings.libraryPageSize() > 0) {
                 query.StartIndex! += query.Limit!;
             }
-            itemsContainer.refreshItems();
+            void itemsContainer.refreshItems();
         }
 
         function onPreviousPageClick(): void {
@@ -99,17 +127,15 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             if (userSettings.libraryPageSize() > 0) {
                 query.StartIndex = Math.max(0, query.StartIndex! - query.Limit!);
             }
-            itemsContainer.refreshItems();
+            void itemsContainer.refreshItems();
         }
 
         window.scrollTo(0, 0);
         this.alphaPicker?.updateControls(query);
-        const pagingHtml = (libraryBrowser as any).getQueryPagingHtml({
-            startIndex: query.StartIndex,
-            limit: query.Limit,
-            showLimit: false,
-            totalRecordCount: result.TotalRecordCount,
-            updatePageSizeSetting: false,
+        const pagingHtml = libraryBrowser.getQueryPagingHtml({
+            startIndex: query.StartIndex ?? 0,
+            limit: query.Limit ?? 0,
+            totalRecordCount: result.TotalRecordCount ?? 0,
             addLayoutButton: false,
             sortButton: false,
             filterButton: false
@@ -127,18 +153,18 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             elem.addEventListener('click', onPreviousPageClick);
         }
 
-        tabContent.querySelector('.btnPlayAll')?.classList.toggle('hide', result.TotalRecordCount < 1);
-        tabContent.querySelector('.btnShuffle')?.classList.toggle('hide', result.TotalRecordCount < 1);
+        tabContent.querySelector('.btnPlayAll')?.classList.toggle('hide', (result.TotalRecordCount ?? 0) < 1);
+        tabContent.querySelector('.btnShuffle')?.classList.toggle('hide', (result.TotalRecordCount ?? 0) < 1);
 
         isLoading = false;
         loading.hide();
 
-        import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+        void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(tabContent);
-        });
+        }).catch((error: unknown) => console.error('[Movies] failed to focus page', error));
     };
 
-    const getItemsHtml = (items: any[]): string => {
+    const getItemsHtml = (items: ItemDto[]): string => {
         let html: string;
         const viewStyle = this.getCurrentViewStyle();
 
@@ -213,8 +239,8 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         const alphaPickerElement = tabElement.querySelector('.alphaPicker');
 
         if (alphaPickerElement) {
-            alphaPickerElement.addEventListener('alphavaluechanged', function (e: any) {
-                const newValue = e.detail.value;
+            alphaPickerElement.addEventListener('alphavaluechanged', ((event: Event) => {
+                const newValue = (event as AlphaValueChangeEvent).detail.value;
                 if (newValue === '#') {
                     query.NameLessThan = 'A';
                     delete query.NameStartsWith;
@@ -223,8 +249,8 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     delete query.NameLessThan;
                 }
                 query.StartIndex = 0;
-                itemsContainer.refreshItems();
-            });
+                void itemsContainer.refreshItems();
+            }) as EventListener);
             this.alphaPicker = new AlphaPicker({
                 element: alphaPickerElement as HTMLElement,
                 valueChangeEvent: 'click'
@@ -245,8 +271,8 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         const btnSort = tabElement.querySelector('.btnSort');
 
         if (btnSort) {
-            btnSort.addEventListener('click', function (e: Event) {
-                (libraryBrowser as any).showSortMenu({
+            btnSort.addEventListener('click', function () {
+                libraryBrowser.showSortMenu({
                     items: [{
                         name: globalize.translate('Name'),
                         id: 'SortName,ProductionYear'
@@ -281,33 +307,39 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     callback: function () {
                         query.StartIndex = 0;
                         userSettings.saveQuerySettings(savedQueryKey, query as Record<string, unknown>);
-                        itemsContainer.refreshItems();
+                        void itemsContainer.refreshItems();
                     },
-                    query: query as unknown as Record<string, unknown>,
-                    button: e.target
+                    query
                 });
             });
         }
-        const btnSelectView = tabElement.querySelector('.btnSelectView') as HTMLElement;
-        btnSelectView.addEventListener('click', (e: Event) => {
-            libraryBrowser.showLayoutMenu(e.target as HTMLElement, this.getCurrentViewStyle(), 'Banner,List,Poster,PosterCard,Thumb,ThumbCard'.split(','));
-        });
-        btnSelectView.addEventListener('layoutchange', function (e: any) {
-            const viewStyle = e.detail.viewStyle;
-            userSettings.set(savedViewKey, viewStyle);
-            query.StartIndex = 0;
-            onViewStyleChange();
-            itemsContainer.refreshItems();
-        });
+        const btnSelectView = tabElement.querySelector<HTMLElement>('.btnSelectView');
+        if (btnSelectView) {
+            btnSelectView.addEventListener('click', (e: Event) => {
+                libraryBrowser.showLayoutMenu(e.target as HTMLElement, this.getCurrentViewStyle(), 'Banner,List,Poster,PosterCard,Thumb,ThumbCard'.split(','));
+            });
+            btnSelectView.addEventListener('layoutchange', ((event: Event) => {
+                const viewStyle = (event as LayoutChangeEvent).detail.viewStyle;
+                userSettings.set(savedViewKey, viewStyle);
+                query.StartIndex = 0;
+                onViewStyleChange();
+                void itemsContainer.refreshItems();
+            }) as EventListener);
+        }
 
         tabElement.querySelector('.btnPlayAll')!.addEventListener('click', playAll);
         tabElement.querySelector('.btnShuffle')?.addEventListener('click', shuffle);
     };
 
-    let itemsContainer = tabContent.querySelector('.itemsContainer') as any;
+    const itemsContainerElement = tabContent.querySelector('.itemsContainer');
+    if (!(itemsContainerElement instanceof HTMLElement)) {
+        return;
+    }
+
+    const itemsContainer = itemsContainerElement as ItemsContainerElement;
     const savedQueryKey = params.topParentId + '-' + options.mode;
     const savedViewKey = savedQueryKey + '-view';
-    let query: QueryOptions = {
+    const query: QueryOptions = {
         SortBy: 'SortName,ProductionYear',
         SortOrder: 'Ascending',
         IncludeItemTypes: 'Movie',
@@ -329,10 +361,10 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         query.IsFavorite = true;
     }
 
-    query = userSettings.loadQuerySettings(savedQueryKey, query as Record<string, unknown>);
+    userSettings.loadQuerySettings(savedQueryKey, query);
 
     this.showFilterMenu = function (): void {
-        import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
+        void import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
                 query: query as unknown as Record<string, unknown>,
                 mode: 'movies',
@@ -342,10 +374,10 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             Events.on(filterDialog, 'filterchange', () => {
                 query.StartIndex = 0;
                 userSettings.saveQuerySettings(savedQueryKey, query as Record<string, unknown>);
-                itemsContainer.refreshItems();
+                void itemsContainer.refreshItems();
             });
-            filterDialog.show();
-        });
+            void filterDialog.show().catch((error: unknown) => console.error('[Movies] filter dialog failed', error));
+        }).catch((error: unknown) => console.error('[Movies] failed to open filter dialog', error));
     };
 
     this.getCurrentViewStyle = function (): string {
@@ -358,11 +390,13 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
     };
 
     this.renderTab = (): void => {
-        itemsContainer.refreshItems();
+        void itemsContainer.refreshItems();
         this.alphaPicker?.updateControls(query);
     };
 
     this.destroy = function (): void {
-        itemsContainer = null;
+        itemsContainer.fetchData = null;
+        itemsContainer.getItemsHtml = null;
+        itemsContainer.afterRefresh = undefined;
     };
 }

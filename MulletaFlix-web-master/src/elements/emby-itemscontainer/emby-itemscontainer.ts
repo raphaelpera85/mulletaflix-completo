@@ -75,7 +75,7 @@ function getShortcutOptions(): { click: boolean } {
             container: self,
             bindOnClick: false
         });
-    });
+    }).catch(() => undefined);
 };
 
 function onDrop(evt: Sortable.SortableEvent, itemsContainer: ItemsContainerElement): void {
@@ -111,7 +111,7 @@ function onDrop(evt: Sortable.SortableEvent, itemsContainer: ItemsContainerEleme
         loading.hide();
     }, function () {
         loading.hide();
-        itemsContainer.refreshItems();
+        itemsContainer.refreshItems().catch(() => undefined);
     });
 }
 
@@ -152,7 +152,7 @@ function onUserDataChanged({ Data }: UserDataMessage, itemsContainer: ItemsConta
         for (const userData of Data?.UserDataList ?? []) {
             cardBuilder.onUserDataChanged(userData, itemsContainer);
         }
-    });
+    }).catch(() => undefined);
 
     const eventsToMonitor: string[] = getEventsToMonitor(itemsContainer);
 
@@ -192,7 +192,7 @@ function onTimerCreated({ Data }: TimerMessage, itemsContainer: ItemsContainerEl
 
     import('../../components/cardbuilder/cardBuilder').then((cardBuilder) => {
         cardBuilder.onTimerCreated(programId as string, newTimerId as string, itemsContainer);
-    });
+    }).catch(() => undefined);
 }
 
 function onSeriesTimerCreated(_: unknown, itemsContainer: ItemsContainerElement): void {
@@ -209,7 +209,7 @@ function onTimerCancelled({ Data }: TimerMessage, itemsContainer: ItemsContainer
 
     import('../../components/cardbuilder/cardBuilder').then((cardBuilder) => {
         cardBuilder.onTimerCancelled(Data?.Id as string ?? '', itemsContainer);
-    });
+    }).catch(() => undefined);
 }
 
 function onSeriesTimerCancelled({ Data }: TimerMessage, itemsContainer: ItemsContainerElement): void {
@@ -220,7 +220,7 @@ function onSeriesTimerCancelled({ Data }: TimerMessage, itemsContainer: ItemsCon
 
     import('../../components/cardbuilder/cardBuilder').then((cardBuilder) => {
         cardBuilder.onSeriesTimerCancelled(Data?.Id as string ?? '', itemsContainer);
-    });
+    }).catch(() => undefined);
 }
 
 interface LibraryChangedMessage {
@@ -276,7 +276,9 @@ function onPlaybackStopped(this: ItemsContainerElement, e: unknown, stopInfo: { 
     }
 }
 
-function addNotificationEvent(instance: ItemsContainerElement, name: string, handler: Function, owner: any): void {
+type NotificationHandler = (...args: never[]) => unknown;
+
+function addNotificationEvent(instance: ItemsContainerElement, name: string, handler: NotificationHandler, owner: any): void {
     const localHandler = handler.bind(instance);
     Events.on(owner, name, localHandler);
     (instance as any)['event_' + name] = localHandler;
@@ -413,7 +415,7 @@ function removeNotificationEvent(instance: ItemsContainerElement, name: string, 
     }
 
     if (isInForeground === true) {
-        this.refreshItems();
+        this.refreshItems().catch(() => undefined);
     } else {
         this.refreshTimeout = setTimeout(this.refreshItems.bind(this), 10000) as unknown as number;
     }
@@ -532,8 +534,8 @@ interface ItemsContainerElement extends HTMLDivElement {
 }
 
 declare let Events: {
-    on(owner: any, name: string, handler: Function): void;
-    off(owner: any, name: string, handler: Function): void;
+    on(owner: any, name: string, handler: NotificationHandler): void;
+    off(owner: any, name: string, handler: NotificationHandler): void;
 };
 
 document.registerElement('emby-itemscontainer', {

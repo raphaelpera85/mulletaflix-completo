@@ -1,4 +1,5 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto';
+import escapeHtml from 'escape-html';
 import { ImageType } from '@jellyfin/sdk/lib/generated-client/models/image-type';
 import { ItemFields } from '@jellyfin/sdk/lib/generated-client/models/item-fields';
 import type { ApiClient } from 'jellyfin-apiclient';
@@ -62,7 +63,7 @@ function getNextUpItemsHtmlFn(
         const cardLayout = false;
         const heroItem = featured && netflix ? items[0] : undefined;
         const heroHref = heroItem ? appRouter.getRouteUrl(heroItem, { serverId: heroItem.ServerId }) : undefined;
-        const heroHtml = heroHref ? '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + heroHref + '">PLAY NEXT</a></div>' : '';
+        const heroHtml = heroHref ? '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + escapeHtml(heroHref) + '">PLAY NEXT</a></div>' : '';
         return cardBuilder.getCardsHtml({
             items: items,
             preferThumb: true,
@@ -91,9 +92,9 @@ export function loadNextUp(
 
     html += '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">';
     if (!layoutManager.tv) {
-        html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl('nextup', {
+        html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl('nextup', {
             serverId: apiClient.serverId()
-        }) + '" class="button-flat button-flat-mini sectionTitleTextButton">';
+        })) + '" class="button-flat button-flat-mini sectionTitleTextButton">';
         html += '<h2 class="sectionTitle sectionTitle-cards">';
         html += globalize.translate('NextUp');
         html += '</h2>';
@@ -127,4 +128,3 @@ export function loadNextUp(
     itemsContainer.getItemsHtml = getNextUpItemsHtmlFn(userSettings.useEpisodeImagesInNextUpAndResume(), options);
     itemsContainer.parentContainer = elem;
 }
-

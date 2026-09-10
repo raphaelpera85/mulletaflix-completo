@@ -174,7 +174,7 @@ const ViewManagerPage: FunctionComponent<ViewManagerPageProps> = ({
                 });
         };
 
-        loadPage();
+        loadPage().catch(() => undefined);
     },
     // location.state and navigationType are NOT included as dependencies here since dialogs will update state while the current view stays the same
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import Page from 'components/Page';
 import globalize from 'lib/globalize';
 import Box from '@mui/material/Box';
-import Grid from '@mui/material/Grid';
+import Grid from '@mui/material/Grid2';
 import ServerPathWidget from '../components/widgets/ServerPathWidget';
 import ServerInfoWidget from '../components/widgets/ServerInfoWidget';
 import ServerHealthWidget from '../components/widgets/ServerHealthWidget';
@@ -94,7 +94,7 @@ export const Component = () => {
             />
             <Box className='content-primary'>
                 <Grid container spacing={3}>
-                    <Grid item xs={12} md={7} lg={7} xl={6}>
+                    <Grid size={{ xs: 12, md: 7, lg: 7, xl: 6 }}>
                         <Stack spacing={3}>
                             <ServerInfoWidget
                                 onScanLibrariesClick={onScanLibraries}
@@ -108,10 +108,10 @@ export const Component = () => {
                             <DevicesWidget />
                         </Stack>
                     </Grid>
-                    <Grid item xs={12} md={5} lg={5} xl={3}>
+                    <Grid size={{ xs: 12, md: 5, lg: 5, xl: 3 }}>
                         <ActivityLogWidget />
                     </Grid>
-                    <Grid item xs={12} md={6} lg={12} xl={3}>
+                    <Grid size={{ xs: 12, md: 6, lg: 12, xl: 3 }}>
                         <Stack spacing={3}>
                             <AlertsLogWidget />
                             <ServerPathWidget />
@@ -124,4 +124,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'DashboardPage';
-

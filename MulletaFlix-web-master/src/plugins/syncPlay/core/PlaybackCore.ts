@@ -223,7 +223,7 @@ class PlaybackCore {
             switch (command.Command) {
                 case 'Unpause':
                     if (!isPlaying) {
-                        this.scheduleUnpause(command.When, command.PositionTicks);
+                        void this.scheduleUnpause(command.When, command.PositionTicks).catch((error: unknown) => console.error('SyncPlay failed to schedule unpause', error));
                     }
                     break;
                 case 'Pause':
@@ -263,7 +263,7 @@ class PlaybackCore {
 
         switch (command.Command) {
             case 'Unpause':
-                this.scheduleUnpause(command.When, command.PositionTicks);
+                void this.scheduleUnpause(command.When, command.PositionTicks).catch((error: unknown) => console.error('SyncPlay failed to schedule unpause', error));
                 break;
             case 'Pause':
                 this.schedulePause(command.When, command.PositionTicks);

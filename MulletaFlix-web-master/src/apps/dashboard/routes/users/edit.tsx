@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { useUser } from 'hooks/api/useUser';
 import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Tabs from '@mui/material/Tabs';
@@ -15,16 +15,17 @@ import Access from 'apps/dashboard/features/users/components/Access';
 import ParentalControl from 'apps/dashboard/features/users/components/ParentalControl';
 import Password from 'apps/dashboard/features/users/components/Password';
 import Alert from '@mui/material/Alert';
-import { Navigate } from 'react-router-dom';
-
 export const Component = () => {
     const navigate = useNavigate();
+    const navigateSafely = useCallback((to: string) => {
+        Promise.resolve(navigate(to)).catch((error: unknown) => console.error('[users-edit] failed to navigate', error));
+    }, [navigate]);
     const { userId, tab } = useParams();
     const { data: user, isPending, isError } = useUser({ userId });
 
     const handleTabChange = useCallback((event: React.SyntheticEvent, newValue: UserTab) => {
-        navigate(`/dashboard/users/${userId}/${newValue}`);
-    }, [ navigate ]);
+        navigateSafely(`/dashboard/users/${userId}/${newValue}`);
+    }, [ navigateSafely, userId ]);
 
     if (isPending) return <Loading />;
 

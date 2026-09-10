@@ -61,14 +61,14 @@ function onEditLibrary(this: HTMLElement): boolean {
             } else {
                 loading.hide();
                 dialogHelper.close(dlg);
-                alert({
+                void alert({
                     text: globalize.translate('LibraryInvalidItemIdError')
                 });
             }
         }, () => {
             loading.hide();
             dialogHelper.close(dlg);
-            alert({
+            void alert({
                 text: globalize.translate('LibraryInvalidItemIdError')
             });
         });
@@ -111,7 +111,7 @@ function onRemoveClick(btnRemovePath: HTMLElement, location: string): void {
     const button = btnRemovePath;
     const virtualFolder = currentOptions.library;
 
-    confirm({
+    void confirm({
         title: globalize.translate('HeaderRemoveMediaLocation'),
         text: globalize.translate('MessageConfirmRemoveMediaLocation'),
         confirmText: globalize.translate('Delete'),
@@ -124,6 +124,8 @@ function onRemoveClick(btnRemovePath: HTMLElement, location: string): void {
         }, () => {
             toast(globalize.translate('ErrorDefault'));
         });
+    }).catch(() => {
+        // Cancellation is an expected outcome of the confirmation dialog.
     });
 }
 
@@ -131,18 +133,20 @@ function onListItemClick(e: Event): void {
     const listItem = dom.parentWithClass(e.target as HTMLElement, 'listItem');
 
     if (listItem) {
-        const index = parseInt(listItem.getAttribute('data-index')!, 10);
+        const index = Number.parseInt(listItem.getAttribute('data-index') || '', 10);
         const pathInfos = currentOptions.library.LibraryOptions?.PathInfos || [];
-        const pathInfo = index == null ? ({} as any) : pathInfos[index] || {};
-        const originalPath = pathInfo.Path || (index == null ? null : currentOptions.library.Locations[index]);
+        const pathInfo = Number.isInteger(index) && index >= 0 ? pathInfos[index] : undefined;
+        const originalPath = pathInfo?.Path || (Number.isInteger(index) && index >= 0 ? currentOptions.library.Locations[index] : undefined);
         const btnRemovePath = dom.parentWithClass(e.target as HTMLElement, 'btnRemovePath');
 
-        if (btnRemovePath) {
+        if (btnRemovePath && originalPath) {
             onRemoveClick(btnRemovePath, originalPath);
             return;
         }
 
-        showDirectoryBrowser(dom.parentWithClass(listItem, 'dlg-libraryeditor') as HTMLElement, originalPath);
+        if (originalPath) {
+            showDirectoryBrowser(dom.parentWithClass(listItem, 'dlg-libraryeditor') as HTMLElement, originalPath);
+        }
     }
 }
 
@@ -166,7 +170,7 @@ function getFolderHtml(pathInfo: { Path: string; NetworkPath?: string }, index: 
 
 function refreshLibraryFromServer(page: HTMLElement): void {
     (window as any).ApiClient.getVirtualFolders().then((result: any[]) => {
-        const library = result.filter(f => {
+        const library = (result || []).filter(f => {
             return f.Name === currentOptions.library.Name;
         })[0];
 
@@ -174,6 +178,8 @@ function refreshLibraryFromServer(page: HTMLElement): void {
             currentOptions.library = library;
             renderLibrary(page, currentOptions);
         }
+    }, () => {
+        toast(globalize.translate('ErrorDefault'));
     });
 }
 
@@ -202,7 +208,7 @@ function onAddButtonClick(this: HTMLElement): void {
 }
 
 function showDirectoryBrowser(context: HTMLElement, originalPath?: string): void {
-    import('../directorybrowser/directorybrowser').then(({ default: DirectoryBrowser }) => {
+    void import('../directorybrowser/directorybrowser').then(({ default: DirectoryBrowser }) => {
         const picker = new DirectoryBrowser();
         picker.show({
             pathReadOnly: originalPath != null,
@@ -210,7 +216,7 @@ function showDirectoryBrowser(context: HTMLElement, originalPath?: string): void
             callback: function (path: string) {
                 if (path) {
                     if (originalPath) {
-                        updateMediaLocation(context, originalPath);
+                        updateMediaLocation(context, path);
                     } else {
                         addMediaLocation(context, path);
                     }
@@ -219,6 +225,8 @@ function showDirectoryBrowser(context: HTMLElement, originalPath?: string): void
                 picker.close();
             }
         });
+    }).catch(() => {
+        toast(globalize.translate('ErrorDefault'));
     });
 }
 
@@ -227,7 +235,7 @@ function initEditor(dlg: HTMLElement, options: MediaLibraryEditorOptions): void 
     (dlg.querySelector('.btnAddFolder') as HTMLElement).addEventListener('click', onAddButtonClick);
     (dlg.querySelector('.folderList') as HTMLElement).addEventListener('click', onListItemClick);
     (dlg.querySelector('.btnSubmit') as HTMLElement).addEventListener('click', onEditLibrary as EventListener);
-    libraryoptionseditor.embed(dlg.querySelector('.libraryOptions') as HTMLElement, options.library.CollectionType, options.library.LibraryOptions ?? null);
+    void libraryoptionseditor.embed(dlg.querySelector('.libraryOptions') as HTMLElement, options.library.CollectionType, options.library.LibraryOptions ?? null);
 }
 
 function onDialogClosed(): void {
@@ -273,7 +281,7 @@ export class MediaLibraryEditor {
         (dlg.querySelector('.formDialogHeaderTitle') as HTMLElement).innerText = options.library.Name;
         initEditor(dlg, options);
         dlg.addEventListener('close', onDialogClosed);
-        dialogHelper.open(dlg);
+        void dialogHelper.open(dlg);
         dlg.querySelector('.btnCancel')!.addEventListener('click', () => {
             dialogHelper.close(dlg);
         });

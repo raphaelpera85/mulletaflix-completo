@@ -7,7 +7,7 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import Grid from '@mui/material/Grid';
+import Grid from '@mui/material/Grid2';
 import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -17,6 +17,7 @@ import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
 import toast from 'components/toast/toast';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
+import type { ApiClient } from 'jellyfin-apiclient';
 import { queryClient } from 'utils/query/queryClient';
 
 const QUERY_KEY = ['JobQueueStatus'];
@@ -71,9 +72,10 @@ const postJson = async <T,>(url: string, body?: unknown): Promise<T> => {
         throw new Error('Cliente de API indisponível.');
     }
 
-    return (apiClient as any).ajax({
+    const legacyApiClient = apiClient as unknown as ApiClient;
+    return legacyApiClient.ajax({
         type: 'POST',
-        url: (apiClient as any).getUrl(url),
+        url: legacyApiClient.getUrl(url),
         data: body ? JSON.stringify(body) : undefined,
         contentType: 'application/json'
     }) as Promise<T>;
@@ -111,6 +113,7 @@ const JobCard = ({ job, onCancel, isCancelling }: {
     isCancelling: boolean;
 }) => {
     const latestLogs = useMemo(() => job.Logs?.slice(-5) ?? [], [job.Logs]);
+    const handleCancel = React.useCallback(() => onCancel(job.Id), [job.Id, onCancel]);
 
     return (
         <Paper sx={{ p: 2, border: '1px solid rgba(255,255,255,.08)' }}>
@@ -127,7 +130,7 @@ const JobCard = ({ job, onCancel, isCancelling }: {
                             color='warning'
                             startIcon={<Stop />}
                             disabled={!job.Cancellable || isCancelling}
-                            onClick={() => onCancel(job.Id)}
+                            onClick={handleCancel}
                         >
                             Parar
                         </Button>
@@ -142,15 +145,15 @@ const JobCard = ({ job, onCancel, isCancelling }: {
                 </Box>
                 <Typography variant='body2'>{job.Summary || job.ErrorMessage || 'Sem detalhes.'}</Typography>
                 <Grid container spacing={1}>
-                    <Grid item xs={12} md={4}>
+                    <Grid size={{ xs: 12, md: 4 }}>
                         <Typography variant='caption' color='text.secondary'>Criado</Typography>
                         <Typography variant='body2'>{formatDate(job.CreatedAt)}</Typography>
                     </Grid>
-                    <Grid item xs={12} md={4}>
+                    <Grid size={{ xs: 12, md: 4 }}>
                         <Typography variant='caption' color='text.secondary'>Inicio</Typography>
                         <Typography variant='body2'>{formatDate(job.StartedAt)}</Typography>
                     </Grid>
-                    <Grid item xs={12} md={4}>
+                    <Grid size={{ xs: 12, md: 4 }}>
                         <Typography variant='caption' color='text.secondary'>Fim</Typography>
                         <Typography variant='body2'>{formatDate(job.FinishedAt)}</Typography>
                     </Grid>
@@ -185,7 +188,8 @@ const JobsPage = () => {
                 throw new Error('Cliente de API indisponível.');
             }
 
-            return (apiClient as any).getJSON((apiClient as any).getUrl('JobQueue/Status')) as Promise<JobQueueStatus>;
+            const legacyApiClient = apiClient as unknown as ApiClient;
+            return legacyApiClient.getJSON(legacyApiClient.getUrl('JobQueue/Status')) as Promise<JobQueueStatus>;
         },
         refetchInterval: 2500
     });
@@ -196,7 +200,7 @@ const JobsPage = () => {
             toast('Trabalho cancelado.');
             await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
         },
-        onError: error => toast(`Erro ao cancelar: ${getErrorMessage(error)}`)
+        onError: mutationError => toast(`Erro ao cancelar: ${getErrorMessage(mutationError)}`)
     });
 
     const cancelAllMutation = useMutation({
@@ -205,7 +209,7 @@ const JobsPage = () => {
             toast('Parada solicitada para a fila.');
             await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
         },
-        onError: error => toast(`Erro ao parar fila: ${getErrorMessage(error)}`)
+        onError: mutationError => toast(`Erro ao parar fila: ${getErrorMessage(mutationError)}`)
     });
 
     const prewarmMutation = useMutation({
@@ -214,8 +218,15 @@ const JobsPage = () => {
             toast('Pre-aquecimento de imagens enfileirado.');
             await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
         },
-        onError: error => toast(`Erro ao enfileirar pre-aquecimento: ${getErrorMessage(error)}`)
+        onError: mutationError => toast(`Erro ao enfileirar pre-aquecimento: ${getErrorMessage(mutationError)}`)
     });
+
+    const handlePrewarm = React.useCallback(() => prewarmMutation.mutate(), [prewarmMutation]);
+    const handleRefresh = React.useCallback(() => {
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    }, []);
+    const handleCancelAll = React.useCallback(() => cancelAllMutation.mutate(), [cancelAllMutation]);
+    const handleJobCancel = React.useCallback((id: string) => cancelMutation.mutate(id), [cancelMutation]);
 
     if (isLoading) {
         return <Loading />;
@@ -240,14 +251,14 @@ const JobsPage = () => {
                             variant='contained'
                             startIcon={<ImageSearch />}
                             disabled={prewarmMutation.isPending}
-                            onClick={() => prewarmMutation.mutate()}
+                            onClick={handlePrewarm}
                         >
                             Pré-aquecer imagens
                         </Button>
                         <Button
                             variant='outlined'
                             startIcon={<Cached />}
-                            onClick={() => queryClient.invalidateQueries({ queryKey: QUERY_KEY })}
+                            onClick={handleRefresh}
                         >
                             Atualizar
                         </Button>
@@ -256,7 +267,7 @@ const JobsPage = () => {
                             color='warning'
                             startIcon={<Stop />}
                             disabled={cancelAllMutation.isPending}
-                            onClick={() => cancelAllMutation.mutate()}
+                            onClick={handleCancelAll}
                         >
                             Parar todos
                         </Button>
@@ -276,7 +287,7 @@ const JobsPage = () => {
                                 ['Cancelados', data.Cancelled],
                                 ['Workers', `${data.ActiveWorkers}/${data.MaxWorkers}`]
                             ].map(([label, value]) => (
-                                <Grid item xs={6} md={2} key={label}>
+                                <Grid size={{ xs: 6, md: 2 }} key={label}>
                                     <Paper sx={{ p: 2 }}>
                                         <Typography variant='caption' color='text.secondary'>{label}</Typography>
                                         <Typography variant='h5'>{value}</Typography>
@@ -292,7 +303,7 @@ const JobsPage = () => {
                                 <JobCard
                                     key={job.Id}
                                     job={job}
-                                    onCancel={id => cancelMutation.mutate(id)}
+                                    onCancel={handleJobCancel}
                                     isCancelling={cancelMutation.isPending}
                                 />
                             ))}

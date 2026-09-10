@@ -8,11 +8,12 @@ import loading from 'components/loading/loading';
 import { appRouter } from 'components/router/appRouter';
 import globalize from 'lib/globalize';
 import * as userSettings from 'scripts/settings/userSettings';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import 'elements/emby-button/emby-button';
 
 interface PageData {
-    query: any;
+    query: Record<string, unknown>;
     view: string;
 }
 
@@ -20,7 +21,16 @@ interface ViewParams {
     topParentId: string;
 }
 
-export default function (this: any, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
+interface TvGenresController {
+    getViewStyles: () => string[];
+    getCurrentViewStyle: () => string;
+    setCurrentViewStyle: (viewStyle: string) => void;
+    enableViewSelection: boolean;
+    preRender: () => void;
+    renderTab: () => void;
+}
+
+export default function (this: TvGenresController, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
     function getPageData(): PageData {
         const key = getSavedQueryKey();
         let pageData = data[key];
@@ -43,7 +53,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         return pageData;
     }
 
-    function getQuery(): any {
+    function getQuery(): Record<string, unknown> {
         return getPageData().query;
     }
 
@@ -51,7 +61,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         return `${params.topParentId}-seriesgenres`;
     }
 
-    function getPromise(): Promise<any> {
+    function getPromise(): Promise<ItemDtoQueryResult> {
         loading.show();
         const query = getQuery();
         return ApiClient.getGenres(ApiClient.getCurrentUserId(), query);
@@ -61,7 +71,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         return !layoutManager.desktop;
     }
 
-    function fillItemsContainer(entry: IntersectionObserverEntry, observer: IntersectionObserver): void {
+    const fillItemsContainer = (entry: IntersectionObserverEntry, observer: IntersectionObserver): void => {
         if (!entry.isIntersecting) {
             return;
         }
@@ -70,7 +80,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         observer.unobserve(elem);
 
         const id = elem.getAttribute('data-id')!;
-        const viewStyle = self.getCurrentViewStyle();
+        const viewStyle = this.getCurrentViewStyle();
         let limit = viewStyle == 'Thumb' || viewStyle == 'ThumbCard' ? 5 : 9;
 
         if (enableScrollX()) {
@@ -91,9 +101,10 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             EnableTotalRecordCount: false,
             ParentId: params.topParentId
         };
-        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then(function (result: any) {
+        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then(function (result: ItemDtoQueryResult) {
+            const items = result.Items ?? [];
             if (viewStyle == 'Thumb') {
-                cardBuilder.buildCards(result.Items, {
+                cardBuilder.buildCards(items, {
                     itemsContainer: elem,
                     shape: getBackdropShape(enableScrollX()),
                     preferThumb: true,
@@ -104,7 +115,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     allowBottomPadding: false
                 });
             } else if (viewStyle == 'ThumbCard') {
-                cardBuilder.buildCards(result.Items, {
+                cardBuilder.buildCards(items, {
                     itemsContainer: elem,
                     shape: getBackdropShape(enableScrollX()),
                     preferThumb: true,
@@ -115,7 +126,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     showYear: true
                 });
             } else if (viewStyle == 'PosterCard') {
-                cardBuilder.buildCards(result.Items, {
+                cardBuilder.buildCards(items, {
                     itemsContainer: elem,
                     shape: getPortraitShape(enableScrollX()),
                     showTitle: true,
@@ -125,7 +136,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     showYear: true
                 });
             } else if (viewStyle == 'Poster') {
-                cardBuilder.buildCards(result.Items, {
+                cardBuilder.buildCards(items, {
                     itemsContainer: elem,
                     shape: getPortraitShape(enableScrollX()),
                     scalable: true,
@@ -136,26 +147,30 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     allowBottomPadding: false
                 });
             }
-            if (result.Items.length >= query.Limit) {
-                tabContent.querySelector(`.btnMoreFromGenre${id} .material-icons`)!.classList.remove('hide');
+            if (items.length >= (query.Limit as number)) {
+                tabContent.querySelector(`.btnMoreFromGenre${id} .material-icons`)?.classList.remove('hide');
             }
-        });
-    }
+        }).catch((error: unknown) => console.error('[TvGenres] failed to load genre items', error));
+    };
 
-    function reloadItems(context: HTMLElement, promise: Promise<any>): void {
+    function reloadItems(context: HTMLElement, promise: Promise<ItemDtoQueryResult>): void {
         const query = getQuery();
-        promise.then(function (result: any) {
-            const elem = context.querySelector('#items')!;
+        promise.then(function (result: ItemDtoQueryResult) {
+            const elem = context.querySelector('#items');
+            if (!elem) {
+                loading.hide();
+                return;
+            }
             let html = '';
-            const items = result.Items;
+            const items = result.Items ?? [];
 
             for (const item of items) {
                 html += '<div class="verticalSection">';
                 html += '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">';
-                html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl(item, {
+                html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl(item, {
                     context: 'tvshows',
                     parentId: params.topParentId
-                }) + '" class="more button-flat button-flat-mini sectionTitleTextButton btnMoreFromGenre' + item.Id + '">';
+                })) + '" class="more button-flat button-flat-mini sectionTitleTextButton btnMoreFromGenre' + escapeHtml(item.Id || '') + '">';
                 html += '<h2 class="sectionTitle sectionTitle-cards">';
                 html += escapeHtml(item.Name);
                 html += '</h2>';
@@ -167,15 +182,15 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     if (layoutManager.tv) {
                         scrollXClass += 'smoothScrollX padded-top-focusscale padded-bottom-focusscale';
                     }
-                    html += '<div is="emby-itemscontainer" class="itemsContainer ' + scrollXClass + ' lazy padded-left padded-right" data-id="' + item.Id + '">';
+                    html += '<div is="emby-itemscontainer" class="itemsContainer ' + scrollXClass + ' lazy padded-left padded-right" data-id="' + escapeHtml(item.Id || '') + '">';
                 } else {
-                    html += '<div is="emby-itemscontainer" class="itemsContainer vertical-wrap lazy padded-left padded-right" data-id="' + item.Id + '">';
+                    html += '<div is="emby-itemscontainer" class="itemsContainer vertical-wrap lazy padded-left padded-right" data-id="' + escapeHtml(item.Id || '') + '">';
                 }
                 html += '</div>';
                 html += '</div>';
             }
 
-            if (!result.Items.length) {
+            if (!items.length) {
                 html = '';
 
                 html += '<div class="noItemsMessage centerMessage">';
@@ -188,39 +203,41 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             lazyLoader.lazyChildren(elem, fillItemsContainer);
             userSettings.saveQuerySettings(getSavedQueryKey(), query);
             loading.hide();
+        }).catch((error: unknown) => {
+            console.error('[TvGenres] failed to load genres', error);
+            loading.hide();
         });
     }
 
-    function fullyReload(): void {
-        self.preRender();
-        self.renderTab();
-    }
+    const fullyReload = (): void => {
+        this.preRender();
+        this.renderTab();
+    };
 
-    const self = this;
     const data: Record<string, PageData> = {};
 
-    self.getViewStyles = function (): string[] {
+    this.getViewStyles = function (): string[] {
         return 'Poster,PosterCard,Thumb,ThumbCard'.split(',');
     };
 
-    self.getCurrentViewStyle = function (): string {
+    this.getCurrentViewStyle = function (): string {
         return getPageData().view;
     };
 
-    self.setCurrentViewStyle = function (viewStyle: string): void {
+    this.setCurrentViewStyle = function (viewStyle: string): void {
         getPageData().view = viewStyle;
         userSettings.saveViewSetting(getSavedQueryKey(), viewStyle);
         fullyReload();
     };
 
-    self.enableViewSelection = true;
-    let promise: Promise<any>;
+    this.enableViewSelection = true;
+    let promise: Promise<ItemDtoQueryResult> = Promise.resolve({ Items: [] });
 
-    self.preRender = function (): void {
+    this.preRender = function (): void {
         promise = getPromise();
     };
 
-    self.renderTab = function (): void {
+    this.renderTab = function (): void {
         reloadItems(tabContent, promise);
     };
 }

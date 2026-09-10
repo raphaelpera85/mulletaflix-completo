@@ -18,6 +18,10 @@ using MediaBrowser.Model.Nebula;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using MulletaFlix.Database.Implementations.Contexts;
+using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Enums;
+using Microsoft.EntityFrameworkCore;
 
 namespace Jellyfin.Server.Implementations.Nebula;
 
@@ -28,6 +32,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 {
     private readonly ILogger<NebulaSupabaseSyncService> _logger;
     private readonly NebulaMongoContext _mongoContext;
+    private readonly IDbContextFactory<UsersDbContext>? _usersDbProvider;
     private readonly HttpClient _httpClient;
     private CancellationTokenSource? _continuousSyncCts;
     private Task? _continuousSyncTask;
@@ -36,10 +41,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaSupabaseSyncService"/>.
     /// </summary>
-    public NebulaSupabaseSyncService(NebulaMongoContext mongoContext, ILogger<NebulaSupabaseSyncService> logger)
+    public NebulaSupabaseSyncService(
+        NebulaMongoContext mongoContext,
+        ILogger<NebulaSupabaseSyncService> logger,
+        IDbContextFactory<UsersDbContext>? usersDbProvider = null)
     {
         _mongoContext = mongoContext;
         _logger = logger;
+        _usersDbProvider = usersDbProvider;
         _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromMinutes(5)
@@ -338,14 +347,16 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 }
             }
 
+            var appUsersBackedUp = await BackupMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+
             // 3. Registra log na tabela nebula_backups
             var backupLog = new
             {
                 backup_type = "continuous_sync",
                 status = "success",
                 total_files = syncedFiles,
-                total_users = syncedUsers,
-                details = $"Sincronização nativa C# finalizada com {syncedFiles} arquivos e {syncedUsers} usuários."
+                total_users = syncedUsers + appUsersBackedUp,
+                details = $"Sincronização nativa C# finalizada com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix."
             };
 
             try
@@ -369,9 +380,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
             result.Success = true;
             result.FilesBackedUp = syncedFiles;
-            result.UsersBackedUp = syncedUsers;
+            result.UsersBackedUp = syncedUsers + appUsersBackedUp;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Sincronização com Supabase concluída com sucesso! ({syncedFiles} arquivos, {syncedUsers} usuários em {result.ElapsedSeconds:F1}s)";
+            result.Message = $"Sincronização com Supabase concluída com sucesso! ({syncedFiles} arquivos, {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix em {result.ElapsedSeconds:F1}s)";
             _logger.LogInformation("[SUPABASE-SYNC] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE] {result.Message}");
             return result;
@@ -549,10 +560,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     }
                 }
             }
+
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[SUPABASE-RESTORE] Aviso ao restaurar tabela de usuários.");
             }
+
+            var restoredAppUsers = await RestoreMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
 
             // 3. Restaura tokens de bot
             var restoredTokens = 0;
@@ -598,9 +612,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
             result.Success = true;
             result.FilesRestored = restoredFiles;
-            result.UsersRestored = restoredUsers;
+            result.UsersRestored = restoredUsers + restoredAppUsers;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Restauração finalizada com sucesso! {restoredFiles} arquivos e {restoredUsers} usuários recuperados do Supabase em {result.ElapsedSeconds:F1}s.";
+            result.Message = $"Restauração finalizada com sucesso! {restoredFiles} arquivos, {restoredUsers} usuários FTP e {restoredAppUsers} usuários do MulletaFlix recuperados do Supabase em {result.ElapsedSeconds:F1}s.";
             _logger.LogInformation("[SUPABASE-RESTORE] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE-RESTORE] {result.Message}");
             return result;
@@ -663,6 +677,202 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         };
     }
 
+    /// <summary>
+    /// Verifica quantos usuários reais do MulletaFlix existem no banco relacional.
+    /// </summary>
+    public async Task<int> GetMulletaFlixUserCountAsync(CancellationToken cancellationToken = default)
+    {
+        if (_usersDbProvider == null)
+        {
+            return 0;
+        }
+
+        await using var db = await _usersDbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await db.Users.CountAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Obtém a quantidade de usuários do MulletaFlix já armazenados no Supabase.
+    /// </summary>
+    public async Task<int> GetMulletaFlixUserBackupCountAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken = default)
+    {
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?select=id";
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.Add("apikey", supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return 0;
+        }
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+        return document.RootElement.ValueKind == JsonValueKind.Array
+            ? document.RootElement.GetArrayLength()
+            : 0;
+    }
+
+    private async Task<int> BackupMulletaFlixUsersAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken)
+    {
+        if (_usersDbProvider == null)
+        {
+            return 0;
+        }
+
+        await using var db = await _usersDbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var users = await db.Users
+            .Include(user => user.Permissions)
+            .Include(user => user.License)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var records = users.Select(user => new MulletaFlixUserRecord
+        {
+            Id = user.Id,
+            Username = user.Username,
+            NormalizedUsername = user.NormalizedUsername,
+            Password = user.Password,
+            PhoneNumber = user.PhoneNumber,
+            MustUpdatePassword = user.MustUpdatePassword,
+            AuthenticationProviderId = user.AuthenticationProviderId,
+            PasswordResetProviderId = user.PasswordResetProviderId,
+            EnableLocalPassword = user.EnableLocalPassword,
+            EnableUserPreferenceAccess = user.EnableUserPreferenceAccess,
+            Permissions = user.Permissions.Select(permission => new MulletaFlixPermissionRecord
+            {
+                Kind = (int)permission.Kind,
+                Value = permission.Value
+            }).ToList(),
+            License = user.License == null ? null : new MulletaFlixLicenseRecord
+            {
+                StartDate = user.License.StartDate,
+                DurationHours = user.License.DurationHours,
+                ExpirationDate = user.License.ExpirationDate,
+                IsUnlimited = user.License.IsUnlimited,
+                AdminNotes = user.License.AdminNotes,
+                GrantedByUserId = user.License.GrantedByUserId,
+                CreatedAt = user.License.CreatedAt,
+                UpdatedAt = user.License.UpdatedAt
+            }
+        }).ToList();
+
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?on_conflict=id";
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(records), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("apikey", supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+        request.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException($"Falha ao salvar usuários do MulletaFlix no Supabase: HTTP {(int)response.StatusCode} - {body}");
+        }
+
+        return records.Count;
+    }
+
+    private async Task<int> RestoreMulletaFlixUsersAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken)
+    {
+        if (_usersDbProvider == null)
+        {
+            return 0;
+        }
+
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?select=*&order=username.asc";
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.Add("apikey", supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return 0;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var records = JsonSerializer.Deserialize<List<MulletaFlixUserRecord>>(body) ?? [];
+        await using var db = await _usersDbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var restored = 0;
+
+        foreach (var record in records)
+        {
+            if (record.Id == Guid.Empty || string.IsNullOrWhiteSpace(record.Username))
+            {
+                continue;
+            }
+
+            var user = await db.Users
+                .Include(item => item.Permissions)
+                .FirstOrDefaultAsync(item => item.Id == record.Id || item.NormalizedUsername == record.NormalizedUsername, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (user == null)
+            {
+                user = new User(record.Username, record.AuthenticationProviderId, record.PasswordResetProviderId)
+                {
+                    Id = record.Id
+                };
+                db.Users.Add(user);
+            }
+
+            user.Username = record.Username;
+            user.NormalizedUsername = record.NormalizedUsername;
+            user.Password = record.Password;
+            user.PhoneNumber = record.PhoneNumber;
+            user.MustUpdatePassword = record.MustUpdatePassword;
+            user.AuthenticationProviderId = record.AuthenticationProviderId;
+            user.PasswordResetProviderId = record.PasswordResetProviderId;
+            user.EnableLocalPassword = record.EnableLocalPassword;
+            user.EnableUserPreferenceAccess = record.EnableUserPreferenceAccess;
+
+            db.Permissions.RemoveRange(user.Permissions);
+            user.Permissions.Clear();
+            foreach (var permission in record.Permissions)
+            {
+                user.Permissions.Add(new Permission((PermissionKind)permission.Kind, permission.Value)
+                {
+                    UserId = user.Id
+                });
+            }
+
+            var license = await db.UserLicenses
+                .FirstOrDefaultAsync(item => item.UserId == user.Id, cancellationToken)
+                .ConfigureAwait(false);
+            if (record.License == null)
+            {
+                if (license != null)
+                {
+                    db.UserLicenses.Remove(license);
+                }
+            }
+            else
+            {
+                license ??= new UserLicense { UserId = user.Id };
+                license.StartDate = record.License.StartDate;
+                license.DurationHours = record.License.DurationHours;
+                license.ExpirationDate = record.License.ExpirationDate;
+                license.IsUnlimited = record.License.IsUnlimited;
+                license.AdminNotes = record.License.AdminNotes;
+                license.GrantedByUserId = record.License.GrantedByUserId;
+                license.CreatedAt = record.License.CreatedAt;
+                license.UpdatedAt = record.License.UpdatedAt;
+                if (license.Id == 0)
+                {
+                    db.UserLicenses.Add(license);
+                }
+            }
+
+            restored++;
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return restored;
+    }
+
     private static SupabaseUserRecord ConvertBsonDocToSupabaseUser(BsonDocument doc)
     {
         var login = doc.GetValue("_id").ToString()!;
@@ -681,6 +891,40 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             Permissions = cleanDict.GetValueOrDefault("permissions"),
             DocData = cleanDict
         };
+    }
+
+    private sealed class MulletaFlixUserRecord
+    {
+        [JsonPropertyName("id")] public Guid Id { get; set; }
+        [JsonPropertyName("username")] public string Username { get; set; } = string.Empty;
+        [JsonPropertyName("normalized_username")] public string NormalizedUsername { get; set; } = string.Empty;
+        [JsonPropertyName("password")] public string? Password { get; set; }
+        [JsonPropertyName("phone_number")] public string? PhoneNumber { get; set; }
+        [JsonPropertyName("must_update_password")] public bool MustUpdatePassword { get; set; }
+        [JsonPropertyName("authentication_provider_id")] public string AuthenticationProviderId { get; set; } = string.Empty;
+        [JsonPropertyName("password_reset_provider_id")] public string PasswordResetProviderId { get; set; } = string.Empty;
+        [JsonPropertyName("enable_local_password")] public bool EnableLocalPassword { get; set; }
+        [JsonPropertyName("enable_user_preference_access")] public bool EnableUserPreferenceAccess { get; set; }
+        [JsonPropertyName("permissions")] public List<MulletaFlixPermissionRecord> Permissions { get; set; } = [];
+        [JsonPropertyName("license")] public MulletaFlixLicenseRecord? License { get; set; }
+    }
+
+    private sealed class MulletaFlixPermissionRecord
+    {
+        [JsonPropertyName("kind")] public int Kind { get; set; }
+        [JsonPropertyName("value")] public bool Value { get; set; }
+    }
+
+    private sealed class MulletaFlixLicenseRecord
+    {
+        [JsonPropertyName("start_date")] public DateTime StartDate { get; set; }
+        [JsonPropertyName("duration_hours")] public int? DurationHours { get; set; }
+        [JsonPropertyName("expiration_date")] public DateTime? ExpirationDate { get; set; }
+        [JsonPropertyName("is_unlimited")] public bool IsUnlimited { get; set; }
+        [JsonPropertyName("admin_notes")] public string? AdminNotes { get; set; }
+        [JsonPropertyName("granted_by_user_id")] public Guid? GrantedByUserId { get; set; }
+        [JsonPropertyName("created_at")] public DateTime CreatedAt { get; set; }
+        [JsonPropertyName("updated_at")] public DateTime UpdatedAt { get; set; }
     }
 
     private static object? BsonTypeToNetObject(BsonValue val)

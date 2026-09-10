@@ -471,9 +471,9 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         {
             await Task.WhenAll(_workerTasks).ConfigureAwait(false);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Ignora cancelamento
+            _logger.LogError(ex, "[NEBULA-WATCHER] Falha ao aguardar workers durante o encerramento.");
         }
 
         _isRunning = false;

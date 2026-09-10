@@ -163,7 +163,7 @@ function onInputCommand(this: ScrollerElement, e: InputCommandEvent): void {
 function loadScrollButtons(buttonsScroller: ScrollerElement): void {
     import('../emby-scrollbuttons/emby-scrollbuttons').then(() => {
         buttonsScroller.insertAdjacentHTML('beforebegin', '<div is="emby-scrollbuttons" class="emby-scrollbuttons padded-right"></div>');
-    });
+    }).catch(() => undefined);
 }
 
 (ScrollerPrototype as any).pause = function (this: ScrollerElement): void {

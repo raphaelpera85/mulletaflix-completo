@@ -244,7 +244,7 @@ function loadMediaInfo(itemId: string, serverId: string): Promise<void> {
         if (layoutManager.tv) {
             dlg.querySelector('.formDialogContent');
         }
-        dialogHelper.open(dlg);
+        dialogHelper.open(dlg).catch(() => undefined);
         dlg.querySelector('.btnCancel')!.addEventListener('click', () => {
             dialogHelper.close(dlg);
         });

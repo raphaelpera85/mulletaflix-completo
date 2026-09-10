@@ -41,6 +41,13 @@ interface UserDataButtonsOptions {
     [key: string]: unknown;
 }
 
+interface UserDataApiClient {
+    getCurrentUserId: () => string;
+    markPlayed: (userId: string, itemId: string, date: Date) => Promise<void>;
+    markUnplayed: (userId: string, itemId: string, date: Date) => Promise<void>;
+    updateFavoriteStatus: (userId: string, itemId: string, isFavorite: boolean) => Promise<void>;
+}
+
 interface UserDataMethods {
     markPlayed: (link: HTMLElement) => void;
     markFavorite: (link: HTMLElement) => void;
@@ -88,7 +95,10 @@ function onContainerClick(e: Event): void {
     }
 
     const method = btnUserData.getAttribute('data-method')!;
-    userDataMethods[method](btnUserData);
+    const handler = userDataMethods[method];
+    if (typeof handler === 'function') {
+        handler(btnUserData);
+    }
 }
 
 function fill(options: UserDataButtonsOptions): void {
@@ -201,15 +211,15 @@ function markPlayed(link: HTMLElement): void {
 }
 
 function played(id: string, serverId: string, isPlayed: boolean): Promise<void> {
-    const apiClient = ServerConnections.getApiClient(serverId) as any;
+    const apiClient = ServerConnections.getApiClient(serverId) as unknown as UserDataApiClient;
 
-    const method = isPlayed ? 'markPlayed' : 'markUnplayed';
+    const method = isPlayed ? apiClient.markPlayed : apiClient.markUnplayed;
 
-    return apiClient[method](apiClient.getCurrentUserId(), id, new Date());
+    return method.call(apiClient, apiClient.getCurrentUserId(), id, new Date());
 }
 
 function favorite(id: string, serverId: string, isFavorite: boolean): Promise<void> {
-    const apiClient = ServerConnections.getApiClient(serverId) as any;
+    const apiClient = ServerConnections.getApiClient(serverId) as unknown as UserDataApiClient;
 
     return apiClient.updateFavoriteStatus(apiClient.getCurrentUserId(), id, isFavorite);
 }

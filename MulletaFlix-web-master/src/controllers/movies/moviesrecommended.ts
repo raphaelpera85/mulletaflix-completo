@@ -5,6 +5,7 @@ import { getBackdropShape, getPortraitShape } from 'components/cardbuilder/utils
 import imageLoader from 'components/images/imageLoader';
 import layoutManager from 'components/layoutManager';
 import * as mainTabsManager from 'components/maintabsmanager';
+import type { TabChangeDetail } from 'components/maintabsmanager';
 import { playbackManager } from 'components/playback/playbackmanager';
 import dom from 'utils/dom';
 import globalize from 'lib/globalize';
@@ -12,8 +13,10 @@ import inputManager from 'scripts/inputManager';
 import libraryMenu from 'scripts/libraryMenu';
 import * as userSettings from 'scripts/settings/userSettings';
 import { LibraryTab } from 'types/libraryTab';
+import type { ItemDto } from 'types/base/models/item-dto';
 import Dashboard from 'utils/dashboard';
 import Events from 'utils/events';
+import type { Event as EventsEvent } from 'utils/events';
 
 import 'elements/emby-scroller/emby-scroller';
 import 'elements/emby-itemscontainer/emby-itemscontainer';
@@ -23,14 +26,34 @@ import 'elements/emby-button/emby-button';
 interface Recommendation {
     RecommendationType: string;
     BaselineItemName: string;
-    Items: any[];
+    Items: ItemDto[];
+}
+
+interface ItemsResult {
+    Items: ItemDto[];
+}
+
+interface PlaybackState {
+    NowPlayingItem?: {
+        MediaType?: string;
+    };
+}
+
+interface InputCommandEvent extends Event {
+    detail?: {
+        command?: string;
+    };
+}
+
+interface TabsElementWithTrigger extends HTMLElement {
+    triggerTabChange(): void;
 }
 
 function enableScrollX(): boolean {
     return !layoutManager.desktop;
 }
 
-function loadLatest(page: HTMLElement, userId: string, parentId: string): void {
+function loadLatest(page: HTMLElement, userId: string, parentId: string): Promise<void> {
     const options = {
         IncludeItemTypes: 'Movie',
         Limit: 18,
@@ -40,7 +63,7 @@ function loadLatest(page: HTMLElement, userId: string, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getJSON(ApiClient.getUrl('Users/' + userId + '/Items/Latest', options)).then(function (items: any[]) {
+    return ApiClient.getJSON(ApiClient.getUrl('Users/' + userId + '/Items/Latest', options)).then(function (items: ItemDto[]) {
         const allowBottomPadding = !enableScrollX();
         const container = page.querySelector('#recentlyAddedItems');
         cardBuilder.buildCards(items, {
@@ -53,13 +76,10 @@ function loadLatest(page: HTMLElement, userId: string, parentId: string): void {
             showYear: true,
             centerText: true
         });
-
-        // FIXME: Wait for all sections to load
-        autoFocus(page);
-    });
+    }).catch((error: unknown) => console.error('[MoviesRecommended] failed to load latest items', error));
 }
 
-function loadResume(page: HTMLElement, userId: string, parentId: string): void {
+function loadResume(page: HTMLElement, userId: string, parentId: string): Promise<void> {
     const screenWidth = dom.getWindowSize().innerWidth;
     const options = {
         SortBy: 'DatePlayed',
@@ -75,7 +95,7 @@ function loadResume(page: HTMLElement, userId: string, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getItems(userId, options).then(function (result: any) {
+    return ApiClient.getItems(userId, options).then(function (result: ItemsResult) {
         if (result.Items.length) {
             page.querySelector('#resumableSection')!.classList.remove('hide');
         } else {
@@ -96,10 +116,7 @@ function loadResume(page: HTMLElement, userId: string, parentId: string): void {
             showYear: true,
             centerText: true
         });
-
-        // FIXME: Wait for all sections to load
-        autoFocus(page);
-    });
+    }).catch((error: unknown) => console.error('[MoviesRecommended] failed to load resumable items', error));
 }
 
 function getRecommendationHtml(recommendation: Recommendation): string {
@@ -155,7 +172,7 @@ function getRecommendationHtml(recommendation: Recommendation): string {
     return html;
 }
 
-function loadSuggestions(page: HTMLElement, userId: string): void {
+function loadSuggestions(page: HTMLElement, userId: string): Promise<void> {
     const screenWidth = dom.getWindowSize().innerWidth;
     let itemLimit = 5;
     if (screenWidth >= 1600) {
@@ -172,7 +189,7 @@ function loadSuggestions(page: HTMLElement, userId: string): void {
         ImageTypeLimit: 1,
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb'
     });
-    ApiClient.getJSON(url).then(function (recommendations: Recommendation[]) {
+    return ApiClient.getJSON(url).then(function (recommendations: Recommendation[]) {
         if (!recommendations.length) {
             page.querySelector('.noItemsMessage')!.classList.remove('hide');
             (page.querySelector('.recommendations') as HTMLElement).innerHTML = '';
@@ -184,16 +201,13 @@ function loadSuggestions(page: HTMLElement, userId: string): void {
         const recs = page.querySelector('.recommendations') as HTMLElement;
         recs.innerHTML = html;
         imageLoader.lazyChildren(recs);
-
-        // FIXME: Wait for all sections to load
-        autoFocus(page);
-    });
+    }).catch((error: unknown) => console.error('[MoviesRecommended] failed to load recommendations', error));
 }
 
 function autoFocus(page: HTMLElement): void {
-    import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+    void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
         autoFocuser.autoFocus(page);
-    });
+    }).catch((error: unknown) => console.error('[MoviesRecommended] failed to focus page', error));
 }
 
 function setScrollClasses(elem: HTMLElement, scrollX: boolean): void {
@@ -227,9 +241,11 @@ function initSuggestedTab(page: HTMLElement, tabContent: HTMLElement): void {
 function loadSuggestionsTab(view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
     const parentId = params.topParentId;
     const userId = ApiClient.getCurrentUserId();
-    loadResume(tabContent, userId, parentId);
-    loadLatest(tabContent, userId, parentId);
-    loadSuggestions(tabContent, userId);
+    Promise.all([
+        loadResume(tabContent, userId, parentId),
+        loadLatest(tabContent, userId, parentId),
+        loadSuggestions(tabContent, userId)
+    ]).then(() => autoFocus(tabContent)).catch((error: unknown) => console.error('[MoviesRecommended] failed to initialize suggestions tab', error));
 }
 
 function getTabs(): { name: string }[] {
@@ -271,11 +287,11 @@ interface ViewParams {
 }
 
 export default function (this: any, view: HTMLElement, params: ViewParams): void {
-    function onBeforeTabChange(e: any): void {
+    function onBeforeTabChange(e: CustomEvent<TabChangeDetail>): void {
         preLoadTab(view, parseInt(e.detail.selectedTabIndex, 10));
     }
 
-    function onTabChange(e: any): void {
+    function onTabChange(e: CustomEvent<TabChangeDetail>): void {
         const newIndex = parseInt(e.detail.selectedTabIndex, 10);
         loadTab(view, newIndex);
     }
@@ -305,7 +321,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
                 break;
         }
 
-        import(`../movies/${depends}.ts`).then(({ default: ControllerFactory }) => {
+        void import(`../movies/${depends}.ts`).then(({ default: ControllerFactory }) => {
             let tabContent: HTMLElement;
 
             if (index === suggestionsTabIndex) {
@@ -319,8 +335,11 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
                 tabContent = view.querySelector(`.pageTabContent[data-index='${index}']`) as HTMLElement;
 
                 if (index === suggestionsTabIndex) {
-                    controller = this;
-                } else if (index == 0 || index == 2) {
+                    callback(this);
+                    return;
+                }
+
+                if (index == 0 || index == 2) {
                     controller = new ControllerFactory(view, params, tabContent, {
                         mode: index ? 'favorites' : 'movies'
                     });
@@ -336,7 +355,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
             }
 
             callback(controller);
-        });
+        }).catch((error: unknown) => console.error('[MoviesRecommended] failed to load tab controller', error));
     };
 
     function preLoadTab(page: HTMLElement, index: number): void {
@@ -357,17 +376,18 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
         }));
     }
 
-    function onPlaybackStop(e: any, state: any): void {
+    function onPlaybackStop(_event: EventsEvent, state: PlaybackState): void {
         if (state.NowPlayingItem && state.NowPlayingItem.MediaType == 'Video') {
             renderedTabs = [];
-            (mainTabsManager.getTabsElement() as any).triggerTabChange();
+            const tabsElement = mainTabsManager.getTabsElement() as TabsElementWithTrigger | null;
+            tabsElement?.triggerTabChange();
         }
     }
 
-    function onInputCommand(e: Event): void {
-        if ((e as any).detail.command === 'search') {
+    function onInputCommand(e: InputCommandEvent): void {
+        if (e.detail?.command === 'search') {
             e.preventDefault();
-            Dashboard.navigate('search?collectionType=movies&parentId=' + params.topParentId);
+            void Dashboard.navigate('search?collectionType=movies&parentId=' + params.topParentId).catch((error: unknown) => console.error('[MoviesRecommended] failed to open search', error));
         }
     }
 
@@ -395,7 +415,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
                 ApiClient.getItem(ApiClient.getCurrentUserId(), parentId).then(function (item: any) {
                     view.setAttribute('data-title', item.Name);
                     libraryMenu.setTitle(item.Name);
-                });
+                }).catch((error: unknown) => console.error('[MoviesRecommended] failed to load parent title', error));
             } else {
                 view.setAttribute('data-title', globalize.translate('Movies'));
                 libraryMenu.setTitle(globalize.translate('Movies'));

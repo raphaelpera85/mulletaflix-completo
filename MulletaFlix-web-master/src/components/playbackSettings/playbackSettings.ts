@@ -81,7 +81,7 @@ function populateMediaSegments(container: any, userSettings: any): void {
     });
 }
 
-function fillQuality(select: any, isInNetwork: boolean, mediatype: string, maxVideoWidth?: string): void {
+function fillQuality(select: any, isInNetwork: boolean, mediatype: string): void {
     const options = mediatype === 'Audio' ? qualityoptions.getAudioQualityOptions({
         currentMaxBitrate: appSettings.maxStreamingBitrate(isInNetwork, mediatype),
         isAutomaticBitrateEnabled: appSettings.enableAutomaticBitrateDetection(isInNetwork, mediatype),
@@ -107,7 +107,7 @@ function setMaxBitrateIntoField(select: any, isInNetwork: boolean, mediatype: st
     }
 }
 
-function fillChromecastQuality(select: any, maxVideoWidth?: string): void {
+function fillChromecastQuality(select: any): void {
     const options = qualityoptions.getVideoQualityOptions({
         currentMaxBitrate: appSettings.maxChromecastBitrate(),
         isAutomaticBitrateEnabled: !appSettings.maxChromecastBitrate(),

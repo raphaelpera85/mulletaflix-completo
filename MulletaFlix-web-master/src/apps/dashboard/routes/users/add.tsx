@@ -24,6 +24,9 @@ type ItemsArr = {
 
 const UserNew = () => {
     const navigate = useNavigate();
+    const navigateSafely = useCallback((to: string) => {
+        Promise.resolve(navigate(to)).catch((error: unknown) => console.error('[usernew] failed to navigate', error));
+    }, [navigate]);
     const [ channelsItems, setChannelsItems ] = useState<ItemsArr[]>([]);
     const [ mediaFoldersItems, setMediaFoldersItems ] = useState<ItemsArr[]>([]);
     const [ isErrorToastOpen, setIsErrorToastOpen ] = useState(false);
@@ -162,7 +165,7 @@ const UserNew = () => {
                         userPolicy: user.Policy
                     }, {
                         onSuccess: () => {
-                            navigate(`/dashboard/users/${user.Id}/profile`);
+                            navigateSafely(`/dashboard/users/${user.Id}/profile`);
                         },
                         onError: () => {
                             console.error('[usernew] failed to update user policy');
@@ -206,7 +209,7 @@ const UserNew = () => {
             (page.querySelector('.newUserProfileForm') as HTMLFormElement).removeEventListener('submit', onSubmit);
             (page.querySelector('#btnCancel') as HTMLButtonElement).removeEventListener('click', onCancelClick);
         };
-    }, [loadUser, createUser, updateUserPolicy, navigate]);
+    }, [loadUser, createUser, updateUserPolicy, navigateSafely]);
 
     return (
         <Page
@@ -301,4 +304,3 @@ const UserNew = () => {
 };
 
 export default UserNew;
-

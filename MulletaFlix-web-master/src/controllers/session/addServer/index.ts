@@ -1,5 +1,3 @@
-import type { ApiClient } from 'jellyfin-apiclient';
-
 import loading from 'components/loading/loading';
 import globalize from 'lib/globalize';
 import { ConnectionState, ServerConnections } from 'lib/jellyfin-apiclient';
@@ -9,41 +7,50 @@ import Dashboard from 'utils/dashboard';
 
 import 'elements/emby-button/emby-button';
 
+function observeDashboardOperation(operation: unknown, label: string): void {
+    void Promise.resolve(operation).catch((error: unknown) => {
+        console.error(`[AddServer] failed to ${label}`, error);
+    });
+}
+
 function handleConnectionResult(page: HTMLElement, result: ConnectResult): void {
     loading.hide();
     switch (result.State) {
         case ConnectionState.SignedIn: {
             const apiClient = result.ApiClient!;
             Dashboard.onServerChanged(apiClient.getCurrentUserId()!, apiClient.accessToken()!, apiClient as never);
-            Dashboard.navigate('home');
+            observeDashboardOperation(Dashboard.navigate('home'), 'navigate home');
             break;
         }
         case ConnectionState.ServerSignIn:
             if (result.SystemInfo?.StartupWizardCompleted) {
-                Dashboard.navigate('login?serverid=' + result.Servers![0].Id);
+                observeDashboardOperation(Dashboard.navigate('login?serverid=' + result.Servers![0].Id), 'navigate to login');
             } else {
-                Dashboard.navigate('/wizard/start');
+                observeDashboardOperation(Dashboard.navigate('/wizard/start'), 'navigate to wizard');
             }
             break;
         case ConnectionState.ServerSelection:
-            Dashboard.navigate('selectserver');
+            observeDashboardOperation(Dashboard.navigate('selectserver'), 'navigate to server selection');
             break;
         case ConnectionState.ServerUpdateNeeded:
-            Dashboard.alert({
+            observeDashboardOperation(Dashboard.alert({
                 message: globalize.translate('ServerUpdateNeeded', '<a href="https://github.com/MulletaFlix/MulletaFlix">https://github.com/MulletaFlix/MulletaFlix</a>')
-            });
+            }), 'show update alert');
             break;
         case ConnectionState.Unavailable:
-            Dashboard.alert({
+            observeDashboardOperation(Dashboard.alert({
                 message: globalize.translate('MessageUnableToConnectToServer'),
                 title: globalize.translate('HeaderConnectionFailure')
-            });
+            }), 'show connection alert');
     }
 }
 
 function submitServer(page: HTMLElement): void {
     loading.show();
-    const host: string = (page.querySelector('#txtServerHost') as HTMLInputElement).value.replace(/\/+$/, '');
+    let host = (page.querySelector('#txtServerHost') as HTMLInputElement).value;
+    while (host.endsWith('/')) {
+        host = host.slice(0, -1);
+    }
     ServerConnections.connectToAddress(host, {
         enableAutoLogin: appSettings.enableAutoLogin()
     }).then(function(result: ConnectResult) {
@@ -59,9 +66,9 @@ export default function(view: HTMLElement): void {
     view.querySelector('.addServerForm')!.addEventListener('submit', onServerSubmit);
     view.querySelector('.btnCancel')!.addEventListener('click', goBack);
 
-    import('../../../components/autoFocuser').then(({ default: autoFocuser }) => {
+    void import('../../../components/autoFocuser').then(({ default: autoFocuser }) => {
         autoFocuser.autoFocus(view);
-    });
+    }).catch((error: unknown) => console.error('[AddServer] failed to focus server form', error));
 
     function onServerSubmit(e: Event): void {
         submitServer(view);
@@ -69,8 +76,8 @@ export default function(view: HTMLElement): void {
     }
 
     function goBack(): void {
-        import('../../../components/router/appRouter').then(({ appRouter }) => {
-            appRouter.back();
-        });
+        void import('../../../components/router/appRouter').then(({ appRouter }) => {
+            return appRouter.back();
+        }).catch((error: unknown) => console.error('[AddServer] failed to navigate back', error));
     }
 }

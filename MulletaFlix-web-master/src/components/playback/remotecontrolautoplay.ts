@@ -41,9 +41,9 @@ function transferPlayback(oldPlayer: PlaybackPlayer, newPlayer: PlaybackPlayer):
         const playlistIds = playlist.map(x => x.Id);
         const playState = state.PlayState || {};
         const resumePositionTicks = playState.PositionTicks || 0;
-        const playlistIndex = playlistIds.indexOf(item.Id) || 0;
+        const playlistIndex = Math.max(playlistIds.indexOf(item.Id), 0);
 
-        (playbackManager as unknown as PlaybackManagerContract).stop(oldPlayer).then(() => {
+        return (playbackManager as unknown as PlaybackManagerContract).stop(oldPlayer).then(() => {
             (playbackManager as unknown as PlaybackManagerContract).play({
                 ids: playlistIds,
                 serverId: item.ServerId,
@@ -51,7 +51,7 @@ function transferPlayback(oldPlayer: PlaybackPlayer, newPlayer: PlaybackPlayer):
                 startIndex: playlistIndex
             }, newPlayer);
         });
-    });
+    }).catch(() => undefined);
 }
 
 Events.on(playbackManager, 'playerchange', (_e: unknown, newPlayer: PlaybackPlayer, _newTarget: unknown, oldPlayer: PlaybackPlayer) => {

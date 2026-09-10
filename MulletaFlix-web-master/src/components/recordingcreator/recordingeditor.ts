@@ -25,7 +25,7 @@ let currentResolve: (value?: any) => void;
 
 function deleteTimer(apiClient: any, timerId: string): Promise<void> {
     return import('./recordinghelper').then(({ default: recordingHelper }) => {
-        recordingHelper.cancelTimerWithConfirmation(timerId, apiClient.serverId());
+        return recordingHelper.cancelTimerWithConfirmation(timerId, apiClient.serverId());
     });
 }
 
@@ -51,7 +51,9 @@ function onSubmit(this: any, e: Event): void {
     apiClient.getLiveTvTimer(currentItemId).then(function (item: any) {
         item.PrePaddingSeconds = Number((form.querySelector('#txtPrePaddingMinutes') as HTMLInputElement).value) * 60;
         item.PostPaddingSeconds = Number((form.querySelector('#txtPostPaddingMinutes') as HTMLInputElement).value) * 60;
-        apiClient.updateLiveTvTimer(item).then(currentResolve);
+        return apiClient.updateLiveTvTimer(item);
+    }).then(currentResolve).catch(() => {
+        loading.hide();
     });
 
     e.preventDefault();
@@ -70,7 +72,7 @@ function init(context: Element): void {
 
         deleteTimer(apiClient, currentItemId).then(function () {
             closeDialog(true);
-        });
+        }).catch(() => loading.hide());
     });
 
     context.querySelector('form')!.addEventListener('submit', onSubmit);
@@ -84,7 +86,7 @@ function reload(context: Element, id: string): void {
     apiClient.getLiveTvTimer(id).then(function (result: any) {
         renderTimer(context, result);
         loading.hide();
-    });
+    }).catch(() => loading.hide());
 }
 
 function showEditor(itemId: string, serverId: string, options?: { enableCancel?: boolean }): Promise<any> {
@@ -149,7 +151,7 @@ function showEditor(itemId: string, serverId: string, options?: { enableCancel?:
 
         reload(dlg, itemId);
 
-        dialogHelper.open(dlg);
+        dialogHelper.open(dlg).catch(() => loading.hide());
     });
 }
 

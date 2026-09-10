@@ -318,7 +318,7 @@ export const Component = () => {
                                 name='MaxLinkValidationConcurrency'
                                 label='Concorrencia da validacao de links'
                                 type='number'
-                                inputProps={{ min: 0, step: 1 }}
+                                slotProps={{ htmlInput: { min: 0, step: 1 } }}
                                 defaultValue={config?.MaxLinkValidationConcurrency ?? 0}
                                 fullWidth
                                 helperText='0 usa o valor automatico do servidor. O processamento continua em lotes de 500.'

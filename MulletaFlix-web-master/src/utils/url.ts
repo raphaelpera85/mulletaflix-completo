@@ -53,3 +53,23 @@ export const safeDecodeURIComponent = (value: string) => {
         return value;
     }
 };
+
+/**
+ * Returns an absolute HTTP(S) URL suitable for external navigation or image loading.
+ * Other schemes, including javascript:, data: and file:, must never become DOM URLs.
+ */
+export const getSafeHttpUrl = (value: string | null | undefined): string => {
+    if (!value) {
+        return '';
+    }
+
+    try {
+        const baseUrl = typeof window !== 'undefined' && window.location.href
+            ? window.location.href
+            : 'http://localhost/';
+        const url = new URL(value, baseUrl);
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : '';
+    } catch {
+        return '';
+    }
+};

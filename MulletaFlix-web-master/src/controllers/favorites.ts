@@ -1,4 +1,5 @@
 import type { ApiClient } from 'jellyfin-apiclient';
+import escapeHtml from 'escape-html';
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
 import { ImageType } from '@jellyfin/sdk/lib/generated-client/models/image-type';
 import { ItemFields } from '@jellyfin/sdk/lib/generated-client/models/item-fields';
@@ -357,7 +358,7 @@ function createSections(instance: FavoritesTab, elem: HTMLElement, apiClient: Ap
         if (layoutManager.tv) {
             html += '<h2 class="sectionTitle sectionTitle-cards">' + globalize.translate(section.name) + '</h2>';
         } else {
-            html += '<a is="emby-linkbutton" href="' + getRouteUrl(section, apiClient.serverId()) + '" class="more button-flat button-flat-mini sectionTitleTextButton">';
+            html += '<a is="emby-linkbutton" href="' + escapeHtml(getRouteUrl(section, apiClient.serverId())) + '" class="more button-flat button-flat-mini sectionTitleTextButton">';
             html += '<h2 class="sectionTitle sectionTitle-cards">';
             html += globalize.translate(section.name);
             html += '</h2>';
@@ -404,17 +405,20 @@ class FavoritesTab {
     onResume(options: { autoFocus?: boolean }): void {
         const promises: Promise<void>[] = [];
         const view = this.view;
-        const elems = this.sectionsContainer!.querySelectorAll<HTMLElement & { resume: (options: unknown) => Promise<void> }>('.itemsContainer');
+        if (!this.sectionsContainer) {
+            return;
+        }
+        const elems = this.sectionsContainer.querySelectorAll<HTMLElement & { resume: (options: unknown) => Promise<void> }>('.itemsContainer');
 
         for (const elem of elems) {
             promises.push(elem.resume(options));
         }
 
-        Promise.all(promises).then(function () {
+        void Promise.all(promises).then(function () {
             if (options.autoFocus) {
                 focusManager.autoFocus(view);
             }
-        });
+        }).catch((error: unknown) => console.error('[Favorites] failed to resume sections', error));
     }
 
     onPause(): void {
@@ -428,7 +432,10 @@ class FavoritesTab {
         this.view = null as unknown as HTMLElement;
         this.params = null as unknown as Record<string, unknown>;
         this.apiClient = null;
-        const elems = this.sectionsContainer!.querySelectorAll<HTMLElement & { fetchData: unknown; getItemsHtml: unknown; parentContainer: unknown }>('.itemsContainer');
+        if (!this.sectionsContainer) {
+            return;
+        }
+        const elems = this.sectionsContainer.querySelectorAll<HTMLElement & { fetchData: unknown; getItemsHtml: unknown; parentContainer: unknown }>('.itemsContainer');
 
         for (const elem of elems) {
             elem.fetchData = null;

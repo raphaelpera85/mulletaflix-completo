@@ -39,14 +39,18 @@ function showActionSheet(select: HTMLSelectElement): void {
     const title = labelElem ? (labelElem.textContent || labelElem.innerText) : undefined;
 
     actionsheet.show({
-        items: Array.from(select.options) as any[],
+        items: Array.from(select.options).map(option => ({
+            name: option.text,
+            id: option.value,
+            selected: option.selected
+        })),
         positionTo: select,
         title: title
 
     }).then(function (value: unknown) {
         setValue(select, value as string);
         triggerChange(select);
-    });
+    }).catch(() => undefined);
 }
 
 function getLabel(select: HTMLSelectElement): HTMLElement | null {

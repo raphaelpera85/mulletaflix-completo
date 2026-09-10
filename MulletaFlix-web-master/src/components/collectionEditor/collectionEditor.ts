@@ -200,7 +200,7 @@ function centerFocus(elem: HTMLElement, horiz: boolean, on: boolean): void {
     import('../../scripts/scrollHelper').then((scrollHelper) => {
         const fn = on ? 'on' : 'off';
         (scrollHelper.centerFocus as any)[fn](elem, horiz);
-    });
+    }).catch(() => undefined);
 }
 
 class CollectionEditor {

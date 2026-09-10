@@ -1,12 +1,13 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto';
 import { ImageType } from '@jellyfin/sdk/lib/generated-client/models/image-type';
+import type { ApiClient } from 'jellyfin-apiclient';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import dom from 'utils/dom';
 
 const getNowPlayingImageUrl = (item: BaseItemDto) => {
     if (!item.ServerId) return null;
 
-    const apiClient = ServerConnections.getApiClient(item.ServerId) as any;
+    const apiClient = ServerConnections.getApiClient(item.ServerId) as unknown as ApiClient;
 
     /* Screen width is multiplied by 0.2, as the there is currently no way to get the width of
                 elements that aren't created yet. */
@@ -64,4 +65,3 @@ const getNowPlayingImageUrl = (item: BaseItemDto) => {
 };
 
 export default getNowPlayingImageUrl;
-

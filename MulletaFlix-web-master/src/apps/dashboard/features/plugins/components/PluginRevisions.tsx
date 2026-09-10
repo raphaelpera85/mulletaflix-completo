@@ -47,6 +47,14 @@ const PluginRevisions: FC<PluginRevisionsProps> = ({
                 const extVersion = version as ExtendedVersionInfo;
                 const compatibility = getCompatibilityStatus(extVersion, pluginDetails.targetAbi);
                 const isInstalled = pluginDetails.status && version.version === pluginDetails.version?.version;
+                let compatibilityIcon;
+                if (compatibility.status === 'compatible') {
+                    compatibilityIcon = <CheckCircleIcon fontSize='small' />;
+                } else if (compatibility.status === 'incompatible') {
+                    compatibilityIcon = <WarningIcon fontSize='small' />;
+                } else {
+                    compatibilityIcon = <HelpIcon fontSize='small' />;
+                }
 
                 return (
                     <Accordion key={version.checksum || version.version}>
@@ -62,11 +70,7 @@ const PluginRevisions: FC<PluginRevisionsProps> = ({
                                     size='small'
                                     label={compatibility.label}
                                     color={compatibility.color}
-                                    icon={
-                                        compatibility.status === 'compatible' ? <CheckCircleIcon fontSize='small' /> :
-                                            compatibility.status === 'incompatible' ? <WarningIcon fontSize='small' /> :
-                                                <HelpIcon fontSize='small' />
-                                    }
+                                    icon={compatibilityIcon}
                                 />
                             </Stack>
                         </AccordionSummary>

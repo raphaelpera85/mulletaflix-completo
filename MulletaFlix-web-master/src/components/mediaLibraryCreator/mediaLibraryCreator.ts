@@ -29,20 +29,20 @@ let currentOptions: MediaLibraryCreatorOptions;
 let hasChanges = false;
 let isCreating = false;
 
-function onAddLibrary(this: HTMLElement, e: Event): boolean {
+function onAddLibrary(this: HTMLElement, e: Event): void {
     e.preventDefault();
 
     if (isCreating) {
-        return false;
+        return;
     }
 
     if (pathInfos.length == 0) {
         alert({
             text: globalize.translate('PleaseAddAtLeastOneFolder'),
             type: 'error'
-        });
+        }).catch((error: unknown) => console.error('[MediaLibraryCreator] failed to show validation alert', error));
 
-        return false;
+        return;
     }
 
     isCreating = true;
@@ -55,21 +55,23 @@ function onAddLibrary(this: HTMLElement, e: Event): boolean {
         alert({
             text: globalize.translate('LibraryNameInvalid'),
             type: 'error'
-        });
+        }).catch((error: unknown) => console.error('[MediaLibraryCreator] failed to show validation alert', error));
 
         isCreating = false;
         loading.hide();
 
-        return false;
+        return;
     }
 
     if (type == 'mixed') {
         type = null;
     }
 
-    const libraryOptions = libraryoptionseditor.getLibraryOptions(dlg.querySelector('.libraryOptions') as HTMLElement);
-    (libraryOptions as any).PathInfos = pathInfos;
-    (window as any).ApiClient.addVirtualFolder(name, type, currentOptions.refresh, libraryOptions).then(() => {
+    const libraryOptions = {
+        ...libraryoptionseditor.getLibraryOptions(dlg.querySelector('.libraryOptions') as HTMLElement),
+        PathInfos: pathInfos
+    };
+    window.ApiClient.addVirtualFolder(name, type || undefined, currentOptions.refresh, libraryOptions).then(() => {
         hasChanges = true;
         isCreating = false;
         loading.hide();
@@ -80,8 +82,6 @@ function onAddLibrary(this: HTMLElement, e: Event): boolean {
         isCreating = false;
         loading.hide();
     });
-
-    return false;
 }
 
 interface CollectionTypeOption {
@@ -144,6 +144,8 @@ function onAddButtonClick(this: HTMLElement): void {
                 picker.close();
             }
         });
+    }).catch((error: unknown) => {
+        console.error('[MediaLibraryCreator] failed to load directory browser', error);
     });
 }
 
@@ -158,7 +160,7 @@ function getFolderHtml(pathInfo: { Path: string; NetworkPath?: string }, index: 
     }
 
     html += '</div>';
-    html += `<button type="button" is="paper-icon-button-light"" class="listItemButton btnRemovePath" data-index="${index}"><span class="material-icons remove_circle" aria-hidden="true"></span></button>`;
+    html += `<button type="button" is="paper-icon-button-light" class="listItemButton btnRemovePath" data-index="${index}"><span class="material-icons remove_circle" aria-hidden="true"></span></button>`;
     html += '</div>';
     return html;
 }
@@ -186,7 +188,11 @@ function addMediaLocation(page: HTMLElement, path: string): void {
 
 function onRemoveClick(e: Event): void {
     const button = dom.parentWithClass(e.target as HTMLElement, 'btnRemovePath') as HTMLElement;
-    const index = parseInt(button.getAttribute('data-index')!, 10);
+    const index = Number.parseInt(button.getAttribute('data-index') || '', 10);
+    if (!Number.isInteger(index) || index < 0 || index >= pathInfos.length) {
+        return;
+    }
+
     const location = pathInfos[index].Path;
     const locationLower = location.toLowerCase();
     pathInfos = pathInfos.filter(p => {
@@ -202,6 +208,8 @@ function onDialogClosed(): void {
 function initLibraryOptions(dlg: HTMLElement): void {
     libraryoptionseditor.embed(dlg.querySelector('.libraryOptions') as HTMLElement, null, null).then(() => {
         (dlg.querySelector('#selectCollectionType') as HTMLElement).dispatchEvent(new Event('change'));
+    }).catch((error: unknown) => {
+        console.error('[MediaLibraryCreator] failed to initialize library options', error);
     });
 }
 
@@ -229,14 +237,16 @@ export class MediaLibraryCreator {
             dlg.innerHTML = globalize.translateHtml(template);
             initEditor(dlg, options.collectionTypeOptions);
             dlg.addEventListener('close', onDialogClosed);
-            dialogHelper.open(dlg);
+            dialogHelper.open(dlg).catch((error: unknown) => {
+                console.error('[MediaLibraryCreator] failed to open dialog', error);
+            });
             dlg.querySelector('.btnCancel')!.addEventListener('click', () => {
                 dialogHelper.close(dlg);
             });
             pathInfos = [];
             renderPaths(dlg);
             initLibraryOptions(dlg);
-        }) as any;
+        }) as unknown as MediaLibraryCreator;
     }
 }
 

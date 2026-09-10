@@ -17,8 +17,10 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Nebula;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Jellyfin.Server.Implementations.Nebula;
+using MulletaFlix.Database.Implementations.Contexts;
 
 namespace MulletaFlix.Server.Implementations.Nebula;
 
@@ -29,6 +31,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILibraryManager? _libraryManager;
     private readonly NebulaMetadataExportService? _metadataExportService;
+    private readonly IDbContextFactory<UsersDbContext>? _usersDbProvider;
 
     private readonly object _lock = new();
     private readonly List<string> _serverLogs = new();
@@ -84,13 +87,15 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         ILogger<NebulaFtpManager> logger,
         ILoggerFactory loggerFactory,
         ILibraryManager? libraryManager = null,
-        NebulaMetadataExportService? metadataExportService = null)
+        NebulaMetadataExportService? metadataExportService = null,
+        IDbContextFactory<UsersDbContext>? usersDbProvider = null)
     {
         _configManager = configManager;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
         _metadataExportService = metadataExportService;
+        _usersDbProvider = usersDbProvider;
     }
 
     private void EnsureLocalMediaLibraryPaths(NebulaFtpConfiguration config)
@@ -479,7 +484,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             {
                 _supabaseSyncService = new NebulaSupabaseSyncService(
                     _mongoContext,
-                    _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+                    _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(),
+                    _usersDbProvider);
             }
 
             await EnsureDatabaseRestoredIfEmptyAsync(config, AddServerLog, cancellationToken).ConfigureAwait(false);
@@ -537,7 +543,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                         {
                             await _supabaseSyncService.SyncSingleNodeAsync(config.SupabaseUrl, config.SupabaseKey, doc, CancellationToken.None).ConfigureAwait(false);
                         }
-
                     },
                     emitServerLog: EmitServerLog,
                     logQueueState: logQueueState);
@@ -1050,7 +1055,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 if (count == 0)
                 {
                     AddServerLog("[STRM] MongoDB vazio detectado. Restaurando acervo do Supabase antes de gerar STRM...");
-                    var sync = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+                    var sync = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
                     await sync.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -1523,9 +1528,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             var sessionPath = Path.Combine(sessionsDir, sessionName);
             var sessionExists = File.Exists(sessionPath);
 
-            var masked = token.Length > 14
-                ? $"{token[..8]}...{token[^4..]}"
-                : token;
+            var masked = MaskBotToken(token);
 
             result.Add(new NebulaBotDto
             {
@@ -1539,6 +1542,18 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
 
         return result;
+    }
+
+    internal static string MaskBotToken(string token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return "••••";
+        }
+
+        return token.Length > 4
+            ? $"••••{token[^4..]}"
+            : "••••";
     }
 
     public List<NebulaBotDto> SaveBot(NebulaSaveBotRequest request)
@@ -1727,7 +1742,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
                 if (mongo != null)
                 {
-                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
                     syncService = tempSyncService;
                 }
             }
@@ -1814,7 +1829,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
                 if (mongo != null)
                 {
-                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+                    tempSyncService = new NebulaSupabaseSyncService(mongo, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
                     syncService = tempSyncService;
                 }
             }
@@ -1907,6 +1922,27 @@ CREATE TABLE IF NOT EXISTS nebula_users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Usuários de login do MulletaFlix/Jellyfin. A senha é armazenada somente
+-- como o hash já existente no banco local; nunca é enviada em texto puro.
+CREATE TABLE IF NOT EXISTS mulletaflix_users (
+    id UUID PRIMARY KEY,
+    username TEXT NOT NULL,
+    normalized_username TEXT NOT NULL,
+    password TEXT,
+    phone_number TEXT,
+    must_update_password BOOLEAN NOT NULL DEFAULT FALSE,
+    authentication_provider_id TEXT NOT NULL,
+    password_reset_provider_id TEXT NOT NULL,
+    enable_local_password BOOLEAN NOT NULL DEFAULT TRUE,
+    enable_user_preference_access BOOLEAN NOT NULL DEFAULT TRUE,
+    permissions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    license JSONB,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mulletaflix_users_username ON mulletaflix_users(normalized_username);
+ALTER TABLE mulletaflix_users ADD COLUMN IF NOT EXISTS license JSONB;
+
 CREATE TABLE IF NOT EXISTS nebula_backups (
     id BIGSERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -1923,12 +1959,14 @@ CREATE TABLE IF NOT EXISTS nebula_backups (
 -- acesso anônimo/autenticado direto ao banco.
 ALTER TABLE nebula_files ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nebula_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mulletaflix_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nebula_backups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nebula_bot_tokens ENABLE ROW LEVEL SECURITY;
 
 -- Remove políticas anteriores (idempotência ao re-executar o script)
 DROP POLICY IF EXISTS nebula_files_service_role_all ON nebula_files;
 DROP POLICY IF EXISTS nebula_users_service_role_all ON nebula_users;
+DROP POLICY IF EXISTS mulletaflix_users_service_role_all ON mulletaflix_users;
 DROP POLICY IF EXISTS nebula_backups_service_role_all ON nebula_backups;
 DROP POLICY IF EXISTS nebula_bot_tokens_service_role_all ON nebula_bot_tokens;
 
@@ -1939,6 +1977,9 @@ CREATE POLICY nebula_files_service_role_all
 
 CREATE POLICY nebula_users_service_role_all
     ON nebula_users FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY mulletaflix_users_service_role_all
+    ON mulletaflix_users FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 CREATE POLICY nebula_backups_service_role_all
     ON nebula_backups FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -2047,7 +2088,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
         if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
         {
-            _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+            _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
             var remote = await _supabaseSyncService.GetBotTokensAsync(config.SupabaseUrl, config.SupabaseKey, config.BotTokensTable, cancellationToken).ConfigureAwait(false);
             if (remote.Count > 0)
             {
@@ -2073,7 +2114,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     }
 
     /// <summary>
-    /// Verifica se a base de dados local do MongoDB está vazia e, caso esteja, restaura os dados a partir do Supabase antes de continuar.
+    /// Verifica se os dados essenciais locais estão vazios e restaura o backup do Supabase antes de continuar.
+    /// A coleção de usuários é verificada separadamente porque uma reinstalação pode manter
+    /// registros de mídia, mas perder as contas locais.
     /// </summary>
     private async Task EnsureDatabaseRestoredIfEmptyAsync(
         NebulaFtpConfiguration config,
@@ -2088,18 +2131,25 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         try
         {
             var fileCount = await _mongoContext.CountFilesAsync(cancellationToken).ConfigureAwait(false);
-            if (fileCount == 0)
+            var userCount = await _mongoContext.CountUsersAsync(cancellationToken).ConfigureAwait(false);
+            var appUserCount = _supabaseSyncService == null
+                ? 0
+                : await _supabaseSyncService.GetMulletaFlixUserCountAsync(cancellationToken).ConfigureAwait(false);
+            var appUserBackupCount = _supabaseSyncService == null
+                ? 0
+                : await _supabaseSyncService.GetMulletaFlixUserBackupCountAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
+            if (fileCount == 0 || userCount == 0 || appUserCount == 0 || appUserBackupCount > appUserCount)
             {
-                logAction?.Invoke("[DATABASE-INIT] MongoDB vazio detectado. Verificando e restaurando acervo a partir do Supabase...");
-                _logger.LogInformation("[DATABASE-INIT] MongoDB vazio detectado. Iniciando auto-restauração a partir do Supabase ({Url})...", config.SupabaseUrl);
+                logAction?.Invoke($"[DATABASE-INIT] Dados locais incompletos detectados (arquivos: {fileCount}, usuários FTP: {userCount}, usuários MulletaFlix: {appUserCount}/{appUserBackupCount} no backup). Verificando Supabase...");
+                _logger.LogInformation("[DATABASE-INIT] Dados locais incompletos detectados (arquivos: {Files}, usuários FTP: {FtpUsers}, usuários MulletaFlix: {AppUsers}/{BackupUsers}). Iniciando auto-restauração a partir do Supabase ({Url})...", fileCount, userCount, appUserCount, appUserBackupCount, config.SupabaseUrl);
 
-                _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>());
+                _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
                 var restoreResult = await _supabaseSyncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
 
-                if (restoreResult.Success && restoreResult.FilesRestored > 0)
+                if (restoreResult.Success && (restoreResult.FilesRestored > 0 || restoreResult.UsersRestored > 0))
                 {
-                    logAction?.Invoke($"[DATABASE-INIT] Auto-restauração concluída com sucesso! {restoreResult.FilesRestored} arquivos recuperados do Supabase.");
-                    _logger.LogInformation("[DATABASE-INIT] Auto-restauração concluída: {Files} arquivos restaurados.", restoreResult.FilesRestored);
+                    logAction?.Invoke($"[DATABASE-INIT] Auto-restauração concluída! {restoreResult.FilesRestored} arquivos e {restoreResult.UsersRestored} usuários recuperados do Supabase.");
+                    _logger.LogInformation("[DATABASE-INIT] Auto-restauração concluída: {Files} arquivos e {Users} usuários restaurados.", restoreResult.FilesRestored, restoreResult.UsersRestored);
                 }
                 else if (restoreResult.Success)
                 {
@@ -2361,7 +2411,10 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                     return candidate;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Ignorando entrada inválida do PATH ao procurar o rclone");
+            }
         }
 
         // 2. Check WinGet Packages
@@ -2377,7 +2430,10 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                     return matches[0];
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Não foi possível pesquisar os pacotes WinGet por rclone");
+            }
         }
 
         // 3. Check well-known fixed paths
@@ -2547,7 +2603,10 @@ no_check_certificate = true
                     using var p = Process.Start(psi);
                     p?.WaitForExit(2000);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Não foi possível desmontar a unidade N: via rclone");
+                }
             }
 
             // Nunca mate processos rclone globais: eles podem pertencer a outro

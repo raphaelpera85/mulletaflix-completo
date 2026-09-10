@@ -73,7 +73,7 @@ class Manager {
             if (this.syncEnabled) {
                 this.getApiClient().sendSyncPlayPing({
                     Ping: ping
-                });
+                }).catch((error: unknown) => console.error('SyncPlay failed to send ping', error));
             }
         });
     }
@@ -250,7 +250,7 @@ class Manager {
 
         console.debug(`SyncPlay will ${cmd.Command} at ${cmd.When} (in ${cmd.When.getTime() - Date.now()} ms)${cmd.PositionTicks ? '' : ' from ' + cmd.PositionTicks}.`);
 
-        this.playbackCore.applyCommand(cmd);
+        void this.playbackCore.applyCommand(cmd).catch((error: unknown) => console.error('SyncPlay failed to apply command', error));
     }
 
     processStateChange(update: any): void {
@@ -273,9 +273,9 @@ class Manager {
     }
 
     resumeGroupPlayback(apiClient: any): void {
-        this.followGroupPlayback(apiClient).then(() => {
-            this.queueCore.startPlayback(apiClient);
-        });
+        void this.followGroupPlayback(apiClient).then(() => {
+            return this.queueCore.startPlayback(apiClient);
+        }).catch((error: unknown) => console.error('SyncPlay failed to resume group playback', error));
     }
 
     haltGroupPlayback(apiClient: any): void {
@@ -311,11 +311,11 @@ class Manager {
 
         Events.trigger(this, 'enabled', [true]);
 
-        Helper.waitForEventOnce(this.timeSyncCore, 'time-sync-server-update').then(() => {
+        void Helper.waitForEventOnce(this.timeSyncCore, 'time-sync-server-update').then(() => {
             this.syncPlayReady = true;
             this.processCommand(this.queuedCommand);
             this.queuedCommand = null;
-        });
+        }).catch((error: unknown) => console.error('SyncPlay failed waiting for readiness', error));
 
         this.syncPlayReady = false;
         this.followingGroupPlayback = true;

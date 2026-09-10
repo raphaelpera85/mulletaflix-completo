@@ -8,11 +8,6 @@ import { getMediaInfoApi } from '@jellyfin/sdk/lib/utils/api/media-info-api';
 import type { MediaSourceInfo } from '@jellyfin/sdk/lib/generated-client/models/media-source-info';
 import type { MediaStream } from '@jellyfin/sdk/lib/generated-client/models/media-stream';
 import type { DeviceProfile } from '@jellyfin/sdk/lib/generated-client/models/device-profile';
-import type { PlaybackInfoResponse } from '@jellyfin/sdk/lib/generated-client/models/playback-info-response';
-import type { TranscodingProfile } from '@jellyfin/sdk/lib/generated-client/models/transcoding-profile';
-import type { DirectPlayProfile } from '@jellyfin/sdk/lib/generated-client/models/direct-play-profile';
-import type { CodecProfile } from '@jellyfin/sdk/lib/generated-client/models/codec-profile';
-import type { ProfileCondition } from '@jellyfin/sdk/lib/generated-client/models/profile-condition';
 import merge from 'lodash-es/merge';
 import Screenfull from 'screenfull';
 

@@ -337,7 +337,9 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
         e.preventDefault();
     });
     view.querySelector('.btnForgotPassword')!.addEventListener('click', () => {
-        void Dashboard.navigate('forgotpassword');
+        void Dashboard.navigate('forgotpassword').catch((error: unknown) => {
+            console.error('[LoginPage] failed to open password recovery', error);
+        });
     });
     view.querySelector('.btnCancel')!.addEventListener('click', showVisualForm);
     view.querySelector('.btnQuick')!.addEventListener('click', () => {

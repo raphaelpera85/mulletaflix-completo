@@ -24,7 +24,7 @@ export interface SyncPlayManagerLike {
 }
 
 export default class GenericPlayer {
-    static type = 'generic';
+    static readonly type: string = 'generic';
 
     player: SyncPlayPlayerLike;
 
@@ -126,7 +126,8 @@ export default class GenericPlayer {
         return false;
     }
 
-    setPlaybackRate(_value: number): void {
+    /* eslint-disable @typescript-eslint/no-unused-vars */
+    setPlaybackRate(value: number): void {
         // Do nothing.
     }
 
@@ -146,7 +147,7 @@ export default class GenericPlayer {
         // Override
     }
 
-    localSeek(_positionTicks: number): void {
+    localSeek(positionTicks: number): void {
         // Override
     }
 
@@ -154,31 +155,31 @@ export default class GenericPlayer {
         // Override
     }
 
-    localSendCommand(_command: unknown): void {
+    localSendCommand(command: unknown): void {
         // Override
     }
 
-    localPlay(_options: unknown): void {
+    localPlay(options: unknown): void {
         // Override
     }
 
-    localSetCurrentPlaylistItem(_playlistItemId: string): void {
+    localSetCurrentPlaylistItem(playlistItemId: string): void {
         // Override
     }
 
-    localRemoveFromPlaylist(_playlistItemIds: string[]): void {
+    localRemoveFromPlaylist(playlistItemIds: string[]): void {
         // Override
     }
 
-    localMovePlaylistItem(_playlistItemId: string, _newIndex: number): void {
+    localMovePlaylistItem(playlistItemId: string, newIndex: number): void {
         // Override
     }
 
-    localQueue(_options: unknown): void {
+    localQueue(options: unknown): void {
         // Override
     }
 
-    localQueueNext(_options: unknown): void {
+    localQueueNext(options: unknown): void {
         // Override
     }
 
@@ -190,15 +191,17 @@ export default class GenericPlayer {
         // Override
     }
 
-    localSetRepeatMode(_value: string): void {
+    localSetRepeatMode(value: string): void {
         // Override
     }
 
-    localSetQueueShuffleMode(_value: string): void {
+    localSetQueueShuffleMode(value: string): void {
         // Override
     }
 
     localToggleQueueShuffleMode(): void {
         // Override
     }
+
+    /* eslint-enable @typescript-eslint/no-unused-vars */
 }

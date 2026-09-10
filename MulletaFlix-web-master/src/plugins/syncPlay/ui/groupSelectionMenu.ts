@@ -80,7 +80,7 @@ class GroupSelectionMenu {
         const policy = user.localUser?.Policy || {};
 
         apiClient.getSyncPlayGroups().then((response) => {
-            response.json().then((groups) => {
+            return response.json().then((groups) => {
                 const menuItems = groups.map((group) => {
                     return {
                         name: group.GroupName,

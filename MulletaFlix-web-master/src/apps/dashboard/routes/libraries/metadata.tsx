@@ -70,6 +70,12 @@ export const Component = () => {
     const imageResolutions = getImageResolutionOptions();
     const [language, setLanguage] = React.useState(config?.PreferredMetadataLanguage ?? '');
     const [country, setCountry] = React.useState(config?.MetadataCountryCode ?? '');
+    const handleLanguageChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        setLanguage(event.target.value);
+    }, []);
+    const handleCountryChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        setCountry(event.target.value);
+    }, []);
 
     React.useEffect(() => {
         setLanguage(config?.PreferredMetadataLanguage ?? '');
@@ -110,9 +116,7 @@ export const Component = () => {
                                 name={'Language'}
                                 label={globalize.translate('LabelLanguage')}
                                 value={language}
-                                onChange={event => {
-                                    setLanguage(event.target.value);
-                                }}
+                                onChange={handleLanguageChange}
                                 select
                             >
                                 {cultures.map(culture => {
@@ -127,16 +131,14 @@ export const Component = () => {
                                 name={'Country'}
                                 label={globalize.translate('LabelCountry')}
                                 value={country}
-                                onChange={event => {
-                                    setCountry(event.target.value);
-                                }}
+                                onChange={handleCountryChange}
                                 select
                             >
-                                {countries.map(country => {
+                                {countries.map(countryOption => {
                                     return <MenuItem
-                                        key={country.DisplayName}
-                                        value={country.TwoLetterISORegionName || ''}
-                                    >{country.DisplayName}</MenuItem>;
+                                        key={countryOption.DisplayName}
+                                        value={countryOption.TwoLetterISORegionName || ''}
+                                    >{countryOption.DisplayName}</MenuItem>;
                                 })}
                             </TextField>
 
@@ -183,4 +185,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'MetadataImagesPage';
-

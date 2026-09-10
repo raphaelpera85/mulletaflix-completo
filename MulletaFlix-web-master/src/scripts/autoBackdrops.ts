@@ -76,7 +76,7 @@ function showBackdrop(type: string | null | undefined, parentId: string | undefi
             } else {
                 clearBackdrop();
             }
-        });
+        }).catch(() => clearBackdrop());
     }
 }
 
@@ -100,7 +100,7 @@ pageClassOn('pageshow', 'page', function (this: HTMLElement) {
         if (page.classList.contains('backdropPage')) {
             const type = page.getAttribute('data-backdroptype');
             if (type === 'splashscreen') {
-                showSplashScreen();
+                showSplashScreen().catch(() => clearBackdrop());
             } else if (enabled()) {
                 const parentId = page.classList.contains('globalBackdropPage') ? '' : libraryMenu.getTopParentId();
                 showBackdrop(type ?? undefined, parentId ?? undefined);

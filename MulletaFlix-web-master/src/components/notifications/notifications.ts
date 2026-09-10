@@ -15,8 +15,6 @@ interface NotificationServerInfo {
     Name: string;
 }
 
-type CurrentApiClient = NonNullable<ReturnType<typeof ServerConnections.currentApiClient>>;
-
 interface NotificationsApiClient {
     getCurrentUserId(): string;
     getCurrentUser(): Promise<UserDto>;
@@ -86,7 +84,7 @@ function onOneDocumentClick(): void {
 
     // don't request notification permissions if they're already granted or denied
     if (window.Notification && window.Notification.permission === 'default') {
-        Notification.requestPermission();
+        Notification.requestPermission().catch(() => undefined);
     }
 }
 
@@ -129,14 +127,14 @@ function resetRegistration(): void {
     if (serviceWorker) {
         serviceWorker.ready.then(function (registration) {
             serviceWorkerRegistration = registration;
-        });
+        }).catch(() => undefined);
     }
 }
 
 resetRegistration();
 
 function showPersistentNotification(title: string, options: AppNotificationOptions): void {
-    serviceWorkerRegistration?.showNotification(title, options);
+    serviceWorkerRegistration?.showNotification(title, options).catch(() => undefined);
 }
 
 function showNonPersistentNotification(title: string, options: AppNotificationOptions, timeoutMs: number): void {
@@ -243,7 +241,7 @@ function onLibraryChanged(data: LibraryChangedData, apiClient: NotificationsApiC
         for (const item of items) {
             showNewItemNotification(item, apiClient);
         }
-    });
+    }).catch(() => undefined);
 }
 
 function showPackageInstallNotification(apiClient: NotificationsApiClient, installation: PackageInstallationInfo, status: PackageInstallationStatus): void {
@@ -291,7 +289,7 @@ function showPackageInstallNotification(apiClient: NotificationsApiClient, insta
         const timeout = status === 'cancelled' ? 5000 : 0;
 
         showNotification(notification, timeout, apiClient);
-    });
+    }).catch(() => undefined);
 }
 
 function subscribeToApiClient(apiClient: NotificationsApiClient): void {

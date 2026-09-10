@@ -111,12 +111,26 @@ export type PlaybackReportSortBy =
     | 'CompletionPercentage'
     | 'Bitrate';
 
+const createPlaybackReportQuery = (requestParams?: PlaybackReportQuery): URLSearchParams => {
+    const query = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(requestParams ?? {})) {
+        if (value === undefined || value === null) {
+            continue;
+        }
+
+        query.set(key, Array.isArray(value) ? value.join(',') : String(value));
+    }
+
+    return query;
+};
+
 const fetchPlaybackReports = async (
     api: Api,
     requestParams?: PlaybackReportQuery,
     options?: AxiosRequestConfig
 ) => {
-    const response = await fetch(api.basePath + '/PlaybackReports/Entries?' + new URLSearchParams(requestParams as any), {
+    const response = await fetch(api.basePath + '/PlaybackReports/Entries?' + createPlaybackReportQuery(requestParams), {
         signal: options?.signal as AbortSignal | undefined,
         headers: {
             Authorization: 'MediaBrowser Token="' + api.accessToken + '"'
@@ -148,7 +162,7 @@ const fetchPlaybackReportStats = async (
     requestParams?: PlaybackReportQuery,
     options?: AxiosRequestConfig
 ) => {
-    const response = await fetch(api.basePath + '/PlaybackReports/Stats?' + new URLSearchParams(requestParams as any), {
+    const response = await fetch(api.basePath + '/PlaybackReports/Stats?' + createPlaybackReportQuery(requestParams), {
         signal: options?.signal as AbortSignal | undefined,
         headers: {
             Authorization: 'MediaBrowser Token="' + api.accessToken + '"'
@@ -179,7 +193,7 @@ export const downloadPlaybackReportsCsv = async (
     api: Api,
     requestParams?: PlaybackReportQuery
 ) => {
-    const response = await fetch(api.basePath + '/PlaybackReports/Export?' + new URLSearchParams(requestParams as any), {
+    const response = await fetch(api.basePath + '/PlaybackReports/Export?' + createPlaybackReportQuery(requestParams), {
         headers: {
             Authorization: 'MediaBrowser Token="' + api.accessToken + '"'
         }

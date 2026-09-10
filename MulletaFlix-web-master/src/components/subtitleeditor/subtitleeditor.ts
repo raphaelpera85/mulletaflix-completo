@@ -47,7 +47,7 @@ function downloadRemoteSubtitles(context: Element, id: string): void {
 function deleteLocalSubtitle(context: Element, index: string): void {
     const msg = globalize.translate('MessageAreYouSureDeleteSubtitles');
 
-    confirm({
+    void confirm({
 
         title: globalize.translate('ConfirmDeletion'),
         text: msg,
@@ -70,8 +70,10 @@ function deleteLocalSubtitle(context: Element, index: string): void {
         }).then(function () {
             hasChanges = true;
             reload(context, apiClient, itemId);
+        }, function () {
+            toast(globalize.translate('ErrorDefault'));
         });
-    });
+    }).catch(() => undefined);
 }
 
 function fillSubtitleList(context: Element, item: any): void {
@@ -360,24 +362,24 @@ function showDownloadOptions(button: Element, context: Element, subtitleId: stri
         id: 'download'
     });
 
-    import('../actionSheet/actionSheet').then((actionsheet) => {
-        actionsheet.show({
+    void import('../actionSheet/actionSheet').then((actionsheet) => {
+        return actionsheet.show({
             items: items,
             positionTo: button
 
-        }).then(function (id: any) {
-            if (id === 'download') {
-                downloadRemoteSubtitles(context, subtitleId);
-            }
         });
-    });
+    }).then((id: any) => {
+        if (id === 'download') {
+            downloadRemoteSubtitles(context, subtitleId);
+        }
+    }).catch(() => undefined);
 }
 
 function centerFocus(elem: Element | null, horiz: boolean, on: boolean): void {
-    import('../../scripts/scrollHelper').then(({ default: scrollHelper }) => {
+    void import('../../scripts/scrollHelper').then(({ default: scrollHelper }) => {
         const fn = on ? 'on' : 'off';
         (scrollHelper.centerFocus as any)[fn](elem, horiz);
-    });
+    }).catch(() => undefined);
 }
 
 function onOpenUploadMenu(e: Event): void {
@@ -385,21 +387,21 @@ function onOpenUploadMenu(e: Event): void {
     const selectLanguage = dialog!.querySelector('#selectLanguage') as HTMLSelectElement;
     const apiClient = ServerConnections.getApiClient(currentItem.ServerId);
 
-    import('../subtitleuploader/subtitleuploader').then(({ default: subtitleUploader }) => {
-        subtitleUploader.show({
+    void import('../subtitleuploader/subtitleuploader').then(({ default: subtitleUploader }) => {
+        return subtitleUploader.show({
             languages: {
                 list: selectLanguage.innerHTML,
                 value: selectLanguage.value
             },
             itemId: currentItem.Id,
             serverId: currentItem.ServerId
-        }).then(function (hasChanged: boolean) {
-            if (hasChanged) {
-                hasChanges = true;
-                reload(dialog!, apiClient, currentItem.Id);
-            }
         });
-    });
+    }).then(function (hasChanged: boolean) {
+        if (hasChanged) {
+            hasChanges = true;
+            reload(dialog!, apiClient, currentItem.Id);
+        }
+    }).catch(() => undefined);
 }
 
 function showEditorInternal(itemId: string, serverId: string): Promise<void> {
@@ -451,7 +453,7 @@ function showEditorInternal(itemId: string, serverId: string): Promise<void> {
 
         apiClient.getCultures().then(function (languages: any[]) {
             fillLanguages(editorContent, apiClient, languages);
-        });
+        }).catch(() => toast(globalize.translate('ErrorDefault')));
 
         dlg.querySelector('.btnCancel')!.addEventListener('click', function () {
             dialogHelper.close(dlg);
@@ -470,7 +472,7 @@ function showEditorInternal(itemId: string, serverId: string): Promise<void> {
                 }
             });
 
-            dialogHelper.open(dlg);
+            void dialogHelper.open(dlg);
 
             reload(editorContent, apiClient, item);
         });

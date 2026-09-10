@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { getLocationSearch, safeDecodeURIComponent } from './url';
+import { getLocationSearch, getSafeHttpUrl, safeDecodeURIComponent } from './url';
 
 const mockLocation = (urlString: string) => {
     const url = new URL(urlString);
@@ -65,5 +65,19 @@ describe('safeDecodeURIComponent', () => {
 
     it('Should return the original value if decoding fails', () => {
         expect(safeDecodeURIComponent('Hello, World!%')).toBe('Hello, World!%');
+    });
+});
+
+describe('getSafeHttpUrl', () => {
+    it('Should preserve absolute HTTP(S) URLs', () => {
+        expect(getSafeHttpUrl('https://images.example.test/poster.jpg')).toBe('https://images.example.test/poster.jpg');
+        expect(getSafeHttpUrl('http://images.example.test/poster.jpg')).toBe('http://images.example.test/poster.jpg');
+    });
+
+    it('Should reject executable and local URL schemes', () => {
+        expect(getSafeHttpUrl('javascript:alert(1)')).toBe('');
+        expect(getSafeHttpUrl('data:text/html,<svg onload=alert(1)>')).toBe('');
+        expect(getSafeHttpUrl('file:///C:/secret.txt')).toBe('');
+        expect(getSafeHttpUrl('/relative/path.jpg')).toBe(new URL('/relative/path.jpg', window.location.href).toString());
     });
 });

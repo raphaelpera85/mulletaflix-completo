@@ -52,7 +52,7 @@ class TabbedView {
 
         const self = this;
 
-        let currentTabIndex = parseInt(params.tab || this.getDefaultTabIndex(params.parentId), 10);
+        let currentTabIndex = parseInt(params.tab || this.getDefaultTabIndex(), 10);
         this.initialTabIndex = currentTabIndex;
 
         function validateTabLoad(index: number): Promise<void> {
@@ -61,7 +61,7 @@ class TabbedView {
 
         function loadTab(index: number, previousIndex: number | null): void {
             validateTabLoad(index).then(function () {
-                self.getTabController(index).then(function (controller: TabController) {
+                return self.getTabController(index).then(function (controller: TabController) {
                     const refresh = !controller.refreshed;
 
                     controller.onResume!({
@@ -74,7 +74,7 @@ class TabbedView {
                     currentTabIndex = index;
                     self.currentTabController = controller;
                 });
-            });
+            }).catch(() => undefined);
         }
 
         function getTabContainers(): NodeListOf<Element> {
@@ -99,14 +99,14 @@ class TabbedView {
             mainTabsManager.setTabs(view, currentTabIndex, self.getTabs, getTabContainers, null, onTabChange, false);
         });
 
-        view.addEventListener('viewshow', function (e: any) {
+        view.addEventListener('viewshow', function () {
             self.onResume();
         });
 
         view.addEventListener('viewdestroy', onViewDestroy.bind(this) as EventListener);
     }
 
-    getDefaultTabIndex(parentId?: string): string {
+    getDefaultTabIndex(): string {
         return '0';
     }
 

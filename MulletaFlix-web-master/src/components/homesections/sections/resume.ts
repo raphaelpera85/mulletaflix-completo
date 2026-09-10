@@ -1,4 +1,5 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto';
+import escapeHtml from 'escape-html';
 import { ImageType } from '@jellyfin/sdk/lib/generated-client/models/image-type';
 import { ItemFields } from '@jellyfin/sdk/lib/generated-client/models/item-fields';
 import type { MediaType } from '@jellyfin/sdk/lib/generated-client/models/media-type';
@@ -61,14 +62,13 @@ function getItemsToResumeHtmlFn(
         const cardLayout = false;
         const heroItem = featured && netflix ? items[0] : undefined;
         const heroHref = heroItem ? appRouter.getRouteUrl(heroItem, { serverId: heroItem.ServerId }) : undefined;
-        const heroHtml = heroHref ? '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + heroHref + '">CONTINUE</a></div>' : '';
+        const heroHtml = heroHref ? '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + escapeHtml(heroHref) + '">CONTINUE</a></div>' : '';
+        const itemShape = mediaType === 'Book' ? getPortraitShape(enableOverflow) : getBackdropShape(enableOverflow);
         return cardBuilder.getCardsHtml({
             items: items,
             preferThumb: true,
             inheritThumb: !useEpisodeImages,
-            shape: featured && netflix ? 'banner' : ((mediaType === 'Book') ?
-                getPortraitShape(enableOverflow) :
-                getBackdropShape(enableOverflow)),
+            shape: featured && netflix ? 'banner' : itemShape,
             overlayText: false,
             showTitle: true,
             showParentTitle: true,
@@ -119,4 +119,3 @@ export function loadResume(
     itemsContainer.getItemsHtml = getItemsToResumeHtmlFn(userSettings.useEpisodeImagesInNextUpAndResume(), mediaType, options);
     itemsContainer.parentContainer = elem;
 }
-

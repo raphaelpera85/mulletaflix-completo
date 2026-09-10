@@ -25,10 +25,8 @@ let currentItemId: string;
 let currentServerId: string;
 
 function deleteTimer(apiClient: any, timerId: string): Promise<void> {
-    return new Promise(function (resolve, reject) {
-        import('./recordinghelper').then(({ default: recordingHelper }) => {
-            recordingHelper.cancelSeriesTimerWithConfirmation(timerId, apiClient.serverId()).then(resolve, reject);
-        });
+    return import('./recordinghelper').then(({ default: recordingHelper }) => {
+        return recordingHelper.cancelSeriesTimerWithConfirmation(timerId, apiClient.serverId());
     });
 }
 
@@ -77,8 +75,8 @@ function onSubmit(this: any, e: Event): void {
         item.SkipEpisodesInLibrary = (form.querySelector('.chkSkipEpisodesInLibrary') as HTMLInputElement).checked;
         item.KeepUpTo = Number((form.querySelector('.selectKeepUpTo') as HTMLSelectElement).value);
 
-        apiClient.updateLiveTvSeriesTimer(item);
-    });
+        return apiClient.updateLiveTvSeriesTimer(item);
+    }).catch(() => loading.hide());
 
     e.preventDefault();
 
@@ -97,7 +95,7 @@ function init(context: Element): void {
         const apiClient = ServerConnections.getApiClient(currentServerId) as any;
         deleteTimer(apiClient, currentItemId).then(function () {
             closeDialog(true);
-        });
+        }).catch(() => loading.hide());
     });
 
     context.querySelector('form')!.addEventListener('submit', onSubmit);
@@ -113,7 +111,7 @@ function reload(context: Element, id: string | { Id: string }): void {
         apiClient.getLiveTvSeriesTimer(id).then(function (result: any) {
             renderTimer(context, result);
             loading.hide();
-        });
+        }).catch(() => loading.hide());
     } else if (id) {
         currentItemId = id.Id;
 
@@ -239,7 +237,7 @@ function showEditor(itemId: string, serverId: string, options?: { enableCancel?:
 
         reload(dlg, itemId);
 
-        dialogHelper.open(dlg);
+        dialogHelper.open(dlg).catch(() => loading.hide());
     });
 }
 

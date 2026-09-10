@@ -13,15 +13,6 @@ interface TouchHelperOptions {
     triggerOnMove?: boolean;
 }
 
-interface SwipeData {
-    deltaY: number;
-    deltaX: number;
-    clientX: number | undefined;
-    clientY: number | undefined;
-    currentDeltaX: number;
-    currentDeltaY: number;
-}
-
 class TouchHelper {
     touchStart: ((e: TouchEvent) => void) | null;
     touchEnd: ((e: TouchEvent) => void) | null;

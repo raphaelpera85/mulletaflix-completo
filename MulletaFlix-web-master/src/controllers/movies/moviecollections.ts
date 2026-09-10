@@ -6,18 +6,49 @@ import listView from '../../components/listview/listview';
 import cardBuilder from '../../components/cardbuilder/cardBuilder';
 import * as userSettings from '../../scripts/settings/userSettings';
 import globalize from '../../lib/globalize';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 import '../../elements/emby-itemscontainer/emby-itemscontainer';
 
 interface PageData {
-    query: any;
+    query: QueryParams;
     view: string;
+}
+
+interface QueryParams {
+    [key: string]: unknown;
+    SortBy: string;
+    SortOrder: string;
+    IncludeItemTypes: string;
+    Recursive: boolean;
+    Fields: string;
+    StartIndex: number;
+    ImageTypeLimit: number;
+    EnableImageTypes: string;
+    ParentId?: string;
+    Limit?: number;
+    NameStartsWith?: string;
+    NameLessThan?: string;
 }
 
 interface ViewParams {
     topParentId: string;
 }
 
-export default function (this: any, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
+interface MovieCollectionsController {
+    getCurrentViewStyle: () => string;
+    renderTab: () => void;
+    alphaPicker?: AlphaPicker;
+}
+
+interface LayoutChangeEvent extends Event {
+    detail: { viewStyle: string };
+}
+
+interface AlphaValueChangeEvent extends Event {
+    detail: { value: string };
+}
+
+export default function (this: MovieCollectionsController, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
     function getPageData(): PageData {
         const key = getSavedQueryKey();
         let pageData = data[key];
@@ -48,7 +79,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         return pageData;
     }
 
-    function getQuery(): any {
+    function getQuery(): QueryParams {
         return getPageData().query;
     }
 
@@ -58,7 +89,10 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
 
     const onViewStyleChange = (): void => {
         const viewStyle = this.getCurrentViewStyle();
-        const itemsContainer = tabContent.querySelector('.itemsContainer') as HTMLElement;
+        const itemsContainer = tabContent.querySelector('.itemsContainer');
+        if (!(itemsContainer instanceof HTMLElement)) {
+            return;
+        }
 
         if (viewStyle == 'List') {
             itemsContainer.classList.add('vertical-list');
@@ -76,14 +110,14 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         isLoading = true;
         const query = getQuery();
         this.alphaPicker?.updateControls(query);
-        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: any) => {
+        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: ItemDtoQueryResult) => {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
                 }
 
                 if (userSettings.libraryPageSize() > 0) {
-                    query.StartIndex += query.Limit;
+                    query.StartIndex += query.Limit ?? 0;
                 }
                 reloadItems(tabContent);
             }
@@ -94,19 +128,17 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 }
 
                 if (userSettings.libraryPageSize() > 0) {
-                    query.StartIndex = Math.max(0, query.StartIndex - query.Limit);
+                    query.StartIndex = Math.max(0, query.StartIndex - (query.Limit ?? 0));
                 }
                 reloadItems(tabContent);
             }
 
             window.scrollTo(0, 0);
             let html: string;
-            const pagingHtml = (libraryBrowser as any).getQueryPagingHtml({
+            const pagingHtml = libraryBrowser.getQueryPagingHtml({
                 startIndex: query.StartIndex,
-                limit: query.Limit,
-                totalRecordCount: result.TotalRecordCount,
-                showLimit: false,
-                updatePageSizeSetting: false,
+                limit: query.Limit ?? 0,
+                totalRecordCount: result.TotalRecordCount ?? 0,
                 addLayoutButton: false,
                 sortButton: false,
                 filterButton: false
@@ -114,7 +146,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             const viewStyle = this.getCurrentViewStyle();
             if (viewStyle == 'Thumb') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'backdrop',
                     preferThumb: true,
                     context: 'movies',
@@ -124,7 +156,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 });
             } else if (viewStyle == 'ThumbCard') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'backdrop',
                     preferThumb: true,
                     context: 'movies',
@@ -134,7 +166,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 });
             } else if (viewStyle == 'Banner') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'banner',
                     preferBanner: true,
                     context: 'movies',
@@ -142,13 +174,13 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 });
             } else if (viewStyle == 'List') {
                 html = listView.getListViewHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     context: 'movies',
                     sortBy: query.SortBy
                 });
             } else if (viewStyle == 'PosterCard') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'auto',
                     context: 'movies',
                     showTitle: true,
@@ -157,7 +189,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 });
             } else {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'auto',
                     context: 'movies',
                     centerText: true,
@@ -182,7 +214,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 elem.addEventListener('click', onPreviousPageClick);
             }
 
-            if (!result.Items.length) {
+            if (!(result.Items ?? []).length) {
                 html = '';
 
                 html += '<div class="noItemsMessage centerMessage">';
@@ -198,9 +230,13 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             loading.hide();
             isLoading = false;
 
-            import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+            void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(page);
-            });
+            }).catch((error: unknown) => console.error('[MovieCollections] failed to focus page', error));
+        }).catch((error: unknown) => {
+            loading.hide();
+            isLoading = false;
+            console.error('[MovieCollections] failed to load collections', error);
         });
     };
 
@@ -212,8 +248,8 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
     };
 
     const initPage = (tabElement: HTMLElement): void => {
-        tabElement.querySelector('.btnSort')!.addEventListener('click', function (e: Event) {
-            (libraryBrowser as any).showSortMenu({
+        tabElement.querySelector('.btnSort')!.addEventListener('click', function () {
+            libraryBrowser.showSortMenu({
                 items: [{
                     name: globalize.translate('Name'),
                     id: 'SortName'
@@ -234,38 +270,37 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     getQuery().StartIndex = 0;
                     reloadItems(tabElement);
                 },
-                query: getQuery(),
-                button: e.target
+                query: getQuery()
             });
         });
         const btnSelectView = tabElement.querySelector('.btnSelectView') as HTMLElement;
         btnSelectView.addEventListener('click', (e: Event) => {
             libraryBrowser.showLayoutMenu(e.target as HTMLElement, this.getCurrentViewStyle(), 'List,Poster,PosterCard,Thumb,ThumbCard'.split(','));
         });
-        btnSelectView.addEventListener('layoutchange', function (e: any) {
-            const viewStyle = e.detail.viewStyle;
+        btnSelectView.addEventListener('layoutchange', ((event: Event) => {
+            const viewStyle = (event as LayoutChangeEvent).detail.viewStyle;
             getPageData().view = viewStyle;
             userSettings.saveViewSetting(getSavedQueryKey(), viewStyle);
             getQuery().StartIndex = 0;
             onViewStyleChange();
             reloadItems(tabElement);
-        });
+        }) as EventListener);
         tabElement.querySelector('.btnNewCollection')!.addEventListener('click', () => {
-            import('../../components/collectionEditor/collectionEditor').then(({ default: CollectionEditor }) => {
+            void import('../../components/collectionEditor/collectionEditor').then(({ default: CollectionEditor }) => {
                 const serverId = ApiClient.serverInfo().Id;
                 const collectionEditor = new CollectionEditor();
-                collectionEditor.show({
+                void collectionEditor.show({
                     items: [],
                     serverId: serverId
-                });
-            });
+                }).catch((error: unknown) => console.error('[MovieCollections] failed to open collection editor', error));
+            }).catch((error: unknown) => console.error('[MovieCollections] failed to open collection editor', error));
         });
 
         const alphaPickerElement = tabElement.querySelector('.alphaPicker');
 
         if (alphaPickerElement) {
-            alphaPickerElement.addEventListener('alphavaluechanged', function (e: any) {
-                const newValue = e.detail.value;
+            alphaPickerElement.addEventListener('alphavaluechanged', ((event: Event) => {
+                const newValue = (event as AlphaValueChangeEvent).detail.value;
                 const query = getQuery();
                 if (newValue === '#') {
                     query.NameLessThan = 'A';
@@ -276,7 +311,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 }
                 query.StartIndex = 0;
                 reloadItems(tabElement);
-            });
+            }) as EventListener);
             this.alphaPicker = new AlphaPicker({
                 element: alphaPickerElement as HTMLElement,
                 valueChangeEvent: 'click'

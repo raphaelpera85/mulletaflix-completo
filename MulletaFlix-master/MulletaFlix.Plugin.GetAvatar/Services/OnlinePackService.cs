@@ -19,6 +19,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
     {
         private const string GitHubReleaseApiUrl = "https://api.github.com/repos/cedev-1/jellyfin-avatars/releases/latest";
         private const long MaxZipSizeBytes = 1024L * 1024L * 1024L; // 1 GB
+        private const long MaxImageSizeBytes = 5L * 1024L * 1024L;
         private static readonly TimeSpan PackCacheDuration = TimeSpan.FromMinutes(15);
 
         private static readonly Dictionary<string, string> PackDisplayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -34,7 +35,6 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         };
 
         private static readonly string[] AllowedExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
-        private const long MaxImageSizeBytes = 5L * 1024L * 1024L;
 
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly AvatarService _avatarService;
@@ -62,6 +62,7 @@ namespace MulletaFlix.Plugin.GetAvatar.Services
         /// <summary>
         /// Gets the available avatar packs from the latest GitHub release.
         /// </summary>
+        /// <param name="forceRefresh">Whether to bypass the in-memory cache.</param>
         /// <returns>List of available packs.</returns>
         public Task<List<OnlinePackInfo>> GetAvailablePacksAsync(bool forceRefresh = false)
         {

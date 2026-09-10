@@ -1,4 +1,5 @@
-import { BaseItemKind, CollectionType } from '@jellyfin/sdk/lib/generated-client';
+import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
+import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 
 export const getItemTypesFromCollectionType = (collectionType?: CollectionType): BaseItemKind[] => {
     switch (collectionType) {

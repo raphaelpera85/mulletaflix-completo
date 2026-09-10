@@ -26,17 +26,6 @@ interface PageData {
     query: Query;
 }
 
-interface CardOptions {
-    items: Channel[];
-    shape: string;
-    showTitle: boolean;
-    lazy: boolean;
-    cardLayout: boolean;
-    showDetailsMenu: boolean;
-    showCurrentProgram: boolean;
-    showCurrentProgramTime: boolean;
-}
-
 interface Channel {
     [key: string]: unknown;
 }
@@ -48,7 +37,7 @@ interface LiveTvChannelsController {
 export default function (
     this: LiveTvChannelsController,
     view: HTMLElement,
-    params: any,
+    params: Record<string, unknown>,
     tabContent: HTMLElement
 ): void {
     let pageData: PageData | undefined;
@@ -127,7 +116,11 @@ export default function (
         }
 
         const html = getChannelsHtml(result.Items);
-        const elem = context.querySelector<HTMLElement>('#items')!;
+        const elem = context.querySelector<HTMLElement>('#items');
+        if (!elem) {
+            return;
+        }
+
         elem.innerHTML = html;
         imageLoader.lazyChildren(elem);
 
@@ -151,11 +144,13 @@ export default function (
                 mode: 'livetvchannels',
                 serverId: ApiClient.serverId()
             });
-            Events.on(filterDialog, 'filterchange', function () {
-                void reloadItems(context).catch((error: unknown) => console.error('Failed to apply TV channel filter', error));
-            });
-            filterDialog.show();
+            Events.on(filterDialog, 'filterchange', applyFilter.bind(null, context));
+            filterDialog.show().catch((error: unknown) => console.error('Failed to show TV channel filter', error));
         }).catch((error: unknown) => console.error('Failed to open TV channel filter', error));
+    }
+
+    function applyFilter(context: HTMLElement): void {
+        void reloadItems(context).catch((error: unknown) => console.error('Failed to apply TV channel filter', error));
     }
 
     function reloadItems(context: HTMLElement): Promise<void> {
@@ -181,12 +176,12 @@ export default function (
         });
     }
 
-    const self = this as LiveTvChannelsController;
-    tabContent.querySelector<HTMLElement>('.btnFilter')!.addEventListener('click', function () {
+    const filterButton = tabContent.querySelector<HTMLElement>('.btnFilter');
+    filterButton?.addEventListener('click', function () {
         showFilterMenu(tabContent);
     });
 
-    self.renderTab = function (): void {
+    this.renderTab = function (): void {
         void reloadItems(tabContent).catch((error: unknown) => console.error('Failed to render TV channels tab', error));
     };
 }

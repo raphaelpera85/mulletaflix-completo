@@ -519,14 +519,14 @@ class FilterDialog {
             dlg.classList.add('filterDialog');
             dlg.innerHTML = globalize.translateHtml(template);
             setVisibility(dlg, this.options);
-            dialogHelper.open(dlg);
+            dialogHelper.open(dlg).catch(() => resolve());
             dlg.addEventListener('close', () => resolve());
             updateFilterControls(dlg, this.options);
             this.bindEvents(dlg);
             if (enableDynamicFilters(this.options.mode ?? '')) {
                 dlg.classList.add('dynamicFilterDialog');
                 const apiClient: any = ServerConnections.getApiClient(this.options.serverId ?? '');
-                loadDynamicFilters(dlg, apiClient, apiClient.getCurrentUserId() ?? '', this.options.query);
+                loadDynamicFilters(dlg, apiClient, apiClient.getCurrentUserId() ?? '', this.options.query).catch(() => undefined);
             }
         });
     }

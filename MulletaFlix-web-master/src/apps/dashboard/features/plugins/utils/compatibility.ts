@@ -32,7 +32,8 @@ export const checkPluginCompatibility = (
 export const useServerTargetAbi = (): string | undefined => {
     const { data: systemInfo } = useSystemInfo();
     // PublicSystemInfo from SDK may not have TargetAbi yet (needs regen), fallback to Version
-    return (systemInfo as any)?.TargetAbi || systemInfo?.Version;
+    const extendedSystemInfo = systemInfo as typeof systemInfo & { TargetAbi?: string };
+    return extendedSystemInfo?.TargetAbi || systemInfo?.Version || undefined;
 };
 
 /**

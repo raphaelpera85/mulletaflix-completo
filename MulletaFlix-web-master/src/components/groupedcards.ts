@@ -26,7 +26,7 @@ function onGroupedCardClick(e: MouseEvent, card: HTMLElement): void {
             }
 
             const url = 'details?id=' + itemId + '&serverId=' + serverId;
-            Dashboard.navigate(url);
+            Dashboard.navigate(url).catch(() => undefined);
         });
         e.stopPropagation();
         e.preventDefault();

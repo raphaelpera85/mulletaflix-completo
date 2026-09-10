@@ -1,5 +1,6 @@
 import browser from '../../scripts/browser';
 import dom from '../../utils/dom';
+import escapeHtml from 'escape-html';
 import './emby-checkbox.scss';
 import 'webcomponents.js/webcomponents-lite';
 
@@ -8,7 +9,7 @@ const EmbyCheckboxPrototype: HTMLInputElement = Object.create(HTMLInputElement.p
 function onKeyDown(this: HTMLInputElement, e: KeyboardEvent): void | false {
     // Don't submit form on enter
     // Real (non-emulator) Tizen does nothing on Space
-    if (e.keyCode === 13 || (e.keyCode === 32 && browser.tizen)) {
+    if (e.key === 'Enter' || (e.key === ' ' && browser.tizen)) {
         e.preventDefault();
 
         this.checked = !this.checked;
@@ -59,9 +60,9 @@ function forceRefresh(this: HTMLInputElement, loading?: boolean): void {
 
     const checkedIcon: string = this.getAttribute('data-checkedicon') || 'check';
     const uncheckedIcon: string = this.getAttribute('data-uncheckedicon') || '';
-    const checkHtml = '<span class="material-icons checkboxIcon checkboxIcon-checked ' + checkedIcon + '" aria-hidden="true"></span>';
-    const uncheckedHtml = '<span class="material-icons checkboxIcon checkboxIcon-unchecked ' + uncheckedIcon + '" aria-hidden="true"></span>';
-    labelElement.insertAdjacentHTML('beforeend', '<span class="' + outlineClass + '">' + checkHtml + uncheckedHtml + '</span>');
+    const checkHtml = '<span class="material-icons checkboxIcon checkboxIcon-checked ' + escapeHtml(checkedIcon) + '" aria-hidden="true"></span>';
+    const uncheckedHtml = '<span class="material-icons checkboxIcon checkboxIcon-unchecked ' + escapeHtml(uncheckedIcon) + '" aria-hidden="true"></span>';
+    labelElement.insertAdjacentHTML('beforeend', '<span class="' + escapeHtml(outlineClass) + '">' + checkHtml + uncheckedHtml + '</span>');
 
     labelTextElement.classList.add('checkboxLabel');
 

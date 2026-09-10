@@ -89,7 +89,7 @@ function ScreenSaverManager(this: any): void {
             console.debug('Hiding screensaver');
             activeScreenSaver.hide().then(() => {
                 document.body.classList.remove('screensaver-noScroll');
-            });
+            }).catch(() => undefined);
             activeScreenSaver = null;
         }
 

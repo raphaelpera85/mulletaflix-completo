@@ -7,6 +7,7 @@ import cardBuilder from '../../components/cardbuilder/cardBuilder';
 import * as userSettings from '../../scripts/settings/userSettings';
 import Events from '../../utils/events.ts';
 import { setFilterStatus } from 'components/filterdialog/filterIndicator';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import '../../elements/emby-itemscontainer/emby-itemscontainer';
 
@@ -33,7 +34,14 @@ interface ArtistOptions {
     mode?: string;
 }
 
-export default function (this: { showFilterMenu: () => void; getCurrentViewStyle: () => string; renderTab: () => void; alphaPicker?: any }, view: HTMLElement, params: { topParentId: string }, tabContent: HTMLElement, options: ArtistOptions) {
+interface MusicArtistsController {
+    showFilterMenu: () => void;
+    getCurrentViewStyle: () => string;
+    renderTab: () => void;
+    alphaPicker?: AlphaPicker;
+}
+
+export default function (this: MusicArtistsController, view: HTMLElement, params: { topParentId: string }, tabContent: HTMLElement, options: ArtistOptions) {
     function getPageData(): PageData {
         const key = getSavedQueryKey();
         let pageData = data[key] as PageData | undefined;
@@ -58,7 +66,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 query: queryValues,
                 view: userSettings.getSavedView(key) || 'Poster'
             };
-            userSettings.loadQuerySettings(key, pageData.query as any);
+            userSettings.loadQuerySettings(key, pageData.query as unknown as Record<string, unknown>);
         }
 
         return pageData!;
@@ -74,7 +82,10 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
 
     const onViewStyleChange = (): void => {
         const viewStyle = this.getCurrentViewStyle();
-        const itemsContainer = tabContent.querySelector('.itemsContainer')!;
+        const itemsContainer = tabContent.querySelector('.itemsContainer');
+        if (!itemsContainer) {
+            return;
+        }
 
         if (viewStyle == 'List') {
             itemsContainer.classList.add('vertical-list');
@@ -94,9 +105,9 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
         setFilterStatus(tabContent, query);
 
         const promise = options.mode == 'albumartists' ?
-            ApiClient.getAlbumArtists(ApiClient.getCurrentUserId(), query as any) :
-            ApiClient.getArtists(ApiClient.getCurrentUserId(), query as any);
-        promise.then((result: any) => {
+            ApiClient.getAlbumArtists(ApiClient.getCurrentUserId(), query as unknown as Record<string, unknown>) :
+            ApiClient.getArtists(ApiClient.getCurrentUserId(), query as unknown as Record<string, unknown>);
+        promise.then((result: ItemDtoQueryResult) => {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -125,7 +136,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
             const pagingHtml = libraryBrowser.getQueryPagingHtml({
                 startIndex: query.StartIndex,
                 limit: query.Limit ?? 0,
-                totalRecordCount: result.TotalRecordCount,
+                totalRecordCount: result.TotalRecordCount ?? 0,
                 addLayoutButton: false,
                 sortButton: false,
                 filterButton: false
@@ -133,12 +144,12 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
             const viewStyle = this.getCurrentViewStyle();
             if (viewStyle == 'List') {
                 html = listView.getListViewHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     sortBy: query.SortBy
                 });
             } else if (viewStyle == 'PosterCard') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'square',
                     context: 'music',
                     showTitle: true,
@@ -147,7 +158,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 });
             } else {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'square',
                     context: 'music',
                     showTitle: true,
@@ -173,16 +184,25 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 elems[i].addEventListener('click', onPreviousPageClick);
             }
 
-            const itemsContainer = tabContent.querySelector('.itemsContainer')!;
+            const itemsContainer = tabContent.querySelector('.itemsContainer');
+            if (!itemsContainer) {
+                loading.hide();
+                isLoading = false;
+                return;
+            }
             itemsContainer.innerHTML = html;
             imageLoader.lazyChildren(itemsContainer);
-            userSettings.saveQuerySettings(getSavedQueryKey(), query as any);
+            userSettings.saveQuerySettings(getSavedQueryKey(), query as unknown as Record<string, unknown>);
             loading.hide();
             isLoading = false;
 
-            import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+            void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(tabContent);
-            });
+            }).catch((error: unknown) => console.error('[MusicArtists] failed to focus page', error));
+        }).catch((error: unknown) => {
+            console.error('[MusicArtists] failed to load artists', error);
+            loading.hide();
+            isLoading = false;
         });
     };
 
@@ -190,7 +210,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
     let isLoading = false;
 
     this.showFilterMenu = function () {
-        import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
+        void import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
                 query: getQuery() as unknown as Record<string, unknown>,
                 mode: options.mode,
@@ -200,8 +220,8 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 getQuery().StartIndex = 0;
                 reloadItems();
             });
-            filterDialog.show();
-        });
+            void filterDialog.show().catch((error: unknown) => console.error('[MusicArtists] filter dialog failed', error));
+        }).catch((error: unknown) => console.error('[MusicArtists] failed to open filter dialog', error));
     };
 
     this.getCurrentViewStyle = function () {
@@ -209,8 +229,11 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
     };
 
     const initPage = (tabElement: HTMLElement): void => {
-        const alphaPickerElement = tabElement.querySelector('.alphaPicker') as HTMLElement;
-        const itemsContainer = tabElement.querySelector('.itemsContainer') as HTMLElement;
+        const alphaPickerElement = tabElement.querySelector('.alphaPicker');
+        const itemsContainer = tabElement.querySelector('.itemsContainer');
+        if (!(alphaPickerElement instanceof HTMLElement) || !(itemsContainer instanceof HTMLElement)) {
+            return;
+        }
 
         alphaPickerElement.addEventListener('alphavaluechanged', (function (e: CustomEvent) {
             const newValue = e.detail.value;
@@ -230,14 +253,17 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
             valueChangeEvent: 'click'
         });
 
-        tabElement.querySelector('.alphaPicker')!.classList.add('alphabetPicker-right');
+        alphaPickerElement.classList.add('alphabetPicker-right');
         alphaPickerElement.classList.add('alphaPicker-fixed-right');
         itemsContainer.classList.add('padded-right-withalphapicker');
 
-        tabElement.querySelector('.btnFilter')!.addEventListener('click', () => {
+        tabElement.querySelector('.btnFilter')?.addEventListener('click', () => {
             this.showFilterMenu();
         });
-        const btnSelectView = tabElement.querySelector('.btnSelectView')!;
+        const btnSelectView = tabElement.querySelector('.btnSelectView');
+        if (!btnSelectView) {
+            return;
+        }
         btnSelectView.addEventListener('click', (e: Event) => {
             libraryBrowser.showLayoutMenu(e.target as HTMLElement, this.getCurrentViewStyle(), 'List,Poster,PosterCard'.split(','));
         });

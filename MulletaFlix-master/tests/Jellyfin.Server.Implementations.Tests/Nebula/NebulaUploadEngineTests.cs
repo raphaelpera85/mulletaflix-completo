@@ -486,6 +486,16 @@ public class NebulaUploadEngineTests
     }
 
     [Theory]
+    [InlineData("12345678901234567890", "••••7890")]
+    [InlineData("short", "••••hort")]
+    [InlineData("1234", "••••")]
+    [InlineData("", "••••")]
+    public void NebulaFtpManager_MasksBotTokensWithoutExposingSecrets(string token, string expected)
+    {
+        Assert.Equal(expected, NebulaFtpManager.MaskBotToken(token));
+    }
+
+    [Theory]
     [InlineData(@"N:\Nebula\Filmes\Avatar.strm", @"N:\Nebula", true)]
     [InlineData(@"N:\Nebula", @"N:\Nebula", true)]
     [InlineData(@"N:\NebulaBackup\Avatar.strm", @"N:\Nebula", false)]
@@ -523,6 +533,80 @@ public class NebulaUploadEngineTests
     public void MetadataExport_RecognizesEveryExportedSidecarExtension(string fileName, bool expected)
     {
         Assert.Equal(expected, NebulaMetadataExportService.IsMetadataSidecarPath(fileName));
+    }
+
+    [Theory]
+    [InlineData("movie.mkv", true)]
+    [InlineData("movie.mp4", true)]
+    [InlineData("movie.wmv", true)]
+    [InlineData("poster.nfo", false)]
+    [InlineData("poster.jpg", false)]
+    [InlineData("movie.strm", false)]
+    public void MetadataExport_OnlyMediaPayloadsCanReleasePendingMarker(string fileName, bool expected)
+    {
+        Assert.Equal(expected, NebulaMetadataExportService.IsMediaPayloadPath(fileName));
+    }
+
+    [Theory]
+    [InlineData(@"strm\Filmes\Matrix\Matrix.strm", "Filmes/Matrix")]
+    [InlineData(@"strm\Series\Dark\Season 1\Dark.S01E01.strm", "Series/Dark/Season 1")]
+    [InlineData(@"strm\Porno\Studio\Cena.strm", "Porno")]
+    public void MetadataExport_AutomaticRouteMatchesDownloader(string relativePath, string expectedDirectory)
+    {
+        var actual = NebulaMetadataExportService.GetAutomaticStageRelativeDirectory(
+            relativePath,
+            Path.GetFileName(relativePath));
+
+        Assert.Equal(expectedDirectory, actual);
+    }
+
+    [Fact]
+    public void MetadataExport_AutomaticRouteRejectsPathOutsideNebulaRoot()
+    {
+        Assert.Null(NebulaMetadataExportService.GetAutomaticStageRelativeDirectory(
+            @"..\outside\movie.strm",
+            "movie.strm"));
+    }
+
+    [Fact]
+    public void MetadataExport_AutomaticRouteAllowsFileNamesStartingWithTwoDots()
+    {
+        Assert.Equal("Filmes", NebulaMetadataExportService.GetAutomaticStageRelativeDirectory(
+            "..movie.strm",
+            "..movie.strm"));
+    }
+
+    [Fact]
+    public void MetadataExport_EmptyDirectoryIsAnOrphan()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "nebula-orphan-marker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            Assert.True(NebulaMetadataExportService.IsOrphanPendingMarkerDirectory(directory));
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void MetadataExport_DirectoryWithMediaIsNotAnOrphan()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "nebula-active-marker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "movie.mkv"), "payload");
+            Assert.False(NebulaMetadataExportService.IsOrphanPendingMarkerDirectory(directory));
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
     }
 
     [Theory]
@@ -613,6 +697,61 @@ public class NebulaUploadEngineTests
         }
     }
 
+    [Fact]
+    public void MetadataExport_CompletedMediaRetryReleasesPendingMarker()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "nebula-completed-media-marker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var mediaPath = Path.Combine(directory, "movie.mkv");
+        var marker = Path.Combine(directory, NebulaMetadataExportService.PendingMarkerFileName);
+        File.WriteAllText(mediaPath, "payload");
+        File.WriteAllText(marker, "pending");
+
+        try
+        {
+            NebulaMetadataExportService.ReleasePendingMarkerForMedia(mediaPath);
+
+            Assert.False(File.Exists(marker));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void StagingWatcher_DetectsPendingMetadataMarkerInMediaDirectory()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "nebula-staging-marker-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var mediaPath = Path.Combine(directory, "movie.mkv");
+        var marker = Path.Combine(directory, NebulaMetadataExportService.PendingMarkerFileName);
+
+        try
+        {
+            var method = typeof(NebulaStagingWatcher).GetMethod(
+                "HasPendingMetadataMarker",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            Assert.False((bool)method.Invoke(null, [mediaPath])!);
+
+            File.WriteAllText(marker, "pending");
+
+            Assert.True((bool)method.Invoke(null, [mediaPath])!);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+
     [Theory]
     [InlineData("/raphael", true)]
     [InlineData("/raphael/Filmes", true)]
@@ -690,8 +829,15 @@ public class NebulaUploadEngineTests
         string? p4 = null)
     {
         var parts = new System.Collections.Generic.List<string> { p1, p2 };
-        if (p3 != null) parts.Add(p3);
-        if (p4 != null) parts.Add(p4);
+        if (p3 != null)
+        {
+            parts.Add(p3);
+        }
+
+        if (p4 != null)
+        {
+            parts.Add(p4);
+        }
         var expected = Path.Combine(parts.ToArray());
 
         var result = NebulaStrmGenerator.RouteStrmRelativeDirectory(relDir, filename);

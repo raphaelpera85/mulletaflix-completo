@@ -23,8 +23,6 @@ interface WizardUserApiClient {
     getJSON(url: string): Promise<{ Name?: string; Password?: string }>;
 }
 
-declare const ApiClient: WizardUserApiClient;
-
 function nextWizardPage(): void {
     Dashboard.navigate('wizard/library')
         .catch(err => {
@@ -95,6 +93,8 @@ function onViewShow(this: WizardUserPage): void {
             manualPasswordInput.value = user.Password || '';
         }
 
+        loading.hide();
+    }).catch(() => {
         loading.hide();
     });
 }

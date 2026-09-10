@@ -1,4 +1,5 @@
 import globalize from 'lib/globalize';
+import escapeHtml from 'escape-html';
 
 export function showLayoutMenu(button: HTMLElement, currentLayout: string | null, views?: string | string[] | null): void {
     let dispatchEvent = true;
@@ -40,7 +41,11 @@ export function showLayoutMenu(button: HTMLElement, currentLayout: string | null
                     ((window as unknown as Record<string, unknown>).$ as (el: HTMLElement) => { trigger: (event: string, args: unknown[]) => void })(button).trigger('layoutchange', [id]);
                 }
             }
-        }).catch(() => { /* no-op */ });
+        }).catch((error: unknown) => {
+            console.error('[LibraryBrowser] failed to open layout menu', error);
+        });
+    }).catch((error: unknown) => {
+        console.error('[LibraryBrowser] failed to load layout menu', error);
     });
 }
 
@@ -80,7 +85,8 @@ export function getQueryPagingHtml(options: QueryPagingOptions): string {
         }
 
         if (options.addLayoutButton) {
-            html += '<button is="paper-icon-button-light" title="' + globalize.translate('ButtonSelectView') + '" class="btnChangeLayout autoSize" data-layouts="' + (options.layouts || '') + '" onclick="LibraryBrowser.showLayoutMenu(this, \'' + (options.currentLayout || '') + '\');"><span class="material-icons view_comfy" aria-hidden="true"></span></button>';
+            const currentLayoutArg = escapeHtml(JSON.stringify(options.currentLayout || ''));
+            html += '<button is="paper-icon-button-light" title="' + escapeHtml(globalize.translate('ButtonSelectView')) + '" class="btnChangeLayout autoSize" data-layouts="' + escapeHtml(options.layouts || '') + '" onclick="LibraryBrowser.showLayoutMenu(this, ' + currentLayoutArg + ');"><span class="material-icons view_comfy" aria-hidden="true"></span></button>';
         }
 
         if (options.sortButton) {
@@ -170,7 +176,7 @@ export function showSortMenu(options: SortMenuOptions): void {
             const option = options.items[i];
             const radioValue = option.id.replace(',', '_');
             isChecked = (options.query.SortBy || '').replace(',', '_') == radioValue ? ' checked' : '';
-            html += '<label class="radio-label-block"><input type="radio" is="emby-radio" name="SortBy" data-id="' + option.id + '" value="' + radioValue + '" class="menuSortBy" ' + isChecked + ' /><span>' + option.name + '</span></label>';
+            html += '<label class="radio-label-block"><input type="radio" is="emby-radio" name="SortBy" data-id="' + escapeHtml(option.id) + '" value="' + escapeHtml(radioValue) + '" class="menuSortBy" ' + isChecked + ' /><span>' + escapeHtml(option.name) + '</span></label>';
         }
 
         html += '</div>';
@@ -185,7 +191,9 @@ export function showSortMenu(options: SortMenuOptions): void {
         html += '</div>';
         html += '</div>';
         dlg.innerHTML = html;
-        dialogHelper.open(dlg);
+        dialogHelper.open(dlg).catch((error: unknown) => {
+            console.error('[LibraryBrowser] failed to open sort menu', error);
+        });
         const sortBys = dlg.querySelectorAll('.menuSortBy') as NodeListOf<HTMLInputElement>;
 
         for (i = 0, length = sortBys.length; i < length; i++) {
@@ -197,6 +205,8 @@ export function showSortMenu(options: SortMenuOptions): void {
         for (i = 0, length = sortOrders.length; i < length; i++) {
             sortOrders[i].addEventListener('change', onSortOrderChange);
         }
+    }).catch((error: unknown) => {
+        console.error('[LibraryBrowser] failed to load sort menu', error);
     });
 }
 

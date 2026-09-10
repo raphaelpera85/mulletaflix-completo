@@ -106,7 +106,7 @@ export const Component = () => {
         e.preventDefault();
         if (config) {
             setIsAlertOpen(true);
-            submit(
+            void submit(
                 { ...config },
                 { method: 'post', encType: 'application/json' }
             );
@@ -896,4 +896,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'TranscodingPage';
-

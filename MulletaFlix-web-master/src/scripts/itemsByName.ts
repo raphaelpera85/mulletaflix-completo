@@ -384,6 +384,8 @@ function loadItems(element: HTMLElement, item: ItemData, type: string | null, qu
 
         itemsContainer.innerHTML = html;
         imageLoader.lazyChildren(itemsContainer);
+    }).catch(() => {
+        element.classList.add('hide');
     });
 }
 

@@ -8,7 +8,7 @@ const EmbyRadioPrototype: HTMLInputElement = Object.create(HTMLInputElement.prot
 function onKeyDown(this: HTMLInputElement, e: KeyboardEvent): void | false {
     // Don't submit form on enter
     // Real (non-emulator) Tizen does nothing on Space
-    if (e.keyCode === 13 || (e.keyCode === 32 && browser.tizen)) {
+    if (e.key === 'Enter' || (e.key === ' ' && browser.tizen)) {
         e.preventDefault();
 
         if (!this.checked) {

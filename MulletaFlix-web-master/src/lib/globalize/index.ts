@@ -69,7 +69,9 @@ function setDocumentDirection(direction: 'rtl' | 'ltr'): void {
     document.getElementsByTagName('body')[0].setAttribute('dir', direction);
     document.getElementsByTagName('html')[0].setAttribute('dir', direction);
     if (direction === Direction.rtl) {
-        import('../../styles/rtl.scss');
+        import('../../styles/rtl.scss').catch((error: unknown) => {
+            console.error('[globalize] failed to load RTL styles', error);
+        });
     }
 }
 
@@ -106,18 +108,24 @@ export function updateCurrentCulture(): void {
     } else {
         currentDateTimeCulture = currentCulture;
     }
-    updateLocale(currentDateTimeCulture);
+    updateLocale(currentDateTimeCulture).catch((error: unknown) => {
+        console.error('[globalize] failed to update date/time locale', error);
+    });
 
     ensureTranslations(currentCulture);
 }
 
 function ensureTranslations(culture: string): void {
     for (const i in allTranslations) {
-        ensureTranslation(allTranslations[i], culture);
+        ensureTranslation(allTranslations[i], culture).catch((error: unknown) => {
+            console.error(`[globalize] failed to load translation ${culture}`, error);
+        });
     }
     if (culture !== FALLBACK_CULTURE) {
         for (const i in allTranslations) {
-            ensureTranslation(allTranslations[i], FALLBACK_CULTURE);
+            ensureTranslation(allTranslations[i], FALLBACK_CULTURE).catch((error: unknown) => {
+                console.error(`[globalize] failed to load fallback translation ${FALLBACK_CULTURE}`, error);
+            });
         }
     }
 }
@@ -259,8 +267,8 @@ function translateKeyFromModule(key: string, module: string | undefined): string
 
 export function translate(key: string, ...args: string[]): string {
     let val = translateKey(key);
-    for (let i = 1; i < arguments.length; i++) {
-        val = val.replace(new RegExp('\\{' + (i - 1) + '\\}', 'g'), arguments[i].toLocaleString(currentCulture));
+    for (let i = 0; i < args.length; i++) {
+        val = val.replace(new RegExp('\\{' + i + '\\}', 'g'), args[i]);
     }
     return val;
 }

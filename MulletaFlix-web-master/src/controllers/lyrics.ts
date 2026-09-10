@@ -46,7 +46,7 @@ function lyricHtmlReducer(htmlAccumulator: string, lyric: LyricLine, index: numb
     const classes: string[] = [];
     if (isDynamicLyric) classes.push('dynamicLyric');
     if (layoutManager.tv) classes.push('listItem', 'show-focus');
-    const lyricTime = typeof lyric.Start !== 'undefined' ? `data-lyrictime="${lyric.Start}"` : '';
+    const lyricTime = typeof lyric.Start !== 'undefined' ? `data-lyrictime="${escapeHtml(String(lyric.Start))}"` : '';
 
     htmlAccumulator += `<${elem} class="lyricsLine ${classes.join(' ')}" id="lyricPosition${index}" ${lyricTime}>
     ${escapeHtml(lyric.Text)}
@@ -106,7 +106,7 @@ export default function (view: HTMLElement): void {
     }
 
     function updateAllLyricLines(currentLine: number, lyrics: LyricLine[]): void {
-        for (let lyricIndex = 0; lyricIndex <= lyrics.length; lyricIndex++) {
+        for (let lyricIndex = 0; lyricIndex < lyrics.length; lyricIndex++) {
             if (lyricIndex < currentLine) {
                 setPastLyricClassOnLine(lyricIndex);
             } else if (lyricIndex === currentLine) {
@@ -158,14 +158,14 @@ export default function (view: HTMLElement): void {
 
     function getLyrics(serverId: string, itemId: string): Promise<LyricLine[]> {
         const apiClient = ServerConnections.getApiClient(serverId);
-        const lyricsApi = getLyricsApi(toApi(apiClient as any));
+        const lyricsApi = getLyricsApi(toApi(apiClient as unknown as import('jellyfin-apiclient').ApiClient));
 
         return lyricsApi.getLyrics({ itemId })
             .then(({ data }) => {
                 if (!data.Lyrics?.length) {
                     throw new Error('No lyrics returned');
                 }
-                return (data.Lyrics as any[]).map((lyric: any) => ({
+                return data.Lyrics.map(lyric => ({
                     ...lyric,
                     Start: lyric.Start ?? undefined
                 })) as LyricLine[];
@@ -202,8 +202,13 @@ export default function (view: HTMLElement): void {
     }
 
     function onLyricClick(lyricTime: string | null): void {
+        const positionTicks = lyricTime === null ? NaN : Number(lyricTime);
+        if (!Number.isFinite(positionTicks)) {
+            return;
+        }
+
         autoScroll = AutoScroll.Smooth;
-        playbackManager.seek(lyricTime);
+        playbackManager.seek(positionTicks);
         if (playbackManager.paused()) {
             playbackManager.playPause(currentPlayer);
         }
@@ -217,7 +222,7 @@ export default function (view: HTMLElement): void {
     }
 
     function onPlaybackStart(_event: unknown, state: PlaybackState): void {
-        if (currentItem!.Id !== state.NowPlayingItem.Id) {
+        if (!currentItem || currentItem.Id !== state.NowPlayingItem.Id) {
             onLoad();
         }
     }
@@ -225,8 +230,12 @@ export default function (view: HTMLElement): void {
     function onPlaybackStop(_event: unknown, state: PlaybackState): void {
         // TODO: switch to appRouter.back(), with fix to navigation to /#/queue. Which is broken when it has nothing playing
         if (!state.NextMediaType) {
-            appRouter.goHome();
+            goHome();
         }
+    }
+
+    function goHome(): void {
+        void appRouter.goHome().catch((error: unknown) => console.error('[Lyrics] failed to navigate home', error));
     }
 
     function onPlayerChange(): void {
@@ -255,7 +264,7 @@ export default function (view: HTMLElement): void {
             getLyrics(serverId, itemId).then(updateLyrics).catch(renderNoLyricMessage);
         } else {
             // if nothing is currently playing, no lyrics to display redirect to home
-            appRouter.goHome();
+            goHome();
         }
     }
 
@@ -279,7 +288,7 @@ export default function (view: HTMLElement): void {
         try {
             onLoad();
         } catch {
-            appRouter.goHome();
+            goHome();
         }
     });
 

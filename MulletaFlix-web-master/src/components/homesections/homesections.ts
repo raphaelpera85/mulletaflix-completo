@@ -139,7 +139,7 @@ export function loadSections(
             const createNowLink = elem.querySelector('#button-createLibrary');
             if (createNowLink) {
                 createNowLink.addEventListener('click', () => {
-                    Dashboard.navigate('dashboard/libraries');
+                    Dashboard.navigate('dashboard/libraries').catch(() => undefined);
                 });
             }
         });

@@ -20,11 +20,9 @@ interface WizardRemoteApiClient {
     getUrl(path: string): string;
 }
 
-declare const ApiClient: WizardRemoteApiClient;
-
 function save(page: WizardRemotePage): void {
     loading.show();
-    const apiClient = ServerConnections.currentApiClient() as unknown as typeof ApiClient;
+    const apiClient = ServerConnections.currentApiClient() as unknown as WizardRemoteApiClient;
     const config = {
         EnableRemoteAccess: (page.querySelector<HTMLInputElement>('#chkRemoteAccess') as HTMLInputElement).checked
     };
@@ -37,11 +35,11 @@ function save(page: WizardRemotePage): void {
     }).then(function () {
         loading.hide();
         navigateToNextPage();
-    });
+    }).catch(() => loading.hide());
 }
 
 function navigateToNextPage(): void {
-    Dashboard.navigate('wizard/finish');
+    Dashboard.navigate('wizard/finish').catch(() => undefined);
 }
 
 function onSubmit(this: WizardRemotePage, e: SubmitEvent): boolean {

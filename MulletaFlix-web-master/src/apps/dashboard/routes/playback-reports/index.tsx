@@ -395,7 +395,7 @@ export const Component = () => {
             grow: true,
             filterVariant: 'text'
         }
-    ], [ userColumn, users, userNames, UserCell, theme ]);
+    ], [ userColumn, theme ]);
 
     const viewButtons = [
         { id: PlaybackReportView.All, label: 'All' },

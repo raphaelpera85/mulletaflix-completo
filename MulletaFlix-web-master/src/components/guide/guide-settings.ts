@@ -153,7 +153,7 @@ function showEditor(options: GuideSettingsOptions): Promise<void> {
 
         load(dlg);
         loadCategories(dlg, options);
-        dialogHelper.open(dlg);
+        dialogHelper.open(dlg).catch(() => undefined);
     });
 }
 

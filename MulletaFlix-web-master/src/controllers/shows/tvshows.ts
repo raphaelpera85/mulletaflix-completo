@@ -8,19 +8,51 @@ import * as userSettings from '../../scripts/settings/userSettings';
 import globalize from '../../lib/globalize';
 import Events from '../../utils/events';
 import { setFilterStatus } from 'components/filterdialog/filterIndicator';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import '../../elements/emby-itemscontainer/emby-itemscontainer';
 
 interface PageData {
-    query: any;
+    query: QueryParams;
     view: string;
+}
+
+interface QueryParams {
+    [key: string]: unknown;
+    SortBy: string;
+    SortOrder: string;
+    IncludeItemTypes: string;
+    Recursive: boolean;
+    Fields: string;
+    ImageTypeLimit: number;
+    EnableImageTypes: string;
+    StartIndex: number;
+    Limit?: number;
+    ParentId?: string;
+    NameStartsWith?: string;
+    NameLessThan?: string;
 }
 
 interface ViewParams {
     topParentId: string;
 }
 
-export default function (this: any, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
+interface TVShowsController {
+    showFilterMenu: () => void;
+    getCurrentViewStyle: () => string;
+    renderTab: () => void;
+    alphaPicker?: AlphaPicker;
+}
+
+interface AlphaValueChangeEvent extends Event {
+    detail: { value: string };
+}
+
+interface LayoutChangeEvent extends Event {
+    detail: { viewStyle: string };
+}
+
+export default function (this: TVShowsController, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
     function getPageData(): PageData {
         const key = getSavedQueryKey();
         let pageData = data[key];
@@ -51,7 +83,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         return pageData;
     }
 
-    function getQuery(): any {
+    function getQuery(): QueryParams {
         return getPageData().query;
     }
 
@@ -80,14 +112,14 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         const query = getQuery();
         setFilterStatus(page, query);
 
-        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: any) => {
+        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: ItemDtoQueryResult) => {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
                 }
 
                 if (userSettings.libraryPageSize() > 0) {
-                    query.StartIndex += query.Limit;
+                    query.StartIndex += query.Limit ?? 0;
                 }
                 reloadItems(tabContent);
             }
@@ -98,7 +130,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 }
 
                 if (userSettings.libraryPageSize() > 0) {
-                    query.StartIndex = Math.max(0, query.StartIndex - query.Limit);
+                    query.StartIndex = Math.max(0, query.StartIndex - (query.Limit ?? 0));
                 }
                 reloadItems(tabContent);
             }
@@ -106,12 +138,10 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             window.scrollTo(0, 0);
             this.alphaPicker?.updateControls(query);
             let html: string;
-            const pagingHtml = (libraryBrowser as any).getQueryPagingHtml({
+            const pagingHtml = libraryBrowser.getQueryPagingHtml({
                 startIndex: query.StartIndex,
-                limit: query.Limit,
-                totalRecordCount: result.TotalRecordCount,
-                showLimit: false,
-                updatePageSizeSetting: false,
+                limit: query.Limit ?? 0,
+                totalRecordCount: result.TotalRecordCount ?? 0,
                 addLayoutButton: false,
                 sortButton: false,
                 filterButton: false
@@ -119,7 +149,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             const viewStyle = this.getCurrentViewStyle();
             if (viewStyle == 'Thumb') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'backdrop',
                     preferThumb: true,
                     context: 'tvshows',
@@ -129,7 +159,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 });
             } else if (viewStyle == 'ThumbCard') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'backdrop',
                     preferThumb: true,
                     context: 'tvshows',
@@ -140,20 +170,20 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 });
             } else if (viewStyle == 'Banner') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'banner',
                     preferBanner: true,
                     context: 'tvshows'
                 });
             } else if (viewStyle == 'List') {
                 html = listView.getListViewHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     context: 'tvshows',
                     sortBy: query.SortBy
                 });
             } else if (viewStyle == 'PosterCard') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'portrait',
                     context: 'tvshows',
                     showTitle: true,
@@ -197,9 +227,13 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
             loading.hide();
             isLoading = false;
 
-            import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+            void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(page);
-            });
+            }).catch((error: unknown) => console.error('[TVShows] failed to focus page', error));
+        }).catch((error: unknown) => {
+            loading.hide();
+            isLoading = false;
+            console.error('[TVShows] failed to load shows', error);
         });
     };
 
@@ -207,7 +241,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
     let isLoading = false;
 
     this.showFilterMenu = function (): void {
-        import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
+        void import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
                 query: getQuery(),
                 mode: 'series',
@@ -217,8 +251,8 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                 getQuery().StartIndex = 0;
                 reloadItems(tabContent);
             });
-            filterDialog.show();
-        });
+            void filterDialog.show().catch((error: unknown) => console.error('[TVShows] filter dialog failed', error));
+        }).catch((error: unknown) => console.error('[TVShows] failed to open filter dialog', error));
     };
 
     this.getCurrentViewStyle = function (): string {
@@ -229,8 +263,8 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         const alphaPickerElement = tabElement.querySelector('.alphaPicker')!;
         const itemsContainer = tabElement.querySelector('.itemsContainer') as HTMLElement;
 
-        alphaPickerElement.addEventListener('alphavaluechanged', function (e: any) {
-            const newValue = e.detail.value;
+        alphaPickerElement.addEventListener('alphavaluechanged', function (event: Event) {
+            const newValue = (event as AlphaValueChangeEvent).detail.value;
             const query = getQuery();
             if (newValue === '#') {
                 query.NameLessThan = 'A';
@@ -254,8 +288,8 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
         tabElement.querySelector('.btnFilter')!.addEventListener('click', () => {
             this.showFilterMenu();
         });
-        tabElement.querySelector('.btnSort')!.addEventListener('click', function (e: Event) {
-            (libraryBrowser as any).showSortMenu({
+        tabElement.querySelector('.btnSort')!.addEventListener('click', function () {
+            libraryBrowser.showSortMenu({
                 items: [{
                     name: globalize.translate('Name'),
                     id: 'SortName'
@@ -285,16 +319,15 @@ export default function (this: any, view: HTMLElement, params: ViewParams, tabCo
                     getQuery().StartIndex = 0;
                     reloadItems(tabElement);
                 },
-                query: getQuery(),
-                button: e.target
+                query: getQuery()
             });
         });
         const btnSelectView = tabElement.querySelector('.btnSelectView') as HTMLElement;
         btnSelectView.addEventListener('click', (e: Event) => {
             libraryBrowser.showLayoutMenu(e.target as HTMLElement, this.getCurrentViewStyle(), 'Banner,List,Poster,PosterCard,Thumb,ThumbCard'.split(','));
         });
-        btnSelectView.addEventListener('layoutchange', function (e: any) {
-            const viewStyle = e.detail.viewStyle;
+        btnSelectView.addEventListener('layoutchange', function (event: Event) {
+            const viewStyle = (event as LayoutChangeEvent).detail.viewStyle;
             getPageData().view = viewStyle;
             userSettings.saveViewSetting(getSavedQueryKey(), viewStyle);
             getQuery().StartIndex = 0;

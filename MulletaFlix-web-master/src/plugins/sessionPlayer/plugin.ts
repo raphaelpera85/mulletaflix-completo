@@ -199,7 +199,7 @@ function processUpdatedSessions(instance: SessionPlayer, sessions: SessionState[
     const currentTargetId = getActivePlayerId();
 
     const session = sessions.filter(function (s) {
-        return s.Id === currentTargetId;
+        return String(s.Id) === currentTargetId;
     })[0];
 
     if (session) {
@@ -420,19 +420,19 @@ class SessionPlayer {
     }
 
     shuffle(item: { Id: string; ServerId: string }): void {
-        sendPlayCommand(getCurrentApiClient(this), { ids: [item.Id] }, 'PlayShuffle');
+        sendPlayCommand(getCurrentApiClient(this), { ids: [item.Id] }, 'PlayShuffle').catch(() => undefined);
     }
 
     instantMix(item: { Id: string; ServerId: string }): void {
-        sendPlayCommand(getCurrentApiClient(this), { ids: [item.Id] }, 'PlayInstantMix');
+        sendPlayCommand(getCurrentApiClient(this), { ids: [item.Id] }, 'PlayInstantMix').catch(() => undefined);
     }
 
     queue(options: PlayOptions): void {
-        sendPlayCommand(getCurrentApiClient(this), options, 'PlayLast');
+        sendPlayCommand(getCurrentApiClient(this), options, 'PlayLast').catch(() => undefined);
     }
 
     queueNext(options: PlayOptions): void {
-        sendPlayCommand(getCurrentApiClient(this), options, 'PlayNext');
+        sendPlayCommand(getCurrentApiClient(this), options, 'PlayNext').catch(() => undefined);
     }
 
     canPlayMediaType(mediaType: string): boolean {

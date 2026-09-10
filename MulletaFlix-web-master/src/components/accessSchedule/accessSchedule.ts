@@ -78,7 +78,7 @@ export function show(options: AccessScheduleOptions): Promise<AccessScheduleOpti
         dlg.innerHTML = html;
         populateHours(dlg);
         loadSchedule(dlg, options.schedule);
-        dialogHelper.open(dlg);
+        dialogHelper.open(dlg).catch(reject);
         dlg.addEventListener('close', () => {
             if ((dlg as any).submitted) {
                 resolve(options.schedule);

@@ -42,6 +42,22 @@ const QUERY_PARAM = 'query';
 const STATUS_PARAM = 'status';
 const COMPATIBILITY_PARAM = 'compatibility';
 
+const getCompatibilityColor = (value: string | null): 'primary' | 'success' | 'error' | undefined => {
+    if (!value) {
+        return 'primary';
+    }
+
+    if (value === 'compatible') {
+        return 'success';
+    }
+
+    if (value === 'incompatible') {
+        return 'error';
+    }
+
+    return undefined;
+};
+
 export const Component = () => {
     const {
         data: pluginDetails,
@@ -64,6 +80,17 @@ export const Component = () => {
         else setStatus(PluginStatusOption.All);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ category, compatibility ]);
+
+    const onShowAllStatuses = useCallback(() => setStatus(PluginStatusOption.All), [ setStatus ]);
+    const onShowAvailable = useCallback(() => setStatus(PluginStatusOption.Available), [ setStatus ]);
+    const onShowInstalled = useCallback(() => setStatus(PluginStatusOption.Installed), [ setStatus ]);
+    const onShowCompatible = useCallback(() => setCompatibility('compatible'), [ setCompatibility ]);
+    const onShowIncompatible = useCallback(() => setCompatibility('incompatible'), [ setCompatibility ]);
+    const onClearCompatibility = useCallback(() => setCompatibility(''), [ setCompatibility ]);
+    const onClearCategory = useCallback(() => setCategory(''), [ setCategory ]);
+    const onCategoryClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        setCategory(event.currentTarget.dataset.category || '');
+    }, [ setCategory ]);
 
     const filteredPlugins = useMemo(() => {
         if (pluginDetails) {
@@ -198,45 +225,39 @@ export const Component = () => {
                                 >
                                     <Chip
                                         color={status === PluginStatusOption.All ? 'primary' : undefined}
-                                        // eslint-disable-next-line react/jsx-no-bind
-                                        onClick={() => setStatus(PluginStatusOption.All)}
+                                        onClick={onShowAllStatuses}
                                         label={globalize.translate('All')}
                                     />
 
                                     <Chip
                                         color={status === PluginStatusOption.Available ? 'primary' : undefined}
-                                        // eslint-disable-next-line react/jsx-no-bind
-                                        onClick={() => setStatus(PluginStatusOption.Available)}
+                                        onClick={onShowAvailable}
                                         label={globalize.translate('LabelAvailable')}
                                     />
 
                                     <Chip
                                         color={status === PluginStatusOption.Installed ? 'primary' : undefined}
-                                        // eslint-disable-next-line react/jsx-no-bind
-                                        onClick={() => setStatus(PluginStatusOption.Installed)}
+                                        onClick={onShowInstalled}
                                         label={globalize.translate('LabelInstalled')}
                                     />
 
                                     <Divider orientation='vertical' flexItem />
 
                                     <Chip
-                                        color={compatibility === 'compatible' ? 'success' : compatibility === 'incompatible' ? 'error' : !compatibility ? 'primary' : undefined}
-                                        // eslint-disable-next-line react/jsx-no-bind
-                                        onClick={() => setCompatibility('compatible')}
+                                        color={getCompatibilityColor(compatibility)}
+                                        onClick={onShowCompatible}
                                         label={globalize.translate('LabelCompatible') || 'Compatível'}
                                     />
 
                                     <Chip
-                                        color={compatibility === 'incompatible' ? 'error' : compatibility === 'compatible' ? 'success' : !compatibility ? 'primary' : undefined}
-                                        // eslint-disable-next-line react/jsx-no-bind
-                                        onClick={() => setCompatibility('incompatible')}
+                                        color={getCompatibilityColor(compatibility)}
+                                        onClick={onShowIncompatible}
                                         label={globalize.translate('LabelIncompatible') || 'Incompatível'}
                                     />
 
                                     <Chip
                                         color={!compatibility ? 'primary' : undefined}
-                                        // eslint-disable-next-line react/jsx-no-bind
-                                        onClick={() => setCompatibility('')}
+                                        onClick={onClearCompatibility}
                                         label={globalize.translate('All') || 'Todos'}
                                     />
 
@@ -244,8 +265,7 @@ export const Component = () => {
 
                                     <Chip
                                         color={!category ? 'primary' : undefined}
-                                        // eslint-disable-next-line react/jsx-no-bind
-                                        onClick={() => setCategory('')}
+                                        onClick={onClearCategory}
                                         label={globalize.translate('All')}
                                     />
 
@@ -253,8 +273,8 @@ export const Component = () => {
                                         <Chip
                                             key={c}
                                             color={category === c.toLowerCase() ? 'primary' : undefined}
-                                            // eslint-disable-next-line react/jsx-no-bind
-                                            onClick={() => setCategory(c.toLowerCase())}
+                                            data-category={c.toLowerCase()}
+                                            onClick={onCategoryClick}
                                             label={globalize.translate(CATEGORY_LABELS[c as PluginCategory])}
                                         />
                                     ))}

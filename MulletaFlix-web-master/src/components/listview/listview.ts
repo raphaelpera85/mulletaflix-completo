@@ -345,7 +345,7 @@ export function getListViewHtml(options: ListViewOptions): string {
             const imageAction = playOnImageClick ? ItemAction.Link : action;
 
             if (imgUrl) {
-                html += '<div data-action="' + imageAction + '" class="' + imageClass + ' lazy" data-src="' + imgUrl + '" item-icon>';
+                html += '<div data-action="' + escapeHtml(String(imageAction)) + '" class="' + escapeHtml(imageClass) + ' lazy" data-src="' + escapeHtml(imgUrl) + '" item-icon>';
             } else {
                 html += '<div class="' + imageClass + ' cardImageContainer ' + getDefaultBackgroundClass(item.Name) + '">' + cardBuilder.getDefaultText(item, options);
             }
@@ -534,11 +534,11 @@ export function getListViewHtml(options: ListViewOptions): string {
                 const likes = userData.Likes == null ? '' : userData.Likes;
 
                 if (itemHelper.canMarkPlayed(item) && options.enablePlayedButton !== false) {
-                    html += '<button is="emby-playstatebutton" type="button" class="listItemButton paper-icon-button-light" data-id="' + item.Id + '" data-serverid="' + item.ServerId + '" data-itemtype="' + item.Type + '" data-played="' + (userData.Played) + '"><span class="material-icons check" aria-hidden="true"></span></button>';
+                    html += '<button is="emby-playstatebutton" type="button" class="listItemButton paper-icon-button-light" data-id="' + escapeHtml(String(item.Id || '')) + '" data-serverid="' + escapeHtml(String(item.ServerId || '')) + '" data-itemtype="' + escapeHtml(String(item.Type || '')) + '" data-played="' + escapeHtml(String(userData.Played)) + '"><span class="material-icons check" aria-hidden="true"></span></button>';
                 }
 
                 if (itemHelper.canRate(item) && options.enableRatingButton !== false) {
-                    html += '<button is="emby-ratingbutton" type="button" class="listItemButton paper-icon-button-light" data-id="' + item.Id + '" data-serverid="' + item.ServerId + '" data-itemtype="' + item.Type + '" data-likes="' + likes + '" data-isfavorite="' + (userData.IsFavorite) + '"><span class="material-icons favorite" aria-hidden="true"></span></button>';
+                    html += '<button is="emby-ratingbutton" type="button" class="listItemButton paper-icon-button-light" data-id="' + escapeHtml(String(item.Id || '')) + '" data-serverid="' + escapeHtml(String(item.ServerId || '')) + '" data-itemtype="' + escapeHtml(String(item.Type || '')) + '" data-likes="' + escapeHtml(String(likes)) + '" data-isfavorite="' + escapeHtml(String(userData.IsFavorite)) + '"><span class="material-icons favorite" aria-hidden="true"></span></button>';
                 }
             }
 

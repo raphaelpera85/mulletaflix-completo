@@ -73,6 +73,10 @@ function getIcon(target: PlayTarget): string {
     }
 }
 
+function findTargetById(targets: PlayTarget[], id: unknown): PlayTarget | undefined {
+    return targets.find((target) => target.id === String(id));
+}
+
 export function show(button: HTMLElement): void {
     const currentPlayerInfo = playbackManager.getPlayerInfo() as PlayerInfo | null;
 
@@ -123,9 +127,7 @@ export function show(button: HTMLElement): void {
             }
 
             actionsheet.show(menuOptions).then((id: unknown) => {
-                const target = targets.filter((targetItem) => {
-                    return targetItem.id === String(id);
-                })[0];
+                const target = findTargetById(targets, id);
 
                 if (!target || !target.playerName) {
                     return;
@@ -135,10 +137,12 @@ export function show(button: HTMLElement): void {
             }).catch(() => {
                 // action sheet closed
             });
-        }).catch((err: any) => {
+        }).catch((err: unknown) => {
+            loading.hide();
             console.error('[playerSelectionMenu] failed to import action sheet', err);
         });
-    }).catch((err: any) => {
+    }).catch((err: unknown) => {
+        loading.hide();
         console.error('[playerSelectionMenu] failed to get playback targets', err);
     });
 }

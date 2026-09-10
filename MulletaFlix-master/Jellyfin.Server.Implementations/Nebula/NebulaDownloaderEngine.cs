@@ -295,6 +295,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         var fileNameWithoutExt = Path.GetFileNameWithoutExtension(strmPath);
         var extension = GuessExtensionFromUrl(url);
         var finalMediaFileName = $"{fileNameWithoutExt}{extension}";
+        var rawRelPath = GetRelativePathFromSource(strmPath, monitorSources);
+        var relPath = NebulaUploadEngine.RouteMediaRelativeDirectory(rawRelPath, finalMediaFileName);
+        var targetStageDir = string.IsNullOrEmpty(relPath) ? targetStageStrmDir : Path.Combine(bestStageDir, relPath);
+        var targetMediaFilePath = Path.Combine(targetStageDir, finalMediaFileName);
 
         // 1. Checa se o arquivo já está completado ou ativo no MongoDB por Título, Link ou ID
         var (isDuplicate, reason) = await CheckMediaDuplicateInMongoAsync(strmPath, finalMediaFileName, url, cancellationToken).ConfigureAwait(false);
@@ -302,6 +306,14 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         {
             LogInfo($"Mídia já concluída ou ativa no Nebula ({reason}). Removendo .strm: {strmFileName}");
             _failureTracker.RecordSuccess(strmPath);
+
+            // Recognition may have created a pending marker before the
+            // duplicate was discovered. Remove only an orphan marker; an
+            // active media payload keeps the marker until its upload completes.
+            if (NebulaMetadataExportService.IsOrphanPendingMarkerDirectory(targetStageDir))
+            {
+                NebulaMetadataExportService.RemovePendingMarker(targetStageDir);
+            }
 
             try
             {
@@ -323,11 +335,6 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         // 2. Log de início do download exclusivo da mídia
         LogInfo($"[1 MÍDIA POR VEZ] Iniciando download: {strmFileName} [{categoryName}{yearPart}] -> Stage: {targetStageStrmDir}");
 
-        var rawRelPath = GetRelativePathFromSource(strmPath, monitorSources);
-        var relPath = NebulaUploadEngine.RouteMediaRelativeDirectory(rawRelPath, finalMediaFileName);
-        var targetStageDir = string.IsNullOrEmpty(relPath) ? targetStageStrmDir : Path.Combine(bestStageDir, relPath);
-        var targetMediaFilePath = Path.Combine(targetStageDir, finalMediaFileName);
-
         Directory.CreateDirectory(targetStageDir);
 
         // The STRM must already be recognized by Jellyfin before downloading its
@@ -338,6 +345,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             var metadataReady = await WaitForMetadataAsync(strmPath, targetStageDir, cancellationToken).ConfigureAwait(false);
             if (!metadataReady)
             {
+                NebulaMetadataExportService.RemovePendingMarker(targetStageDir);
                 var message = $"Metadados ainda não reconhecidos pelo Jellyfin para {strmFileName}; download adiado.";
                 LogWarning(message);
                 _failureTracker.RecordFailure(strmPath, message);
@@ -354,6 +362,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
         catch (HttpRequestException ex)
         {
+            NebulaMetadataExportService.RemovePendingMarker(targetStageDir);
             var err = ex.StatusCode.HasValue ? $"HTTP Error {(int)ex.StatusCode.Value}: {ex.StatusCode.Value}" : ex.Message;
             LogError($"Erro no download de {strmFileName}: {err}");
             _failureTracker.RecordFailure(strmPath, err);
@@ -361,6 +370,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            NebulaMetadataExportService.RemovePendingMarker(targetStageDir);
             var err = "A requisição foi cancelada porque o timeout configurado do HttpClient (10 minutos) foi atingido.";
             LogError($"Erro no download de {strmFileName}: {err}");
             _failureTracker.RecordFailure(strmPath, err);
@@ -368,8 +378,15 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
         catch (Exception ex)
         {
+            NebulaMetadataExportService.RemovePendingMarker(targetStageDir);
             LogError($"Erro no download de {strmFileName}: {ex.Message}");
             _failureTracker.RecordFailure(strmPath, ex.Message);
+            return;
+        }
+
+        if (!downloadOk || !File.Exists(targetMediaFilePath))
+        {
+            NebulaMetadataExportService.RemovePendingMarker(targetStageDir);
             return;
         }
 
@@ -378,7 +395,17 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             _failureTracker.RecordSuccess(strmPath);
 
             // 4. Feeder: Registra no MongoDB com status 'queued' e delete_source=true
-            await EnqueueFileInMongoAsync(targetMediaFilePath, relPath, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await EnqueueFileInMongoAsync(targetMediaFilePath, relPath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                NebulaMetadataExportService.RemovePendingMarker(targetStageDir);
+                _failureTracker.RecordFailure(strmPath, ex.Message);
+                LogError($"Erro ao enfileirar mídia baixada {strmFileName}: {ex.Message}");
+                return;
+            }
 
             // 5. Remove o arquivo .strm de origem após o download/enfileiramento com sucesso
             try

@@ -284,7 +284,7 @@ function showMenuForSelectedItems(e: Event): void {
             }
 
             import('../actionSheet/actionSheet').then((actionsheet: any) => {
-                actionsheet.show({
+                return actionsheet.show({
                     items: menuItems,
                     positionTo: e.target as HTMLElement,
                     callback: function (id: string): void {
@@ -308,11 +308,11 @@ function showMenuForSelectedItems(e: Event): void {
                             case 'addtocollection':
                                 import('../collectionEditor/collectionEditor').then(({ default: CollectionEditor }: any) => {
                                     const collectionEditor = new CollectionEditor();
-                                    collectionEditor.show({
+                                    return collectionEditor.show({
                                         items: items,
                                         serverId: serverId
                                     });
-                                });
+                                }).catch(() => undefined);
                                 hideSelections();
                                 dispatchNeedsRefresh();
                                 break;
@@ -332,7 +332,7 @@ function showMenuForSelectedItems(e: Event): void {
                                 dispatchNeedsRefresh();
                                 break;
                             case 'delete':
-                                deleteItems(apiClient, items).then(dispatchNeedsRefresh);
+                                deleteItems(apiClient, items).then(dispatchNeedsRefresh, () => undefined);
                                 hideSelections();
                                 dispatchNeedsRefresh();
                                 break;
@@ -355,11 +355,11 @@ function showMenuForSelectedItems(e: Event): void {
                                 break;
                             case 'refresh':
                                 import('../refreshdialog/refreshdialog').then(({ default: RefreshDialog }: any) => {
-                                    new RefreshDialog({
+                                    return new RefreshDialog({
                                         itemIds: items,
                                         serverId: serverId
                                     }).show();
-                                });
+                                }).catch(() => undefined);
                                 hideSelections();
                                 dispatchNeedsRefresh();
                                 break;
@@ -368,7 +368,7 @@ function showMenuForSelectedItems(e: Event): void {
                         }
                     }
                 });
-            });
+            }).catch(() => undefined);
         });
     });
 }
@@ -393,7 +393,7 @@ function combineVersions(apiClient: any, selection: string[]): void {
     if (selection.length < 2) {
         alert({
             text: globalize.translate('PleaseSelectTwoItems')
-        });
+        }).catch(() => undefined);
 
         return;
     }
@@ -407,7 +407,7 @@ function combineVersions(apiClient: any, selection: string[]): void {
         loading.hide();
         hideSelections();
         dispatchNeedsRefresh();
-    });
+    }).catch(() => undefined);
 }
 
 function showSelections(initialCard: HTMLElement, addInitialCheck: boolean): void {
@@ -419,7 +419,7 @@ function showSelections(initialCard: HTMLElement, addInitialCheck: boolean): voi
 
         showSelectionCommands();
         updateItemSelection(initialCard, true);
-    });
+    }).catch(() => undefined);
 }
 
 function onContainerClick(e: Event): false | void {

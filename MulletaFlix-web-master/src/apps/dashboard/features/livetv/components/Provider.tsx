@@ -19,6 +19,7 @@ import LocationSearchingIcon from '@mui/icons-material/LocationSearching';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ChannelMapper from 'components/channelMapper/channelMapper';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
+import type { ApiClient } from 'jellyfin-apiclient';
 import { useDeleteProvider } from '../api/useDeleteProvider';
 
 interface ProviderProps {
@@ -36,7 +37,7 @@ const Provider = ({ provider }: ProviderProps) => {
         setAnchorEl(null);
         setIsMenuOpen(false);
 
-        const serverId = (ServerConnections.currentApiClient() as any)?.serverId();
+        const serverId = (ServerConnections.currentApiClient() as unknown as ApiClient)?.serverId();
         if (!provider.Id || !serverId) {
             return;
         }
@@ -142,4 +143,3 @@ const Provider = ({ provider }: ProviderProps) => {
 };
 
 export default Provider;
-

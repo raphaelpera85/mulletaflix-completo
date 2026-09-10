@@ -35,7 +35,7 @@ function getThemeStylesheetInfo(id: string): Promise<ThemeInfo> {
 }
 
 function setTheme(id: string): Promise<void> {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
         if (currentThemeId && currentThemeId === id) {
             resolve();
             return;
@@ -56,7 +56,7 @@ function setTheme(id: string): Promise<void> {
             (document.getElementById('themeColor') as HTMLMetaElement).content = info.color;
 
             Events.trigger(document, EventType.THEME_CHANGE, [ info.id ]);
-        });
+        }).catch(reject);
     });
 }
 

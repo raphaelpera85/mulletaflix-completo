@@ -9,10 +9,13 @@ import * as userSettings from '../../scripts/settings/userSettings';
 import globalize from '../../lib/globalize';
 import Events from '../../utils/events.ts';
 import { setFilterStatus } from 'components/filterdialog/filterIndicator';
+import type { ItemDto } from 'types/base/models/item-dto';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import '../../elements/emby-itemscontainer/emby-itemscontainer';
 
 interface QueryParams {
+    [key: string]: unknown;
     SortBy: string;
     SortOrder: string;
     IncludeItemTypes: string;
@@ -32,20 +35,27 @@ interface PageData {
     view: string;
 }
 
-export default function (this: { showFilterMenu: () => void; getCurrentViewStyle: () => string; renderTab: () => void; alphaPicker?: any }, view: HTMLElement, params: { topParentId: string }, tabContent: HTMLElement) {
+interface MusicalbumsController {
+    showFilterMenu: () => void;
+    getCurrentViewStyle: () => string;
+    renderTab: () => void;
+    alphaPicker?: AlphaPicker;
+}
+
+export default function (this: MusicalbumsController, view: HTMLElement, params: { topParentId: string }, tabContent: HTMLElement): void {
     function playAll(): void {
-        ApiClient.getItem(ApiClient.getCurrentUserId(), params.topParentId).then(function (item: any) {
+        ApiClient.getItem(ApiClient.getCurrentUserId(), params.topParentId).then(function (item: ItemDto) {
             playbackManager.play({
                 items: [item]
             });
-        });
+        }).catch((error: unknown) => console.error('[MusicAlbums] failed to load item for play all', error));
     }
 
     function shuffle(): void {
-        ApiClient.getItem(ApiClient.getCurrentUserId(), params.topParentId).then(function (item: any) {
+        ApiClient.getItem(ApiClient.getCurrentUserId(), params.topParentId).then(function (item: ItemDto) {
             getQuery();
             playbackManager.shuffle(item);
-        });
+        }).catch((error: unknown) => console.error('[MusicAlbums] failed to load item for shuffle', error));
     }
 
     function getPageData(): PageData {
@@ -71,7 +81,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 pageData.query['Limit'] = userSettings.libraryPageSize();
             }
 
-            userSettings.loadQuerySettings(key, pageData.query as any);
+            userSettings.loadQuerySettings(key, pageData.query);
         }
 
         return pageData!;
@@ -106,7 +116,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
         const query = getQuery();
         setFilterStatus(tabContent, query);
 
-        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: any) => {
+        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: ItemDtoQueryResult) => {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -135,7 +145,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
             const pagingHtml = libraryBrowser.getQueryPagingHtml({
                 startIndex: query.StartIndex,
                 limit: query.Limit ?? 0,
-                totalRecordCount: result.TotalRecordCount,
+                totalRecordCount: result.TotalRecordCount ?? 0,
                 addLayoutButton: false,
                 sortButton: false,
                 filterButton: false
@@ -143,14 +153,14 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
             const viewStyle = this.getCurrentViewStyle();
             if (viewStyle == 'List') {
                 html = listView.getListViewHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     context: 'music',
                     sortBy: query.SortBy,
                     addToListButton: true
                 });
             } else if (viewStyle == 'PosterCard') {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'square',
                     context: 'music',
                     showTitle: true,
@@ -161,7 +171,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 });
             } else {
                 html = cardBuilder.getCardsHtml({
-                    items: result.Items,
+                    items: result.Items ?? [],
                     shape: 'square',
                     context: 'music',
                     showTitle: true,
@@ -188,16 +198,26 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 elem.addEventListener('click', onPreviousPageClick);
             }
 
-            const itemsContainer = tabContent.querySelector('.itemsContainer')!;
+            const itemsContainer = tabContent.querySelector('.itemsContainer');
+            if (!(itemsContainer instanceof HTMLElement)) {
+                loading.hide();
+                isLoading = false;
+                return;
+            }
+
             itemsContainer.innerHTML = html;
             imageLoader.lazyChildren(itemsContainer);
-            userSettings.saveQuerySettings(getSavedQueryKey(), query as any);
+            userSettings.saveQuerySettings(getSavedQueryKey(), query);
             loading.hide();
             isLoading = false;
 
-            import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+            void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(tabContent);
-            });
+            }).catch((error: unknown) => console.error('[MusicAlbums] failed to focus page', error));
+        }).catch((error: unknown) => {
+            loading.hide();
+            isLoading = false;
+            console.error('[MusicAlbums] failed to load albums', error);
         });
     };
 
@@ -205,7 +225,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
     let isLoading = false;
 
     this.showFilterMenu = function () {
-        import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
+        void import('../../components/filterdialog/filterdialog').then(({ default: FilterDialog }) => {
             const filterDialog = new FilterDialog({
                 query: getQuery() as unknown as Record<string, unknown>,
                 mode: 'albums',
@@ -216,8 +236,8 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
                 reloadItems();
             });
 
-            filterDialog.show();
-        });
+            void filterDialog.show().catch((error: unknown) => console.error('[MusicAlbums] failed to show filter dialog', error));
+        }).catch((error: unknown) => console.error('[MusicAlbums] failed to open filter dialog', error));
     };
 
     this.getCurrentViewStyle = function () {
@@ -255,7 +275,7 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
             this.showFilterMenu();
         });
 
-        tabElement.querySelector('.btnSort')!.addEventListener('click', (e: Event) => {
+        tabElement.querySelector('.btnSort')!.addEventListener('click', () => {
             libraryBrowser.showSortMenu({
                 items: [{
                     name: globalize.translate('Name'),

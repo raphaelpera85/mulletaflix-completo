@@ -31,7 +31,7 @@ class QueueCore {
 
         const serverId = apiClient.serverInfo().Id;
 
-        this.onPlayQueueUpdate(apiClient, newPlayQueue, serverId).then((previous: any) => {
+        void this.onPlayQueueUpdate(apiClient, newPlayQueue, serverId).then((previous: any) => {
             if (newPlayQueue.LastUpdate.getTime() < this.getLastUpdateTime()) {
                 console.warn('SyncPlay updatePlayQueue: trying to apply old update.', newPlayQueue);
                 throw new Error('Trying to apply old update');
@@ -47,11 +47,11 @@ class QueueCore {
             switch (newPlayQueue.Reason) {
                 case 'NewPlaylist': {
                     if (!this.manager.isFollowingGroupPlayback()) {
-                        this.manager.followGroupPlayback(apiClient).then(() => {
-                            this.startPlayback(apiClient);
+                        return this.manager.followGroupPlayback(apiClient).then(() => {
+                            return Promise.resolve(this.startPlayback(apiClient)).catch((error: unknown) => console.error('SyncPlay failed to start queued playback', error));
                         });
                     } else {
-                        this.startPlayback(apiClient);
+                        return Promise.resolve(this.startPlayback(apiClient)).catch((error: unknown) => console.error('SyncPlay failed to start queued playback', error));
                     }
                     break;
                 }
@@ -93,7 +93,7 @@ class QueueCore {
             }
         }).catch((error: any) => {
             console.warn('SyncPlay updatePlayQueue:', error);
-        });
+        }).catch((error: unknown) => console.error('SyncPlay failed to apply queue update', error));
     }
 
     onPlayQueueUpdate(apiClient: any, playQueueUpdate: any, serverId: string): Promise<any> {
@@ -143,7 +143,7 @@ class QueueCore {
     }
 
     scheduleReadyRequestOnPlaybackStart(apiClient: any, origin: string): void {
-        Helper.waitForEventOnce(this.manager, 'playbackstart', Helper.WaitForEventDefaultTimeout, ['playbackerror']).then(async () => {
+        void Helper.waitForEventOnce(this.manager, 'playbackstart', Helper.WaitForEventDefaultTimeout, ['playbackerror']).then(async () => {
             console.debug('SyncPlay scheduleReadyRequestOnPlaybackStart: local pause and notify server.');
             const playerWrapper = this.manager.getPlayerWrapper();
             playerWrapper.localPause();
@@ -169,7 +169,7 @@ class QueueCore {
             }
 
             this.manager.haltGroupPlayback(apiClient);
-        });
+        }).catch((error: unknown) => console.error('SyncPlay failed to prepare playback', error));
     }
 
     startPlayback(apiClient: any): Promise<any> | undefined {

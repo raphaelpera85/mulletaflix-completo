@@ -4,6 +4,7 @@ import imageLoader from 'components/images/imageLoader';
 import layoutManager from 'components/layoutManager';
 import loading from 'components/loading/loading';
 import * as mainTabsManager from 'components/maintabsmanager';
+import type { TabChangeDetail } from 'components/maintabsmanager';
 import browser from 'scripts/browser';
 import dom from 'utils/dom';
 import globalize from 'lib/globalize';
@@ -11,6 +12,8 @@ import inputManager from 'scripts/inputManager';
 import libraryMenu from 'scripts/libraryMenu';
 import * as userSettings from 'scripts/settings/userSettings';
 import { LibraryTab } from 'types/libraryTab';
+import type { ItemDto } from 'types/base/models/item-dto';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 import Dashboard from 'utils/dashboard';
 
 import 'elements/emby-itemscontainer/emby-itemscontainer';
@@ -54,8 +57,12 @@ function loadLatest(page: HTMLElement, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getJSON(ApiClient.getUrl('Users/' + userId + '/Items/Latest', options)).then(function (items: any[]) {
-        const elem = page.querySelector('#recentlyAddedSongs')!;
+    ApiClient.getJSON(ApiClient.getUrl('Users/' + userId + '/Items/Latest', options)).then(function (items: ItemDto[]) {
+        const elem = page.querySelector('#recentlyAddedSongs');
+        if (!elem) {
+            loading.hide();
+            return;
+        }
         elem.innerHTML = cardBuilder.getCardsHtml({
             items: items,
             showUnplayedIndicator: false,
@@ -73,9 +80,12 @@ function loadLatest(page: HTMLElement, parentId: string): void {
         imageLoader.lazyChildren(elem);
         loading.hide();
 
-        import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+        void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(page);
-        });
+        }).catch((error: unknown) => console.error('[MusicRecommended] failed to focus page', error));
+    }).catch((error: unknown) => {
+        console.error('[MusicRecommended] failed to load latest songs', error);
+        loading.hide();
     });
 }
 
@@ -93,18 +103,25 @@ function loadRecentlyPlayed(page: HTMLElement, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getItems(ApiClient.getCurrentUserId(), options).then(function (result: any) {
-        const elem = page.querySelector('#recentlyPlayed')!;
+    ApiClient.getItems(ApiClient.getCurrentUserId(), options).then(function (result: ItemDtoQueryResult) {
+        const elem = page.querySelector('#recentlyPlayed');
+        if (!elem) {
+            return;
+        }
+        const items = result.Items ?? [];
 
-        if (result.Items.length) {
+        if (items.length) {
             elem.classList.remove('hide');
         } else {
             elem.classList.add('hide');
         }
 
-        const itemsContainer = elem.querySelector('.itemsContainer')!;
+        const itemsContainer = elem.querySelector('.itemsContainer');
+        if (!itemsContainer) {
+            return;
+        }
         itemsContainer.innerHTML = cardBuilder.getCardsHtml({
-            items: result.Items,
+            items: items,
             showUnplayedIndicator: false,
             shape: getSquareShape(enableScrollX()),
             showTitle: true,
@@ -118,7 +135,7 @@ function loadRecentlyPlayed(page: HTMLElement, parentId: string): void {
             coverImage: true
         });
         imageLoader.lazyChildren(itemsContainer);
-    });
+    }).catch((error: unknown) => console.error('[MusicRecommended] failed to load recently played songs', error));
 }
 
 function loadFrequentlyPlayed(page: HTMLElement, parentId: string): void {
@@ -135,18 +152,25 @@ function loadFrequentlyPlayed(page: HTMLElement, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getItems(ApiClient.getCurrentUserId(), options).then(function (result: any) {
-        const elem = page.querySelector('#topPlayed')!;
+    ApiClient.getItems(ApiClient.getCurrentUserId(), options).then(function (result: ItemDtoQueryResult) {
+        const elem = page.querySelector('#topPlayed');
+        if (!elem) {
+            return;
+        }
+        const items = result.Items ?? [];
 
-        if (result.Items.length) {
+        if (items.length) {
             elem.classList.remove('hide');
         } else {
             elem.classList.add('hide');
         }
 
-        const itemsContainer = elem.querySelector('.itemsContainer')!;
+        const itemsContainer = elem.querySelector('.itemsContainer');
+        if (!itemsContainer) {
+            return;
+        }
         itemsContainer.innerHTML = cardBuilder.getCardsHtml({
-            items: result.Items,
+            items: items,
             showUnplayedIndicator: false,
             shape: getSquareShape(enableScrollX()),
             showTitle: true,
@@ -160,7 +184,7 @@ function loadFrequentlyPlayed(page: HTMLElement, parentId: string): void {
             coverImage: true
         });
         imageLoader.lazyChildren(itemsContainer);
-    });
+    }).catch((error: unknown) => console.error('[MusicRecommended] failed to load frequently played songs', error));
 }
 
 function loadSuggestionsTab(page: HTMLElement, tabContent: HTMLElement, parentId: string): void {
@@ -169,9 +193,9 @@ function loadSuggestionsTab(page: HTMLElement, tabContent: HTMLElement, parentId
     loadRecentlyPlayed(tabContent, parentId);
     loadFrequentlyPlayed(tabContent, parentId);
 
-    import('../../components/favoriteitems').then(({ default: favoriteItems }) => {
+    void import('../../components/favoriteitems').then(({ default: favoriteItems }) => {
         favoriteItems.render(tabContent, ApiClient.getCurrentUserId(), parentId, ['favoriteArtists', 'favoriteAlbums', 'favoriteSongs'].join(','));
-    });
+    }).catch((error: unknown) => console.error('[MusicRecommended] failed to load favorites', error));
 }
 
 function getTabs(): Array<{ name: string }> {
@@ -253,11 +277,11 @@ export default function (this: RecommendedController, view: HTMLElement, params:
         }
     }
 
-    function onBeforeTabChange(e: CustomEvent): void {
+    function onBeforeTabChange(e: CustomEvent<TabChangeDetail>): void {
         preLoadTab(view, parseInt(e.detail.selectedTabIndex, 10));
     }
 
-    function onTabChange(e: CustomEvent): void {
+    function onTabChange(e: CustomEvent<TabChangeDetail>): void {
         loadTab(view, parseInt(e.detail.selectedTabIndex, 10));
     }
 
@@ -308,7 +332,7 @@ export default function (this: RecommendedController, view: HTMLElement, params:
                 break;
         }
 
-        import(`../music/${depends}.ts`).then(({ default: ControllerFactory }) => {
+        void import(`../music/${depends}.ts`).then(({ default: ControllerFactory }) => {
             let tabContent: HTMLElement;
 
             if (index == 1) {
@@ -322,12 +346,18 @@ export default function (this: RecommendedController, view: HTMLElement, params:
                 tabContent = view.querySelector(".pageTabContent[data-index='" + index + "']") as HTMLElement;
 
                 if (index === 1) {
-                    controller = this;
-                } else {
-                    controller = new (ControllerFactory as any)(view, params, tabContent, {
-                        mode: getMode(index)
-                    });
+                    callback(this);
+                    return;
                 }
+
+                controller = new (ControllerFactory as unknown as new (
+                    view: HTMLElement,
+                    params: { topParentId: string; tab?: string },
+                    tabContent: HTMLElement,
+                    options: { mode?: string }
+                ) => TabController)(view, params, tabContent, {
+                    mode: getMode(index)
+                });
 
                 tabControllers[index] = controller;
                 if (controller.initTab) {
@@ -336,7 +366,7 @@ export default function (this: RecommendedController, view: HTMLElement, params:
             }
 
             callback(controller);
-        });
+        }).catch((error: unknown) => console.error('[MusicRecommended] failed to load tab controller', error));
     };
 
     function preLoadTab(page: HTMLElement, index: number): void {
@@ -362,7 +392,7 @@ export default function (this: RecommendedController, view: HTMLElement, params:
 
         if (e.detail?.command === 'search') {
             e.preventDefault();
-            Dashboard.navigate('search?collectionType=music&parentId=' + params.topParentId);
+            void Dashboard.navigate('search?collectionType=music&parentId=' + params.topParentId).catch((error: unknown) => console.error('[MusicRecommended] failed to open search', error));
         }
     };
 
@@ -390,10 +420,11 @@ export default function (this: RecommendedController, view: HTMLElement, params:
             const parentId = params.topParentId;
 
             if (parentId) {
-                ApiClient.getItem(ApiClient.getCurrentUserId(), parentId).then(function (item: any) {
-                    view.setAttribute('data-title', item.Name);
-                    libraryMenu.setTitle(item.Name);
-                });
+                ApiClient.getItem(ApiClient.getCurrentUserId(), parentId).then(function (item: ItemDto) {
+                    const title = item.Name ?? '';
+                    view.setAttribute('data-title', title);
+                    libraryMenu.setTitle(title);
+                }).catch((error: unknown) => console.error('[MusicRecommended] failed to load parent title', error));
             } else {
                 view.setAttribute('data-title', globalize.translate('TabMusic'));
                 libraryMenu.setTitle(globalize.translate('TabMusic'));

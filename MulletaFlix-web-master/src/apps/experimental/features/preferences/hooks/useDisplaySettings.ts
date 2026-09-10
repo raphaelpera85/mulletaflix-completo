@@ -32,26 +32,39 @@ export function useDisplaySettings({ userId }: UseDisplaySettingsParams) {
         }
 
         setLoading(true);
+        let isActive = true;
 
         void (async () => {
-            const loadedSettings = await loadDisplaySettings({
-                api,
-                legacyApiClient: __legacyApiClient__,
-                currentUser,
-                userId,
-                defaultThemeId
-            });
+            try {
+                const loadedSettings = await loadDisplaySettings({
+                    api,
+                    legacyApiClient: __legacyApiClient__,
+                    currentUser,
+                    userId,
+                    defaultThemeId
+                });
 
-            setDisplaySettings(loadedSettings.displaySettings);
-            setUserSettings(loadedSettings.userSettings);
+                if (!isActive) {
+                    return;
+                }
 
-            setLoading(false);
+                setDisplaySettings(loadedSettings.displaySettings);
+                setUserSettings(loadedSettings.userSettings);
+                setLoading(false);
+            } catch (error) {
+                if (!isActive) {
+                    return;
+                }
+
+                console.error('[DisplaySettings] failed to load preferences', error);
+                setLoading(false);
+            }
         })();
 
         return () => {
-            setLoading(false);
+            isActive = false;
         };
-    }, [api, __legacyApiClient__, currentUser, userId]);
+    }, [api, __legacyApiClient__, currentUser, defaultThemeId, userId]);
 
     const saveSettings = useCallback(async (newSettings: DisplaySettingsValues) => {
         if (!userId || !userSettings || !api) {
@@ -174,10 +187,14 @@ async function saveDisplaySettings({
         }).then(() => undefined));
     }
 
-    await Promise.all(promises);
+    try {
+        await Promise.all(promises);
+    } catch (error) {
+        console.error('[DisplaySettings] failed to save preferences', error);
+        throw error;
+    }
 }
 
 function normalizeValue(value: string) {
     return /^(auto|none)$/.test(value) ? '' : value;
 }
-

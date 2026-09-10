@@ -18,7 +18,7 @@ function getLibraryButtonsHtml(items: BaseItemDto[]) {
     for (let i = 0, length = items.length; i < length; i++) {
         const item = items[i];
         const icon = imageHelper.getLibraryIcon(item.CollectionType);
-        html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl(item) + '" class="raised homeLibraryButton"><span class="material-icons homeLibraryIcon ' + icon + '" aria-hidden="true"></span><span class="homeLibraryText">' + escapeHtml(item.Name) + '</span></a>';
+        html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl(item)) + '" class="raised homeLibraryButton"><span class="material-icons homeLibraryIcon ' + icon + '" aria-hidden="true"></span><span class="homeLibraryText">' + escapeHtml(item.Name) + '</span></a>';
     }
 
     html += '</div>';
@@ -34,4 +34,3 @@ export function loadLibraryButtons(elem: HTMLElement, userViews: BaseItemDto[]) 
     elem.innerHTML = html;
     imageLoader.lazyChildren(elem);
 }
-

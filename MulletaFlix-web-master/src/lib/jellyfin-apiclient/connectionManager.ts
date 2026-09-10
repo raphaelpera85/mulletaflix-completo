@@ -381,19 +381,24 @@ export default class ConnectionManager {
                 let localUser: LocalUser | undefined;
 
                 function onLocalUserDone(): void {
-                    if (apiClient && apiClient.getCurrentUserId()) {
-                        apiClient.getCurrentUser().then((u: LocalUser) => {
-                            localUser = u;
-                            const image = getImageUrl(localUser || null);
-
-                            resolve({
-                                localUser,
-                                name: localUser ? localUser.Name || null : null,
-                                imageUrl: image.url,
-                                supportsImageParams: image.supportsParams
-                            });
-                        });
+                    if (!apiClient || !apiClient.getCurrentUserId()) {
+                        resolve({ localUser: undefined, name: null, imageUrl: null, supportsImageParams: false });
+                        return;
                     }
+
+                    apiClient.getCurrentUser().then((u: LocalUser) => {
+                        localUser = u;
+                        const image = getImageUrl(localUser || null);
+
+                        resolve({
+                            localUser,
+                            name: localUser ? localUser.Name || null : null,
+                            imageUrl: image.url,
+                            supportsImageParams: image.supportsParams
+                        });
+                    }).catch(() => {
+                        resolve({ localUser: undefined, name: null, imageUrl: null, supportsImageParams: false });
+                    });
                 }
 
                 if (apiClient && apiClient.getCurrentUserId()) {
@@ -862,16 +867,14 @@ export default class ConnectionManager {
             throw new Error('item or serverId cannot be null');
         }
 
-        // Accept string + object
-        if (typeof item !== 'string' && item.ServerId) {
-            item = item.ServerId;
-        }
+        // Accept a server id string or an item carrying either server id or item id.
+        const serverId = typeof item === 'string' ? item : item.ServerId || item.Id;
 
         return this._apiClients.filter((a: ApiClient) => {
             const serverInfo = a.serverInfo();
 
             // We have to keep this hack in here because of the addApiClient method
-            return !serverInfo || serverInfo.Id === item;
+            return !serverInfo || serverInfo.Id === serverId;
         })[0];
     }
 

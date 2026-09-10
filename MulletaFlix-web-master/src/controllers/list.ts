@@ -16,8 +16,6 @@ import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collec
 import { ItemSortBy } from '@jellyfin/sdk/lib/generated-client/models/item-sort-by';
 import { stopMultiSelect } from 'components/multiSelect/multiSelect';
 
-declare const ApiClient: any;
-
 interface ListParams {
     type?: string;
     serverId?: string;
@@ -169,7 +167,7 @@ interface JellyfinItem {
     [key: string]: any;
 }
 
-interface ApiClient {
+interface ApiClientContract {
     getCurrentUserId(): string;
     getLiveTvRecordings(query: QueryParams): Promise<ApiResult>;
     getLiveTvRecommendedPrograms(query: QueryParams): Promise<ApiResult>;
@@ -403,7 +401,7 @@ function updateAlphaPickerState(instance: ItemsView): void {
 }
 
 function getItems(instance: ItemsView, params: ListParams, item: JellyfinItem | null, sortBy: string | null, startIndex: number, limit: number): Promise<ApiResult> {
-    const apiClient = ServerConnections.getApiClient(params.serverId!) as unknown as ApiClient;
+    const apiClient = ServerConnections.getApiClient(params.serverId!) as unknown as ApiClientContract;
 
     instance.queryRecursive = false;
     if (params.type === 'Recordings') {
@@ -516,7 +514,7 @@ function getItem(params: ListParams): Promise<JellyfinItem | null> {
         return Promise.resolve(null);
     }
 
-    const apiClient = ServerConnections.getApiClient(params.serverId!) as unknown as ApiClient;
+    const apiClient = ServerConnections.getApiClient(params.serverId!) as unknown as ApiClientContract;
     const itemId = params.genreId || params.musicGenreId || params.studioId || params.personId || params.parentId;
 
     if (itemId) {
@@ -527,65 +525,58 @@ function getItem(params: ListParams): Promise<JellyfinItem | null> {
 }
 
 function showViewSettingsMenu(this: ItemsView): void {
-    const instance = this;
-
     void import('../components/viewSettings/viewSettings').then(({ default: ViewSettings }) => {
         return new ViewSettings().show({
-            settingsKey: instance.getSettingsKey(),
-            settings: instance.getViewSettings() as any,
-            visibleSettings: instance.getVisibleViewSettings()
-        }).then(function () {
-            updateItemsContainerForViewType(instance);
-            instance.itemsContainer.refreshItems();
+            settingsKey: this.getSettingsKey(),
+            settings: this.getViewSettings() as any,
+            visibleSettings: this.getVisibleViewSettings()
+        }).then(() => {
+            updateItemsContainerForViewType(this);
+            this.itemsContainer.refreshItems();
         });
     }).catch((error: unknown) => console.error('Failed to open view settings', error));
 }
 
 function showFilterMenu(this: ItemsView): void {
-    const instance = this;
-
     void import('../components/filtermenu/filtermenu').then(({ default: FilterMenu }) => {
         return new FilterMenu().show({
-            settingsKey: instance.getSettingsKey(),
-            settings: instance.getFilters(),
-            visibleSettings: instance.getVisibleFilters(),
-            onChange: instance.itemsContainer.refreshItems.bind(instance.itemsContainer),
-            parentId: instance.params.parentId,
-            itemTypes: instance.getItemTypes(),
-            serverId: instance.params.serverId,
-            filterMenuOptions: instance.getFilterMenuOptions()
-        }).then(function () {
-            instance.itemsContainer.refreshItems();
+            settingsKey: this.getSettingsKey(),
+            settings: this.getFilters(),
+            visibleSettings: this.getVisibleFilters(),
+            onChange: this.itemsContainer.refreshItems.bind(this.itemsContainer),
+            parentId: this.params.parentId,
+            itemTypes: this.getItemTypes(),
+            serverId: this.params.serverId,
+            filterMenuOptions: this.getFilterMenuOptions()
+        }).then(() => {
+            this.itemsContainer.refreshItems();
         });
     }).catch((error: unknown) => console.error('Failed to open filter menu', error));
 }
 
 function showSortMenu(this: ItemsView): void {
-    const instance = this;
-
     void import('../components/sortmenu/sortmenu').then(({ default: SortMenu }) => {
         return new SortMenu().show({
-            settingsKey: instance.getSettingsKey(),
-            settings: instance.getSortValues(),
-            onChange: instance.itemsContainer.refreshItems.bind(instance.itemsContainer),
-            serverId: instance.params.serverId,
-            sortOptions: instance.getSortMenuOptions()
-        }).then(function () {
-            updateSortText(instance);
-            updateAlphaPickerState(instance);
-            instance.itemsContainer.refreshItems();
+            settingsKey: this.getSettingsKey(),
+            settings: this.getSortValues(),
+            onChange: this.itemsContainer.refreshItems.bind(this.itemsContainer),
+            serverId: this.params.serverId,
+            sortOptions: this.getSortMenuOptions()
+        }).then(() => {
+            updateSortText(this);
+            updateAlphaPickerState(this);
+            this.itemsContainer.refreshItems();
         });
     }).catch((error: unknown) => console.error('Failed to open sort menu', error));
 }
 
 function onNewItemClick(this: ItemsView): void {
-    const instance = this;
-    const serverId = instance.params.serverId;
+    const serverId = this.params.serverId;
     if (!serverId) {
         return;
     }
 
-    import('../components/playlisteditor/playlisteditor').then(({ default: PlaylistEditor }) => {
+    void import('../components/playlisteditor/playlisteditor').then(({ default: PlaylistEditor }) => {
         const playlistEditor = new PlaylistEditor();
         playlistEditor.show({
             items: [],
@@ -995,7 +986,13 @@ class ItemsView {
 
         const self = this;
         self.params = params;
-        this.itemsContainer = view.querySelector('.itemsContainer');
+        const itemsContainer = view.querySelector<HTMLElement>('.itemsContainer');
+        if (!itemsContainer) {
+            console.error('[ItemsView] missing items container', params);
+            return;
+        }
+
+        this.itemsContainer = itemsContainer;
 
         if (params.parentId) {
             this.itemsContainer.setAttribute('data-parentid', params.parentId);
@@ -1062,7 +1059,7 @@ class ItemsView {
 
                 self.currentItem = item;
                 const refresh = !isRestored;
-                void self.itemsContainer.resume({
+                self.itemsContainer.resume({
                     refresh: refresh
                 }).then(function () {
                     loading.hide();

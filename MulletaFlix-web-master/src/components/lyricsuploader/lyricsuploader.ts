@@ -26,7 +26,7 @@ function onFileReaderError(evt: ProgressEvent<FileReader>): void {
     loading.hide();
 
     const error = (evt.target as FileReader).error;
-    if (error && error.code !== error.ABORT_ERR) {
+    if (error && error.name !== 'AbortError') {
         toast(globalize.translate('MessageFileReadError'));
     }
 }
@@ -93,16 +93,20 @@ async function onSubmit(this: HTMLElement, e: Event): Promise<void> {
 
     const api = toApi(ServerConnections.getApiClient(currentServerId) as any);
     const lyricsApi = getLyricsApi(api);
-    const data = await readFileAsText(file);
+    try {
+        const data = await readFileAsText(file);
+        await lyricsApi.uploadLyrics({
+            itemId: currentItemId, fileName: file.name, body: data as any
+        });
 
-    lyricsApi.uploadLyrics({
-        itemId: currentItemId, fileName: file.name, body: data as any
-    }).then(function () {
         (dlg.querySelector('#uploadLyrics') as HTMLInputElement).value = '';
-        loading.hide();
         hasChanges = true;
         dialogHelper.close(dlg);
-    });
+    } catch {
+        toast(globalize.translate('ErrorDefault'));
+    } finally {
+        loading.hide();
+    }
 }
 
 function initEditor(page: HTMLElement): void {
@@ -156,7 +160,7 @@ function showEditor(options: LyricsUploaderOptions, resolve: (hasChanges: boolea
         resolve(hasChanges);
     });
 
-    dialogHelper.open(dlg);
+    dialogHelper.open(dlg).catch(() => loading.hide());
 
     initEditor(dlg);
 

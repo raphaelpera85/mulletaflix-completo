@@ -4,10 +4,13 @@ import imageLoader from 'components/images/imageLoader';
 import layoutManager from 'components/layoutManager';
 import loading from 'components/loading/loading';
 import * as mainTabsManager from 'components/maintabsmanager';
+import type { TabChangeDetail } from 'components/maintabsmanager';
 import globalize from 'lib/globalize';
 import inputManager from 'scripts/inputManager';
 import * as userSettings from 'scripts/settings/userSettings';
 import { LibraryTab } from 'types/libraryTab';
+import type { CardOptions } from 'types/cardOptions';
+import type { ItemDto } from 'types/base/models/item-dto';
 import Dashboard from 'utils/dashboard';
 
 import 'elements/emby-itemscontainer/emby-itemscontainer';
@@ -16,7 +19,17 @@ import 'elements/emby-button/emby-button';
 
 import 'styles/scrollstyles.scss';
 
-declare const ApiClient: any;
+interface LiveTvItemsResult {
+    Items: ItemDto[];
+}
+
+interface LiveTvApiClient {
+    getLiveTvRecommendedPrograms(options: Record<string, unknown>): Promise<LiveTvItemsResult>;
+    getLiveTvPrograms(options: Record<string, unknown>): Promise<LiveTvItemsResult>;
+    serverId(): string;
+}
+
+declare const ApiClient: LiveTvApiClient;
 
 interface TabInfo {
     name: string;
@@ -43,10 +56,6 @@ interface ViewEventDetail {
     previousIndex: string;
     isRestored: boolean;
     command?: string;
-}
-
-interface ViewEvent extends CustomEvent<ViewEventDetail> {
-    detail: ViewEventDetail;
 }
 
 function enableScrollX(): boolean {
@@ -77,16 +86,19 @@ function loadRecommendedPrograms(page: HTMLElement): void {
         EnableImageTypes: 'Primary,Thumb,Backdrop',
         EnableTotalRecordCount: false,
         Fields: 'ChannelInfo,PrimaryImageAspectRatio'
-    }).then(function (result: { Items: any[] }) {
+    }).then(function (result: LiveTvItemsResult) {
         renderItems(page, result.Items, 'activeProgramItems', 'play', {
             showAirDateTime: false,
             showAirEndTime: true
         });
         loading.hide();
 
-        import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+        void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(page);
-        });
+        }).catch((error: unknown) => console.error('[LiveTvSuggested] failed to focus page', error));
+    }).catch((error: unknown) => {
+        loading.hide();
+        console.error('[LiveTvSuggested] failed to load recommended programs', error);
     });
 }
 
@@ -105,9 +117,9 @@ function reload(page: HTMLElement, enableFullRender?: boolean): void {
             EnableTotalRecordCount: false,
             Fields: 'ChannelInfo,PrimaryImageAspectRatio',
             EnableImageTypes: 'Primary,Thumb'
-        }).then(function (result: { Items: any[] }) {
+        }).then(function (result: LiveTvItemsResult) {
             renderItems(page, result.Items, 'upcomingEpisodeItems', null);
-        });
+        }).catch((error: unknown) => console.error('[LiveTvSuggested] failed to load upcoming episodes', error));
         ApiClient.getLiveTvPrograms({
             userId: Dashboard.getCurrentUserId(),
             HasAired: false,
@@ -116,13 +128,13 @@ function reload(page: HTMLElement, enableFullRender?: boolean): void {
             EnableTotalRecordCount: false,
             Fields: 'ChannelInfo',
             EnableImageTypes: 'Primary,Thumb'
-        }).then(function (result: { Items: any[] }) {
+        }).then(function (result: LiveTvItemsResult) {
             renderItems(page, result.Items, 'upcomingTvMovieItems', null, {
                 shape: getPortraitShape(enableScrollX()),
                 preferThumb: null,
                 showParentTitle: false
             });
-        });
+        }).catch((error: unknown) => console.error('[LiveTvSuggested] failed to load upcoming movies', error));
         ApiClient.getLiveTvPrograms({
             userId: Dashboard.getCurrentUserId(),
             HasAired: false,
@@ -131,9 +143,9 @@ function reload(page: HTMLElement, enableFullRender?: boolean): void {
             EnableTotalRecordCount: false,
             Fields: 'ChannelInfo,PrimaryImageAspectRatio',
             EnableImageTypes: 'Primary,Thumb'
-        }).then(function (result: { Items: any[] }) {
+        }).then(function (result: LiveTvItemsResult) {
             renderItems(page, result.Items, 'upcomingSportsItems', null);
-        });
+        }).catch((error: unknown) => console.error('[LiveTvSuggested] failed to load upcoming sports', error));
         ApiClient.getLiveTvPrograms({
             userId: Dashboard.getCurrentUserId(),
             HasAired: false,
@@ -142,9 +154,9 @@ function reload(page: HTMLElement, enableFullRender?: boolean): void {
             EnableTotalRecordCount: false,
             Fields: 'ChannelInfo,PrimaryImageAspectRatio',
             EnableImageTypes: 'Primary,Thumb'
-        }).then(function (result: { Items: any[] }) {
+        }).then(function (result: LiveTvItemsResult) {
             renderItems(page, result.Items, 'upcomingKidsItems', null);
-        });
+        }).catch((error: unknown) => console.error('[LiveTvSuggested] failed to load upcoming kids programs', error));
         ApiClient.getLiveTvPrograms({
             userId: Dashboard.getCurrentUserId(),
             HasAired: false,
@@ -153,17 +165,17 @@ function reload(page: HTMLElement, enableFullRender?: boolean): void {
             EnableTotalRecordCount: false,
             Fields: 'ChannelInfo,PrimaryImageAspectRatio',
             EnableImageTypes: 'Primary,Thumb'
-        }).then(function (result: { Items: any[] }) {
+        }).then(function (result: LiveTvItemsResult) {
             renderItems(page, result.Items, 'upcomingNewsItems', null, {
                 showParentTitleOrTitle: true,
                 showTitle: false,
                 showParentTitle: false
             });
-        });
+        }).catch((error: unknown) => console.error('[LiveTvSuggested] failed to load upcoming news', error));
     }
 }
 
-function renderItems(page: HTMLElement, items: any[], sectionClass: string, overlayButton: string | null, cardOptions?: Record<string, any>): void {
+function renderItems(page: HTMLElement, items: ItemDto[], sectionClass: string, overlayButton: string | null, cardOptions?: Partial<CardOptions>): void {
     const html = cardBuilder.getCardsHtml(Object.assign({
         items: items,
         preferThumb: 'auto',
@@ -239,17 +251,18 @@ function getDefaultTabIndex(folderId: string): number {
     }
 }
 
-export default function (this: SelfController, view: HTMLElement, params: Record<string, any>): void {
+export default function (this: SelfController, view: HTMLElement, params: Record<string, unknown>): void {
     function enableFullRender(): boolean {
         return new Date().getTime() - lastFullRender > 3e5;
     }
 
-    function onBeforeTabChange(evt: ViewEvent): void {
+    function onBeforeTabChange(evt: CustomEvent<TabChangeDetail>): void {
         preLoadTab(view, parseInt(evt.detail.selectedTabIndex, 10));
     }
 
-    function onTabChange(evt: ViewEvent): void {
-        const previousTabController = tabControllers[parseInt(evt.detail.previousIndex, 10)];
+    function onTabChange(evt: CustomEvent<TabChangeDetail>): void {
+        const previousIndex = evt.detail.previousIndex == null ? null : Number(evt.detail.previousIndex);
+        const previousTabController = previousIndex == null ? undefined : tabControllers[previousIndex];
 
         if (previousTabController?.onHide) {
             previousTabController.onHide();
@@ -296,7 +309,7 @@ export default function (this: SelfController, view: HTMLElement, params: Record
                 break;
         }
 
-        import(`../livetv/${depends}.ts`).then(({ default: ControllerFactory }) => {
+        void import(`../livetv/${depends}.ts`).then(({ default: ControllerFactory }) => {
             let tabContent: HTMLElement;
 
             if (index === 0) {
@@ -323,7 +336,7 @@ export default function (this: SelfController, view: HTMLElement, params: Record
             }
 
             callback(controller);
-        });
+        }).catch((error: unknown) => console.error('[LiveTvSuggested] failed to load tab controller', error));
     }
 
     function preLoadTab(page: HTMLElement, index: number): void {
@@ -358,13 +371,14 @@ export default function (this: SelfController, view: HTMLElement, params: Record
 
         if (evt.detail?.command === 'search') {
             evt.preventDefault();
-            Dashboard.navigate('search?collectionType=livetv');
+            void Dashboard.navigate('search?collectionType=livetv').catch((error: unknown) => console.error('[LiveTvSuggested] failed to open search', error));
         }
     };
 
     let isViewRestored: boolean;
     const self = this as SelfController;
-    let currentTabIndex: number = parseInt(params.tab || getDefaultTabIndex('livetv'), 10);
+    const tab = typeof params.tab === 'string' ? params.tab : String(getDefaultTabIndex('livetv'));
+    let currentTabIndex: number = parseInt(tab, 10);
     let initialTabIndex: number | null = currentTabIndex;
     let lastFullRender = 0;
     ([] as Element[]).forEach.call(view.querySelectorAll('.sectionTitleTextButton-programs'), function (link: Element) {

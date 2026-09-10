@@ -167,7 +167,7 @@ class ViewManager {
 
         viewContainer.loadView(options)!.then(function (view: HTMLElement) {
             onViewChange(view, options);
-        });
+        }).catch(() => undefined);
     }
 
     hideView(): void {

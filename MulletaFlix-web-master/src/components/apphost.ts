@@ -282,6 +282,8 @@ const supportedFeatures: string[] = (function () {
 
     webSettings.getMultiServer().then((enabled: boolean) => {
         if (enabled) features.push(AppFeature.MultiServer);
+    }).catch((error: unknown) => {
+        console.error('[appHost] failed to load multi-server setting', error);
     });
 
     if (!browser.orsay && (browser.firefox || browser.ps4 || browser.edge || supportsCue())) {
@@ -346,6 +348,9 @@ function askForExit(): void {
         }).finally(function () {
             exitPromise = null;
         });
+    }).catch((error: unknown) => {
+        exitPromise = null;
+        console.error('[appHost] failed to load exit action sheet', error);
     });
 }
 

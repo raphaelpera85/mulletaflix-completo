@@ -242,9 +242,9 @@ function bindEvents(elem: HTMLElement): void {
 
     lyricButton.addEventListener('click', function() {
         if (isLyricPageActive) {
-            appRouter.back();
+            appRouter.back().catch(() => undefined);
         } else {
-            appRouter.show('lyrics');
+            appRouter.show('lyrics').catch(() => undefined);
         }
     });
 
@@ -289,7 +289,7 @@ function bindEvents(elem: HTMLElement): void {
         }
     });
 
-    positionSlider.getBubbleText = function (value: number, _text?: string): string {
+    positionSlider.getBubbleText = function (value: number): string {
         const state = lastPlayerState;
 
         if (!state?.NowPlayingItem || !currentRuntimeTicks) {
@@ -312,7 +312,7 @@ function bindEvents(elem: HTMLElement): void {
 }
 
 function showRemoteControl(): void {
-    appRouter.showNowPlaying();
+    appRouter.showNowPlaying().catch(() => undefined);
 }
 
 let nowPlayingBarElement: HTMLElement | null = null;

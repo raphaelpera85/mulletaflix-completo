@@ -22,7 +22,7 @@ import ListItemText from '@mui/material/ListItemText';
 import Alert from '@mui/material/Alert';
 import List from '@mui/material/List';
 import Provider from 'apps/dashboard/features/livetv/components/Provider';
-import Grid from '@mui/material/Grid';
+import Grid from '@mui/material/Grid2';
 
 const CONFIG_KEY = 'livetv';
 
@@ -44,11 +44,11 @@ export const Component = () => {
     const startTask = useStartTask();
 
     const navigateToSchedulesDirect = useCallback(() => {
-        navigate('/dashboard/livetv/guide?type=schedulesdirect');
+        void navigate('/dashboard/livetv/guide?type=schedulesdirect');
     }, [ navigate ]);
 
     const navigateToXMLTV = useCallback(() => {
-        navigate('/dashboard/livetv/guide?type=xmltv');
+        void navigate('/dashboard/livetv/guide?type=xmltv');
     }, [ navigate ]);
 
     const showProviderMenu = useCallback(() => {
@@ -102,11 +102,7 @@ export const Component = () => {
                                 {config.TunerHosts?.map(tunerHost => (
                                     <Grid
                                         key={tunerHost.Id}
-                                        item
-                                        xs={12}
-                                        sm={6}
-                                        md={3}
-                                        lg={2.4}
+                                        size={{ xs: 12, sm: 6, md: 3, lg: 2.4 }}
                                     >
                                         <TunerDeviceCard
                                             key={tunerHost.Id}
@@ -177,4 +173,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'LiveTvPage';
-

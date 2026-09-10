@@ -22,6 +22,7 @@ import '../cardbuilder/card.scss';
 import toast from '../toast/toast';
 import template from './itemidentifier.template.html';
 import datetime from '../../scripts/datetime';
+import { getSafeHttpUrl } from 'utils/url';
 
 const enableFocusTransform: boolean = !browser.slow && !browser.edge;
 
@@ -171,8 +172,9 @@ function showIdentifyOptions(page: HTMLElement, identifyResult: any): void {
 
     let resultHtml = lines.join('<br/>');
 
-    if (identifyResult.ImageUrl) {
-        resultHtml = `<div style="display:flex;align-items:center;"><img src="${escapeHtml(identifyResult.ImageUrl)}" style="max-height:240px;" /><div style="margin-left:1em;">${resultHtml}</div>`;
+    const safeImageUrl = getSafeHttpUrl(identifyResult.ImageUrl);
+    if (safeImageUrl) {
+        resultHtml = `<div style="display:flex;align-items:center;"><img src="${escapeHtml(safeImageUrl)}" style="max-height:240px;" /><div style="margin-left:1em;">${resultHtml}</div>`;
     }
 
     (page.querySelector('.selectedSearchResult') as HTMLElement).innerHTML = resultHtml;
@@ -215,7 +217,7 @@ function getSearchResultHtml(result: any, index: number): string {
     html += '<div class="cardContent searchImage">';
 
     if (result.ImageUrl) {
-        html += `<div class="cardImageContainer coveredImage" style="background-image:url('${result.ImageUrl}');"></div>`;
+        html += `<div class="cardImageContainer coveredImage" style="background-image:url('${escapeHtml(result.ImageUrl)}');"></div>`;
     } else {
         html += `<div class="cardImageContainer coveredImage defaultCardBackground defaultCardBackground1"><div class="cardText cardCenteredText">${escapeHtml(result.Name)}</div></div>`;
     }
@@ -300,7 +302,7 @@ function showIdentificationForm(page: HTMLElement, item: any): void {
 
             const idLabel = globalize.translate('LabelDynamicExternalId', escapeHtml(fullName));
 
-            html += `<input is="emby-input" class="txtLookupId" data-providerkey="${idInfo.Key}" id="${id}" label="${idLabel}"/>`;
+            html += `<input is="emby-input" class="txtLookupId" data-providerkey="${escapeHtml(String(idInfo.Key))}" id="${escapeHtml(id)}" label="${idLabel}"/>`;
 
             html += '</div>';
         }
@@ -365,7 +367,7 @@ function showEditor(itemId: string): void {
 
         (dlg.querySelector('.txtPath') as HTMLElement).innerText = item.Path || '';
 
-        dialogHelper.open(dlg);
+        dialogHelper.open(dlg).catch((error: unknown) => console.error('Failed to open item identification dialog', error));
 
         (dlg.querySelector('.popupIdentifyForm') as HTMLFormElement).addEventListener('submit', (e: Event) => {
             e.preventDefault();

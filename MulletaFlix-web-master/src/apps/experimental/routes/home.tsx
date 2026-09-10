@@ -7,6 +7,7 @@ import layoutManager from '../../../components/layoutManager';
 import Page from '../../../components/Page';
 import { EventType } from 'constants/eventType';
 import Events from 'utils/events';
+import type { TabChangeDetail } from '../../../components/maintabsmanager';
 
 import '../../../elements/emby-tabs/emby-tabs';
 import '../../../elements/emby-button/emby-button';
@@ -122,9 +123,9 @@ const Home = () => {
         });
     }, [ getTabController ]);
 
-    const onTabChange = useCallback((e: { detail: { selectedTabIndex: string; previousIndex: number | null }; }) => {
+    const onTabChange = useCallback((e: CustomEvent<TabChangeDetail>) => {
         const newIndex = parseInt(e.detail.selectedTabIndex, 10);
-        const previousIndex = e.detail.previousIndex;
+        const previousIndex = e.detail.previousIndex == null ? null : Number(e.detail.previousIndex);
 
         const previousTabController = previousIndex == null ? null : tabControllers[previousIndex];
         if (previousTabController?.onPause) {

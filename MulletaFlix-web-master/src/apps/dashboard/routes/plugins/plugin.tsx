@@ -6,7 +6,7 @@ import Chip from '@mui/material/Chip';
 import Container from '@mui/material/Container';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import FormGroup from '@mui/material/FormGroup';
-import Grid from '@mui/material/Grid';
+import Grid from '@mui/material/Grid2';
 import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
@@ -134,6 +134,7 @@ const PluginPage: FC = () => {
         isEnabledOverride,
         isPluginsLoading,
         packageInfo?.description,
+        packageInfo?.category,
         packageInfo?.imageUrl,
         packageInfo?.name,
         packageInfo?.overview,
@@ -141,7 +142,8 @@ const PluginPage: FC = () => {
         packageInfo?.versions,
         pluginId,
         pluginName,
-        plugins
+        plugins,
+        serverTargetAbi
     ]);
 
     const alertMessages = useMemo(() => {
@@ -331,7 +333,7 @@ const PluginPage: FC = () => {
                 ))}
 
                 <Grid container spacing={2} sx={{ marginTop: 0 }}>
-                    <Grid item xs={12} lg={8}>
+                    <Grid size={{ xs: 12, lg: 8 }}>
                         <Stack spacing={2}>
                             <Typography variant='h1'>
                                 {pluginDetails?.name || pluginName}
@@ -357,7 +359,7 @@ const PluginPage: FC = () => {
                         </Stack>
                     </Grid>
 
-                    <Grid item lg={4} sx={{ display: { xs: 'none', lg: 'initial' } }}>
+                    <Grid size={{ lg: 4 }} sx={{ display: { xs: 'none', lg: 'initial' } }}>
                         <Image
                             isLoading={isLoading}
                             alt={pluginDetails?.name}
@@ -366,7 +368,7 @@ const PluginPage: FC = () => {
                         />
                     </Grid>
 
-                    <Grid item xs={12} lg={8} sx={{ order: { xs: 1, lg: 'initial' } }}>
+                    <Grid size={{ xs: 12, lg: 8 }} sx={{ order: { xs: 1, lg: 'initial' } }}>
                         {!!pluginDetails?.versions.length && (
                             <>
                                 <Typography variant='h3' sx={{ marginBottom: 2 }}>
@@ -380,7 +382,7 @@ const PluginPage: FC = () => {
                         )}
                     </Grid>
 
-                    <Grid item xs={12} lg={4}>
+                    <Grid size={{ xs: 12, lg: 4 }}>
                         <Stack spacing={2} direction={{ xs: 'column', sm: 'row-reverse', lg: 'column' }}>
                             <Stack spacing={1} sx={{ flexBasis: '50%' }}>
                                 {!isLoading && !pluginDetails?.status && (
@@ -469,4 +471,3 @@ const PluginPage: FC = () => {
 };
 
 export default PluginPage;
-

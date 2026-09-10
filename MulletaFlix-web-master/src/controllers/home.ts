@@ -22,7 +22,7 @@ class HomeView extends TabbedView {
         document.querySelector('.skinHeader')!.classList.remove('noHomeButtonHeader');
     }
 
-    onResume(options?: Record<string, unknown>): void {
+    onResume(): void {
         super.onResume();
         document.querySelector('.skinHeader')!.classList.add('noHomeButtonHeader');
 
@@ -60,21 +60,20 @@ class HomeView extends TabbedView {
                 depends = 'favorites';
         }
 
-        const instance = this;
         const globPath: string = `../controllers/${depends}.ts`;
         const loadFn = controllerModules[globPath];
         if (!loadFn) {
             return Promise.reject(new Error(`Controller not found in glob: ${depends}`));
         }
         return loadFn().then(({ default: ControllerFactory }) => {
-            let controller = instance.tabControllers[index] as (InstanceType<typeof ControllerFactory> & Record<string, unknown>) | undefined;
+            let controller = this.tabControllers[index] as (InstanceType<typeof ControllerFactory> & Record<string, unknown>) | undefined;
 
             if (!controller) {
                 controller = new ControllerFactory(
-                    instance.view.querySelector<HTMLElement>(".tabContent[data-index='" + index + "']")!,
-                    instance.params as Record<string, unknown>
+                    this.view.querySelector<HTMLElement>(".tabContent[data-index='" + index + "']")!,
+                    this.params as Record<string, unknown>
                 ) as InstanceType<typeof ControllerFactory> & Record<string, unknown>;
-                instance.tabControllers[index] = controller;
+                this.tabControllers[index] = controller;
             }
 
             return controller as { onResume?: (options?: Record<string, unknown>) => void; onPause?: () => void; destroy?: () => void; refreshed?: boolean };

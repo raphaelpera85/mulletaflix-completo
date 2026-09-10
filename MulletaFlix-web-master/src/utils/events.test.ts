@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import eventsUtils from './events';
 
+type EventCallback = (event: { type: string }, ...args: unknown[]) => void;
+
 describe('Utils: events', () => {
     describe('Method: on', () => {
         it('should throw error if object is null', () => {
             const call = () => eventsUtils.on(null, 'testEvent', vi.fn());
 
-            expect(call).toThrowError(new Error('obj cannot be null!'));
+            expect(call).toThrow(new Error('obj cannot be null!'));
         });
 
         it('should init object callbacks with testEvent type if it does not exist', () => {
@@ -37,9 +39,9 @@ describe('Utils: events', () => {
 
     describe('Method: off', () => {
         let obj: object;
-        let initialCallback: ReturnType<typeof vi.fn>;
+        let initialCallback: EventCallback;
         beforeEach(() => {
-            initialCallback = vi.fn();
+            initialCallback = vi.fn() as unknown as EventCallback;
             obj = {
                 _callbacks: {
                     testEvent: [initialCallback]

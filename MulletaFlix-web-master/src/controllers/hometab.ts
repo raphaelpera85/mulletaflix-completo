@@ -28,7 +28,7 @@ class HomeTab {
         this.paused = false;
         this._onThemeChange = this.onThemeChange.bind(this);
 
-        view.querySelector('.sections')!.addEventListener('settingschange', onHomeScreenSettingsChanged.bind(this));
+        view.querySelector('.sections')?.addEventListener('settingschange', onHomeScreenSettingsChanged.bind(this));
         Events.on(document, EventType.THEME_CHANGE, this._onThemeChange);
     }
 
@@ -82,9 +82,9 @@ class HomeTab {
         this.sectionsRendered = false;
 
         if (!this.paused) {
-            this.onResume({
+            void this.onResume({
                 refresh: true
-            });
+            }).catch((error: unknown) => console.error('[HomeTab] failed to refresh after theme change', error));
         }
     }
 
@@ -101,9 +101,9 @@ function onHomeScreenSettingsChanged(this: HomeTab): void {
     this.sectionsRendered = false;
 
     if (!this.paused) {
-        this.onResume({
+        void this.onResume({
             refresh: true
-        });
+        }).catch((error: unknown) => console.error('[HomeTab] failed to refresh after settings change', error));
     }
 }
 

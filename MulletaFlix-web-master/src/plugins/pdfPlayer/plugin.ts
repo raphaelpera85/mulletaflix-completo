@@ -211,7 +211,7 @@ export class PdfPlayer {
             elem.id = 'pdfPlayer';
             elem.innerHTML = html;
 
-            dialogHelper.open(elem);
+            dialogHelper.open(elem).catch(() => undefined);
         }
 
         this.mediaElement = elem;

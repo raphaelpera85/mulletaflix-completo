@@ -40,6 +40,10 @@ export const Component = () => {
     const mediaType = tab === 0 ? 'Movies' : 'Series';
     const typeLabel = tab === 0 ? globalize.translate('Movies') : globalize.translate('Series');
 
+    const onTabChange = useCallback((_event: React.SyntheticEvent, value: number): void => {
+        setTab(value);
+    }, []);
+
     const fetchItems = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
         setError(null);
@@ -52,7 +56,10 @@ export const Component = () => {
                 headers: { Authorization: 'MediaBrowser Token="' + token + '"' }
             });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const result = await resp.json();
+            const result: unknown = await resp.json();
+            if (!Array.isArray(result)) {
+                throw new Error('Invalid unidentified media response');
+            }
             setItems(result as UnidentifiedItem[]);
             setLastUpdate(new Date().toLocaleTimeString());
         } catch (err) {
@@ -62,9 +69,8 @@ export const Component = () => {
         }
     }, [mediaType]);
 
-    const startPolling = useCallback(() => {
-        stopPolling();
-        pollingRef.current = setInterval(() => fetchItems(true), POLL_INTERVAL);
+    const onRefreshClick = useCallback(() => {
+        void fetchItems();
     }, [fetchItems]);
 
     const stopPolling = useCallback(() => {
@@ -74,13 +80,22 @@ export const Component = () => {
         }
     }, []);
 
+    const startPolling = useCallback(() => {
+        stopPolling();
+        pollingRef.current = setInterval(() => {
+            void fetchItems(true);
+        }, POLL_INTERVAL);
+    }, [fetchItems, stopPolling]);
+
     useEffect(() => {
-        fetchItems();
+        void fetchItems();
         startPolling();
-        const onFocus = () => fetchItems(true);
+        const onFocus = () => {
+            void fetchItems(true);
+        };
         const onVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
-                fetchItems(true);
+                void fetchItems(true);
                 startPolling();
             } else {
                 stopPolling();
@@ -114,7 +129,7 @@ export const Component = () => {
                             sx={{ mr: 1 }}
                         />
                     )}
-                    <IconButton onClick={() => fetchItems()} title={globalize.translate('Refresh')} size='large'>
+                    <IconButton onClick={onRefreshClick} title={globalize.translate('Refresh')} size='large'>
                         <RefreshIcon />
                     </IconButton>
                 </Box>
@@ -124,7 +139,7 @@ export const Component = () => {
 
                 <Tabs
                     value={tab}
-                    onChange={(_, v) => setTab(v)}
+                    onChange={onTabChange}
                     sx={{ mb: 2 }}
                 >
                     <Tab label={globalize.translate('Movies')} />
@@ -164,7 +179,7 @@ export const Component = () => {
                                         <TableRow key={item.Id}>
                                             <TableCell>
                                                 <a
-                                                    href={`#/details?id=${item.Id}`}
+                                                    href={`#/details?id=${encodeURIComponent(item.Id)}`}
                                                     title={globalize.translate('Identify')}
                                                     style={{ cursor: 'pointer', fontWeight: 500, color: 'inherit', textDecoration: 'underline' }}
                                                 >

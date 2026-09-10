@@ -31,6 +31,7 @@ namespace MulletaFlix.Server.Integration.Tests
     {
         private static readonly string _testPathRoot = Path.Combine(Path.GetTempPath(), "MulletaFlix-test-data");
         private readonly ConcurrentBag<IDisposable> _disposableComponents = new ConcurrentBag<IDisposable>();
+        private string? _webHostPathRoot;
 
         /// <summary>
         /// Initializes static members of the <see cref="MulletaFlixApplicationFactory"/> class.
@@ -83,10 +84,20 @@ namespace MulletaFlix.Server.Integration.Tests
 
             // Use a temporary directory for the application paths
             var webHostPathRoot = Path.Combine(_testPathRoot, "test-host-" + Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
+            _webHostPathRoot = webHostPathRoot;
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "logs"));
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "config"));
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "cache"));
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "MulletaFlix-web"));
+
+            // Pre-initialize the system configuration expected by the legacy
+            // network migration. A fresh test host otherwise reaches
+            // CreateNetworkConfiguration with a path that does not exist,
+            // producing a flaky DirectoryNotFoundException during startup.
+            File.WriteAllText(
+                Path.Combine(webHostPathRoot, "config", "system.xml"),
+                "<ServerConfiguration />");
+
             var appPaths = new ServerApplicationPaths(
                 webHostPathRoot,
                 Path.Combine(webHostPathRoot, "logs"),
@@ -141,6 +152,17 @@ namespace MulletaFlix.Server.Integration.Tests
             var appHost = (TestAppHost)host.Services.GetRequiredService<IApplicationHost>();
             appHost.ServiceProvider = host.Services;
             var applicationPaths = appHost.ServiceProvider.GetRequiredService<IApplicationPaths>();
+
+            // Some startup services can recreate/normalize application paths while
+            // the host is being built. Re-assert the migration precondition at the
+            // exact point where startup migrations begin, so a fresh test host
+            // cannot race with a missing configuration directory.
+            Directory.CreateDirectory(applicationPaths.ConfigurationDirectoryPath);
+            if (!File.Exists(applicationPaths.SystemConfigurationFilePath))
+            {
+                File.WriteAllText(applicationPaths.SystemConfigurationFilePath, "<ServerConfiguration />");
+            }
+
             Program.ApplyStartupMigrationAsync((ServerApplicationPaths)applicationPaths, appHost.ServiceProvider.GetRequiredService<IConfiguration>(), new()).GetAwaiter().GetResult();
             Program.ApplyCoreMigrationsAsync(appHost.ServiceProvider, Migrations.Stages.MulletaFlixMigrationStageTypes.CoreInitialisation).GetAwaiter().GetResult();
             appHost.InitializeServices(Mock.Of<IConfiguration>()).GetAwaiter().GetResult();
@@ -155,20 +177,38 @@ namespace MulletaFlix.Server.Integration.Tests
         /// <inheritdoc/>
         protected override void Dispose(bool disposing)
         {
-            foreach (var disposable in _disposableComponents)
-            {
-                disposable.Dispose();
-            }
+            // WebApplicationFactory owns the host and must be disposed before its
+            // application-path directory can be removed on Windows. It also owns
+            // the application host registered in the service provider, so disposing
+            // _disposableComponents here would dispose the same host twice.
+            base.Dispose(disposing);
 
             MariaDbProcessManager.StopMariaDb(NullLogger.Instance);
             _disposableComponents.Clear();
 
-            base.Dispose(disposing);
+            if (_webHostPathRoot is not null)
+            {
+                try
+                {
+                    if (Directory.Exists(_webHostPathRoot))
+                    {
+                        Directory.Delete(_webHostPathRoot, recursive: true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to clean integration test host directory '{_webHostPathRoot}': {ex.Message}");
+                }
+                finally
+                {
+                    _webHostPathRoot = null;
+                }
+            }
         }
 
         private sealed class NullStartupLogger<TCategory> : IStartupLogger<TCategory>
         {
-            public StartupLogTopic? Topic => throw new NotImplementedException();
+            public StartupLogTopic? Topic => null;
 
             public IStartupLogger BeginGroup(FormattableString logEntry)
             {

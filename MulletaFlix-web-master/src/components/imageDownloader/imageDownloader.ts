@@ -11,6 +11,7 @@ import layoutManager from '../layoutManager';
 import scrollHelper from '../../scripts/scrollHelper';
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
+import { getSafeHttpUrl } from 'utils/url';
 import '../../elements/emby-checkbox/emby-checkbox';
 import '../../elements/emby-button/paper-icon-button-light';
 import '../../elements/emby-button/emby-button';
@@ -179,119 +180,110 @@ interface RemoteImage {
     VoteCount?: number;
 }
 
-function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
-    const tagName = layoutManager.tv ? 'button' : 'div';
-    const enableFooterButtons = !layoutManager.tv;
-
-    let html = '';
-
-    let cssClass = 'card scalableCard imageEditorCard';
-    const cardBoxCssClass = 'cardBox visualCardBox';
-
-    let shape: string;
-    if (imageType === 'Backdrop' || imageType === 'Art' || imageType === 'Thumb' || imageType === 'Logo') {
-        shape = 'backdrop';
-    } else if (imageType === 'Banner') {
-        shape = 'banner';
-    } else if (imageType === 'Disc') {
-        shape = 'square';
-    } else if (currentItemType === 'Episode') {
-        shape = 'backdrop';
-    } else if (currentItemType === 'MusicAlbum' || currentItemType === 'MusicArtist') {
-        shape = 'square';
-    } else {
-        shape = 'portrait';
+function getRemoteImageShape(imageType: string): string {
+    if (['Backdrop', 'Art', 'Thumb', 'Logo'].includes(imageType) || currentItemType === 'Episode') {
+        return 'backdrop';
     }
 
-    cssClass += ' ' + shape + 'Card ' + shape + 'Card-scalable';
+    if (imageType === 'Banner') {
+        return 'banner';
+    }
+
+    if (imageType === 'Disc' || currentItemType === 'MusicAlbum' || currentItemType === 'MusicArtist') {
+        return 'square';
+    }
+
+    return 'portrait';
+}
+
+function getRemoteImageBodyHtml(safeImageUrl: string, shape: string): string {
+    const image = layoutManager.tv || !appHost.supports(AppFeature.ExternalLinks)
+        ? '<div class="cardImageContainer lazy" data-src="' + escapeHtml(safeImageUrl) + '" style="background-position:center center;background-size:contain;"></div>'
+        : '<a is="emby-linkbutton" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(safeImageUrl) + '" class="button-link cardImageContainer lazy" data-src="' + escapeHtml(safeImageUrl) + '" style="background-position:center center;background-size:contain"></a>';
+
+    return '<div class="cardBox visualCardBox"><div class="cardScalable visualCardBox-cardScalable" style="background-color:transparent;">'
+        + '<div class="cardPadder-' + shape + '"></div><div class="cardContent">'
+        + image + '</div></div>';
+}
+
+function getRemoteImageDimensionsHtml(image: RemoteImage): string {
+    if (!image.Width && !image.Height && !image.Language) {
+        return '';
+    }
+
+    let details = '<div class="cardText cardText-secondary cardTextCentered">';
+    if (image.Width && image.Height) {
+        details += image.Width + ' x ' + image.Height;
+        if (image.Language) {
+            details += ' \u2022 ' + escapeHtml(image.Language);
+        }
+    } else if (image.Language) {
+        details += escapeHtml(image.Language);
+    }
+
+    return details + '</div>';
+}
+
+function getRemoteImageRatingHtml(image: RemoteImage): string {
+    if (image.CommunityRating == null) {
+        return '';
+    }
+
+    let rating = '<div class="cardText cardText-secondary cardTextCentered">';
+    if (image.RatingType === 'Likes') {
+        rating += image.CommunityRating + (image.CommunityRating === 1 ? ' like' : ' likes');
+    } else if (image.CommunityRating) {
+        rating += image.CommunityRating.toFixed(1);
+        if (image.VoteCount) {
+            rating += ' \u2022 ' + image.VoteCount + (image.VoteCount === 1 ? ' vote' : ' votes');
+        }
+    } else {
+        rating += 'Unrated';
+    }
+
+    return rating + '</div>';
+}
+
+function getRemoteImageFooterHtml(image: RemoteImage, enableFooterButtons: boolean): string {
+    let footer = '<div class="cardFooter visualCardBox-cardFooter">'
+        + '<div class="cardText cardTextCentered">' + escapeHtml(image.ProviderName || '') + '</div>'
+        + getRemoteImageDimensionsHtml(image)
+        + getRemoteImageRatingHtml(image);
+
+    if (enableFooterButtons) {
+        footer += '<div class="cardText cardTextCentered">'
+            + `<button is="paper-icon-button-light" class="btnDownloadRemoteImage autoSize" raised" title="${globalize.translate('Download')}"><span class="material-icons cloud_download" aria-hidden="true"></span></button>`
+            + '</div>';
+    }
+
+    return footer + '</div>';
+}
+
+function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
+    const tagName = layoutManager.tv ? 'button' : 'div';
+    const shape = getRemoteImageShape(imageType);
+    const safeImageUrl = getSafeHttpUrl(image.Url);
+    let cssClass = 'card scalableCard imageEditorCard ' + shape + 'Card ' + shape + 'Card-scalable';
+
     if (tagName === 'button') {
         cssClass += ' btnImageCard';
-
         if (layoutManager.tv) {
             cssClass += ' show-focus';
-
             if (enableFocusTransform) {
                 cssClass += ' show-animation';
             }
         }
-
-        html += '<button type="button" class="' + cssClass + '"';
-    } else {
-        html += '<div class="' + cssClass + '"';
     }
 
-    html += ' data-imageprovider="' + escapeHtml(image.ProviderName || '') + '" data-imageurl="' + escapeHtml(image.Url || '') + '" data-imagetype="' + escapeHtml(image.Type || '') + '"';
+    const attributes = ' data-imageprovider="' + escapeHtml(image.ProviderName || '') + '" data-imageurl="' + escapeHtml(safeImageUrl) + '" data-imagetype="' + escapeHtml(image.Type || '') + '"';
+    const openingTag = tagName === 'button'
+        ? '<button type="button" class="' + cssClass + '"'
+        : '<div class="' + cssClass + '"';
 
-    html += '>';
-
-    html += '<div class="' + cardBoxCssClass + '">';
-    html += '<div class="cardScalable visualCardBox-cardScalable" style="background-color:transparent;">';
-    html += '<div class="cardPadder-' + shape + '"></div>';
-    html += '<div class="cardContent">';
-
-    if (layoutManager.tv || !appHost.supports(AppFeature.ExternalLinks)) {
-        html += '<div class="cardImageContainer lazy" data-src="' + escapeHtml(image.Url || '') + '" style="background-position:center center;background-size:contain;"></div>';
-    } else {
-        html += '<a is="emby-linkbutton" target="_blank" href="' + escapeHtml(image.Url || '') + '" class="button-link cardImageContainer lazy" data-src="' + escapeHtml(image.Url || '') + '" style="background-position:center center;background-size:contain"></a>';
-    }
-
-    html += '</div>';
-    html += '</div>';
-
-    // begin footer
-    html += '<div class="cardFooter visualCardBox-cardFooter">';
-
-    html += '<div class="cardText cardTextCentered">' + escapeHtml(image.ProviderName || '') + '</div>';
-
-    if (image.Width || image.Height || image.Language) {
-        html += '<div class="cardText cardText-secondary cardTextCentered">';
-
-        if (image.Width && image.Height) {
-            html += image.Width + ' x ' + image.Height;
-
-            if (image.Language) {
-                html += ' \u2022 ' + escapeHtml(image.Language);
-            }
-        } else if (image.Language) {
-            html += escapeHtml(image.Language);
-        }
-
-        html += '</div>';
-    }
-
-    if (image.CommunityRating != null) {
-        html += '<div class="cardText cardText-secondary cardTextCentered">';
-
-        if (image.RatingType === 'Likes') {
-            html += image.CommunityRating + (image.CommunityRating === 1 ? ' like' : ' likes');
-        } else if (image.CommunityRating) {
-            html += (image.CommunityRating as number).toFixed(1);
-
-            if (image.VoteCount) {
-                html += ' \u2022 ' + image.VoteCount + (image.VoteCount === 1 ? ' vote' : ' votes');
-            }
-        } else {
-            html += 'Unrated';
-        }
-
-        html += '</div>';
-    }
-
-    if (enableFooterButtons) {
-        html += '<div class="cardText cardTextCentered">';
-
-        html += `<button is="paper-icon-button-light" class="btnDownloadRemoteImage autoSize" raised" title="${globalize.translate('Download')}"><span class="material-icons cloud_download" aria-hidden="true"></span></button>`;
-        html += '</div>';
-    }
-
-    html += '</div>';
-    // end footer
-
-    html += '</div>';
-
-    html += '</' + tagName + '>';
-
-    return html;
+    return openingTag + attributes + '>'
+        + getRemoteImageBodyHtml(safeImageUrl, shape)
+        + getRemoteImageFooterHtml(image, !layoutManager.tv)
+        + '</' + tagName + '>';
 }
 
 function reloadBrowsableImagesFirstPage(page: HTMLElement, apiClient: any): void {
@@ -370,7 +362,7 @@ function showEditor(itemId: string, serverId: string, itemType: string): void {
     // Has to be assigned a z-index after the call to .open()
     dlg.addEventListener('close', onDialogClosed);
 
-    dialogHelper.open(dlg);
+    dialogHelper.open(dlg).catch(() => undefined);
 
     const editorContent = dlg.querySelector('.formDialogContent') as HTMLElement;
     initEditor(editorContent, apiClient);

@@ -27,10 +27,10 @@ const createCheckBoxElement = ({
         <input
             is="emby-checkbox"
             type="checkbox"
-            class="${className}"
-            ${id}
-            ${dataFilter}
-            ${dataItemType}
+            class="${escapeHTML(className || '')}"
+            ${id ? `id='${escapeHTML(id.replace(/^id=['"]|['"]$/g, ''))}'` : ''}
+            ${dataFilter ? `data-filter='${escapeHTML(dataFilter.replace(/^data-filter=['"]|['"]$/g, ''))}'` : ''}
+            ${dataItemType ? `data-itemtype='${escapeHTML(dataItemType.replace(/^data-itemtype=['"]|['"]$/g, ''))}'` : ''}
             ${dataId}
             ${checkedAttribute}
         />
@@ -70,12 +70,12 @@ const CheckBoxElement: FC<CheckBoxElementProps> = ({
             className='sectioncheckbox'
             dangerouslySetInnerHTML={createCheckBoxElement({
                 labelClassName: labelClassName ?
-                    `class='${labelClassName}'` :
+                    `class='${escapeHTML(labelClassName)}'` :
                     '',
                 className,
-                id: elementId ? `id='${elementId}'` : '',
-                dataFilter: dataFilter ? `data-filter='${dataFilter}'` : '',
-                dataItemType: itemType ? `data-itemtype='${itemType}'` : '',
+                id: elementId,
+                dataFilter,
+                dataItemType: itemType,
                 dataId: itemId ? `data-id='${escapeHTML(itemId)}'` : '',
                 checkedAttribute: itemCheckedAttribute || '',
                 renderContent

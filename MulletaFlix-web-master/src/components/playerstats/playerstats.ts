@@ -466,7 +466,7 @@ function renderPlayerStats(instance: any, player: any): void {
         }
 
         renderStats(elem, stats);
-    });
+    }).catch(() => undefined);
 }
 
 function bindEvents(instance: any, player: any): void {

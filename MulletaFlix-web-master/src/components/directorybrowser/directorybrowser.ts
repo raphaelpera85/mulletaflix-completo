@@ -151,7 +151,7 @@ function getEditorHtml(options: DirectoryBrowserOptions): string {
 function alertText(text: string): void {
     alert({
         text
-    });
+    }).catch(() => undefined);
 }
 
 function validatePath(path: string, validateWriteable: boolean, apiClient: ApiClientLike): Promise<void> {
@@ -271,7 +271,7 @@ class DirectoryBrowser {
             dlg.innerHTML = html;
             initEditor(dlg, options, fileOptions);
             dlg.addEventListener('close', onDialogClosed);
-            dialogHelper.open(dlg);
+            dialogHelper.open(dlg).catch(() => undefined);
             dlg.querySelector('.btnCloseDialog')?.addEventListener('click', () => {
                 dialogHelper.close(dlg);
             });
@@ -280,6 +280,8 @@ class DirectoryBrowser {
             if (!options.pathReadOnly) {
                 refreshDirectoryBrowser(dlg, fetchedInitialPath, fileOptions, true);
             }
+        }).catch(() => {
+            alertText(globalize.translate('ErrorDefault'));
         });
     };
 

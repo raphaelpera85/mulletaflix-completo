@@ -38,8 +38,13 @@ export function useDisplaySettingForm() {
 
     const submitChanges = useCallback(async () => {
         if (formValues) {
-            await saveDisplaySettings(formValues);
-            toast(globalize.translate('SettingsSaved'));
+            try {
+                await saveDisplaySettings(formValues);
+                toast(globalize.translate('SettingsSaved'));
+            } catch (error) {
+                console.error('[DisplaySettingsForm] failed to save preferences', error);
+                toast(globalize.translate('ErrorDefault'));
+            }
         }
     }, [formValues, saveDisplaySettings]);
 

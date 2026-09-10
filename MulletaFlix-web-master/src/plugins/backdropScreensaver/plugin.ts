@@ -83,7 +83,7 @@ class BackdropScreensaver {
                     this.currentSlideshow = newSlideShow;
                 }).catch(console.error);
             }
-        });
+        }).catch(console.error);
     }
 
     hide(): Promise<void> {

@@ -73,7 +73,7 @@ function getLatestItemsHtmlFn(
         let preferThumb: boolean | string | null;
         const heroItem = featured && netflix ? items[0] : undefined;
         const heroHref = heroItem ? appRouter.getRouteUrl(heroItem, { serverId: heroItem.ServerId }) : undefined;
-        const heroHtml = heroHref ? '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + heroHref + '">WATCH NOW</a></div>' : '';
+        const heroHtml = heroHref ? '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + escapeHtml(heroHref) + '">WATCH NOW</a></div>' : '';
 
         if (viewType === 'tvshows') {
             preferThumb = false;
@@ -124,9 +124,9 @@ function renderLatestSection(
 
     html += '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">';
     if (!layoutManager.tv) {
-        html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl(parent, {
+        html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl(parent, {
             section: 'latest'
-        }) + '" class="more button-flat button-flat-mini sectionTitleTextButton">';
+        })) + '" class="more button-flat button-flat-mini sectionTitleTextButton">';
         html += '<h2 class="sectionTitle sectionTitle-cards">';
         html += globalize.translate('LatestFromLibrary', escapeHtml(parent.Name));
         html += '</h2>';
@@ -186,4 +186,3 @@ export function loadRecentlyAdded(
         renderLatestSection(frag, apiClient, user, item, options);
     });
 }
-

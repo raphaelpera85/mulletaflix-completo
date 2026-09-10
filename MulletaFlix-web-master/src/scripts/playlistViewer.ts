@@ -68,7 +68,7 @@ async function init(page: HTMLElement, item: PlaylistItem): Promise<void> {
 
 function refresh(page: HTMLElement): void {
     page.querySelector('#childrenContent')!.classList.add('verticalSection-extrabottompadding');
-    (page.querySelector('#childrenContent .itemsContainer') as any).refreshItems();
+    (page.querySelector('#childrenContent .itemsContainer') as any).refreshItems().catch(() => undefined);
 }
 
 function render(page: any, item: PlaylistItem): void {
@@ -77,7 +77,7 @@ function render(page: any, item: PlaylistItem): void {
         init(page, item)
             .finally(() => {
                 refresh(page);
-            });
+            }).catch(() => undefined);
     } else {
         refresh(page);
     }

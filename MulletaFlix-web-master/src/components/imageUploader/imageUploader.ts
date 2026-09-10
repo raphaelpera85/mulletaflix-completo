@@ -5,6 +5,7 @@
  */
 
 import dialogHelper from '../dialogHelper/dialogHelper';
+import escapeHtml from 'escape-html';
 import dom from '../../utils/dom';
 import loading from '../loading/loading';
 import scrollHelper from '../../scripts/scrollHelper';
@@ -29,11 +30,11 @@ function onFileReaderError(evt: ProgressEvent<FileReader>): void {
 
     const error = (evt.target as FileReader).error;
     if (!error) return;
-    switch (error.code) {
-        case error.NOT_FOUND_ERR:
+    switch (error.name) {
+        case 'NotFoundError':
             toast(globalize.translate('MessageFileReadError'));
             break;
-        case error.ABORT_ERR:
+        case 'AbortError':
             break;
         default:
             toast(globalize.translate('MessageFileReadError'));
@@ -45,7 +46,7 @@ function setFiles(page: HTMLElement, files: FileList | null): void {
     if (!files || files.length === 0) return;
     const file = files[0];
 
-    if (!file?.type.match('image.*')) {
+    if (!file?.type.startsWith('image/')) {
         page.querySelector('#imageOutput')!.innerHTML = '';
         page.querySelector('#fldUpload')!.classList.add('hide');
         currentFile = null;
@@ -69,7 +70,7 @@ function setFiles(page: HTMLElement, files: FileList | null): void {
     reader.onload = (theFile => {
         return (e: ProgressEvent<FileReader>) => {
             // Render thumbnail.
-            const html = ['<img style="max-width:100%;max-height:100%;" src="', (e.target as FileReader).result as string, '" title="', escape(theFile.name), '"/>'].join('');
+            const html = ['<img style="max-width:100%;max-height:100%;" src="', (e.target as FileReader).result as string, '" title="', escapeHtml(theFile.name), '"/>'].join('');
 
             page.querySelector('#imageOutput')!.innerHTML = html;
             page.querySelector('#dropImageText')!.classList.add('hide');
@@ -175,7 +176,7 @@ function showEditor(options: ImageUploaderOptions, resolve: (hasChanges: boolean
         resolve(hasChanges);
     });
 
-    dialogHelper.open(dlg);
+    dialogHelper.open(dlg).catch(() => undefined);
 
     initEditor(dlg);
 

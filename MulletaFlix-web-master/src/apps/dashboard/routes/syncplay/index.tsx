@@ -7,7 +7,7 @@ import Menu from '@mui/material/Menu';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
-import Grid from '@mui/material/Grid';
+import Grid from '@mui/material/Grid2';
 import Paper from '@mui/material/Paper';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -22,6 +22,7 @@ import Delete from '@mui/icons-material/Delete';
 import MoreVert from '@mui/icons-material/MoreVert';
 import Sync from '@mui/icons-material/Sync';
 import Fullscreen from '@mui/icons-material/Fullscreen';
+import screenfull from 'screenfull';
 
 import { useSyncPlayGroups } from 'apps/experimental/features/syncPlay/hooks/api/useSyncPlayGroups';
 import { useCreateSyncPlayGroup } from 'apps/experimental/features/syncPlay/hooks/api/useCreateSyncPlayGroup';
@@ -67,8 +68,9 @@ const Component = () => {
     }, []);
 
     const handleCreateGroup = useCallback(() => {
-        if (!newGroupName.trim()) return;
-        createGroup.mutate({ newGroupRequestDto: { GroupName: newGroupName } }, {
+        const groupName = newGroupName.trim();
+        if (!groupName) return;
+        createGroup.mutate({ newGroupRequestDto: { GroupName: groupName } }, {
             onSuccess: () => {
                 setIsCreatingGroup(false);
                 setNewGroupName('');
@@ -107,16 +109,24 @@ const Component = () => {
     }, [syncPlay, apiClient]);
 
     const handleNext = useCallback(() => {
-        if (syncPlay && apiClient) {
-            syncPlay.Manager.haltGroupPlayback(apiClient);
+        if (syncPlay) {
+            syncPlay.Manager.getController().nextItem();
         }
-    }, [syncPlay, apiClient]);
+    }, [ syncPlay ]);
 
     const handlePrevious = useCallback(() => {
-        if (syncPlay && apiClient) {
-            syncPlay.Manager.haltGroupPlayback(apiClient);
+        if (syncPlay) {
+            syncPlay.Manager.getController().previousItem();
         }
-    }, [syncPlay, apiClient]);
+    }, [ syncPlay ]);
+
+    const handleFullscreen = useCallback(() => {
+        if (screenfull.isEnabled) {
+            void screenfull.toggle().catch((error: unknown) => {
+                console.error('[SyncPlay] failed to toggle fullscreen', error);
+            });
+        }
+    }, []);
 
     if (isGroupsLoading) {
         return (
@@ -225,7 +235,9 @@ const Component = () => {
                             </Tooltip>
                             <Tooltip title={globalize.translate('SyncPlayFullscreen')}>
                                 <IconButton
+                                    onClick={handleFullscreen}
                                     aria-label={globalize.translate('SyncPlayFullscreen')}
+                                    disabled={!screenfull.isEnabled}
                                 >
                                     <Fullscreen />
                                 </IconButton>
@@ -275,7 +287,7 @@ const Component = () => {
             {groups && groups.length > 0 ? (
                 <Grid container spacing={3}>
                     {groups.map(group => (
-                        <Grid item xs={12} sm={6} md={4} lg={3} key={group.GroupId ?? group.GroupName}>
+                        <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={group.GroupId ?? group.GroupName}>
                             <Paper elevation={2} style={{ padding: '16px', height: '100%', display: 'flex', flexDirection: 'column' }}>
                                 <Stack direction='row' spacing={1} justifyContent='space-between' alignItems='flex-start'>
                                     <Typography variant='subtitle1' noWrap>{group.GroupName}</Typography>

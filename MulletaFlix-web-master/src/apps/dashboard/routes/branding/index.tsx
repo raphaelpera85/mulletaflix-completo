@@ -223,6 +223,14 @@ export const Component = () => {
         });
     }, [ brandingOptions ]);
 
+    const showIntroFolderPicker = useCallback(() => {
+        showIntroPathPicker(false);
+    }, [ showIntroPathPicker ]);
+
+    const showIntroFilePicker = useCallback(() => {
+        showIntroPathPicker(true);
+    }, [ showIntroPathPicker ]);
+
     const setSplashscreenEnabled = useCallback(async (_: React.ChangeEvent<HTMLInputElement>, isEnabled: boolean) => {
         setIsSplashscreenEnabled(isEnabled);
 
@@ -370,14 +378,14 @@ export const Component = () => {
                                 <Button
                                     variant='outlined'
                                     startIcon={<FolderOpen />}
-                                    onClick={() => showIntroPathPicker(false)}
+                                    onClick={showIntroFolderPicker}
                                 >
                                     Selecionar pasta
                                 </Button>
                                 <Button
                                     variant='outlined'
                                     startIcon={<Description />}
-                                    onClick={() => showIntroPathPicker(true)}
+                                    onClick={showIntroFilePicker}
                                 >
                                     Selecionar arquivo
                                 </Button>
@@ -392,7 +400,7 @@ export const Component = () => {
                                 name={BrandingOption.PrebufferSizeMb}
                                 type='number'
                                 label='Tamanho maximo do pre-buffer (MB)'
-                                inputProps={{ min: 1, max: 256 }}
+                                slotProps={{ htmlInput: { min: 1, max: 256 } }}
                                 value={brandingOptions.PrebufferSizeMb ?? 32}
                                 onChange={setBrandingOption}
                             />
@@ -426,7 +434,7 @@ export const Component = () => {
                                 name={BrandingOption.AdSenseHoldSeconds}
                                 type='number'
                                 label='Segundos antes de permitir continuar'
-                                inputProps={{ min: 0, max: 60 }}
+                                slotProps={{ htmlInput: { min: 0, max: 60 } }}
                                 value={brandingOptions.AdSenseHoldSeconds ?? 8}
                                 onChange={setBrandingOption}
                             />
@@ -521,4 +529,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'BrandingPage';
-

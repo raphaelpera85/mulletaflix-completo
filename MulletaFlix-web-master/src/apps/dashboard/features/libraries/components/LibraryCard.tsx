@@ -18,6 +18,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ListItemText from '@mui/material/ListItemText';
 import imageeditor from 'components/imageeditor/imageeditor';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
+import type { ApiClient } from 'jellyfin-apiclient';
 import InputDialog from 'components/InputDialog';
 import { useRenameVirtualFolder } from '../api/useRenameVirtualFolder';
 import RefreshDialog from 'components/refreshdialog/refreshdialog';
@@ -100,7 +101,7 @@ const LibraryCard = ({ virtualFolder }: LibraryCardProps) => {
 
         void new RefreshDialog({
             itemIds: [ virtualFolder.ItemId ],
-            serverId: (ServerConnections.currentApiClient() as any)?.serverId(),
+            serverId: (ServerConnections.currentApiClient() as unknown as ApiClient)?.serverId(),
             mode: 'scan'
         }).show();
     }, [ virtualFolder ]);
@@ -109,8 +110,14 @@ const LibraryCard = ({ virtualFolder }: LibraryCardProps) => {
         setAnchorEl(null);
         setIsMenuOpen(false);
 
+        const library = {
+            ...virtualFolder,
+            Name: virtualFolder.Name ?? '',
+            ItemId: virtualFolder.ItemId ?? undefined,
+            Locations: virtualFolder.Locations ?? []
+        } as unknown as ConstructorParameters<typeof MediaLibraryEditor>[0]['library'];
         const mediaLibraryEditor = new MediaLibraryEditor({
-            library: virtualFolder as any,
+            library,
             refresh: true
         }) as Promise<boolean>;
 
@@ -133,7 +140,7 @@ const LibraryCard = ({ virtualFolder }: LibraryCardProps) => {
 
         void imageeditor.show({
             itemId: virtualFolder.ItemId,
-            serverId: (ServerConnections.currentApiClient() as any)?.serverId()
+            serverId: (ServerConnections.currentApiClient() as unknown as ApiClient)?.serverId()
         }).then(() => {
             void queryClient.invalidateQueries({
                 queryKey: ['VirtualFolders']
@@ -245,4 +252,3 @@ const LibraryCard = ({ virtualFolder }: LibraryCardProps) => {
 };
 
 export default LibraryCard;
-

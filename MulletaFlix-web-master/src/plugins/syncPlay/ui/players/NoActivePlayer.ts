@@ -1,10 +1,8 @@
 import { playbackManager } from '../../../../components/playback/playbackmanager';
-import SyncPlay from '../../core';
 import QueueManager from './QueueManager';
 import GenericPlayer from '../../core/players/GenericPlayer';
 
 const pm: any = playbackManager;
-let syncPlayManager: any;
 
 type SyncPlayCommand = {
     Name: string;
@@ -15,11 +13,13 @@ type SyncPlayCommand = {
 };
 
 class NoActivePlayer extends GenericPlayer {
-    static type = 'default';
+    static readonly type: string = 'default';
+
+    private readonly syncPlayManager: any;
 
     constructor(player: any, _syncPlayManager: any) {
         super(player, _syncPlayManager);
-        syncPlayManager = _syncPlayManager;
+        this.syncPlayManager = _syncPlayManager;
     }
 
     localBindToPlayer(): void {
@@ -31,11 +31,11 @@ class NoActivePlayer extends GenericPlayer {
         pm._localSeek = pm.seek;
         pm._localSendCommand = pm.sendCommand;
 
-        pm.playPause = this.playPauseRequest;
-        pm.unpause = this.unpauseRequest;
-        pm.pause = this.pauseRequest;
-        pm.seek = this.seekRequest;
-        pm.sendCommand = this.sendCommandRequest;
+        pm.playPause = this.playPauseRequest.bind(this);
+        pm.unpause = this.unpauseRequest.bind(this);
+        pm.pause = this.pauseRequest.bind(this);
+        pm.seek = this.seekRequest.bind(this);
+        pm.sendCommand = this.sendCommandRequest.bind(this);
 
         pm._localPlayQueueManager = pm._playQueueManager;
 
@@ -56,20 +56,20 @@ class NoActivePlayer extends GenericPlayer {
 
         pm._playQueueManager = new QueueManager(this.manager as any);
 
-        pm.play = this.playRequest;
-        pm.setCurrentPlaylistItem = this.setCurrentPlaylistItemRequest;
-        pm.clearQueue = this.clearQueueRequest;
-        pm.removeFromPlaylist = this.removeFromPlaylistRequest;
-        pm.movePlaylistItem = this.movePlaylistItemRequest;
-        pm.queue = this.queueRequest;
-        pm.queueNext = this.queueNextRequest;
+        pm.play = this.playRequest.bind(this);
+        pm.setCurrentPlaylistItem = this.setCurrentPlaylistItemRequest.bind(this);
+        pm.clearQueue = this.clearQueueRequest.bind(this);
+        pm.removeFromPlaylist = this.removeFromPlaylistRequest.bind(this);
+        pm.movePlaylistItem = this.movePlaylistItemRequest.bind(this);
+        pm.queue = this.queueRequest.bind(this);
+        pm.queueNext = this.queueNextRequest.bind(this);
 
-        pm.nextTrack = this.nextTrackRequest;
-        pm.previousTrack = this.previousTrackRequest;
+        pm.nextTrack = this.nextTrackRequest.bind(this);
+        pm.previousTrack = this.previousTrackRequest.bind(this);
 
-        pm.setRepeatMode = this.setRepeatModeRequest;
-        pm.setQueueShuffleMode = this.setQueueShuffleModeRequest;
-        pm.toggleQueueShuffleMode = this.toggleQueueShuffleModeRequest;
+        pm.setRepeatMode = this.setRepeatModeRequest.bind(this);
+        pm.setQueueShuffleMode = this.setQueueShuffleModeRequest.bind(this);
+        pm.toggleQueueShuffleMode = this.toggleQueueShuffleModeRequest.bind(this);
 
         pm.syncPlayEnabled = true;
     }
@@ -104,29 +104,29 @@ class NoActivePlayer extends GenericPlayer {
     }
 
     playPauseRequest(): void {
-        const controller = syncPlayManager.getController();
+        const controller = this.syncPlayManager.getController();
         controller.playPause();
     }
 
     unpauseRequest(): void {
-        const controller = syncPlayManager.getController();
+        const controller = this.syncPlayManager.getController();
         controller.unpause();
     }
 
     pauseRequest(): void {
-        const controller = syncPlayManager.getController();
+        const controller = this.syncPlayManager.getController();
         controller.pause();
     }
 
     seekRequest(positionTicks: number): void {
-        const controller = syncPlayManager.getController();
+        const controller = this.syncPlayManager.getController();
         controller.seek(positionTicks);
     }
 
-    sendCommandRequest(command: SyncPlayCommand, player: any): void {
+    sendCommandRequest(command: SyncPlayCommand): void {
         console.debug('SyncPlay sendCommand:', command.Name, command);
-        const controller = syncPlayManager.getController();
-        const playerWrapper = syncPlayManager.getPlayerWrapper();
+        const controller = this.syncPlayManager.getController();
+        const playerWrapper = this.syncPlayManager.getPlayerWrapper();
 
         const defaultAction = (_command: SyncPlayCommand): void => {
             playerWrapper.localSendCommand(_command);
@@ -195,52 +195,52 @@ class NoActivePlayer extends GenericPlayer {
     }
 
     playRequest(options: any): any {
-        const controller = syncPlayManager.getController();
+        const controller = this.syncPlayManager.getController();
         return controller.play(options);
     }
 
     setCurrentPlaylistItemRequest(playlistItemId: string): void {
-        syncPlayManager.getController().setCurrentPlaylistItem(playlistItemId);
+        this.syncPlayManager.getController().setCurrentPlaylistItem(playlistItemId);
     }
 
     clearQueueRequest(clearPlayingItem: boolean): void {
-        syncPlayManager.getController().clearPlaylist(clearPlayingItem);
+        this.syncPlayManager.getController().clearPlaylist(clearPlayingItem);
     }
 
     removeFromPlaylistRequest(playlistItemIds: string[]): void {
-        syncPlayManager.getController().removeFromPlaylist(playlistItemIds);
+        this.syncPlayManager.getController().removeFromPlaylist(playlistItemIds);
     }
 
     movePlaylistItemRequest(playlistItemId: string, newIndex: number): void {
-        syncPlayManager.getController().movePlaylistItem(playlistItemId, newIndex);
+        this.syncPlayManager.getController().movePlaylistItem(playlistItemId, newIndex);
     }
 
     queueRequest(options: any): void {
-        syncPlayManager.getController().queue(options);
+        this.syncPlayManager.getController().queue(options);
     }
 
     queueNextRequest(options: any): void {
-        syncPlayManager.getController().queueNext(options);
+        this.syncPlayManager.getController().queueNext(options);
     }
 
     nextTrackRequest(): void {
-        syncPlayManager.getController().nextItem();
+        this.syncPlayManager.getController().nextItem();
     }
 
     previousTrackRequest(): void {
-        syncPlayManager.getController().previousItem();
+        this.syncPlayManager.getController().previousItem();
     }
 
     setRepeatModeRequest(mode: string): void {
-        syncPlayManager.getController().setRepeatMode(mode);
+        this.syncPlayManager.getController().setRepeatMode(mode);
     }
 
     setQueueShuffleModeRequest(mode: string): void {
-        syncPlayManager.getController().setShuffleMode(mode);
+        this.syncPlayManager.getController().setShuffleMode(mode);
     }
 
     toggleQueueShuffleModeRequest(): void {
-        syncPlayManager.getController().toggleShuffleMode();
+        this.syncPlayManager.getController().toggleShuffleMode();
     }
 
     localPlay(options: any): any {

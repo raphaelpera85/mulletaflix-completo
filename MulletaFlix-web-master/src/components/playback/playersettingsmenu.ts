@@ -171,9 +171,6 @@ function getQualitySecondaryText(player: PlayerSettingsPlayerContract): string |
 
     const videoCodec = videoStream ? videoStream.Codec : null;
     const videoBitRate = videoStream ? videoStream.BitRate : null;
-    const videoWidth = videoStream ? videoStream.Width : null;
-    const videoHeight = videoStream ? videoStream.Height : null;
-
     const options = qualityoptions.getVideoQualityOptions({
         currentMaxBitrate: (playbackManager as unknown as PlaybackManagerContract).getMaxStreamingBitrate(player),
         isAutomaticBitrateEnabled: (playbackManager as unknown as PlaybackManagerContract).enableAutomaticBitrateDetection(player),

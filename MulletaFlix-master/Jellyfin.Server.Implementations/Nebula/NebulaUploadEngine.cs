@@ -274,6 +274,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         try { File.Delete(localFilePath); } catch { /* ignore */ }
                     }
 
+                    // A recognition marker may have been created before this
+                    // retry discovered that the media was already complete.
+                    // Release it so queued sidecars are not blocked forever.
+                    NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
+
                     return true;
                 }
 
@@ -643,11 +648,10 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 }
             }
 
-            // O marcador é removido somente após a mídia alcançar o estado
-            // completed. Enquanto ele existir, o watcher retém NFO/capas do
-            // mesmo diretório para que os sidecars nunca sejam publicados
-            // antes da mídia correspondente.
-            NebulaMetadataExportService.RemovePendingMarker(Path.GetDirectoryName(localFilePath) ?? string.Empty);
+            // O marcador é removido somente quando a mídia alcança o estado
+            // completed. Um NFO/capa concluído nunca pode liberar os demais
+            // sidecars antes da mídia correspondente.
+            NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
 
             return true;
         }

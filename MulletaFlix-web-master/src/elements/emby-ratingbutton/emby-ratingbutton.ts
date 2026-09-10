@@ -32,7 +32,7 @@ function onClick(this: RatingButtonElement): void {
 
     showPicker(button, apiClient, id, likes as boolean | null, isFavorite).then(function (userData: UserData) {
         setState(button, userData.Likes ?? null, userData.IsFavorite ?? false);
-    });
+    }).catch(() => undefined);
 }
 
 interface UserDataChangedMessage {

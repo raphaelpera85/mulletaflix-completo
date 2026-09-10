@@ -28,10 +28,6 @@ function getBaseRemoteOptions(): { itemId: string } {
     return { itemId: currentItem.Id };
 }
 
-interface ReloadableElement extends HTMLElement {
-    focusContext?: HTMLElement;
-}
-
 function reload(page: HTMLElement, item?: any, focusContext?: HTMLElement): void {
     loading.show();
 
@@ -363,7 +359,7 @@ interface EditorOptions {
     serverId?: string;
 }
 
-function initEditor(context: HTMLElement, options: EditorOptions): void {
+function initEditor(context: HTMLElement): void {
     const uploadButtons = context.querySelectorAll('.btnOpenUploadMenu');
     const isFileInputSupported = appHost.supports(AppFeature.FileInput);
     for (let i = 0, length = uploadButtons.length; i < length; i++) {
@@ -450,7 +446,7 @@ function showEditor(options: EditorOptions, resolve: () => void, reject: () => v
             scrollHelper.centerFocus.on(dlg, false);
         }
 
-        initEditor(dlg, options);
+        initEditor(dlg);
 
         // Has to be assigned a z-index after the call to .open()
         dlg.addEventListener('close', function () {

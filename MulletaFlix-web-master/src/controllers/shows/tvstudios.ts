@@ -1,17 +1,18 @@
 import loading from '../../components/loading/loading';
 import cardBuilder from '../../components/cardbuilder/cardBuilder';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 interface ViewParams {
     topParentId: string;
 }
 
 interface PageData {
-    query: any;
+    query: Record<string, unknown>;
 }
 
 const data: Record<string, PageData> = {};
 
-function getQuery(params: ViewParams): any {
+function getQuery(params: ViewParams): Record<string, unknown> {
     const key = getSavedQueryKey(params);
     let pageData = data[key];
 
@@ -36,16 +37,20 @@ function getSavedQueryKey(params: ViewParams): string {
     return `${params.topParentId}-studios`;
 }
 
-function getPromise(context: HTMLElement, params: ViewParams): Promise<any> {
+function getPromise(params: ViewParams): Promise<ItemDtoQueryResult> {
     const query = getQuery(params);
     loading.show();
     return ApiClient.getStudios(ApiClient.getCurrentUserId(), query);
 }
 
-function reloadItems(context: HTMLElement, params: ViewParams, promise: Promise<any>): void {
-    promise.then(function (result: any) {
+function reloadItems(context: HTMLElement, params: ViewParams, promise: Promise<ItemDtoQueryResult>): void {
+    promise.then(function (result: ItemDtoQueryResult) {
         const elem = context.querySelector('#items');
-        cardBuilder.buildCards(result.Items, {
+        if (!elem) {
+            loading.hide();
+            return;
+        }
+        cardBuilder.buildCards(result.Items ?? [], {
             itemsContainer: elem,
             shape: 'backdrop',
             preferThumb: true,
@@ -57,21 +62,28 @@ function reloadItems(context: HTMLElement, params: ViewParams, promise: Promise<
         });
         loading.hide();
 
-        import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
+        void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(context);
-        });
+        }).catch((error: unknown) => console.error('[TvStudios] failed to focus page', error));
+    }).catch((error: unknown) => {
+        console.error('[TvStudios] failed to load studios', error);
+        loading.hide();
     });
 }
 
-export default function (this: any, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
-    let promise: Promise<any>;
-    const self = this;
+interface TvStudiosController {
+    preRender: () => void;
+    renderTab: () => void;
+}
 
-    self.preRender = function (): void {
-        promise = getPromise(view, params);
+export default function (this: TvStudiosController, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
+    let promise: Promise<ItemDtoQueryResult> = Promise.resolve({ Items: [] });
+
+    this.preRender = function (): void {
+        promise = getPromise(params);
     };
 
-    self.renderTab = function (): void {
+    this.renderTab = function (): void {
         reloadItems(tabContent, params, promise);
     };
 }

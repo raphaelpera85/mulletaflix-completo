@@ -227,7 +227,7 @@ class AppRouter {
         this.forcedLogoutMsg = null;
 
         if (msg) {
-            alert(msg);
+            alert(msg).catch(() => undefined);
         }
     }
 
@@ -249,7 +249,7 @@ class AppRouter {
             // Bounce to the login screen, but not if a password entry fails, obviously
             if (!isPublicPage) {
                 appRouter.showForcedLogoutMessage(globalize.translate('AccessRestrictedTryAgainLater'));
-                appRouter.showLocalLogin(apiClient.serverId());
+                appRouter.showLocalLogin(apiClient.serverId()).catch(() => undefined);
             }
         }
     }

@@ -31,13 +31,23 @@ type ConnectionRequiredProps = {
     level?: AccessLevelValue
 };
 
+type ClientAccessApi = {
+    isLoggedIn?: () => boolean;
+    getCurrentUser?: () => Promise<{ Policy?: { IsAdministrator?: boolean } }>;
+};
+
+const isClientLoggedIn = (apiClient: unknown): boolean => {
+    const typedClient = apiClient as ClientAccessApi | null | undefined;
+    return typeof typedClient?.isLoggedIn === 'function' && Boolean(typedClient.isLoggedIn());
+};
+
 const ERROR_STATES = [
     ConnectionState.ServerMismatch,
     ConnectionState.ServerUpdateNeeded,
     ConnectionState.Unavailable
 ];
 
-const fetchPublicSystemInfo = async (apiClient: ApiClient) => {
+const fetchPublicSystemInfo = async (apiClient: Pick<ApiClient, 'serverAddress'>) => {
     const infoResponse = await fetch(
         `${apiClient.serverAddress()}/System/Info/Public`,
         { cache: 'no-cache' }
@@ -64,11 +74,11 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
     const [ errorState, setErrorState ] = useState<ConnectionState>();
     const [ isLoading, setIsLoading ] = useState(true);
 
-    const navigateIfNotThere = useCallback((route: BounceRoutes) => {
+    const navigateIfNotThere = useCallback(async (route: BounceRoutes) => {
         // If we try to navigate to the current route, just set isLoading = false
         if (location.pathname === route) setIsLoading(false);
         // Otherwise navigate to the route
-        else navigate(route);
+        else await navigate(route);
     }, [ location.pathname, navigate ]);
 
     const bounce = useCallback(async (connectionResponse: ConnectResponse) => {
@@ -76,7 +86,7 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
             case ConnectionState.SignedIn:
                 // Already logged in, bounce to the home page
                 console.debug('[ConnectionRequired] already logged in, redirecting to home');
-                navigate(BounceRoutes.Home);
+                await navigate(BounceRoutes.Home);
                 return;
             case ConnectionState.ServerSignIn:
                 // Bounce to the login page
@@ -85,13 +95,13 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
                 } else {
                     console.debug('[ConnectionRequired] not logged in, redirecting to login page', location);
                     const url = encodeURIComponent(location.pathname + location.search);
-                    navigate(`${BounceRoutes.Login}?serverid=${connectionResponse.ApiClient.serverId()}&url=${url}`);
+                    await navigate(`${BounceRoutes.Login}?serverid=${connectionResponse.ApiClient.serverId()}&url=${url}`);
                 }
                 return;
             case ConnectionState.ServerSelection:
                 // Bounce to select server page
                 console.debug('[ConnectionRequired] redirecting to select server page');
-                navigateIfNotThere(BounceRoutes.SelectServer);
+                await navigateIfNotThere(BounceRoutes.SelectServer);
                 return;
         }
 
@@ -105,15 +115,15 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
             throw new Error('No ApiClient available');
         }
 
-        const systemInfo = await fetchPublicSystemInfo(apiClient as any);
+        const systemInfo = await fetchPublicSystemInfo(apiClient);
         if (systemInfo?.StartupWizardCompleted) {
             console.info('[ConnectionRequired] startup wizard is complete, redirecting home');
-            navigate(BounceRoutes.Home);
+            await navigate(BounceRoutes.Home);
             return;
         }
 
         // Update the current ApiClient
-        ServerConnections.setLocalApiClient(apiClient as any);
+        ServerConnections.setLocalApiClient(apiClient as Parameters<typeof ServerConnections.setLocalApiClient>[0]);
         setIsLoading(false);
     }, [ navigate ]);
 
@@ -121,14 +131,14 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
         if (firstConnection.State === ConnectionState.ServerSignIn) {
             // Verify the wizard is complete
             try {
-                const systemInfo = await fetchPublicSystemInfo(firstConnection.ApiClient as any);
+                const systemInfo = await fetchPublicSystemInfo(firstConnection.ApiClient);
                 if (!systemInfo?.StartupWizardCompleted) {
                     // Update the current ApiClient
                     // TODO: Is there a better place to handle this?
-                    ServerConnections.setLocalApiClient(firstConnection.ApiClient as any);
+                    ServerConnections.setLocalApiClient(firstConnection.ApiClient as unknown as Parameters<typeof ServerConnections.setLocalApiClient>[0]);
                     // Bounce to the wizard
                     console.info('[ConnectionRequired] startup wizard is not complete, redirecting there');
-                    navigate(BounceRoutes.StartWizard);
+                    await navigate(BounceRoutes.StartWizard);
                     return;
                 }
             } catch (ex) {
@@ -138,7 +148,7 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
         }
 
         // Bounce to the correct page in the login flow
-        bounce(firstConnection)
+        return bounce(firstConnection)
             .catch(err => {
                 console.error('[ConnectionRequired] failed to bounce', err);
             });
@@ -148,10 +158,14 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
         const client = ServerConnections.currentApiClient();
 
         // If this is a user route, ensure a user is logged in
-        if ((level === AccessLevel.Admin || level === AccessLevel.User) && !(client as any)?.isLoggedIn()) {
+        if ((level === AccessLevel.Admin || level === AccessLevel.User) && !isClientLoggedIn(client)) {
             try {
                 console.warn('[ConnectionRequired] unauthenticated user attempted to access user route');
-                bounce(await ServerConnections.connect() as any)
+                const connection = await ServerConnections.connect();
+                if (!connection.ApiClient || connection.State == null) {
+                    throw new Error('Connection response is incomplete');
+                }
+                return bounce({ ApiClient: connection.ApiClient, State: connection.State } as unknown as ConnectResponse)
                     .catch(err => {
                         console.error('[ConnectionRequired] failed to bounce', err);
                     });
@@ -164,10 +178,14 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
         // If this is an admin route, ensure the user has access
         if (level === AccessLevel.Admin) {
             try {
-                const user = await (client as any)?.getCurrentUser();
+                const user = await (client as unknown as ClientAccessApi | null)?.getCurrentUser?.();
                 if (!user?.Policy?.IsAdministrator) {
                     console.warn('[ConnectionRequired] normal user attempted to access admin route');
-                    bounce(await ServerConnections.connect() as any)
+                    const connection = await ServerConnections.connect();
+                    if (!connection.ApiClient || connection.State == null) {
+                        throw new Error('Connection response is incomplete');
+                    }
+                    return bounce({ ApiClient: connection.ApiClient, State: connection.State } as unknown as ConnectResponse)
                         .catch(err => {
                             console.error('[ConnectionRequired] failed to bounce', err);
                         });
@@ -193,14 +211,14 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
             if (firstConnection && ERROR_STATES.includes(firstConnection.State as ConnectionState)) {
                 setErrorState(firstConnection.State);
             } else if (level === AccessLevel.Wizard) {
-                handleWizard(firstConnection as any)
+                handleWizard(firstConnection as unknown as ConnectResponse)
                     .catch(err => {
                         console.error('[ConnectionRequired] could not validate wizard status', err);
                     });
             } else if (
-                firstConnection && firstConnection.State !== ConnectionState.SignedIn && !(apiClient as any)?.isLoggedIn()
+                firstConnection && firstConnection.State !== ConnectionState.SignedIn && !isClientLoggedIn(apiClient)
             ) {
-                handleIncompleteWizard(firstConnection as any)
+                handleIncompleteWizard(firstConnection as unknown as ConnectResponse)
                     .catch(err => {
                         console.error('[ConnectionRequired] could not start wizard', err);
                     });
@@ -227,4 +245,3 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
 };
 
 export default ConnectionRequired;
-

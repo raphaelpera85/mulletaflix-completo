@@ -1,30 +1,39 @@
 (function () {
-    const patch = (target: { createElement?: Function; [key: string]: unknown }) => {
-        if (!target || !target.createElement) return;
-        const original = target.createElement;
-        if ((original as Function & { __patched?: boolean }).__patched) return;
+    type LegacyCreateElement = {
+        (this: unknown, ...args: unknown[]): unknown;
+        call(thisArg: unknown, ...args: unknown[]): unknown;
+        apply(thisArg: unknown, args: unknown[]): unknown;
+        __patched?: boolean;
+    };
 
-        target.createElement = function (this: unknown, tagName: string, options?: ElementCreationOptions) {
+    const patch = (target: { createElement?: unknown; [key: string]: unknown }) => {
+        if (!target || typeof target.createElement !== 'function') return;
+        const original = target.createElement as LegacyCreateElement;
+        if (original.__patched) return;
+
+        target.createElement = function (this: unknown, ...args: unknown[]) {
+            const [tagName, options] = args as [string, ElementCreationOptions?];
             if (options && typeof options === 'object' && options.is) {
                 return original.call(this, tagName, options.is);
             }
-            return original.apply(this, arguments as unknown as unknown[]);
+            return original.apply(this, args);
         };
-        (target.createElement as Function & { __patched: boolean }).__patched = true;
+        (target.createElement as LegacyCreateElement).__patched = true;
     };
 
-    const patchNS = (target: { createElementNS?: Function; [key: string]: unknown }) => {
-        if (!target || !target.createElementNS) return;
-        const original = target.createElementNS;
-        if ((original as Function & { __patched?: boolean }).__patched) return;
+    const patchNS = (target: { createElementNS?: unknown; [key: string]: unknown }) => {
+        if (!target || typeof target.createElementNS !== 'function') return;
+        const original = target.createElementNS as LegacyCreateElement;
+        if (original.__patched) return;
 
-        target.createElementNS = function (this: unknown, namespace: string, tagName: string, options?: ElementCreationOptions) {
+        target.createElementNS = function (this: unknown, ...args: unknown[]) {
+            const [namespace, tagName, options] = args as [string, string, ElementCreationOptions?];
             if (options && typeof options === 'object' && options.is) {
                 return original.call(this, namespace, tagName, options.is);
             }
-            return original.apply(this, arguments as unknown as unknown[]);
+            return original.apply(this, args);
         };
-        (target.createElementNS as Function & { __patched: boolean }).__patched = true;
+        (target.createElementNS as LegacyCreateElement).__patched = true;
     };
 
     if (typeof Document !== 'undefined') {

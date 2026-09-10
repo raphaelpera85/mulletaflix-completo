@@ -57,7 +57,7 @@ serviceWorker.addEventListener('notificationclick', (event: ServiceWorkerNotific
     const action = event.action as ServiceWorkerAction | '';
 
     if (!action) {
-        (self as unknown as ServiceWorkerScope).clients.openWindow('/');
+        (self as unknown as ServiceWorkerScope).clients.openWindow('/').catch(() => undefined);
         event.waitUntil(Promise.resolve());
         return;
     }

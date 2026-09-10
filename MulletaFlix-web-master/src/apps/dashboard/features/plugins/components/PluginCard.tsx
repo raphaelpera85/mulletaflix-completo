@@ -1,7 +1,7 @@
 import ExtensionIcon from '@mui/icons-material/Extension';
 import UpdateIcon from '@mui/icons-material/Update';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
@@ -44,36 +44,36 @@ const PluginCard = ({ plugin }: PluginCardProps) => {
     const hasUpdate = plugin.versions && plugin.versions.length > 1 && plugin.version
         && plugin.versions.some(v => v.VersionNumber && v.VersionNumber !== plugin.version?.VersionNumber);
 
-    const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    const handleMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>) => {
         setAnchorEl(event.currentTarget);
-    };
+    }, []);
 
-    const handleMenuClose = () => {
+    const handleMenuClose = useCallback(() => {
         setAnchorEl(null);
-    };
+    }, []);
 
-    const handleEnable = () => {
+    const handleEnable = useCallback(() => {
         if (plugin.version?.VersionNumber) {
             enablePlugin.mutate({ pluginId: plugin.id, version: plugin.version.VersionNumber });
             handleMenuClose();
         }
-    };
+    }, [enablePlugin, handleMenuClose, plugin.id, plugin.version?.VersionNumber]);
 
-    const handleDisable = () => {
+    const handleDisable = useCallback(() => {
         if (plugin.version?.VersionNumber) {
             disablePlugin.mutate({ pluginId: plugin.id, version: plugin.version.VersionNumber });
             handleMenuClose();
         }
-    };
+    }, [disablePlugin, handleMenuClose, plugin.id, plugin.version?.VersionNumber]);
 
-    const handleUninstall = () => {
+    const handleUninstall = useCallback(() => {
         if (plugin.version?.VersionNumber) {
             uninstallPlugin.mutate({ pluginId: plugin.id, version: plugin.version.VersionNumber });
             handleMenuClose();
         }
-    };
+    }, [handleMenuClose, plugin.id, plugin.version?.VersionNumber, uninstallPlugin]);
 
-    const handleInstall = (version: { VersionNumber?: string; version?: string }) => {
+    const handleInstall = useCallback((version: { VersionNumber?: string; version?: string }) => {
         const installVersion: string = version.VersionNumber || version.version || '';
         const params: PackageApiInstallPackageRequest = {
             name: plugin.name || '',
@@ -82,7 +82,15 @@ const PluginCard = ({ plugin }: PluginCardProps) => {
         };
         installPackage.mutate(params);
         handleMenuClose();
-    };
+    }, [handleMenuClose, installPackage, plugin.id, plugin.name]);
+
+    const handleInstallClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+        const version = plugin.versions?.find(v => v.VersionNumber === event.currentTarget.dataset.version);
+
+        if (version) {
+            handleInstall(version);
+        }
+    }, [handleInstall, plugin.versions]);
 
     const getStatusChip = () => {
         // Check compatibility for uninstalled plugins
@@ -160,7 +168,11 @@ const PluginCard = ({ plugin }: PluginCardProps) => {
                     <>
                         <Divider />
                         {plugin.versions.map(v => (
-                            <MenuItem key={v.VersionNumber} onClick={() => handleInstall(v)}>
+                            <MenuItem
+                                key={v.VersionNumber}
+                                data-version={v.VersionNumber}
+                                onClick={handleInstallClick}
+                            >
                                 <ListItemIcon><UpdateIcon fontSize='small' /></ListItemIcon>
                                 <ListItemText>{globalize.translate('LabelInstall')} v{v.VersionNumber}</ListItemText>
                             </MenuItem>

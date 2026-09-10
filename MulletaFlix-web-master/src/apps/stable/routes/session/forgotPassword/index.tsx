@@ -57,18 +57,18 @@ export const ForgotPasswordPage = () => {
                 text: msg,
                 title: globalize.translate('ButtonForgotPassword')
             }).then(() => {
-                if (callback) callback();
+                return callback();
             });
         }
     });
 
-    const handleCancel = useCallback(() => {
-        navigate(-1);
+    const handleCancel = useCallback(async () => {
+        await navigate(-1);
     }, [navigate]);
 
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
-        forgotPasswordMutation.mutate(username);
+        return forgotPasswordMutation.mutateAsync(username);
     }, [username, forgotPasswordMutation]);
 
     const handleUsernameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

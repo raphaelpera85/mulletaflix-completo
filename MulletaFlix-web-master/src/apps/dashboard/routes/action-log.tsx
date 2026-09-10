@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import type { Api } from '@jellyfin/sdk';
 import type { AxiosRequestConfig } from 'axios';
 import globalize from 'lib/globalize';
@@ -26,7 +26,7 @@ import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
-import Select from '@mui/material/Select';
+import Select, { type SelectChangeEvent } from '@mui/material/Select';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -97,16 +97,24 @@ interface ActionLogQuery {
 
 const fetchActionLogs = async (api: Api, query: ActionLogQuery, options?: AxiosRequestConfig) => {
     const params = new URLSearchParams();
-    if (query.startIndex !== undefined) params.set('startIndex', query.startIndex.toString());
-    if (query.limit !== undefined) params.set('limit', query.limit.toString());
-    if (query.minDate) params.set('minDate', query.minDate);
-    if (query.maxDate) params.set('maxDate', query.maxDate);
-    if (query.actionType) params.set('actionType', query.actionType);
-    if (query.entityType) params.set('entityType', query.entityType);
-    if (query.userId) params.set('userId', query.userId);
-    if (query.username) params.set('username', query.username);
-    if (query.isSuccess !== undefined) params.set('isSuccess', query.isSuccess.toString());
-    if (query.category) params.set('category', query.category);
+    const queryEntries: Array<[string, string | number | boolean | undefined]> = [
+        [ 'startIndex', query.startIndex ],
+        [ 'limit', query.limit ],
+        [ 'minDate', query.minDate ],
+        [ 'maxDate', query.maxDate ],
+        [ 'actionType', query.actionType ],
+        [ 'entityType', query.entityType ],
+        [ 'userId', query.userId ],
+        [ 'username', query.username ],
+        [ 'isSuccess', query.isSuccess ],
+        [ 'category', query.category ]
+    ];
+
+    for (const [ key, value ] of queryEntries) {
+        if (value !== undefined && value !== '') {
+            params.set(key, String(value));
+        }
+    }
 
     const response = await api.axiosInstance.request({
         url: `/ActionLog/Entries?${params.toString()}`,
@@ -137,40 +145,60 @@ const ActionLogPage = () => {
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const [detailRow, setDetailRow] = useState<ActionLogDto | null>(null);
 
-    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setQuery({ ...query, username: e.target.value, startIndex: 0 });
-    };
+    const handleSearch = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setQuery(current => ({ ...current, username: e.target.value, startIndex: 0 }));
+    }, []);
 
-    const handleFilterChange = (field: keyof ActionLogQuery, value: ActionLogQuery[keyof ActionLogQuery]) => {
-        setQuery({ ...query, [field]: value, startIndex: 0 });
-    };
+    const handleFilterChange = useCallback((field: keyof ActionLogQuery, value: ActionLogQuery[keyof ActionLogQuery]) => {
+        setQuery(current => ({ ...current, [field]: value, startIndex: 0 }));
+    }, []);
 
-    const handleSort = (field: string) => {
+    const handleSort = useCallback((field: string) => {
         if (sortBy === field) {
             setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
         } else {
             setSortBy(field);
             setSortOrder('desc');
         }
-    };
+    }, [ sortBy, sortOrder ]);
 
-    const handlePageChange = (_: unknown, page: number) => {
-        setQuery({ ...query, startIndex: page * (query.limit ?? 25) });
-    };
+    const handlePageChange = useCallback((_: unknown, page: number) => {
+        setQuery(current => ({ ...current, startIndex: page * (current.limit ?? 25) }));
+    }, []);
 
-    const handleRowsPerPageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setQuery({ ...query, limit: parseInt(e.target.value, 10), startIndex: 0 });
-    };
+    const handleRowsPerPageChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setQuery(current => ({ ...current, limit: parseInt(e.target.value, 10), startIndex: 0 }));
+    }, []);
 
-    const openDetailMenu = (event: React.MouseEvent<HTMLElement>, row: ActionLogDto) => {
+    const handleSelectFilterChange = useCallback((event: SelectChangeEvent<unknown>) => {
+        const field = event.target.name as keyof ActionLogQuery;
+        let value: ActionLogQuery[keyof ActionLogQuery] = String(event.target.value);
+        if (field === 'isSuccess') {
+            value = event.target.value === '' ? undefined : event.target.value === 'true';
+        }
+        handleFilterChange(field, value);
+    }, [ handleFilterChange ]);
+
+    const handleSortClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+        const field = event.currentTarget.dataset.sortField;
+        if (field) {
+            handleSort(field);
+        }
+    }, [ handleSort ]);
+
+    const openDetailMenu = useCallback((event: React.MouseEvent<HTMLElement>, row: ActionLogDto) => {
         setAnchorEl(event.currentTarget);
         setDetailRow(row);
-    };
+    }, []);
 
-    const closeDetailMenu = () => {
+    const closeDetailMenu = useCallback(() => {
         setAnchorEl(null);
         setDetailRow(null);
-    };
+    }, []);
+
+    const handleExport = useCallback(() => {
+        void navigate('/dashboard/action-log/export');
+    }, [ navigate ]);
 
     const { data, isLoading, isError } = useQuery({
         queryKey: ['ActionLog', 'Entries', api?.basePath, JSON.stringify(query)],
@@ -181,6 +209,35 @@ const ActionLogPage = () => {
 
     const items = data?.items ?? [];
     const totalCount = data?.totalRecordCount ?? 0;
+
+    const handleDetailClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
+        const rowId = Number(event.currentTarget.dataset.rowId);
+        const row = items.find(item => item.id === rowId);
+        if (row) {
+            openDetailMenu(event, row);
+        }
+    }, [ items, openDetailMenu ]);
+
+    let stateContent: React.ReactNode = null;
+    if (isLoading) {
+        stateContent = (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <Typography>{globalize.translate('Loading')}</Typography>
+            </Box>
+        );
+    } else if (isError) {
+        stateContent = (
+            <Paper sx={{ p: 3, textAlign: 'center', color: 'error' }}>
+                {globalize.translate('ErrorLoadingData')}
+            </Paper>
+        );
+    } else if (items.length === 0) {
+        stateContent = (
+            <Paper sx={{ p: 3, textAlign: 'center' }}>
+                <Typography color='text.secondary'>{globalize.translate('NoActionLogsFound')}</Typography>
+            </Paper>
+        );
+    }
 
     const getStatusChip = (isSuccess: boolean) => (
         <Chip
@@ -214,10 +271,11 @@ const ActionLogPage = () => {
                 <FormControl size='small' sx={{ minWidth: 180 }}>
                     <InputLabel id='action-type-label'>{globalize.translate('ActionType')}</InputLabel>
                     <Select
+                        name='actionType'
                         label={globalize.translate('ActionType')}
                         value={query.actionType}
                         labelId='action-type-label'
-                        onChange={(e) => handleFilterChange('actionType', e.target.value)}
+                        onChange={handleSelectFilterChange}
                     >
                         <MenuItem value=''>{globalize.translate('All')}</MenuItem>
                         {ACTION_TYPES.map(type => (
@@ -228,10 +286,11 @@ const ActionLogPage = () => {
                 <FormControl size='small' sx={{ minWidth: 180 }}>
                     <InputLabel id='entity-type-label'>{globalize.translate('EntityType')}</InputLabel>
                     <Select
+                        name='entityType'
                         label={globalize.translate('EntityType')}
                         value={query.entityType}
                         labelId='entity-type-label'
-                        onChange={(e) => handleFilterChange('entityType', e.target.value)}
+                        onChange={handleSelectFilterChange}
                     >
                         <MenuItem value=''>{globalize.translate('All')}</MenuItem>
                         {ENTITY_TYPES.map(type => (
@@ -242,10 +301,11 @@ const ActionLogPage = () => {
                 <FormControl size='small' sx={{ minWidth: 180 }}>
                     <InputLabel id='category-label'>{globalize.translate('Category')}</InputLabel>
                     <Select
+                        name='category'
                         label={globalize.translate('Category')}
                         value={query.category}
                         labelId='category-label'
-                        onChange={(e) => handleFilterChange('category', e.target.value)}
+                        onChange={handleSelectFilterChange}
                     >
                         <MenuItem value=''>{globalize.translate('All')}</MenuItem>
                         {CATEGORIES.map(cat => (
@@ -256,10 +316,11 @@ const ActionLogPage = () => {
                 <FormControl size='small' sx={{ minWidth: 150 }}>
                     <InputLabel id='status-label'>{globalize.translate('Status')}</InputLabel>
                     <Select
+                        name='isSuccess'
                         label={globalize.translate('Status')}
                         value={query.isSuccess === undefined ? '' : query.isSuccess.toString()}
                         labelId='status-label'
-                        onChange={(e) => handleFilterChange('isSuccess', e.target.value === '' ? undefined : e.target.value === 'true')}
+                        onChange={handleSelectFilterChange}
                     >
                         <MenuItem value=''>{globalize.translate('All')}</MenuItem>
                         <MenuItem value='true'>{globalize.translate('Success')}</MenuItem>
@@ -267,24 +328,13 @@ const ActionLogPage = () => {
                     </Select>
                 </FormControl>
                 <Box sx={{ flexGrow: 1 }} />
-                <IconButton onClick={() => navigate('/dashboard/action-log/export')} color='primary'>
+                <IconButton onClick={handleExport} color='primary'>
                     <DownloadIcon />
                 </IconButton>
             </Toolbar>
 
-            {isLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                    <Typography>{globalize.translate('Loading')}</Typography>
-                </Box>
-            ) : isError ? (
-                <Paper sx={{ p: 3, textAlign: 'center', color: 'error' }}>
-                    {globalize.translate('ErrorLoadingData')}
-                </Paper>
-            ) : items.length === 0 ? (
-                <Paper sx={{ p: 3, textAlign: 'center' }}>
-                    <Typography color='text.secondary'>{globalize.translate('NoActionLogsFound')}</Typography>
-                </Paper>
-            ) : (
+            {stateContent}
+            {!isLoading && !isError && items.length > 0 && (
                 <>
                     <TableContainer>
                         <Table>
@@ -292,54 +342,60 @@ const ActionLogPage = () => {
                                 <TableRow>
                                     <TableCell>
                                         <TableSortLabel
+                                            data-sort-field='dateCreated'
                                             active={sortBy === 'dateCreated'}
                                             direction={sortBy === 'dateCreated' ? sortOrder : 'asc'}
-                                            onClick={() => handleSort('dateCreated')}
+                                            onClick={handleSortClick}
                                         >
                                             {globalize.translate('Date')}
                                         </TableSortLabel>
                                     </TableCell>
                                     <TableCell>
                                         <TableSortLabel
+                                            data-sort-field='actionType'
                                             active={sortBy === 'actionType'}
                                             direction={sortBy === 'actionType' ? sortOrder : 'asc'}
-                                            onClick={() => handleSort('actionType')}
+                                            onClick={handleSortClick}
                                         >
                                             {globalize.translate('ActionType')}
                                         </TableSortLabel>
                                     </TableCell>
                                     <TableCell>
                                         <TableSortLabel
+                                            data-sort-field='entityType'
                                             active={sortBy === 'entityType'}
                                             direction={sortBy === 'entityType' ? sortOrder : 'asc'}
-                                            onClick={() => handleSort('entityType')}
+                                            onClick={handleSortClick}
                                         >
                                             {globalize.translate('EntityType')}
                                         </TableSortLabel>
                                     </TableCell>
                                     <TableCell>
                                         <TableSortLabel
+                                            data-sort-field='username'
                                             active={sortBy === 'username'}
                                             direction={sortBy === 'username' ? sortOrder : 'asc'}
-                                            onClick={() => handleSort('username')}
+                                            onClick={handleSortClick}
                                         >
                                             {globalize.translate('User')}
                                         </TableSortLabel>
                                     </TableCell>
                                     <TableCell>
                                         <TableSortLabel
+                                            data-sort-field='category'
                                             active={sortBy === 'category'}
                                             direction={sortBy === 'category' ? sortOrder : 'asc'}
-                                            onClick={() => handleSort('category')}
+                                            onClick={handleSortClick}
                                         >
                                             {globalize.translate('Category')}
                                         </TableSortLabel>
                                     </TableCell>
                                     <TableCell>
                                         <TableSortLabel
+                                            data-sort-field='isSuccess'
                                             active={sortBy === 'isSuccess'}
                                             direction={sortBy === 'isSuccess' ? sortOrder : 'asc'}
-                                            onClick={() => handleSort('isSuccess')}
+                                            onClick={handleSortClick}
                                         >
                                             {globalize.translate('Status')}
                                         </TableSortLabel>
@@ -359,7 +415,8 @@ const ActionLogPage = () => {
                                         <TableCell align='right'>
                                             <IconButton
                                                 size='small'
-                                                onClick={(e) => openDetailMenu(e, row)}
+                                                data-row-id={row.id}
+                                                onClick={handleDetailClick}
                                                 aria-label={globalize.translate('ViewDetails')}
                                             >
                                                 <FilterListIcon />

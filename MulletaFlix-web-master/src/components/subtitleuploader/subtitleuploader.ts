@@ -27,7 +27,7 @@ function onFileReaderError(evt: ProgressEvent<FileReader>): void {
     loading.hide();
 
     const error = (evt.target as FileReader).error!;
-    if (error.code !== error.ABORT_ERR) {
+    if (error.name !== 'AbortError') {
         toast(globalize.translate('MessageFileReadError'));
     }
 }
@@ -95,18 +95,23 @@ async function onSubmit(this: any, e: Event): Promise<void> {
 
     const subtitleApi = getSubtitleApi(toApi(ServerConnections.getApiClient(currentServerId) as any));
 
-    const data = await readFileAsBase64(file!);
-    const format = file!.name.substring(file!.name.lastIndexOf('.') + 1).toLowerCase();
+    try {
+        const data = await readFileAsBase64(file!);
+        const format = file!.name.substring(file!.name.lastIndexOf('.') + 1).toLowerCase();
 
-    subtitleApi.uploadSubtitle({
-        itemId: currentItemId,
-        uploadSubtitleDto: { Data: data, Language: language, IsForced: isForced, Format: format, IsHearingImpaired: isHearingImpaired }
-    }).then(function () {
+        await subtitleApi.uploadSubtitle({
+            itemId: currentItemId,
+            uploadSubtitleDto: { Data: data, Language: language, IsForced: isForced, Format: format, IsHearingImpaired: isHearingImpaired }
+        });
+
         (dlg!.querySelector('#uploadSubtitle') as HTMLInputElement).value = '';
-        loading.hide();
         hasChanges = true;
         dialogHelper.close(dlg);
-    });
+    } catch {
+        toast(globalize.translate('ErrorDefault'));
+    } finally {
+        loading.hide();
+    }
 }
 
 function initEditor(page: Element): void {
@@ -154,7 +159,7 @@ function showEditor(options: SubtitleUploaderOptions, resolve: (value: boolean) 
         resolve(hasChanges);
     });
 
-    dialogHelper.open(dlg);
+    dialogHelper.open(dlg).catch(() => loading.hide());
 
     initEditor(dlg);
 

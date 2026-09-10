@@ -100,17 +100,19 @@ export function getCurrentUserId(): string | null {
 }
 
 export function onServerChanged(_userId: string, _accessToken: string, apiClient: unknown): void {
-    ServerConnections.setLocalApiClient(apiClient as any);
+    ServerConnections.setLocalApiClient(apiClient as Parameters<typeof ServerConnections.setLocalApiClient>[0]);
 }
 
 export function logout(): void {
-    ServerConnections.logout().then(function () {
+    void ServerConnections.logout().then(function () {
         // Clear the query cache
         queryClient.clear();
         // Reset cached views
         viewContainer.reset();
-        appHost.supports(AppFeature.MultiServer) ?
-            navigate('selectserver') : navigate('login');
+        const destination = appHost.supports(AppFeature.MultiServer) ? 'selectserver' : 'login';
+        return navigate(destination);
+    }).catch((error: unknown) => {
+        console.error('[Dashboard] failed to log out', error);
     });
 }
 
@@ -163,9 +165,11 @@ export function processErrorResponse(response: { status: number; statusText?: st
         status = response.statusText;
     }
 
-    baseAlert({
+    void baseAlert({
         title: status,
         text: response.headers?.get('X-Application-Error-Code') ?? undefined
+    }).catch((error: unknown) => {
+        console.error('[Dashboard] failed to show error response', error);
     });
 }
 
@@ -175,10 +179,12 @@ export function alert(options: string | { title?: string; message?: string; call
             text: options
         });
     } else {
-        baseAlert({
+        void baseAlert({
             title: options.title || globalize.translate('HeaderAlert'),
             text: options.message
-        }).then(options.callback || function () { /* no-op */ });
+        }).then(options.callback || function () { /* no-op */ }).catch((error: unknown) => {
+            console.error('[Dashboard] failed to show alert', error);
+        });
     }
 }
 
@@ -188,7 +194,9 @@ export function selectServer(): void {
     if (window.NativeShell && typeof window.NativeShell.selectServer === 'function') {
         window.NativeShell.selectServer();
     } else {
-        navigate('selectserver');
+        void navigate('selectserver').catch((error: unknown) => {
+            console.error('[Dashboard] failed to navigate to server selection', error);
+        });
     }
 }
 

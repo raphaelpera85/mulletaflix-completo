@@ -14,6 +14,7 @@ import CheckBoxElement from 'elements/CheckBoxElement';
 import SelectElement from 'elements/SelectElement';
 import prompt from 'components/prompt/prompt';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
+import type { ApiClient } from 'jellyfin-apiclient';
 import Toast from 'apps/dashboard/components/Toast';
 
 interface ParentalControlProps {
@@ -57,7 +58,7 @@ function handleSaveUser(
         userPolicy.AllowedTags = getAllowedTagsFromPage();
         userPolicy.BlockedTags = getBlockedTagsFromPage();
         ServerConnections.getCurrentApiClientAsync()
-            .then(apiClient => (apiClient as any).updateUserPolicy(userId, userPolicy))
+            .then(apiClient => (apiClient as unknown as ApiClient).updateUserPolicy(userId, userPolicy))
             .then(() => onSaveComplete())
             .catch(err => {
                 console.error('[userparentalcontrol] failed to update user policy', err);
@@ -506,4 +507,3 @@ const ParentalControl = ({ userId }: ParentalControlProps) => {
 };
 
 export default ParentalControl;
-

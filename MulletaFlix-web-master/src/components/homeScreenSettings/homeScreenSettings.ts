@@ -457,7 +457,7 @@ function loadForm(context: HTMLElement, user: User, userSettingsInstance: UserSe
         renderViews(context, user, responses[1] as Array<{ Id: string; Name?: string }>);
 
         loading.hide();
-    });
+    }).catch(() => loading.hide());
 }
 
 function onSectionOrderListClick(e: Event): void {
@@ -552,16 +552,16 @@ function save(instance: HomeScreenSettings, context: HTMLElement, userId: string
     loading.show();
 
     (apiClient as any).getUser(userId).then((user: User) => {
-        saveUser(context, user, userSettingsInstance, apiClient).then(() => {
-            loading.hide();
-            if (enableSaveConfirmation) {
-                toast(globalize.translate('SettingsSaved'));
-            }
+        return saveUser(context, user, userSettingsInstance, apiClient);
+    }).then(() => {
+        loading.hide();
+        if (enableSaveConfirmation) {
+            toast(globalize.translate('SettingsSaved'));
+        }
 
-            Events.trigger(instance, 'saved');
-        }, () => {
-            loading.hide();
-        });
+        Events.trigger(instance, 'saved');
+    }).catch(() => {
+        loading.hide();
     });
 }
 
@@ -574,7 +574,7 @@ function onSubmit(this: HomeScreenSettings, e?: Event): void {
     userSettingsInstance.setUserInfo(userId, apiClient).then(() => {
         const enableSaveConfirmation = self.options.enableSaveConfirmation;
         save(self, self.options.element, userId, userSettingsInstance, apiClient, enableSaveConfirmation);
-    });
+    }).catch(() => loading.hide());
 
     // Disable default form submission
     if (e) {
@@ -644,7 +644,7 @@ class HomeScreenSettings {
         const userSettingsInstance = self.options.userSettings;
 
         (apiClient as any).getUser(userId).then((user: User) => {
-            userSettingsInstance.setUserInfo(userId, apiClient).then(() => {
+            return userSettingsInstance.setUserInfo(userId, apiClient).then(() => {
                 self.dataLoaded = true;
 
                 loadForm(context, user, userSettingsInstance, apiClient);
@@ -653,7 +653,7 @@ class HomeScreenSettings {
                     focusManager.autoFocus(context);
                 }
             });
-        });
+        }).catch(() => loading.hide());
     }
 
     submit(): void {

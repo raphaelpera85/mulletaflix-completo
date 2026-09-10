@@ -3,7 +3,7 @@ import { useQueries } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
+import Chip, { type ChipProps } from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -18,7 +18,6 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
-import type { ChipProps } from '@mui/material/Chip';
 
 import Page from 'components/Page';
 import confirm from 'components/confirm/confirm';
@@ -214,6 +213,43 @@ export const Component = () => {
         timelineData?.Items || []
     ), [timelineData]);
 
+    let timelineContent: React.ReactNode;
+    if (isTimelineLoading) {
+        timelineContent = <CircularProgress size={24} />;
+    } else if (timelineEntries.length === 0) {
+        timelineContent = (
+            <Typography color='text.secondary'>
+                Nenhuma alteração de licença registrada ainda.
+            </Typography>
+        );
+    } else {
+        timelineContent = (
+            <Stack spacing={1}>
+                {timelineEntries.map(entry => (
+                    <Stack
+                        key={entry.Id}
+                        direction='row'
+                        spacing={2}
+                        alignItems='baseline'
+                        sx={{ borderBottom: '1px solid', borderColor: 'divider', py: 0.5 }}
+                    >
+                        <Typography variant='caption' color='text.secondary' sx={{ minWidth: 160 }}>
+                            {entry.Date ? new Date(entry.Date).toLocaleString() : ''}
+                        </Typography>
+                        <Typography variant='body2' sx={{ flexGrow: 1 }}>
+                            {entry.Name}
+                        </Typography>
+                        {entry.Overview && (
+                            <Typography variant='caption' color='text.secondary'>
+                                {entry.Overview}
+                            </Typography>
+                        )}
+                    </Stack>
+                ))}
+            </Stack>
+        );
+    }
+
     const handleDurationChange = useCallback((userId: string, value: string) => {
         setDurationDrafts(prev => ({
             ...prev,
@@ -221,10 +257,14 @@ export const Component = () => {
         }));
     }, []);
 
+    const handleDurationSelectChange = useCallback((event: SelectChangeEvent) => {
+        handleDurationChange(event.target.name, event.target.value);
+    }, [handleDurationChange]);
+
     const handleSave = useCallback((userId: string, isAdmin: boolean) => {
         const selectedDuration = isAdmin ? null : durationDrafts[userId];
 
-        if (!isAdmin && (selectedDuration === undefined || selectedDuration === '')) {
+        if (!isAdmin && selectedDuration === '') {
             toast('Selecione uma duração para aplicar.');
             return;
         }
@@ -275,6 +315,20 @@ export const Component = () => {
             // Cancelado pelo usuário.
         });
     }, [revokeLicenseMutation]);
+
+    const handleSaveClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        handleSave(
+            event.currentTarget.dataset.userId || '',
+            event.currentTarget.dataset.isAdmin === 'true'
+        );
+    }, [handleSave]);
+
+    const handleRevokeClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        handleRevoke(
+            event.currentTarget.dataset.userId || '',
+            event.currentTarget.dataset.userName
+        );
+    }, [handleRevoke]);
 
     if (isPending) {
         return <Loading />;
@@ -377,9 +431,10 @@ export const Component = () => {
                                                 <InputLabel id={`license-duration-label-${userId}`}>Duração</InputLabel>
                                                 <Select
                                                     labelId={`license-duration-label-${userId}`}
+                                                    name={userId}
                                                     value={effectiveValue}
                                                     label='Duração'
-                                                    onChange={(event: SelectChangeEvent) => handleDurationChange(userId, event.target.value)}
+                                                    onChange={handleDurationSelectChange}
                                                     disabled={rowIsLoading || isAdmin}
                                                     MenuProps={{
                                                         PaperProps: {
@@ -416,7 +471,9 @@ export const Component = () => {
                                             <Stack direction='row' spacing={1} flexWrap='wrap' useFlexGap sx={{ minWidth: 0 }}>
                                                 <Button
                                                     variant='contained'
-                                                    onClick={() => handleSave(userId, isAdmin)}
+                                                    data-user-id={userId}
+                                                    data-is-admin={isAdmin}
+                                                    onClick={handleSaveClick}
                                                     disabled={!canSave}
                                                     size='small'
                                                 >
@@ -425,7 +482,9 @@ export const Component = () => {
                                                 <Button
                                                     variant='outlined'
                                                     color='error'
-                                                    onClick={() => handleRevoke(userId, user.Name)}
+                                                    data-user-id={userId}
+                                                    data-user-name={user.Name || ''}
+                                                    onClick={handleRevokeClick}
                                                     disabled={rowIsLoading || isNoLicense || revokeLicenseMutation.isPending}
                                                     size='small'
                                                 >
@@ -444,37 +503,7 @@ export const Component = () => {
                     <Typography variant='h2' sx={{ mb: 1.5 }}>
                         Alterações recentes
                     </Typography>
-                    {isTimelineLoading ? (
-                        <CircularProgress size={24} />
-                    ) : timelineEntries.length === 0 ? (
-                        <Typography color='text.secondary'>
-                            Nenhuma alteração de licença registrada ainda.
-                        </Typography>
-                    ) : (
-                        <Stack spacing={1}>
-                            {timelineEntries.map(entry => (
-                                <Stack
-                                    key={entry.Id}
-                                    direction='row'
-                                    spacing={2}
-                                    alignItems='baseline'
-                                    sx={{ borderBottom: '1px solid', borderColor: 'divider', py: 0.5 }}
-                                >
-                                    <Typography variant='caption' color='text.secondary' sx={{ minWidth: 160 }}>
-                                        {entry.Date ? new Date(entry.Date).toLocaleString() : ''}
-                                    </Typography>
-                                    <Typography variant='body2' sx={{ flexGrow: 1 }}>
-                                        {entry.Name}
-                                    </Typography>
-                                    {entry.Overview && (
-                                        <Typography variant='caption' color='text.secondary'>
-                                            {entry.Overview}
-                                        </Typography>
-                                    )}
-                                </Stack>
-                            ))}
-                        </Stack>
-                    )}
+                    {timelineContent}
                 </Paper>
             </Box>
         </Page>

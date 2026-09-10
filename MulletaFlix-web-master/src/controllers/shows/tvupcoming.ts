@@ -5,6 +5,8 @@ import layoutManager from 'components/layoutManager';
 import loading from 'components/loading/loading';
 import datetime from 'scripts/datetime';
 import globalize from 'lib/globalize';
+import type { ItemDto } from 'types/base/models/item-dto';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import 'elements/emby-itemscontainer/emby-itemscontainer';
 
@@ -14,9 +16,9 @@ interface ViewParams {
     topParentId: string;
 }
 
-function getUpcomingPromise(context: HTMLElement, params: ViewParams): Promise<any> {
+function getUpcomingPromise(params: ViewParams): Promise<ItemDtoQueryResult> {
     loading.show();
-    const query: any = {
+    const query: Record<string, unknown> = {
         Limit: 48,
         Fields: 'AirTime',
         UserId: ApiClient.getCurrentUserId(),
@@ -28,17 +30,22 @@ function getUpcomingPromise(context: HTMLElement, params: ViewParams): Promise<a
     return ApiClient.getJSON(ApiClient.getUrl('Shows/Upcoming', query));
 }
 
-function loadUpcoming(context: HTMLElement, params: ViewParams, promise: Promise<any>): void {
-    promise.then(function (result: any) {
-        const items = result.Items;
+function loadUpcoming(context: HTMLElement, promise: Promise<ItemDtoQueryResult>): void {
+    promise.then(function (result: ItemDtoQueryResult) {
+        const items = result.Items ?? [];
+        const noItemsMessage = context.querySelector('.noItemsMessage');
 
-        if (items.length) {
-            (context.querySelector('.noItemsMessage') as HTMLElement).style.display = 'none';
-        } else {
-            (context.querySelector('.noItemsMessage') as HTMLElement).style.display = 'block';
+        if (noItemsMessage instanceof HTMLElement) {
+            noItemsMessage.style.display = items.length ? 'none' : 'block';
         }
 
-        renderUpcoming(context.querySelector('#upcomingItems') as HTMLElement, items);
+        const upcomingItems = context.querySelector('#upcomingItems');
+        if (upcomingItems instanceof HTMLElement) {
+            renderUpcoming(upcomingItems, items);
+        }
+        loading.hide();
+    }).catch((error: unknown) => {
+        console.error('[TvUpcoming] failed to load upcoming shows', error);
         loading.hide();
     });
 }
@@ -47,95 +54,91 @@ function enableScrollX(): boolean {
     return !layoutManager.desktop;
 }
 
-function renderUpcoming(elem: HTMLElement, items: any[]): void {
-    const groups: { name: string; items: any[] }[] = [];
-    let currentGroupName: string = '';
-    let currentGroup: any[] = [];
-
-    for (let i = 0, length = items.length; i < length; i++) {
-        const item = items[i];
-        let dateText = '';
-
-        if (item.PremiereDate) {
-            try {
-                const premiereDate = datetime.parseISO8601Date(item.PremiereDate, true);
-                dateText = datetime.isRelativeDay(premiereDate, -1) ? globalize.translate('Yesterday') : datetime.toLocaleDateString(premiereDate, {
-                    weekday: 'long',
-                    month: 'short',
-                    day: 'numeric'
-                });
-            } catch (err) {
-                console.error('error parsing timestamp for upcoming tv shows', err);
-            }
-        }
-
-        if (dateText != currentGroupName) {
-            currentGroupName = dateText;
-            currentGroup = [item];
-
-            groups.push({
-                name: currentGroupName,
-                items: currentGroup
-            });
-        } else {
-            currentGroup.push(item);
-        }
+function getUpcomingDateText(item: ItemDto): string {
+    if (!item.PremiereDate) {
+        return '';
     }
 
-    let html = '';
-
-    for (let i = 0, length = groups.length; i < length; i++) {
-        const group = groups[i];
-        html += '<div class="verticalSection">';
-        html += '<h2 class="sectionTitle sectionTitle-cards padded-left">' + group.name + '</h2>';
-        let allowBottomPadding = true;
-
-        if (enableScrollX()) {
-            allowBottomPadding = false;
-            let scrollXClass = 'scrollX hiddenScrollX';
-
-            if (layoutManager.tv) {
-                scrollXClass += ' smoothScrollX';
-            }
-
-            html += '<div is="emby-itemscontainer" class="itemsContainer ' + scrollXClass + ' padded-left padded-right">';
-        } else {
-            html += '<div is="emby-itemscontainer" class="itemsContainer vertical-wrap padded-left padded-right">';
-        }
-
-        html += cardBuilder.getCardsHtml({
-            items: group.items,
-            showLocationTypeIndicator: false,
-            shape: getBackdropShape(enableScrollX()),
-            showTitle: true,
-            preferThumb: true,
-            lazy: true,
-            showDetailsMenu: true,
-            centerText: true,
-            showParentTitle: true,
-            overlayText: false,
-            allowBottomPadding: allowBottomPadding,
-            cardLayout: false,
-            overlayMoreButton: true,
-            missingIndicator: false
+    try {
+        const premiereDate = datetime.parseISO8601Date(item.PremiereDate, true);
+        return datetime.isRelativeDay(premiereDate, -1) ? globalize.translate('Yesterday') : datetime.toLocaleDateString(premiereDate, {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric'
         });
-        html += '</div>';
-        html += '</div>';
+    } catch (error) {
+        console.error('error parsing timestamp for upcoming tv shows', error);
+        return '';
+    }
+}
+
+function groupUpcomingItems(items: ItemDto[]): { name: string; items: ItemDto[] }[] {
+    const groups: { name: string; items: ItemDto[] }[] = [];
+    let currentGroup: { name: string; items: ItemDto[] } | undefined;
+
+    for (const item of items) {
+        const name = getUpcomingDateText(item);
+        if (!currentGroup || currentGroup.name !== name) {
+            currentGroup = { name, items: [] };
+            groups.push(currentGroup);
+        }
+        currentGroup.items.push(item);
     }
 
-    elem.innerHTML = html;
+    return groups;
+}
+
+function renderUpcomingGroup(group: { name: string; items: ItemDto[] }): string {
+    const horizontal = enableScrollX();
+    const allowBottomPadding = !horizontal;
+    let containerClass = 'vertical-wrap';
+    if (horizontal) {
+        containerClass = 'scrollX hiddenScrollX';
+        if (layoutManager.tv) {
+            containerClass += ' smoothScrollX';
+        }
+    }
+
+    let html = '<div class="verticalSection">';
+    html += '<h2 class="sectionTitle sectionTitle-cards padded-left">' + group.name + '</h2>';
+    html += '<div is="emby-itemscontainer" class="itemsContainer ' + containerClass + ' padded-left padded-right">';
+    html += cardBuilder.getCardsHtml({
+        items: group.items,
+        showLocationTypeIndicator: false,
+        shape: getBackdropShape(horizontal),
+        showTitle: true,
+        preferThumb: true,
+        lazy: true,
+        showDetailsMenu: true,
+        centerText: true,
+        showParentTitle: true,
+        overlayText: false,
+        allowBottomPadding: allowBottomPadding,
+        cardLayout: false,
+        overlayMoreButton: true,
+        missingIndicator: false
+    });
+    return html + '</div></div>';
+}
+
+function renderUpcoming(elem: HTMLElement, items: ItemDto[]): void {
+    elem.innerHTML = groupUpcomingItems(items).map(renderUpcomingGroup).join('');
     imageLoader.lazyChildren(elem);
 }
 
-export default function (this: any, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
-    let upcomingPromise: Promise<any>;
-    const self = this;
+interface TvUpcomingController {
+    preRender: () => void;
+    renderTab: () => void;
+}
 
-    self.preRender = function (): void {
-        upcomingPromise = getUpcomingPromise(view, params);
+export default function (this: TvUpcomingController, view: HTMLElement, params: ViewParams, tabContent: HTMLElement): void {
+    let upcomingPromise: Promise<ItemDtoQueryResult> = Promise.resolve({ Items: [] });
+
+    this.preRender = function (): void {
+        upcomingPromise = getUpcomingPromise(params);
     };
 
-    self.renderTab = function (): void {
-        loadUpcoming(tabContent, params, upcomingPromise);
+    this.renderTab = function (): void {
+        loadUpcoming(tabContent, upcomingPromise);
     };
 }

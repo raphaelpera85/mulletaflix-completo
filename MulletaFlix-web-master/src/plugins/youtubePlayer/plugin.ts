@@ -76,7 +76,7 @@ function zoomIn(elem: HTMLDivElement, iterations: number): Animation {
 }
 
 function createMediaElement(instance: YoutubePlayerInstance, options: PlayOptions): Promise<HTMLDivElement> {
-    return new Promise(function (resolve) {
+    return new Promise(function (resolve, reject) {
         const dlg = document.querySelector('.youtubePlayerContainer') as HTMLDivElement | null;
 
         if (!dlg) {
@@ -108,7 +108,7 @@ function createMediaElement(instance: YoutubePlayerInstance, options: PlayOption
                 } else {
                     resolve(videoElement);
                 }
-            });
+            }).catch(reject);
         } else {
             // we need to hide scrollbar when starting playback from page with animated background
             if (options.fullscreen) {
@@ -177,7 +177,7 @@ function onPlaying(instance: YoutubePlayerInstance, playOptions: PlayOptions, re
         if (playOptions.fullscreen) {
             appRouter.showVideoOsd().then(function () {
                 instance.videoDialog!.classList.remove('onTop');
-            });
+            }).catch(() => undefined);
         } else {
             setBackdropTransparency(TRANSPARENCY_LEVEL.Backdrop);
             instance.videoDialog!.classList.remove('onTop');

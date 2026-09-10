@@ -36,7 +36,7 @@ function onRecordingButtonClick(this: any): void {
 
         recordingHelper.toggleRecording(serverId!, programId!, timerId!, timerStatus!, seriesTimerId!).then(function () {
             instance.refresh(serverId!, programId!);
-        });
+        }).catch(() => undefined);
     }
 }
 

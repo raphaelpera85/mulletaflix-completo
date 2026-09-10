@@ -23,6 +23,7 @@ namespace MulletaFlix.Plugin.GetAvatar
         /// Initializes a new instance of the <see cref="AvatarValidationService"/> class.
         /// </summary>
         /// <param name="avatarService">The avatar service.</param>
+        /// <param name="onlinePackService">The online avatar pack service.</param>
         /// <param name="logger">The logger instance.</param>
         public AvatarValidationService(
             AvatarService avatarService,

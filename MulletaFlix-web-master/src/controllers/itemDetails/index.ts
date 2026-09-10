@@ -404,9 +404,8 @@ function setupButtons(view: HTMLElement, item: any, apiClient: any): void {
         const hasTrailers = item.LocalTrailerCount || (item.RemoteTrailers && item.RemoteTrailers.length);
         if (hasTrailers) {
             btnPlayTrailer.classList.remove('hide');
-            btnPlayTrailer.onclick = () => {
-                playbackManager.playTrailers(item);
-            };
+            btnPlayTrailer.onclick = () => playbackManager.playTrailers?.(item)
+                .catch((error: unknown) => console.error('[itemDetails] trailer playback failed', error));
         } else {
             btnPlayTrailer.classList.add('hide');
         }
@@ -456,21 +455,17 @@ function setupButtons(view: HTMLElement, item: any, apiClient: any): void {
 
     if (btnMoreCommands) {
         btnMoreCommands.classList.remove('hide');
-        btnMoreCommands.onclick = () => {
-            apiClient.getCurrentUser().then((user: any) => {
-                itemContextMenu.show({
-                    item: item,
-                    user: user,
-                    positionTo: btnMoreCommands
-                });
-            }).catch(() => {
-                itemContextMenu.show({
-                    item: item,
-                    user: {},
-                    positionTo: btnMoreCommands
-                });
-            });
-        };
+        btnMoreCommands.onclick = () => apiClient.getCurrentUser()
+            .then((user: any) => itemContextMenu.show({
+                item: item,
+                user: user,
+                positionTo: btnMoreCommands
+            }))
+            .catch(() => itemContextMenu.show({
+                item: item,
+                user: {},
+                positionTo: btnMoreCommands
+            }));
     }
 
     if (btnDownload) {
@@ -478,7 +473,7 @@ function setupButtons(view: HTMLElement, item: any, apiClient: any): void {
         if (canDownload && typeof apiClient.getItemDownloadUrl === 'function') {
             btnDownload.classList.remove('hide');
             btnDownload.onclick = () => {
-                window.open(apiClient.getItemDownloadUrl(item.Id), '_blank');
+                window.open(apiClient.getItemDownloadUrl(item.Id), '_blank', 'noopener,noreferrer');
             };
         } else {
             btnDownload.classList.add('hide');
@@ -540,6 +535,9 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
                     overlayPlayButton: true
                 });
             }
+        }).catch((error: unknown) => {
+            childrenCollapsible?.classList.add('hide');
+            console.error('[itemDetails] failed to load seasons', error);
         });
     } else if (item.Type === 'Season' && childrenContainer) {
         apiClient.getEpisodes(item.SeriesId, {
@@ -560,6 +558,9 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
                     centerText: true
                 });
             }
+        }).catch((error: unknown) => {
+            childrenCollapsible?.classList.add('hide');
+            console.error('[itemDetails] failed to load episodes', error);
         });
     } else if ((item.Type === 'MusicAlbum' || item.Type === 'Playlist') && childrenContainer) {
         apiClient.getItems(userId, {
@@ -577,6 +578,9 @@ function loadSections(view: HTMLElement, item: any, apiClient: any): void {
                     overlayPlayButton: true
                 });
             }
+        }).catch((error: unknown) => {
+            childrenCollapsible?.classList.add('hide');
+            console.error('[itemDetails] failed to load child items', error);
         });
     }
 

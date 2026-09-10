@@ -1,4 +1,6 @@
 import type { SessionInfo } from '@jellyfin/sdk/lib/generated-client/models/session-info';
+import { ImageType } from '@jellyfin/sdk/lib/generated-client/models/image-type';
+import type { ApiClient } from 'jellyfin-apiclient';
 import itemHelper from 'components/itemHelper';
 import formatDistanceToNow from 'date-fns/formatDistanceToNow';
 import globalize from 'lib/globalize';
@@ -37,19 +39,23 @@ const getNowPlayingName = (session: SessionInfo): NowPlayingInfo => {
         bottomText = nowPlayingItem.ProductionYear.toString();
     }
 
-    if (nowPlayingItem.ImageTags?.Logo) {
-        imgUrl = (ServerConnections.getApiClient(session.ServerId!) as any).getScaledImageUrl(nowPlayingItem.Id!, {
+    const apiClient = session.ServerId ?
+        ServerConnections.getApiClient(session.ServerId) as unknown as ApiClient :
+        null;
+
+    if (apiClient && nowPlayingItem.Id && nowPlayingItem.ImageTags?.Logo) {
+        imgUrl = apiClient.getScaledImageUrl(nowPlayingItem.Id, {
             tag: nowPlayingItem.ImageTags.Logo,
             maxHeight: 24,
             maxWidth: 130,
-            type: 'Logo'
+            type: ImageType.Logo
         });
-    } else if (nowPlayingItem.ParentLogoImageTag) {
-        imgUrl = (ServerConnections.getApiClient(session.ServerId!) as any).getScaledImageUrl(nowPlayingItem.ParentLogoItemId!, {
+    } else if (apiClient && nowPlayingItem.ParentLogoItemId && nowPlayingItem.ParentLogoImageTag) {
+        imgUrl = apiClient.getScaledImageUrl(nowPlayingItem.ParentLogoItemId, {
             tag: nowPlayingItem.ParentLogoImageTag,
             maxHeight: 24,
             maxWidth: 130,
-            type: 'Logo'
+            type: ImageType.Logo
         });
     }
 
@@ -61,4 +67,3 @@ const getNowPlayingName = (session: SessionInfo): NowPlayingInfo => {
 };
 
 export default getNowPlayingName;
-

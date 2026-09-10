@@ -121,7 +121,7 @@ function reload(context: Element, programId: string, serverId: string, refreshRe
         const program = responses[1];
 
         renderRecording(context, defaults, program, apiClient, !!refreshRecordingStateOnly);
-    });
+    }).catch(() => undefined);
 }
 
 function executeCloseAction(action: string | null, programId: string, serverId: string): void {
@@ -200,7 +200,7 @@ function showEditor(itemId: string, serverId: string): Promise<void> {
 
         Events.on(currentRecordingFields, 'recordingchanged', onRecordingChanged);
 
-        dialogHelper.open(dlg);
+        dialogHelper.open(dlg).catch(() => undefined);
     });
 }
 

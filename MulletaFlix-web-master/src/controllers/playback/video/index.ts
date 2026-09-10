@@ -519,14 +519,12 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onStateChanged(this: any, event: any, state: any) {
-        const player = this;
-
         if (state.NowPlayingItem) {
             isEnabled = true;
-            updatePlayerStateInternal(event, player, state);
+            updatePlayerStateInternal(event, this, state);
             void updatePlaylist().catch((error: unknown) => logVideoPlaybackError('failed to update playlist', error));
             enableStopOnBack(true);
-            updatePlaybackRate(player);
+            updatePlaybackRate(this);
         }
     }
 
@@ -538,15 +536,13 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
     function onVolumeChanged(this: any) {
         if (isEnabled) {
-            const player = this;
-            updatePlayerVolumeState(player, player.isMuted(), player.getVolume());
+            updatePlayerVolumeState(this, this.isMuted(), this.getVolume());
         }
     }
 
     function onPlaybackStart(this: any, e: any, state: any) {
         console.debug('nowplaying event: ' + e.type);
-        const player = this;
-        onStateChanged.call(player, e, state);
+        onStateChanged.call(this, e, state);
         resetUpNextDialog();
     }
 
@@ -572,9 +568,8 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onMediaStreamsChanged(this: any) {
-        const player = this;
-        const state = playbackManager.getPlayerState(player);
-        onStateChanged.call(player, {
+        const state = playbackManager.getPlayerState(this);
+        onStateChanged.call(this, {
             type: 'init'
         }, state);
     }
@@ -642,25 +637,23 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
             if (now - lastUpdateTime >= 700) {
                 lastUpdateTime = now;
-                const player = this;
-                currentRuntimeTicks = playbackManager.duration(player);
-                const currentTime = playbackManager.currentTime(player) * 10000;
-                updateTimeDisplay(currentTime, currentRuntimeTicks, playbackManager.playbackStartTime(player), playbackManager.getPlaybackRate(player), playbackManager.getBufferedRanges(player));
+                currentRuntimeTicks = playbackManager.duration(this);
+                const currentTime = playbackManager.currentTime(this) * 10000;
+                updateTimeDisplay(currentTime, currentRuntimeTicks, playbackManager.playbackStartTime(this), playbackManager.getPlaybackRate(this), playbackManager.getBufferedRanges(this));
                 const item = currentItem;
-                refreshProgramInfoIfNeeded(player, item);
-                showComingUpNextIfNeeded(player, item, currentTime, currentRuntimeTicks);
+                refreshProgramInfoIfNeeded(this, item);
+                showComingUpNextIfNeeded(this, item, currentTime, currentRuntimeTicks);
             }
         }
     }
 
     function onPromptSkip(this: any, e: any, mediaSegment: any) {
-        const player = this;
-        if (mediaSegment && player && mediaSegment.EndTicks != null
-            && mediaSegment.EndTicks >= playbackManager.duration(player)
+        if (mediaSegment && this && mediaSegment.EndTicks != null
+            && mediaSegment.EndTicks >= playbackManager.duration(this)
             && playbackManager.getNextItem()
             && userSettings.enableNextVideoInfoOverlay()
         ) {
-            showComingUpNext(player);
+            showComingUpNext(this);
         }
     }
 
@@ -964,8 +957,6 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     }
 
     function onSettingsButtonClick(this: any) {
-        const btn = this;
-
         import('../../../components/playback/playersettingsmenu').then((playerSettingsMenu) => {
             const player = currentPlayer;
 
@@ -979,7 +970,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                 playerSettingsMenu.show({
                     mediaType: 'Video',
                     player: player,
-                    positionTo: btn,
+                    positionTo: this,
                     quality: state.MediaSource?.SupportsTranscoding,
                     stats: true,
                     suboffset: showSubOffset,
@@ -1044,13 +1035,11 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
             return opt;
         });
-        const positionTo = this;
-
         import('../../../components/actionSheet/actionSheet').then(({ default: actionsheet }) => {
             actionsheet.show({
                 items: menuItems,
                 title: globalize.translate('Audio'),
-                positionTo: positionTo
+                positionTo: this
             }).then(function (id: any) {
                 const index = parseInt(String(id), 10);
 
@@ -1161,17 +1150,15 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             menuItems.unshift(secondarySubtitleMenuItem);
         }
 
-        const positionTo = this;
-
         import('../../../components/actionSheet/actionSheet').then(({ default: actionsheet }) => {
             actionsheet.show({
                 title: globalize.translate('Subtitles'),
                 items: menuItems,
-                positionTo: positionTo
-            }).then(function (id: any) {
+                positionTo: this
+            }).then((id: any) => {
                 if (id === 'secondarysubtitle') {
                     try {
-                        showSecondarySubtitlesMenu(actionsheet, positionTo);
+                        showSecondarySubtitlesMenu(actionsheet, this);
                     } catch (e) {
                         console.error(e);
                     }
@@ -1236,7 +1223,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
         const btnPlayPause = osdBottomElement.querySelector('.btnPause') as HTMLElement;
 
-        if (e.keyCode === 32) {
+        if (e.key === ' ') {
             if ((e.target as HTMLElement).tagName !== 'BUTTON' || !layoutManager.tv) {
                 playbackManager.playPause(currentPlayer);
                 showOsd(btnPlayPause);
@@ -1578,7 +1565,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
 
         if (src) {
             let html = '<div class="chapterThumbContainer">';
-            html += '<img class="chapterThumb" src="' + src + '" />';
+            html += '<img class="chapterThumb" src="' + escapeHtml(src) + '" />';
             html += '<div class="chapterThumbTextContainer">';
             html += '<div class="chapterThumbText chapterThumbText-dim">';
             html += escapeHtml(chapter.Name);
@@ -1635,7 +1622,6 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
     let statsOverlay: any;
     let osdHideTimeout: any;
     let lastPointerMoveData: any;
-    const self: any = this;
     let currentPlayerSupportedCommands: string[] = [];
     let currentRuntimeTicks: any = 0;
     let lastUpdateTime = 0;
@@ -1716,7 +1702,7 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
             }
         } catch {
             setBackdropTransparency(TRANSPARENCY_LEVEL.None); // reset state set in viewbeforeshow
-            appRouter.goHome();
+            appRouter.goHome().catch((error: unknown) => console.error('[VideoPlayer] failed to return home', error));
         }
     });
     view.addEventListener('viewbeforehide', function () {
@@ -1782,10 +1768,10 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         clearHideAnimationEventListeners(headerElement);
         headerElement.classList.remove('hide');
     });
-    view.addEventListener('viewdestroy', function () {
-        if (self.touchHelper) {
-            self.touchHelper.destroy();
-            self.touchHelper = null;
+    view.addEventListener('viewdestroy', () => {
+        if (this.touchHelper) {
+            this.touchHelper.destroy();
+            this.touchHelper = undefined;
         }
 
         if (recordingButtonManager) {

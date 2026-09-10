@@ -1,5 +1,4 @@
 import escapeHtml from 'escape-html';
-// @ts-ignore
 import $ from 'jquery';
 import 'material-design-icons-iconfont';
 
@@ -236,12 +235,12 @@ function scrollToNode(id: string): void {
 
 function initializeTree(page: HTMLElement, currentUser: any, openItems: string[], selectedId?: string): void {
     Promise.all([
-        // @ts-ignore
+        // @ts-expect-error: jstree has no compatible declaration for the dynamic plugin import.
         import('jstree'),
         import('jstree/dist/themes/default/style.css')
     ]).then(() => {
         initializeTreeInternal(page, currentUser, openItems, selectedId);
-    });
+    }).catch(() => undefined);
 }
 
 function onNodeSelect(this: HTMLElement, event: any, data: any): void {
@@ -354,22 +353,21 @@ let selectedNodeId: string | null;
 $(document).on('itemsaved', '.metadataEditorPage', function (this: HTMLElement, e: any, item: ItemData) {
     updateEditorNode(this, item);
 }).on('pagebeforeshow', '.metadataEditorPage', function () {
-    import('../styles/metadataeditor.scss');
+    import('../styles/metadataeditor.scss').catch(() => undefined);
 }).on('pagebeforeshow', '.metadataEditorPage', function (this: HTMLElement) {
     const page = this;
     (Dashboard as any).getCurrentUser().then(function (user: any) {
         const id = getCurrentItemId();
         if (id) {
-            (ApiClient as any).getAncestorItems(id, user.Id).then(function (ancestors: any[]) {
+            return (ApiClient as any).getAncestorItems(id, user.Id).then(function (ancestors: any[]) {
                 const ids = ancestors.map(function (i) {
                     return i.Id;
                 });
                 initializeTree(page, user, ids, id);
             });
-        } else {
-            initializeTree(page, user, []);
         }
-    });
+        initializeTree(page, user, []);
+    }).catch(() => undefined);
 }).on('pagebeforehide', '.metadataEditorPage', function (this: HTMLElement) {
     const page = this;
     $('.libraryTree', page)

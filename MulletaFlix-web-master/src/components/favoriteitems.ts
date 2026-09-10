@@ -1,7 +1,9 @@
+import escapeHtml from 'escape-html';
 import { getBackdropShape, getPortraitShape, getSquareShape } from 'components/cardbuilder/utils/shape';
 import dom from 'utils/dom';
 import globalize from 'lib/globalize';
 import { getParameterByName } from 'utils/url';
+import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 import cardBuilder from './cardbuilder/cardBuilder';
 import imageLoader from './images/imageLoader';
@@ -26,6 +28,14 @@ interface Section {
     coverImage?: boolean;
     overlayMoreButton?: boolean;
     action?: string;
+}
+
+type FavoriteQuery = Record<string, string | number | boolean | undefined>;
+
+interface FavoritesApiClient {
+    serverId(): string;
+    getArtists(userId: string, options: FavoriteQuery): Promise<ItemDtoQueryResult>;
+    getItems(userId: string, options: FavoriteQuery): Promise<ItemDtoQueryResult>;
 }
 
 function enableScrollX(): boolean {
@@ -111,7 +121,7 @@ function getSections(): Section[] {
 
 function loadSection(elem: HTMLElement, userId: string, topParentId: string | null, section: Section, isSingleSection: boolean): Promise<void> {
     const screenWidth = dom.getWindowSize().innerWidth;
-    const options: Record<string, any> = {
+    const options: FavoriteQuery = {
         SortBy: 'SortName',
         SortOrder: 'Ascending',
         Filters: 'IsFavorite',
@@ -138,9 +148,10 @@ function loadSection(elem: HTMLElement, userId: string, topParentId: string | nu
         }
     }
 
-    let promise: Promise<any>;
+    let promise: Promise<ItemDtoQueryResult>;
 
-    const apiClient: any = (window as any).ApiClient || (globalThis as any).ApiClient;
+    const apiClient = ((window as Window & { ApiClient?: FavoritesApiClient }).ApiClient
+        || (globalThis as typeof globalThis & { ApiClient?: FavoritesApiClient }).ApiClient) as FavoritesApiClient;
     if (section.types === 'MusicArtist') {
         promise = apiClient.getArtists(userId, options);
     } else {
@@ -148,14 +159,15 @@ function loadSection(elem: HTMLElement, userId: string, topParentId: string | nu
         promise = apiClient.getItems(userId, options);
     }
 
-    return promise.then(function (result: any) {
+    return promise.then(function (result: ItemDtoQueryResult) {
         let html = '';
+        const items = result.Items ?? [];
 
-        if (result.Items.length) {
+        if (items.length) {
             html += '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">';
 
-            if (!layoutManager.tv && options.Limit && result.Items.length >= options.Limit) {
-                html += '<a is="emby-linkbutton" href="' + ('#/list?serverId=' + apiClient.serverId() + '&type=' + section.types + '&IsFavorite=true') + '" class="more button-flat button-flat-mini sectionTitleTextButton">';
+            if (!layoutManager.tv && typeof options.Limit === 'number' && items.length >= options.Limit) {
+                html += '<a is="emby-linkbutton" href="' + escapeHtml('#/list?serverId=' + apiClient.serverId() + '&type=' + section.types + '&IsFavorite=true') + '" class="more button-flat button-flat-mini sectionTitleTextButton">';
                 html += '<h2 class="sectionTitle sectionTitle-cards">';
                 html += globalize.translate(section.name);
                 html += '</h2>';
@@ -181,7 +193,7 @@ function loadSection(elem: HTMLElement, userId: string, topParentId: string | nu
             // let cardLayout = appHost.preferVisualCards && section.autoCardLayout && section.showTitle;
             const cardLayout = false;
 
-            html += cardBuilder.getCardsHtml(result.Items, {
+            html += cardBuilder.getCardsHtml(items, {
                 preferThumb: section.preferThumb,
                 shape: section.shape,
                 centerText: section.centerText && !cardLayout,
@@ -241,7 +253,7 @@ export function loadSections(page: HTMLElement, userId: string, topParentId: str
         promises.push(loadSection(elem, userId, topParentId, section, sections.length === 1));
     }
 
-    Promise.all(promises).then(function () {
+    void Promise.all(promises).then(function () {
         loading.hide();
     });
 }

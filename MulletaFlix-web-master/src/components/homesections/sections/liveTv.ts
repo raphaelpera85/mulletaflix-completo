@@ -1,4 +1,5 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto';
+import escapeHtml from 'escape-html';
 import { ImageType } from '@jellyfin/sdk/lib/generated-client/models/image-type';
 import { ItemFields } from '@jellyfin/sdk/lib/generated-client/models/item-fields';
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client/models/user-dto';
@@ -90,34 +91,34 @@ function buildSection(
         html += '<div class="padded-top padded-bottom focuscontainer-x">';
     }
 
-    html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl('livetv', {
+    html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl('livetv', {
         serverId,
         section: 'programs'
-    }) + '" class="raised"><span>' + globalize.translate('Programs') + '</span></a>';
+    })) + '" class="raised"><span>' + globalize.translate('Programs') + '</span></a>';
 
-    html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl('livetv', {
+    html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl('livetv', {
         serverId,
         section: 'guide'
-    }) + '" class="raised"><span>' + globalize.translate('Guide') + '</span></a>';
+    })) + '" class="raised"><span>' + globalize.translate('Guide') + '</span></a>';
 
-    html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl('livetv', {
+    html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl('livetv', {
         serverId,
         section: 'channels'
-    }) + '" class="raised"><span>' + globalize.translate('Channels') + '</span></a>';
+    })) + '" class="raised"><span>' + globalize.translate('Channels') + '</span></a>';
 
-    html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl('recordedtv', {
+    html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl('recordedtv', {
         serverId
-    }) + '" class="raised"><span>' + globalize.translate('Recordings') + '</span></a>';
+    })) + '" class="raised"><span>' + globalize.translate('Recordings') + '</span></a>';
 
-    html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl('livetv', {
+    html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl('livetv', {
         serverId,
         section: 'dvrschedule'
-    }) + '" class="raised"><span>' + globalize.translate('Schedule') + '</span></a>';
+    })) + '" class="raised"><span>' + globalize.translate('Schedule') + '</span></a>';
 
-    html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl('livetv', {
+    html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl('livetv', {
         serverId,
         section: 'seriesrecording'
-    }) + '" class="raised"><span>' + globalize.translate('Series') + '</span></a>';
+    })) + '" class="raised"><span>' + globalize.translate('Series') + '</span></a>';
 
     html += '</div>';
     if (options.enableOverflow) {
@@ -130,10 +131,10 @@ function buildSection(
     html += '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">';
 
     if (!layoutManager.tv) {
-        html += '<a is="emby-linkbutton" href="' + appRouter.getRouteUrl('livetv', {
+        html += '<a is="emby-linkbutton" href="' + escapeHtml(appRouter.getRouteUrl('livetv', {
             serverId,
             section: 'onnow'
-        }) + '" class="more button-flat button-flat-mini sectionTitleTextButton">';
+        })) + '" class="more button-flat button-flat-mini sectionTitleTextButton">';
         html += '<h2 class="sectionTitle sectionTitle-cards">';
         html += globalize.translate('HeaderOnNow');
         html += '</h2>';
@@ -200,4 +201,3 @@ export function loadLiveTV(
             }
         });
 }
-

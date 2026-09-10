@@ -1,6 +1,7 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto';
 import { ItemFields } from '@jellyfin/sdk/lib/generated-client/models/item-fields';
 import type { ApiClient } from 'jellyfin-apiclient';
+import escapeHtml from 'escape-html';
 
 import { getRecordingsQuery } from 'apps/stable/features/liveTv/api/useRecordings';
 import cardBuilder from 'components/cardbuilder/cardBuilder';
@@ -19,7 +20,7 @@ function getLatestRecordingsFetchFn(
 ) {
     return function () {
         const apiClient = ServerConnections.getApiClient(serverId);
-        return queryClient.fetchQuery(getRecordingsQuery(toApi(apiClient as any), {
+        return queryClient.fetchQuery(getRecordingsQuery(toApi(apiClient as never), {
             userId: apiClient.getCurrentUserId() ?? undefined,
             limit: enableOverflow ? 12 : 5,
             fields: [ ItemFields.PrimaryImageAspectRatio ],
@@ -37,10 +38,11 @@ function getLatestRecordingItemsHtml(
     return function (items: BaseItemDto[]) {
         const heroItem = featured && netflix ? items[0] : undefined;
         const heroHref = heroItem ? appRouter.getRouteUrl(heroItem, { serverId: heroItem.ServerId }) : undefined;
-        const heroHtml = heroHref ? '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + heroHref + '">WATCH</a></div>' : '';
+        const heroHtml = heroHref ? '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + escapeHtml(heroHref) + '">WATCH</a></div>' : '';
+        const cardShape = enableOverflow ? 'autooverflow' : 'auto';
         return cardBuilder.getCardsHtml({
             items: items,
-            shape: featured && netflix ? 'banner' : (enableOverflow ? 'autooverflow' : 'auto'),
+            shape: featured && netflix ? 'banner' : cardShape,
             showTitle: true,
             showParentTitle: true,
             coverImage: true,
@@ -98,4 +100,3 @@ export function loadRecordings(
     itemsContainer.getItemsHtml = getLatestRecordingItemsHtml(activeRecordingsOnly, options);
     itemsContainer.parentContainer = elem;
 }
-

@@ -4,6 +4,7 @@ import { getBackdropShape } from 'components/cardbuilder/utils/shape';
 import layoutManager from 'components/layoutManager';
 import loading from 'components/loading/loading';
 import * as mainTabsManager from 'components/maintabsmanager';
+import type { TabChangeDetail } from 'components/maintabsmanager';
 import { playbackManager } from 'components/playback/playbackmanager';
 import dom from 'utils/dom';
 import globalize from 'lib/globalize';
@@ -15,6 +16,7 @@ import Dashboard from 'utils/dashboard';
 import Events from 'utils/events';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 import { OutboundWebSocketMessageType } from '@jellyfin/sdk/lib/websocket';
+import type { ItemDto } from 'types/base/models/item-dto';
 
 import 'elements/emby-itemscontainer/emby-itemscontainer';
 import 'elements/emby-button/emby-button';
@@ -24,6 +26,10 @@ import 'styles/scrollstyles.scss';
 interface ViewParams {
     topParentId: string;
     tab?: string;
+}
+
+interface ItemsResult {
+    Items?: ItemDto[];
 }
 
 function getTabs(): { name: string }[] {
@@ -94,12 +100,14 @@ function loadSuggestionsTab(view: HTMLElement, params: ViewParams, tabContent: H
     const parentId = params.topParentId;
     const userId = ApiClient.getCurrentUserId();
     console.debug('loadSuggestionsTab');
-    loadResume(tabContent, userId, parentId);
-    loadLatest(tabContent, userId, parentId);
-    loadNextUp(tabContent, userId, parentId);
+    void Promise.all([
+        loadResume(tabContent, userId, parentId),
+        loadLatest(tabContent, userId, parentId),
+        loadNextUp(tabContent, userId, parentId)
+    ]).then(() => autoFocuser.autoFocus(tabContent)).catch((error: unknown) => console.error('[TvRecommended] failed to initialize suggestions tab', error));
 }
 
-function loadResume(view: HTMLElement, userId: string, parentId: string): void {
+function loadResume(view: HTMLElement, userId: string, parentId: string): Promise<void> {
     const screenWidth = dom.getWindowSize().innerWidth;
     const options = {
         SortBy: 'DatePlayed',
@@ -115,8 +123,9 @@ function loadResume(view: HTMLElement, userId: string, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getItems(userId, options).then(function (result: any) {
-        if (result.Items.length) {
+    return ApiClient.getItems(userId, options).then(function (result: ItemsResult) {
+        const items = result.Items ?? [];
+        if (items.length) {
             view.querySelector('#resumableSection')!.classList.remove('hide');
         } else {
             view.querySelector('#resumableSection')!.classList.add('hide');
@@ -124,7 +133,7 @@ function loadResume(view: HTMLElement, userId: string, parentId: string): void {
 
         const allowBottomPadding = !enableScrollX();
         const container = view.querySelector('#resumableItems');
-        cardBuilder.buildCards(result.Items, {
+        cardBuilder.buildCards(items, {
             itemsContainer: container,
             preferThumb: true,
             inheritThumb: !userSettings.useEpisodeImagesInNextUpAndResume(),
@@ -140,10 +149,10 @@ function loadResume(view: HTMLElement, userId: string, parentId: string): void {
         loading.hide();
 
         autoFocuser.autoFocus(view);
-    });
+    }).catch((error: unknown) => console.error('[TvRecommended] failed to load resume items', error));
 }
 
-function loadLatest(view: HTMLElement, userId: string, parentId: string): void {
+function loadLatest(view: HTMLElement, userId: string, parentId: string): Promise<void> {
     const options = {
         userId: userId,
         IncludeItemTypes: 'Episode',
@@ -153,7 +162,7 @@ function loadLatest(view: HTMLElement, userId: string, parentId: string): void {
         ImageTypeLimit: 1,
         EnableImageTypes: 'Primary,Backdrop,Thumb'
     };
-    ApiClient.getLatestItems(options).then(function (items: any[]) {
+    return ApiClient.getLatestItems(options).then(function (items: ItemDto[]) {
         const section = view.querySelector('#latestItemsSection') as HTMLElement;
         const allowBottomPadding = !enableScrollX();
         const container = section.querySelector('#latestEpisodesItems');
@@ -179,11 +188,11 @@ function loadLatest(view: HTMLElement, userId: string, parentId: string): void {
         loading.hide();
 
         autoFocuser.autoFocus(view);
-    });
+    }).catch((error: unknown) => console.error('[TvRecommended] failed to load latest episodes', error));
 }
 
-function loadNextUp(view: HTMLElement, userId: string, parentId: string): void {
-    const query: any = {
+function loadNextUp(view: HTMLElement, userId: string, parentId: string): Promise<void> {
+    const query: Record<string, unknown> = {
         userId: userId,
         Limit: 24,
         Fields: 'PrimaryImageAspectRatio,DateCreated,MediaSourceCount',
@@ -193,8 +202,9 @@ function loadNextUp(view: HTMLElement, userId: string, parentId: string): void {
         EnableTotalRecordCount: false
     };
     query.ParentId = libraryMenu.getTopParentId();
-    ApiClient.getNextUpEpisodes(query).then(function (result: any) {
-        if (result.Items.length) {
+    return ApiClient.getNextUpEpisodes(query).then(function (result: ItemsResult) {
+        const items = result.Items ?? [];
+        if (items.length) {
             view.querySelector('.noNextUpItems')!.classList.add('hide');
         } else {
             view.querySelector('.noNextUpItems')!.classList.remove('hide');
@@ -202,7 +212,7 @@ function loadNextUp(view: HTMLElement, userId: string, parentId: string): void {
 
         const section = view.querySelector('#nextUpItemsSection') as HTMLElement;
         const container = section.querySelector('#nextUpItems');
-        cardBuilder.buildCards(result.Items, {
+        cardBuilder.buildCards(items, {
             parentContainer: section,
             itemsContainer: container,
             preferThumb: true,
@@ -219,7 +229,7 @@ function loadNextUp(view: HTMLElement, userId: string, parentId: string): void {
         loading.hide();
 
         autoFocuser.autoFocus(view);
-    });
+    }).catch((error: unknown) => console.error('[TvRecommended] failed to load next-up episodes', error));
 }
 
 function enableScrollX(): boolean {
@@ -227,11 +237,11 @@ function enableScrollX(): boolean {
 }
 
 export default function (this: any, view: HTMLElement, params: ViewParams): void {
-    function onBeforeTabChange(e: any): void {
+    function onBeforeTabChange(e: CustomEvent<TabChangeDetail>): void {
         preLoadTab(view, parseInt(e.detail.selectedTabIndex, 10));
     }
 
-    function onTabChange(e: any): void {
+    function onTabChange(e: CustomEvent<TabChangeDetail>): void {
         const newIndex = parseInt(e.detail.selectedTabIndex, 10);
         loadTab(view, newIndex);
     }
@@ -244,7 +254,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
         mainTabsManager.setTabs(view, currentTabIndex, getTabs, getTabContainers, onBeforeTabChange, onTabChange);
     }
 
-    function getTabController(page: HTMLElement, index: number, callback: (controller: any) => void): void {
+    const getTabController = (page: HTMLElement, index: number, callback: (controller: any) => void): void => {
         let depends: string = 'tvshows';
 
         switch (index) {
@@ -273,12 +283,12 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
                 break;
         }
 
-        import(`../shows/${depends}.ts`).then(({ default: ControllerFactory }) => {
+        void import(`../shows/${depends}.ts`).then(({ default: ControllerFactory }) => {
             let tabContent: HTMLElement;
 
             if (index === 1) {
                 tabContent = view.querySelector(`.pageTabContent[data-index='${index}']`) as HTMLElement;
-                self.tabContent = tabContent;
+                this.tabContent = tabContent;
             }
 
             let controller = tabControllers[index];
@@ -287,10 +297,11 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
                 tabContent = view.querySelector(`.pageTabContent[data-index='${index}']`) as HTMLElement;
 
                 if (index === 1) {
-                    controller = self;
-                } else {
-                    controller = new ControllerFactory(view, params, tabContent);
+                    callback(this);
+                    return;
                 }
+
+                controller = new ControllerFactory(view, params, tabContent);
 
                 tabControllers[index] = controller;
 
@@ -300,8 +311,8 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
             }
 
             callback(controller);
-        });
-    }
+        }).catch((error: unknown) => console.error('[TvRecommended] failed to load tab controller', error));
+    };
 
     function preLoadTab(page: HTMLElement, index: number): void {
         getTabController(page, index, function (controller: any) {
@@ -337,27 +348,26 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
     function onInputCommand(e: Event): void {
         if ((e as any).detail.command === 'search') {
             e.preventDefault();
-            Dashboard.navigate(`search?collectionType=${CollectionType.Tvshows}&parentId=${params.topParentId}`);
+            void Dashboard.navigate(`search?collectionType=${CollectionType.Tvshows}&parentId=${params.topParentId}`).catch((error: unknown) => console.error('[TvRecommended] failed to open search', error));
         }
     }
 
-    const self = this;
     let currentTabIndex = parseInt(String(params.tab || getDefaultTabIndex(params.topParentId)), 10);
     const suggestionsTabIndex = 1;
 
-    self.initTab = function (): void {
+    this.initTab = function (): void {
         const tabContent = view.querySelector(`.pageTabContent[data-index='${suggestionsTabIndex}']`) as HTMLElement;
         initSuggestedTab(view, tabContent);
     };
 
-    self.renderTab = function (): void {
+    this.renderTab = function (): void {
         const tabContent = view.querySelector(`.pageTabContent[data-index='${suggestionsTabIndex}']`) as HTMLElement;
         loadSuggestionsTab(view, params, tabContent);
     };
 
     const tabControllers: any[] = [];
     let renderedTabs: number[] = [];
-    view.addEventListener('viewshow', function () {
+    view.addEventListener('viewshow', () => {
         initTabs();
         if (!view.getAttribute('data-title')) {
             const parentId = params.topParentId;
@@ -374,14 +384,14 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
         }
 
         Events.on(playbackManager, 'playbackstop', onPlaybackStop);
-        self._unsubscribeUserData = ApiClient.subscribe([OutboundWebSocketMessageType.UserDataChanged], onUserDataChanged);
+        this._unsubscribeUserData = ApiClient.subscribe([OutboundWebSocketMessageType.UserDataChanged], onUserDataChanged);
         inputManager.on(window, onInputCommand);
     });
-    view.addEventListener('viewbeforehide', function () {
+    view.addEventListener('viewbeforehide', () => {
         inputManager.off(window, onInputCommand);
         Events.off(playbackManager, 'playbackstop', onPlaybackStop);
-        self._unsubscribeUserData?.();
-        self._unsubscribeUserData = null;
+        this._unsubscribeUserData?.();
+        this._unsubscribeUserData = null;
     });
     view.addEventListener('viewdestroy', function () {
         tabControllers.forEach(function (t: any) {

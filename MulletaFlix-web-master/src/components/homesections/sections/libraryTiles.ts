@@ -1,4 +1,5 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto';
+import escapeHtml from 'escape-html';
 
 import cardBuilder from 'components/cardbuilder/cardBuilder';
 import { getBackdropShape } from 'components/cardbuilder/utils/shape';
@@ -19,10 +20,10 @@ export function loadLibraryTiles(
 ) {
     let html = '';
     if (userViews.length) {
-        const heroHref = featured && netflix ? userViews[0] ? appRouter.getRouteUrl(userViews[0], { serverId: userViews[0].ServerId }) : undefined : undefined;
+        const heroHref = featured && netflix && userViews[0] ? appRouter.getRouteUrl(userViews[0], { serverId: userViews[0].ServerId }) : undefined;
         html += '<h2 class="sectionTitle sectionTitle-cards padded-left">' + globalize.translate('HeaderMyMedia') + '</h2>';
         if (heroHref) {
-            html += '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + heroHref + '">BROWSE</a></div>';
+            html += '<div class="netflixHeroActions"><a class="netflixHeroCta netflixHeroCta-primary" href="' + escapeHtml(heroHref) + '">BROWSE</a></div>';
         }
         if (enableOverflow) {
             html += '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">';
@@ -51,4 +52,3 @@ export function loadLibraryTiles(
     elem.innerHTML = html;
     imageLoader.lazyChildren(elem);
 }
-

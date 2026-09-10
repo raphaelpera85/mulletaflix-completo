@@ -28,26 +28,19 @@ const CancelSeriesTimerButton: FC<CancelSeriesTimerButtonProps> = ({
         })
             .then(function () {
                 loading.show();
-                cancelSeriesTimer.mutate(
+                return cancelSeriesTimer.mutateAsync(
                     {
                         timerId: itemId
-                    },
-                    {
-                        onSuccess: async () => {
-                            toast(globalize.translate('SeriesCancelled'));
-                            loading.hide();
-                            navigate('/livetv');
-                        },
-                        onError: (err: unknown) => {
-                            loading.hide();
-                            toast(globalize.translate('MessageCancelSeriesTimerError'));
-                            console.error(
-                                '[cancelSeriesTimer] failed to cancel series timer',
-                                err
-                            );
-                        }
                     }
-                );
+                ).then(async () => {
+                    toast(globalize.translate('SeriesCancelled'));
+                    loading.hide();
+                    await navigate('/livetv');
+                }).catch((err: unknown) => {
+                    loading.hide();
+                    toast(globalize.translate('MessageCancelSeriesTimerError'));
+                    console.error('[cancelSeriesTimer] failed to cancel series timer', err);
+                });
             })
             .catch(() => {
                 // confirm dialog closed

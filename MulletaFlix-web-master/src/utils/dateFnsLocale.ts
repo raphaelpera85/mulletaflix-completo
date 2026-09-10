@@ -1,4 +1,5 @@
-import enUS from 'date-fns/locale/en-US';
+import type { Locale } from 'date-fns';
+import { enUS } from 'date-fns/locale';
 
 const LOCALE_MAP: Record<string, string> = {
     'af': 'af',
@@ -65,15 +66,18 @@ const LOCALE_MAP: Record<string, string> = {
 const DEFAULT_LOCALE = 'en-US';
 
 let localeString = DEFAULT_LOCALE;
-let locale = enUS;
+let locale: Locale = enUS;
 
 const localeModules = import.meta.glob('../../node_modules/date-fns/locale/*/index.js');
 
-export function fetchLocale(localeName: string) {
+export function fetchLocale(localeName: string): Promise<Locale> {
     const globPath = `../../node_modules/date-fns/locale/${localeName}/index.js`;
     const loadFn = localeModules[globPath];
     if (loadFn) {
-        return loadFn().then((mod: any) => mod.default || mod);
+        return loadFn().then(mod => {
+            const localeModule = mod as { default?: Locale };
+            return localeModule.default ?? (mod as unknown as Locale);
+        }).catch(() => enUS);
     }
     return Promise.resolve(enUS);
 }
@@ -91,7 +95,7 @@ export async function updateLocale(newLocale: string) {
     locale = await fetchLocale(localeString);
 }
 
-export function getLocale() {
+export function getLocale(): Locale {
     return locale;
 }
 

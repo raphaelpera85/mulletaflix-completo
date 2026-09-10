@@ -69,7 +69,7 @@ function renderSelectServerItems(view: HTMLElement, servers: ServerItem[]): void
 
         const innerOpening: string = '<div class="' + cardBoxCssClass + '">';
         let cardContainer: string = '';
-        cardContainer += '<button raised class="' + cssClass + '" style="display:inline-block;" data-id="' + item.id + '" data-url="' + (item.url || '') + '" data-cardtype="' + item.cardType + '">';
+        cardContainer += '<button raised class="' + cssClass + '" style="display:inline-block;" data-id="' + escapeHtml(item.id) + '" data-url="' + escapeHtml(item.url || '') + '" data-cardtype="' + escapeHtml(item.cardType) + '">';
         cardContainer += innerOpening;
         cardContainer += '<div class="cardScalable">';
         cardContainer += '<div class="cardPadder cardPadder-square">';
@@ -119,7 +119,7 @@ function alertText(text: string): void {
 }
 
 function alertTextWithOptions(options: AlertOptions): void {
-    alert(options);
+    alert(options).catch((error: unknown) => console.error('[selectServer] failed to show alert', error));
 }
 
 function showServerConnectionFailure(): void {
@@ -135,18 +135,31 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
             enableAutoLogin: appSettings.enableAutoLogin()
         }).then(function (result: ConnectResult) {
             loading.hide();
-            const apiClient = result.ApiClient!;
 
             switch (result.State) {
-                case ConnectionState.SignedIn:
-                    Dashboard.onServerChanged(apiClient.getCurrentUserId()!, apiClient.accessToken()!, apiClient as never);
-                    Dashboard.navigate('home');
-                    break;
+                case ConnectionState.SignedIn: {
+                    const apiClient = result.ApiClient;
+                    if (!apiClient) {
+                        showServerConnectionFailure();
+                        return;
+                    }
 
-                case ConnectionState.ServerSignIn:
-                    Dashboard.onServerChanged('', '', apiClient as never);
-                    Dashboard.navigate('login?serverid=' + result.Servers![0].Id!);
+                    Dashboard.onServerChanged(apiClient.getCurrentUserId()!, apiClient.accessToken()!, apiClient as never);
+                    void Dashboard.navigate('home').catch((error: unknown) => console.error('[selectServer] failed to open home', error));
                     break;
+                }
+                case ConnectionState.ServerSignIn: {
+                    const apiClient = result.ApiClient;
+                    const serverId = result.Servers?.[0]?.Id;
+                    if (!apiClient || !serverId) {
+                        showServerConnectionFailure();
+                        return;
+                    }
+
+                    Dashboard.onServerChanged('', '', apiClient as never);
+                    void Dashboard.navigate('login?serverid=' + serverId).catch((error: unknown) => console.error('[selectServer] failed to open login', error));
+                    break;
+                }
 
                 case ConnectionState.ServerUpdateNeeded:
                     alertTextWithOptions({
@@ -158,6 +171,10 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
                 default:
                     showServerConnectionFailure();
             }
+        }).catch((error: unknown) => {
+            loading.hide();
+            console.error('[selectServer] failed to connect to server', error);
+            showServerConnectionFailure();
         });
     }
 
@@ -173,6 +190,7 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
                 loading.hide();
                 loadServers();
             }).catch((err: unknown) => {
+                loading.hide();
                 console.error('[selectServer] failed to delete server', err);
             });
         }).catch(() => {
@@ -217,7 +235,11 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
 
     function loadServers(): void {
         loading.show();
-        ServerConnections.getAvailableServers().then(onServersRetrieved as never);
+        ServerConnections.getAvailableServers().then(onServersRetrieved as never).catch((error: unknown) => {
+            loading.hide();
+            console.error('[selectServer] failed to load servers', error);
+            showServerConnectionFailure();
+        });
     }
 
     updatePageStyle(view, params);
@@ -238,7 +260,7 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
             const url = card.getAttribute('data-url');
 
             if (url) {
-                appRouter.show(url);
+                void appRouter.show(url).catch((error: unknown) => console.error('[selectServer] failed to open server URL', error));
             } else {
                 const id = card.getAttribute('data-id');
                 onServerClick(servers.filter(function (s: ServerItem) {

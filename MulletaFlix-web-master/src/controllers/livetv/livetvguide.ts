@@ -12,9 +12,8 @@ interface LiveTvGuideController {
 
 export default function (this: LiveTvGuideController, view: HTMLElement, params: Record<string, string>, tabContent: HTMLElement): void {
     let guideInstance: GuideInstance | null = null;
-    const self = this;
 
-    self.renderTab = function (): void {
+    this.renderTab = function (): void {
         if (!guideInstance) {
             guideInstance = createGuide({
                 element: tabContent,
@@ -23,13 +22,13 @@ export default function (this: LiveTvGuideController, view: HTMLElement, params:
         }
     };
 
-    self.onShow = function (): void {
+    this.onShow = function (): void {
         if (guideInstance) {
             guideInstance.resume();
         }
     };
 
-    self.onHide = function (): void {
+    this.onHide = function (): void {
         if (guideInstance) {
             guideInstance.pause();
         }

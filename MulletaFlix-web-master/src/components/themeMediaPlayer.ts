@@ -75,6 +75,10 @@ function playThemeMedia(items: ThemeMediaItem[], ownerId: string | null): void {
             enableRemotePlayers: false
         }).then(function () {
             currentOwnerId = ownerId;
+        }).catch((error: unknown) => {
+            currentOwnerId = undefined;
+            currentThemeIds = [];
+            console.error('[ThemeMediaPlayer] failed to play theme media', error);
         });
     } else {
         stopIfPlaying();
@@ -82,11 +86,12 @@ function playThemeMedia(items: ThemeMediaItem[], ownerId: string | null): void {
 }
 
 function stopIfPlaying(): void {
-    if (currentOwnerId) {
+    if (currentOwnerId || currentThemeIds.length > 0) {
         playbackManager.stop();
     }
 
     currentOwnerId = undefined;
+    currentThemeIds = [];
 }
 
 function enabled(mediaType: string | undefined): boolean {

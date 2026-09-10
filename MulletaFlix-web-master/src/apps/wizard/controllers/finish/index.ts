@@ -21,7 +21,7 @@ function onFinish(): void {
     }).then(() => {
         loading.hide();
         window.location.href = '';
-    });
+    }).catch(() => loading.hide());
 }
 
 export default function (view: HTMLElement): void {

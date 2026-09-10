@@ -104,7 +104,8 @@ const NonInteractiveInputElements: string[] = ['button', 'checkbox', 'color', 'f
  * Returns key name from event.
  */
 export function getKeyName(event: KeyboardEvent): string {
-    const key = KeyNames[event.keyCode] || event.code || '';
+    const modernKey = event.key && event.key !== 'Unidentified' && event.key !== 'Dead' ? event.key : '';
+    const key = modernKey || KeyNames[event.keyCode] || event.code || '';
     return KeyAliases[key] || key;
 }
 
@@ -258,7 +259,7 @@ export function canEnableGamepad(): boolean {
 function attachGamepadScript(): void {
     console.debug('Gamepad connected! Attaching gamepadtokey.js script');
     window.removeEventListener('gamepadconnected', attachGamepadScript);
-    import('./gamepadtokey');
+    import('./gamepadtokey').catch(() => undefined);
 }
 
 // No need to check for gamepads manually at load time, the eventhandler will be fired for that

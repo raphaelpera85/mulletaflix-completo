@@ -253,7 +253,7 @@ class UpNextDialog {
         this.options = options;
         this.showStaticNextText = false; // default to showing countdown text
 
-        init(this, options);
+        init(this, options).catch(() => undefined);
     }
 
     show(): void {
@@ -282,7 +282,7 @@ class UpNextDialog {
     }
 
     destroy(): void {
-        hideComingUpNext.call(this);
+        hideComingUpNext.call(this).catch(() => undefined);
 
         this.options = null!;
         this.showStaticNextText = false;

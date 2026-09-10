@@ -71,7 +71,7 @@ export function show(options: PlayMenuOptions): void {
             default:
                 break;
         }
-    });
+    }).catch(() => undefined);
 }
 
 export default {

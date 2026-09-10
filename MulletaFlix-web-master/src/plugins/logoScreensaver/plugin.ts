@@ -15,12 +15,10 @@ interface LogoScreensaverInstance {
 }
 
 export default function (this: LogoScreensaverInstance) {
-    const self = this;
-
-    self.name = 'LogoScreensaver';
-    self.type = PluginType.Screensaver;
-    self.id = 'logoscreensaver';
-    self.supportsAnonymous = true;
+    this.name = 'LogoScreensaver';
+    this.type = PluginType.Screensaver;
+    this.id = 'logoscreensaver';
+    this.supportsAnonymous = true;
 
     let interval: ReturnType<typeof setInterval> | null = null;
 
@@ -137,7 +135,7 @@ export default function (this: LogoScreensaverInstance) {
         }
     }
 
-    self.show = function (): void {
+    this.show = function (): void {
         import('./style.scss').then(() => {
             let elem = document.querySelector('.logoScreenSaver');
 
@@ -146,15 +144,18 @@ export default function (this: LogoScreensaverInstance) {
                 elem.classList.add('logoScreenSaver');
                 document.body.appendChild(elem);
 
-                elem.innerHTML = `<img class="logoScreenSaverImage" src="${icon}" />`;
+                const image = document.createElement('img');
+                image.className = 'logoScreenSaverImage';
+                image.src = icon;
+                elem.appendChild(image);
             }
 
             stopInterval();
             interval = setInterval(animate, 3000);
-        });
+        }).catch(console.error);
     };
 
-    self.hide = function (): Promise<void> {
+    this.hide = function (): Promise<void> {
         stopInterval();
 
         const elem = document.querySelector('.logoScreenSaver');

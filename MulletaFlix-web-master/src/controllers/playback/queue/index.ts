@@ -16,7 +16,7 @@ export default function (view: HTMLElement) {
     let currentPlayer: any;
 
     function onKeyDown(e: KeyboardEvent) {
-        if (e.keyCode === 32 && (e.target as HTMLElement).tagName !== 'BUTTON') {
+        if (e.key === ' ' && (e.target as HTMLElement).tagName !== 'BUTTON') {
             playbackManager.playPause(currentPlayer);
             e.preventDefault();
             e.stopPropagation();

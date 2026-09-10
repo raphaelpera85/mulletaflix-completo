@@ -1,8 +1,8 @@
 import dom from '../utils/dom';
+import escapeHtml from 'escape-html';
 import browser from '../scripts/browser';
 import layoutManager from './layoutManager';
-import Events from '../utils/events.ts';
-import type { Event as EventsEvent } from '../utils/events.ts';
+import Events, { type Event as EventsEvent } from '../utils/events.ts';
 import '../elements/emby-tabs/emby-tabs';
 import '../elements/emby-button/emby-button';
 
@@ -12,6 +12,13 @@ interface TabItem {
     href?: string;
     name: string;
 }
+
+export interface TabChangeDetail {
+    previousIndex?: number | string | null;
+    selectedTabIndex: string;
+}
+
+type TabChangeHandler = (event: CustomEvent<TabChangeDetail>) => void;
 
 interface TabsElement extends HTMLElement {
     readySelectedIndex?: number | null;
@@ -86,7 +93,7 @@ function configureSwipeTabs(view: HTMLElement, currentElement: TabsElement): voi
         }
     };
 
-    import('../scripts/touchHelper').then(({ default: TouchHelper }) => {
+    void import('../scripts/touchHelper').then(({ default: TouchHelper }) => {
         const container = view.parentNode?.parentNode as HTMLElement | null;
         if (!container) {
             return;
@@ -100,16 +107,45 @@ function configureSwipeTabs(view: HTMLElement, currentElement: TabsElement): voi
         view.addEventListener('viewdestroy', function () {
             touchHelper.destroy();
         });
+    }).catch((error: unknown) => {
+        console.error('[maintabsmanager] failed to initialize touch tabs', error);
     });
+}
+
+function getTabsHtml(tabs: TabItem[], selectedIndex: number | null | undefined): string {
+    const indexAttribute = selectedIndex == null ? '' : (' data-index="' + escapeHtml(String(selectedIndex)) + '"');
+    const tabsHtml = tabs.map((tab, index) => {
+        let tabClass = 'emby-tab-button';
+
+        if (tab.enabled === false) {
+            tabClass += ' hide';
+        }
+
+        if (tab.cssClass) {
+            tabClass += ' ' + escapeHtml(tab.cssClass);
+        }
+
+        const safeClass = escapeHtml(tabClass);
+        const safeName = escapeHtml(tab.name);
+        const dataIndex = String(index);
+
+        if (tab.href) {
+            return '<a href="' + escapeHtml(tab.href) + '" is="emby-linkbutton" class="' + safeClass + '" data-index="' + dataIndex + '"><div class="emby-button-foreground">' + safeName + '</div></a>';
+        }
+
+        return '<button type="button" is="emby-button" class="' + safeClass + '" data-index="' + dataIndex + '"><div class="emby-button-foreground">' + safeName + '</div></button>';
+    }).join('');
+
+    return '<div is="emby-tabs"' + indexAttribute + ' class="tabs-viewmenubar"><div class="emby-tabs-slider" style="white-space:nowrap;">' + tabsHtml + '</div></div>';
 }
 
 export function setTabs(
     view: HTMLElement | null,
     selectedIndex: number | null | undefined = 0,
-    getTabsFn: () => any[] = () => [],
+    getTabsFn: () => unknown[] = () => [],
     getTabContainersFn?: () => ArrayLike<Element> | undefined,
-    onBeforeTabChange?: ((event: any) => void) | null,
-    onTabChange?: ((event: any) => void) | null,
+    onBeforeTabChange?: TabChangeHandler | null,
+    onTabChange?: TabChangeHandler | null,
     setSelectedIndex = true
 ): TabsResult {
     ensureElements();
@@ -144,32 +180,8 @@ export function setTabs(
     }
 
     if (tabOwnerView !== view) {
-        let index = 0;
-
-        const indexAttribute = selectedIndex == null ? '' : (' data-index="' + selectedIndex + '"');
-        const tabs = getTabsFn();
-        const tabsHtml = '<div is="emby-tabs"' + indexAttribute + ' class="tabs-viewmenubar"><div class="emby-tabs-slider" style="white-space:nowrap;">' + tabs.map(function (tab) {
-            let tabClass = 'emby-tab-button';
-
-            if (tab.enabled === false) {
-                tabClass += ' hide';
-            }
-
-            let tabHtml;
-
-            if (tab.cssClass) {
-                tabClass += ' ' + tab.cssClass;
-            }
-
-            if (tab.href) {
-                tabHtml = '<a href="' + tab.href + '" is="emby-linkbutton" class="' + tabClass + '" data-index="' + index + '"><div class="emby-button-foreground">' + tab.name + '</div></a>';
-            } else {
-                tabHtml = '<button type="button" is="emby-button" class="' + tabClass + '" data-index="' + index + '"><div class="emby-button-foreground">' + tab.name + '</div></button>';
-            }
-
-            index++;
-            return tabHtml;
-        }).join('') + '</div></div>';
+        const tabs = getTabsFn() as TabItem[];
+        const tabsHtml = getTabsHtml(tabs, selectedIndex);
 
         tabsContainerElem.innerHTML = tabsHtml;
         window.customElements.upgrade(tabsContainerElem);
@@ -212,10 +224,10 @@ export function setTabs(
         }
 
         if (onBeforeTabChange) {
-            currentTabsElem.addEventListener('beforetabchange', onBeforeTabChange);
+            currentTabsElem.addEventListener('beforetabchange', onBeforeTabChange as EventListener);
         }
         if (onTabChange) {
-            currentTabsElem.addEventListener('tabchange', onTabChange);
+            currentTabsElem.addEventListener('tabchange', onTabChange as EventListener);
         }
 
         if (setSelectedIndex !== false) {

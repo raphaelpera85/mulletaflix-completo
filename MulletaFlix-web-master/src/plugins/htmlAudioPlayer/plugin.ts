@@ -77,7 +77,7 @@ function requireHlsPlayer(callback: () => void): void {
         hls.DefaultConfig.liveBackBufferLength = 90;
         (window as any)['Hls'] = hls;
         callback();
-    });
+    }).catch(() => undefined);
 }
 
 function enableHlsPlayer(url: string, item: Record<string, unknown>, mediaSource: PlayOptions['mediaSource'], mediaType: string): Promise<void> {
@@ -90,20 +90,14 @@ function enableHlsPlayer(url: string, item: Record<string, unknown>, mediaSource
     }
 
     // issue head request to get content type
-    return new Promise<void>(function (resolve, reject) {
-        import('../../utils/fetch').then((fetchHelper) => {
-            fetchHelper.ajax({
-                url: url,
-                type: 'HEAD'
-            }).then(function (response: any) {
-                const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
-                if (contentType === 'application/vnd.apple.mpegurl' || contentType === 'application/x-mpegurl') {
-                    resolve();
-                } else {
-                    reject();
-                }
-            }, reject);
-        });
+    return import('../../utils/fetch').then((fetchHelper) => fetchHelper.ajax({
+        url: url,
+        type: 'HEAD'
+    })).then(function (response: any) {
+        const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+        if (contentType !== 'application/vnd.apple.mpegurl' && contentType !== 'application/x-mpegurl') {
+            throw new Error('Unsupported HLS content type');
+        }
     });
 }
 
@@ -525,7 +519,7 @@ class HtmlAudioPlayer {
     unpause(): void {
         const mediaElement = this._mediaElement;
         if (mediaElement) {
-            mediaElement.play();
+            mediaElement.play().catch(() => undefined);
         }
     }
 
