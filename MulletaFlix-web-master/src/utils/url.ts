@@ -64,9 +64,7 @@ export const getSafeHttpUrl = (value: string | null | undefined): string => {
     }
 
     try {
-        const baseUrl = typeof window !== 'undefined' && window.location.href
-            ? window.location.href
-            : 'http://localhost/';
+        const baseUrl = typeof window !== 'undefined' && window.location.href ? window.location.href : 'http://localhost/';
         const url = new URL(value, baseUrl);
         return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : '';
     } catch {

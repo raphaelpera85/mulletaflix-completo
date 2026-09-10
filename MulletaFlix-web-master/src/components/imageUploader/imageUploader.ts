@@ -70,7 +70,9 @@ function setFiles(page: HTMLElement, files: FileList | null): void {
     reader.onload = (theFile => {
         return (e: ProgressEvent<FileReader>) => {
             // Render thumbnail.
-            const html = ['<img style="max-width:100%;max-height:100%;" src="', (e.target as FileReader).result as string, '" title="', escapeHtml(theFile.name), '"/>'].join('');
+            const imageData = (e.target as FileReader).result;
+            const safeImageData = typeof imageData === 'string' && /^data:image\/(?:jpeg|png|gif|webp|bmp);base64,/i.test(imageData) ? imageData : '';
+            const html = ['<img style="max-width:100%;max-height:100%;" src="', escapeHtml(safeImageData), '" title="', escapeHtml(theFile.name), '"/>'].join('');
 
             page.querySelector('#imageOutput')!.innerHTML = html;
             page.querySelector('#dropImageText')!.classList.add('hide');

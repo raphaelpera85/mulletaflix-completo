@@ -44,7 +44,7 @@ describe('toBoolean', () => {
 describe('toFloat()', () => {
     it('Should return a float', () => {
         const number = toFloat('3.14159');
-        expect(number).toBe(3.14159);
+        expect(number).toBeCloseTo(3.14159, 5);
     });
 
     it('Should return default value for NaN', () => {

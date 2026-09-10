@@ -120,7 +120,7 @@ export const getSuggestionSections = (): Section[] => {
                 shape: CardShape.BackdropOverflow,
                 preferThumb: true,
                 inheritThumb:
-                    !userSettings.useEpisodeImagesInNextUpAndResume(undefined),
+                    !userSettings.useEpisodeImagesInNextUpAndResume(),
                 showYear: true
             }
         },
@@ -153,7 +153,7 @@ export const getSuggestionSections = (): Section[] => {
                 shape: CardShape.BackdropOverflow,
                 preferThumb: true,
                 inheritThumb:
-                    !userSettings.useEpisodeImagesInNextUpAndResume(undefined),
+                    !userSettings.useEpisodeImagesInNextUpAndResume(),
                 showParentTitle: true
             }
         },
@@ -472,4 +472,3 @@ export const getProgramSections = (): Section[] => {
         }
     ];
 };
-

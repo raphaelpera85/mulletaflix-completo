@@ -41,7 +41,7 @@ function mergeResults(results: BaseItemDtoQueryResult[]) {
             console.warn('[getItems] Retrieved Items array is invalid', result.Items);
             continue;
         }
-        if (result.TotalRecordCount === undefined || result.TotalRecordCount === null) {
+        if (typeof result.TotalRecordCount !== 'number') {
             console.warn('[getItems] Retrieved TotalRecordCount is invalid', result.TotalRecordCount);
             continue;
         }
@@ -73,4 +73,3 @@ export function getItems(apiClient: ApiClient, userId: string, options?: GetItem
 
     return Promise.all(results).then(mergeResults);
 }
-

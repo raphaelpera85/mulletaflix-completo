@@ -76,13 +76,13 @@ function refreshTunerDevices(page: HTMLElement, providerInfo: ProviderInfo, devi
         const enabledTuners = providerInfo.EnabledTuners || [];
         const isChecked = providerInfo.EnableAllTuners || enabledTuners.indexOf(device.Id || '') !== -1;
         const checkedAttribute = isChecked ? ' checked' : '';
-        html += '<label class="checkboxContainer listItemCheckboxContainer"><input type="checkbox" is="emby-checkbox" data-id="' + device.Id + '" class="chkTuner" ' + checkedAttribute + '/><span></span></label>';
+        html += '<label class="checkboxContainer listItemCheckboxContainer"><input type="checkbox" is="emby-checkbox" data-id="' + escapeHtml(String(device.Id || '')) + '" class="chkTuner" ' + checkedAttribute + '/><span></span></label>';
         html += '<div class="listItemBody two-line">';
         html += '<div class="listItemBodyText">';
-        html += device.FriendlyName || getTunerName(device.Type || '');
+        html += escapeHtml(device.FriendlyName || getTunerName(device.Type || ''));
         html += '</div>';
         html += '<div class="listItemBodyText secondary">';
-        html += device.Url || '';
+        html += escapeHtml(device.Url || '');
         html += '</div>';
         html += '</div>';
         html += '</div>';

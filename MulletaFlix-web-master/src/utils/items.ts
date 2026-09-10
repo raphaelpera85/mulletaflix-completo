@@ -109,7 +109,7 @@ export const getFieldsQuery = (
 
 export const getLimitQuery = () => {
     return {
-        limit: userSettings.libraryPageSize(undefined) || undefined
+        limit: userSettings.libraryPageSize() || undefined
     };
 };
 
@@ -193,4 +193,3 @@ export function getDataAttributes(
         'data-enddate': opts.itemEndDate?.toString()
     };
 }
-

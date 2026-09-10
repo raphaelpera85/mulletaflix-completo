@@ -1,8 +1,10 @@
+type FetchData = string | Record<string, string | number | boolean>;
+
 interface FetchRequest {
     headers?: Record<string, string>;
     dataType?: string;
     type?: string;
-    data?: string | Record<string, string | number | boolean>;
+    data?: FetchData;
     contentType?: string;
     url: string;
     query?: Record<string, string | number | boolean>;

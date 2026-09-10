@@ -10,6 +10,7 @@ import scrollHelper from '../../scripts/scrollHelper';
 import imageLoader from '../images/imageLoader';
 import browser from '../../scripts/browser';
 import { appHost } from '../apphost';
+import escapeHtml from 'escape-html';
 import '../cardbuilder/card.scss';
 import '../formdialog.scss';
 import '../../elements/emby-button/emby-button';
@@ -21,24 +22,53 @@ import template from './imageeditor.template.html';
 
 const enableFocusTransform: boolean = !browser.slow && !browser.edge;
 
-let currentItem: any;
+interface ImageInfo {
+    ImageType: string;
+    ImageIndex: number;
+    Width?: number;
+    Height?: number;
+}
+
+interface ImageEditorItem {
+    Id: string;
+    ItemId?: string;
+    ServerId: string;
+    Type?: string;
+    ParentId?: string;
+    PrimaryImageTag?: string;
+    ImageTags?: Record<string, string>;
+    BackdropImageTags?: string[];
+}
+
+interface ImageEditorApiClient {
+    serverId: () => string;
+    getCurrentUserId: () => string;
+    getScaledImageUrl: (itemId: string, options: ImageUrlOptions) => string;
+    getRemoteImageProviders: (options: { itemId: string }) => Promise<unknown[]>;
+    getItemImageInfos: (itemId: string) => Promise<ImageInfo[]>;
+    getItem: (userId: string, itemId: string) => Promise<ImageEditorItem>;
+    deleteItemImage: (itemId: string, type: string, index: number | null) => Promise<unknown>;
+    updateItemImageIndex: (itemId: string, type: string, index: number, newIndex: number) => Promise<unknown>;
+}
+
+let currentItem: ImageEditorItem;
 let hasChanges = false;
 
 function getBaseRemoteOptions(): { itemId: string } {
     return { itemId: currentItem.Id };
 }
 
-function reload(page: HTMLElement, item?: any, focusContext?: HTMLElement): void {
+function reload(page: HTMLElement, item?: ImageEditorItem | null, focusContext?: HTMLElement): void {
     loading.show();
 
-    let apiClient: any;
+    let apiClient: ImageEditorApiClient;
 
     if (item) {
-        apiClient = ServerConnections.getApiClient(item.ServerId);
+        apiClient = ServerConnections.getApiClient(item.ServerId) as unknown as ImageEditorApiClient;
         reloadItem(page, item, apiClient, focusContext);
     } else {
-        apiClient = ServerConnections.getApiClient(currentItem.ServerId);
-        apiClient.getItem(apiClient.getCurrentUserId(), currentItem.Id).then(function (itemToReload: any) {
+        apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as ImageEditorApiClient;
+        apiClient.getItem(apiClient.getCurrentUserId(), currentItem.Id).then(function (itemToReload: ImageEditorItem) {
             reloadItem(page, itemToReload, apiClient, focusContext);
         });
     }
@@ -54,10 +84,10 @@ function addListeners(container: HTMLElement, className: string, eventName: stri
     });
 }
 
-function reloadItem(page: HTMLElement, item: any, apiClient: any, focusContext?: HTMLElement): void {
+function reloadItem(page: HTMLElement, item: ImageEditorItem, apiClient: ImageEditorApiClient, focusContext?: HTMLElement): void {
     currentItem = item;
 
-    apiClient.getRemoteImageProviders(getBaseRemoteOptions()).then(function (providers: any[]) {
+    apiClient.getRemoteImageProviders(getBaseRemoteOptions()).then(function (providers: unknown[]) {
         const btnBrowseAllImages = page.querySelectorAll('.btnBrowseAllImages');
         for (let i = 0, length = btnBrowseAllImages.length; i < length; i++) {
             if (providers.length) {
@@ -67,7 +97,7 @@ function reloadItem(page: HTMLElement, item: any, apiClient: any, focusContext?:
             }
         }
 
-        apiClient.getItemImageInfos(currentItem.Id).then(function (imageInfos: any[]) {
+        apiClient.getItemImageInfos(currentItem.Id).then(function (imageInfos: ImageInfo[]) {
             renderStandardImages(page, apiClient, item, imageInfos, providers);
             renderBackdrops(page, apiClient, item, imageInfos, providers);
             loading.hide();
@@ -86,7 +116,7 @@ interface ImageUrlOptions {
     maxWidth?: number;
 }
 
-function getImageUrl(item: any, apiClient: any, type: string, index: number, options?: ImageUrlOptions): string {
+function getImageUrl(item: ImageEditorItem, apiClient: ImageEditorApiClient, type: string, index: number, options?: ImageUrlOptions): string {
     options = options || {};
     options.type = type;
     options.index = index;
@@ -106,13 +136,13 @@ function getImageUrl(item: any, apiClient: any, type: string, index: number, opt
 interface CardOptions {
     index: number;
     numImages: number;
-    imageProviders: any[];
+    imageProviders: unknown[];
     imageSize: number;
     tagName: string;
     enableFooterButtons: boolean;
 }
 
-function getCardHtml(image: any, apiClient: any, options: CardOptions): string {
+function getCardHtml(image: ImageInfo, apiClient: ImageEditorApiClient, options: CardOptions): string {
     let html = '';
 
     let cssClass = 'card scalableCard imageEditorCard';
@@ -136,7 +166,7 @@ function getCardHtml(image: any, apiClient: any, options: CardOptions): string {
         html += '<div class="' + cssClass + '"';
     }
 
-    html += ' data-id="' + currentItem.Id + '" data-serverid="' + apiClient.serverId() + '" data-index="' + options.index + '" data-numimages="' + options.numImages + '" data-imagetype="' + image.ImageType + '" data-providers="' + options.imageProviders.length + '"';
+    html += ' data-id="' + escapeHtml(String(currentItem.Id || '')) + '" data-serverid="' + escapeHtml(String(apiClient.serverId() || '')) + '" data-index="' + escapeHtml(String(options.index)) + '" data-numimages="' + escapeHtml(String(options.numImages)) + '" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-providers="' + escapeHtml(String(options.imageProviders.length)) + '"';
 
     html += '>';
 
@@ -155,7 +185,7 @@ function getCardHtml(image: any, apiClient: any, options: CardOptions): string {
 
     html += '<div class="cardFooter visualCardBox-cardFooter">';
 
-    html += '<h3 class="cardText cardTextCentered" style="margin:0;">' + globalize.translate('' + image.ImageType) + '</h3>';
+    html += '<h3 class="cardText cardTextCentered" style="margin:0;">' + escapeHtml(globalize.translate('' + image.ImageType)) + '</h3>';
 
     html += '<div class="cardText cardText-secondary cardTextCentered">';
     if (image.Width && image.Height) {
@@ -170,21 +200,21 @@ function getCardHtml(image: any, apiClient: any, options: CardOptions): string {
 
         if (image.ImageType === 'Backdrop') {
             if (options.index > 0) {
-                html += '<button type="button" is="paper-icon-button-light" class="btnMoveImage autoSize" data-imagetype="' + image.ImageType + '" data-index="' + image.ImageIndex + '" data-newindex="' + (image.ImageIndex - 1) + '" title="' + globalize.translate('MoveLeft') + '"><span class="material-icons chevron_left"></span></button>';
+                html += '<button type="button" is="paper-icon-button-light" class="btnMoveImage autoSize" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex)) + '" data-newindex="' + escapeHtml(String(image.ImageIndex - 1)) + '" title="' + escapeHtml(globalize.translate('MoveLeft')) + '"><span class="material-icons chevron_left"></span></button>';
             } else {
-                html += '<button type="button" is="paper-icon-button-light" class="autoSize" disabled title="' + globalize.translate('MoveLeft') + '"><span class="material-icons chevron_left" aria-hidden="true"></span></button>';
+                html += '<button type="button" is="paper-icon-button-light" class="autoSize" disabled title="' + escapeHtml(globalize.translate('MoveLeft')) + '"><span class="material-icons chevron_left" aria-hidden="true"></span></button>';
             }
 
             if (options.index < options.numImages - 1) {
-                html += '<button type="button" is="paper-icon-button-light" class="btnMoveImage autoSize" data-imagetype="' + image.ImageType + '" data-index="' + image.ImageIndex + '" data-newindex="' + (image.ImageIndex + 1) + '" title="' + globalize.translate('MoveRight') + '"><span class="material-icons chevron_right" aria-hidden="true"></span></button>';
+                html += '<button type="button" is="paper-icon-button-light" class="btnMoveImage autoSize" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex)) + '" data-newindex="' + escapeHtml(String(image.ImageIndex + 1)) + '" title="' + escapeHtml(globalize.translate('MoveRight')) + '"><span class="material-icons chevron_right" aria-hidden="true"></span></button>';
             } else {
-                html += '<button type="button" is="paper-icon-button-light" class="autoSize" disabled title="' + globalize.translate('MoveRight') + '"><span class="material-icons chevron_right" aria-hidden="true"></span></button>';
+                html += '<button type="button" is="paper-icon-button-light" class="autoSize" disabled title="' + escapeHtml(globalize.translate('MoveRight')) + '"><span class="material-icons chevron_right" aria-hidden="true"></span></button>';
             }
         } else if (options.imageProviders.length) {
-            html += '<button type="button" is="paper-icon-button-light" data-imagetype="' + image.ImageType + '" class="btnSearchImages autoSize" title="' + globalize.translate('Search') + '"><span class="material-icons search" aria-hidden="true"></span></button>';
+            html += '<button type="button" is="paper-icon-button-light" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" class="btnSearchImages autoSize" title="' + escapeHtml(globalize.translate('Search')) + '"><span class="material-icons search" aria-hidden="true"></span></button>';
         }
 
-        html += '<button type="button" is="paper-icon-button-light" data-imagetype="' + image.ImageType + '" data-index="' + (image.ImageIndex != null ? image.ImageIndex : 'null') + '" class="btnDeleteImage autoSize" title="' + globalize.translate('Delete') + '"><span class="material-icons delete" aria-hidden="true"></span></button>';
+        html += '<button type="button" is="paper-icon-button-light" data-imagetype="' + escapeHtml(String(image.ImageType || '')) + '" data-index="' + escapeHtml(String(image.ImageIndex != null ? image.ImageIndex : 'null')) + '" class="btnDeleteImage autoSize" title="' + escapeHtml(globalize.translate('Delete')) + '"><span class="material-icons delete" aria-hidden="true"></span></button>';
         html += '</div>';
     }
 
@@ -195,7 +225,7 @@ function getCardHtml(image: any, apiClient: any, options: CardOptions): string {
     return html;
 }
 
-function deleteImage(context: HTMLElement, itemId: string, type: string, index: number | null, apiClient: any, enableConfirmation: boolean): void {
+function deleteImage(context: HTMLElement, itemId: string, type: string, index: number | null, apiClient: ImageEditorApiClient, enableConfirmation: boolean): void {
     const afterConfirm = function () {
         void apiClient.deleteItemImage(itemId, type, index).then(function () {
             hasChanges = true;
@@ -215,7 +245,7 @@ function deleteImage(context: HTMLElement, itemId: string, type: string, index: 
     }).then(afterConfirm).catch((error: unknown) => console.error('Failed to confirm image deletion', error));
 }
 
-function moveImage(context: HTMLElement, apiClient: any, itemId: string, type: string, index: number, newIndex: number, focusContext: HTMLElement | null): void {
+function moveImage(context: HTMLElement, apiClient: ImageEditorApiClient, itemId: string, type: string, index: number, newIndex: number, focusContext: HTMLElement | null): void {
     apiClient.updateItemImageIndex(itemId, type, index, newIndex).then(function () {
         hasChanges = true;
         reload(context, null, focusContext || undefined);
@@ -224,7 +254,7 @@ function moveImage(context: HTMLElement, apiClient: any, itemId: string, type: s
     });
 }
 
-function renderImages(page: HTMLElement, item: any, apiClient: any, images: any[], imageProviders: any[], elem: HTMLElement): void {
+function renderImages(page: HTMLElement, item: ImageEditorItem, apiClient: ImageEditorApiClient, images: ImageInfo[], imageProviders: unknown[], elem: HTMLElement): void {
     let html = '';
 
     let imageSize = 300;
@@ -246,18 +276,18 @@ function renderImages(page: HTMLElement, item: any, apiClient: any, images: any[
     imageLoader.lazyChildren(elem);
 }
 
-function renderStandardImages(page: HTMLElement, apiClient: any, item: any, imageInfos: any[], imageProviders: any[]): void {
-    const images = imageInfos.filter(function (i: any) {
+function renderStandardImages(page: HTMLElement, apiClient: ImageEditorApiClient, item: ImageEditorItem, imageInfos: ImageInfo[], imageProviders: unknown[]): void {
+    const images = imageInfos.filter(function (i: ImageInfo) {
         return i.ImageType !== 'Backdrop' && i.ImageType !== 'Chapter';
     });
 
     renderImages(page, item, apiClient, images, imageProviders, page.querySelector('#images') as HTMLElement);
 }
 
-function renderBackdrops(page: HTMLElement, apiClient: any, item: any, imageInfos: any[], imageProviders: any[]): void {
-    const images = imageInfos.filter(function (i: any) {
+function renderBackdrops(page: HTMLElement, apiClient: ImageEditorApiClient, item: ImageEditorItem, imageInfos: ImageInfo[], imageProviders: unknown[]): void {
+    const images = imageInfos.filter(function (i: ImageInfo) {
         return i.ImageType === 'Backdrop';
-    }).sort(function (a: any, b: any) {
+    }).sort(function (a: ImageInfo, b: ImageInfo) {
         return a.ImageIndex - b.ImageIndex;
     });
 

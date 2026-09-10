@@ -260,7 +260,7 @@ export function show(options: Options) {
 
         // Check for null in case int 0 was passed in
         const optionId = item.id == null || item.id === '' ? item.value : item.id;
-        html += '<button' + autoFocus + ' is="emby-button" type="button" class="' + menuItemClass + '" data-id="' + optionId + '">';
+        html += '<button' + autoFocus + ' is="emby-button" type="button" class="' + menuItemClass + '" data-id="' + escapeHtml(String(optionId ?? '')) + '">';
 
         itemIcon = icons[i];
 

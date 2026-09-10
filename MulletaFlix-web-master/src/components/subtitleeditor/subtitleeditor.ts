@@ -23,14 +23,58 @@ import toast from '../toast/toast';
 import confirm from '../confirm/confirm';
 import template from './subtitleeditor.template.html';
 
-let currentItem: any;
+interface SubtitleStream {
+    Type?: string;
+    Index?: number;
+    DisplayTitle?: string;
+    Path?: string;
+}
+
+interface SubtitleEditorItem {
+    Id: string;
+    ServerId: string;
+    Path?: string;
+    MediaStreams?: SubtitleStream[];
+}
+
+interface SubtitleSearchResult {
+    Id?: string;
+    ProviderName?: string;
+    Name?: string;
+    Format?: string;
+    DownloadCount?: number;
+    FrameRate?: number;
+    Comment?: string;
+    IsHashMatch?: boolean;
+    AiTranslated?: boolean;
+    MachineTranslated?: boolean;
+    Forced?: boolean;
+    HearingImpaired?: boolean;
+}
+
+interface SubtitleLanguage {
+    ThreeLetterISOLanguageName?: string;
+    DisplayName?: string;
+}
+
+interface SubtitleEditorApiClient {
+    ajax: (options: { type: string; url: string }) => Promise<unknown>;
+    getUrl: (url: string) => string;
+    getJSON: (url: string) => Promise<SubtitleSearchResult[]>;
+    getItem: (userId: string, itemId: string) => Promise<SubtitleEditorItem>;
+    getCurrentUserId: () => string;
+    getCurrentUser: () => Promise<{ Configuration?: { SubtitleLanguagePreference?: string } }>;
+    getCultures: () => Promise<SubtitleLanguage[]>;
+}
+
+let currentItem: SubtitleEditorItem;
 let hasChanges: boolean;
 
 function downloadRemoteSubtitles(context: Element, id: string): void {
     const url = 'Items/' + currentItem.Id + '/RemoteSearch/Subtitles/' + id;
 
-    const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as any;
-    apiClient.ajax({
+    const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as SubtitleEditorApiClient;
+    void apiClient.ajax({
 
         type: 'POST',
         url: apiClient.getUrl(url)
@@ -41,7 +85,7 @@ function downloadRemoteSubtitles(context: Element, id: string): void {
         toast(globalize.translate('MessageDownloadQueued'));
 
         focusManager.autoFocus(context);
-    });
+    }).catch(() => toast(globalize.translate('ErrorDefault')));
 }
 
 function deleteLocalSubtitle(context: Element, index: string): void {
@@ -60,7 +104,7 @@ function deleteLocalSubtitle(context: Element, index: string): void {
         const itemId = currentItem.Id;
         const url = 'Videos/' + itemId + '/Subtitles/' + index;
 
-        const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as any;
+        const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as SubtitleEditorApiClient;
 
         apiClient.ajax({
 
@@ -76,10 +120,10 @@ function deleteLocalSubtitle(context: Element, index: string): void {
     }).catch(() => undefined);
 }
 
-function fillSubtitleList(context: Element, item: any): void {
+function fillSubtitleList(context: Element, item: SubtitleEditorItem): void {
     const streams = item.MediaStreams || [];
 
-    const subs = streams.filter(function (s: any) {
+    const subs = streams.filter(function (s: SubtitleStream) {
         return s.Type === 'Subtitle';
     });
 
@@ -90,7 +134,7 @@ function fillSubtitleList(context: Element, item: any): void {
 
         html += '<div>';
 
-        html += subs.map(function (s: any) {
+        html += subs.map(function (s: SubtitleStream) {
             let itemHtml = '';
 
             const tagName = layoutManager.tv ? 'button' : 'div';
@@ -140,10 +184,10 @@ function fillSubtitleList(context: Element, item: any): void {
     elem.innerHTML = html;
 }
 
-function fillLanguages(context: Element, apiClient: any, languages: any[]): void {
+function fillLanguages(context: Element, apiClient: SubtitleEditorApiClient, languages: SubtitleLanguage[]): void {
     const selectLanguage = context.querySelector('#selectLanguage') as HTMLSelectElement;
 
-    selectLanguage.innerHTML = languages.map(function (l: any) {
+    selectLanguage.innerHTML = languages.map(function (l: SubtitleLanguage) {
         return '<option value="' + escapeHtml(l.ThreeLetterISOLanguageName || '') + '">' + escapeHtml(l.DisplayName || '') + '</option>';
     }).join('');
 
@@ -151,17 +195,74 @@ function fillLanguages(context: Element, apiClient: any, languages: any[]): void
     if (lastLanguage) {
         selectLanguage.value = lastLanguage;
     } else {
-        apiClient.getCurrentUser().then(function (user: any) {
-            const lang = user.Configuration.SubtitleLanguagePreference;
+        void apiClient.getCurrentUser().then(function (user) {
+            const lang = user.Configuration?.SubtitleLanguagePreference;
 
             if (lang) {
                 selectLanguage.value = lang;
             }
-        });
+        }).catch(() => undefined);
     }
 }
 
-function renderSearchResults(context: Element, results: any[]): void {
+function renderSubtitleFlags(result: SubtitleSearchResult): string {
+    const flags: Array<[boolean | undefined, string]> = [
+        [result.IsHashMatch, 'PerfectMatch'],
+        [result.AiTranslated, 'AiTranslated'],
+        [result.MachineTranslated, 'MachineTranslated'],
+        [result.Forced, 'ForeignPartsOnly'],
+        [result.HearingImpaired, 'HearingImpairedShort']
+    ];
+    const spanOpen = '<span class="inline-flex align-items-center justify-content-center subtitleFeaturePillow">';
+    const renderedFlags = flags
+        .filter(([enabled]) => enabled)
+        .map(([, label]) => spanOpen + globalize.translate(label) + '</span>')
+        .join('');
+
+    return renderedFlags ? '<div class="secondary listItemBodyText">' + renderedFlags + '</div>' : '';
+}
+
+function renderSubtitleResult(result: SubtitleSearchResult): string {
+    const tagName = layoutManager.tv ? 'button' : 'div';
+    let className = layoutManager.tv ? 'listItem listItem-border btnOptions' : 'listItem listItem-border';
+    if (layoutManager.tv) {
+        className += ' listItem-focusscale listItem-button';
+    }
+
+    const hasAnyFlags = result.IsHashMatch || result.AiTranslated || result.MachineTranslated || result.Forced || result.HearingImpaired;
+    const bodyClass = result.Comment || hasAnyFlags ? 'three-line' : 'two-line';
+    let html = '<' + tagName + ' class="' + className + '" data-subid="' + escapeHtml(String(result.Id ?? '')) + '">';
+
+    html += '<span class="listItemIcon material-icons closed_caption" aria-hidden="true"></span>';
+    html += '<div class="listItemBody ' + bodyClass + '">';
+    html += '<div>' + escapeHtml(result.Name || '') + '</div>';
+    html += '<div class="secondary listItemBodyText">';
+
+    if (result.Format) {
+        html += '<span style="margin-right:1em;">' + globalize.translate('FormatValue', result.Format) + '</span>';
+    }
+    if (result.DownloadCount != null) {
+        html += '<span style="margin-right:1em;">' + globalize.translate('DownloadsValue', String(result.DownloadCount)) + '</span>';
+    }
+    if (result.FrameRate) {
+        html += '<span>' + globalize.translate('Framerate') + ': ' + escapeHtml(String(result.FrameRate)) + '</span>';
+    }
+
+    html += '</div>';
+    if (result.Comment) {
+        html += '<div class="secondary listItemBodyText" style="white-space:pre-line;">' + escapeHtml(result.Comment) + '</div>';
+    }
+    html += renderSubtitleFlags(result);
+    html += '</div>';
+
+    if (!layoutManager.tv) {
+        html += '<button type="button" is="paper-icon-button-light" data-subid="' + escapeHtml(String(result.Id ?? '')) + '" class="btnDownload listItemButton"><span class="material-icons file_download" aria-hidden="true"></span></button>';
+    }
+
+    return html + '</' + tagName + '>';
+}
+
+function renderSearchResults(context: Element, results: SubtitleSearchResult[]): void {
     let lastProvider = '';
     let html = '';
 
@@ -177,88 +278,18 @@ function renderSearchResults(context: Element, results: any[]): void {
     for (let i = 0, length = results.length; i < length; i++) {
         const result = results[i];
 
-        const provider = result.ProviderName;
+        const provider = result.ProviderName || '';
 
         if (provider !== lastProvider) {
             if (i > 0) {
                 html += '</div>';
             }
-            html += '<h2>' + provider + '</h2>';
+            html += '<h2>' + escapeHtml(provider || '') + '</h2>';
             html += '<div>';
             lastProvider = provider;
         }
 
-        const tagName = layoutManager.tv ? 'button' : 'div';
-        let className = layoutManager.tv ? 'listItem listItem-border btnOptions' : 'listItem listItem-border';
-        if (layoutManager.tv) {
-            className += ' listItem-focusscale listItem-button';
-        }
-
-        html += '<' + tagName + ' class="' + className + '" data-subid="' + result.Id + '">';
-
-        html += '<span class="listItemIcon material-icons closed_caption" aria-hidden="true"></span>';
-
-        const hasAnyFlags = result.IsHashMatch || result.AiTranslated || result.MachineTranslated || result.Forced || result.HearingImpaired;
-        const bodyClass = result.Comment || hasAnyFlags ? 'three-line' : 'two-line';
-
-        html += '<div class="listItemBody ' + bodyClass + '">';
-
-        html += '<div>' + escapeHtml(result.Name) + '</div>';
-        html += '<div class="secondary listItemBodyText">';
-
-        if (result.Format) {
-            html += '<span style="margin-right:1em;">' + globalize.translate('FormatValue', result.Format) + '</span>';
-        }
-
-        if (result.DownloadCount != null) {
-            html += '<span style="margin-right:1em;">' + globalize.translate('DownloadsValue', result.DownloadCount) + '</span>';
-        }
-
-        if (result.FrameRate) {
-            html += '<span>' + globalize.translate('Framerate') + ': ' + result.FrameRate + '</span>';
-        }
-
-        html += '</div>';
-
-        if (result.Comment) {
-            html += '<div class="secondary listItemBodyText" style="white-space:pre-line;">' + escapeHtml(result.Comment) + '</div>';
-        }
-
-        if (hasAnyFlags) {
-            html += '<div class="secondary listItemBodyText">';
-
-            const spanOpen = '<span class="inline-flex align-items-center justify-content-center subtitleFeaturePillow">';
-
-            if (result.IsHashMatch) {
-                html += spanOpen + globalize.translate('PerfectMatch') + '</span>';
-            }
-
-            if (result.AiTranslated) {
-                html += spanOpen + globalize.translate('AiTranslated') + '</span>';
-            }
-
-            if (result.MachineTranslated) {
-                html += spanOpen + globalize.translate('MachineTranslated') + '</span>';
-            }
-
-            if (result.Forced) {
-                html += spanOpen + globalize.translate('ForeignPartsOnly') + '</span>';
-            }
-
-            if (result.HearingImpaired) {
-                html += spanOpen + globalize.translate('HearingImpairedShort') + '</span>';
-            }
-
-            html += '</div>';
-        }
-
-        html += '</div>';
-
-        if (!layoutManager.tv) {
-            html += '<button type="button" is="paper-icon-button-light" data-subid="' + result.Id + '" class="btnDownload listItemButton"><span class="material-icons file_download" aria-hidden="true"></span></button>';
-        }
-
-        html += '</' + tagName + '>';
+        html += renderSubtitleResult(result);
     }
 
     if (results.length) {
@@ -276,18 +307,21 @@ function searchForSubtitles(context: Element, language: string): void {
 
     loading.show();
 
-    const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as any;
+    const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as SubtitleEditorApiClient;
     const url = apiClient.getUrl('Items/' + currentItem.Id + '/RemoteSearch/Subtitles/' + language);
 
-    apiClient.getJSON(url).then(function (results: any[]) {
+    void apiClient.getJSON(url).then(function (results: SubtitleSearchResult[]) {
         renderSearchResults(context, results);
+    }).catch(() => {
+        loading.hide();
+        toast(globalize.translate('ErrorDefault'));
     });
 }
 
-function reload(context: Element, apiClient: any, itemId: string | any): void {
+function reload(context: Element, apiClient: SubtitleEditorApiClient, itemId: string | SubtitleEditorItem): void {
     context.querySelector('.noSearchResults')!.classList.add('hide');
 
-    function onGetItem(item: any): void {
+    function onGetItem(item: SubtitleEditorItem): void {
         currentItem = item;
 
         fillSubtitleList(context, item);
@@ -309,18 +343,19 @@ function reload(context: Element, apiClient: any, itemId: string | any): void {
     }
 
     if (typeof itemId === 'string') {
-        apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(onGetItem);
+        void apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(onGetItem).catch(() => {
+            loading.hide();
+            toast(globalize.translate('ErrorDefault'));
+        });
     } else {
         onGetItem(itemId);
     }
 }
 
-function onSearchSubmit(this: any, e: Event): void {
-    const form = this;
+function onSearchSubmit(this: HTMLFormElement, e: Event): void {
+    const lang = (this.querySelector('#selectLanguage') as HTMLSelectElement).value;
 
-    const lang = (form.querySelector('#selectLanguage') as HTMLSelectElement).value;
-
-    searchForSubtitles(dom.parentWithClass(form, 'formDialogContent')!, lang);
+    searchForSubtitles(dom.parentWithClass(this, 'formDialogContent')!, lang);
 
     e.preventDefault();
     return undefined as unknown as void;
@@ -368,7 +403,7 @@ function showDownloadOptions(button: Element, context: Element, subtitleId: stri
             positionTo: button
 
         });
-    }).then((id: any) => {
+    }).then((id: unknown) => {
         if (id === 'download') {
             downloadRemoteSubtitles(context, subtitleId);
         }
@@ -378,14 +413,16 @@ function showDownloadOptions(button: Element, context: Element, subtitleId: stri
 function centerFocus(elem: Element | null, horiz: boolean, on: boolean): void {
     void import('../../scripts/scrollHelper').then(({ default: scrollHelper }) => {
         const fn = on ? 'on' : 'off';
-        (scrollHelper.centerFocus as any)[fn](elem, horiz);
+        if (elem) {
+            scrollHelper.centerFocus[fn](elem, horiz);
+        }
     }).catch(() => undefined);
 }
 
 function onOpenUploadMenu(e: Event): void {
     const dialog = dom.parentWithClass(e.target as HTMLElement, 'subtitleEditorDialog');
     const selectLanguage = dialog!.querySelector('#selectLanguage') as HTMLSelectElement;
-    const apiClient = ServerConnections.getApiClient(currentItem.ServerId);
+    const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as SubtitleEditorApiClient;
 
     void import('../subtitleuploader/subtitleuploader').then(({ default: subtitleUploader }) => {
         return subtitleUploader.show({
@@ -407,9 +444,9 @@ function onOpenUploadMenu(e: Event): void {
 function showEditorInternal(itemId: string, serverId: string): Promise<void> {
     hasChanges = false;
 
-    const apiClient = ServerConnections.getApiClient(serverId) as any;
-    return apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: any) {
-        const dialogOptions: Record<string, any> = {
+    const apiClient = ServerConnections.getApiClient(serverId) as unknown as SubtitleEditorApiClient;
+    return apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: SubtitleEditorItem) {
+        const dialogOptions: Record<string, boolean | string> = {
             removeOnClose: true,
             scrollY: false
         };
@@ -451,7 +488,7 @@ function showEditorInternal(itemId: string, serverId: string): Promise<void> {
         dlg.querySelector('.subtitleList')!.addEventListener('click', onSubtitleListClick);
         dlg.querySelector('.subtitleResults')!.addEventListener('click', onSubtitleResultsClick);
 
-        apiClient.getCultures().then(function (languages: any[]) {
+        apiClient.getCultures().then(function (languages: SubtitleLanguage[]) {
             fillLanguages(editorContent, apiClient, languages);
         }).catch(() => toast(globalize.translate('ErrorDefault')));
 
