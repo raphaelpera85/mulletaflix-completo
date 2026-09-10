@@ -1292,11 +1292,6 @@ public sealed class NebulaMongoContext : IDisposable
     /// <returns>Uma tarefa assíncrona.</returns>
     public async Task SyncStagingDirectoryAsync(IEnumerable<string> stagingDirs, bool deleteCompletedFromStaging = false, CancellationToken cancellationToken = default)
     {
-        var validExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".webm"
-        };
-
         foreach (var stageRoot in stagingDirs)
         {
             if (string.IsNullOrWhiteSpace(stageRoot) || !Directory.Exists(stageRoot))
@@ -1311,8 +1306,7 @@ public sealed class NebulaMongoContext : IDisposable
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var ext = Path.GetExtension(file);
-                    if (!validExts.Contains(ext) && !NebulaMetadataExportService.IsMetadataSidecarPath(file))
+                    if (!NebulaMetadataExportService.IsUploadablePath(file))
                     {
                         continue;
                     }
