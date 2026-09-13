@@ -121,4 +121,25 @@ public sealed class RateLimitMiddlewareTests
             Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         }
     }
+
+    [Fact]
+    public async Task AnonymousLoopbackRequests_AreNotRateLimited()
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+
+        for (var i = 0; i < 40; i++)
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Loopback;
+            context.Request.Path = "/Users/test-id/Views";
+            await middleware.Invoke(context);
+            Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        }
+    }
 }

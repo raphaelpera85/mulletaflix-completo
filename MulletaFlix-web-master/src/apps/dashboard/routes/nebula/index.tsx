@@ -550,7 +550,86 @@ const NebulaPage = () => {
 
     return (
         <Page id='nebulaPage' title='Nebula' className='mainAnimatedPage type-interior'>
-            <Stack spacing={3} sx={{ p: { xs: 2, md: 3 } }}>
+            <Stack
+                className='nebula-page-content'
+                spacing={3}
+                sx={{
+                    p: { xs: 2, md: 3 },
+                    maxWidth: 1580,
+                    mx: 'auto',
+                    '& .MuiPaper-root': {
+                        bgcolor: '#202020',
+                        borderColor: '#3a3a3a',
+                        borderRadius: '4px',
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, .24)'
+                    },
+                    '& .MuiDivider-root': {
+                        borderColor: '#3a3a3a'
+                    },
+                    '& .MuiTypography-h1': {
+                        color: '#f5f5f5',
+                        fontWeight: 500,
+                        letterSpacing: '-.02em'
+                    },
+                    '& .MuiTypography-h2': {
+                        color: '#f5f5f5',
+                        fontWeight: 500
+                    },
+                    '& .MuiTypography-body1': {
+                        color: '#f0f0f0'
+                    },
+                    '& .MuiTypography-body2, & .MuiTypography-caption': {
+                        color: '#b9b9b9'
+                    },
+                    '& .MuiButton-root': {
+                        minHeight: 42,
+                        borderRadius: '4px',
+                        fontWeight: 500,
+                        px: 2
+                    },
+                    '& .MuiButton-contained': {
+                        bgcolor: '#00a4dc',
+                        color: '#07151b',
+                        '&:hover': { bgcolor: '#33b6e3' }
+                    },
+                    '& .MuiButton-outlined': {
+                        borderColor: '#00a4dc',
+                        color: '#00b7ef',
+                        '&:hover': {
+                            borderColor: '#33b6e3',
+                            bgcolor: 'rgba(0, 164, 220, .12)'
+                        }
+                    },
+                    '& .MuiButton-outlined.MuiButton-colorWarning': {
+                        borderColor: '#e39a19',
+                        color: '#ffab1a',
+                        '&:hover': { bgcolor: 'rgba(255, 171, 26, .12)' }
+                    },
+                    '& .MuiChip-colorSuccess': {
+                        bgcolor: '#69c36b',
+                        color: '#102313',
+                        fontWeight: 500
+                    },
+                    '& .MuiLinearProgress-root': {
+                        height: 5,
+                        borderRadius: 0,
+                        bgcolor: '#07526c'
+                    },
+                    '& .MuiLinearProgress-bar': {
+                        bgcolor: '#00a4dc'
+                    },
+                    '& .MuiInputBase-root': {
+                        bgcolor: 'rgba(255, 255, 255, .07)',
+                        borderRadius: '4px'
+                    },
+                    '& .MuiInputLabel-root': {
+                        color: '#b9b9b9'
+                    },
+                    '& .MuiInputBase-input': {
+                        color: '#fff'
+                    }
+                }}
+            >
                 <Stack direction={{ xs: 'column', md: 'row' }} justifyContent='space-between' gap={2}>
                     <Box>
                         <Typography variant='h1'>Operações Nebula</Typography>

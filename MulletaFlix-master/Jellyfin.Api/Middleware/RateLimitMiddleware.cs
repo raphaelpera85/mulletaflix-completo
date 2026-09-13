@@ -105,7 +105,7 @@ public class RateLimitMiddleware
                 return;
             }
         }
-        else if (!isAuth && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
+        else if (!isAuth && !IsLoopback(ip) && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
         {
             if (IsBlocked(_anonymousRequests, ip, AnonymousWindow, MaxAnonymousRequests))
             {
@@ -121,7 +121,7 @@ public class RateLimitMiddleware
         {
             RecordAttempt(_failedLogins, ip, LoginWindow);
         }
-        else if (!isAuth && !isLoginAttempt && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
+        else if (!isAuth && !isLoginAttempt && !IsLoopback(ip) && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
         {
             RecordAttempt(_anonymousRequests, ip, AnonymousWindow);
         }
@@ -136,6 +136,9 @@ public class RateLimitMiddleware
 
     internal static bool IsPublicBootstrapPath(string path)
         => PublicBootstrapPaths.Any(route => IsPathOrDescendant(path, route));
+
+    internal static bool IsLoopback(string ip)
+        => IPAddress.TryParse(ip, out var address) && IPAddress.IsLoopback(address);
 
     private static bool IsHermeticTestMode()
     {
