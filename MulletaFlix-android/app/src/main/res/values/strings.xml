@@ -1,0 +1,114 @@
+<resources>
+    <string name="app_name">MulletaFlix</string>
+
+    <!-- Auth -->
+    <string name="server_selection_title">Selecionar Servidor</string>
+    <string name="server_url_hint">URL do Servidor</string>
+    <string name="server_url_placeholder">http://192.168.1.100:8096</string>
+    <string name="connect">Conectar</string>
+    <string name="saved_servers">Servidores Salvos</string>
+    <string name="remove_server">Remover servidor</string>
+    <string name="login_title">Entrar</string>
+    <string name="username_hint">Usuário</string>
+    <string name="password_hint">Senha</string>
+    <string name="show_password">Mostrar senha</string>
+    <string name="hide_password">Ocultar senha</string>
+    <string name="login_button">Entrar</string>
+    <string name="quick_connect_tab">Quick Connect</string>
+    <string name="quick_connect_description">Gera um código de 6 dígitos para entrar sem senha.</string>
+    <string name="generate_code">Gerar Código Quick Connect</string>
+    <string name="waiting_auth">Aguardando autorização...</string>
+    <string name="cancel">Cancelar</string>
+
+    <!-- Home -->
+    <string name="continue_watching">Continuar Assistindo</string>
+    <string name="next_up">Próximo Episódio</string>
+    <string name="recently_added_prefix">Adicionados Recentemente —</string>
+    <string name="live_tv">TV Ao Vivo</string>
+    <string name="my_libraries">Minhas Bibliotecas</string>
+    <string name="play">Reproduzir</string>
+    <string name="more_info">Mais Informações</string>
+    <string name="resume">Continuar</string>
+
+    <!-- Player -->
+    <string name="back">Voltar</string>
+    <string name="pause">Pausar</string>
+    <string name="play_button">Reproduzir</string>
+    <string name="previous">Anterior</string>
+    <string name="next">Próximo</string>
+    <string name="subtitles">Legendas</string>
+    <string name="audio_track">Faixa de Áudio</string>
+    <string name="quality">Qualidade</string>
+    <string name="speed">Velocidade</string>
+    <string name="skip_intro">Pular Introdução</string>
+    <string name="skip_credits">Pular Créditos</string>
+    <string name="no_track">Nenhuma</string>
+    <string name="cast">Chromecast</string>
+
+    <!-- Library -->
+    <string name="toggle_view">Alternar visualização</string>
+    <string name="sort">Ordenar</string>
+    <string name="filter">Filtrar</string>
+
+    <!-- Settings -->
+    <string name="settings">Configurações</string>
+    <string name="server_section">Servidor</string>
+    <string name="appearance_section">Aparência</string>
+    <string name="playback_section">Reprodução</string>
+    <string name="subtitles_section">Legendas</string>
+    <string name="downloads_section">Downloads</string>
+    <string name="cache_section">Cache</string>
+    <string name="about_section">Sobre</string>
+    <string name="logout">Sair</string>
+    <string name="logout_subtitle">Desconectar da conta atual</string>
+    <string name="theme_title">Tema</string>
+    <string name="default_quality">Qualidade Padrão</string>
+    <string name="default_speed">Velocidade Padrão</string>
+    <string name="auto_play">Reprodução Automática</string>
+    <string name="auto_play_subtitle">Reproduzir próximo episódio automaticamente</string>
+    <string name="skip_intro_setting">Pular Introdução</string>
+    <string name="skip_intro_subtitle">Mostrar botão para pular abertura</string>
+    <string name="app_version">Versão</string>
+    <string name="app_version_value">MulletaFlix Android 12.0.0</string>
+    <string name="github">GitHub</string>
+    <string name="licenses">Licenças</string>
+
+    <!-- Detail -->
+    <string name="favorite">Favorito</string>
+    <string name="mark_watched">Marcar como assistido</string>
+    <string name="more_options">Mais opções</string>
+    <string name="see_more">Ver mais</string>
+    <string name="see_less">Ver menos</string>
+    <string name="cast_crew">Elenco e Equipe</string>
+    <string name="more_like_this">Mais como Este</string>
+    <string name="extras">Extras</string>
+    <string name="technical_info">Informações Técnicas</string>
+    <string name="tracks">Faixas</string>
+
+    <!-- Search -->
+    <string name="search_hint">Buscar filmes, séries, músicas...</string>
+    <string name="clear">Limpar</string>
+    <string name="recent_searches">Buscas Recentes</string>
+    <string name="clear_history">Limpar</string>
+    <string name="no_results_prefix">Nenhum resultado para</string>
+
+    <!-- Badges -->
+    <string name="badge_live">AO VIVO</string>
+    <string name="badge_hd">HD</string>
+    <string name="badge_4k">4K</string>
+    <string name="badge_hdr">HDR</string>
+    <string name="badge_atmos">Atmos</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Início</string>
+    <string name="nav_search">Buscar</string>
+    <string name="nav_downloads">Downloads</string>
+    <string name="nav_live_tv">TV ao Vivo</string>
+    <string name="nav_settings">Configurações</string>
+
+    <!-- Errors -->
+    <string name="error_connection">Não foi possível conectar ao servidor. Verifique o endereço e tente novamente.</string>
+    <string name="error_auth">Usuário ou senha incorretos.</string>
+    <string name="error_generic">Ocorreu um erro. Tente novamente.</string>
+    <string name="error_no_internet">Sem conexão com a internet.</string>
+</resources>

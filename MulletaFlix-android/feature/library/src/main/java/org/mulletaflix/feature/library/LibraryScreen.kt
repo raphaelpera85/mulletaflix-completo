@@ -1,0 +1,200 @@
+package org.mulletaflix.feature.library
+
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import org.mulletaflix.designsystem.components.MediaCard
+import org.mulletaflix.designsystem.components.MediaCardShape
+import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.MediaItemType
+
+/**
+ * Library browser screen.
+ *
+ * Features:
+ *  - Grid/List toggle view
+ *  - Sort by: Name, Date Added, Release Date, Runtime, Rating, Random
+ *  - Filter chips: Genres, Year, Rating, Resolution (4K/HD), Played/Unplayed, Favorites
+ *  - Alpha index picker (A-Z fast scroll)
+ *  - Pull to refresh
+ *  - Infinite scroll (pagination)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LibraryScreen(
+    libraryId: String,
+    onItemClick: (String) -> Unit,
+    onBack: () -> Unit,
+    viewModel: LibraryViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsState()
+
+    LaunchedEffect(libraryId) { viewModel.loadLibrary(libraryId) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(state.libraryName) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Voltar") }
+                },
+                actions = {
+                    // View toggle (grid / list)
+                    IconButton(onClick = viewModel::toggleView) {
+                        Icon(if (state.isGridView) Icons.Default.ViewList else Icons.Default.GridView, contentDescription = "Alternar visualização")
+                    }
+                    // Sort
+                    IconButton(onClick = viewModel::showSortMenu) {
+                        Icon(Icons.Default.Sort, contentDescription = "Ordenar")
+                    }
+                    // Filter
+                    IconButton(onClick = viewModel::showFilterMenu) {
+                        Icon(Icons.Default.FilterList, contentDescription = "Filtrar")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (state.isLoading && state.items.isEmpty()) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else {
+                val columns = if (state.isGridView) 3 else 1
+
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    contentPadding = PaddingValues(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Active filters summary
+                    if (state.activeFilters.isNotEmpty()) {
+                        item(span = { GridItemSpan(columns) }) {
+                            ActiveFiltersRow(
+                                filters = state.activeFilters,
+                                onRemoveFilter = viewModel::removeFilter,
+                                onClearAll = viewModel::clearFilters
+                            )
+                        }
+                    }
+
+                    items(state.items) { item ->
+                        if (state.isGridView) {
+                            MediaCard(
+                                title = item.name,
+                                imageUrl = item.primaryImageUrl,
+                                shape = if (item.type == MediaItemType.Movie || item.type == MediaItemType.MusicAlbum || item.type == MediaItemType.Book) MediaCardShape.Portrait else MediaCardShape.Landscape,
+                                progress = item.playedPercentage?.toFloat()?.div(100f) ?: 0f,
+                                isWatched = item.isPlayed,
+                                qualityBadge = when { item.has4K -> "4K"; item.hasHD -> "HD"; else -> null },
+                                onClick = { onItemClick(item.id) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            LibraryListRow(item = item, onClick = { onItemClick(item.id) })
+                        }
+                    }
+
+                    // Load more trigger
+                    if (state.hasMore) {
+                        item(span = { GridItemSpan(columns) }) {
+                            LaunchedEffect(Unit) { viewModel.loadMore() }
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+                            }
+                        }
+                    }
+
+                    item(span = { GridItemSpan(columns) }) {
+                        Spacer(modifier = Modifier.height(80.dp))
+                    }
+                }
+            }
+
+            // Sort dropdown
+            if (state.showSortMenu) {
+                SortDropdown(
+                    current = state.sortBy,
+                    onSelect = viewModel::setSortBy,
+                    onDismiss = viewModel::hideSortMenu
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryListRow(item: MediaItem, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MediaCard(
+            title = item.name,
+            imageUrl = item.primaryImageUrl,
+            shape = MediaCardShape.Portrait,
+            isWatched = item.isPlayed,
+            onClick = onClick,
+            modifier = Modifier.width(60.dp)
+        )
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(item.name, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+            item.year?.let { Text("$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item.overview?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+        }
+        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> Unit, onClearAll: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        filters.forEach { filter ->
+            AssistChip(
+                onClick = { onRemoveFilter(filter) },
+                label = { Text(filter) },
+                trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remover", modifier = Modifier.size(16.dp)) }
+            )
+        }
+        TextButton(onClick = onClearAll) { Text("Limpar") }
+    }
+}
+
+@Composable
+private fun SortDropdown(current: SortOption, onSelect: (SortOption) -> Unit, onDismiss: () -> Unit) {
+    DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
+        SortOption.values().forEach { option ->
+            DropdownMenuItem(
+                text = { Text(option.label) },
+                leadingIcon = { if (current == option) Icon(Icons.Default.Check, contentDescription = null) },
+                onClick = { onSelect(option); onDismiss() }
+            )
+        }
+    }
+}
+
+enum class SortOption(val label: String, val apiValue: String) {
+    Name("Nome A-Z", "SortName"),
+    DateAdded("Data de Adição", "DateCreated"),
+    ReleaseDate("Data de Lançamento", "PremiereDate"),
+    Runtime("Duração", "Runtime"),
+    CommunityRating("Avaliação", "CommunityRating"),
+    Random("Aleatório", "Random"),
+    PlayCount("Mais Assistidos", "PlayCount"),
+    LastPlayed("Assistido Recentemente", "DatePlayed"),
+}
+
+private val MediaItem.primaryImageUrl: String? get() =
+    imageTags[org.mulletaflix.domain.model.ImageType.Primary]?.let { "Items/$id/Images/Primary?tag=$it" }

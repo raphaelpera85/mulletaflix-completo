@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Network security config for MulletaFlix Android.
+
+    Allows cleartext HTTP traffic to local network servers (192.168.x.x, 10.x.x.x)
+    so users can connect to self-hosted servers without HTTPS.
+
+    HTTPS is ALWAYS preferred when available and required for external servers.
+    This mirrors the Jellyfin Android approach.
+-->
+<network-security-config>
+    <!-- Allow HTTP for local/private network servers -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Private class A -->
+        <domain includeSubdomains="true">10.0.0.0/8</domain>
+        <!-- Private class B -->
+        <domain includeSubdomains="true">172.16.0.0/12</domain>
+        <!-- Private class C -->
+        <domain includeSubdomains="true">192.168.0.0/16</domain>
+        <!-- Localhost -->
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+
+    <!-- All other traffic requires HTTPS -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

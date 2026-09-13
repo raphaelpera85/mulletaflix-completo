@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Shield / TV rounded box -->
+    <path
+        android:fillColor="#00A4DC"
+        android:pathData="M30,26 C25,26 22,29 22,34 L22,74 C22,79 25,82 30,82 L78,82 C83,82 86,79 86,74 L86,34 C86,29 83,26 78,26 Z" />
+    <!-- Play Triangle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,40 L68,54 L46,68 Z" />
+</vector>

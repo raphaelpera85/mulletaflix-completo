@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand primary blue from manifest.json -->
+    <color name="primary">#00A4DC</color>
+    <color name="primary_dark">#0085B0</color>
+    <!-- Dark background matching web theme -->
+    <color name="background">#101010</color>
+    <color name="surface">#1A1A1A</color>
+</resources>
