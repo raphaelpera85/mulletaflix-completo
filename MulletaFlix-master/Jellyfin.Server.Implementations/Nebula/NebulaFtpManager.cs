@@ -63,6 +63,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private long _nextAutomaticMountAttemptUtcTicks;
     private int _automaticMountAttemptInProgress;
     private int _automaticMountFailures;
+    private int _mountRetryScheduled;
     private readonly Dictionary<string, NebulaOperationReplay> _operationReplays = new(StringComparer.Ordinal);
     private static readonly TimeSpan OperationReplayTtl = TimeSpan.FromMinutes(15);
 
@@ -2925,6 +2926,16 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 return true;
             }
 
+            // The Python helper supervises rclone and can remain alive while
+            // rclone retries a failed mount. Do not kill that owner and start
+            // another mount: WinFsp rejects the competing filesystem with
+            // ERROR_FILE_EXISTS (80070050).
+            if (_rcloneProcess != null && !_rcloneProcess.HasExited)
+            {
+                AddServerLog("[NEBULA-MOUNT] Montagem N: já está em andamento; aguardando o helper existente.");
+                return false;
+            }
+
             var rcloneExe = FindRcloneExe();
             if (string.IsNullOrWhiteSpace(rcloneExe))
             {
@@ -2934,7 +2945,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
             // Garante liberação de processos ou pontos de montagem prévios antes de montar
             AddServerLog("[NEBULA-MOUNT] Preparando montagem e liberando eventuais instâncias anteriores do rclone...");
-            StopAllRcloneProcesses();
+            // Clear stale rclone processes from previous Nebula/helper runs
+            // before claiming the N: WinFsp drive letter.
+            StopAllRcloneProcesses(includeForeignProcesses: true);
             for (var i = 0; i < 6; i++)
             {
                 if (!Directory.Exists("N:\\"))
@@ -3050,6 +3063,8 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 if (_rcloneProcess != null && _rcloneProcess.HasExited)
                 {
                     AddServerLog($"[NEBULA-MOUNT-ERRO] rclone encerrou prematuramente (código: {_rcloneProcess.ExitCode}). Consulte {logFile}");
+                    StopAllRcloneProcesses(includeForeignProcesses: true);
+                    ScheduleMountRetry();
                     return false;
                 }
 
@@ -3069,12 +3084,16 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             }
 
             AddServerLog("[NEBULA-MOUNT-AVISO] Montagem de N: ainda está inicializando em segundo plano.");
+            StopAllRcloneProcesses(includeForeignProcesses: true);
+            ScheduleMountRetry();
             return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Erro ao montar unidade N: via rclone");
             AddServerLog($"[NEBULA-MOUNT-ERRO] Exceção ao montar unidade N: {ex.Message}");
+            StopAllRcloneProcesses(includeForeignProcesses: true);
+            ScheduleMountRetry();
             return false;
         }
         finally
@@ -3310,11 +3329,33 @@ no_check_certificate = true
         }
     }
 
-    private void StopAllRcloneProcesses()
+    private void StopAllRcloneProcesses(bool includeForeignProcesses = false)
     {
         try
         {
             StopOwnedRcloneProcess();
+
+            if (includeForeignProcesses)
+            {
+                foreach (var process in Process.GetProcessesByName("rclone"))
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.Kill(entireProcessTree: true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Não foi possível encerrar uma instância antiga do rclone");
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+            }
 
             var rcloneExe = FindRcloneExe();
             if (!string.IsNullOrWhiteSpace(rcloneExe))
@@ -3345,6 +3386,34 @@ no_check_certificate = true
         {
             _logger.LogDebug(ex, "Erro ao encerrar processos do rclone");
         }
+    }
+
+    private void ScheduleMountRetry()
+    {
+        if (Interlocked.CompareExchange(ref _mountRetryScheduled, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _ = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                    AddServerLog("[NEBULA-MOUNT] Tentando montar novamente a unidade N: após limpar instâncias do rclone...");
+                    await MountDriveNAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Erro na tentativa automática de remontagem da unidade N:");
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _mountRetryScheduled, 0);
+                }
+            },
+            CancellationToken.None);
     }
 
     private static bool IsDriveNAccessible()

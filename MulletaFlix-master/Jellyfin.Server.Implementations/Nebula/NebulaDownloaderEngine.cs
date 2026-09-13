@@ -186,6 +186,13 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 }
 
                 LogInfo("Escaneando e priorizando arquivos .strm...");
+                OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
+                {
+                    Name = "Preparando fila do Downloader...",
+                    StageStep = "Escaneando arquivos .strm...",
+                    DetailText = "Aguarde; a fila está sendo priorizada.",
+                    Percentage = 0
+                });
 
                 var strmFiles = new List<string>();
                 foreach (var src in monitorSources)
@@ -216,6 +223,16 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     .ToList();
 
                 LogInfo($"Total de arquivos .strm encontrados: {prioritizedList.Count}");
+                if (prioritizedList.Count == 0)
+                {
+                    OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
+                    {
+                        Name = "Nenhuma mídia pendente",
+                        StageStep = "Aguardando novos arquivos .strm...",
+                        DetailText = "0.0%",
+                        Percentage = 0
+                    });
+                }
 
                 foreach (var item in prioritizedList)
                 {
@@ -340,26 +357,18 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         // 2. Log de início do download exclusivo da mídia
         LogInfo($"[1 MÍDIA POR VEZ] Iniciando download: {strmFileName} [{categoryName}{yearPart}] -> Stage: {targetStageStrmDir}");
+        OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
+        {
+            Name = strmFileName,
+            StageStep = "Baixando mídia...",
+            DetailText = "0.0%",
+            Percentage = 0
+        });
 
         Directory.CreateDirectory(targetStageDir);
 
-        // The STRM must already be recognized by Jellyfin before downloading its
-        // remote media. This exports the NFO and images into the same staging
-        // directory, allowing the watcher to upload the sidecars with the media.
-        if (_metadataExportService != null)
-        {
-            var metadataReady = await WaitForMetadataAsync(strmPath, targetStageDir, cancellationToken).ConfigureAwait(false);
-            if (!metadataReady)
-            {
-                NebulaMetadataExportService.RemovePendingMarker(targetStageDir);
-                var message = $"Metadados ainda não reconhecidos pelo Jellyfin para {strmFileName}; download adiado.";
-                LogWarning(message);
-                _failureTracker.RecordFailure(strmPath, message);
-                return;
-            }
-        }
-
-        // 3. Executa o download multipart resiliente
+        // 3. Executa o download multipart resiliente sem aguardar o reconhecimento
+        // antecipado da mídia pelo Jellyfin.
         var partsCount = config.DownloadParts > 0 ? Math.Clamp(config.DownloadParts, 1, 32) : 24;
         bool downloadOk;
         try
@@ -430,38 +439,6 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             CleanEmptyParentDirectoriesWithLog(Path.GetDirectoryName(strmPath), monitorSources);
             LogInfo($"[1 MÍDIA POR VEZ] Conclusão do processamento de: {strmFileName}. Pronto para a próxima mídia.");
         }
-    }
-
-    private async Task<bool> WaitForMetadataAsync(
-        string strmPath,
-        string targetStageDirectory,
-        CancellationToken cancellationToken)
-    {
-        const int maxAttempts = 30;
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
-            {
-                if (await _metadataExportService!.PrepareForDownloadAsync(strmPath, targetStageDirectory, cancellationToken).ConfigureAwait(false))
-                {
-                    LogInfo($"Metadados reconhecidos e exportados antes do download: {Path.GetFileName(strmPath)}");
-                    return true;
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogDebug(ex, "Aguardando reconhecimento de metadados para {Path} (tentativa {Attempt}/{MaxAttempts}).", strmPath, attempt, maxAttempts);
-            }
-
-            if (attempt < maxAttempts)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        return false;
     }
 
     private async Task<bool> DownloadMultipartAsync(

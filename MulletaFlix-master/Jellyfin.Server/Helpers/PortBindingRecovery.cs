@@ -27,6 +27,13 @@ internal static class PortBindingRecovery
         var portList = ports.Distinct().ToArray();
         var currentPid = Environment.ProcessId;
 
+        // Proactively release any orphaned instance of this server already holding the configured ports BEFORE attempting to bind
+        var releasedOrphan = await ReleasePortsAsync(portList, currentPid, logger).ConfigureAwait(false);
+        if (releasedOrphan)
+        {
+            await WaitForPortsToFreeAsync(portList, currentPid, TimeSpan.FromSeconds(3), logger).ConfigureAwait(false);
+        }
+
         Exception? bindException;
         try
         {
@@ -112,8 +119,17 @@ internal static class PortBindingRecovery
             {
                 var process = Process.GetProcessById(pid);
                 var currentPath = Environment.ProcessPath;
-                var targetPath = process.MainModule?.FileName;
-                if (!CanTerminateProcess(currentPath, targetPath))
+                string? targetPath = null;
+                try
+                {
+                    targetPath = process.MainModule?.FileName;
+                }
+                catch
+                {
+                    // Access to MainModule might fail if elevated or 32/64 bit mismatch.
+                }
+
+                if (!CanTerminateProcess(currentPath, targetPath, process.ProcessName))
                 {
                     logger.LogWarning(
                         "Refusing to terminate process {ProcessName} (PID {Pid}) on a configured port because its executable does not match the current server.",
@@ -168,8 +184,16 @@ internal static class PortBindingRecovery
         return false;
     }
 
-    internal static bool CanTerminateProcess(string? currentPath, string? targetPath)
+    internal static bool CanTerminateProcess(string? currentPath, string? targetPath, string? processName = null)
     {
+        if (!string.IsNullOrWhiteSpace(processName) &&
+            (string.Equals(processName, "MulletaFlix", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(processName, "MulletaFlix.Server", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(processName, "jellyfin", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
         if (string.IsNullOrWhiteSpace(currentPath) || string.IsNullOrWhiteSpace(targetPath))
         {
             return false;

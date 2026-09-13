@@ -72,6 +72,7 @@ async def run_rclone_mount(rclone: str, config: Path, drive: str, log_file: str,
             "--config",
             str(config),
             "--network-mode",
+            "--links",
             "--volname",
             "MulletaFlix",
             "--vfs-cache-mode",
@@ -134,11 +135,11 @@ async def run_rclone_mount(rclone: str, config: Path, drive: str, log_file: str,
             print(f"[NEBULA-MOUNT-PY] rclone mount encerrado (solicitado).", flush=True)
             return 0
         
-        # rclone exited unexpectedly
+        # Let the server own the recovery cycle. Restarting here can leave
+        # multiple helper processes racing for the same WinFsp drive letter.
         returncode = process.returncode
-        print(f"[NEBULA-MOUNT-PY-AVISO] rclone encerrou com código {returncode}. Reiniciando em 5s...", flush=True)
-        await asyncio.sleep(5)
-        # Loop continues, will restart rclone
+        print(f"[NEBULA-MOUNT-PY-ERRO] rclone encerrou com código {returncode}.", flush=True)
+        return returncode or 1
 
 
 async def mount(args: argparse.Namespace) -> int:

@@ -52,6 +52,25 @@ function getPathInput(page: HTMLDivElement): HTMLInputElement {
     return page.querySelector<HTMLInputElement>('#txtDirectoryPickerPath')!;
 }
 
+function getParentPathValue(value: DirectoryEntry[] | string | undefined): string {
+    if (!value) {
+        return '';
+    }
+
+    if (typeof value !== 'string') {
+        return '';
+    }
+
+    // Legacy ApiClient returns a JSON encoded string, while some builds
+    // already deserialize the Environment/ParentPath response.
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        return typeof parsed === 'string' ? parsed : '';
+    } catch {
+        return value;
+    }
+}
+
 function refreshDirectoryBrowser(page: HTMLDivElement, path: string | undefined, fileOptions: { includeDirectories: boolean; includeFiles?: boolean }, updatePathOnError?: boolean): void {
     if (path && typeof path !== 'string') {
         throw new Error('invalid path');
@@ -68,7 +87,7 @@ function refreshDirectoryBrowser(page: HTMLDivElement, path: string | undefined,
 
     void loading.withLoading(() => Promise.all(promises)).then((responses) => {
         const folders = responses[0] as DirectoryEntry[];
-        const parentPath = (responses[1] ? JSON.parse(responses[1] as string) : '') || '';
+        const parentPath = getParentPathValue(responses[1] as string | undefined);
         let html = '';
 
         getResultsElement(page).scrollTop = 0;
@@ -182,7 +201,12 @@ function initEditor(content: HTMLDivElement, options: DirectoryBrowserOptions, f
             if (lnkPath.classList.contains('lnkFile')) {
                 getPathInput(content).value = path;
             } else {
-                refreshDirectoryBrowser(content, path, fileOptions, true);
+                // Keep the selected folder in the form even if loading its
+                // contents fails. The user can still confirm it and receive
+                // the actual path validation error instead of an empty-field
+                // browser validation message.
+                getPathInput(content).value = path;
+                refreshDirectoryBrowser(content, path, fileOptions);
             }
         }
     });

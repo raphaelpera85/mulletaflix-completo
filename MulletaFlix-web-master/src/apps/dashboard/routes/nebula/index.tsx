@@ -209,7 +209,11 @@ const useNebulaMutations = () => {
     });
     const backupMutation = useMutation({
         mutationFn: (idempotencyKey: string) => postAction('NebulaFtp/Supabase/Backup', undefined, idempotencyKey),
-        onSuccess: result => toast(getBackupMessage(result as { Success?: boolean; Message?: string })),
+        onSuccess: async result => {
+            await queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+            await queryClient.invalidateQueries({ queryKey: LOGS_QUERY_KEY });
+            toast(getBackupMessage(result as { Success?: boolean; Message?: string }));
+        },
         onError: error => toast(`Erro no backup: ${getErrorMessage(error)}`)
     });
     const restoreMutation = useMutation({
