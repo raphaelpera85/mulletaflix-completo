@@ -36,8 +36,10 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
             ILogger<NebulaFtpServerHost> logger,
             ILogger<NebulaFileSystem> fsLogger,
             ILogger<NebulaFtpMembershipProvider> authLogger,
+            string serverAddress = "127.0.0.1",
             int ftpPort = 2121,
-            int httpPort = 2123)
+            int httpPort = 2123,
+            int maxActiveConnections = 32)
         {
             _logger = logger;
 
@@ -57,9 +59,9 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
 
             services.Configure<FtpServerOptions>(opt =>
             {
-                opt.ServerAddress = "0.0.0.0";
+                opt.ServerAddress = string.IsNullOrWhiteSpace(serverAddress) ? "127.0.0.1" : serverAddress;
                 opt.Port = ftpPort > 0 ? ftpPort : 2121;
-                opt.MaxActiveConnections = 0; // 0 = sem limite de conexões ativas
+                opt.MaxActiveConnections = maxActiveConnections > 0 ? maxActiveConnections : 32;
 });
 
 // Substitui pelo FileSystem e Membership customizados do Nebula

@@ -4,11 +4,14 @@ namespace MediaBrowser.Model.Configuration;
 
 public class NebulaFtpConfiguration
 {
-    public bool Enabled { get; set; } = true;
+    // Nebula is an optional integration. Keep new installations healthy until
+    // the operator explicitly configures and enables its external services.
+    public bool Enabled { get; set; }
 
     public string RaiDriveDownloadUrl { get; set; } = "https://www.raidrive.com/download";
 
-    public string ServerHost { get; set; } = "0.0.0.0";
+    // Bind locally by default. Remote access must be an explicit operator decision.
+    public string ServerHost { get; set; } = "127.0.0.1";
 
     public int ServerPort { get; set; } = 2121;
 
@@ -20,6 +23,14 @@ public class NebulaFtpConfiguration
     public string HttpStreamToken { get; set; } = string.Empty;
 
     public string PassivePorts { get; set; } = "60000-60009";
+
+    public int MaxActiveConnections { get; set; } = 32;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether plaintext FTP/HTTP may bind to a non-loopback host.
+    /// FTPS is not available in the native server, so this is an explicit insecure opt-in.
+    /// </summary>
+    public bool AllowInsecureRemoteFtp { get; set; }
 
     public string MongoDbConnectionString { get; set; } = "mongodb://localhost:27017";
 
@@ -45,6 +56,12 @@ public class NebulaFtpConfiguration
 
     public string Password { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether FTP fallback STRM URLs may embed credentials.
+    /// Disabled by default because URLs can be copied to logs, history and metadata.
+    /// </summary>
+    public bool EmbedFtpCredentialsInStrmUrls { get; set; }
+
     public string DriveLetter { get; set; } = "N:";
 
     public string RemotePath { get; set; } = "/";
@@ -53,7 +70,7 @@ public class NebulaFtpConfiguration
 
     public string WatchFolderPath { get; set; } = string.Empty;
 
-    public string SetupNotes { get; set; } = "O NebulaFTP funciona sem montar unidade de rede. O modo Envio e Streaming operam via FTP/HTTP virtual. Use o botão Baixar RaiDrive apenas se precisar acessar via letra de drive (N:) para compatibilidade com players legados.";
+    public string SetupNotes { get; set; } = "O NebulaFTP funciona sem montar unidade de rede. O modo Envio e Streaming operam via FTP/HTTP virtual. O servidor nativo não oferece FTPS; mantenha ServerHost em loopback ou habilite AllowInsecureRemoteFtp apenas em uma rede confiável. Use o botão Baixar RaiDrive apenas se precisar acessar via letra de drive (N:) para compatibilidade com players legados.";
 
     public string NebulaFolderPath { get; set; } = string.Empty;
 

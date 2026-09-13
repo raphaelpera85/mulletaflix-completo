@@ -32,6 +32,12 @@ public class MigrateNetworkConfiguration : IMigrationRoutine
     public void Perform()
     {
         string path = Path.Combine(_applicationPaths.ConfigurationDirectoryPath, "network.xml");
+        if (!File.Exists(path))
+        {
+            _logger.LogDebug("Skipping legacy network configuration migration because {Path} does not exist.", path);
+            return;
+        }
+
         var oldNetworkConfigSerializer = new XmlSerializer(typeof(OldNetworkConfiguration), new XmlRootAttribute("NetworkConfiguration"));
         OldNetworkConfiguration? oldNetworkConfiguration = null;
 
@@ -42,11 +48,11 @@ public class MigrateNetworkConfiguration : IMigrationRoutine
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogError(ex, "Migrate NetworkConfiguration deserialize Invalid Operation error");
+            _logger.LogWarning(ex, "Skipping legacy network configuration migration because {Path} is not in the expected legacy format.", path);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Migrate NetworkConfiguration deserialize error");
+            _logger.LogWarning(ex, "Skipping legacy network configuration migration because {Path} could not be read.", path);
         }
 
         if (oldNetworkConfiguration is null)
@@ -204,4 +210,3 @@ public class MigrateNetworkConfiguration : IMigrationRoutine
 
     }
 }
-

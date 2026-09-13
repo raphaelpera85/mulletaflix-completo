@@ -22,6 +22,7 @@ type ItemsArr = {
 
 const Access = ({ userId }: AccessProps) => {
     const [ isSettingsSavedToastOpen, setIsSettingsSavedToastOpen ] = useState(false);
+    const [ hasLoadError, setHasLoadError ] = useState(false);
     const [channelsItems, setChannelsItems] = useState<ItemsArr[]>([]);
     const [mediaFoldersItems, setMediaFoldersItems] = useState<ItemsArr[]>([]);
     const [devicesItems, setDevicesItems] = useState<ItemsArr[]>([]);
@@ -140,21 +141,24 @@ const Access = ({ userId }: AccessProps) => {
         loadChannels(user, channels);
         loadMediaFolders(user, mediaFolders);
         loadDevices(user, devices);
-        loading.hide();
     }, [libraryMenu, loadChannels, loadDevices, loadMediaFolders]);
 
     const loadData = useCallback(() => {
-        loading.show();
-        const promise1 = userId ? window.ApiClient.getUser(userId) : Promise.resolve({ Configuration: {} });
-        const promise2 = window.ApiClient.getJSON(window.ApiClient.getUrl('Library/MediaFolders', {
-            IsHidden: false
-        }));
-        const promise3 = window.ApiClient.getJSON(window.ApiClient.getUrl('Channels'));
-        const promise4 = window.ApiClient.getJSON(window.ApiClient.getUrl('Devices'));
-        Promise.all([promise1, promise2, promise3, promise4]).then(function (responses) {
-            loadUser(responses[0], responses[1].Items, responses[2].Items, responses[3].Items);
-        }).catch(err => {
-            console.error('[userlibraryaccess] failed to load data', err);
+        setHasLoadError(false);
+        void loading.withLoading(async () => {
+            try {
+                const promise1 = userId ? window.ApiClient.getUser(userId) : Promise.resolve({ Configuration: {} });
+                const promise2 = window.ApiClient.getJSON<{ Items: BaseItemDto[] }>(window.ApiClient.getUrl('Library/MediaFolders', {
+                    IsHidden: false
+                }));
+                const promise3 = window.ApiClient.getJSON<{ Items: BaseItemDto[] }>(window.ApiClient.getUrl('Channels'));
+                const promise4 = window.ApiClient.getJSON<{ Items: DeviceInfoDto[] }>(window.ApiClient.getUrl('Devices'));
+                const responses = await Promise.all([promise1, promise2, promise3, promise4]);
+                loadUser(responses[0], responses[1].Items, responses[2].Items, responses[3].Items);
+            } catch (err) {
+                console.error('[userlibraryaccess] failed to load data', err);
+                setHasLoadError(true);
+            }
         });
     }, [loadUser, userId]);
 
@@ -174,11 +178,14 @@ const Access = ({ userId }: AccessProps) => {
                 return;
             }
 
-            loading.show();
-            window.ApiClient.getUser(userId).then(function (result) {
-                saveUser(result);
-            }).catch(err => {
-                console.error('[userlibraryaccess] failed to fetch user', err);
+            void loading.withLoading(async () => {
+                try {
+                    const result = await window.ApiClient.getUser(userId);
+                    await saveUser(result);
+                } catch (err) {
+                    console.error('[userlibraryaccess] failed to save user access', err);
+                    setHasLoadError(true);
+                }
             });
             e.preventDefault();
             e.stopPropagation();
@@ -214,15 +221,12 @@ const Access = ({ userId }: AccessProps) => {
             });
             user.Policy.BlockedChannels = null;
             user.Policy.BlockedMediaFolders = null;
-            window.ApiClient.updateUserPolicy(user.Id, user.Policy).then(function () {
+            return window.ApiClient.updateUserPolicy(user.Id, user.Policy).then(() => {
                 onSaveComplete();
-            }).catch(err => {
-                console.error('[userlibraryaccess] failed to update user policy', err);
             });
         };
 
         const onSaveComplete = () => {
-            loading.hide();
             setIsSettingsSavedToastOpen(true);
         };
 
@@ -248,6 +252,16 @@ const Access = ({ userId }: AccessProps) => {
                 onClose={handleToastClose}
                 message={globalize.translate('SettingsSaved')}
             />
+            {hasLoadError && (
+                <div role='alert' aria-live='assertive' className='alert alert-error'>
+                    <span>{globalize.translate('ErrorDefault')}</span>
+                    <Button
+                        type='button'
+                        title={globalize.translate('Retry')}
+                        onClick={loadData}
+                    />
+                </div>
+            )}
             <form className='userLibraryAccessForm'>
                 <AccessContainer
                     containerClassName='folderAccessContainer'

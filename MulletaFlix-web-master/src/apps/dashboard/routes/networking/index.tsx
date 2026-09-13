@@ -82,7 +82,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
-    const { data: config, isPending, isError } = useNamedConfiguration<NetworkConfiguration>(CONFIG_KEY);
+    const { data: config, isPending, isError, refetch } = useNamedConfiguration<NetworkConfiguration>(CONFIG_KEY);
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;
     const isSubmitting = navigation.state === 'submitting';
@@ -90,6 +90,13 @@ export const Component = () => {
     const [ useSamePublishedUri, setUseSamePublishedUri ] = useState(true);
     const [ publishedUris, setPublishedUris ] = useState<PublishedServerUris | null>();
     const [ isUrisLoaded, setIsUrisLoaded ] = useState(false);
+
+    const handleRetry = useCallback(() => {
+        setIsUrisLoaded(false);
+        void refetch().catch((error: unknown) => {
+            console.error('[NetworkingPage] failed to retry configuration', error);
+        });
+    }, [refetch]);
 
     const onCertificatePathChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
         setCertificatePath(event.target.value);
@@ -131,7 +138,9 @@ export const Component = () => {
         }
     }, [config, isPending, isError]);
 
-    if (isPending || !isUrisLoaded) return <Loading />;
+    // Keep the error page reachable. Previously isUrisLoaded stayed false on
+    // a failed query, so the route returned Loading forever and hid the retry.
+    if (isPending || (!isUrisLoaded && !isError)) return <Loading />;
 
     return (
         <Page
@@ -141,7 +150,16 @@ export const Component = () => {
         >
             <Box className='content-primary'>
                 {isError ? (
-                    <Alert severity='error'>{globalize.translate('NetworkingPageLoadError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={(
+                            <Button color='inherit' size='small' onClick={handleRetry}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        )}
+                    >
+                        {globalize.translate('NetworkingPageLoadError')}
+                    </Alert>
                 ) : (
                     <Form method='POST'>
                         <Stack spacing={6}>
@@ -406,4 +424,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'NetworkingPage';
-

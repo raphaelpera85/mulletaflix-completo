@@ -69,7 +69,7 @@ interface TextAction {
 }
 
 export interface TextLine {
-    title?: NullableString | string[];
+    title: NullableString | string[];
     titleAction?: TextAction | TextAction[];
 }
 
@@ -102,6 +102,7 @@ export function getTextActionButton(
     );
 
     return {
+        title: undefined,
         titleAction: {
             url,
             title,
@@ -232,7 +233,7 @@ function getParentTitle(
                     ...ensureArray(acc.titleAction),
                     ...ensureArray(line.titleAction)
                 ]
-            }), {});
+            }), { title: undefined });
     } else {
         return {
             title: isUsingLiveTvNaming(item.Type) ?
@@ -730,4 +731,3 @@ export function getCardTextLines({
         textLines
     };
 }
-

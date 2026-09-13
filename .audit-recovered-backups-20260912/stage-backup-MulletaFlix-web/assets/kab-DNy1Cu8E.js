@@ -1,0 +1,1 @@
+const s="Tiwlafin",n="Isura",o="Ikaramen",t="Ismenyifen",a="Lexṣas",e="Tigrummiwin",c="Ibuda",i="Iseɣraz",l={Photos:s,Movies:n,Folders:o,Favorites:t,Default:a,Collections:e,Channels:c,Albums:i};export{i as Albums,c as Channels,e as Collections,a as Default,t as Favorites,o as Folders,n as Movies,s as Photos,l as default};

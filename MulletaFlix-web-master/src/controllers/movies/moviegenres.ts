@@ -4,7 +4,7 @@ import cardBuilder from 'components/cardbuilder/cardBuilder';
 import { getBackdropShape, getPortraitShape } from 'components/cardbuilder/utils/shape';
 import layoutManager from 'components/layoutManager';
 import lazyLoader from 'components/lazyLoader/lazyLoaderIntersectionObserver';
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import { appRouter } from 'components/router/appRouter';
 import globalize from 'lib/globalize';
 import * as userSettings from 'scripts/settings/userSettings';
@@ -62,7 +62,6 @@ export default function (this: MovieGenresController, view: HTMLElement, params:
     }
 
     function getPromise(): Promise<ItemDtoQueryResult> {
-        loading.show();
         const query = getQuery();
         return ApiClient.getGenres(ApiClient.getCurrentUserId(), query);
     }
@@ -155,10 +154,10 @@ export default function (this: MovieGenresController, view: HTMLElement, params:
 
     function reloadItems(context: HTMLElement, promise: Promise<ItemDtoQueryResult>): void {
         const query = getQuery();
-        promise.then(function (result: ItemDtoQueryResult) {
+        void withLoading(async () => {
+            const result = await promise;
             const elem = context.querySelector('#items');
             if (!elem) {
-                loading.hide();
                 return;
             }
             let html = '';
@@ -207,10 +206,8 @@ export default function (this: MovieGenresController, view: HTMLElement, params:
             elem.innerHTML = html;
             lazyLoader.lazyChildren(elem, fillItemsContainer);
             userSettings.saveQuerySettings(getSavedQueryKey(), query);
-            loading.hide();
         }).catch((error: unknown) => {
             console.error('[MovieGenres] failed to load genres', error);
-            loading.hide();
         });
     }
 

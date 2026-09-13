@@ -22,6 +22,23 @@ interface AudioQualityOptions {
     enableAuto: boolean;
 }
 
+function applySelectedQuality(
+    qualityOptions: QualityOption[],
+    maxStreamingBitrate: number,
+    automaticBitrateEnabled: boolean,
+    autoQualityOption: QualityOption
+): void {
+    if (!maxStreamingBitrate) return;
+
+    const selectedOption = qualityOptions.find(option => option.bitrate > 0 && option.bitrate <= maxStreamingBitrate)
+        || qualityOptions[qualityOptions.length - 1];
+    if (!automaticBitrateEnabled) {
+        selectedOption.selected = true;
+    } else {
+        autoQualityOption.autoText = selectedOption.name;
+    }
+}
+
 export function getVideoQualityOptions(options: VideoQualityOptions): QualityOption[] {
     const maxStreamingBitrate = options.currentMaxBitrate;
     const videoBitRate = options.videoBitRate ?? -1;
@@ -73,25 +90,7 @@ export function getVideoQualityOptions(options: VideoQualityOptions): QualityOpt
         }
     });
 
-    if (maxStreamingBitrate) {
-        let selectedIndex = qualityOptions.length - 1;
-        for (let i = 0, length = qualityOptions.length; i < length; i++) {
-            const option = qualityOptions[i];
-
-            if (option.bitrate > 0 && option.bitrate <= maxStreamingBitrate) {
-                selectedIndex = i;
-                break;
-            }
-        }
-
-        const currentQualityOption = qualityOptions[selectedIndex];
-
-        if (!options.isAutomaticBitrateEnabled) {
-            currentQualityOption.selected = true;
-        } else {
-            autoQualityOption.autoText = currentQualityOption.name;
-        }
-    }
+    applySelectedQuality(qualityOptions, maxStreamingBitrate, options.isAutomaticBitrateEnabled, autoQualityOption);
 
     return qualityOptions;
 }
@@ -121,25 +120,7 @@ export function getAudioQualityOptions(options: AudioQualityOptions): QualityOpt
     qualityOptions.push({ name: '96 kbps', bitrate: 96000 });
     qualityOptions.push({ name: '64 kbps', bitrate: 64000 });
 
-    if (maxStreamingBitrate) {
-        let selectedIndex = qualityOptions.length - 1;
-        for (let i = 0, length = qualityOptions.length; i < length; i++) {
-            const option = qualityOptions[i];
-
-            if (option.bitrate > 0 && option.bitrate <= maxStreamingBitrate) {
-                selectedIndex = i;
-                break;
-            }
-        }
-
-        const currentQualityOption = qualityOptions[selectedIndex];
-
-        if (!options.isAutomaticBitrateEnabled) {
-            currentQualityOption.selected = true;
-        } else {
-            autoQualityOption.autoText = currentQualityOption.name;
-        }
-    }
+    applySelectedQuality(qualityOptions, maxStreamingBitrate, options.isAutomaticBitrateEnabled, autoQualityOption);
 
     return qualityOptions;
 }

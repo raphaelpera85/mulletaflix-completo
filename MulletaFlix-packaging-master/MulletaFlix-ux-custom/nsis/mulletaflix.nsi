@@ -10,6 +10,7 @@ Unicode True
 !define INSTALL_DIRECTORY "$PROGRAMFILES64\MulletaFlix\Server"
 
 !include "MUI2.nsh"
+!include "FileFunc.nsh"
 !include "Sections.nsh"
 !include "LogicLib.nsh"
 !addplugindir "plugins"
@@ -24,9 +25,11 @@ Unicode True
     Var _SERVICESTART_
     Var _SERVICEACCOUNTTYPE_
     Var _EXISTINGINSTALLATION_
+    Var _EXPLICITINSTALLDIR_
     Var _EXISTINGSERVICE_
     Var _MAKESHORTCUTS_
     Var _FOLDEREXISTS_
+    Var _DELETE_DATA_
 
 
 
@@ -137,43 +140,106 @@ CRCCheck on ; make sure the installer wasn't corrupted while downloading
 
 Function StopRunningMulletaFlixProcesses
     DetailPrint "Stopping running MulletaFlix processes before install..."
-    ExecWait 'TaskKill /IM MulletaFlix.Windows.Tray.exe /F /T' $0
-    ExecWait 'TaskKill /IM MulletaFlix.exe /F /T' $0
-    ExecWait 'TaskKill /IM mysqld.exe /F /T' $0
-    ExecWait 'TaskKill /IM mariadbd.exe /F /T' $0
+    SetOutPath "$PLUGINSDIR"
+    File "/oname=stop-mulletaflix-processes.ps1" "${UXPATH}\nsis\stop-mulletaflix-processes.ps1"
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-mulletaflix-processes.ps1" -InstallDirectory "$INSTDIR" -DataDirectory "$_MULLETAFLIXDATADIR_"' $0
+    ${If} $0 <> 0
+        DetailPrint "MulletaFlix process cleanup returned $0; continuing with SCM shutdown."
+    ${EndIf}
     ; Nebula runs from Python and can keep .pyd files locked during upgrades.
     ; Filter by the installed Nebula path so unrelated Python processes survive.
     SetOutPath "$PLUGINSDIR"
     File "/oname=stop-nebula-processes.ps1" "${UXPATH}\nsis\stop-nebula-processes.ps1"
-    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-nebula-processes.ps1"' $0
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-nebula-processes.ps1" -InstallDirectory "$INSTDIR"' $0
     Sleep 3000
+FunctionEnd
+
+Function WaitForMulletaFlixServiceStopped
+    SetOutPath "$PLUGINSDIR"
+    File "/oname=wait-mulletaflix-service.ps1" "${UXPATH}\nsis\wait-mulletaflix-service.ps1"
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\wait-mulletaflix-service.ps1"' $0
+    ${If} $0 <> 0
+        DetailPrint "MulletaFlix service did not reach Stopped state ($0)."
+    ${EndIf}
+FunctionEnd
+
+; NSIS compiles the uninstaller into a separate function namespace.
+Function un.StopRunningMulletaFlixProcesses
+    DetailPrint "Stopping running MulletaFlix processes before uninstall..."
+    SetOutPath "$PLUGINSDIR"
+    File "/oname=stop-mulletaflix-processes.ps1" "${UXPATH}\nsis\stop-mulletaflix-processes.ps1"
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-mulletaflix-processes.ps1" -InstallDirectory "$INSTDIR" -DataDirectory "$_MULLETAFLIXDATADIR_"' $0
+    ${If} $0 <> 0
+        DetailPrint "MulletaFlix process cleanup returned $0; continuing with uninstall."
+    ${EndIf}
+    ; Nebula's Python process can lock files below the selected install root.
+    SetOutPath "$PLUGINSDIR"
+    File "/oname=stop-nebula-processes.ps1" "${UXPATH}\nsis\stop-nebula-processes.ps1"
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\stop-nebula-processes.ps1" -InstallDirectory "$INSTDIR"' $0
+FunctionEnd
+
+Function un.WaitForMulletaFlixServiceStopped
+    SetOutPath "$PLUGINSDIR"
+    File "/oname=wait-mulletaflix-service.ps1" "${UXPATH}\nsis\wait-mulletaflix-service.ps1"
+    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\wait-mulletaflix-service.ps1"' $0
+    ${If} $0 <> 0
+        DetailPrint "MulletaFlix service did not reach Stopped state ($0)."
+    ${EndIf}
 FunctionEnd
 
 Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
     SectionIn RO ; Mandatory section, isn't this the whole purpose to run the installer.
 
-    StrCmp "$_EXISTINGINSTALLATION_" "Yes" RunUninstaller ; Silently uninstall in case of previous installation
+    StrCmp "$_EXISTINGINSTALLATION_" "Yes" PrepareUpgrade CarryOn
 
-    RunUninstaller:
-    DetailPrint "Looking for uninstaller at $INSTDIR"
-    FindFirst $0 $1 "$INSTDIR\Uninstall.exe"
-    FindClose $0
-    StrCmp $1 "" CarryOn ; the registry key was there but uninstaller was not found
-
-    DetailPrint "Silently running the uninstaller at $INSTDIR"
-    ExecWait '"$INSTDIR\Uninstall.exe" /S _?=$INSTDIR' $0
-    DetailPrint "Uninstall finished, $0"
-
-    CarryOn: ; We should never hit this under normal circumstances. We should probably rewrite this
-        Call StopRunningMulletaFlixProcesses
-        ${If} $_EXISTINGSERVICE_ == 'Yes'
-            ExecWait '"$INSTDIR\nssm.exe" stop MulletaFlixServer' $0
+    PrepareUpgrade:
+        ; Never launch the previous Uninstall.exe during an upgrade. That
+        ; executable belongs to the old installation and may still contain
+        ; obsolete NSSM commands. Stop/remove the service through SCM first,
+        ; then overwrite the installation in place while preserving data.
+        DetailPrint "Preparing existing MulletaFlix installation for upgrade..."
+        ExecWait 'sc.exe query "MulletaFlixServer"' $0
+        ${If} $0 <> 1060
+            ExecWait 'sc.exe stop "MulletaFlixServer"' $0
+            DetailPrint "MulletaFlix Server service stop request, $0"
+            Call WaitForMulletaFlixServiceStopped
             ${If} $0 <> 0
-                MessageBox MB_OK|MB_ICONSTOP "Could not stop the MulletaFlix Server service."
+                MessageBox MB_OK|MB_ICONSTOP "The MulletaFlix Server service did not stop within the timeout. Close applications using the server and retry."
                 Abort
             ${EndIf}
-            DetailPrint "Stopped MulletaFlix Server service, $0"
+            ExecWait 'sc.exe delete "MulletaFlixServer"' $0
+            ${If} $0 <> 0
+                MessageBox MB_OK|MB_ICONSTOP "Could not remove the previous MulletaFlix Server service."
+                Abort
+            ${EndIf}
+            DetailPrint "Removed previous MulletaFlix Server service, $0"
         ${EndIf}
+        Call StopRunningMulletaFlixProcesses
+        ExecWait 'netsh advfirewall firewall delete rule name="MulletaFlix MariaDB"' $0
+        ExecWait 'netsh advfirewall firewall delete rule name="MulletaFlix MongoDB"' $0
+        ExecWait 'netsh http delete urlacl url=http://+:2123/' $0
+        ExecWait 'netsh http delete urlacl url=http://127.0.0.1:2123/' $0
+        ExecWait 'netsh http delete urlacl url=http://localhost:2123/' $0
+
+    CarryOn:
+        ${If} $_EXISTINGINSTALLATION_ != 'Yes'
+            Call StopRunningMulletaFlixProcesses
+        ${EndIf}
+
+    ; Basic installs run as the interactive user instead of a Windows
+    ; service. Ensure a custom/basic data path is writable by that user;
+    ; service installs receive the service-account ACL in the service section.
+    ${If} $_INSTALLSERVICE_ == "No"
+        CreateDirectory "$_MULLETAFLIXDATADIR_"
+        CreateDirectory "$_MULLETAFLIXDATADIR_\data"
+        CreateDirectory "$_MULLETAFLIXDATADIR_\config"
+        CreateDirectory "$_MULLETAFLIXDATADIR_\cache"
+        ExecWait 'icacls "$_MULLETAFLIXDATADIR_" /inheritance:e /grant "$%USERDOMAIN%\$%USERNAME%":(OI)(CI)M /T /C' $0
+        ${If} $0 <> 0
+            MessageBox MB_OK|MB_ICONSTOP "Could not grant the current user access to the MulletaFlix data folder."
+            Abort
+        ${EndIf}
+    ${EndIf}
 
     ; -------------------------------------------------------------
     ; Limpa qualquer pasta legada nebula / .venv de instalações antigas com Python
@@ -206,13 +272,25 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
     WriteRegDWORD HKLM "${INSTDIR_REG_KEY}" "NoModify" 1
     WriteRegDWORD HKLM "${INSTDIR_REG_KEY}" "NoRepair" 1
 
-    ; Allow MariaDB through firewall
-    ExecWait 'netsh advfirewall firewall add rule name="MulletaFlix MariaDB" dir=in action=allow program="$INSTDIR\mariadb\bin\mysqld.exe" enable=yes' $0
+    ; The embedded MariaDB is bound to loopback and must not be reachable from
+    ; the network. Remove a broad rule left by older installers.
+    ExecWait 'netsh advfirewall firewall delete rule name="MulletaFlix MariaDB"' $0
 
     ; HttpListener usa HTTP.sys. Reserve a porta padrão do Nebula para que o
     ; streaming HTTP em LAN não falhe com "Access is denied".
     DetailPrint "Configurando reserva HTTP do Nebula (porta 2123)..."
-    ExecWait 'netsh http add urlacl url=http://+:2123/ sddl=D:(A;;GX;;;WD)' $0
+    ; Permit only the supported Windows service identities to reserve the
+    ; HTTP.sys prefix. Granting WD allowed any local user to bind this port.
+    ${If} $_INSTALLSERVICE_ == "No"
+        ; Basic installs run as the interactive user. Grant that user only
+        ; loopback prefixes; do not broaden the LAN wildcard reservation.
+        ExecWait 'netsh http add urlacl url=http://127.0.0.1:2123/ user="$%USERDOMAIN%\$%USERNAME%"' $0
+        DetailPrint "Reserva HTTP loopback para a instalação básica, $0"
+        ExecWait 'netsh http add urlacl url=http://localhost:2123/ user="$%USERDOMAIN%\$%USERNAME%"' $0
+        DetailPrint "Reserva HTTP localhost para a instalação básica, $0"
+    ${Else}
+        ExecWait 'netsh http add urlacl url=http://+:2123/ sddl=D:(A;;GX;;;S-1-5-20)(A;;GX;;;S-1-5-18)(A;;GX;;;S-1-5-19)' $0
+    ${EndIf}
 
     ; -------------------------------------------------------------
     ; Verificação e instalação do Python (necessário para o helper de montagem N:)
@@ -261,8 +339,9 @@ Section "!MulletaFlix Server (required)" InstallMulletaFlixServer
         Abort
     ${EndIf}
 
-    ; Allow MongoDB through firewall
-    ExecWait 'netsh advfirewall firewall add rule name="MulletaFlix MongoDB" dir=in action=allow port=27017 protocol=TCP enable=yes' $0
+    ; MongoDB is consumed locally by Nebula. Remove any broad rule created
+    ; by earlier installers rather than exposing port 27017 to the network.
+    ExecWait 'netsh advfirewall firewall delete rule name="MulletaFlix MongoDB"' $0
 
     ; Create uninstaller
     WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -270,9 +349,29 @@ SectionEnd
 
 Section "MulletaFlix Server Service" InstallService
 ${If} $_INSTALLSERVICE_ == "Yes" ; Only run this if we're going to install the service!
-    ExecWait '"$INSTDIR\nssm.exe" statuscode MulletaFlixServer' $0
-    DetailPrint "MulletaFlix Server service statuscode, $0"
-    ${If} $0 == 0
+    ; The installer runs elevated, but the service account can vary between
+    ; fresh installs, upgrades, and existing NSSM registrations. Use
+    ; well-known SIDs instead of localized account names so icacls works on
+    ; Portuguese, English, and other Windows installations. Create the
+    ; subdirectories explicitly because migrations write config/system.xml
+    ; during the first startup. Grant all supported service identities so an
+    ; existing service account cannot leave the installation unwritable.
+    CreateDirectory "$_MULLETAFLIXDATADIR_"
+    CreateDirectory "$_MULLETAFLIXDATADIR_\data"
+    CreateDirectory "$_MULLETAFLIXDATADIR_\config"
+    CreateDirectory "$_MULLETAFLIXDATADIR_\cache"
+    ExecWait 'icacls "$_MULLETAFLIXDATADIR_" /inheritance:e /grant *S-1-5-20:(OI)(CI)M /grant *S-1-5-18:(OI)(CI)M /grant *S-1-5-19:(OI)(CI)M /T /C' $0
+    ${If} $0 <> 0
+        MessageBox MB_OK|MB_ICONSTOP "Could not grant the MulletaFlix service access to the data folder."
+        Abort
+    ${EndIf}
+
+    ; NSSM 2.24 has no `statuscode` command; using it opens the NSSM usage
+    ; dialog and makes fresh installs follow the wrong service branch. Query
+    ; the Windows service manager directly instead. Error 1060 means absent.
+    ExecWait 'sc.exe query "MulletaFlixServer"' $0
+    DetailPrint "MulletaFlix Server service query, $0"
+    ${If} $0 <> 0
         InstallRetry:
         ExecWait '"$INSTDIR\nssm.exe" install MulletaFlixServer "$INSTDIR\MulletaFlix.exe" --service --datadir \"$_MULLETAFLIXDATADIR_\"' $0
         ${If} $0 <> 0
@@ -383,6 +482,7 @@ Section "Uninstall"
     ReadRegStr $INSTDIR HKLM "${REG_CONFIG_KEY}" "InstallFolder"  ; read the installation folder
     ReadRegStr $_MULLETAFLIXDATADIR_ HKLM "${REG_CONFIG_KEY}" "DataFolder"  ; read the data folder
     ReadRegStr $_SERVICEACCOUNTTYPE_ HKLM "${REG_CONFIG_KEY}" "ServiceAccountType"  ; read the account name
+    StrCpy $_DELETE_DATA_ "No"
 
     DetailPrint "MulletaFlix Install location: $INSTDIR"
     DetailPrint "MulletaFlix Data folder: $_MULLETAFLIXDATADIR_"
@@ -393,16 +493,9 @@ Section "Uninstall"
     MessageBox MB_YESNOCANCEL|MB_ICONEXCLAMATION "Are you sure? Everything in $\r$\n$_MULLETAFLIXDATADIR_ $\r$\nwill be deleted. $\r$\nIf you are sure, press YES." IDYES DeleteData IDNO PreserveData ;IDCANCEL StopNow
 
     DeleteData:
-    ; Try to delete only known data dir folders
-    RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\mariadb_data"
-    RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\cache"
-    RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\config"
-    RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\data"
-    RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\log"
-    RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\metadata"
-    RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\plugins"
-    RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\root"
-    RMDir /REBOOTOK "$_MULLETAFLIXDATADIR_"     ; Delete final dir only if empty
+    ; Defer deletion until the service has been stopped and removed. Deleting
+    ; first could leave locked database/config files behind.
+    StrCpy $_DELETE_DATA_ "Yes"
 
     ;StopNow:
     ;    Abort
@@ -410,37 +503,64 @@ Section "Uninstall"
     PreserveData:
     ; noop
 
-    ExecWait "TaskKill /IM MulletaFlix.Windows.Tray.exe /F /T"
-    ExecWait "TaskKill /IM MulletaFlix.exe /F /T"
-    ExecWait "TaskKill /IM mysqld.exe /F /T"
-    ExecWait "TaskKill /IM mariadbd.exe /F /T"
-    ExecWait '"$INSTDIR\nssm.exe" statuscode MulletaFlixServer' $0
-    DetailPrint "MulletaFlix Server service statuscode, $0"
-    IntCmp $0 0 NoServiceUninstall ; service doesn't exist, may be run from desktop shortcut
+    ; Query SCM instead of the unsupported NSSM `statuscode` command. NSSM
+    ; would show its Usage dialog and falsely route upgrades to service stop.
+    ExecWait 'sc.exe query "MulletaFlixServer"' $0
+    DetailPrint "MulletaFlix Server service query, $0"
+    ${If} $0 == 1060
+        Goto NoServiceUninstall
+    ${EndIf}
 
     Sleep 3000 ; Give time for Windows to catchup
 
+    ; Use the Windows Service Control Manager directly. NSSM's stop/remove
+    ; commands can show its Usage dialog or fail for an already-stopped
+    ; service, which made uninstall/upgrade appear stuck.
     UninstallStopRetry:
-    ExecWait '"$INSTDIR\nssm.exe" stop MulletaFlixServer' $0
+    ExecWait 'sc.exe stop "MulletaFlixServer"' $0
     ${If} $0 <> 0
+    ${AndIf} $0 <> 1060 ; service does not exist
+    ${AndIf} $0 <> 1062 ; service is already stopped
         !insertmacro ShowError "Could not stop the MulletaFlix Server service." UninstallStopRetry
     ${EndIf}
-    DetailPrint "Stopped MulletaFlix Server service, $0"
-
-    UninstallRemoveRetry:
-    ExecWait '"$INSTDIR\nssm.exe" remove MulletaFlixServer confirm' $0
+    DetailPrint "MulletaFlix Server stop request, $0"
+    Call un.WaitForMulletaFlixServiceStopped
     ${If} $0 <> 0
+        !insertmacro ShowError "Could not confirm that the MulletaFlix Server service stopped." UninstallStopRetry
+    ${EndIf}
+    UninstallRemoveRetry:
+    ExecWait 'sc.exe delete "MulletaFlixServer"' $0
+    ${If} $0 <> 0
+    ${AndIf} $0 <> 1060 ; service was removed concurrently
         !insertmacro ShowError "Could not remove the MulletaFlix Server service." UninstallRemoveRetry
     ${EndIf}
-    DetailPrint "Removed MulletaFlix Server service, $0"
+    DetailPrint "MulletaFlix Server delete request, $0"
+
+    ; Stop only processes owned by this installation. Never use /IM here:
+    ; another MulletaFlix/MariaDB instance may belong to a different install.
+    Call un.StopRunningMulletaFlixProcesses
 
     ; Remove MariaDB firewall rule
     ExecWait 'netsh advfirewall firewall delete rule name="MulletaFlix MariaDB"' $0
     ExecWait 'netsh http delete urlacl url=http://+:2123/' $0
+    ExecWait 'netsh http delete urlacl url=http://127.0.0.1:2123/' $0
+    ExecWait 'netsh http delete urlacl url=http://localhost:2123/' $0
 
     Sleep 3000 ; Give time for Windows to catchup
 
     NoServiceUninstall: ; existing install was present but no service was detected. Remove shortcuts if account is set to none
+        ${If} $_DELETE_DATA_ == "Yes"
+            DetailPrint "Removing MulletaFlix data after service shutdown..."
+            RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\mariadb_data"
+            RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\cache"
+            RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\config"
+            RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\data"
+            RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\log"
+            RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\metadata"
+            RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\plugins"
+            RMDir /r /REBOOTOK "$_MULLETAFLIXDATADIR_\root"
+            RMDir /REBOOTOK "$_MULLETAFLIXDATADIR_"     ; Delete final dir only if empty
+        ${EndIf}
         ${If} $_SERVICEACCOUNTTYPE_ == "None"
             RMDir /r "$SMPROGRAMS\MulletaFlix Server"
             Delete "$DESKTOP\MulletaFlix Server.lnk"
@@ -457,11 +577,40 @@ Function .onInit
     StrCpy $_SERVICESTART_ "Yes"
     StrCpy $_SERVICEACCOUNTTYPE_ "NetworkService"
     StrCpy $_EXISTINGINSTALLATION_ "No"
+    StrCpy $_EXPLICITINSTALLDIR_ "No"
     StrCpy $_EXISTINGSERVICE_ "No"
     StrCpy $_MAKESHORTCUTS_ "No"
 
     SetShellVarContext current
     StrCpy $_MULLETAFLIXDATADIR_ "$%ProgramData%\MulletaFlix\Server"
+
+    ; An explicit NSIS /D= path is used by clean-install smoke tests and must
+    ; take precedence over a previous installation recorded in the registry.
+    ; Normal upgrades without /D= continue to reuse the registered path.
+    ${GetParameters} $R1
+    ClearErrors
+    ${GetOptions} "$R1" "/D=" $R2
+    ${IfNot} ${Errors}
+        StrCpy $_EXPLICITINSTALLDIR_ "Yes"
+        StrCpy $INSTDIR $R2
+    ${EndIf}
+
+    ; The clean-install smoke test supplies an isolated data directory. Keep
+    ; the option explicit so a test cannot accidentally write into ProgramData.
+    ClearErrors
+    ${GetOptions} "$R1" "/DATA=" $R2
+    ${IfNot} ${Errors}
+        StrCpy $_MULLETAFLIXDATADIR_ $R2
+    ${EndIf}
+
+    ; Test installs must never inspect or modify the machine's existing
+    ; installation recorded in HKLM. This is intentionally opt-in and is
+    ; used only by isolated smoke tests and automation.
+    ClearErrors
+    ${GetOptions} "$R1" "/TESTMODE" $R2
+    ${IfNot} ${Errors}
+        Goto NoExisitingInstall
+    ${EndIf}
 
     ; This blocks another installer from running at the same time
     System::Call 'kernel32::CreateMutex(p 0, i 0, t "MulletaFlixServerMutex") p .r1 ?e'
@@ -476,6 +625,10 @@ Function .onInit
 ; 		2a. Don't ask for any details, uninstall and install afresh with old settings
 
 ; Read Registry for previous installation
+    ${If} $_EXPLICITINSTALLDIR_ == "Yes"
+        Goto NoExisitingInstall
+    ${EndIf}
+
     ClearErrors
     ReadRegStr "$0" HKLM "${REG_CONFIG_KEY}" "InstallFolder"
     IfErrors NoExisitingInstall
@@ -496,11 +649,13 @@ Function .onInit
     ; Hide sections which will not be needed in case of previous install
     ; SectionSetText ${InstallService} ""
 
-    ; check if there is a service called MulletaFlix, there should be
-    ; hack : nssm statuscode MulletaFlix will return non zero return code in case it exists
-    ExecWait '"$INSTDIR\nssm.exe" statuscode MulletaFlixServer' $0
-    DetailPrint "MulletaFlix Server service statuscode, $0"
-    IntCmp $0 0 NoService ; service doesn't exist, may be run from desktop shortcut
+    ; Check the service through SCM. Error 1060 means the existing install
+    ; has no service and may be running from the desktop shortcut.
+    ExecWait 'sc.exe query "MulletaFlixServer"' $0
+    DetailPrint "MulletaFlix Server service query, $0"
+    ${If} $0 == 1060
+        Goto NoService
+    ${EndIf}
 
     ; if service was detected, set defaults going forward.
     StrCpy $_EXISTINGSERVICE_ "Yes"
@@ -515,14 +670,9 @@ Function .onInit
             StrCpy $_INSTALLSERVICE_ "No"
             StrCpy $_SERVICESTART_ "No"
             StrCpy $_MAKESHORTCUTS_ "Yes"
-            ; This stops the installer from starting if MulletaFlix.exe is open
-            StrCpy $3 "MulletaFlix.exe"
-            nsProcess::_FindProcess "$3"
-            Pop $R3
-            ${If} $R3 = 0
-                !insertmacro ShowErrorFinal "MulletaFlix is running. Please close it first."
-                Abort
-            ${EndIf}
+            ; The installation section stops only processes belonging to this
+            ; install/data pair. Do not abort the upgrade beforehand: doing so
+            ; leaves the old desktop server running and serving its old web bundle.
         ${EndIf}
 
     ; Let the user know that we'll upgrade and provide an option to quit
@@ -628,9 +778,9 @@ ${If} $BasicInstall == 1
     StrCpy $_SERVICESTART_ "No"
     StrCpy $_SERVICEACCOUNTTYPE_ "None"
     StrCpy $_MAKESHORTCUTS_ "Yes"
-    ${If} $_FOLDEREXISTS_ == "Yes"
-        StrCpy $_MULLETAFLIXDATADIR_ "$LOCALAPPDATA\MulletaFlix\"
-    ${EndIf}
+    ; Basic mode is per-user and must not default to ProgramData, where an
+    ; unelevated interactive server cannot write MariaDB/InnoDB files.
+    StrCpy $_MULLETAFLIXDATADIR_ "$LOCALAPPDATA\MulletaFlix\"
 ${Else}
     StrCpy $_SETUPTYPE_ "Advanced"
     StrCpy $_INSTALLSERVICE_ "Yes"

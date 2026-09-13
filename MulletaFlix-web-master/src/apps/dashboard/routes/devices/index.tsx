@@ -19,6 +19,7 @@ import { useUpdateDevice } from 'apps/dashboard/features/devices/api/useUpdateDe
 import DeviceNameCell from 'apps/dashboard/features/devices/components/DeviceNameCell';
 import type { DeviceInfoCell } from 'apps/dashboard/features/devices/types/deviceInfoCell';
 import ConfirmDialog from 'components/ConfirmDialog';
+import Toast from 'apps/dashboard/components/Toast';
 import { useApi } from 'hooks/useApi';
 import { type UsersRecords, useUsersDetails } from 'hooks/useUsers';
 import globalize from 'lib/globalize';
@@ -41,7 +42,8 @@ export const Component = () => {
         data,
         isLoading: isDevicesLoading,
         isError: isDevicesError,
-        isRefetching
+        isRefetching,
+        refetch: refetchDevices
     } = useDevices({});
     const devices = useMemo(() => (
         data?.Items || []
@@ -50,17 +52,23 @@ export const Component = () => {
         usersById: users,
         names: userNames,
         isLoading: isUsersLoading,
-        isError: isUsersError
+        isError: isUsersError,
+        refetch: refetchUsers
     } = useUsersDetails();
     const theme = useTheme();
 
     const [ isDeleteConfirmOpen, setIsDeleteConfirmOpen ] = useState(false);
     const [ isDeleteAllConfirmOpen, setIsDeleteAllConfirmOpen ] = useState(false);
+    const [ isDeleteErrorToastOpen, setIsDeleteErrorToastOpen ] = useState(false);
     const [ pendingDeleteDeviceId, setPendingDeleteDeviceId ] = useState<string>();
     const deleteDevice = useDeleteDevice();
     const updateDevice = useUpdateDevice();
 
     const isLoading = isDevicesLoading || isUsersLoading;
+
+    const retryLoad = useCallback(() => {
+        void Promise.all([ refetchDevices(), refetchUsers() ]);
+    }, [ refetchDevices, refetchUsers ]);
 
     const onDeleteDevice = useCallback((id: string | null | undefined) => () => {
         if (id) {
@@ -79,6 +87,10 @@ export const Component = () => {
             deleteDevice.mutate({
                 id: pendingDeleteDeviceId
             }, {
+                onError: error => {
+                    console.error('[DevicesPage] failed deleting device', error);
+                    setIsDeleteErrorToastOpen(true);
+                },
                 onSettled: onCloseDeleteConfirmDialog
             });
         }
@@ -86,6 +98,10 @@ export const Component = () => {
 
     const onDeleteAll = useCallback(() => {
         setIsDeleteAllConfirmOpen(true);
+    }, []);
+
+    const onCloseDeleteErrorToast = useCallback(() => {
+        setIsDeleteErrorToastOpen(false);
     }, []);
 
     const onCloseDeleteAllConfirmDialog = useCallback(() => {
@@ -103,6 +119,7 @@ export const Component = () => {
                 }))
                 .catch(err => {
                     console.error('[DevicesPage] failed deleting all devices', err);
+                    setIsDeleteErrorToastOpen(true);
                 })
                 .finally(() => {
                     onCloseDeleteAllConfirmDialog();
@@ -269,7 +286,13 @@ export const Component = () => {
             table={mrTable}
             isError={isDevicesError || isUsersError}
             errorMessage={globalize.translate('DevicesLoadError')}
+            onRetry={retryLoad}
         >
+            <Toast
+                open={isDeleteErrorToastOpen}
+                onClose={onCloseDeleteErrorToast}
+                message={globalize.translate('ErrorDefault')}
+            />
             <ConfirmDialog
                 open={isDeleteConfirmOpen}
                 title={globalize.translate('HeaderDeleteDevice')}
@@ -293,4 +316,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'DevicesPage';
-

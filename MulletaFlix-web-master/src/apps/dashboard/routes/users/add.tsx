@@ -35,11 +35,31 @@ const UserNew = () => {
     const handleToastClose = useCallback(() => {
         setIsErrorToastOpen(false);
     }, []);
-    const { data: mediaFolders, isSuccess: isMediaFoldersSuccess } = useLibraryMediaFolders();
-    const { data: channels, isSuccess: isChannelsSuccess } = useChannels();
+    const {
+        data: mediaFolders,
+        isSuccess: isMediaFoldersSuccess,
+        isError: isMediaFoldersError,
+        refetch: refetchMediaFolders
+    } = useLibraryMediaFolders();
+    const {
+        data: channels,
+        isSuccess: isChannelsSuccess,
+        isError: isChannelsError,
+        refetch: refetchChannels
+    } = useChannels();
 
     const createUser = useCreateUser();
     const updateUserPolicy = useUpdateUserPolicy();
+
+    const handleRetryLoad = useCallback(() => {
+        setIsErrorToastOpen(false);
+        void Promise.all([refetchMediaFolders(), refetchChannels()]).then(() => {
+            setIsErrorToastOpen(false);
+        }).catch((error: unknown) => {
+            console.error('[usernew] failed to retry loading user options', error);
+            setIsErrorToastOpen(true);
+        });
+    }, [ refetchChannels, refetchMediaFolders ]);
 
     const getItemsResult = (items: BaseItemDto[]) => {
         return items.map(item =>
@@ -105,15 +125,16 @@ const UserNew = () => {
 
         loadMediaFolders(mediaFolders?.Items);
         loadChannels(channels?.Items);
-        loading.hide();
     }, [loadChannels, loadMediaFolders, mediaFolders, channels]);
 
     useEffect(() => {
-        loading.show();
         if (isMediaFoldersSuccess && isChannelsSuccess) {
             loadUser();
         }
-    }, [loadUser, isMediaFoldersSuccess, isChannelsSuccess]);
+        if (isMediaFoldersError || isChannelsError) {
+            setIsErrorToastOpen(true);
+        }
+    }, [loadUser, isMediaFoldersSuccess, isChannelsSuccess, isMediaFoldersError, isChannelsError]);
 
     useEffect(() => {
         const page = element.current;
@@ -123,62 +144,58 @@ const UserNew = () => {
             return;
         }
 
-        const saveUser = () => {
+        const saveUser = async () => {
             const userInput: CreateUserByName = {
                 Name: (page.querySelector('#txtUsername') as HTMLInputElement).value,
                 Password: (page.querySelector('#txtPassword') as HTMLInputElement).value
             };
-            createUser.mutate({ createUserByName: userInput }, {
-                onSuccess: (response) => {
-                    const user = response.data;
+            const response = await createUser.mutateAsync({ createUserByName: userInput });
+            const user = response.data;
 
-                    if (!user.Id || !user.Policy) {
-                        throw new Error('Unexpected null user id or policy');
-                    }
+            if (!user.Id || !user.Policy) {
+                throw new Error('Unexpected null user id or policy');
+            }
 
-                    user.Policy.EnableAllFolders = (page.querySelector('.chkEnableAllFolders') as HTMLInputElement).checked;
-                    user.Policy.EnabledFolders = [];
+            user.Policy.EnableAllFolders = (page.querySelector('.chkEnableAllFolders') as HTMLInputElement).checked;
+            user.Policy.EnabledFolders = [];
 
-                    if (!user.Policy.EnableAllFolders) {
-                        user.Policy.EnabledFolders = Array.prototype.filter.call(page.querySelectorAll('.chkFolder'), function (i) {
-                            return i.checked;
-                        }).map(function (i) {
-                            return i.getAttribute('data-id');
-                        });
-                    }
+            if (!user.Policy.EnableAllFolders) {
+                user.Policy.EnabledFolders = Array.prototype.filter.call(page.querySelectorAll('.chkFolder'), function (i) {
+                    return i.checked;
+                }).map(function (i) {
+                    return i.getAttribute('data-id');
+                });
+            }
 
-                    user.Policy.EnableAllChannels = (page.querySelector('.chkEnableAllChannels') as HTMLInputElement).checked;
-                    user.Policy.EnabledChannels = [];
+            user.Policy.EnableAllChannels = (page.querySelector('.chkEnableAllChannels') as HTMLInputElement).checked;
+            user.Policy.EnabledChannels = [];
 
-                    if (!user.Policy.EnableAllChannels) {
-                        user.Policy.EnabledChannels = Array.prototype.filter.call(page.querySelectorAll('.chkChannel'), function (i) {
-                            return i.checked;
-                        }).map(function (i) {
-                            return i.getAttribute('data-id');
-                        });
-                    }
+            if (!user.Policy.EnableAllChannels) {
+                user.Policy.EnabledChannels = Array.prototype.filter.call(page.querySelectorAll('.chkChannel'), function (i) {
+                    return i.checked;
+                }).map(function (i) {
+                    return i.getAttribute('data-id');
+                });
+            }
 
-                    user.Policy.IsHidden = true;
+            user.Policy.IsHidden = true;
 
-                    updateUserPolicy.mutate({
-                        userId: user.Id,
-                        userPolicy: user.Policy
-                    }, {
-                        onSuccess: () => {
-                            navigateSafely(`/dashboard/users/${user.Id}/profile`);
-                        },
-                        onError: () => {
-                            console.error('[usernew] failed to update user policy');
-                            setIsErrorToastOpen(true);
-                        }
-                    });
-                }
+            await updateUserPolicy.mutateAsync({
+                userId: user.Id,
+                userPolicy: user.Policy
             });
+            navigateSafely(`/dashboard/users/${user.Id}/profile`);
         };
 
         const onSubmit = (e: Event) => {
-            loading.show();
-            saveUser();
+            void loading.withLoading(async () => {
+                try {
+                    await saveUser();
+                } catch (error) {
+                    console.error('[usernew] failed to create user', error);
+                    setIsErrorToastOpen(true);
+                }
+            });
             e.preventDefault();
             e.stopPropagation();
             return false;
@@ -220,6 +237,14 @@ const UserNew = () => {
                 open={isErrorToastOpen}
                 onClose={handleToastClose}
                 message={globalize.translate('ErrorDefault')}
+                action={(
+                    <Button
+                        type='button'
+                        onClick={handleRetryLoad}
+                    >
+                        {globalize.translate('Retry')}
+                    </Button>
+                )}
             />
             <div ref={element} className='content-primary'>
                 <div className='verticalSection'>

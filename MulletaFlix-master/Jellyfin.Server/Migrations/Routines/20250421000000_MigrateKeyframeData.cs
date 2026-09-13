@@ -50,7 +50,7 @@ public class MigrateKeyframeData : IDatabaseMigrationRoutine
     public void Perform()
     {
         const int Limit = 5000;
-        int itemCount = 0, offset = 0;
+        var itemCount = 0;
 
         var sw = Stopwatch.StartNew();
 
@@ -59,32 +59,42 @@ public class MigrateKeyframeData : IDatabaseMigrationRoutine
         var records = baseQuery.Count();
         _logger.LogInformation("Checking {Count} items for importable keyframe data.", records);
 
-        context.KeyframeData.ExecuteDelete();
-        using var transaction = context.Database.BeginTransaction();
-        do
+        // User-initiated transactions must be executed through the provider's
+        // retry strategy when transient MySQL/MariaDB failures are enabled.
+        var executionStrategy = context.Database.CreateExecutionStrategy();
+        executionStrategy.Execute(() =>
         {
-            var results = baseQuery.Skip(offset).Take(Limit).Select(b => new Tuple<Guid, string?>(b.Id, b.Path)).ToList();
-            foreach (var result in results)
+            context.ChangeTracker.Clear();
+            var importedCount = 0;
+            var offset = 0;
+            context.KeyframeData.ExecuteDelete();
+            using var transaction = context.Database.BeginTransaction();
+            do
             {
-                if (TryGetKeyframeData(result.Item1, result.Item2, out var data))
+                var results = baseQuery.Skip(offset).Take(Limit).Select(b => new Tuple<Guid, string?>(b.Id, b.Path)).ToList();
+                foreach (var result in results)
                 {
-                    itemCount++;
-                    context.KeyframeData.Add(data);
+                    if (TryGetKeyframeData(result.Item1, result.Item2, out var data))
+                    {
+                        importedCount++;
+                        context.KeyframeData.Add(data);
+                    }
                 }
+
+                offset += Limit;
+                if (offset > records)
+                {
+                    offset = records;
+                }
+
+                _logger.LogInformation("Checked: {Count} - Imported: {Items} - Time: {Time}", offset, importedCount, sw.Elapsed);
             }
+            while (offset < records);
 
-            offset += Limit;
-            if (offset > records)
-            {
-                offset = records;
-            }
-
-            _logger.LogInformation("Checked: {Count} - Imported: {Items} - Time: {Time}", offset, itemCount, sw.Elapsed);
-        }
-        while (offset < records);
-
-        context.SaveChanges();
-        transaction.Commit();
+            context.SaveChanges();
+            transaction.Commit();
+            itemCount = importedCount;
+        });
 
         _logger.LogInformation("Imported keyframes for {Count} items in {Time}", itemCount, sw.Elapsed);
 

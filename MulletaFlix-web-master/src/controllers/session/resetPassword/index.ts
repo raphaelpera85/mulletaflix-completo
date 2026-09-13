@@ -30,7 +30,7 @@ function processForgotPasswordResult(result: ForgotPasswordResult): void {
 
 export default function (view: HTMLElement): void {
     function onSubmit(e: Event): void {
-        ApiClient.ajax({
+        void (ApiClient.ajax<ForgotPasswordResult>({
             type: 'POST',
 
             url: ApiClient.getUrl('Users/ForgotPassword/Pin'),
@@ -39,7 +39,7 @@ export default function (view: HTMLElement): void {
                 Pin: (view.querySelector('#txtPin') as HTMLInputElement).value
             }),
             contentType: 'application/json'
-        }).then(processForgotPasswordResult);
+        }).then(processForgotPasswordResult));
         e.preventDefault();
     }
 

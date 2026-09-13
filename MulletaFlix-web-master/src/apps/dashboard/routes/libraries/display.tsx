@@ -65,17 +65,41 @@ export const Component = () => {
     const {
         data: config,
         isPending: isConfigPending,
-        isError: isConfigError
+        isError: isConfigError,
+        refetch: refetchConfig
     } = useConfiguration();
     const {
         data: namedConfig,
         isPending: isNamedConfigPending,
-        isError: isNamedConfigError
+        isError: isNamedConfigError,
+        refetch: refetchNamedConfig
     } = useNamedConfiguration<MetadataConfiguration>(CONFIG_KEY);
 
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;
     const isSubmitting = navigation.state === 'submitting';
+    const retryLoad = React.useCallback(() => {
+        void Promise.all([ refetchConfig(), refetchNamedConfig() ]);
+    }, [ refetchConfig, refetchNamedConfig ]);
+
+    if (isConfigError || isNamedConfigError) {
+        return (
+            <Page
+                id='libraryDisplayPage'
+                title={globalize.translate('Display')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('DisplayLoadError')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isConfigPending || isNamedConfigPending) {
         return <Loading />;
@@ -89,7 +113,12 @@ export const Component = () => {
         >
             <Box className='content-primary'>
                 {isConfigError || isNamedConfigError ? (
-                    <Alert severity='error'>{globalize.translate('DisplayLoadError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('DisplayLoadError')}
+                    </Alert>
                 ) : (
                     <Form method='POST'>
                         <Stack spacing={3}>
@@ -189,4 +218,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'DisplayPage';
-

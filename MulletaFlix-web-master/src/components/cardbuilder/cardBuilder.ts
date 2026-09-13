@@ -114,7 +114,7 @@ export function setCardData(items: any, options: any) {
     options.uiAspect = getDesiredAspect(options.shape);
     options.primaryImageAspectRatio = primaryImageAspectRatio;
 
-    if (!options.width && options.widths) {
+    if (!options.width && options.widths && options.shape) {
         options.width = options.widths[options.shape];
     }
 

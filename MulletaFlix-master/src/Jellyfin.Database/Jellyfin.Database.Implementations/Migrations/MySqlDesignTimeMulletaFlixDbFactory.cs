@@ -12,7 +12,7 @@ public sealed class MySqlDesignTimeMulletaFlixDbFactory : IDesignTimeDbContextFa
     {
         var optionsBuilder = new DbContextOptionsBuilder<MulletaFlixDbContext>();
 
-        var connString = $"Server=localhost;Port=3306;User ID=root;Password=;Database={DatabaseNames.Main};CharSet=utf8mb4;Default Command Timeout=120;";
+        var connString = $"Server=127.0.0.1;Port=3306;User ID=root;Password=;Database={DatabaseNames.Main};CharSet=utf8mb4;SslMode=None;Default Command Timeout=120;";
         var serverVersion = new MariaDbServerVersion(new Version(11, 4, 2));
 
         optionsBuilder.UseMySql(connString, serverVersion, mySqlOptions =>

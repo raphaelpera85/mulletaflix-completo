@@ -2,6 +2,8 @@ import { playbackManager } from 'components/playback/playbackmanager';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import Events from 'utils/events';
 
+type PlaybackTarget = Awaited<ReturnType<typeof playbackManager.getTargets>>[number];
+
 export function enable(enabled: boolean): void {
     console.debug('[autocast] %s cast player', enabled ? 'enabling' : 'disabling');
     if (enabled) {
@@ -31,10 +33,10 @@ function onOpen(): void {
 
     console.debug('[autocast] initializing cast player', playerId);
 
-    playbackManager.getTargets().then(function (targets: any[]) {
+    playbackManager.getTargets().then(function (targets: Awaited<ReturnType<typeof playbackManager.getTargets>>) {
         console.debug('[autocast] playback targets', targets);
 
-        const player = targets.find(target => target.id === playerId);
+        const player = targets.find((target: PlaybackTarget) => target.id === playerId);
         if (player) {
             console.debug('[autocast] found target player', player);
             playbackManager.trySetActivePlayer(player.playerName, player);

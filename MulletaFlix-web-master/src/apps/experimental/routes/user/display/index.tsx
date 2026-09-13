@@ -1,3 +1,4 @@
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import { SelectChangeEvent } from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
@@ -17,6 +18,8 @@ import globalize from 'lib/globalize';
 export default function UserDisplayPreferences() {
     const {
         loading,
+        error,
+        retry,
         submitChanges,
         updateField,
         values
@@ -41,6 +44,26 @@ export default function UserDisplayPreferences() {
     }, [updateField, values]);
 
     if (loading || !values) {
+        if (error) {
+            return (
+                <Page
+                    className='libraryPage userPreferencesPage noSecondaryNavPage'
+                    id='displayPreferencesPage'
+                    title={globalize.translate('Display')}
+                >
+                    <Alert
+                        action={
+                            <Button color='inherit' size='small' onClick={retry}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
+                        severity='error'
+                    >
+                        {globalize.translate('ErrorDefault')}
+                    </Alert>
+                </Page>
+            );
+        }
         return <LoadingComponent />;
     }
 

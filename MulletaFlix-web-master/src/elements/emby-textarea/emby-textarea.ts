@@ -23,7 +23,7 @@ interface AutoGrowState {
     maxAllowedHeight: number;
 }
 
-function AutoGrow(textarea: HTMLTextAreaElement, maxLines?: number): void {
+function autoGrow(textarea: HTMLTextAreaElement, maxLines?: number): void {
     const self: AutoGrowState = { rows: 1, lineHeight: 0, maxAllowedHeight: 0 };
 
     if (maxLines === undefined) {
@@ -74,7 +74,6 @@ const EmbyTextAreaPrototype = Object.create(HTMLTextAreaElement.prototype);
 
 let elementId = 0;
 
-// @ts-ignore - truthiness check matching original JS behavior
 if (Object.getOwnPropertyDescriptor && Object.defineProperty) {
     const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
 
@@ -130,7 +129,7 @@ EmbyTextAreaPrototype.attachedCallback = function (): void {
         label.innerText = text;
     };
 
-    AutoGrow(this);
+    autoGrow(this);
 };
 
 document.registerElement('emby-textarea', {

@@ -7,7 +7,7 @@ export function parseISO8601Date(s: string, toLocal?: boolean): Date {
     // tzstring plusminus hours minutes
     const re = /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|([+-])(\d{2}):(\d{2}))?/;
 
-    const d = s.match(re) as unknown as (string | number | undefined)[];
+    const d = re.exec(s) as unknown as (string | number | undefined)[];
 
     // "2010-12-07T11:00:00.000-09:00" parses to:
     //  ["2010-12-07T11:00:00.000-09:00", "2010", "12", "07", "11",
@@ -219,6 +219,27 @@ export function getDisplayDateTime(date: Date | string): string {
     return toLocaleString(date);
 }
 
+function formatTwelveHourTime(date: Date): string {
+    const hour = date.getHours() % 12 || 12;
+    const suffix = date.getHours() > 11 ? 'pm' : 'am';
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+
+    return `${hour}:${minutes}${suffix}`;
+}
+
+function trimSeconds(time: string): string {
+    const timeParts = time.split(':');
+
+    // Trim off seconds
+    if (timeParts.length > 2) {
+        // setting to 2 also handles '21:00:28 GMT+9:30'
+        timeParts.length = 2;
+        return timeParts.join(':');
+    }
+
+    return time;
+}
+
 export function getDisplayTime(date: Date | string): string {
     if (!date) {
         throw new Error('date cannot be null');
@@ -244,36 +265,15 @@ export function getDisplayTime(date: Date | string): string {
         });
     }
 
-    let time = toLocaleTimeString(dateObj);
+    const time = toLocaleTimeString(dateObj);
 
     const timeLower = time.toLowerCase();
 
     if (timeLower.indexOf('am') !== -1 || timeLower.indexOf('pm') !== -1) {
-        let hour = dateObj.getHours() % 12;
-        const suffix = dateObj.getHours() > 11 ? 'pm' : 'am';
-        if (!hour) {
-            hour = 12;
-        }
-        let minutes: string | number = dateObj.getMinutes();
-
-        if (minutes < 10) {
-            minutes = '0' + minutes;
-        }
-
-        minutes = ':' + minutes;
-        time = hour + minutes + suffix;
-    } else {
-        const timeParts = time.split(':');
-
-        // Trim off seconds
-        if (timeParts.length > 2) {
-            // setting to 2 also handles '21:00:28 GMT+9:30'
-            timeParts.length = 2;
-            time = timeParts.join(':');
-        }
+        return formatTwelveHourTime(dateObj);
     }
 
-    return time;
+    return trimSeconds(time);
 }
 
 export function isRelativeDay(date: Date, offsetInDays: number): boolean {

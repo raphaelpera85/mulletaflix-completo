@@ -1,6 +1,7 @@
 import './loading.scss';
 
 let loader: HTMLDivElement | undefined;
+let activeOperations = 0;
 
 function createLoader(): HTMLDivElement {
     const elem = document.createElement('div');
@@ -22,14 +23,37 @@ export function show() {
 }
 
 export function hide() {
-    if (loader) {
+    // Legacy callers still invoke hide() directly. Never let one of them
+    // interrupt an operation that is being balanced by withLoading().
+    if (activeOperations === 0 && loader) {
         loader.classList.remove('mdlSpinnerActive');
+    }
+}
+
+/**
+ * Runs an asynchronous operation with the global loading indicator balanced on
+ * both success and failure paths. Keeping this invariant here prevents new
+ * callers from accidentally leaving the application in a permanently busy
+ * state when a request rejects.
+ */
+export async function withLoading<T>(operation: () => Promise<T>): Promise<T> {
+    activeOperations += 1;
+    show();
+
+    try {
+        return await operation();
+    } finally {
+        activeOperations = Math.max(0, activeOperations - 1);
+        if (activeOperations === 0) {
+            hide();
+        }
     }
 }
 
 const loading = {
     show,
-    hide
+    hide,
+    withLoading
 };
 
 window.Loading = loading;

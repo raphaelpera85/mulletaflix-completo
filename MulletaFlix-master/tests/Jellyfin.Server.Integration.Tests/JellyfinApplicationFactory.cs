@@ -31,6 +31,7 @@ namespace MulletaFlix.Server.Integration.Tests
     {
         private static readonly string _testPathRoot = Path.Combine(Path.GetTempPath(), "MulletaFlix-test-data");
         private readonly ConcurrentBag<IDisposable> _disposableComponents = new ConcurrentBag<IDisposable>();
+        private readonly string _testDatabaseName = "mulletaflix_test_" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture)[..12];
         private string? _webHostPathRoot;
 
         /// <summary>
@@ -51,16 +52,16 @@ namespace MulletaFlix.Server.Integration.Tests
             return new HostBuilder();
         }
 
-        private static void ResetTestDatabase()
+        private static void ResetTestDatabase(string databaseName)
         {
             // The production MariaDB may not be running during CI; this reset is best-effort.
             // If the connection fails, the server startup will surface the real error.
             try
             {
-                using var connection = new MySqlConnection("Server=localhost;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=2;");
+                using var connection = new MySqlConnection("Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=2;");
                 connection.Open();
                 using var command = connection.CreateCommand();
-                command.CommandText = "DROP DATABASE IF EXISTS `mulletaflix_test`; CREATE DATABASE `mulletaflix_test` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+                command.CommandText = $"CREATE DATABASE IF NOT EXISTS `{databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
                 command.ExecuteNonQuery();
             }
             catch (Exception ex)
@@ -77,8 +78,8 @@ namespace MulletaFlix.Server.Integration.Tests
             Environment.SetEnvironmentVariable("MulletaFlix_DISABLE_RUNTIME_METRICS", "true");
             // Isolate tests from any production MulletaFlix database: tests run
             // against their own database that is dropped/recreated per run.
-            Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", "mulletaflix_test");
-            ResetTestDatabase();
+            Environment.SetEnvironmentVariable("MulletaFlix_DATABASE_NAME", _testDatabaseName);
+            ResetTestDatabase(_testDatabaseName);
             // Specify the startup command line options
             var commandLineOpts = new StartupOptions();
 
@@ -184,6 +185,7 @@ namespace MulletaFlix.Server.Integration.Tests
             base.Dispose(disposing);
 
             MariaDbProcessManager.StopMariaDb(NullLogger.Instance);
+            DropTestDatabase(_testDatabaseName);
             _disposableComponents.Clear();
 
             if (_webHostPathRoot is not null)
@@ -203,6 +205,22 @@ namespace MulletaFlix.Server.Integration.Tests
                 {
                     _webHostPathRoot = null;
                 }
+            }
+        }
+
+        private static void DropTestDatabase(string databaseName)
+        {
+            try
+            {
+                using var connection = new MySqlConnection("Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;Connection Timeout=2;");
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = $"DROP DATABASE IF EXISTS `{databaseName}`;";
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to drop integration test database '{databaseName}': {ex.Message}");
             }
         }
 

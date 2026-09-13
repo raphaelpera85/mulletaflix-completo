@@ -98,8 +98,6 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 continue;
             }
 
-            _stagingDirs.Add(dir);
-
             try
             {
                 if (!Directory.Exists(dir))
@@ -117,6 +115,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 watcher.Changed += (s, e) => EnqueueFile(e.FullPath);
                 watcher.EnableRaisingEvents = true;
                 _watchers.Add(watcher);
+                _stagingDirs.Add(dir);
 
                 _logger.LogInformation("[NEBULA-WATCHER] Monitorando diretório de staging: {Dir}", dir);
             }
@@ -478,6 +477,10 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         try
         {
             await Task.WhenAll(_workerTasks).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Workers normally finish through cancellation during shutdown.
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

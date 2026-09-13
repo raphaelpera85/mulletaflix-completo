@@ -31,17 +31,22 @@ export const Component = () => {
     const {
         data: config,
         isPending: isConfigPending,
-        isError: isConfigError
+        isError: isConfigError,
+        refetch: refetchConfig
     } = useNamedConfiguration<LiveTvOptions>(CONFIG_KEY);
     const {
         data: tasks,
         isPending: isTasksPending,
-        isError: isTasksError
+        isError: isTasksError,
+        refetch: refetchTasks
     } = useLiveTasks({ isHidden: false });
     const providerButtonRef = useRef<HTMLButtonElement | null>(null);
     const [ anchorEl, setAnchorEl ] = useState<HTMLButtonElement | null>(null);
     const [ isMenuOpen, setIsMenuOpen ] = useState(false);
     const startTask = useStartTask();
+    const retryLoad = useCallback(() => {
+        void Promise.all([ refetchConfig(), refetchTasks() ]);
+    }, [ refetchConfig, refetchTasks ]);
 
     const navigateToSchedulesDirect = useCallback(() => {
         void navigate('/dashboard/livetv/guide?type=schedulesdirect');
@@ -73,6 +78,25 @@ export const Component = () => {
         }
     }, [ startTask, refreshGuideTask ]);
 
+    if (isConfigError || isTasksError) {
+        return (
+            <Page
+                id='liveTvStatusPage'
+                title={globalize.translate('LiveTV')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('HeaderError')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
+
     if (isConfigPending || isTasksPending) return <Loading />;
 
     return (
@@ -83,7 +107,16 @@ export const Component = () => {
         >
             <Box className='content-primary'>
                 {(isConfigError || isTasksError) ? (
-                    <Alert severity='error'>{globalize.translate('HeaderError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={
+                            <Button color='inherit' size='small' onClick={retryLoad}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
+                    >
+                        {globalize.translate('HeaderError')}
+                    </Alert>
                 ) : (
                     <Stack spacing={3}>
                         <Typography variant='h2'>{globalize.translate('HeaderTunerDevices')}</Typography>

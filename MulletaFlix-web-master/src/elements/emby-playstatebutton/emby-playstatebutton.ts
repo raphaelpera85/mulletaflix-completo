@@ -29,18 +29,17 @@ interface PlaystateButtonElement extends HTMLButtonElement {
 }
 
 function onClick(this: PlaystateButtonElement): void {
-    const button = this;
-    const id = button.getAttribute('data-id')!;
-    const serverId = button.getAttribute('data-serverid')!;
+    const id = this.getAttribute('data-id')!;
+    const serverId = this.getAttribute('data-serverid')!;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const apiClient: any = ServerConnections.getApiClient(serverId);
 
-    if (!button.classList.contains('playstatebutton-played')) {
+    if (!this.classList.contains('playstatebutton-played')) {
         apiClient.markPlayed(apiClient.getCurrentUserId(), id, new Date());
-        setState(button, true);
+        setState(this, true);
     } else {
         apiClient.markUnplayed(apiClient.getCurrentUserId(), id, new Date());
-        setState(button, false);
+        setState(this, false);
     }
 }
 

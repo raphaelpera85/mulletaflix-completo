@@ -59,19 +59,11 @@ function getBaseRemoteOptions(): { itemId: string } {
 }
 
 function reload(page: HTMLElement, item?: ImageEditorItem | null, focusContext?: HTMLElement): void {
-    loading.show();
-
-    let apiClient: ImageEditorApiClient;
-
-    if (item) {
-        apiClient = ServerConnections.getApiClient(item.ServerId) as unknown as ImageEditorApiClient;
-        reloadItem(page, item, apiClient, focusContext);
-    } else {
-        apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as ImageEditorApiClient;
-        void apiClient.getItem(apiClient.getCurrentUserId(), currentItem.Id).then(function (itemToReload: ImageEditorItem) {
-            reloadItem(page, itemToReload, apiClient, focusContext);
-        }).catch(() => loading.hide());
-    }
+    const apiClient = ServerConnections.getApiClient(item?.ServerId || currentItem.ServerId) as unknown as ImageEditorApiClient;
+    loading.withLoading(async () => {
+        const itemToReload = item || await apiClient.getItem(apiClient.getCurrentUserId(), currentItem.Id);
+        await reloadItem(page, itemToReload, apiClient, focusContext);
+    }).catch((error: unknown) => console.error('Failed to reload image editor', error));
 }
 
 function addListeners(container: HTMLElement, className: string, eventName: string, fn: (this: HTMLElement, e: Event) => void): void {
@@ -84,29 +76,26 @@ function addListeners(container: HTMLElement, className: string, eventName: stri
     });
 }
 
-function reloadItem(page: HTMLElement, item: ImageEditorItem, apiClient: ImageEditorApiClient, focusContext?: HTMLElement): void {
+async function reloadItem(page: HTMLElement, item: ImageEditorItem, apiClient: ImageEditorApiClient, focusContext?: HTMLElement): Promise<void> {
     currentItem = item;
 
-    void apiClient.getRemoteImageProviders(getBaseRemoteOptions()).then(function (providers: unknown[]) {
-        const btnBrowseAllImages = page.querySelectorAll('.btnBrowseAllImages');
-        for (let i = 0, length = btnBrowseAllImages.length; i < length; i++) {
-            if (providers.length) {
-                btnBrowseAllImages[i].classList.remove('hide');
-            } else {
-                btnBrowseAllImages[i].classList.add('hide');
-            }
+    const providers = await apiClient.getRemoteImageProviders(getBaseRemoteOptions());
+    const btnBrowseAllImages = page.querySelectorAll('.btnBrowseAllImages');
+    for (let i = 0, length = btnBrowseAllImages.length; i < length; i++) {
+        if (providers.length) {
+            btnBrowseAllImages[i].classList.remove('hide');
+        } else {
+            btnBrowseAllImages[i].classList.add('hide');
         }
+    }
 
-        return apiClient.getItemImageInfos(currentItem.Id).then(function (imageInfos: ImageInfo[]) {
-            renderStandardImages(page, apiClient, item, imageInfos, providers);
-            renderBackdrops(page, apiClient, item, imageInfos, providers);
-            loading.hide();
+    const imageInfos = await apiClient.getItemImageInfos(currentItem.Id);
+    renderStandardImages(page, apiClient, item, imageInfos, providers);
+    renderBackdrops(page, apiClient, item, imageInfos, providers);
 
-            if (layoutManager.tv) {
-                focusManager.autoFocus((focusContext || page));
-            }
-        });
-    }).catch(() => loading.hide());
+    if (layoutManager.tv) {
+        focusManager.autoFocus((focusContext || page));
+    }
 }
 
 interface ImageUrlOptions {
@@ -458,10 +447,8 @@ function showEditor(options: EditorOptions, resolve: () => void, reject: () => v
     const itemId = options.itemId!;
     const serverId = options.serverId!;
 
-    loading.show();
-
     const apiClient = ServerConnections.getApiClient(serverId) as unknown as ImageEditorApiClient;
-    apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: ImageEditorItem) {
+    loading.withLoading(() => apiClient.getItem(apiClient.getCurrentUserId(), itemId)).then(function (item: ImageEditorItem) {
         const dialogOptions: Record<string, boolean | string> = {
             removeOnClose: true
         };
@@ -490,8 +477,6 @@ function showEditor(options: EditorOptions, resolve: () => void, reject: () => v
                 scrollHelper.centerFocus.off(dlg, false);
             }
 
-            loading.hide();
-
             if (hasChanges) {
                 resolve();
             } else {
@@ -507,7 +492,6 @@ function showEditor(options: EditorOptions, resolve: () => void, reject: () => v
             dialogHelper.close(dlg);
         });
     }).catch((error: unknown) => {
-        loading.hide();
         console.error('Failed to load image editor item', error);
     });
 }

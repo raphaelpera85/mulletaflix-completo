@@ -92,6 +92,10 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     /// </summary>
     public int BotCount => _botTokens.Count;
 
+    public bool IsInitialized => _isInitialized;
+
+    public int AvailableBotCount => _clients.Count;
+
     /// <summary>
     /// Retorna os índices dos bots autenticados e disponíveis para upload e streaming.
     /// </summary>
@@ -1163,6 +1167,11 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             emitLog?.Invoke("INFO", $"🤖 Iniciando {_botTokens.Count} bot(s) em paralelo...");
             _logger.LogInformation("[NEBULA-TG] Inicializando Telegram Bot Pool com {Count} bots...", _botTokens.Count);
 
+            if (_apiId <= 0 || string.IsNullOrWhiteSpace(_apiHash) || _apiHash.Length != 32)
+            {
+                throw new InvalidOperationException("Telegram não configurado: API_ID deve ser numérico e API_HASH deve conter 32 caracteres. Os tokens dos bots não substituem o API_HASH.");
+            }
+
             var authTasks = _botTokens.Select(async (token, i) =>
             {
                 var index = i;
@@ -1260,7 +1269,8 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 
     private Func<string, string?> ConfigProvider(string botToken, int botIndex)
     {
-        var sessionFile = Path.Combine(_sessionsDirectory, $"Nebula_Bot_{botIndex}.session");
+        // Os índices internos começam em zero; os nomes exibidos e persistidos começam em um.
+        var sessionFile = Path.Combine(_sessionsDirectory, $"Nebula_Bot_{botIndex + 1}.session");
         return what => what switch
         {
             "api_id" => _apiId.ToString(System.Globalization.CultureInfo.InvariantCulture),

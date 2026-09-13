@@ -34,6 +34,7 @@ const getCheckedElementDataIds = (elements: NodeListOf<Element>) => (
 const Profile = ({ userDto }: ProfileProps) => {
     const navigate = useNavigate();
     const [ deleteFoldersAccess, setDeleteFoldersAccess ] = useState<ResetProvider[]>([]);
+    const [ hasSaveError, setHasSaveError ] = useState(false);
     const libraryMenu = useMemo(async () => ((await import('scripts/libraryMenu')).default), []);
 
     const [ authenticationProviderId, setAuthenticationProviderId ] = useState('');
@@ -49,6 +50,10 @@ const Profile = ({ userDto }: ProfileProps) => {
     const updateUserPolicy = useUpdateUserPolicy();
 
     const element = useRef<HTMLDivElement>(null);
+
+    const retrySave = useCallback(() => {
+        element.current?.querySelector<HTMLFormElement>('.editUserProfileForm')?.requestSubmit();
+    }, []);
 
     const triggerChange = (select: HTMLInputElement) => {
         const evt = new Event('change', { bubbles: false, cancelable: true });
@@ -194,7 +199,6 @@ const Profile = ({ userDto }: ProfileProps) => {
         (page.querySelector('#txtLoginAttemptsBeforeLockout') as HTMLInputElement).value = String(userDto.Policy?.LoginAttemptsBeforeLockout) || '-1';
         (page.querySelector('#txtMaxActiveSessions') as HTMLInputElement).value = String(userDto.Policy?.MaxActiveSessions) || '0';
         (page.querySelector('#selectSyncPlayAccess') as HTMLSelectElement).value = String(userDto.Policy?.SyncPlayAccess);
-        loading.hide();
     }, [ userDto, libraryMenu ]);
 
     useEffect(() => {
@@ -209,7 +213,7 @@ const Profile = ({ userDto }: ProfileProps) => {
             return;
         }
 
-        const saveUser = (user: UserDto) => {
+        const saveUser = async (user: UserDto) => {
             if (!user.Id || !user.Policy) {
                 throw new Error('Unexpected null user id or policy');
             }
@@ -240,32 +244,28 @@ const Profile = ({ userDto }: ProfileProps) => {
             user.Policy.EnableContentDeletionFromFolders = user.Policy.EnableContentDeletion ? [] : getCheckedElementDataIds(page.querySelectorAll('.chkFolder'));
             user.Policy.SyncPlayAccess = (page.querySelector('#selectSyncPlayAccess') as HTMLSelectElement).value as SyncPlayUserAccessType;
 
-            updateUser.mutate({ userId: user.Id, userDto: user }, {
-                onSuccess: () => {
-                    if (user.Id) {
-                        updateUserPolicy.mutate({
-                            userId: user.Id,
-                            userPolicy: user.Policy || { PasswordResetProviderId: '', AuthenticationProviderId: '' }
-                        }, {
-                            onSuccess: () => {
-                                loading.hide();
-                                Promise.resolve(navigate('/dashboard/users', {
-                                    state: { openSavedToast: true }
-                                })).catch((error: unknown) => {
-                                    console.error('Unable to navigate to users dashboard', error);
-                                });
-                            }
-                        });
-                    }
-                }
+            await updateUser.mutateAsync({ userId: user.Id, userDto: user });
+            await updateUserPolicy.mutateAsync({
+                userId: user.Id,
+                userPolicy: user.Policy || { PasswordResetProviderId: '', AuthenticationProviderId: '' }
+            });
+            await navigate('/dashboard/users', {
+                state: { openSavedToast: true }
             });
         };
 
         const onSubmit = (e: Event) => {
-            loading.show();
-            if (userDto) {
-                saveUser(userDto);
-            }
+            setHasSaveError(false);
+            void loading.withLoading(async () => {
+                try {
+                    if (userDto) {
+                        await saveUser(userDto);
+                    }
+                } catch (error) {
+                    console.error('[useredit] failed to update user', error);
+                    setHasSaveError(true);
+                }
+            });
             e.preventDefault();
             e.stopPropagation();
             return false;
@@ -316,6 +316,16 @@ const Profile = ({ userDto }: ProfileProps) => {
                     {globalize.translate('ButtonEditOtherUserPreferences')}
                 </LinkButton>
             </div>
+            {hasSaveError && (
+                <div role='alert' aria-live='assertive' className='alert alert-error'>
+                    <span>{globalize.translate('ErrorDefault')}</span>
+                    <Button
+                        type='button'
+                        title={globalize.translate('Retry')}
+                        onClick={retrySave}
+                    />
+                </div>
+            )}
             <form className='editUserProfileForm'>
                 <div className='disabledUserBanner hide'>
                     <div className='btn btnDarkAccent btnStatic'>

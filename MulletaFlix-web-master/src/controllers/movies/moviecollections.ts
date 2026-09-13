@@ -106,11 +106,10 @@ export default function (this: MovieCollectionsController, view: HTMLElement, pa
     };
 
     const reloadItems = (page: HTMLElement): void => {
-        loading.show();
         isLoading = true;
         const query = getQuery();
         this.alphaPicker?.updateControls(query);
-        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: ItemDtoQueryResult) => {
+        loading.withLoading(() => ApiClient.getItems(ApiClient.getCurrentUserId(), query)).then((result: ItemDtoQueryResult) => {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -227,14 +226,12 @@ export default function (this: MovieCollectionsController, view: HTMLElement, pa
             itemsContainer.innerHTML = html;
             imageLoader.lazyChildren(itemsContainer);
             userSettings.saveQuerySettings(getSavedQueryKey(), query);
-            loading.hide();
             isLoading = false;
 
             void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(page);
             }).catch((error: unknown) => console.error('[MovieCollections] failed to focus page', error));
         }).catch((error: unknown) => {
-            loading.hide();
             isLoading = false;
             console.error('[MovieCollections] failed to load collections', error);
         });
@@ -288,6 +285,10 @@ export default function (this: MovieCollectionsController, view: HTMLElement, pa
         tabElement.querySelector('.btnNewCollection')!.addEventListener('click', () => {
             void import('../../components/collectionEditor/collectionEditor').then(({ default: CollectionEditor }) => {
                 const serverId = ApiClient.serverInfo().Id;
+                if (!serverId) {
+                    console.error('[MovieCollections] Cannot open collection editor without a server id');
+                    return;
+                }
                 const collectionEditor = new CollectionEditor();
                 void collectionEditor.show({
                     items: [],

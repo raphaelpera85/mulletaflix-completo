@@ -30,6 +30,57 @@ public class NebulaStatusDto
     public List<NebulaStageDiskDto> StageDisks { get; set; } = new();
 
     public string StageDisksFormatted { get; set; } = string.Empty;
+
+    public NebulaOperationStatusDto MaintenanceOperation { get; set; } = new();
+}
+
+public class NebulaOperationStatusDto
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string State { get; set; } = "idle";
+
+    public DateTime? StartedAtUtc { get; set; }
+
+    public DateTime? FinishedAtUtc { get; set; }
+
+    public long? DurationMs { get; set; }
+
+    public string Error { get; set; } = string.Empty;
+
+    public double? ProgressPercent { get; set; }
+
+    public string ProgressText { get; set; } = string.Empty;
+}
+
+public class NebulaComponentHealthDto
+{
+    public bool MongoConfigured { get; set; }
+
+    public bool MongoConnected { get; set; }
+
+    public string MongoStatus { get; set; } = string.Empty;
+
+    public bool TelegramConfigured { get; set; }
+
+    public bool TelegramReady { get; set; }
+
+    public int TelegramAvailableBots { get; set; }
+
+    public bool FtpListenerRunning { get; set; }
+
+    public bool HttpListenerRunning { get; set; }
+}
+
+public class NebulaCredentialRotationRequest
+{
+    public string? Password { get; set; }
+
+    public string? HttpStreamToken { get; set; }
+
+    public string? SupabaseKey { get; set; }
+
+    public string? ApiHash { get; set; }
 }
 
 public class NebulaWorkerItemDto

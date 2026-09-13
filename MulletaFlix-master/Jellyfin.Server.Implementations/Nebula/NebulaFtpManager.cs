@@ -53,13 +53,237 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private bool _isEnvioRunning;
     private bool _streamOnly;
     private bool _isDownloaderRunning;
+    private bool _dependenciesChecked;
     private readonly SemaphoreSlim _envioLock = new(1, 1);
     private readonly SemaphoreSlim _downloaderLock = new(1, 1);
     private readonly SemaphoreSlim _sharedRuntimeLock = new(1, 1);
+    private readonly SemaphoreSlim _maintenanceLock = new(1, 1);
     private readonly SemaphoreSlim _mountLock = new(1, 1);
+    private readonly SemaphoreSlim _dependencyLock = new(1, 1);
+    private long _nextAutomaticMountAttemptUtcTicks;
+    private int _automaticMountAttemptInProgress;
+    private int _automaticMountFailures;
+    private readonly Dictionary<string, NebulaOperationReplay> _operationReplays = new(StringComparer.Ordinal);
+    private static readonly TimeSpan OperationReplayTtl = TimeSpan.FromMinutes(15);
 
     private readonly ConcurrentDictionary<string, NebulaWorkerItemDto> _activeUploads = new(StringComparer.OrdinalIgnoreCase);
     private readonly NebulaDownloadStatusDto _currentDownload = new();
+
+    private sealed record NebulaOperationReplay(object Result, DateTime ExpiresAtUtc);
+
+    private bool TryGetOperationReplay<T>(string operationName, string? idempotencyKey, out T result)
+    {
+        result = default!;
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return false;
+        }
+
+        lock (_lock)
+        {
+            var cacheKey = $"{operationName}:{idempotencyKey}";
+            if (!_operationReplays.TryGetValue(cacheKey, out var replay))
+            {
+                return false;
+            }
+
+            if (replay.ExpiresAtUtc <= DateTime.UtcNow)
+            {
+                _operationReplays.Remove(cacheKey);
+                return false;
+            }
+
+            if (replay.Result is not T typedResult)
+            {
+                return false;
+            }
+
+            result = typedResult;
+            return true;
+        }
+    }
+
+    private void CacheOperationReplay<T>(string operationName, string? idempotencyKey, T result)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var expiredKey in _operationReplays
+                .Where(pair => pair.Value.ExpiresAtUtc <= now)
+                .Select(pair => pair.Key)
+                .ToArray())
+            {
+                _operationReplays.Remove(expiredKey);
+            }
+
+            if (_operationReplays.Count >= 1024)
+            {
+                _operationReplays.Remove(_operationReplays.OrderBy(pair => pair.Value.ExpiresAtUtc).First().Key);
+            }
+
+            _operationReplays[$"{operationName}:{idempotencyKey}"] = new NebulaOperationReplay(result!, now + OperationReplayTtl);
+        }
+    }
+
+    private async Task<bool> TryGetOperationReplayAsync<T>(string operationName, string? idempotencyKey, CancellationToken cancellationToken)
+    {
+        if (TryGetOperationReplay(operationName, idempotencyKey, out T cached))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return false;
+        }
+
+        NebulaMongoContext? temporaryContext = null;
+        try
+        {
+            var mongo = _mongoContext;
+            if (mongo == null)
+            {
+                var connectionString = Config.MongoDbConnectionString;
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    return false;
+                }
+
+                temporaryContext = new NebulaMongoContext(connectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
+                mongo = temporaryContext;
+            }
+
+            var persisted = await mongo.GetOperationReplayAsync<T>(operationName, idempotencyKey, cancellationToken).ConfigureAwait(false);
+            if (persisted is null)
+            {
+                return false;
+            }
+
+            CacheOperationReplay(operationName, idempotencyKey, persisted);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-IDEMPOTENCY] Não foi possível consultar replay persistido de {Operation}.", operationName);
+            return false;
+        }
+        finally
+        {
+            temporaryContext?.Dispose();
+        }
+    }
+
+    private async Task CacheOperationReplayAsync<T>(string operationName, string? idempotencyKey, T result, CancellationToken cancellationToken)
+    {
+        CacheOperationReplay(operationName, idempotencyKey, result);
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return;
+        }
+
+        NebulaMongoContext? temporaryContext = null;
+        try
+        {
+            var mongo = _mongoContext;
+            if (mongo == null)
+            {
+                var connectionString = Config.MongoDbConnectionString;
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    return;
+                }
+
+                temporaryContext = new NebulaMongoContext(connectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
+                mongo = temporaryContext;
+            }
+
+            await mongo.SaveOperationReplayAsync(operationName, idempotencyKey, result, OperationReplayTtl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-IDEMPOTENCY] Não foi possível persistir replay de {Operation}; cache de processo mantido.", operationName);
+        }
+        finally
+        {
+            temporaryContext?.Dispose();
+        }
+    }
+    private NebulaOperationStatusDto _maintenanceOperation = new();
+
+    private void BeginMaintenanceOperation(string name)
+    {
+        lock (_lock)
+        {
+            _maintenanceOperation = new NebulaOperationStatusDto
+            {
+                Name = name,
+                State = "running",
+                StartedAtUtc = DateTime.UtcNow,
+                ProgressPercent = 0
+            };
+        }
+    }
+
+    private void UpdateMaintenanceOperationProgress(string message)
+    {
+        lock (_lock)
+        {
+            _maintenanceOperation.ProgressText = message;
+            var progressMatch = Regex.Match(message, @"Progresso dos arquivos:\s*(\d+)\/(\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (progressMatch.Success
+                && double.TryParse(progressMatch.Groups[1].Value, out var completed)
+                && double.TryParse(progressMatch.Groups[2].Value, out var total)
+                && total > 0)
+            {
+                _maintenanceOperation.ProgressPercent = Math.Round(Math.Clamp(completed / total * 100, 0, 100), 1);
+            }
+        }
+    }
+
+    private void CompleteMaintenanceOperation(string state, string error = "")
+    {
+        lock (_lock)
+        {
+            var finishedAt = DateTime.UtcNow;
+            _maintenanceOperation.State = state;
+            _maintenanceOperation.FinishedAtUtc = finishedAt;
+            _maintenanceOperation.DurationMs = _maintenanceOperation.StartedAtUtc.HasValue
+                ? Math.Max(0, (long)(finishedAt - _maintenanceOperation.StartedAtUtc.Value).TotalMilliseconds)
+                : null;
+            _maintenanceOperation.Error = error.Length > 1024 ? error[..1024] : error;
+        }
+    }
+
+    private NebulaOperationStatusDto GetMaintenanceOperation()
+    {
+        lock (_lock)
+        {
+            return new NebulaOperationStatusDto
+            {
+                Name = _maintenanceOperation.Name,
+                State = _maintenanceOperation.State,
+                StartedAtUtc = _maintenanceOperation.StartedAtUtc,
+                FinishedAtUtc = _maintenanceOperation.FinishedAtUtc,
+                DurationMs = _maintenanceOperation.DurationMs,
+                Error = _maintenanceOperation.Error,
+                ProgressPercent = _maintenanceOperation.ProgressPercent,
+                ProgressText = _maintenanceOperation.ProgressText
+            };
+        }
+    }
 
     private void EmitServerLog(string level, string message)
     {
@@ -96,6 +320,111 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         _libraryManager = libraryManager;
         _metadataExportService = metadataExportService;
         _usersDbProvider = usersDbProvider;
+    }
+
+    private async Task EnsureRuntimeDependenciesAsync(CancellationToken cancellationToken)
+    {
+        if (_dependenciesChecked)
+        {
+            return;
+        }
+
+        await _dependencyLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_dependenciesChecked)
+            {
+                return;
+            }
+
+            foreach (var scriptName in new[]
+            {
+                "install-python-if-missing.ps1",
+                "install-mongodb-if-missing.ps1",
+                "install-rclone-if-missing.ps1",
+                "install-winfsp-if-missing.ps1"
+            })
+            {
+                var scriptPath = Path.Combine(AppContext.BaseDirectory, scriptName);
+                if (File.Exists(scriptPath))
+                {
+                    await RunPowerShellDependencyScriptAsync(scriptPath, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    _logger.LogDebug("[NEBULA-DEPS] Script não encontrado: {ScriptPath}", scriptPath);
+                }
+            }
+
+            _dependenciesChecked = true;
+            AddServerLog("[NEBULA-DEPS] Dependências de runtime verificadas.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[NEBULA-DEPS] Falha ao verificar/instalar dependências de runtime.");
+            AddServerLog($"[NEBULA-DEPS] Falha ao verificar dependências: {ex.Message}");
+        }
+        finally
+        {
+            _dependencyLock.Release();
+        }
+    }
+
+    private async Task RunPowerShellDependencyScriptAsync(string scriptPath, CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            WorkingDirectory = AppContext.BaseDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-NonInteractive");
+        startInfo.ArgumentList.Add("-ExecutionPolicy");
+        startInfo.ArgumentList.Add("Bypass");
+        startInfo.ArgumentList.Add("-File");
+        startInfo.ArgumentList.Add(scriptPath);
+
+        using var process = new Process { StartInfo = startInfo };
+        _logger.LogInformation("[NEBULA-DEPS] Verificando {ScriptName}...", Path.GetFileName(scriptPath));
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("Não foi possível iniciar o PowerShell.");
+        }
+
+        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromMinutes(5), cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            throw;
+        }
+        var output = await outputTask.ConfigureAwait(false);
+        var error = await errorTask.ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(output))
+        {
+            _logger.LogInformation("[NEBULA-DEPS] {Output}", output.Trim());
+        }
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"{Path.GetFileName(scriptPath)} terminou com código {process.ExitCode}: {error.Trim()}");
+        }
     }
 
     private void EnsureLocalMediaLibraryPaths(NebulaFtpConfiguration config)
@@ -138,6 +467,108 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     private NebulaFtpConfiguration Config =>
         _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
+
+    private static IEnumerable<string> GetDotEnvCandidates()
+    {
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Path.Combine(AppContext.BaseDirectory, ".env"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Projetos", "nebula", "NebulaFTP-master", ".env")
+        };
+
+        var explicitPath = Environment.GetEnvironmentVariable("NEBULA_ENV_FILE");
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            candidates.Add(explicitPath.Trim());
+        }
+
+        return candidates;
+    }
+
+    private static Dictionary<string, string> ReadDotEnv()
+    {
+        foreach (var path in GetDotEnvCandidates())
+        {
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var rawLine in File.ReadLines(path))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith('#'))
+                {
+                    continue;
+                }
+
+                var separator = line.IndexOf('=', StringComparison.Ordinal);
+                if (separator <= 0)
+                {
+                    continue;
+                }
+
+                var key = line[..separator].Trim();
+                var value = line[(separator + 1)..].Trim().Trim('"', '\'');
+                values[key] = value;
+            }
+
+            return values;
+        }
+
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private NebulaFtpConfiguration ImportDotEnvConfiguration(NebulaFtpConfiguration config, bool save)
+    {
+        var env = ReadDotEnv();
+        var changed = false;
+
+        void SetIfMissing(string property, string key, Action<string> setter)
+        {
+            if (!env.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            var current = property switch
+            {
+                nameof(NebulaFtpConfiguration.ApiId) => config.ApiId,
+                nameof(NebulaFtpConfiguration.ApiHash) => config.ApiHash,
+                nameof(NebulaFtpConfiguration.ChatId) => config.ChatId,
+                nameof(NebulaFtpConfiguration.BotTokens) => config.BotTokens,
+                _ => string.Empty
+            };
+            var missingOrInvalid = string.IsNullOrWhiteSpace(current);
+            if (property == nameof(NebulaFtpConfiguration.ApiHash))
+            {
+                missingOrInvalid |= current.Trim().Length != 32;
+            }
+            else if (property == nameof(NebulaFtpConfiguration.ApiId))
+            {
+                missingOrInvalid |= !int.TryParse(current, out var parsedApiId) || parsedApiId <= 0;
+            }
+            if (missingOrInvalid)
+            {
+                setter(value);
+                changed = true;
+            }
+        }
+
+        SetIfMissing(nameof(NebulaFtpConfiguration.ApiId), "API_ID", value => config.ApiId = value);
+        SetIfMissing(nameof(NebulaFtpConfiguration.ApiHash), "API_HASH", value => config.ApiHash = value);
+        SetIfMissing(nameof(NebulaFtpConfiguration.ChatId), "CHAT_ID", value => config.ChatId = value);
+        SetIfMissing(nameof(NebulaFtpConfiguration.BotTokens), "BOT_TOKENS", value => config.BotTokens = value);
+
+        if (changed && save)
+        {
+            _configManager.SaveConfiguration("nebulaftp", config);
+            AddServerLog("[NEBULA-CONFIG] Credenciais do .env importadas automaticamente.");
+        }
+
+        return config;
+    }
 
     private string GetSessionsDirectory()
     {
@@ -228,6 +659,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
         status.StageDisks = diskList;
         status.StageDisksFormatted = string.Join(" | ", diskList.Select(d => d.Formatted));
+        status.MaintenanceOperation = GetMaintenanceOperation();
 
         // Copy download status
         lock (_lock)
@@ -264,6 +696,52 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
 
         return status;
+    }
+
+    public async Task<NebulaComponentHealthDto> GetComponentHealthAsync(CancellationToken cancellationToken = default)
+    {
+        var config = Config;
+        var health = new NebulaComponentHealthDto
+        {
+            MongoConfigured = !string.IsNullOrWhiteSpace(config.MongoDbConnectionString),
+            TelegramConfigured = !string.IsNullOrWhiteSpace(config.ApiId)
+                && !string.IsNullOrWhiteSpace(config.ApiHash)
+                && !string.IsNullOrWhiteSpace(config.BotTokens),
+            FtpListenerRunning = _isEnvioRunning && _ftpServerHost?.IsRunning == true,
+            HttpListenerRunning = _isEnvioRunning && _httpStreamServer?.IsRunning == true,
+            TelegramReady = _telegramPool?.IsInitialized == true && _telegramPool.AvailableBotCount > 0,
+            TelegramAvailableBots = _telegramPool?.AvailableBotCount ?? 0
+        };
+
+        if (!health.MongoConfigured)
+        {
+            health.MongoStatus = "connection string não configurada";
+            return health;
+        }
+
+        if (_mongoContext == null)
+        {
+            health.MongoStatus = "contexto não inicializado";
+            return health;
+        }
+
+        try
+        {
+            await _mongoContext.PingAsync(cancellationToken).ConfigureAwait(false);
+            health.MongoConnected = true;
+            health.MongoStatus = "conectado";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            health.MongoStatus = $"indisponível: {ex.GetType().Name}";
+            _logger.LogWarning(ex, "[NEBULA-HEALTH] MongoDB ping falhou.");
+        }
+
+        return health;
     }
 
     private async Task<List<NebulaWorkerItemDto>> QueryMongoActiveUploadsAsync(
@@ -462,7 +940,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 return true;
             }
 
-            var config = NormalizeRuntimeConfiguration(Config);
+            await EnsureRuntimeDependenciesAsync(cancellationToken).ConfigureAwait(false);
+            var config = ImportDotEnvConfiguration(NormalizeRuntimeConfiguration(Config), save: true);
+            if (!config.AllowInsecureRemoteFtp && !IsLoopbackHost(config.ServerHost))
+            {
+                throw new InvalidOperationException(
+                    "NebulaFTP nativo não suporta FTPS. Use ServerHost=127.0.0.1/localhost ou habilite AllowInsecureRemoteFtp explicitamente para uma rede confiável.");
+            }
+
             _configManager.SaveConfiguration("nebulaftp", config);
             EnsureLocalMediaLibraryPaths(config);
             _activeUploads.Clear();
@@ -562,8 +1047,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _loggerFactory.CreateLogger<NebulaFtpServerHost>(),
                 _loggerFactory.CreateLogger<NebulaFileSystem>(),
                 _loggerFactory.CreateLogger<NebulaFtpMembershipProvider>(),
+                config.ServerHost,
                 config.ServerPort,        // FTP port (default 2121)
-                config.HttpStreamPort);   // HTTP Stream port (default 2123 for MulletaFlix)
+                config.HttpStreamPort,   // HTTP Stream port (default 2123 for MulletaFlix)
+                config.MaxActiveConnections);
             await _ftpServerHost.StartAsync(cancellationToken).ConfigureAwait(false);
 
             // 4.1 Servidor HTTP Stream C# nativo (porta 2123 para playback STRM e streaming direto)
@@ -573,7 +1060,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 config.ServerHost,
                 config.HttpStreamPort,    // HTTP Stream port (default 2123 for MulletaFlix)
                 _loggerFactory.CreateLogger<NebulaHttpStreamServer>(),
-                config.HttpStreamToken);
+                config.HttpStreamToken,
+                config.MaxActiveConnections);
             _httpStreamServer.Start();
 
             if (poolInitTask != null)
@@ -813,8 +1301,19 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             return true;
         }
 
-        var config = NormalizeRuntimeConfiguration(Config);
-        _configManager.SaveConfiguration("nebulaftp", config);
+        NebulaFtpConfiguration config;
+        try
+        {
+            config = ImportDotEnvConfiguration(NormalizeRuntimeConfiguration(Config), save: true);
+            _configManager.SaveConfiguration("nebulaftp", config);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load Nebula downloader configuration");
+            AddDownloaderLog($"[ERRO] Falha ao carregar configuração do Downloader: {ex.Message}");
+            _downloaderLock.Release();
+            return false;
+        }
 
         var monitorSources = (config.MonitorPaths ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
         if (monitorSources.Count == 0)
@@ -852,6 +1351,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 return true;
             }
 
+            await EnsureRuntimeDependenciesAsync(cancellationToken).ConfigureAwait(false);
             // Garante MongoDB e Telegram Pool
             _mongoContext ??= new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
 
@@ -1039,15 +1539,31 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
     }
 
-    public async Task<bool> GenerateStrmAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> GenerateStrmAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default)
     {
-        var config = Config;
-        config = NormalizeRuntimeConfiguration(config);
-        _configManager.SaveConfiguration("nebulaftp", config);
-        AddServerLog("[STRM] Iniciando geração da biblioteca STRM em C# nativo...");
+        if (await TryGetOperationReplayAsync<bool>("generate-strm", idempotencyKey, cancellationToken).ConfigureAwait(false))
+        {
+            TryGetOperationReplay("generate-strm", idempotencyKey, out bool cached);
+            return cached;
+        }
+
+        await _maintenanceLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (await TryGetOperationReplayAsync<bool>("generate-strm", idempotencyKey, cancellationToken).ConfigureAwait(false))
+        {
+            _maintenanceLock.Release();
+            TryGetOperationReplay("generate-strm", idempotencyKey, out bool cached);
+            return cached;
+        }
+        BeginMaintenanceOperation("generate-strm");
+        var operationTimer = Stopwatch.StartNew();
+        _logger.LogInformation("[NEBULA-OPERATION] STRM generation started.");
 
         try
         {
+            var config = NormalizeRuntimeConfiguration(Config);
+            _configManager.SaveConfiguration("nebulaftp", config);
+            AddServerLog("[STRM] Iniciando geração da biblioteca STRM em C# nativo...");
+
             using var mongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
             if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
             {
@@ -1062,43 +1578,84 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             var generator = new NebulaStrmGenerator(mongo, _loggerFactory.CreateLogger<NebulaStrmGenerator>());
             await generator.GenerateAsync(config, msg => AddServerLog(msg), cancellationToken).ConfigureAwait(false);
+            CompleteMaintenanceOperation("succeeded");
+            await CacheOperationReplayAsync("generate-strm", idempotencyKey, true, CancellationToken.None).ConfigureAwait(false);
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             AddServerLog("[STRM] Geração cancelada.");
+            CompleteMaintenanceOperation("cancelled");
             throw;
         }
         catch (Exception ex)
         {
             AddServerLog($"[STRM-ERRO] Falha ao gerar STRM: {ex.Message}");
             _logger.LogError(ex, "[NEBULA-STRM] Falha ao gerar STRM.");
+            CompleteMaintenanceOperation("failed", ex.Message);
+            await CacheOperationReplayAsync("generate-strm", idempotencyKey, false, CancellationToken.None).ConfigureAwait(false);
             return false;
+        }
+        finally
+        {
+            operationTimer.Stop();
+            _logger.LogInformation("[NEBULA-OPERATION] STRM generation finished in {DurationMs} ms.", operationTimer.ElapsedMilliseconds);
+            _maintenanceLock.Release();
         }
     }
 
-    public async Task<bool> PruneCompletedAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> PruneCompletedAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default)
     {
-        var config = Config;
-        AddDownloaderLog("[LIMPEZA] Executando limpeza de registros inconsistentes no MongoDB...");
+        if (await TryGetOperationReplayAsync<bool>("prune-completed", idempotencyKey, cancellationToken).ConfigureAwait(false))
+        {
+            TryGetOperationReplay("prune-completed", idempotencyKey, out bool cached);
+            return cached;
+        }
+
+        await _maintenanceLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (await TryGetOperationReplayAsync<bool>("prune-completed", idempotencyKey, cancellationToken).ConfigureAwait(false))
+        {
+            _maintenanceLock.Release();
+            TryGetOperationReplay("prune-completed", idempotencyKey, out bool cached);
+            return cached;
+        }
+        BeginMaintenanceOperation("prune-completed");
+        var operationTimer = Stopwatch.StartNew();
+        _logger.LogInformation("[NEBULA-OPERATION] Completed-record cleanup started.");
 
         try
         {
+            var config = Config;
+            AddDownloaderLog("[LIMPEZA] Executando limpeza de registros inconsistentes no MongoDB...");
+
             using var mongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
             var deleted = await mongo.PruneCompletedAsync(cancellationToken).ConfigureAwait(false);
             AddDownloaderLog($"[LIMPEZA] Limpeza concluída: {deleted} registros corrigidos.");
+            CompleteMaintenanceOperation("succeeded");
+            await CacheOperationReplayAsync("prune-completed", idempotencyKey, true, CancellationToken.None).ConfigureAwait(false);
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             AddDownloaderLog("[LIMPEZA] Limpeza cancelada.");
+            CompleteMaintenanceOperation("cancelled");
             throw;
         }
         catch (Exception ex)
         {
             AddDownloaderLog($"[LIMPEZA-ERRO] {ex.Message}");
             _logger.LogError(ex, "[NEBULA-CLEANUP] Erro durante a limpeza.");
+            CompleteMaintenanceOperation("failed", ex.Message);
+            await CacheOperationReplayAsync("prune-completed", idempotencyKey, false, CancellationToken.None).ConfigureAwait(false);
             return false;
+        }
+        finally
+        {
+            operationTimer.Stop();
+            _logger.LogInformation(
+                "[NEBULA-OPERATION] Completed-record cleanup finished in {DurationMs} ms.",
+                operationTimer.ElapsedMilliseconds);
+            _maintenanceLock.Release();
         }
     }
 
@@ -1150,21 +1707,52 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 var cfg = NormalizeRuntimeConfiguration(Config);
                 if (cfg.UseMappedDrive && (_isEnvioRunning || _isDownloaderRunning || _telegramPool != null) && !IsDriveNAccessible())
                 {
-                    _logger.LogWarning("[NEBULA-WATCHDOG] Unidade N: inacessível (UseMappedDrive=true). Iniciando auto-recuperação...");
-                    AddServerLog("[NEBULA-WATCHDOG] Unidade N: inacessível. Remontando automaticamente...");
-                    _ = Task.Run(
-                        async () =>
-                        {
-                            try
+                    var nowTicks = DateTime.UtcNow.Ticks;
+                    var nextAttemptTicks = Interlocked.Read(ref _nextAutomaticMountAttemptUtcTicks);
+                    if (nowTicks >= nextAttemptTicks
+                        && Interlocked.CompareExchange(ref _automaticMountAttemptInProgress, 1, 0) == 0)
+                    {
+                        _logger.LogWarning("[NEBULA-WATCHDOG] Unidade N: inacessível (UseMappedDrive=true). Iniciando auto-recuperação...");
+                        AddServerLog("[NEBULA-WATCHDOG] Unidade N: inacessível. Remontando automaticamente...");
+                        _ = Task.Run(
+                            async () =>
                             {
-                                await MountDriveNAsync(CancellationToken.None).ConfigureAwait(false);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "[NEBULA-WATCHDOG] Erro ao auto-remontar unidade N:");
-                            }
-                        },
-                        CancellationToken.None);
+                                try
+                                {
+                                    var mounted = await MountDriveNAsync(CancellationToken.None).ConfigureAwait(false);
+                                    if (mounted)
+                                    {
+                                        Interlocked.Exchange(ref _automaticMountFailures, 0);
+                                        Interlocked.Exchange(ref _nextAutomaticMountAttemptUtcTicks, 0);
+                                    }
+                                    else
+                                    {
+                                        var failures = Interlocked.Increment(ref _automaticMountFailures);
+                                        var delaySeconds = Math.Min(600, 30 * (1 << Math.Min(failures, 4)));
+                                        Interlocked.Exchange(
+                                            ref _nextAutomaticMountAttemptUtcTicks,
+                                            DateTime.UtcNow.AddSeconds(delaySeconds).Ticks);
+                                        _logger.LogWarning(
+                                            "[NEBULA-WATCHDOG] Auto-recuperação da unidade N: não concluída. Nova tentativa em aproximadamente {DelaySeconds}s.",
+                                            delaySeconds);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    var failures = Interlocked.Increment(ref _automaticMountFailures);
+                                    var delaySeconds = Math.Min(600, 30 * (1 << Math.Min(failures, 4)));
+                                    Interlocked.Exchange(
+                                        ref _nextAutomaticMountAttemptUtcTicks,
+                                        DateTime.UtcNow.AddSeconds(delaySeconds).Ticks);
+                                    _logger.LogError(ex, "[NEBULA-WATCHDOG] Erro ao auto-remontar unidade N:. Nova tentativa em aproximadamente {DelaySeconds}s.", delaySeconds);
+                                }
+                                finally
+                                {
+                                    Interlocked.Exchange(ref _automaticMountAttemptInProgress, 0);
+                                }
+                            },
+                            CancellationToken.None);
+                    }
                 }
                 else if (!cfg.UseMappedDrive && !IsDriveNAccessible())
                 {
@@ -1536,7 +2124,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 Name = $"Nebula_Bot_{botIndex}",
                 Token = string.Empty,
                 MaskedToken = masked,
-                SessionExists = sessionExists,
+                SessionExists = sessionExists && new FileInfo(sessionPath).Length > 0,
                 Enabled = true
             });
         }
@@ -1607,6 +2195,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     public List<NebulaBotDto> SyncBotsFromEnv()
     {
+        var config = ImportDotEnvConfiguration(Config, save: true);
         return GetBots();
     }
 
@@ -1625,10 +2214,20 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             };
         }
 
+        if (!IsSafeSupabaseUrl(url, out var safeUrl))
+        {
+            return new NebulaSupabaseTestResponseDto
+            {
+                Success = false,
+                Message = "A URL do Supabase deve ser HTTPS, absoluta e não pode conter credenciais embutidas.",
+                StatusCode = 400
+            };
+        }
+
         try
         {
             using var httpClient = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-            var endpoint = url.TrimEnd('/') + "/rest/v1/";
+            var endpoint = safeUrl.TrimEnd('/') + "/rest/v1/";
             using var msg = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, endpoint);
             msg.Headers.Add("apikey", key);
             msg.Headers.Add("Authorization", $"Bearer {key}");
@@ -1650,6 +2249,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             var errBody = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (errBody.Length > 4096)
+            {
+                errBody = errBody[..4096] + "…";
+            }
             AddServerLog($"[SUPABASE-ERRO] Falha no teste de conexão: HTTP {statusInt} - {errBody}");
             return new NebulaSupabaseTestResponseDto
             {
@@ -1668,6 +2271,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 StatusCode = 500
             };
         }
+    }
+
+    internal static bool IsSafeSupabaseUrl(string? url, out string normalizedUrl)
+    {
+        normalizedUrl = string.Empty;
+        if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || string.IsNullOrWhiteSpace(uri.Host)
+            || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return false;
+        }
+
+        normalizedUrl = uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
+        return true;
     }
 
     public async Task<NebulaSupabaseStatusDto> GetSupabaseStatusAsync(CancellationToken cancellationToken = default)
@@ -1711,8 +2329,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         return dto;
     }
 
-    public async Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(CancellationToken cancellationToken = default)
+    public async Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default)
     {
+        if (await TryGetOperationReplayAsync<NebulaSupabaseBackupResultDto>("supabase-backup", idempotencyKey, cancellationToken).ConfigureAwait(false))
+        {
+            TryGetOperationReplay("supabase-backup", idempotencyKey, out NebulaSupabaseBackupResultDto? cached);
+            return cached!;
+        }
+
         var config = Config;
         if (string.IsNullOrWhiteSpace(config.SupabaseUrl) || string.IsNullOrWhiteSpace(config.SupabaseKey))
         {
@@ -1724,7 +2348,28 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
 
         AddServerLog("[SUPABASE-BACKUP] Iniciando sincronização do MongoDB para o Supabase (Nativo C#)...");
-        await _sharedRuntimeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _maintenanceLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (await TryGetOperationReplayAsync<NebulaSupabaseBackupResultDto>("supabase-backup", idempotencyKey, cancellationToken).ConfigureAwait(false))
+        {
+            TryGetOperationReplay("supabase-backup", idempotencyKey, out NebulaSupabaseBackupResultDto? cached);
+            _maintenanceLock.Release();
+            return cached!;
+        }
+        BeginMaintenanceOperation("supabase-backup");
+        var operationTimer = Stopwatch.StartNew();
+        _logger.LogInformation("[NEBULA-OPERATION] Supabase backup started.");
+        var sharedRuntimeLockAcquired = false;
+        try
+        {
+            await _sharedRuntimeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            sharedRuntimeLockAcquired = true;
+        }
+        catch
+        {
+            CompleteMaintenanceOperation("failed", "Não foi possível adquirir o lock do runtime compartilhado.");
+            _maintenanceLock.Release();
+            throw;
+        }
 
         NebulaMongoContext? tempMongo = null;
         NebulaSupabaseSyncService? tempSyncService = null;
@@ -1750,6 +2395,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             if (syncService == null)
             {
                 AddServerLog("[SUPABASE-ERRO] Contexto do MongoDB ou Supabase não pôde ser instanciado.");
+                CompleteMaintenanceOperation("failed", "Contexto do MongoDB ou Supabase não pôde ser instanciado.");
                 return new NebulaSupabaseBackupResultDto
                 {
                     Success = false,
@@ -1758,48 +2404,75 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 };
             }
 
-            var result = await syncService.PerformBackupAsync(config.SupabaseUrl, config.SupabaseKey, AddServerLog, cancellationToken).ConfigureAwait(false);
+            void ReportBackupProgress(string message)
+            {
+                AddServerLog(message);
+                UpdateMaintenanceOperationProgress(message);
+            }
+
+            var result = await syncService.PerformBackupAsync(config.SupabaseUrl, config.SupabaseKey, ReportBackupProgress, cancellationToken).ConfigureAwait(false);
             if (result.Success)
             {
                 AddServerLog($"[SUPABASE] {result.Message}");
+                CompleteMaintenanceOperation("succeeded");
                 config.SupabaseLastBackupTime = DateTime.UtcNow;
                 config.SupabaseLastBackupStatus = $"Backup realizado com sucesso ({result.FilesBackedUp} arquivos) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
             }
             else
             {
                 AddServerLog($"[SUPABASE-ERRO] Falha na sincronização: {result.Message}");
+                CompleteMaintenanceOperation("failed", result.Message);
                 config.SupabaseLastBackupStatus = $"Falha no backup às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {result.Message}";
             }
 
             _configManager.SaveConfiguration("nebulaftp", config);
+            await CacheOperationReplayAsync("supabase-backup", idempotencyKey, result, CancellationToken.None).ConfigureAwait(false);
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             AddServerLog("[SUPABASE-BACKUP] Backup cancelado.");
+            CompleteMaintenanceOperation("cancelled");
             throw;
         }
         catch (Exception ex)
         {
             AddServerLog($"[SUPABASE-ERRO] Exceção durante o backup nativo: {ex.Message}");
             _logger.LogError(ex, "Erro durante o backup nativo para Supabase.");
-            return new NebulaSupabaseBackupResultDto
+            CompleteMaintenanceOperation("failed", ex.Message);
+            var failedResult = new NebulaSupabaseBackupResultDto
             {
                 Success = false,
                 Message = $"Erro durante o backup: {ex.Message}",
                 Timestamp = DateTime.UtcNow
             };
+            await CacheOperationReplayAsync("supabase-backup", idempotencyKey, failedResult, CancellationToken.None).ConfigureAwait(false);
+            return failedResult;
         }
         finally
         {
+            operationTimer.Stop();
+            _logger.LogInformation(
+                "[NEBULA-OPERATION] Supabase backup finished in {DurationMs} ms.",
+                operationTimer.ElapsedMilliseconds);
             tempSyncService?.Dispose();
             tempMongo?.Dispose();
-            _sharedRuntimeLock.Release();
+            if (sharedRuntimeLockAcquired)
+            {
+                _sharedRuntimeLock.Release();
+            }
+            _maintenanceLock.Release();
         }
     }
 
-    public async Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(CancellationToken cancellationToken = default)
+    public async Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default)
     {
+        if (await TryGetOperationReplayAsync<NebulaSupabaseRestoreResultDto>("supabase-restore", idempotencyKey, cancellationToken).ConfigureAwait(false))
+        {
+            TryGetOperationReplay("supabase-restore", idempotencyKey, out NebulaSupabaseRestoreResultDto? cached);
+            return cached!;
+        }
+
         var config = NormalizeRuntimeConfiguration(Config);
         if (string.IsNullOrWhiteSpace(config.SupabaseUrl) || string.IsNullOrWhiteSpace(config.SupabaseKey))
         {
@@ -1811,7 +2484,28 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
 
         AddServerLog("[SUPABASE-RESTORE] Iniciando restauração do acervo a partir do Supabase (Nativo C#)...");
-        await _sharedRuntimeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _maintenanceLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (await TryGetOperationReplayAsync<NebulaSupabaseRestoreResultDto>("supabase-restore", idempotencyKey, cancellationToken).ConfigureAwait(false))
+        {
+            TryGetOperationReplay("supabase-restore", idempotencyKey, out NebulaSupabaseRestoreResultDto? cached);
+            _maintenanceLock.Release();
+            return cached!;
+        }
+        BeginMaintenanceOperation("supabase-restore");
+        var operationTimer = Stopwatch.StartNew();
+        _logger.LogInformation("[NEBULA-OPERATION] Supabase restore started.");
+        var sharedRuntimeLockAcquired = false;
+        try
+        {
+            await _sharedRuntimeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            sharedRuntimeLockAcquired = true;
+        }
+        catch
+        {
+            CompleteMaintenanceOperation("failed", "Não foi possível adquirir o lock do runtime compartilhado.");
+            _maintenanceLock.Release();
+            throw;
+        }
 
         NebulaMongoContext? tempMongo = null;
         NebulaSupabaseSyncService? tempSyncService = null;
@@ -1837,6 +2531,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             if (syncService == null)
             {
                 AddServerLog("[SUPABASE-RESTORE-ERRO] Contexto do MongoDB ou Supabase não pôde ser instanciado.");
+                CompleteMaintenanceOperation("failed", "Contexto do MongoDB ou Supabase não pôde ser instanciado.");
                 return new NebulaSupabaseRestoreResultDto
                 {
                     Success = false,
@@ -1845,39 +2540,60 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 };
             }
 
-            var result = await syncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, AddServerLog, cancellationToken).ConfigureAwait(false);
+            void ReportRestoreProgress(string message)
+            {
+                AddServerLog(message);
+                UpdateMaintenanceOperationProgress(message);
+            }
+
+            var result = await syncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, ReportRestoreProgress, cancellationToken).ConfigureAwait(false);
             if (result.Success)
             {
                 AddServerLog($"[SUPABASE-RESTORE] {result.Message}");
+                CompleteMaintenanceOperation("succeeded");
             }
             else
             {
                 AddServerLog($"[SUPABASE-RESTORE-ERRO] Falha na restauração: {result.Message}");
+                CompleteMaintenanceOperation("failed", result.Message);
             }
 
+            await CacheOperationReplayAsync("supabase-restore", idempotencyKey, result, CancellationToken.None).ConfigureAwait(false);
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             AddServerLog("[SUPABASE-RESTORE] Restauração cancelada.");
+            CompleteMaintenanceOperation("cancelled");
             throw;
         }
         catch (Exception ex)
         {
             AddServerLog($"[SUPABASE-RESTORE-ERRO] Exceção durante a restauração nativa: {ex.Message}");
             _logger.LogError(ex, "Erro durante a restauração nativa do Supabase.");
-            return new NebulaSupabaseRestoreResultDto
+            CompleteMaintenanceOperation("failed", ex.Message);
+            var failedResult = new NebulaSupabaseRestoreResultDto
             {
                 Success = false,
                 Message = $"Erro durante a restauração: {ex.Message}",
                 Timestamp = DateTime.UtcNow
             };
+            await CacheOperationReplayAsync("supabase-restore", idempotencyKey, failedResult, CancellationToken.None).ConfigureAwait(false);
+            return failedResult;
         }
         finally
         {
+            operationTimer.Stop();
+            _logger.LogInformation(
+                "[NEBULA-OPERATION] Supabase restore finished in {DurationMs} ms.",
+                operationTimer.ElapsedMilliseconds);
             tempSyncService?.Dispose();
             tempMongo?.Dispose();
-            _sharedRuntimeLock.Release();
+            if (sharedRuntimeLockAcquired)
+            {
+                _sharedRuntimeLock.Release();
+            }
+            _maintenanceLock.Release();
         }
     }
 
@@ -2046,6 +2762,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             _envioLock.Dispose();
             _downloaderLock.Dispose();
             _sharedRuntimeLock.Dispose();
+            _maintenanceLock.Dispose();
             _mountLock.Dispose();
         }
         catch (Exception ex)
@@ -2058,6 +2775,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     {
         config.ServerPort = config.ServerPort is >= 1 and <= 65535 ? config.ServerPort : 2121;
         config.HttpStreamPort = config.HttpStreamPort is >= 1 and <= 65535 ? config.HttpStreamPort : 2123;
+        config.MaxActiveConnections = config.MaxActiveConnections is >= 1 and <= 4096 ? config.MaxActiveConnections : 32;
         if (string.IsNullOrWhiteSpace(config.HttpStreamToken))
         {
             config.HttpStreamToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
@@ -2067,6 +2785,16 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         config.DownloadParts = Math.Clamp(config.DownloadParts, 1, 32);
         config.SupabaseAutoBackupIntervalHours = Math.Clamp(config.SupabaseAutoBackupIntervalHours, 1, 168);
         return config;
+    }
+
+    private static bool IsLoopbackHost(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host) || string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return System.Net.IPAddress.TryParse(host, out var address) && System.Net.IPAddress.IsLoopback(address);
     }
 
     private async Task<string[]> LoadBotTokensAsync(NebulaFtpConfiguration config, CancellationToken cancellationToken)

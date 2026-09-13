@@ -306,7 +306,24 @@ namespace Emby.Server.Implementations.Dto
 
         public BaseItemDto GetBaseItemDto(BaseItem item, DtoOptions options, User? user = null, BaseItem? owner = null)
         {
-            // TODO: Convert to async to avoid deadlock risk. Sync-over-async in high-traffic API path.
+            // Keep the legacy synchronous contract, but do not block on a Task when this
+            // item does not require any asynchronous enrichment. This is the common path
+            // for regular library items and avoids the deadlock risk for those callers.
+            var requiresAsyncEnrichment = item is LiveTvChannel || item is LiveTvProgram ||
+                (item is Video && options.ContainsField(ItemFields.Trickplay));
+            if (!requiresAsyncEnrichment)
+            {
+                var dto = GetBaseItemDtoInternal(item, options, user, owner, null);
+                if (options.ContainsField(ItemFields.ItemCounts))
+                {
+                    SetItemByNameInfo(dto, user);
+                }
+
+                return dto;
+            }
+
+            // Live TV and Trickplay still require the asynchronous enrichment path until
+            // the public IDtoService synchronous contract can be removed safely.
             return GetBaseItemDtoAsync(item, options, user, owner).GetAwaiter().GetResult();
         }
 

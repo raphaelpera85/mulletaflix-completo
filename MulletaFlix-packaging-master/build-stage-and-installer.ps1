@@ -25,6 +25,7 @@ $installerScript = Join-Path $projectRoot 'build-mulletaflix-installer.ps1'
 $trayProject = Join-Path $packagingRoot 'jellyfin-server-windows\Jellyfin.Windows.Tray\Jellyfin.Windows.Tray.csproj'
 $trayProjectDir = Split-Path -Parent $trayProject
 $webDist = Join-Path $webRoot 'dist'
+$stageIntegrityScript = Join-Path $packagingRoot 'scripts\Assert-StageIntegrity.ps1'
 
 function Write-Step {
     param([string]$Message)
@@ -54,41 +55,10 @@ function Resolve-DotNet {
     throw 'dotnet SDK/runtime was not found. Install .NET SDK or add dotnet.exe to PATH.'
 }
 
-function Assert-Path {
-    param(
-        [string]$Path,
-        [string]$Description
-    )
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        throw "$Description not found: $Path"
-    }
+if (-not (Test-Path -LiteralPath $stageIntegrityScript)) {
+    throw "Stage integrity validator not found: $stageIntegrityScript"
 }
-
-function Assert-WebBuildIntegrity {
-    param(
-        [string]$WebDirectory
-    )
-
-    $indexPath = Join-Path $WebDirectory 'index.html'
-    Assert-Path $indexPath 'Web index'
-
-    $index = Get-Content -LiteralPath $indexPath -Raw
-    $assetReferences = [regex]::Matches($index, '(?:src|href)="(\.\/assets\/[^"?]+)"') |
-        ForEach-Object { $_.Groups[1].Value.Substring(2) } |
-        Sort-Object -Unique
-
-    if ($assetReferences.Count -eq 0) {
-        throw "Web index does not reference any assets: $indexPath"
-    }
-
-    foreach ($asset in $assetReferences) {
-        $assetPath = Join-Path $WebDirectory $asset
-        if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
-            throw "Web index references a missing asset: $assetPath"
-        }
-    }
-}
+. $stageIntegrityScript
 
 function Copy-DirectoryContents {
     param(
@@ -99,9 +69,10 @@ function Copy-DirectoryContents {
     Assert-Path $Source 'Source directory'
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 
-    $process = Start-Process -FilePath "robocopy.exe" -ArgumentList @("`"$Source`"", "`"$Destination`"", "/E", "/R:2", "/W:1", "/NFL", "/NDL", "/NJH", "/NJS", "/nc", "/ns", "/np") -Wait -PassThru -NoNewWindow
-    if ($process.ExitCode -ge 8) {
-        throw "robocopy failed from $Source to $Destination with exit code $($process.ExitCode)"
+    & robocopy.exe $Source $Destination /E /R:2 /W:1 /NFL /NDL /NJH /NJS /nc /ns /np
+    $robocopyExitCode = $LASTEXITCODE
+    if ($robocopyExitCode -ge 8) {
+        throw "robocopy failed from $Source to $Destination with exit code $robocopyExitCode"
     }
 }
 
@@ -149,7 +120,7 @@ function Build-Server {
     Assert-Path $serverRoot 'Server source'
 
     $backupItems = @()
-    $preserves = @('mariadb', 'MulletaFlix-web', 'ffmpeg.exe', 'ffprobe.exe', 'nssm.exe')
+    $preserves = @('mariadb', 'MulletaFlix-web', 'mulletaflix-windows-tray', 'ffmpeg.exe', 'ffprobe.exe', 'nssm.exe', 'icon.ico', 'LICENSE')
 
     foreach ($item in $preserves) {
         $sourcePath = Join-Path $stageDir $item
@@ -167,17 +138,18 @@ function Build-Server {
         }
     }
 
-    if (Test-Path -LiteralPath $stageDir) {
-        Get-ChildItem -LiteralPath $stageDir -Force -ErrorAction SilentlyContinue | ForEach-Object {
-            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    try {
+        if (Test-Path -LiteralPath $stageDir) {
+            Get-ChildItem -LiteralPath $stageDir -Force -ErrorAction SilentlyContinue | ForEach-Object {
+                Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
-    }
-    if (Test-Path -LiteralPath $serverPublishDir) {
-        Remove-Item -LiteralPath $serverPublishDir -Recurse -Force
-    }
+        if (Test-Path -LiteralPath $serverPublishDir) {
+            Remove-Item -LiteralPath $serverPublishDir -Recurse -Force
+        }
 
-    New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
-    New-Item -ItemType Directory -Force -Path $serverPublishDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $serverPublishDir | Out-Null
 
     $serverProject = Join-Path $serverRoot 'Jellyfin.Server\Jellyfin.Server.csproj'
     Assert-Path $serverProject 'Server project'
@@ -223,9 +195,15 @@ function Build-Server {
         throw "Server implementation was not copied intact to stage (publish=$publishedHash, stage=$stagedHash)"
     }
 
-    Write-Host "Server copied to: $stageDir" -ForegroundColor Green
+        Write-Host "Server copied to: $stageDir" -ForegroundColor Green
+    }
+    finally {
+        # Always restore preserved stage content, including when restore,
+        # publish, or the file copy fails. This keeps a failed build from
+        # destroying the last usable local stage.
+        Write-Host 'Restoring preserved stage content...' -ForegroundColor Gray
 
-    # Restore backups
+        # Restore backups
     foreach ($backup in $backupItems) {
         $destPath = Join-Path $stageDir $backup.Item
         if (Test-Path -LiteralPath $destPath) {
@@ -249,21 +227,22 @@ function Build-Server {
     # Safety net: if a preserve item had a backup folder already on disk from a
     # previous interrupted build, restore it even when it wasn't present at the
     # beginning of this run.
-    foreach ($item in $preserves) {
-        $destPath = Join-Path $stageDir $item
-        $tempBackupPath = Join-Path $projectRoot "stage-backup-$item"
-        if ((Test-Path -LiteralPath $tempBackupPath) -and (-not (Test-Path -LiteralPath $destPath))) {
-            try {
-                if (Test-Path -LiteralPath $tempBackupPath -PathType Container) {
-                    Copy-DirectoryContents -Source $tempBackupPath -Destination $destPath
-                } else {
-                    Copy-Item -LiteralPath $tempBackupPath -Destination $destPath -Force -ErrorAction Stop
+        foreach ($item in $preserves) {
+            $destPath = Join-Path $stageDir $item
+            $tempBackupPath = Join-Path $projectRoot "stage-backup-$item"
+            if ((Test-Path -LiteralPath $tempBackupPath) -and (-not (Test-Path -LiteralPath $destPath))) {
+                try {
+                    if (Test-Path -LiteralPath $tempBackupPath -PathType Container) {
+                        Copy-DirectoryContents -Source $tempBackupPath -Destination $destPath
+                    } else {
+                        Copy-Item -LiteralPath $tempBackupPath -Destination $destPath -Force -ErrorAction Stop
+                    }
+                    Remove-Item -LiteralPath $tempBackupPath -Recurse -Force -ErrorAction SilentlyContinue
+                    Write-Host "Recovered $item from previous backup." -ForegroundColor Yellow
                 }
-                Remove-Item -LiteralPath $tempBackupPath -Recurse -Force -ErrorAction SilentlyContinue
-                Write-Host "Recovered $item from previous backup." -ForegroundColor Yellow
-            }
-            catch {
-                Write-Host "Notice: Could not recover $item from previous backup." -ForegroundColor Yellow
+                catch {
+                    Write-Host "Notice: Could not recover $item from previous backup." -ForegroundColor Yellow
+                }
             }
         }
     }
@@ -340,6 +319,8 @@ function Copy-RuntimeExtras {
     $supportLicense = Join-Path $packagingRoot 'jellyfin-server-windows\Support Files\LICENSE'
     if (Test-Path -LiteralPath $supportLicense) {
         Copy-Item -LiteralPath $supportLicense -Destination (Join-Path $stageDir 'LICENSE') -Force
+    } else {
+        throw "Support license not found at $supportLicense"
     }
 
     $mongoScript = Join-Path $packagingRoot 'jellyfin-server-windows\Support Files\install-mongodb-if-missing.ps1'
@@ -362,6 +343,12 @@ function Copy-RuntimeExtras {
         Write-Host 'Copied Python prerequisite installer to stage.' -ForegroundColor Green
     } else {
         throw "Python prerequisite installer not found at $pythonScript"
+    }
+
+    $rcloneScript = Join-Path $packagingRoot 'install-rclone-if-missing.ps1'
+    if (Test-Path -LiteralPath $rcloneScript) {
+        Copy-Item -LiteralPath $rcloneScript -Destination (Join-Path $stageDir 'install-rclone-if-missing.ps1') -Force
+        Write-Host 'Copied rclone prerequisite installer to stage.' -ForegroundColor Green
     }
 
     foreach ($binary in @('ffmpeg.exe', 'ffprobe.exe', 'rclone.exe')) {
@@ -388,20 +375,46 @@ function Copy-RuntimeExtras {
                 Write-Host "Copied $binary to stage." -ForegroundColor Green
             } else {
                 if ($binary -eq 'rclone.exe') {
-                    throw 'rclone.exe was not found. Install rclone before building the MulletaFlix installer.'
+                    Write-Warning 'rclone.exe não foi encontrado. O instalador fará o download automático no primeiro arranque.'
+                } else {
+                    Write-Warning "$binary was not found in stage and could not be resolved."
                 }
-                Write-Warning "$binary was not found in stage and could not be resolved."
             }
         }
     }
 
-    # For nssm.exe, just print standard message
+    # NSSM is required for the Windows service. Do not generate an installer
+    # that can copy the server but cannot register/start its service.
     $nssmPath = Join-Path $stageDir 'nssm.exe'
-    if (Test-Path -LiteralPath $nssmPath) {
-        Write-Host "Found nssm.exe in stage." -ForegroundColor Gray
-    } else {
-        Write-Host "nssm.exe not found in stage. The installer builder will download it if needed." -ForegroundColor Gray
+    if (-not (Test-Path -LiteralPath $nssmPath -PathType Leaf)) {
+        Write-Step 'Downloading NSSM service wrapper'
+        $nssmVersion = '2.24'
+        $nssmUrl = "https://nssm.cc/release/nssm-$nssmVersion.zip"
+        $nssmZip = Join-Path $env:TEMP "mulletaflix-nssm-$nssmVersion.zip"
+        $nssmExtract = Join-Path $env:TEMP "mulletaflix-nssm-$nssmVersion"
+        try {
+            Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip -UseBasicParsing
+            if (Test-Path -LiteralPath $nssmExtract) {
+                Remove-Item -LiteralPath $nssmExtract -Recurse -Force
+            }
+            Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmExtract -Force
+            $downloadedNssm = Get-ChildItem -LiteralPath $nssmExtract -Filter 'nssm.exe' -Recurse -File |
+                Where-Object { $_.FullName -match '[\\/]win64[\\/]nssm\.exe$' } |
+                Select-Object -First 1
+            if (-not $downloadedNssm) {
+                throw "NSSM win64 executable was not found in $nssmUrl"
+            }
+            Copy-Item -LiteralPath $downloadedNssm.FullName -Destination $nssmPath -Force
+            Write-Host "Copied NSSM $nssmVersion to stage." -ForegroundColor Green
+        } catch {
+            throw "NSSM is required for service installation but could not be prepared: $($_.Exception.Message)"
+        } finally {
+            Remove-Item -LiteralPath $nssmZip -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $nssmExtract -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
+
+    Assert-Path $nssmPath 'NSSM service wrapper'
 
     # Copy icon.ico for installer
     $iconSource = Join-Path $serverRoot 'Jellyfin.Server\wwwroot\branding\mulletaflix_icon.ico'
@@ -419,7 +432,7 @@ function Copy-RuntimeExtras {
     if (-not (Test-Path -LiteralPath $mariaDbExe)) {
         Write-Step 'Downloading MariaDB portable'
         # Use official MariaDB download API
-        $mariaDbUrl = 'http://downloads.mariadb.org/rest-api/mariadb/11.4.4/mariadb-11.4.4-winx64.zip'
+        $mariaDbUrl = 'https://downloads.mariadb.org/rest-api/mariadb/11.4.4/mariadb-11.4.4-winx64.zip'
         $zipPath = Join-Path $env:TEMP 'mariadb-portable.zip'
         try {
             Write-Host "Downloading from $mariaDbUrl ..." -ForegroundColor Gray
@@ -436,6 +449,7 @@ function Copy-RuntimeExtras {
             Write-Host "MariaDB portable extracted to $mariaDbDir" -ForegroundColor Green
         } catch {
             Write-Warning "Failed to download/extract MariaDB portable: $_"
+            throw "MariaDB não pôde ser incluído no instalador. Verifique a rede e gere o instalador novamente."
         } finally {
             if (Test-Path -LiteralPath $zipPath) {
                 Remove-Item -LiteralPath $zipPath -Force
@@ -488,6 +502,8 @@ if (-not $SkipTrayBuild) {
 }
 
 Copy-RuntimeExtras
+Write-Step 'Validating stage integrity'
+Assert-StageIntegrity -StageDirectory $stageDir -ProjectRoot $projectRoot
 
 if (-not $SkipInstaller) {
     Build-Installer
@@ -508,5 +524,5 @@ if ($installer) {
     Write-Host "Installer: $($installer.FullName)" -ForegroundColor Green
     Write-Host "Installer size: $([Math]::Round($installer.Length / 1MB, 2)) MB" -ForegroundColor Green
 }
-Write-Host 'To run stage with visible logs: .\stage-start.ps1' -ForegroundColor Green
+Write-Host 'To run stage with visible logs: .\stage\MulletaFlix.exe --datadir .\stage-data' -ForegroundColor Green
 Write-Host '==================================================' -ForegroundColor Green

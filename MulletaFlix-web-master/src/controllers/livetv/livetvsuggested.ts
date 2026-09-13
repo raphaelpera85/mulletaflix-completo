@@ -2,7 +2,7 @@ import cardBuilder from 'components/cardbuilder/cardBuilder';
 import { getBackdropShape, getPortraitShape } from 'components/cardbuilder/utils/shape';
 import imageLoader from 'components/images/imageLoader';
 import layoutManager from 'components/layoutManager';
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import * as mainTabsManager from 'components/maintabsmanager';
 import type { TabChangeDetail } from 'components/maintabsmanager';
 import globalize from 'lib/globalize';
@@ -71,14 +71,13 @@ function getLimit(): number {
 }
 
 function loadRecommendedPrograms(page: HTMLElement): void {
-    loading.show();
     let limit = getLimit();
 
     if (enableScrollX()) {
         limit *= 2;
     }
 
-    ApiClient.getLiveTvRecommendedPrograms({
+    void withLoading(() => ApiClient.getLiveTvRecommendedPrograms({
         userId: Dashboard.getCurrentUserId(),
         IsAiring: true,
         limit: limit,
@@ -91,15 +90,13 @@ function loadRecommendedPrograms(page: HTMLElement): void {
             showAirDateTime: false,
             showAirEndTime: true
         });
-        loading.hide();
 
         void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(page);
         }).catch((error: unknown) => console.error('[LiveTvSuggested] failed to focus page', error));
     }).catch((error: unknown) => {
-        loading.hide();
         console.error('[LiveTvSuggested] failed to load recommended programs', error);
-    });
+    }));
 }
 
 function reload(page: HTMLElement, enableFullRender?: boolean): void {

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Api;
@@ -37,6 +38,14 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         return Ok(status);
     }
 
+    [HttpGet("Health")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<NebulaComponentHealthDto>> GetHealth(CancellationToken cancellationToken)
+    {
+        var health = await _nebulaManager.GetComponentHealthAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(health);
+    }
+
     [HttpGet("Logs")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<NebulaLogsDto> GetLogs([FromQuery] int serverOffset = 0, [FromQuery] int downloaderOffset = 0)
@@ -55,6 +64,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
 
     [HttpPost("Config")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult UpdateConfig([FromBody] NebulaFtpConfiguration config)
     {
         if (config == null)
@@ -62,10 +72,104 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             return BadRequest();
         }
 
+        var validationError = ValidateConfiguration(config);
+        if (validationError != null)
+        {
+            return BadRequest(validationError);
+        }
+
         var existing = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
         PreserveExistingSecretValues(config, existing);
         _configManager.SaveConfiguration("nebulaftp", config);
         return NoContent();
+    }
+
+    [HttpPost("Config/Secrets")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult RotateSecrets([FromBody] NebulaCredentialRotationRequest? request)
+    {
+        if (request is null)
+        {
+            return BadRequest();
+        }
+
+        var values = new[] { request.Password, request.HttpStreamToken, request.SupabaseKey, request.ApiHash }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .ToArray();
+        if (values.Length == 0 || values.Any(value => value.Length > 4096))
+        {
+            return BadRequest("Informe ao menos um segredo novo com no máximo 4096 caracteres.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ApiHash) && request.ApiHash.Trim().Length != 32)
+        {
+            return BadRequest("ApiHash deve ter 32 caracteres.");
+        }
+
+        var existing = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
+        if (!string.IsNullOrWhiteSpace(request.Password))
+        {
+            existing.Password = request.Password.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.HttpStreamToken))
+        {
+            existing.HttpStreamToken = request.HttpStreamToken.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.SupabaseKey))
+        {
+            existing.SupabaseKey = request.SupabaseKey.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ApiHash))
+        {
+            existing.ApiHash = request.ApiHash.Trim();
+        }
+
+        _configManager.SaveConfiguration("nebulaftp", existing);
+        return NoContent();
+    }
+
+    private static string? ValidateConfiguration(NebulaFtpConfiguration config)
+    {
+        if (config.ServerPort is < 1 or > 65535)
+        {
+            return "ServerPort deve estar entre 1 e 65535.";
+        }
+
+        if (config.HttpStreamPort is < 1 or > 65535)
+        {
+            return "HttpStreamPort deve estar entre 1 e 65535.";
+        }
+
+        if (config.MaxActiveConnections is < 1 or > 4096)
+        {
+            return "MaxActiveConnections deve estar entre 1 e 4096.";
+        }
+
+        if (config.MaxWorkers is < 1 or > 128)
+        {
+            return "MaxWorkers deve estar entre 1 e 128.";
+        }
+
+        if (config.ChunkSizeMb is < 1 or > 1024)
+        {
+            return "ChunkSizeMb deve estar entre 1 e 1024 MB.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.SupabaseUrl)
+            && (!Uri.TryCreate(config.SupabaseUrl.Trim(), UriKind.Absolute, out var uri)
+                || uri.Scheme != Uri.UriSchemeHttps
+                || string.IsNullOrWhiteSpace(uri.Host)
+                || !string.IsNullOrEmpty(uri.UserInfo)))
+        {
+            return "SupabaseUrl deve ser uma URL HTTPS absoluta sem credenciais embutidas.";
+        }
+
+        return null;
     }
 
     [HttpPost("Actions/StartEnvio")]
@@ -121,7 +225,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<bool>> GenerateStrm(CancellationToken cancellationToken)
     {
-        var ok = await _nebulaManager.GenerateStrmAsync(cancellationToken).ConfigureAwait(false);
+        var ok = await _nebulaManager.GenerateStrmAsync(GetIdempotencyKey(), cancellationToken).ConfigureAwait(false);
         return Ok(ok);
     }
 
@@ -129,7 +233,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<bool>> PruneCompleted(CancellationToken cancellationToken)
     {
-        var ok = await _nebulaManager.PruneCompletedAsync(cancellationToken).ConfigureAwait(false);
+        var ok = await _nebulaManager.PruneCompletedAsync(GetIdempotencyKey(), cancellationToken).ConfigureAwait(false);
         return Ok(ok);
     }
 
@@ -191,7 +295,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<NebulaSupabaseBackupResultDto>> BackupSupabase(CancellationToken cancellationToken)
     {
-        var result = await _nebulaManager.BackupMongoToSupabaseAsync(cancellationToken).ConfigureAwait(false);
+        var result = await _nebulaManager.BackupMongoToSupabaseAsync(GetIdempotencyKey(), cancellationToken).ConfigureAwait(false);
         return Ok(result);
     }
 
@@ -199,7 +303,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<NebulaSupabaseRestoreResultDto>> RestoreSupabase(CancellationToken cancellationToken)
     {
-        var result = await _nebulaManager.RestoreSupabaseToMongoAsync(cancellationToken).ConfigureAwait(false);
+        var result = await _nebulaManager.RestoreSupabaseToMongoAsync(GetIdempotencyKey(), cancellationToken).ConfigureAwait(false);
         return Ok(result);
     }
 
@@ -211,6 +315,19 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         return Content(script, "text/plain; charset=utf-8");
     }
 
+    private string? GetIdempotencyKey()
+    {
+        if (!Request.Headers.TryGetValue("X-Idempotency-Key", out var values))
+        {
+            return null;
+        }
+
+        var key = values.ToString().Trim();
+        return key.Length is > 0 and <= 128 && System.Text.RegularExpressions.Regex.IsMatch(key, "^[A-Za-z0-9._:-]+$")
+            ? key
+            : null;
+    }
+
     private static NebulaFtpConfiguration CreateSafeConfigResponse(NebulaFtpConfiguration config)
     {
         return new NebulaFtpConfiguration
@@ -220,7 +337,9 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             ServerHost = config.ServerHost,
             ServerPort = config.ServerPort,
             PassivePorts = config.PassivePorts,
+            MaxActiveConnections = config.MaxActiveConnections,
             HttpStreamPort = config.HttpStreamPort,
+            AllowInsecureRemoteFtp = config.AllowInsecureRemoteFtp,
             HttpStreamToken = string.Empty,
             MongoDbConnectionString = string.Empty,
             ApiId = config.ApiId,
@@ -234,6 +353,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             DeleteSourceAfterUpload = config.DeleteSourceAfterUpload,
             Username = config.Username,
             Password = string.Empty,
+            EmbedFtpCredentialsInStrmUrls = config.EmbedFtpCredentialsInStrmUrls,
             DriveLetter = config.DriveLetter,
             RemotePath = config.RemotePath,
             UseMappedDrive = config.UseMappedDrive,

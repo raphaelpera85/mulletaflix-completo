@@ -107,12 +107,11 @@ export default function (this: TVShowsController, view: HTMLElement, params: Vie
     };
 
     const reloadItems = (page: HTMLElement): void => {
-        loading.show();
         isLoading = true;
         const query = getQuery();
         setFilterStatus(page, query);
 
-        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: ItemDtoQueryResult) => {
+        void loading.withLoading(() => ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: ItemDtoQueryResult) => {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -224,17 +223,15 @@ export default function (this: TVShowsController, view: HTMLElement, params: Vie
             itemsContainer.innerHTML = html;
             imageLoader.lazyChildren(itemsContainer);
             userSettings.saveQuerySettings(getSavedQueryKey(), query);
-            loading.hide();
             isLoading = false;
 
             void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(page);
             }).catch((error: unknown) => console.error('[TVShows] failed to focus page', error));
         }).catch((error: unknown) => {
-            loading.hide();
             isLoading = false;
             console.error('[TVShows] failed to load shows', error);
-        });
+        }));
     };
 
     const data: Record<string, PageData> = {};

@@ -20,6 +20,9 @@ import '../formdialog.scss';
 import '../cardbuilder/card.scss';
 import template from './imageDownloader.template.html';
 
+/* Legacy Jellyfin API clients are dynamically shaped at runtime. */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */
+
 const enableFocusTransform: boolean = !browser.slow && !browser.edge;
 
 let currentItemId: string;
@@ -60,8 +63,6 @@ function getBaseRemoteOptions(page: HTMLElement, forceCurrentItemId = false): Re
 }
 
 function reloadBrowsableImages(page: HTMLElement, apiClient: any): void {
-    loading.show();
-
     const options = getBaseRemoteOptions(page);
 
     options.type = browsableImageType;
@@ -75,7 +76,7 @@ function reloadBrowsableImages(page: HTMLElement, apiClient: any): void {
         options.ProviderName = provider;
     }
 
-    apiClient.getAvailableRemoteImages(options).then(function (result: any) {
+    void loading.withLoading(() => apiClient.getAvailableRemoteImages(options)).then(function (result: any) {
         renderRemoteImages(page, apiClient, result, browsableImageType, options.startIndex!, options.limit!);
 
         (page.querySelector('#selectBrowsableImageType') as HTMLSelectElement).value = browsableImageType;
@@ -87,10 +88,7 @@ function reloadBrowsableImages(page: HTMLElement, apiClient: any): void {
         const selectImageProvider = page.querySelector('#selectImageProvider') as HTMLSelectElement;
         selectImageProvider.innerHTML = '<option value="">' + globalize.translate('All') + '</option>' + providersHtml;
         selectImageProvider.value = provider;
-
-        loading.hide();
     }).catch((error: unknown) => {
-        loading.hide();
         console.error('Failed to load remote images', error);
         toast(globalize.translate('ErrorDefault'));
     });
@@ -170,14 +168,11 @@ function downloadRemoteImage(page: HTMLElement, apiClient: any, url: string, typ
     options.ImageUrl = safeUrl;
     options.ProviderName = provider;
 
-    loading.show();
-
-    apiClient.downloadRemoteImage(options).then(function () {
+    void loading.withLoading(() => apiClient.downloadRemoteImage(options)).then(function () {
         hasChanges = true;
         const dlg = dom.parentWithClass(page, 'dialog') as HTMLElement;
         dialogHelper.close(dlg);
     }).catch((error: unknown) => {
-        loading.hide();
         console.error('Failed to download remote image', error);
         toast(globalize.translate('ErrorDefault'));
     });
@@ -212,9 +207,9 @@ function getRemoteImageShape(imageType: string): string {
 }
 
 function getRemoteImageBodyHtml(safeImageUrl: string, shape: string): string {
-    const image = layoutManager.tv || !appHost.supports(AppFeature.ExternalLinks)
-        ? '<div class="cardImageContainer lazy" data-src="' + escapeHtml(safeImageUrl) + '" style="background-position:center center;background-size:contain;"></div>'
-        : '<a is="emby-linkbutton" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(safeImageUrl) + '" class="button-link cardImageContainer lazy" data-src="' + escapeHtml(safeImageUrl) + '" style="background-position:center center;background-size:contain"></a>';
+    const image = layoutManager.tv || !appHost.supports(AppFeature.ExternalLinks) ?
+        '<div class="cardImageContainer lazy" data-src="' + escapeHtml(safeImageUrl) + '" style="background-position:center center;background-size:contain;"></div>' :
+        '<a is="emby-linkbutton" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(safeImageUrl) + '" class="button-link cardImageContainer lazy" data-src="' + escapeHtml(safeImageUrl) + '" style="background-position:center center;background-size:contain"></a>';
 
     return '<div class="cardBox visualCardBox"><div class="cardScalable visualCardBox-cardScalable" style="background-color:transparent;">'
         + '<div class="cardPadder-' + shape + '"></div><div class="cardContent">'
@@ -294,9 +289,9 @@ function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
     }
 
     const attributes = ' data-imageprovider="' + escapeHtml(image.ProviderName || '') + '" data-imageurl="' + escapeHtml(safeImageUrl) + '" data-imagetype="' + escapeHtml(image.Type || '') + '"';
-    const openingTag = tagName === 'button'
-        ? '<button type="button" class="' + cssClass + '"'
-        : '<div class="' + cssClass + '"';
+    const openingTag = tagName === 'button' ?
+        '<button type="button" class="' + cssClass + '"' :
+        '<div class="' + cssClass + '"';
 
     return openingTag + attributes + '>'
         + getRemoteImageBodyHtml(safeImageUrl, shape)
@@ -348,8 +343,6 @@ function initEditor(page: HTMLElement, apiClient: any): void {
 }
 
 function showEditor(itemId: string, serverId: string, itemType: string): void {
-    loading.show();
-
     const apiClient = ServerConnections.getApiClient(serverId);
 
     currentItemId = itemId;
@@ -399,7 +392,6 @@ function onDialogClosed(this: HTMLElement): void {
         scrollHelper.centerFocus.off(dlg, false);
     }
 
-    loading.hide();
     if (hasChanges) {
         currentResolve();
     } else {
@@ -423,3 +415,5 @@ export function show(itemId: string, serverId: string, itemType: string, imageTy
 export default {
     show: show
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */

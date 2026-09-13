@@ -49,10 +49,6 @@ interface TunerHostInfo {
     ReadAtNativeFramerate?: boolean;
 }
 
-interface TunerHostConfig {
-    TunerHosts: TunerHostInfo[];
-}
-
 function isM3uVariant(type?: string): boolean {
     return ['nextpvr'].includes(type || '');
 }
@@ -78,7 +74,7 @@ function fillTypes(view: PageElements, currentId?: string): Promise<void> {
     });
 }
 
-function reload(view: PageElements, providerId?: string): void {
+async function reload(view: PageElements, providerId?: string): Promise<void> {
     const devicePath = view.querySelector<HTMLInputElement>('.txtDevicePath');
     const favorite = view.querySelector<HTMLInputElement>('.chkFavorite');
     if (devicePath) {
@@ -88,16 +84,11 @@ function reload(view: PageElements, providerId?: string): void {
         favorite.checked = false;
     }
     if (providerId) {
-        void ApiClient.getNamedConfiguration('livetv')
-            .then((config: TunerHostConfig) => {
-                const info = config.TunerHosts.find((item) => item.Id === providerId);
-                if (info) {
-                    fillTunerHostInfo(view, info);
-                }
-            })
-            .catch((error: unknown) => {
-                console.error('Failed to load Live TV tuner configuration', error);
-            });
+        const config = await ApiClient.getNamedConfiguration('livetv');
+        const info = config.TunerHosts.find((item) => item.Id === providerId);
+        if (info) {
+            fillTunerHostInfo(view, info);
+        }
     }
 }
 
@@ -130,8 +121,6 @@ function fillTunerHostInfo(view: PageElements, info: TunerHostInfo): void {
 }
 
 function submitForm(page: PageElements): void {
-    loading.show();
-
     const type = (page.querySelector('.selectType') as HTMLSelectElement).value;
     const info: TunerHostInfo & { Id?: string; Source?: string } = {
         Type: type,
@@ -160,16 +149,15 @@ function submitForm(page: PageElements): void {
         info.Id = id;
     }
 
-    void ApiClient.ajax({
+    void loading.withLoading(() => ApiClient.ajax({
         type: 'POST',
         url: ApiClient.getUrl('LiveTv/TunerHosts'),
         data: JSON.stringify(info),
         contentType: 'application/json'
-    }).then(() => {
+    })).then(() => {
         Dashboard.processServerConfigurationUpdateResult();
         void Dashboard.navigate('dashboard/livetv');
-    }, () => {
-        loading.hide();
+    }).catch(() => {
         Dashboard.alert({
             message: globalize.translate('ErrorSavingTvProvider')
         });
@@ -240,12 +228,13 @@ export default function (view: PageElements, params: { id?: string }): void {
 
     view.addEventListener('viewshow', () => {
         const currentId = params.id;
-        void fillTypes(view, currentId)
-            .then(() => {
-                reload(view, currentId);
-            })
+        void loading.withLoading(async () => {
+            await fillTypes(view, currentId);
+            await reload(view, currentId);
+        })
             .catch((error: unknown) => {
                 console.error('Failed to load Live TV tuner types', error);
+                Dashboard.alert({ message: globalize.translate('ErrorDefault') });
             });
     });
     (view.querySelector('form') as HTMLFormElement)?.addEventListener('submit', (e) => {
@@ -262,6 +251,7 @@ export default function (view: PageElements, params: { id?: string }): void {
             })
             .catch((error: unknown) => {
                 console.error('Failed to detect Live TV tuner', error);
+                Dashboard.alert({ message: globalize.translate('ErrorDefault') });
             });
     });
     (view.querySelector('.btnSelectPath') as HTMLElement)?.addEventListener('click', () => {
@@ -281,6 +271,7 @@ export default function (view: PageElements, params: { id?: string }): void {
             })
             .catch((error: unknown) => {
                 console.error('Failed to open directory browser', error);
+                Dashboard.alert({ message: globalize.translate('ErrorDefault') });
             });
     });
 }

@@ -40,6 +40,7 @@ import { getMediaError } from 'utils/mediaError';
 import { toApi } from 'utils/jellyfin-apiclient/compat';
 import { bindSkipSegment } from './skipsegment.ts';
 import * as bitrateTest from 'utils/bitrateTest';
+import { getAudioMaxValues } from 'utils/playback/audioProfile';
 
 const UNLIMITED_ITEMS = -1;
 
@@ -54,7 +55,7 @@ interface MediaPlayer {
     supportsProgress?: boolean;
 
     play(streamInfo: unknown): Promise<void>;
-    stop(destroyPlayer?: boolean, report?: boolean): Promise<void>;
+    stop(destroyPlayer?: boolean): Promise<void>;
     pause(): void;
     unpause(): void;
     playPause(): void;
@@ -401,33 +402,6 @@ function getIntros(firstItem, apiClient, options) {
             Items: []
         });
     });
-}
-
-function getAudioMaxValues(deviceProfile) {
-    // TODO - this could vary per codec and should be done on the server using the entire profile
-    let maxAudioSampleRate = null;
-    let maxAudioBitDepth = null;
-    let maxAudioBitrate = null;
-
-    deviceProfile.CodecProfiles.forEach((codecProfile: any) => {
-        if (codecProfile.Type === 'Audio') {
-            (codecProfile.Conditions || []).forEach((condition: any) => {
-                if (condition.Condition === 'LessThanEqual' && condition.Property === 'AudioBitDepth') {
-                    maxAudioBitDepth = condition.Value;
-                } else if (condition.Condition === 'LessThanEqual' && condition.Property === 'AudioSampleRate') {
-                    maxAudioSampleRate = condition.Value;
-                } else if (condition.Condition === 'LessThanEqual' && condition.Property === 'AudioBitrate') {
-                    maxAudioBitrate = condition.Value;
-                }
-            });
-        }
-    });
-
-    return {
-        maxAudioSampleRate: maxAudioSampleRate,
-        maxAudioBitDepth: maxAudioBitDepth,
-        maxAudioBitrate: maxAudioBitrate
-    };
 }
 
 let startingPlaySession = new Date().getTime();
@@ -1284,7 +1258,8 @@ export class PlaybackManager {
             if (player) {
                 if (!brightnessOsdLoaded) {
                     brightnessOsdLoaded = true;
-                    // TODO: Have this trigger an event instead to get the osd out of here
+                    // Keep the OSD lazy-loaded; brightnessosd subscribes to the
+                    // player event stream once the feature is first used.
                     void import('./brightnessosd').catch((error: unknown) => console.error('Failed to load brightness OSD', error));
                 }
                 player.setBrightness(val);
@@ -1841,6 +1816,9 @@ export class PlaybackManager {
             const playSessionId = self.playSessionId(player);
 
             const currentItem = self.currentItem(player);
+            if (!currentItem?.ServerId) {
+                return;
+            }
 
             player.getDeviceProfile(currentItem, {
                 isRetry: params.EnableDirectPlay === false
@@ -1938,7 +1916,7 @@ export class PlaybackManager {
         }
 
         async function translateItemsForPlayback(items, options) {
-            if (!items.length) return [];
+            if (!items.length) return { items: [], startIndex: undefined };
 
             sortItemsIfNeeded(items, options);
 
@@ -1950,9 +1928,18 @@ export class PlaybackManager {
 
             if (promise) {
                 const result = await promise;
-                return result ? result.Items : items;
+                return result ? {
+                    items: result.Items,
+                    startIndex: result.StartIndex
+                } : {
+                    items,
+                    startIndex: undefined
+                };
             } else {
-                return items;
+                return {
+                    items,
+                    startIndex: undefined
+                };
             }
         }
 
@@ -2062,7 +2049,7 @@ export class PlaybackManager {
                         index = 0;
                     }
 
-                    options.startIndex = index;
+                    result.StartIndex = index;
 
                     return Promise.resolve(result);
                 });
@@ -2161,9 +2148,6 @@ export class PlaybackManager {
                 episodesResult.StartIndex = episodesResult.StartIndex || seasonStartIndex || 0;
             }
 
-            // TODO: fix calling code to read episodesResult.StartIndex instead when set.
-            options.startIndex = episodesResult.StartIndex;
-
             episodesResult.TotalRecordCount = episodesResult.Items.length;
 
             return episodesResult;
@@ -2210,13 +2194,15 @@ export class PlaybackManager {
                 }
             }
 
-            // TODO: fix calling code to read episodesResult.StartIndex instead when set.
-            options.startIndex = episodesResult.StartIndex;
             episodesResult.TotalRecordCount = episodesResult.Items.length;
             return episodesResult;
         }
 
-        self.translateItemsForPlayback = translateItemsForPlayback;
+        // Keep the public helper's historical array return value; internal callers
+        // use the metadata-aware result to preserve source start indexes.
+        self.translateItemsForPlayback = async function (items, options) {
+            return (await translateItemsForPlayback(items, options)).items;
+        };
         self.getItemsForPlayback = getItemsForPlayback;
 
         self.play = async function (options: any) {
@@ -2236,35 +2222,46 @@ export class PlaybackManager {
                 loading.show();
             }
 
-            let { items } = options;
-            // If items were not passed directly, fetch them by ID
-            if (!items) {
-                if (!options.serverId) {
-                    throw new Error('serverId required!');
+            try {
+                let { items } = options;
+                // If items were not passed directly, fetch them by ID
+                if (!items) {
+                    if (!options.serverId) {
+                        throw new Error('serverId required!');
+                    }
+
+                    items = (await getItemsForPlayback(options.serverId, {
+                        Ids: options.ids.join(',')
+                    })).Items;
                 }
 
-                items = (await getItemsForPlayback(options.serverId, {
-                    Ids: options.ids.join(',')
-                })).Items;
-            }
+                // Prepare the list of items and preserve any source-specific start index.
+                const translatedItems = await translateItemsForPlayback(items, options);
+                items = translatedItems.items;
+                const startIndex = translatedItems.startIndex ?? options.startIndex ?? 0;
+                // Add any additional parts for movies or episodes
+                items = await getAdditionalParts(items, options.mediaSourceId, startIndex);
+                // Adjust the start index for additional parts added to the queue
+                if (startIndex) {
+                    let adjustedStartIndex = 0;
+                    for (let i = 0; i < startIndex; i++) {
+                        adjustedStartIndex += items[i].length;
+                    }
 
-            // Prepare the list of items
-            items = await translateItemsForPlayback(items, options);
-            // Add any additional parts for movies or episodes
-            items = await getAdditionalParts(items, options.mediaSourceId, options.startIndex || 0);
-            // Adjust the start index for additional parts added to the queue
-            if (options.startIndex) {
-                let adjustedStartIndex = 0;
-                for (let i = 0; i < options.startIndex; i++) {
-                    adjustedStartIndex += items[i].length;
+                    options.startIndex = adjustedStartIndex;
                 }
 
-                options.startIndex = adjustedStartIndex;
-            }
-            // getAdditionalParts returns an array of arrays of items, so flatten it
-            items = items.flat();
+                // getAdditionalParts returns an array of arrays of items, so flatten it
+                items = items.flat();
 
-            return playWithIntros(items, options);
+                return await playWithIntros(items, options);
+            } catch (error) {
+                // Preparation can fail before a player owns the transition spinner.
+                if (options.fullscreen) {
+                    loading.hide();
+                }
+                throw error;
+            }
         };
 
         function getPlayerData(player) {
@@ -2524,8 +2521,10 @@ export class PlaybackManager {
 
             const apiClient = ServerConnections.getApiClient(item.ServerId);
 
-            // TODO: This should be the media type requested, not the original media type
-            const mediaType = item.MediaType;
+            // Bitrate policy follows the requested media type when callers
+            // override it, while stream construction continues to use the
+            // item's actual media type.
+            const mediaType = playOptions.mediaType || item.MediaType;
 
             if (playOptions.fullscreen) {
                 loading.show();
@@ -2599,7 +2598,7 @@ export class PlaybackManager {
 
                 const options = Object.assign({}, playOptions);
 
-                options.mediaType = item.MediaType;
+                options.mediaType = playOptions.mediaType || item.MediaType;
                 options.item = item;
 
                 runNextPrePlay(interceptors, 0, options, resolve, reject);
@@ -2631,6 +2630,9 @@ export class PlaybackManager {
                     subtitleStreamIndex: options.subtitleStreamIndex,
                     startIndex: options.startIndex
                 });
+            }, function (error) {
+                loading.hide();
+                throw error;
             });
         }
 
@@ -2734,28 +2736,26 @@ export class PlaybackManager {
             }
         }
 
-        function detectBitrate(apiClient, item, mediaType) {
-            // FIXME: This is gnarly, but don't want to change too much here in a bugfix
-            return Promise.resolve()
-                .then(() => {
-                    if (!isServerItem(item) || itemHelper.isLocalItem(item)) {
-                        return Promise.reject(new Error('skip bitrate detection'));
-                    }
+        async function detectBitrate(apiClient, item, mediaType) {
+            if (!isServerItem(item) || itemHelper.isLocalItem(item)) {
+                return getSavedMaxStreamingBitrate(apiClient, mediaType);
+            }
 
-                    return apiClient.getEndpointInfo()
-                        .then((endpointInfo: any) => {
-                            if ((mediaType === 'Video' || mediaType === 'Audio') && appSettings.enableAutomaticBitrateDetection(endpointInfo.IsInNetwork, mediaType)) {
-                                return bitrateTest.detectBitrate(toApi(apiClient))
-                                    .then((bitrate: any) => {
-                                        appSettings.maxStreamingBitrate(endpointInfo.IsInNetwork, mediaType, bitrate);
-                                        return bitrate;
-                                    });
-                            }
+            try {
+                const endpointInfo = await apiClient.getEndpointInfo();
+                const canDetect = (mediaType === 'Video' || mediaType === 'Audio')
+                    && appSettings.enableAutomaticBitrateDetection(endpointInfo.IsInNetwork, mediaType);
 
-                            return Promise.reject(new Error('skip bitrate detection'));
-                        });
-                })
-                .catch(() => getSavedMaxStreamingBitrate(apiClient, mediaType));
+                if (!canDetect) {
+                    return getSavedMaxStreamingBitrate(apiClient, mediaType);
+                }
+
+                const bitrate = await bitrateTest.detectBitrate(toApi(apiClient));
+                appSettings.maxStreamingBitrate(endpointInfo.IsInNetwork, mediaType, bitrate);
+                return bitrate;
+            } catch {
+                return getSavedMaxStreamingBitrate(apiClient, mediaType);
+            }
         }
 
         function playAfterBitrateDetect(maxBitrate, item, playOptions, onPlaybackStartedFn, prevSource) {
@@ -2767,7 +2767,8 @@ export class PlaybackManager {
             let promise;
 
             if (activePlayer) {
-                // TODO: if changing players within the same playlist, this will cause nextItem to be null
+                // Suppress the old player's automatic-next lookup while the new
+                // player is taking over; the explicit `newItem` is emitted below.
                 self._playNextAfterEnded = false;
                 promise = onPlaybackChanging(activePlayer, player, item);
             } else {
@@ -2889,9 +2890,7 @@ export class PlaybackManager {
                         onPlaybackStartedFn();
                         onPlaybackStarted(player, playOptions, streamInfo, mediaSource);
                     }, function (err: any) {
-                        // TODO: Improve this because it will report playback start on a failure
-                        onPlaybackStartedFn();
-                        onPlaybackStarted(player, playOptions, streamInfo, mediaSource);
+                        loading.hide();
                         setTimeout(function () {
                             onPlaybackError.call(player, err, {
                                 type: getMediaError(err),
@@ -2939,7 +2938,8 @@ export class PlaybackManager {
             options = options || {};
             const startPosition = options.startPositionTicks || 0;
             const mediaType = options.mediaType || item.MediaType;
-            // TODO: Remove the true forceLocalPlayer hack
+            // Media-source inspection must use the local device profile even
+            // when a remote player is currently active.
             const player = getPlayer(item, options, true);
             const apiClient = ServerConnections.getApiClient(item.ServerId);
 
@@ -3052,7 +3052,7 @@ export class PlaybackManager {
                 item: item,
                 mediaSource: mediaSource,
                 textTracks: getTextTracks(apiClient, item, mediaSource),
-                // TODO: Deprecate
+                /** @deprecated Use textTracks. Kept as a compatibility alias for legacy players. */
                 tracks: getTextTracks(apiClient, item, mediaSource),
                 mediaType: type,
                 liveStreamId: liveStreamId,
@@ -3339,9 +3339,8 @@ export class PlaybackManager {
             }
 
             if (options.items) {
-                return translateItemsForPlayback(options.items, options).then(function (items: any) {
-                    // TODO: Handle options.startIndex for photos
-                    queueAll(items, mode, player);
+                return translateItemsForPlayback(options.items, options).then(function (translated: any) {
+                    queueAll(translated.items, mode, player, translated.startIndex ?? options.startIndex);
                 });
             } else {
                 if (!options.serverId) {
@@ -3351,15 +3350,17 @@ export class PlaybackManager {
                 return getItemsForPlayback(options.serverId, {
                     Ids: options.ids.join(',')
                 }).then(function (result: any) {
-                    return translateItemsForPlayback(result.Items, options).then(function (items: any) {
-                        // TODO: Handle options.startIndex for photos
-                        queueAll(items, mode, player);
+                    return translateItemsForPlayback(result.Items, options).then(function (translated: any) {
+                        queueAll(translated.items, mode, player, translated.startIndex ?? options.startIndex);
                     });
                 });
             }
         }
 
-        function queueAll(items, mode, player) {
+        function queueAll(items, mode, player, startIndex = 0) {
+            const queueStartIndex = Number.isInteger(startIndex) && startIndex > 0 ? startIndex : 0;
+            items = queueStartIndex ? items.slice(queueStartIndex) : items;
+
             if (!items.length) {
                 return;
             }
@@ -3835,6 +3836,8 @@ export class PlaybackManager {
             });
 
             pluginManager.ofType(PluginType.MediaPlayer).forEach(initMediaPlayer);
+        }).catch((error: unknown) => {
+            console.error('[playbackmanager] failed to initialize media-player plugins', error);
         });
 
         function sendProgressUpdate(player, progressEventName, reportPlaylist) {
@@ -4136,8 +4139,7 @@ export class PlaybackManager {
                 this._playNextAfterEnded = false;
             }
 
-            // TODO: remove second param
-            return player.stop(true, true);
+            return player.stop(true);
         }
 
         return Promise.resolve();

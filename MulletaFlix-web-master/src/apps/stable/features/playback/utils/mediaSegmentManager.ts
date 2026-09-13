@@ -16,6 +16,10 @@ import { findCurrentSegment } from './mediaSegments';
 import { PlaybackSubscriber } from './playbackSubscriber';
 import { MediaSegmentAction } from '../constants/mediaSegmentAction';
 
+interface ServerAwareApiClient {
+    serverId?(): string;
+}
+
 class MediaSegmentManager extends PlaybackSubscriber {
     private hasSegments = false;
     private isLastSegmentIgnored = false;
@@ -88,7 +92,7 @@ class MediaSegmentManager extends PlaybackSubscriber {
         this.hasSegments = !!state.MediaSource?.HasSegments;
 
         const itemId = state.MediaSource?.Id;
-        const serverId = state.NowPlayingItem?.ServerId || String((ServerConnections.currentApiClient() as any)?.serverId() ?? '');
+        const serverId = state.NowPlayingItem?.ServerId || String((ServerConnections.currentApiClient() as unknown as ServerAwareApiClient)?.serverId?.() ?? '');
 
         if (!this.hasSegments || !serverId || !itemId) return;
 
@@ -109,7 +113,7 @@ class MediaSegmentManager extends PlaybackSubscriber {
             return;
         }
 
-        const api = toApi(ServerConnections.getApiClient(serverId) as any);
+        const api = toApi(ServerConnections.getApiClient(serverId) as unknown as Parameters<typeof toApi>[0]);
         void this.fetchMediaSegments(
             api,
             itemId,
@@ -141,4 +145,3 @@ class MediaSegmentManager extends PlaybackSubscriber {
 }
 
 export const bindMediaSegmentManager = (playbackManager: PlaybackManager) => new MediaSegmentManager(playbackManager);
-

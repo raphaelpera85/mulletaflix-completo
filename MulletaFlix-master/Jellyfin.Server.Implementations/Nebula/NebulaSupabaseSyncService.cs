@@ -163,7 +163,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 return true;
             }
 
-            _logger.LogWarning("[SUPABASE-SYNC] Falha ao sincronizar nó '{Name}': HTTP {Code}", record.Name, resp.StatusCode);
+            var errorBody = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogWarning("[SUPABASE-SYNC] Falha ao sincronizar nó '{Name}': HTTP {Code} - {Body}", record.Name, resp.StatusCode, errorBody);
             return false;
         }
         catch (Exception ex)

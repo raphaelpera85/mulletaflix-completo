@@ -3,6 +3,8 @@ import Page from 'components/Page';
 import globalize from 'lib/globalize';
 import Box from '@mui/material/Box';
 import Grid from '@mui/material/Grid2';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
 import ServerPathWidget from '../components/widgets/ServerPathWidget';
 import ServerInfoWidget from '../components/widgets/ServerInfoWidget';
 import ServerHealthWidget from '../components/widgets/ServerHealthWidget';
@@ -26,7 +28,7 @@ export const Component = () => {
     const restartServer = useRestartServer();
     const shutdownServer = useShutdownServer();
 
-    const { data: tasks } = useLiveTasks({ isHidden: false });
+    const { data: tasks, isError: isTasksError, refetch: refetchTasks } = useLiveTasks({ isHidden: false });
 
     const librariesTask = useMemo(() => (
         tasks?.find((value) => value.Key === 'RefreshLibrary')
@@ -47,6 +49,10 @@ export const Component = () => {
     const closeShutdownDialog = useCallback(() => {
         setIsShutdownConfirmDialogOpen(false);
     }, []);
+
+    const retryTasks = useCallback(() => {
+        void refetchTasks();
+    }, [ refetchTasks ]);
 
     const onScanLibraries = useCallback(() => {
         const scanLibrariesTask = tasks?.find((value) => value.Key === 'RefreshLibrary');
@@ -93,6 +99,20 @@ export const Component = () => {
                 confirmButtonColor='error'
             />
             <Box className='content-primary'>
+                {isTasksError && (
+                    <Alert
+                        severity='error'
+                        role='alert'
+                        sx={{ marginBottom: 3 }}
+                        action={
+                            <Button color='inherit' size='small' onClick={retryTasks}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
+                    >
+                        {globalize.translate('ErrorDefault')}
+                    </Alert>
+                )}
                 <Grid container spacing={3}>
                     <Grid size={{ xs: 12, md: 7, lg: 7, xl: 6 }}>
                         <Stack spacing={3}>

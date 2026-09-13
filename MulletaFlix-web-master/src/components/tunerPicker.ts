@@ -129,16 +129,18 @@ function renderDevices(view: HTMLElement, devices: TunerDevice[]): void {
 }
 
 function discoverDevices(view: HTMLElement): Promise<void> {
-    loading.show();
-    view.querySelector('.loadingContent')?.classList.remove('hide');
-    const apiClient = ServerConnections.getApiClient('') as unknown as DiscoveryApiClient;
-    return apiClient.getJSON(apiClient.getUrl('LiveTv/Tuners/Discover', {
-        NewDevicesOnly: true
-    })).then(function (devices: TunerDevice[]) {
-        currentDevices = devices;
-        renderDevices(view, devices);
-        view.querySelector('.loadingContent')?.classList.add('hide');
-        loading.hide();
+    return loading.withLoading(async () => {
+        view.querySelector('.loadingContent')?.classList.remove('hide');
+        try {
+            const apiClient = ServerConnections.getApiClient('') as unknown as DiscoveryApiClient;
+            const devices = await apiClient.getJSON(apiClient.getUrl('LiveTv/Tuners/Discover', {
+                NewDevicesOnly: true
+            })) as TunerDevice[];
+            currentDevices = devices;
+            renderDevices(view, devices);
+        } finally {
+            view.querySelector('.loadingContent')?.classList.add('hide');
+        }
     });
 }
 
@@ -189,8 +191,6 @@ class TunerPicker {
 
         void discoverDevices(dlg).catch((error: unknown) => {
             console.error('Failed to discover Live TV tuners', error);
-            dlg.querySelector('.loadingContent')?.classList.add('hide');
-            loading.hide();
         });
 
         if (layoutManager.tv) {

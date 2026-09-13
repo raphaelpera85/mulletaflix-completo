@@ -1,4 +1,4 @@
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import Dashboard from 'utils/dashboard';
 
@@ -20,22 +20,23 @@ interface WizardRemoteApiClient {
     getUrl(path: string): string;
 }
 
-function save(page: WizardRemotePage): void {
-    loading.show();
+async function save(page: WizardRemotePage): Promise<void> {
     const apiClient = ServerConnections.currentApiClient() as unknown as WizardRemoteApiClient;
     const config = {
         EnableRemoteAccess: (page.querySelector<HTMLInputElement>('#chkRemoteAccess') as HTMLInputElement).checked
     };
 
-    apiClient.ajax({
-        type: 'POST',
-        data: JSON.stringify(config),
-        url: apiClient.getUrl('Startup/RemoteAccess'),
-        contentType: 'application/json'
-    }).then(function () {
-        loading.hide();
+    try {
+        await withLoading(() => apiClient.ajax({
+            type: 'POST',
+            data: JSON.stringify(config),
+            url: apiClient.getUrl('Startup/RemoteAccess'),
+            contentType: 'application/json'
+        }));
         navigateToNextPage();
-    }).catch(() => loading.hide());
+    } catch (error) {
+        console.error('[Wizard > Remote] failed to save remote access settings', error);
+    }
 }
 
 function navigateToNextPage(): void {
@@ -43,7 +44,7 @@ function navigateToNextPage(): void {
 }
 
 function onSubmit(this: WizardRemotePage, e: SubmitEvent): boolean {
-    save(this);
+    void save(this);
     e.preventDefault();
     return false;
 }

@@ -21,6 +21,15 @@ function Test-WinFspInstalled {
         (Test-Path -LiteralPath "${env:ProgramFiles(x86)}\WinFsp\bin\winfsp-x64.dll")
 }
 
+function Assert-ValidAuthenticodeSignature {
+    param([Parameter(Mandatory = $true)][string] $Path)
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid') {
+        throw "A assinatura do instalador WinFsp não é válida: $($signature.Status)."
+    }
+}
+
 if (Test-WinFspInstalled) {
     Write-Host '[OK] WinFsp já está instalado.' -ForegroundColor Green
     exit 0
@@ -39,6 +48,7 @@ if ($winget) {
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri 'https://github.com/winfsp/winfsp/releases/download/v2.0/winfsp-2.0.23075.msi' -OutFile $installer -UseBasicParsing
+        Assert-ValidAuthenticodeSignature -Path $installer
         $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $installer, '/qn', '/norestart') -Wait -PassThru
     } finally {
         if (Test-Path -LiteralPath $installer) {

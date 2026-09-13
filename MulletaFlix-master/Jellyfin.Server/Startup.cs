@@ -20,6 +20,7 @@ using MulletaFlix.MediaEncoding.Hls.Extensions;
 using MulletaFlix.Networking;
 using MulletaFlix.Networking.HappyEyeballs;
 using MulletaFlix.Server.Extensions;
+using MulletaFlix.Server.Health;
 using MulletaFlix.Server.Implementations.Extensions;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Configuration;
@@ -27,6 +28,7 @@ using MediaBrowser.Controller.Extensions;
 using MediaBrowser.Providers.Plugins.MidiaStorageOnline;
 using MediaBrowser.XbmcMetadata;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Localization;
@@ -141,7 +143,10 @@ namespace MulletaFlix.Server
             });
 
             services.AddHealthChecks()
-                .AddDbContextCheck<MulletaFlixDbContext>(nameof(MulletaFlixDbContext));
+                .AddCheck<MulletaFlixDatabaseHealthCheck>(
+                    nameof(MulletaFlixDbContext),
+                    tags: new[] { "ready", "database" })
+                .AddCheck<NebulaHealthCheck>("nebula", tags: new[] { "ready", "nebula" });
 
             services.AddHlsPlaylistGenerator();
             services.AddLiveTvServices();
@@ -211,6 +216,7 @@ namespace MulletaFlix.Server
                 }
 
                 mainApp.UseForwardedHeaders();
+                mainApp.UseMiddleware<CorrelationIdMiddleware>();
                 mainApp.UseMiddleware<ExceptionMiddleware>();
 
                 mainApp.UseMiddleware<SecurityHeadersMiddleware>();
@@ -323,14 +329,27 @@ namespace MulletaFlix.Server
                     endpoints.MapMetrics();
 
                     endpoints.MapHealthChecks("/health");
+                    endpoints.MapHealthChecks(
+                        "/ready",
+                        new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
                 });
             });
         }
 
         private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
-            => HttpPolicyExtensions
+        {
+            var transientErrors = HttpPolicyExtensions
                 .HandleTransientHttpError()
-                .Or<TimeoutRejectedException>()
-                .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
+                .Or<TimeoutRejectedException>();
+
+            var retry = transientErrors.WaitAndRetryAsync(
+                3,
+                retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
+            var circuitBreaker = transientErrors.CircuitBreakerAsync(
+                handledEventsAllowedBeforeBreaking: 5,
+                durationOfBreak: TimeSpan.FromSeconds(30));
+
+            return Policy.WrapAsync(retry, circuitBreaker);
+        }
     }
 }

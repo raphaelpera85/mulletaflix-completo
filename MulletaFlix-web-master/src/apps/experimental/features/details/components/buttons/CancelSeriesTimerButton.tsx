@@ -26,20 +26,16 @@ const CancelSeriesTimerButton: FC<CancelSeriesTimerButtonProps> = ({
             confirmText: globalize.translate('HeaderCancelSeries'),
             cancelText: globalize.translate('HeaderKeepSeries')
         })
-            .then(function () {
-                loading.show();
-                return cancelSeriesTimer.mutateAsync(
-                    {
-                        timerId: itemId
+            .then(async function () {
+                await loading.withLoading(async () => {
+                    try {
+                        await cancelSeriesTimer.mutateAsync({ timerId: itemId });
+                        toast(globalize.translate('SeriesCancelled'));
+                        await navigate('/livetv');
+                    } catch (err: unknown) {
+                        toast(globalize.translate('MessageCancelSeriesTimerError'));
+                        console.error('[cancelSeriesTimer] failed to cancel series timer', err);
                     }
-                ).then(async () => {
-                    toast(globalize.translate('SeriesCancelled'));
-                    loading.hide();
-                    await navigate('/livetv');
-                }).catch((err: unknown) => {
-                    loading.hide();
-                    toast(globalize.translate('MessageCancelSeriesTimerError'));
-                    console.error('[cancelSeriesTimer] failed to cancel series timer', err);
                 });
             })
             .catch(() => {

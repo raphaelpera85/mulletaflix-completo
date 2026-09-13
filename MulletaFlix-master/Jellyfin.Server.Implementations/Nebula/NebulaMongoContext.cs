@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Nebula;
 using Microsoft.Extensions.Logging;
@@ -23,6 +24,7 @@ public sealed class NebulaMongoContext : IDisposable
     private readonly IMongoCollection<BsonDocument> _filesCollection;
     private readonly IMongoCollection<BsonDocument> _usersCollection;
     private readonly IMongoCollection<BsonDocument> _botTokensCollection;
+    private readonly IMongoCollection<BsonDocument> _operationReplaysCollection;
     private bool _disposed;
 
     /// <summary>
@@ -46,6 +48,7 @@ public sealed class NebulaMongoContext : IDisposable
         _filesCollection = _database.GetCollection<BsonDocument>("files");
         _usersCollection = _database.GetCollection<BsonDocument>("users");
         _botTokensCollection = _database.GetCollection<BsonDocument>("bot_tokens");
+        _operationReplaysCollection = _database.GetCollection<BsonDocument>("operation_replays");
     }
 
     /// <summary>
@@ -56,7 +59,7 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken = default)
     {
-        foreach (var collectionName in new[] { "files", "users", "bot_tokens" })
+        foreach (var collectionName in new[] { "files", "users", "bot_tokens", "operation_replays" })
         {
             try
             {
@@ -69,6 +72,13 @@ public sealed class NebulaMongoContext : IDisposable
                 // sistemas compartilham o banco ftp.
             }
         }
+    }
+
+    public async Task PingAsync(CancellationToken cancellationToken = default)
+    {
+        await _database.RunCommandAsync<BsonDocument>(
+            new BsonDocument("ping", 1),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -112,9 +122,76 @@ public sealed class NebulaMongoContext : IDisposable
             _logger.LogDebug(ex, "[NEBULA-MONGO] Índice da coleção de tokens já existe ou não pôde ser criado.");
         }
 
+        try
+        {
+            await _operationReplaysCollection.Indexes.CreateOneAsync(
+                new CreateIndexModel<BsonDocument>(
+                    Builders<BsonDocument>.IndexKeys.Ascending("operation").Ascending("idempotency_key"),
+                    new CreateIndexOptions { Name = "operation_1_idempotency_key_1", Unique = true, Background = true }),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-MONGO] Índice de replay de operações já existe ou não pôde ser criado.");
+        }
+
+        try
+        {
+            await _operationReplaysCollection.Indexes.CreateOneAsync(
+                new CreateIndexModel<BsonDocument>(
+                    Builders<BsonDocument>.IndexKeys.Ascending("expires_at"),
+                    new CreateIndexOptions { Name = "expires_at_1", ExpireAfter = TimeSpan.Zero, Background = true }),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-MONGO] Índice TTL de replay de operações já existe ou não pôde ser criado.");
+        }
+
         await CleanupStrmRootDirectoryAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("[NEBULA-MONGO] Índices do MongoDB verificados com sucesso.");
+    }
+
+    /// <summary>
+    /// Recupera o resultado persistido de uma operação idempotente.
+    /// Falhas de disponibilidade do Mongo são propagadas para que o chamador
+    /// possa usar o cache de processo como fallback sem duplicar a operação.
+    /// </summary>
+    public async Task<T?> GetOperationReplayAsync<T>(string operation, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("operation", operation),
+            Builders<BsonDocument>.Filter.Eq("idempotency_key", idempotencyKey),
+            Builders<BsonDocument>.Filter.Gt("expires_at", DateTime.UtcNow));
+        var document = await _operationReplaysCollection.Find(filter).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (document is null || !document.TryGetValue("result_json", out var json) || !json.IsString)
+        {
+            return default;
+        }
+
+        return JsonSerializer.Deserialize<T>(json.AsString);
+    }
+
+    /// <summary>
+    /// Persiste o resultado resumido de uma operação idempotente por 15 minutos.
+    /// Apenas o DTO de resultado é salvo; segredos e payloads de configuração não
+    /// fazem parte deste documento.
+    /// </summary>
+    public async Task SaveOperationReplayAsync<T>(string operation, string idempotencyKey, T result, TimeSpan ttl, CancellationToken cancellationToken = default)
+    {
+        var json = JsonSerializer.Serialize(result);
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("operation", operation),
+            Builders<BsonDocument>.Filter.Eq("idempotency_key", idempotencyKey));
+        var document = new BsonDocument
+        {
+            ["operation"] = operation,
+            ["idempotency_key"] = idempotencyKey,
+            ["result_json"] = json,
+            ["expires_at"] = DateTime.UtcNow.Add(ttl)
+        };
+        await _operationReplaysCollection.ReplaceOneAsync(filter, document, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

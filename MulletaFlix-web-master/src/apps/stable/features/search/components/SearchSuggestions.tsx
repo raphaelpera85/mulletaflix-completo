@@ -1,8 +1,9 @@
-import React, { FunctionComponent } from 'react';
+import React, { FunctionComponent, useCallback } from 'react';
 
 import type { BaseItemDto, SearchHint } from '@jellyfin/sdk/lib/generated-client';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 import Loading from 'components/loading/LoadingComponent';
+import LoadErrorMessage from 'components/common/LoadErrorMessage';
 import { appRouter } from 'components/router/appRouter';
 import LinkButton from 'elements/emby-button/LinkButton';
 import globalize from 'lib/globalize';
@@ -21,8 +22,13 @@ type SearchSuggestionsProps = {
 
 const SearchSuggestions: FunctionComponent<SearchSuggestionsProps> = ({ parentId, query, collectionType }) => {
     const { __legacyApiClient__: legacyApiClient } = useApi();
-    const { data: suggestions, isPending } = useSearchSuggestions(parentId || undefined, query, collectionType);
+    const { data: suggestions, isPending, isError, refetch } = useSearchSuggestions(parentId || undefined, query, collectionType);
     const serverId = legacyApiClient?.serverId();
+    const handleRetry = useCallback(() => {
+        refetch().catch(() => undefined);
+    }, [refetch]);
+
+    if (isError) return <LoadErrorMessage onRetry={handleRetry} />;
 
     if (isPending) return <Loading />;
 

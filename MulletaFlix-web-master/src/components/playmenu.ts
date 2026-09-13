@@ -2,6 +2,7 @@ import actionsheet from './actionSheet/actionSheet';
 import datetime from '../scripts/datetime';
 import { playbackManager } from './playback/playbackmanager';
 import globalize from '../lib/globalize';
+import type { ItemDto } from '../types/base/models/item-dto';
 
 interface PlayMenuItem {
     name: string;
@@ -9,7 +10,7 @@ interface PlayMenuItem {
 }
 
 interface PlayMenuOptions {
-    item: any;
+    item: ItemDto;
     positionTo?: HTMLElement;
 }
 

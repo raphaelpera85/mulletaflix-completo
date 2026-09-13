@@ -50,12 +50,16 @@ class SkipSegment extends PlaybackSubscriber {
         if (!this.skipElement && this.currentSegment) {
             let buttonHtml = '';
 
-            // FIXME: Move skip button to the video OSD
             buttonHtml += '<div class="skip-button-container"><button is="emby-button" class="skip-button hide skip-button-hidden"></button></div>';
 
-            document.body.insertAdjacentHTML('beforeend', buttonHtml);
+            // Keep the control inside the video OSD when it is available so it
+            // follows the OSD lifecycle and stacking context. Remote players
+            // and early playback initialization may not have an OSD yet, so
+            // retain the body fallback for those paths.
+            const osdHost = document.querySelector<HTMLElement>('.videoOsdBottom-maincontrols') || document.body;
+            osdHost.insertAdjacentHTML('beforeend', buttonHtml);
 
-            this.skipElement = document.body.querySelector('.skip-button');
+            this.skipElement = osdHost.querySelector('.skip-button');
             if (this.skipElement) {
                 this.skipElement.addEventListener('click', () => {
                     const time = this.playbackManager.currentTime() * TICKS_PER_MILLISECOND;
@@ -199,4 +203,3 @@ class SkipSegment extends PlaybackSubscriber {
 }
 
 export const bindSkipSegment = (playbackManager: PlaybackManager) => new SkipSegment(playbackManager);
-

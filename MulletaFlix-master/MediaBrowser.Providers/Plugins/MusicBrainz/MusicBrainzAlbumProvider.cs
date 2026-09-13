@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Extensions;
+using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
@@ -22,6 +23,13 @@ namespace MediaBrowser.Providers.Plugins.MusicBrainz;
 /// </summary>
 public class MusicBrainzAlbumProvider : IRemoteMetadataProvider<MusicAlbum, AlbumInfo>, IHasOrder
 {
+    private readonly IHttpClientFactory _httpClientFactory;
+
+    public MusicBrainzAlbumProvider(IHttpClientFactory httpClientFactory)
+    {
+        _httpClientFactory = httpClientFactory;
+    }
+
     /// <inheritdoc />
     public string Name => "MusicBrainz";
 
@@ -245,7 +253,6 @@ public class MusicBrainzAlbumProvider : IRemoteMetadataProvider<MusicAlbum, Albu
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(url, cancellationToken);
     }
 }
-

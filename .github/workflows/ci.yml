@@ -18,6 +18,8 @@ jobs:
         working-directory: MulletaFlix-master
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -29,13 +31,25 @@ jobs:
       - name: Build
         run: dotnet build MulletaFlix.sln --configuration Release --no-restore
 
+      - name: Audit NuGet dependencies
+        run: dotnet list MulletaFlix.sln package --vulnerable --include-transitive
+
       - name: Run unit tests (exclude integration)
         run: >
           dotnet test MulletaFlix.sln
           --configuration Release
           --no-build
           --filter "FullyQualifiedName!~Integration"
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
           --verbosity minimal
+
+      - name: Upload backend coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: MulletaFlix-master/TestResults/**/coverage.cobertura.xml
+          if-no-files-found: error
 
   web-build:
     name: Web client typecheck & lint
@@ -55,9 +69,108 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # NOTE: tsc --noEmit (build:check) reports ~545 pre-existing type errors
-      # and `npm run lint` reports ~3,462 pre-existing eslint errors in legacy
-      # playback controllers. Neither has ever been a gate in this project.
-      # The production build (esbuild via Vite) is the real gate and passes.
+      # The full repository lint has a legacy baseline and is informational;
+      # changed frontend files are enforced to prevent new regressions.
+      - name: Typecheck
+        run: npm run build:check
+
+      - name: Lint changed frontend files
+        run: npm run lint:changed
+
       - name: Production build
         run: npm run build:production
+
+      - name: Unit tests
+        run: npm test -- --run --coverage
+
+      - name: Upload frontend coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: MulletaFlix-web-master/coverage/**
+          if-no-files-found: error
+
+      - name: Verify build artifacts
+        run: npm run verify:build
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  e2e-smoke:
+    name: Playwright isolated stage smoke test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MulletaFlix-web-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: MulletaFlix-web-master/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Restore server dependencies
+        working-directory: MulletaFlix-master
+        run: dotnet restore MulletaFlix.sln
+
+      - name: Publish isolated stage server
+        working-directory: MulletaFlix-master
+        run: >
+          dotnet publish Jellyfin.Server/Jellyfin.Server.csproj
+          --configuration Release
+          --no-restore
+          --self-contained false
+          --output ../stage
+
+      - name: Build web client into stage
+        shell: bash
+        run: |
+          npm run build:production
+          rm -rf ../stage/MulletaFlix-web
+          mkdir -p ../stage/MulletaFlix-web
+          cp -a dist/. ../stage/MulletaFlix-web/
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run isolated wizard smoke test
+        run: npm run playwright -- --grep=Wizard
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-report
+          path: MulletaFlix-web-master/reports/playwright
+          if-no-files-found: warn
+
+  supply-chain:
+    name: Secret scan & SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan repository for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: mulletaflix-sbom.spdx.json
+          output-file: mulletaflix-sbom.spdx.json

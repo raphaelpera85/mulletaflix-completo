@@ -21,30 +21,16 @@ const CancelTimerButton: FC<CancelTimerButtonProps> = ({
     const cancelTimer = useCancelTimer();
 
     const onCancelTimerClick = useCallback(() => {
-        loading.show();
-        cancelTimer.mutate(
-            {
-                timerId: timerId
-            },
-            {
-                onSuccess: async () => {
-                    toast(globalize.translate('RecordingCancelled'));
-                    loading.hide();
-                    await queryClient.invalidateQueries({
-                        queryKey
-                    });
-                },
-
-                onError: (err: unknown) => {
-                    loading.hide();
-                    toast(globalize.translate('MessageCancelTimerError'));
-                    console.error(
-                        '[cancelTimer] failed to cancel timer',
-                        err
-                    );
-                }
+        void loading.withLoading(async () => {
+            try {
+                await cancelTimer.mutateAsync({ timerId });
+                toast(globalize.translate('RecordingCancelled'));
+                await queryClient.invalidateQueries({ queryKey });
+            } catch (err) {
+                toast(globalize.translate('MessageCancelTimerError'));
+                console.error('[cancelTimer] failed to cancel timer', err);
             }
-        );
+        });
     }, [cancelTimer, queryClient, queryKey, timerId]);
 
     return (

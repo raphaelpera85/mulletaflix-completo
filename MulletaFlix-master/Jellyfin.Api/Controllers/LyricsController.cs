@@ -99,6 +99,7 @@ public class LyricsController : BaseMulletaFlixApiController
     [HttpPost("Audio/{itemId}/Lyrics")]
     [Authorize(Policy = Policies.LyricManagement)]
     [AcceptsFile(MediaTypeNames.Text.Plain)]
+    [RequestSizeLimit(MaxLyricFileSize)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -111,11 +112,6 @@ public class LyricsController : BaseMulletaFlixApiController
         if (item is null)
         {
             return NotFound();
-        }
-
-        if (Request.ContentLength.GetValueOrDefault(0) == 0)
-        {
-            return BadRequest("No lyrics uploaded");
         }
 
         if (Request.ContentLength.GetValueOrDefault(0) > MaxLyricFileSize)
@@ -134,6 +130,18 @@ public class LyricsController : BaseMulletaFlixApiController
         await using (stream.ConfigureAwait(false))
         {
             await Request.Body.CopyToAsync(stream).ConfigureAwait(false);
+
+            // Content-Length may be omitted for chunked requests, so validate the body after reading it.
+            if (stream.Length == 0)
+            {
+                return BadRequest("No lyrics uploaded");
+            }
+
+            if (stream.Length > MaxLyricFileSize)
+            {
+                return StatusCode(StatusCodes.Status413RequestEntityTooLarge, "Lyric file exceeds maximum allowed size (1 MB)");
+            }
+
             var uploadedLyric = await _lyricManager.SaveLyricAsync(
                     item,
                     format,
@@ -251,4 +259,3 @@ public class LyricsController : BaseMulletaFlixApiController
         return Ok(result);
     }
 }
-

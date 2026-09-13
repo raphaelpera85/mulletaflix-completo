@@ -7,6 +7,7 @@ import { ajax } from 'utils/fetch';
 import { createApiClient } from 'utils/jellyfin-apiclient/createApiClient';
 import { equalsIgnoreCase } from 'utils/string';
 import { compareVersions } from 'utils/versions';
+import { getServerEndpoint } from 'utils/url';
 
 import { ConnectionMode } from './connectionMode';
 import { ConnectionState } from './connectionState';
@@ -161,6 +162,9 @@ export default class ConnectionManager {
     ) {
         console.debug('Begin ConnectionManager constructor');
 
+        // The constructor installs many callback properties that must retain
+        // the manager instance when invoked by the legacy API surface.
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         const self = this;
         this._apiClients = [];
 
@@ -546,7 +550,7 @@ export default class ConnectionManager {
             console.debug('getTryConnectPromise ' + url);
 
             ajax({
-                url: `${url}/System/Info/Public`,
+                url: getServerEndpoint(url, '/System/Info/Public'),
                 timeout: DEFAULT_CONNECTION_TIMEOUT,
                 type: 'GET',
                 dataType: 'json'

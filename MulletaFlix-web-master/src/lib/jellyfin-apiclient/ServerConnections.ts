@@ -48,6 +48,8 @@ const getMaxBandwidth = (): number | null => {
 interface ApiClient {
     serverAddress(): string;
     accessToken(): string;
+    getUrl(name: string): string;
+    get(url: string): Promise<unknown>;
     subscribe?(messageTypes: unknown[], onMessage: unknown, subscriptionIntervals: unknown): { close: () => void };
     [key: string]: unknown;
 }

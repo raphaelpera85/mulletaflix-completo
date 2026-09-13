@@ -4,18 +4,20 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { fetchStagePublicInfo, navigateStage, openLogin, resolveStageUrl, seedStageConnection, waitForDashboardBridge } from './stage.mjs';
+import { fetchStagePublicInfo, openLogin, resolveStageUrl, seedStageConnection, waitForDashboardBridge } from './stage.mjs';
 import { ensureWizardCompleted } from './wizard.mjs';
 
 const SHARED_USER_FILE = process.env.MFLX_SHARED_USER_FILE
     || path.join(os.tmpdir(), 'mulletaflix-playwright-common-user.json');
 
 function createCredentials() {
-    const suffix = crypto.randomUUID().slice(0, 8);
+    const suffix = crypto.randomBytes(12).toString('hex');
+    const password = crypto.randomBytes(24).toString('base64url');
 
     return {
         username: `mflx-user-${suffix}`,
-        password: `User@${suffix}2026`
+        // The value is generated from cryptographic randomness for this disposable test user.
+        password
     };
 }
 
@@ -168,6 +170,8 @@ export async function openUserTab(page, userId, tab) {
         profile: '.editUserProfileForm',
         access: '.userLibraryAccessForm',
         parentalcontrol: '.userParentalControlForm',
+        // This is a UI tab identifier, not a credential or password value.
+        // eslint-disable-next-line sonarjs/no-hardcoded-passwords
         password: '.updatePasswordForm'
     };
 

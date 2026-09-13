@@ -20,14 +20,15 @@ import './style.scss';
 import toast from '../toast/toast';
 import template from './imageUploader.template.html';
 
+/* Legacy Jellyfin API clients and dialog options are dynamically shaped at runtime. */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 let currentItemId: string;
 let currentServerId: string;
 let currentFile: File | null;
 let hasChanges = false;
 
 function onFileReaderError(evt: ProgressEvent<FileReader>): void {
-    loading.hide();
-
     const error = (evt.target as FileReader).error;
     if (!error) return;
     switch (error.name) {
@@ -62,7 +63,6 @@ function setFiles(page: HTMLElement, files: FileList | null): void {
         page.querySelector('#fldUpload')!.classList.add('hide');
     };
     reader.onabort = () => {
-        loading.hide();
         console.debug('File read cancelled');
     };
 
@@ -98,8 +98,6 @@ function onSubmit(this: HTMLElement, e: Event): boolean {
         return false;
     }
 
-    loading.show();
-
     const dlg = dom.parentWithClass(this, 'dialog') as HTMLElement;
 
     const imageType = (dlg.querySelector('#selectImageType') as HTMLSelectElement).value;
@@ -109,16 +107,16 @@ function onSubmit(this: HTMLElement, e: Event): boolean {
         return false;
     }
 
-    (ServerConnections.getApiClient(currentServerId) as any).uploadItemImage(currentItemId, imageType, file).then(() => {
-        (dlg.querySelector('#uploadImage') as HTMLInputElement).value = '';
-
-        loading.hide();
-        hasChanges = true;
-        dialogHelper.close(dlg);
-    }).catch(() => {
-        loading.hide();
-        toast(globalize.translate('ImageUploadFailed'));
-    });
+    void loading.withLoading(() => (ServerConnections.getApiClient(currentServerId) as any).uploadItemImage(currentItemId, imageType, file))
+        .then(() => {
+            (dlg.querySelector('#uploadImage') as HTMLInputElement).value = '';
+            hasChanges = true;
+            dialogHelper.close(dlg);
+        })
+        .catch((error: unknown) => {
+            console.error('[ImageUploader] failed to upload image', error);
+            toast(globalize.translate('ImageUploadFailed'));
+        });
 
     e.preventDefault();
     return false;
@@ -174,7 +172,6 @@ function showEditor(options: ImageUploaderOptions, resolve: (hasChanges: boolean
             scrollHelper.centerFocus.off(dlg, false);
         }
 
-        loading.hide();
         resolve(hasChanges);
     });
 
@@ -200,3 +197,5 @@ export function show(options: ImageUploaderOptions): Promise<boolean> {
 export default {
     show: show
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

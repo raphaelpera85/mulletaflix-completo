@@ -26,29 +26,16 @@ const SplitVersionsButton: FC<SplitVersionsButtonProps> = ({
             title: globalize.translate('HeaderSplitMediaApart'),
             text: globalize.translate('MessageConfirmSplitMediaSources')
         })
-            .then(function () {
-                loading.show();
-                deleteAlternateSources.mutate(
-                    {
-                        itemId: paramId
-                    },
-                    {
-                        onSuccess: async () => {
-                            loading.hide();
-                            await queryClient.invalidateQueries({
-                                queryKey
-                            });
-                        },
-                        onError: (err: unknown) => {
-                            loading.hide();
-                            toast(globalize.translate('MessageSplitVersionsError'));
-                            console.error(
-                                '[splitVersions] failed to split versions',
-                                err
-                            );
-                        }
+            .then(async function () {
+                await loading.withLoading(async () => {
+                    try {
+                        await deleteAlternateSources.mutateAsync({ itemId: paramId });
+                        await queryClient.invalidateQueries({ queryKey });
+                    } catch (err) {
+                        toast(globalize.translate('MessageSplitVersionsError'));
+                        console.error('[splitVersions] failed to split versions', err);
                     }
-                );
+                });
             })
             .catch(() => {
                 // confirm dialog closed

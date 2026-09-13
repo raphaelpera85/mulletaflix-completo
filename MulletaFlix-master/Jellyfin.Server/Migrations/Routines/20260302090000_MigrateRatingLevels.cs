@@ -35,40 +35,45 @@ internal class MigrateRatingLevels : IDatabaseMigrationRoutine
     {
         _logger.LogInformation("Recalculating parental rating levels based on rating string.");
         using var context = _provider.CreateDbContext();
-        using var transaction = context.Database.BeginTransaction();
-        // Materialize before issuing ExecuteUpdate commands. MySqlConnector does not
-        // allow a second command while the DISTINCT reader is still open.
-        var ratings = context.BaseItems
-            .AsNoTracking()
-            .Select(e => e.OfficialRating)
-            .Distinct()
-            .ToList();
-        foreach (var rating in ratings)
+        var executionStrategy = context.Database.CreateExecutionStrategy();
+        executionStrategy.Execute(() =>
         {
-            if (string.IsNullOrEmpty(rating))
+            context.ChangeTracker.Clear();
+            using var transaction = context.Database.BeginTransaction();
+            // Materialize before issuing ExecuteUpdate commands. MySqlConnector does not
+            // allow a second command while the DISTINCT reader is still open.
+            var ratings = context.BaseItems
+                .AsNoTracking()
+                .Select(e => e.OfficialRating)
+                .Distinct()
+                .ToList();
+            foreach (var rating in ratings)
             {
-                int? value = null;
-                context.BaseItems
-                    .Where(e => e.OfficialRating == null || e.OfficialRating == string.Empty)
-                    .ExecuteUpdate(f => f.SetProperty(e => e.InheritedParentalRatingValue, value));
-                context.BaseItems
-                    .Where(e => e.OfficialRating == null || e.OfficialRating == string.Empty)
-                    .ExecuteUpdate(f => f.SetProperty(e => e.InheritedParentalRatingSubValue, value));
+                if (string.IsNullOrEmpty(rating))
+                {
+                    int? value = null;
+                    context.BaseItems
+                        .Where(e => e.OfficialRating == null || e.OfficialRating == string.Empty)
+                        .ExecuteUpdate(f => f.SetProperty(e => e.InheritedParentalRatingValue, value));
+                    context.BaseItems
+                        .Where(e => e.OfficialRating == null || e.OfficialRating == string.Empty)
+                        .ExecuteUpdate(f => f.SetProperty(e => e.InheritedParentalRatingSubValue, value));
+                }
+                else
+                {
+                    var ratingValue = _localizationManager.GetRatingScore(rating);
+                    var score = ratingValue?.Score;
+                    var subScore = ratingValue?.SubScore;
+                    context.BaseItems
+                        .Where(e => e.OfficialRating == rating)
+                        .ExecuteUpdate(f => f.SetProperty(e => e.InheritedParentalRatingValue, score));
+                    context.BaseItems
+                        .Where(e => e.OfficialRating == rating)
+                        .ExecuteUpdate(f => f.SetProperty(e => e.InheritedParentalRatingSubValue, subScore));
+                }
             }
-            else
-            {
-                var ratingValue = _localizationManager.GetRatingScore(rating);
-                var score = ratingValue?.Score;
-                var subScore = ratingValue?.SubScore;
-                context.BaseItems
-                    .Where(e => e.OfficialRating == rating)
-                    .ExecuteUpdate(f => f.SetProperty(e => e.InheritedParentalRatingValue, score));
-                context.BaseItems
-                    .Where(e => e.OfficialRating == rating)
-                    .ExecuteUpdate(f => f.SetProperty(e => e.InheritedParentalRatingSubValue, subScore));
-            }
-        }
 
-        transaction.Commit();
+            transaction.Commit();
+        });
     }
 }

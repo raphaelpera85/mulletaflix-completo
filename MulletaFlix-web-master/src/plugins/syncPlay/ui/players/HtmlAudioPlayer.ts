@@ -9,7 +9,7 @@ import HtmlVideoPlayer from './HtmlVideoPlayer';
  * Class that manages the HtmlAudioPlayer for SyncPlay.
  */
 class HtmlAudioPlayer extends HtmlVideoPlayer {
-    static override type = 'htmlaudioplayer';
+    public static override readonly type = 'htmlaudioplayer';
 }
 
 export default HtmlAudioPlayer;

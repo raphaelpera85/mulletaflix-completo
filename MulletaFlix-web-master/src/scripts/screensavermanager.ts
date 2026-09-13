@@ -17,7 +17,20 @@ interface ScreensaverPlugin {
     hideOnKey?: boolean;
     show(): void;
     hide(): Promise<void>;
-    [key: string]: any;
+}
+
+interface ScreensaverManagerApi {
+    isShowing(): boolean;
+    show(): void;
+    hide(): void;
+}
+
+interface PlaybackStopInfo {
+    state?: {
+        NowPlayingItem?: {
+            MediaType?: string;
+        };
+    };
 }
 
 function getMinIdleTime(): number {
@@ -32,9 +45,11 @@ function getFunctionalEventIdleTime(): number {
     return new Date().getTime() - lastFunctionalEvent;
 }
 
-Events.on(playbackManager, 'playbackstop', function (_e: any, stopInfo: any) {
-    const state = stopInfo.state;
-    if (state.NowPlayingItem && state.NowPlayingItem.MediaType == 'Video') {
+Events.on(playbackManager, 'playbackstop', function (_e: unknown, stopInfo: unknown) {
+    if (!stopInfo || typeof stopInfo !== 'object') return;
+
+    const state = (stopInfo as PlaybackStopInfo).state;
+    if (state?.NowPlayingItem?.MediaType === 'Video') {
         lastFunctionalEvent = new Date().getTime();
     }
 });
@@ -58,7 +73,7 @@ function getScreensaverPlugin(isLoggedIn: boolean | undefined): ScreensaverPlugi
     return null;
 }
 
-function ScreenSaverManager(this: any): void {
+function ScreenSaverManager(this: ScreensaverManagerApi): void {
     let activeScreenSaver: ScreensaverPlugin | null;
 
     function showScreenSaver(screensaver: ScreensaverPlugin): void {
@@ -106,7 +121,8 @@ function ScreenSaverManager(this: any): void {
         let isLoggedIn: boolean | undefined;
         const apiClient = ServerConnections.currentApiClient();
 
-        if ((apiClient as any)?.isLoggedIn()) {
+        const client = apiClient as unknown as { isLoggedIn?: () => boolean } | undefined;
+        if (client?.isLoggedIn?.()) {
             isLoggedIn = true;
         }
 
@@ -144,4 +160,7 @@ function ScreenSaverManager(this: any): void {
     setInterval(onInterval, 5000);
 }
 
-export default new (ScreenSaverManager as any)();
+const screensaverManager = {} as ScreensaverManagerApi;
+ScreenSaverManager.call(screensaverManager);
+
+export default screensaverManager;

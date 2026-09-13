@@ -87,10 +87,10 @@ interface MoreCommandsButtonProps {
     selectedItemId?: string;
     itemId?: string;
     items?: ItemDto[] | null;
-    collectionId?: NullableString;
-    playlistId?: NullableString;
+    collectionId?: Exclude<NullableString, undefined>;
+    playlistId?: Exclude<NullableString, undefined>;
     canEditPlaylist?: boolean;
-    itemPlaylistItemId?: NullableString;
+    itemPlaylistItemId?: Exclude<NullableString, undefined>;
     contextMenuOpts?: ContextMenuOpts;
     queryKey?: string[];
 }

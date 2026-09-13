@@ -71,23 +71,21 @@ function getHtml(): string {
 }
 
 function setNextVideoText(this: UpNextDialog): void {
-    const instance = this;
+    const elem = this.options.parent;
 
-    const elem = instance.options.parent;
-
-    const secondsRemaining = Math.max(Math.round(getTimeRemainingMs(instance) / 1000), 0);
+    const secondsRemaining = Math.max(Math.round(getTimeRemainingMs(this) / 1000), 0);
 
     console.debug('up next seconds remaining: ' + secondsRemaining);
 
     const timeText = '<span class="upNextDialog-countdownText">' + globalize.translate('HeaderSecondsValue', String(secondsRemaining)) + '</span>';
 
     let nextVideoText: string;
-    if (instance.itemType === 'Episode') {
-        nextVideoText = instance.showStaticNextText ?
+    if (this.itemType === 'Episode') {
+        nextVideoText = this.showStaticNextText ?
             globalize.translate('HeaderNextEpisode') :
             globalize.translate('HeaderNextEpisodePlayingInValue', timeText);
     } else {
-        nextVideoText = instance.showStaticNextText ?
+        nextVideoText = this.showStaticNextText ?
             globalize.translate('HeaderNextVideo') :
             globalize.translate('HeaderNextVideoPlayingInValue', timeText);
     }
@@ -96,9 +94,7 @@ function setNextVideoText(this: UpNextDialog): void {
 }
 
 function fillItem(this: UpNextDialog, item: NextItem): void {
-    const instance = this;
-
-    const elem = instance.options.parent;
+    const elem = this.options.parent;
 
     elem.querySelector('.upNextDialog-mediainfo')!.innerHTML = mediaInfo.getPrimaryMediaInfoHtml(item, {
         criticRating: true,
@@ -114,9 +110,9 @@ function fillItem(this: UpNextDialog, item: NextItem): void {
 
     (elem.querySelector('.upNextDialog-title') as HTMLElement).innerText = title || '';
 
-    instance.itemType = item.Type;
+    this.itemType = item.Type;
 
-    instance.show();
+    this.show();
 }
 
 function clearCountdownTextTimeout(instance: UpNextDialog): void {
@@ -138,19 +134,25 @@ async function onStartNowClick(this: UpNextDialog): Promise<void> {
     }
 }
 
-async function init(instance: UpNextDialog, options: UpNextDialogOptions): Promise<void> {
-    instance.showStaticNextText = await showStaticNextText(options.nextItem);
+function init(instance: UpNextDialog, options: UpNextDialogOptions): void {
+    showStaticNextText(options.nextItem).then((showStatic) => {
+        instance.showStaticNextText = showStatic;
 
-    options.parent.innerHTML = getHtml();
+        options.parent.innerHTML = getHtml();
 
-    options.parent.classList.add('hide');
-    options.parent.classList.add('upNextDialog');
-    options.parent.classList.add('upNextDialog-hidden');
+        options.parent.classList.add('hide');
+        options.parent.classList.add('upNextDialog');
+        options.parent.classList.add('upNextDialog-hidden');
 
-    fillItem.call(instance, options.nextItem);
+        fillItem.call(instance, options.nextItem);
 
-    options.parent.querySelector('.btnHide')?.addEventListener('click', instance.hide.bind(instance));
-    options.parent.querySelector('.btnStartNow')?.addEventListener('click', onStartNowClick.bind(instance));
+        options.parent.querySelector('.btnHide')?.addEventListener('click', instance.hide.bind(instance));
+        options.parent.querySelector('.btnStartNow')?.addEventListener('click', onStartNowClick.bind(instance));
+    }).catch((error: unknown) => {
+        console.error('[upnextdialog] failed to initialize', error);
+        options.parent.innerHTML = '';
+        Events.trigger(instance, 'hide');
+    });
 }
 
 function clearHideAnimationEventListeners(instance: UpNextDialog, elem: HTMLElement): void {
@@ -162,24 +164,22 @@ function clearHideAnimationEventListeners(instance: UpNextDialog, elem: HTMLElem
 }
 
 function onHideAnimationComplete(this: UpNextDialog, e: Event): void {
-    const instance = this;
     const elem = e.target as HTMLElement;
 
     elem.classList.add('hide');
 
-    clearHideAnimationEventListeners(instance, elem);
-    Events.trigger(instance, 'hide');
+    clearHideAnimationEventListeners(this, elem);
+    Events.trigger(this, 'hide');
 }
 
 async function hideComingUpNext(this: UpNextDialog): Promise<void> {
-    const instance = this;
     clearCountdownTextTimeout(this);
 
-    if (!instance.options) {
+    if (!this.options) {
         return;
     }
 
-    const elem = instance.options.parent;
+    const elem = this.options.parent;
 
     if (!elem) {
         return;
@@ -191,8 +191,8 @@ async function hideComingUpNext(this: UpNextDialog): Promise<void> {
         return;
     }
 
-    const fn = onHideAnimationComplete.bind(instance);
-    instance._onHideAnimationComplete = fn;
+    const fn = onHideAnimationComplete.bind(this);
+    this._onHideAnimationComplete = fn;
 
     const transitionEvent = await new Promise<Event>((resolve) => {
         elem.addEventListener(transitionEndEventName, (event) => resolve(event), {
@@ -200,12 +200,12 @@ async function hideComingUpNext(this: UpNextDialog): Promise<void> {
         });
 
         // trigger a reflow to force it to animate again
-        void elem.offsetWidth;
+        elem.getBoundingClientRect();
 
         elem.classList.add('upNextDialog-hidden');
     });
 
-    instance._onHideAnimationComplete(transitionEvent);
+    this._onHideAnimationComplete(transitionEvent);
 }
 
 function getTimeRemainingMs(instance: UpNextDialog): number {
@@ -253,7 +253,7 @@ class UpNextDialog {
         this.options = options;
         this.showStaticNextText = false; // default to showing countdown text
 
-        init(this, options).catch(() => undefined);
+        init(this, options);
     }
 
     show(): void {
@@ -264,7 +264,7 @@ class UpNextDialog {
         elem.classList.remove('hide');
 
         // trigger a reflow to force it to animate again
-        void elem.offsetWidth;
+        elem.getBoundingClientRect();
 
         elem.classList.remove('upNextDialog-hidden');
 

@@ -281,7 +281,8 @@ public sealed class SetupServer : IDisposable
             () => _startupServer.StartAsync(),
             [config.InternalHttpPort],
             _loggerFactory.CreateLogger<SetupServer>(),
-            "Setup server").ConfigureAwait(false);
+            "Setup server",
+            () => _startupServer.StopAsync()).ConfigureAwait(false);
         IsAlive = true;
     }
 

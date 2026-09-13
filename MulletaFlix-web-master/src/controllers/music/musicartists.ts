@@ -99,7 +99,6 @@ export default function (this: MusicArtistsController, view: HTMLElement, params
     };
 
     const reloadItems = (): void => {
-        loading.show();
         isLoading = true;
         const query = getQuery();
         setFilterStatus(tabContent, query);
@@ -107,7 +106,7 @@ export default function (this: MusicArtistsController, view: HTMLElement, params
         const promise = options.mode == 'albumartists' ?
             ApiClient.getAlbumArtists(ApiClient.getCurrentUserId(), query as unknown as Record<string, unknown>) :
             ApiClient.getArtists(ApiClient.getCurrentUserId(), query as unknown as Record<string, unknown>);
-        promise.then((result: ItemDtoQueryResult) => {
+        void loading.withLoading(() => promise.then((result: ItemDtoQueryResult) => {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -186,14 +185,12 @@ export default function (this: MusicArtistsController, view: HTMLElement, params
 
             const itemsContainer = tabContent.querySelector('.itemsContainer');
             if (!itemsContainer) {
-                loading.hide();
                 isLoading = false;
                 return;
             }
             itemsContainer.innerHTML = html;
             imageLoader.lazyChildren(itemsContainer);
             userSettings.saveQuerySettings(getSavedQueryKey(), query as unknown as Record<string, unknown>);
-            loading.hide();
             isLoading = false;
 
             void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
@@ -201,9 +198,8 @@ export default function (this: MusicArtistsController, view: HTMLElement, params
             }).catch((error: unknown) => console.error('[MusicArtists] failed to focus page', error));
         }).catch((error: unknown) => {
             console.error('[MusicArtists] failed to load artists', error);
-            loading.hide();
             isLoading = false;
-        });
+        }));
     };
 
     const data: Record<string, PageData> = {};

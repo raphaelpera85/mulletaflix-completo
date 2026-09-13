@@ -3,12 +3,15 @@ import React, { type FC, memo } from 'react';
 import { useUserSettings } from 'hooks/useUserSettings';
 import { useBrandingOptions } from 'apps/dashboard/features/branding/api/useBrandingOptions';
 
-const importPattern = /@import\s+(?:url\()?\s*['"]?([^'")\s;]+)['"]?\s*\)?\s*;?/gi;
+const importPattern = /@import\b[^;]*(?:;|$)/gi;
+const importUrlPattern = /url\(\s*["']?([^"')\s]+)["']?\s*\)|["']([^"']+)["']/i;
 
 function splitCustomCss(css: string) {
     const importedUrls: string[] = [];
-    const remainingCss = css.replace(importPattern, (_match, url: string) => {
-        if (!importedUrls.includes(url)) {
+    const remainingCss = css.replace(importPattern, importStatement => {
+        const urlMatch = importUrlPattern.exec(importStatement);
+        const url = urlMatch?.[1] || urlMatch?.[2];
+        if (url && !importedUrls.includes(url)) {
             importedUrls.push(url);
         }
 

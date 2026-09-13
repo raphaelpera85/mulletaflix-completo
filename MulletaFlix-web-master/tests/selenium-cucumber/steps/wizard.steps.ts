@@ -4,21 +4,6 @@ const { ADMIN_USER, ADMIN_PASSWORD } = require('../support/config');
 const { By, completeWizardSetup, openLogin, openStage, selectVisibleOption, stagePublicInfo, waitForVisible } = require('../support/stage');
 const { waitForVisibleCss } = require('../support/app');
 
-async function submitForm(driver, selector) {
-    await driver.executeScript(`
-        const form = document.querySelector(${JSON.stringify(selector)});
-        if (!form) {
-            throw new Error('Form not found: ${selector}');
-        }
-
-        if (typeof form.requestSubmit === 'function') {
-            form.requestSubmit();
-        } else {
-            form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-        }
-    `);
-}
-
 Given('the stage is clean', async function () {
     assert.equal(this.stageInfo?.StartupWizardCompleted, false);
 });

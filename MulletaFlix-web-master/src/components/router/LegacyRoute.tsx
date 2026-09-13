@@ -1,6 +1,6 @@
-import React from 'react';
-
-import ViewManagerPage, { ViewManagerPageProps } from '../viewManager/ViewManagerPage';
+import ViewManagerPage, {
+    type ViewManagerPageProps
+} from '../viewManager/ViewManagerPage';
 
 export interface LegacyRoute {
     path: string,

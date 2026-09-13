@@ -42,9 +42,12 @@ export const Component = () => {
     const actionData = useActionData() as ActionData | undefined;
     const isSubmitting = navigation.state === 'submitting';
 
-    const { isPending: isConfigurationPending, isError: isConfigurationError, data: defaultConfiguration } = useConfiguration();
+    const { isPending: isConfigurationPending, isError: isConfigurationError, data: defaultConfiguration, refetch } = useConfiguration();
+    const handleRetry = React.useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
-    if (isConfigurationPending) {
+    if (isConfigurationPending && !isConfigurationError) {
         return <Loading />;
     }
 
@@ -57,7 +60,16 @@ export const Component = () => {
             <Box className='content-primary'>
                 <Form method='POST'>
                     {isConfigurationError ? (
-                        <Alert severity='error'>{globalize.translate('StreamingLoadError')}</Alert>
+                        <Alert
+                            severity='error'
+                            action={
+                                <Button color='inherit' size='small' onClick={handleRetry}>
+                                    {globalize.translate('Retry')}
+                                </Button>
+                            }
+                        >
+                            {globalize.translate('StreamingLoadError')}
+                        </Alert>
                     ) : (
                         <Stack spacing={3}>
                             <Typography variant='h1'>
@@ -100,4 +112,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'StreamingPage';
-

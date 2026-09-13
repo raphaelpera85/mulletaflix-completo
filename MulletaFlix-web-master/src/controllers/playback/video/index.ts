@@ -678,6 +678,8 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         if (currentVisibleMenu === 'upnext') {
             currentVisibleMenu = null;
         }
+
+        currentUpNextDialog = null;
     }
 
     function showComingUpNext(player: any) {
@@ -926,6 +928,13 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
                 btnNextTrack.classList.remove('hide');
                 btnPreviousTrack.disabled = false;
                 btnNextTrack.disabled = false;
+            } else {
+                const btnPreviousTrack = view.querySelector('.btnPreviousTrack') as HTMLButtonElement;
+                const btnNextTrack = view.querySelector('.btnNextTrack') as HTMLButtonElement;
+                btnPreviousTrack.classList.add('hide');
+                btnNextTrack.classList.add('hide');
+                btnPreviousTrack.disabled = true;
+                btnNextTrack.disabled = true;
             }
         } catch (err) {
             console.error('[VideoPlayer] failed to get playlist', err);
@@ -953,6 +962,10 @@ export default function (this: { touchHelper?: { destroy(): void } }, view: HTML
         const state = playbackManager.getPlayerState(currentPlayer);
         const playState = state.PlayState;
         const nowPlayingItem = state.NowPlayingItem;
+        if (!playState || !nowPlayingItem) {
+            return;
+        }
+
         updateTimeDisplay(playState.PositionTicks, nowPlayingItem.RunTimeTicks, playState.PlaybackStartTimeTicks, playState.PlaybackRate, playState.BufferedRanges || []);
     }
 

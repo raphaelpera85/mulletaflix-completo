@@ -124,7 +124,7 @@
     <playcount>0</playcount>
     <lastplayed></lastplayed>
     <episodeguide>
-        <url cache="tmdb-46639-en.json">http://api.themoviedb.org/3/tv/46639?api_key=6a5be4999abf74eba1f9a8311294c267&amp;language=en</url>
+        <url cache="tmdb-46639-en.json">https://api.themoviedb.org/3/tv/46639?api_key=TEST_KEY&amp;language=en</url>
     </episodeguide>
     <id IMDB="tt11111" TMDB="46639">253573</id>
     <uniqueid type="tmdb" default="true">46639</uniqueid>

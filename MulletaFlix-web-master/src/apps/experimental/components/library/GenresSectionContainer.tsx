@@ -4,12 +4,13 @@ import { ImageType } from '@jellyfin/sdk/lib/generated-client/models/image-type'
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
 import { ItemSortBy } from '@jellyfin/sdk/lib/generated-client/models/item-sort-by';
 import { SortOrder } from '@jellyfin/sdk/lib/generated-client/models/sort-order';
-import React, { type FC } from 'react';
+import React, { type FC, useCallback } from 'react';
 
 import { CardShape } from 'components/cardbuilder/utils/shape';
 import { useApi } from 'hooks/useApi';
 import { useGetItems } from 'hooks/useFetchItems';
 import Loading from 'components/loading/LoadingComponent';
+import LoadErrorMessage from 'components/common/LoadErrorMessage';
 import { appRouter } from 'components/router/appRouter';
 import SectionContainer from 'components/common/SectionContainer';
 import type { ParentId } from 'types/library';
@@ -48,7 +49,10 @@ const GenresSectionContainer: FC<GenresSectionContainerProps> = ({
         };
     };
 
-    const { isLoading, data: itemsResult } = useGetItems(getParametersOptions());
+    const { isLoading, isError, refetch, data: itemsResult } = useGetItems(getParametersOptions());
+    const handleRetry = useCallback(() => {
+        refetch().catch(() => undefined);
+    }, [refetch]);
 
     const getRouteUrl = (item: ItemDto) => {
         return appRouter.getRouteUrl(item, {
@@ -56,6 +60,8 @@ const GenresSectionContainer: FC<GenresSectionContainerProps> = ({
             parentId: parentId
         });
     };
+
+    if (isError) return <LoadErrorMessage onRetry={handleRetry} />;
 
     if (isLoading) {
         return <Loading />;
@@ -83,4 +89,3 @@ const GenresSectionContainer: FC<GenresSectionContainerProps> = ({
 };
 
 export default GenresSectionContainer;
-

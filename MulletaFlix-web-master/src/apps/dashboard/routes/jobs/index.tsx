@@ -16,6 +16,7 @@ import Typography from '@mui/material/Typography';
 import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
 import toast from 'components/toast/toast';
+import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import type { ApiClient } from 'jellyfin-apiclient';
 import { queryClient } from 'utils/query/queryClient';
@@ -179,7 +180,9 @@ const JobsPage = () => {
     const {
         data,
         isLoading,
-        error
+        error,
+        refetch,
+        isRefetching
     } = useQuery({
         queryKey: QUERY_KEY,
         queryFn: async () => {
@@ -227,8 +230,11 @@ const JobsPage = () => {
     }, []);
     const handleCancelAll = React.useCallback(() => cancelAllMutation.mutate(), [cancelAllMutation]);
     const handleJobCancel = React.useCallback((id: string) => cancelMutation.mutate(id), [cancelMutation]);
+    const handleRetry = React.useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
-    if (isLoading) {
+    if (isLoading && !error) {
         return <Loading />;
     }
 
@@ -274,7 +280,23 @@ const JobsPage = () => {
                     </Stack>
                 </Stack>
 
-                {error && <Alert severity='error'>{getErrorMessage(error)}</Alert>}
+                {error && (
+                    <Alert
+                        severity='error'
+                        action={
+                            <Button
+                                color='inherit'
+                                size='small'
+                                disabled={isRefetching}
+                                onClick={handleRetry}
+                            >
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
+                    >
+                        {getErrorMessage(error)}
+                    </Alert>
+                )}
 
                 {data && (
                     <>

@@ -1,0 +1,1 @@
+import{r as a}from"./vendor-react-CeUY3tRn.js";import{u as o,q as u}from"./index-CFwqrzSZ.js";import{u as i,Q as p}from"./useTasks-chEfLs4B.js";import{O as c}from"./vendor-jellyfin-Bee54tkY.js";const k=e=>{const{api:s}=o(),r=i(e);return a.useEffect(()=>s?.subscribe([c.ScheduledTasksInfo],({Data:t})=>{u.setQueryData([p,s?.basePath],t??[])}),[s]),r};export{k as u};

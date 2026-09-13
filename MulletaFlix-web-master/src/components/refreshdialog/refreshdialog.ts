@@ -77,8 +77,6 @@ function centerFocus(elem: Element | null, horiz: boolean, on: boolean): void {
 }
 
 function onSubmit(this: RefreshDialog, e: Event): void {
-    loading.show();
-
     const dlg = dom.parentWithClass(e.target as HTMLElement, 'dialog')!;
     const options = this.options;
 
@@ -90,17 +88,18 @@ function onSubmit(this: RefreshDialog, e: Event): void {
     const replaceAllImages = mode === 'FullRefresh' && (dlg.querySelector('.chkReplaceImages') as HTMLInputElement).checked;
     const replaceTrickplayImages = mode === 'FullRefresh' && (dlg.querySelector('.chkReplaceTrickplayImages') as HTMLInputElement).checked;
 
-    const refreshTasks = options.itemIds.map(function (itemId: string) {
-        return apiClient.refreshItem(itemId, {
-            Recursive: true,
-            ImageRefreshMode: mode,
-            MetadataRefreshMode: mode,
-            ReplaceAllImages: replaceAllImages,
-            RegenerateTrickplay: replaceTrickplayImages,
-            ReplaceAllMetadata: replaceAllMetadata
+    void loading.withLoading(async () => {
+        const refreshTasks = options.itemIds.map(function (itemId: string) {
+            return apiClient.refreshItem(itemId, {
+                Recursive: true,
+                ImageRefreshMode: mode,
+                MetadataRefreshMode: mode,
+                ReplaceAllImages: replaceAllImages,
+                RegenerateTrickplay: replaceTrickplayImages,
+                ReplaceAllMetadata: replaceAllMetadata
+            });
         });
-    });
-    void Promise.allSettled(refreshTasks).then((results) => {
+        const results = await Promise.allSettled(refreshTasks);
         const failures = results.filter((result) => result.status === 'rejected');
         if (failures.length > 0) {
             console.error(`[RefreshDialog] failed to refresh ${failures.length} item(s)`, failures);
@@ -110,8 +109,6 @@ function onSubmit(this: RefreshDialog, e: Event): void {
     dialogHelper.close(dlg);
 
     toast(globalize.translate('RefreshQueued'));
-
-    loading.hide();
 
     e.preventDefault();
 }

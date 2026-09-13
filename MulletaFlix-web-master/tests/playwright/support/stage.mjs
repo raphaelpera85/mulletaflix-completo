@@ -13,8 +13,17 @@ export const STAGE_ROUTES = {
     home: '/home'
 };
 
+function stripTrailingSlashes(value) {
+    let end = value.length;
+    while (end > 0 && value[end - 1] === '/') {
+        end--;
+    }
+
+    return value.slice(0, end);
+}
+
 function normalizeBaseUrl(baseUrl) {
-    return String(baseUrl || DEFAULT_STAGE_BASE_URL).replace(/\/+$/, '');
+    return stripTrailingSlashes(String(baseUrl || DEFAULT_STAGE_BASE_URL));
 }
 
 function normalizeRoute(route = '/') {
@@ -35,7 +44,7 @@ export function getStageBaseUrl() {
 }
 
 export function getStageClientIndexUrl() {
-    return String(process.env.PW_STAGE_CLIENT_INDEX || DEFAULT_STAGE_CLIENT_INDEX).replace(/\/+$/, '');
+    return stripTrailingSlashes(String(process.env.PW_STAGE_CLIENT_INDEX || DEFAULT_STAGE_CLIENT_INDEX));
 }
 
 export function resolveStageUrl(route = '/') {

@@ -1,6 +1,6 @@
 import cardBuilder from '../../components/cardbuilder/cardBuilder';
 import imageLoader from '../../components/images/imageLoader';
-import loading from '../../components/loading/loading';
+import { withLoading } from '../../components/loading/loading';
 import type { ItemDto } from '../../types/base/models/item-dto';
 import '../../elements/emby-button/paper-icon-button-light';
 import '../../elements/emby-button/emby-button';
@@ -42,15 +42,13 @@ function renderTimers(context: HTMLElement, timers: ItemDto[]): void {
     const elem = context.querySelector('#items') as HTMLElement;
     elem.innerHTML = html;
     imageLoader.lazyChildren(elem);
-    loading.hide();
 }
 
 function reload(context: HTMLElement, promise: Promise<LiveTvSeriesTimersResponse>): void {
-    loading.show();
-    promise.then(function (result: LiveTvSeriesTimersResponse): void {
+    void withLoading(async () => {
+        const result = await promise;
         renderTimers(context, result.Items);
     }).catch((error: unknown) => {
-        loading.hide();
         console.error('[LiveTvSeriesTimers] failed to load timers', error);
     });
 }

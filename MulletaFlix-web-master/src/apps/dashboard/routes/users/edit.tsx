@@ -4,6 +4,7 @@ import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
@@ -21,13 +22,17 @@ export const Component = () => {
         Promise.resolve(navigate(to)).catch((error: unknown) => console.error('[users-edit] failed to navigate', error));
     }, [navigate]);
     const { userId, tab } = useParams();
-    const { data: user, isPending, isError } = useUser({ userId });
+    const { data: user, isPending, isError, refetch } = useUser({ userId });
+
+    const retryLoad = useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
     const handleTabChange = useCallback((event: React.SyntheticEvent, newValue: UserTab) => {
         navigateSafely(`/dashboard/users/${userId}/${newValue}`);
     }, [ navigateSafely, userId ]);
 
-    if (isPending) return <Loading />;
+    if (isPending && !isError) return <Loading />;
 
     if (tab === UserTab.License) {
         return <Navigate to='/dashboard/users/licenses' replace />;
@@ -39,10 +44,15 @@ export const Component = () => {
             className='mainAnimatedPage type-interior'
         >
             <Box className='content-primary'>
-                {isError ? (
+                {isError || !user ? (
                     <Alert
                         severity='error'
                         sx={{ marginBottom: 2 }}
+                        action={
+                            <Button color='inherit' size='small' onClick={retryLoad}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
                     >
                         {globalize.translate('UsersEditPageError')}
                     </Alert>

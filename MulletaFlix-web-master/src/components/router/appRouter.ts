@@ -12,7 +12,7 @@ import { getItemQuery } from 'hooks/useItem';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { toApi } from 'utils/jellyfin-apiclient/compat';
 import { queryClient } from 'utils/query/queryClient';
-import { history } from 'RootAppRouter';
+import { HISTORY_READY_EVENT, history } from './routerHistory';
 
 /** Pages of "no return" (when "Go back" should behave differently, probably quitting the application). */
 const START_PAGE_PATHS = ['/home', '/login', '/selectserver'];
@@ -77,11 +77,15 @@ class AppRouter {
     resolveOnNextShow: (() => void) | null = null;
     lastPath: string;
     baseRoute: string;
+    private isListening = false;
 
     constructor() {
         document.addEventListener('viewshow', () => this.onViewShow());
 
-        this.lastPath = history.location.pathname + history.location.search;
+        this.lastPath = history ?
+            history.location.pathname + history.location.search :
+            `${window.location.pathname}${window.location.search}`;
+        document.addEventListener(HISTORY_READY_EVENT, () => this.listen(), { once: true });
         this.listen();
 
         // TODO: Can this baseRoute logic be simplified?
@@ -145,6 +149,9 @@ class AppRouter {
     }
 
     listen(): void {
+        if (!history || this.isListening) return;
+
+        this.isListening = true;
         history.listen(({ location }) => {
             const normalizedPath = location.pathname.replace(/^!/, '');
             const fullPath = normalizedPath + location.search;

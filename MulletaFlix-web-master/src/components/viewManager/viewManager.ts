@@ -44,9 +44,12 @@ viewContainer.setOnBeforeChange(function (newView: HTMLElement & { initComplete?
         newView.initComplete = true;
 
         if (typeof options.controllerFactory === 'function') {
-            // eslint-disable-next-line new-cap
+            // The legacy controller constructor initializes the view through side effects.
+            // eslint-disable-next-line new-cap, sonarjs/constructor-for-side-effects
             new options.controllerFactory(newView, eventDetail.detail.params!);
         } else if (options.controllerFactory && typeof (options.controllerFactory as { default: unknown }).default === 'function') {
+            // The legacy controller constructor initializes the view through side effects.
+            // eslint-disable-next-line sonarjs/constructor-for-side-effects
             new (options.controllerFactory as { default: new (view: HTMLElement, params: Record<string, string>) => void }).default(newView, eventDetail.detail.params!);
         }
 

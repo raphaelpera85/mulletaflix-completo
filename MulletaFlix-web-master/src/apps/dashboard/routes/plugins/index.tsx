@@ -62,7 +62,8 @@ export const Component = () => {
     const {
         data: pluginDetails,
         isError,
-        isPending
+        isPending,
+        refetch
     } = usePluginDetails();
     const [ category, setCategory ] = useSearchParam(CATEGORY_PARAM);
     const [ searchQuery, setSearchQuery ] = useSearchParam(QUERY_PARAM);
@@ -88,6 +89,9 @@ export const Component = () => {
     const onShowIncompatible = useCallback(() => setCompatibility('incompatible'), [ setCompatibility ]);
     const onClearCompatibility = useCallback(() => setCompatibility(''), [ setCompatibility ]);
     const onClearCategory = useCallback(() => setCategory(''), [ setCategory ]);
+    const onRetry = useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
     const onCategoryClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
         setCategory(event.currentTarget.dataset.category || '');
     }, [ setCategory ]);
@@ -129,7 +133,7 @@ export const Component = () => {
         }
     }, [ category, compatibility, pluginDetails, searchQuery, status ]);
 
-    if (isPending) {
+    if (isPending && !isError) {
         return <Loading />;
     }
 
@@ -202,6 +206,11 @@ export const Component = () => {
                         <Alert
                             severity='error'
                             sx={{ marginBottom: 2 }}
+                            action={
+                                <Button color='inherit' size='small' onClick={onRetry}>
+                                    {globalize.translate('Retry')}
+                                </Button>
+                            }
                         >
                             {globalize.translate('PluginsLoadError')}
                         </Alert>

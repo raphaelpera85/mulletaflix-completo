@@ -46,7 +46,6 @@ function enableScrollX(): boolean {
 }
 
 function loadLatest(page: HTMLElement, parentId: string): void {
-    loading.show();
     const userId = ApiClient.getCurrentUserId();
     const options = {
         IncludeItemTypes: 'Audio',
@@ -57,10 +56,9 @@ function loadLatest(page: HTMLElement, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getJSON(ApiClient.getUrl('Users/' + userId + '/Items/Latest', options)).then(function (items: ItemDto[]) {
+    void loading.withLoading(() => ApiClient.getJSON<ItemDto[]>(ApiClient.getUrl('Users/' + userId + '/Items/Latest', options)).then(function (items: ItemDto[]) {
         const elem = page.querySelector('#recentlyAddedSongs');
         if (!elem) {
-            loading.hide();
             return;
         }
         elem.innerHTML = cardBuilder.getCardsHtml({
@@ -78,15 +76,13 @@ function loadLatest(page: HTMLElement, parentId: string): void {
             coverImage: true
         });
         imageLoader.lazyChildren(elem);
-        loading.hide();
 
         void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(page);
         }).catch((error: unknown) => console.error('[MusicRecommended] failed to focus page', error));
     }).catch((error: unknown) => {
         console.error('[MusicRecommended] failed to load latest songs', error);
-        loading.hide();
-    });
+    }));
 }
 
 function loadRecentlyPlayed(page: HTMLElement, parentId: string): void {
@@ -103,7 +99,7 @@ function loadRecentlyPlayed(page: HTMLElement, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getItems(ApiClient.getCurrentUserId(), options).then(function (result: ItemDtoQueryResult) {
+    void loading.withLoading(() => ApiClient.getItems(ApiClient.getCurrentUserId(), options).then(function (result: ItemDtoQueryResult) {
         const elem = page.querySelector('#recentlyPlayed');
         if (!elem) {
             return;
@@ -135,7 +131,7 @@ function loadRecentlyPlayed(page: HTMLElement, parentId: string): void {
             coverImage: true
         });
         imageLoader.lazyChildren(itemsContainer);
-    }).catch((error: unknown) => console.error('[MusicRecommended] failed to load recently played songs', error));
+    }).catch((error: unknown) => console.error('[MusicRecommended] failed to load recently played songs', error)));
 }
 
 function loadFrequentlyPlayed(page: HTMLElement, parentId: string): void {
@@ -152,7 +148,7 @@ function loadFrequentlyPlayed(page: HTMLElement, parentId: string): void {
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    ApiClient.getItems(ApiClient.getCurrentUserId(), options).then(function (result: ItemDtoQueryResult) {
+    void loading.withLoading(() => ApiClient.getItems(ApiClient.getCurrentUserId(), options).then(function (result: ItemDtoQueryResult) {
         const elem = page.querySelector('#topPlayed');
         if (!elem) {
             return;
@@ -184,7 +180,7 @@ function loadFrequentlyPlayed(page: HTMLElement, parentId: string): void {
             coverImage: true
         });
         imageLoader.lazyChildren(itemsContainer);
-    }).catch((error: unknown) => console.error('[MusicRecommended] failed to load frequently played songs', error));
+    }).catch((error: unknown) => console.error('[MusicRecommended] failed to load frequently played songs', error)));
 }
 
 function loadSuggestionsTab(page: HTMLElement, tabContent: HTMLElement, parentId: string): void {
@@ -254,7 +250,6 @@ interface RecommendedController extends TabController {
 
 export default function (this: RecommendedController, view: HTMLElement, params: { topParentId: string; tab?: string }) {
     function reload(): void {
-        loading.show();
         const tabContent = view.querySelector(".pageTabContent[data-index='" + suggestionsTabIndex + "']") as HTMLElement;
         loadSuggestionsTab(view, tabContent, params.topParentId);
     }

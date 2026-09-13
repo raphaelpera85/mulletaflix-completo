@@ -1,6 +1,7 @@
-import React, { type FC } from 'react';
+import React, { type FC, useCallback } from 'react';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 import Loading from 'components/loading/LoadingComponent';
+import LoadErrorMessage from 'components/common/LoadErrorMessage';
 import { CardShape } from 'components/cardbuilder/utils/shape';
 import SearchResultsRow from './SearchResultsRow';
 import globalize from 'lib/globalize';
@@ -23,8 +24,13 @@ const SearchResults: FC<SearchResultsProps> = ({
     collectionType,
     query
 }) => {
-    const { data, isPending } = useSearchItems(parentId, collectionType, query?.trim());
+    const { data, isPending, isError, refetch } = useSearchItems(parentId, collectionType, query?.trim());
     const scopeLabel = getSearchScopeLabel(parentId, collectionType);
+    const handleRetry = useCallback(() => {
+        refetch().catch(() => undefined);
+    }, [refetch]);
+
+    if (isError) return <LoadErrorMessage onRetry={handleRetry} />;
 
     if (isPending) return <Loading />;
 
@@ -79,4 +85,3 @@ const SearchResults: FC<SearchResultsProps> = ({
 };
 
 export default SearchResults;
-

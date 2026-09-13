@@ -1,7 +1,7 @@
 import cardBuilder from 'components/cardbuilder/cardBuilder';
 import { getBackdropShape } from 'components/cardbuilder/utils/shape';
 import imageLoader from 'components/images/imageLoader';
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import type { ItemDto } from 'types/base/models/item-dto';
 import Dashboard from 'utils/dashboard';
 
@@ -72,34 +72,25 @@ function renderRecordings(
     imageLoader.lazyChildren(recordingItems);
 }
 
-function renderLatestRecordings(
+async function renderLatestRecordings(
     context: HTMLElement,
     promise: Promise<LiveTvItemsResult>
-): void {
-    promise.then(function (result) {
-        renderRecordings(context.querySelector('#latestRecordings'), result.Items, {
-            showYear: true,
-            lines: 2
-        }, false);
-        loading.hide();
-    }).catch((error: unknown) => {
-        loading.hide();
-        console.error('[LiveTvRecordings] failed to load latest recordings', error);
-    });
+): Promise<void> {
+    const result = await promise;
+    renderRecordings(context.querySelector('#latestRecordings'), result.Items, {
+        showYear: true,
+        lines: 2
+    }, false);
 }
 
-function renderRecordingFolders(
+async function renderRecordingFolders(
     context: HTMLElement,
     promise: Promise<LiveTvItemsResult>
-): void {
-    promise.then(function (result) {
-        renderRecordings(context.querySelector('#recordingFolders'), result.Items, {
-            showYear: false,
-            showParentTitle: false
-        }, false);
-    }).catch((error: unknown) => {
-        loading.hide();
-        console.error('[LiveTvRecordings] failed to load recording folders', error);
+): Promise<void> {
+    const result = await promise;
+    renderRecordings(context.querySelector('#recordingFolders'), result.Items, {
+        showYear: false,
+        showParentTitle: false
     });
 }
 
@@ -148,9 +139,10 @@ export default function (this: LiveTvRecordingsController, view: HTMLElement, pa
 
     this.renderTab = function (): void {
         if (enableFullRender()) {
-            loading.show();
-            renderLatestRecordings(tabContent, latestPromise);
-            renderRecordingFolders(tabContent, foldersPromise);
+            void withLoading(() => Promise.all([
+                renderLatestRecordings(tabContent, latestPromise),
+                renderRecordingFolders(tabContent, foldersPromise)
+            ])).catch((error: unknown) => console.error('[LiveTvRecordings] failed to load recordings', error));
             lastFullRender = new Date().getTime();
         }
     };

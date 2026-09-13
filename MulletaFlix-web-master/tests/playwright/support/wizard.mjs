@@ -38,7 +38,9 @@ export async function completeWizard(page, { adminUser, adminPassword, serverNam
     await wizardStartPage.locator('.wizardStartForm .button-submit').click();
     await page.waitForURL(/\/wizard\/user$/i, { timeout: 30_000 });
     await expect(wizardUserPage).toBeVisible({ timeout: 30_000 });
-    await expect(wizardUserPage.locator('#txtUsername')).toHaveValue(adminUser, { timeout: 30_000 });
+    const usernameInput = wizardUserPage.locator('#txtUsername');
+    await setInputValue(usernameInput, adminUser);
+    await expect(usernameInput).toHaveValue(adminUser, { timeout: 30_000 });
 
     await setInputValue(wizardUserPage.locator('#txtManualPassword'), adminPassword);
     await setInputValue(wizardUserPage.locator('#txtPasswordConfirm'), adminPassword);

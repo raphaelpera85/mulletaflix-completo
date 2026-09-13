@@ -11,7 +11,7 @@ async function mirrorIfEnabled(serverId: string, itemId: string) {
 
         if (playerInfo && !playerInfo.isLocalPlayer && playerInfo.supportedCommands.indexOf('DisplayContent') !== -1) {
             const apiClient = ServerConnections.getApiClient(serverId);
-            const api = toApi(apiClient as any);
+            const api = toApi(apiClient as never);
             const userId = apiClient.getCurrentUserId();
 
             try {
@@ -38,4 +38,3 @@ document.addEventListener('viewshow', e => {
         void mirrorIfEnabled(serverId, id);
     }
 });
-

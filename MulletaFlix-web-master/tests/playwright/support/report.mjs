@@ -9,6 +9,14 @@ function formatDate(value) {
     return new Date(value).toISOString();
 }
 
+function formatWizardStatus(value) {
+    if (typeof value !== 'boolean') {
+        return 'n/a';
+    }
+
+    return value ? 'true' : 'false';
+}
+
 function getConclusion(summary) {
     if (summary.status === 'no-specs') {
         return 'Infraestrutura pronta, mas ainda não há specs Playwright no diretório configurado.';
@@ -57,7 +65,7 @@ export function buildMarkdownReport(summary) {
         '## Probe do Stage',
         '',
         `- Acessível: ${report.stageProbe.reachable ? 'sim' : 'não'}`,
-        `- StartupWizardCompleted: ${typeof report.stageProbe.startupWizardCompleted === 'boolean' ? (report.stageProbe.startupWizardCompleted ? 'true' : 'false') : 'n/a'}`,
+        `- StartupWizardCompleted: ${formatWizardStatus(report.stageProbe.startupWizardCompleted)}`,
         report.stageProbe.error ? `- Erro: ${report.stageProbe.error}` : null,
         '',
         '## Conclusão',

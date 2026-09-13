@@ -19,47 +19,65 @@ import {
     SERIES_LIBRARY
 } from '../support/media-library.mjs';
 
+function getLibraryRoute(library, folderId) {
+    const route = library.route || (library.type === 'tvshows' ? 'tv' : library.type);
+    return `/${route}?topParentId=${folderId}&collectionType=${library.type}`;
+}
+
+function getLibraryPageSelector(library) {
+    return library.type === 'tvshows' ? '#tvshowsPage' : '#moviesPage';
+}
+
+async function assertFallbackLibrary(page, library) {
+    const folder = await getVirtualFolderByLibrary(page, library);
+    const folderId = folder?.ItemId || folder?.Id;
+    expect(folderId).toBeTruthy();
+    if (!folderId) {
+        return;
+    }
+
+    await navigateStage(page, getLibraryRoute(library, folderId));
+    const pageSelector = getLibraryPageSelector(library);
+    await expect(page.locator(pageSelector)).toBeVisible({ timeout: 30_000 });
+
+    const cards = page.locator(`${pageSelector} .card`);
+    if (await cards.count() > 0) {
+        await expect(cards.first()).toBeVisible({ timeout: 60_000 });
+    }
+
+    await navigateStage(page, '/home');
+}
+
+async function assertHomeLibrarySection(page, library) {
+    const aliases = library.aliases?.length ?
+        library.aliases.map(alias => alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') :
+        library.name;
+    const section = page.locator('.homePage .verticalSection').filter({ hasText: new RegExp(aliases, 'i') }).first();
+    await section.scrollIntoViewIfNeeded();
+    await expect(section).toBeVisible({ timeout: 30_000 });
+
+    const cards = section.locator('.card');
+    if (await cards.count() > 0) {
+        await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+    }
+}
+
+async function assertHomeLibrary(page, library) {
+    const libraryButton = page.locator(`#indexPage a[href*="collectionType=${library.type}"]`).first();
+    if (!(await libraryButton.isVisible({ timeout: 8_000 }).catch(() => false))) {
+        await assertFallbackLibrary(page, library);
+        return;
+    }
+
+    await assertHomeLibrarySection(page, library);
+}
+
 async function assertHomeShowsLibrariesAndCarousels(page, libraries) {
     await navigateStage(page, '/home');
     await expect(page.locator('#indexPage')).toBeVisible({ timeout: 30_000 });
 
     for (const library of libraries) {
-        const libraryButton = page.locator(`#indexPage a[href*="collectionType=${library.type}"]`).first();
-        if (await libraryButton.isVisible({ timeout: 8_000 }).catch(() => false)) {
-            continue;
-        }
-
-        const folder = await getVirtualFolderByLibrary(page, library);
-        expect(folder?.ItemId || folder?.Id).toBeTruthy();
-    }
-
-    for (const library of libraries) {
-        const libraryButton = page.locator(`#indexPage a[href*="collectionType=${library.type}"]`).first();
-        if (!(await libraryButton.isVisible().catch(() => false))) {
-            const folder = await getVirtualFolderByLibrary(page, library);
-            const folderId = folder?.ItemId || folder?.Id;
-            if (folderId) {
-                await navigateStage(page, `/${library.route || (library.type === 'tvshows' ? 'tv' : library.type)}?topParentId=${folderId}&collectionType=${library.type}`);
-                await expect(page.locator(library.type === 'tvshows' ? '#tvshowsPage' : '#moviesPage')).toBeVisible({ timeout: 30_000 });
-                const cards = page.locator(`${library.type === 'tvshows' ? '#tvshowsPage' : '#moviesPage'} .card`);
-                if (await cards.count() > 0) {
-                    await expect(cards.first()).toBeVisible({ timeout: 60_000 });
-                }
-            }
-            await navigateStage(page, '/home');
-            continue;
-        }
-
-        const section = page.locator('.homePage .verticalSection').filter({
-            hasText: library.aliases?.length ? new RegExp(library.aliases.map(alias => alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'i') : library.name
-        }).first();
-        await section.scrollIntoViewIfNeeded();
-        await expect(section).toBeVisible({ timeout: 30_000 });
-
-        const cards = section.locator('.card');
-        if (await cards.count() > 0) {
-            await expect(cards.first()).toBeVisible({ timeout: 30_000 });
-        }
+        await assertHomeLibrary(page, library);
     }
 }
 

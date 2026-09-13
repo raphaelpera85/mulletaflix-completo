@@ -282,9 +282,8 @@ export class BookPlayer {
         this.cancellationToken = false;
         this.loaded = false;
 
-        loading.show();
         const elem = this.createMediaElement();
-        return this.setCurrentSrc(elem, options);
+        return loading.withLoading(() => this.setCurrentSrc(elem, options));
     }
 
     stop(): void {
@@ -632,16 +631,17 @@ export class BookPlayer {
             icon.classList.add(Screenfull.isFullscreen ? 'fullscreen' : 'fullscreen_exit');
             Screenfull.toggle()?.catch(() => undefined);
         } else if (window.NativeShell) {
+            const nativeShell = window.NativeShell;
             if (this.fullscreen) {
                 icon.classList.remove('fullscreen_exit');
                 icon.classList.add('fullscreen');
                 buttons.classList.remove('fullscreen');
-                window.NativeShell.disableFullscreen();
+                nativeShell.disableFullscreen?.();
             } else {
                 icon.classList.remove('fullscreen');
                 icon.classList.add('fullscreen_exit');
                 buttons.classList.add('fullscreen');
-                window.NativeShell.enableFullscreen();
+                nativeShell.enableFullscreen?.();
             }
         }
 
@@ -1037,7 +1037,8 @@ export class BookPlayer {
 
         return new Promise((resolve, reject) => {
             void import('epubjs').then(({ default: epubjs }) => {
-                this.epubjs = epubjs;
+                const epubModule = epubjs as EpubJsModule;
+                this.epubjs = epubModule;
                 const api = toApi(ServerConnections.getApiClient(item) as never);
                 // The BookReader endpoint requires authentication, but epubjs fetches the URL
                 // with a plain request (no X-Emby-Token header). Append ApiKey so the fetch is
@@ -1045,7 +1046,7 @@ export class BookPlayer {
                 const bookReaderHref = api.getUri(`BookReader/Items/${item.Id}/BookReader/Epub`, {
                     ApiKey: api.accessToken
                 });
-                const book = epubjs(bookReaderHref, { openAs: 'epub' });
+                const book = epubModule(bookReaderHref, { openAs: 'epub' });
 
                 const rendition = book.renderTo('bookPlayerContainer', {
                     width: '100%',
@@ -1069,7 +1070,9 @@ export class BookPlayer {
                     const autoUploadCover = this.autoUploadCover.bind(this, book);
 
                     return rendition.book.locations.generate(1024).then(async () => {
-                        if (this.cancellationToken) reject();
+                        if (this.cancellationToken) {
+                            return reject(new Error('Book loading cancelled.'));
+                        }
 
                         await this.buildChapterMap(book);
 
@@ -1095,14 +1098,16 @@ export class BookPlayer {
 
                         setTimeout(autoUploadCover, 500);
 
-                        loading.hide();
                         return resolve();
                     });
                 }, () => {
                     console.error('failed to display epub');
-                    return reject();
+                    return reject(new Error('Failed to display EPUB.'));
                 });
-            });
+            }).catch((error: unknown) => {
+                console.error('failed to initialize epub player', error);
+                reject(error);
+            }).finally(() => loading.hide());
         });
     }
 

@@ -20,7 +20,6 @@ import itemShortcuts from 'components/shortcuts';
 import MultiSelect from 'components/multiSelect/multiSelect';
 import loading from 'components/loading/loading';
 import focusManager from 'components/focusManager';
-import type { ParentId } from 'types/library';
 import type { PlaybackStopInfo } from 'types/playbackStopInfo';
 
 function disableEvent(e: MouseEvent) {
@@ -41,7 +40,7 @@ export interface ItemsContainerProps {
     isMultiSelectEnabled?: boolean;
     isDragreOrderEnabled?: boolean;
     eventsToMonitor?: string[];
-    parentId?: ParentId;
+    parentId?: string | null;
     reloadItems?: () => void;
     getItemsHtml?: () => string;
     queryKey?: string[]
@@ -139,16 +138,13 @@ const ItemsContainer: FC<PropsWithChildren<ItemsContainerProps>> = ({
             if (!itemId) throw new Error('null itemId');
 
             try {
-                loading.show();
-                await playlistsMoveItemMutation({
+                await loading.withLoading(() => playlistsMoveItemMutation({
                     playlistId,
                     itemId,
                     newIndex: newIndex || 0
-                });
-                loading.hide();
+                }));
             } catch (error) {
                 console.error('[Drag-Drop] error playlists Move Item: ' + error);
-                loading.hide();
                 if (!reloadItems) return;
                 reloadItems();
             }
@@ -444,4 +440,3 @@ const ItemsContainer: FC<PropsWithChildren<ItemsContainerProps>> = ({
 };
 
 export default ItemsContainer;
-

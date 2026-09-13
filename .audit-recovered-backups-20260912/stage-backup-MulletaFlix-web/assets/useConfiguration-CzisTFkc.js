@@ -1,0 +1,1 @@
+import{n as t}from"./vendor-jellyfin-Bee54tkY.js";import{u as r}from"./vendor-react-query-BiAmjtRH.js";import{u as e}from"./index-CFwqrzSZ.js";const a="Configuration",s=async(o,n)=>(await t(o).getConfiguration(n)).data,c=()=>{const{api:o}=e();return r({queryKey:[a,o?.basePath],queryFn:({signal:n})=>s(o,{signal:n}),enabled:!!o})};export{a as Q,c as u};

@@ -257,7 +257,11 @@ public class ScheduledTaskWorker : IScheduledTaskWorker
     /// <param name="e">The <see cref="EventArgs" /> instance containing the event data.</param>
     private async void OnTriggerTriggered(object sender, EventArgs e)
     {
-        var trigger = (ITaskTrigger)sender;
+        if (sender is not ITaskTrigger trigger)
+        {
+            _logger.LogError("Scheduled task {TaskName} received an invalid trigger sender of type {SenderType}.", Name, sender?.GetType().FullName ?? "null");
+            return;
+        }
 
         if (ScheduledTask is IConfigurableScheduledTask configurableTask && !configurableTask.IsEnabled)
         {
@@ -268,11 +272,25 @@ public class ScheduledTaskWorker : IScheduledTaskWorker
 
         trigger.Stop();
 
-        _taskManager.QueueScheduledTask(ScheduledTask, trigger.TaskOptions);
+        try
+        {
+            _taskManager.QueueScheduledTask(ScheduledTask, trigger.TaskOptions);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to queue scheduled task {TaskName} after trigger {TriggerType} fired.", Name, trigger.GetType().Name);
+        }
 
-        await Task.Delay(1000).ConfigureAwait(false);
+        try
+        {
+            await Task.Delay(1000).ConfigureAwait(false);
 
-        trigger.Start(LastExecutionResult, _logger, Name, false);
+            trigger.Start(LastExecutionResult, _logger, Name, false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to restart scheduled task trigger {TriggerType} for {TaskName}.", trigger.GetType().Name, Name);
+        }
     }
 
     /// <summary>
@@ -674,4 +692,3 @@ public class ScheduledTaskWorker : IScheduledTaskWorker
         }
     }
 }
-

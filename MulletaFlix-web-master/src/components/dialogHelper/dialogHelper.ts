@@ -6,7 +6,7 @@ import { toBoolean } from '../../utils/string.ts';
 import { hide } from '../loading/loading.ts';
 import dom from '../../utils/dom';
 
-import { history } from 'RootAppRouter';
+import { history } from '../router/routerHistory';
 
 import './dialoghelper.scss';
 import '../../styles/scrollstyles.scss';
@@ -50,6 +50,7 @@ interface DialogOptions {
 }
 
 let globalOnOpenCallback: ((dlg: HTMLElement) => void) | null = null;
+let dialogSequence = 0;
 
 function enableAnimation(): boolean {
     if (browser.tv) {
@@ -295,7 +296,10 @@ function onDialogClosed(dlg: DialogElement, removeScrollLockOnClose: boolean, ha
 
     restoreDialogHistory(dlg, hash, finishClose, unlistenRef);
 
-    if (layoutManager.tv) {
+    if (activeElement instanceof HTMLElement && activeElement.isConnected) {
+        // Restore focus to the control that opened the dialog for every layout,
+        // not only TV. This prevents keyboard users from being dropped at the
+        // document root after a modal closes.
         focusManager.focus(activeElement);
     }
 
@@ -458,12 +462,27 @@ function configureDialogAnimation(
     }
 }
 
+function configureDialogScroll(dlg: DialogElement, options: DialogOptions): void {
+    if (options.scrollX) {
+        dlg.classList.add('scrollX');
+        dlg.classList.add('smoothScrollX');
+
+        if (layoutManager.tv) {
+            centerFocus(dlg, true, true);
+        }
+    } else if (options.scrollY !== false) {
+        dlg.classList.add('smoothScrollY');
+
+        if (layoutManager.tv) {
+            centerFocus(dlg, false, true);
+        }
+    }
+}
+
 export function createDialog(options: DialogOptions = {}): DialogElement {
     const dlg = document.createElement('div') as DialogElement;
 
-    if (options.id) {
-        dlg.id = options.id;
-    }
+    dlg.id = options.id || `dialog-${++dialogSequence}`;
 
     dlg.classList.add('focuscontainer');
     dlg.classList.add('hide');
@@ -494,21 +513,11 @@ export function createDialog(options: DialogOptions = {}): DialogElement {
     configureDialogAnimation(dlg, entryAnimation, exitAnimation, entryAnimationDuration, exitAnimationDuration);
 
     dlg.classList.add('dialog');
+    dlg.setAttribute('role', 'dialog');
+    dlg.setAttribute('aria-modal', options.modal === false ? 'false' : 'true');
+    dlg.tabIndex = -1;
 
-    if (options.scrollX) {
-        dlg.classList.add('scrollX');
-        dlg.classList.add('smoothScrollX');
-
-        if (layoutManager.tv) {
-            centerFocus(dlg, true, true);
-        }
-    } else if (options.scrollY !== false) {
-        dlg.classList.add('smoothScrollY');
-
-        if (layoutManager.tv) {
-            centerFocus(dlg, false, true);
-        }
-    }
+    configureDialogScroll(dlg, options);
 
     if (options.removeOnClose) {
         dlg.setAttribute('data-removeonclose', 'true');

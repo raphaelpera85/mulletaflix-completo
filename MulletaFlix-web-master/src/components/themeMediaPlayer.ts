@@ -113,9 +113,10 @@ const excludeTypes: string[] = [
 ];
 
 async function loadThemeMedia(serverId: string, itemId: string): Promise<void> {
-    const apiClient = ServerConnections.getApiClient(serverId) as any;
-    const api = toApi(apiClient);
+    const apiClient = ServerConnections.getApiClient(serverId);
+    const api = toApi(apiClient as never);
     const userId = apiClient.getCurrentUserId();
+    if (!userId) return;
 
     try {
         const item = await queryClient.fetchQuery(getItemQuery(

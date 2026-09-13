@@ -58,6 +58,7 @@ async function prepareAdSensePlayback(page, scriptMode) {
     try {
         await fetchStagePublicInfo();
     } catch {
+        // This scenario requires a running stage; skipping is an environmental result.
         test.skip(true, 'Stage server is not available for AdSense playback validation.');
     }
 
@@ -80,7 +81,7 @@ async function prepareAdSensePlayback(page, scriptMode) {
     const introItem = playableItems[0];
     const movieItem = playableItems[1];
 
-    const originalBranding = await page.evaluate(async () => await window.ApiClient.getNamedConfiguration('branding'));
+    const originalBranding = await page.evaluate(() => window.ApiClient.getNamedConfiguration('branding'));
 
     await updateBranding(page, {
         IntroEnabled: true,
@@ -123,7 +124,7 @@ async function prepareAdSensePlayback(page, scriptMode) {
         }).toBe(1);
 
         const introSessions = await getActivePlaybackSessions(page, introItem.id);
-        expect(introSessions.length).toBe(0);
+        expect(introSessions).toHaveLength(0);
     } finally {
         await page.evaluate(async (branding) => {
             await window.ApiClient.updateNamedConfiguration('branding', branding);

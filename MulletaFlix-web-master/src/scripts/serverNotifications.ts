@@ -8,6 +8,7 @@ import { ServerConnections } from 'lib/jellyfin-apiclient';
 import inputManager from 'scripts/inputManager';
 import Events from 'utils/events';
 import { PluginType } from 'types/plugin';
+import type { ItemDto } from 'types/base/models/item-dto';
 import { OutboundWebSocketMessageType } from '@jellyfin/sdk/lib/websocket';
 
 interface CommandData {
@@ -16,12 +17,12 @@ interface CommandData {
         Header?: string;
         Text?: string;
         TimeoutMs?: number;
-        RepeatMode?: any;
-        ShuffleMode?: any;
+        RepeatMode?: string;
+        ShuffleMode?: string;
         Volume?: number;
         Index?: string;
         String?: string;
-        [key: string]: any;
+        [key: string]: unknown;
     };
     Name: string;
 }
@@ -34,16 +35,24 @@ interface PlayData {
     AudioStreamIndex?: number;
     SubtitleStreamIndex?: number;
     StartIndex?: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 interface PlaystateData {
     Command: string;
     SeekPositionTicks?: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
-const serverNotifications: Record<string, any> = {};
+interface NotificationApiClient {
+    serverId(): string;
+    serverInfo(): { Id?: string };
+    getCurrentUserId(): string;
+    getItem(userId: string, itemId: string): Promise<unknown>;
+    subscribe(messageTypes: unknown[], callback: (message: unknown) => void): void;
+}
+
+const serverNotifications: Record<string, unknown> = {};
 
 function notifyApp(): void {
     inputManager.notify();
@@ -52,25 +61,25 @@ function notifyApp(): void {
 function displayMessage(cmd: CommandData): void {
     const args = cmd.Arguments;
     if (args.TimeoutMs) {
-        (toast as any)({ title: args.Header ?? '', text: args.Text ?? '' });
+        toast(args.Text ?? '');
     } else {
-        (alert as any)({ title: args.Header ?? '', text: args.Text ?? '' });
+        void alert({ title: args.Header ?? '', text: args.Text ?? '' });
     }
 }
 
-function displayContent(cmd: CommandData, apiClient: any): void {
+function displayContent(cmd: CommandData, apiClient: NotificationApiClient): void {
     if (!playbackManager.isPlayingLocally(['Video', 'Book'])) {
         appRouter.showItem(cmd.Arguments.ItemId!, apiClient.serverId());
     }
 }
 
-function playTrailers(apiClient: any, itemId: string): void {
-    apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: any) {
-        playbackManager.playTrailers(item).catch(() => undefined);
+function playTrailers(apiClient: NotificationApiClient, itemId: string): void {
+    apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item) {
+        playbackManager.playTrailers(item as ItemDto).catch(() => undefined);
     }).catch(() => undefined);
 }
 
-function processGeneralCommand(cmd: CommandData, apiClient: any): void {
+function processGeneralCommand(cmd: CommandData, apiClient: NotificationApiClient): void {
     console.debug('Received command: ' + cmd.Name);
     switch (cmd.Name) {
         case 'Select':
@@ -173,7 +182,7 @@ function processGeneralCommand(cmd: CommandData, apiClient: any): void {
     notifyApp();
 }
 
-function onPlay({ Data }: { Data: PlayData }, apiClient: any): void {
+function onPlay({ Data }: { Data: PlayData }, apiClient: NotificationApiClient): void {
     notifyApp();
     const serverId = apiClient.serverInfo().Id;
     if (Data.PlayCommand === 'PlayNext') {
@@ -217,26 +226,32 @@ function onPlaystate({ Data }: { Data: PlaystateData }): void {
     }
 }
 
-function subscribeToApiClient(apiClient: any): void {
-    apiClient.subscribe([OutboundWebSocketMessageType.Play], (msg: any) => onPlay(msg, apiClient));
-    apiClient.subscribe([OutboundWebSocketMessageType.Playstate], (msg: any) => onPlaystate(msg));
-    apiClient.subscribe([OutboundWebSocketMessageType.GeneralCommand], ({ Data }: { Data: CommandData }) => processGeneralCommand(Data, apiClient));
-    apiClient.subscribe([OutboundWebSocketMessageType.SyncPlayCommand], ({ Data }: { Data: any }) => {
-        pluginManager.firstOfType(PluginType.SyncPlay)?.instance.Manager.processCommand(Data, apiClient);
+function subscribeToApiClient(apiClient: unknown): void {
+    const client = apiClient as NotificationApiClient;
+    client.subscribe([OutboundWebSocketMessageType.Play], (msg) => onPlay(msg as { Data: PlayData }, client));
+    client.subscribe([OutboundWebSocketMessageType.Playstate], (msg) => onPlaystate(msg as { Data: PlaystateData }));
+    client.subscribe([OutboundWebSocketMessageType.GeneralCommand], (message) => {
+        const { Data } = message as { Data: CommandData };
+        processGeneralCommand(Data, client);
     });
-    apiClient.subscribe([OutboundWebSocketMessageType.SyncPlayGroupUpdate], ({ Data }: { Data: any }) => {
-        pluginManager.firstOfType(PluginType.SyncPlay)?.instance.Manager.processGroupUpdate(Data, apiClient);
-        Events.trigger(serverNotifications, OutboundWebSocketMessageType.SyncPlayGroupUpdate, [apiClient, Data]);
+    client.subscribe([OutboundWebSocketMessageType.SyncPlayCommand], (message) => {
+        const { Data } = message as { Data: unknown };
+        pluginManager.firstOfType(PluginType.SyncPlay)?.instance.Manager.processCommand(Data, client);
+    });
+    client.subscribe([OutboundWebSocketMessageType.SyncPlayGroupUpdate], (message) => {
+        const { Data } = message as { Data: unknown };
+        pluginManager.firstOfType(PluginType.SyncPlay)?.instance.Manager.processGroupUpdate(Data, client);
+        Events.trigger(serverNotifications, OutboundWebSocketMessageType.SyncPlayGroupUpdate, [client, Data]);
     });
 }
 
 export function initializeServerConnections(): void {
     ServerConnections.getApiClients().forEach(subscribeToApiClient);
-    Events.on(ServerConnections, 'apiclientcreated', function (e: any, newApiClient: any) {
+    Events.on(ServerConnections, 'apiclientcreated', function (_event: unknown, newApiClient: unknown) {
         subscribeToApiClient(newApiClient);
     });
 }
 
-(window as any).ServerNotifications = serverNotifications;
+(window as unknown as { ServerNotifications: typeof serverNotifications }).ServerNotifications = serverNotifications;
 
 export default serverNotifications;

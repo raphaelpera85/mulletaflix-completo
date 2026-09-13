@@ -7,47 +7,46 @@ import type { NullableBoolean, NullableNumber, NullableString } from './base/com
 
 export type AttributesOpts = {
     context?: CollectionType | string,
-    parentId?: NullableString,
-    collectionId?: NullableString,
-    playlistId?: NullableString,
-    prefix?: NullableString,
+    parentId?: Exclude<NullableString, undefined>,
+    collectionId?: Exclude<NullableString, undefined>,
+    playlistId?: Exclude<NullableString, undefined>,
+    prefix?: Exclude<NullableString, undefined>,
     action?: ItemAction | null,
-    itemServerId?: NullableString,
-    itemId?: NullableString,
-    itemTimerId?: NullableString,
-    itemSeriesTimerId?: NullableString,
-    itemChannelId?: NullableString,
-    itemPlaylistItemId?: NullableString,
-    itemType?: NullableString,
-    itemMediaType?: NullableString,
-    itemCollectionType?: NullableString,
-    itemIsFolder?: NullableBoolean,
-    itemPath?: NullableString,
-    itemStartDate?: NullableString,
-    itemEndDate?: NullableString,
+    itemServerId?: Exclude<NullableString, undefined>,
+    itemId?: Exclude<NullableString, undefined>,
+    itemTimerId?: Exclude<NullableString, undefined>,
+    itemSeriesTimerId?: Exclude<NullableString, undefined>,
+    itemChannelId?: Exclude<NullableString, undefined>,
+    itemPlaylistItemId?: Exclude<NullableString, undefined>,
+    itemType?: Exclude<NullableString, undefined>,
+    itemMediaType?: Exclude<NullableString, undefined>,
+    itemCollectionType?: Exclude<NullableString, undefined>,
+    itemIsFolder?: Exclude<NullableBoolean, undefined>,
+    itemPath?: Exclude<NullableString, undefined>,
+    itemStartDate?: Exclude<NullableString, undefined>,
+    itemEndDate?: Exclude<NullableString, undefined>,
     itemUserData?: UserItemDataDto
 };
 
 export type DataAttributes = {
-    'data-playlistitemid'?: NullableString;
-    'data-timerid'?: NullableString;
-    'data-seriestimerid'?: NullableString;
-    'data-serverid'?: NullableString;
-    'data-id'?: NullableString;
-    'data-type'?: NullableString;
-    'data-collectionid'?: NullableString;
-    'data-playlistid'?: NullableString;
-    'data-mediatype'?: NullableString;
-    'data-channelid'?: NullableString;
-    'data-path'?: NullableString;
-    'data-collectiontype'?: NullableString;
-    'data-context'?: NullableString;
-    'data-parentid'?: NullableString;
-    'data-startdate'?: NullableString;
-    'data-enddate'?: NullableString;
-    'data-prefix'?: NullableString;
+    'data-playlistitemid'?: Exclude<NullableString, undefined>;
+    'data-timerid'?: Exclude<NullableString, undefined>;
+    'data-seriestimerid'?: Exclude<NullableString, undefined>;
+    'data-serverid'?: Exclude<NullableString, undefined>;
+    'data-id'?: Exclude<NullableString, undefined>;
+    'data-type'?: Exclude<NullableString, undefined>;
+    'data-collectionid'?: Exclude<NullableString, undefined>;
+    'data-playlistid'?: Exclude<NullableString, undefined>;
+    'data-mediatype'?: Exclude<NullableString, undefined>;
+    'data-channelid'?: Exclude<NullableString, undefined>;
+    'data-path'?: Exclude<NullableString, undefined>;
+    'data-collectiontype'?: Exclude<NullableString, undefined>;
+    'data-context'?: Exclude<NullableString, undefined>;
+    'data-parentid'?: Exclude<NullableString, undefined>;
+    'data-startdate'?: Exclude<NullableString, undefined>;
+    'data-enddate'?: Exclude<NullableString, undefined>;
+    'data-prefix'?: Exclude<NullableString, undefined>;
     'data-action'?: ItemAction | null;
-    'data-positionticks'?: NullableNumber;
-    'data-isfolder'?: NullableBoolean;
+    'data-positionticks'?: Exclude<NullableNumber, undefined>;
+    'data-isfolder'?: Exclude<NullableBoolean, undefined>;
 };
-

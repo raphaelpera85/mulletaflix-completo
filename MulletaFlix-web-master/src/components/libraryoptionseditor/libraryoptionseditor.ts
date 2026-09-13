@@ -100,7 +100,7 @@ function getDefaultMetadataLanguage(countryCode: string) {
         return Promise.resolve('');
     }
 
-    return ApiClient.getJSON(ApiClient.getUrl('Localization/DefaultMetadataLanguage', {
+    return ApiClient.getJSON<string>(ApiClient.getUrl('Localization/DefaultMetadataLanguage', {
         countryCode
     })).then((language: string) => {
         return language || '';
@@ -674,9 +674,9 @@ export async function embed(parent: HTMLElement, contentType: string | null | un
 
     parent.innerHTML = globalize.translateHtml(template);
     populateRefreshInterval(parent.querySelector('#selectAutoRefreshInterval')!);
-    const promises = [populateLanguages(parent), populateCountries(parent.querySelector('#selectCountry')!)];
+    const promises: Array<Promise<unknown>> = [populateLanguages(parent), populateCountries(parent.querySelector('#selectCountry')!)];
     if (isNewLibrary) {
-        promises.push(ApiClient.getJSON(ApiClient.getUrl('Startup/Configuration')).catch((err: any) => {
+        promises.push(ApiClient.getJSON<Record<string, unknown>>(ApiClient.getUrl('Startup/Configuration')).catch((err: any) => {
             console.warn('[libraryoptionseditor] Failed to fetch Startup/Configuration:', err);
             return null;
         }));

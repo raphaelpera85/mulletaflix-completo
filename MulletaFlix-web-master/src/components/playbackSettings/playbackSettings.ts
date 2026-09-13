@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @stylistic/indent, @stylistic/padded-blocks */
 import { MediaSegmentType } from '@jellyfin/sdk/lib/generated-client/models/media-segment-type';
 import escapeHTML from 'escape-html';
 import type { ApiClient } from 'jellyfin-apiclient';
@@ -332,7 +333,6 @@ function loadForm(context: any, user: PlaybackUser, userSettings: UserSettings, 
     const mediaSegmentContainer = context.querySelector('.mediaSegmentActionContainer');
     populateMediaSegments(mediaSegmentContainer, userSettings);
 
-    loading.hide();
 }
 
 function saveUser(context: any, user: PlaybackUser, userSettingsInstance: UserSettings, apiClient: PlaybackApiClient): Promise<unknown> {
@@ -376,22 +376,14 @@ function saveUser(context: any, user: PlaybackUser, userSettingsInstance: UserSe
     return apiClient.updateUserConfiguration(user.Id || '', user.Configuration);
 }
 
-function save(instance: any, context: any, userId: string, userSettings: UserSettings, apiClient: PlaybackApiClient, enableSaveConfirmation: boolean): void {
-    loading.show();
-
-    apiClient.getUser(userId).then(user => {
-        return saveUser(context, normalizePlaybackUser(user), userSettings, apiClient);
-    }).then(() => {
-        loading.hide();
+async function save(instance: any, context: any, userId: string, userSettings: UserSettings, apiClient: PlaybackApiClient, enableSaveConfirmation: boolean): Promise<void> {
+    const user = await apiClient.getUser(userId);
+    await saveUser(context, normalizePlaybackUser(user), userSettings, apiClient);
         if (enableSaveConfirmation) {
             toast(globalize.translate('SettingsSaved'));
         }
 
         Events.trigger(instance, 'saved');
-    }).catch(() => {
-        loading.hide();
-        toast(globalize.translate('ErrorDefault'));
-    });
 }
 
 function onSubmit(this: any, e: any): boolean {
@@ -400,11 +392,11 @@ function onSubmit(this: any, e: any): boolean {
     const userId = self.options.userId;
     const userSettings = self.options.userSettings;
 
-    userSettings.setUserInfo(userId, apiClient).then(() => {
+    void loading.withLoading(async () => {
+        await userSettings.setUserInfo(userId, apiClient);
         const enableSaveConfirmation = self.options.enableSaveConfirmation;
-        save(self, self.options.element, userId, userSettings, apiClient, enableSaveConfirmation);
+        await save(self, self.options.element, userId, userSettings, apiClient, enableSaveConfirmation);
     }).catch(() => {
-        loading.hide();
         toast(globalize.translate('ErrorDefault'));
     });
 
@@ -444,25 +436,19 @@ class PlaybackSettings {
         const self = this;
         const context = self.options.element;
 
-        loading.show();
-
         const userId = self.options.userId;
         const apiClient = getPlaybackApiClient(self.options.serverId);
         const userSettings = self.options.userSettings;
 
-        apiClient.getUser(userId)
-            .then(user => apiClient.getSystemInfo().then(systemInfo => ({
-                user: normalizePlaybackUser(user),
-                systemInfo: normalizePlaybackSystemInfo(systemInfo)
-            })))
-            .then(({ user, systemInfo }: { user: PlaybackUser; systemInfo: PlaybackSystemInfo }) => userSettings.setUserInfo(userId, apiClient).then(() => {
-                self.dataLoaded = true;
-                loadForm(context, user, userSettings, systemInfo, apiClient);
-            }))
-            .catch(() => {
-                loading.hide();
-                toast(globalize.translate('ErrorDefault'));
-            });
+        void loading.withLoading(async () => {
+            const user = normalizePlaybackUser(await apiClient.getUser(userId));
+            const systemInfo = normalizePlaybackSystemInfo(await apiClient.getSystemInfo());
+            await userSettings.setUserInfo(userId, apiClient);
+            self.dataLoaded = true;
+            loadForm(context, user, userSettings, systemInfo, apiClient);
+        }).catch(() => {
+            toast(globalize.translate('ErrorDefault'));
+        });
     }
 
     submit(): void {
@@ -475,3 +461,5 @@ class PlaybackSettings {
 }
 
 export default PlaybackSettings;
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @stylistic/indent, @stylistic/padded-blocks */

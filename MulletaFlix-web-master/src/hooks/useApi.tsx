@@ -4,6 +4,7 @@ import type { ApiClient, Event } from 'jellyfin-apiclient';
 import React, { type FC, type PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import { ServerConnections } from 'lib/jellyfin-apiclient';
+import type { LocalUser } from 'lib/jellyfin-apiclient/connectionManager';
 import events from 'utils/events';
 import { toApi } from 'utils/jellyfin-apiclient/compat';
 
@@ -28,20 +29,22 @@ export const ApiProvider: FC<PropsWithChildren<unknown>> = ({ children }) => {
     }), [ api, legacyApiClient, user ]);
 
     useEffect(() => {
-        (ServerConnections.currentApiClient() as any)
-            ?.getCurrentUser()
-            .then((newUser: any) => updateApiUser(undefined, newUser))
-            .catch((err: any) => {
-                console.info('[ApiProvider] Could not get current user', err);
-            });
-
         const updateApiUser = (_e: Event | undefined, newUser: UserDto) => {
             setUser(newUser);
 
             if (newUser.ServerId) {
-                setLegacyApiClient(ServerConnections.getApiClient(newUser.ServerId) as any);
+                setLegacyApiClient(ServerConnections.getApiClient(newUser.ServerId) as unknown as ApiClient);
             }
         };
+
+        const currentApiClient = ServerConnections.currentApiClient() as unknown as {
+            getCurrentUser: () => Promise<LocalUser>
+        } | undefined;
+        currentApiClient?.getCurrentUser()
+            .then((newUser) => updateApiUser(undefined, newUser as unknown as UserDto))
+            .catch((err: unknown) => {
+                console.info('[ApiProvider] Could not get current user', err);
+            });
 
         const resetApiUser = () => {
             setLegacyApiClient(undefined);
@@ -67,4 +70,3 @@ export const ApiProvider: FC<PropsWithChildren<unknown>> = ({ children }) => {
         </ApiContext.Provider>
     );
 };
-

@@ -6,7 +6,9 @@ import { type MRT_RowData, type MRT_TableInstance, type MRT_TableOptions, Materi
 import React from 'react';
 
 import Page, { type PageProps } from 'components/Page';
+import globalize from 'lib/globalize';
 import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
 
 interface TablePageProps<T extends MRT_RowData> extends PageProps {
     title: string
@@ -14,6 +16,7 @@ interface TablePageProps<T extends MRT_RowData> extends PageProps {
     table: MRT_TableInstance<T>
     isError?: boolean
     errorMessage?: string
+    onRetry?: () => void
 }
 
 export const DEFAULT_TABLE_OPTIONS: Partial<MRT_TableOptions<MRT_RowData>> = {
@@ -37,6 +40,7 @@ const TablePage = <T extends MRT_RowData>({
     table,
     isError,
     errorMessage,
+    onRetry,
     children,
     ...pageProps
 }: TablePageProps<T>) => {
@@ -54,7 +58,14 @@ const TablePage = <T extends MRT_RowData>({
                 }}
             >
                 {isError ? (
-                    <Alert severity='error'>{errorMessage}</Alert>
+                    <Alert
+                        severity='error'
+                        action={onRetry ? (
+                            <Button color='inherit' size='small' onClick={onRetry}>{globalize.translate('Retry')}</Button>
+                        ) : undefined}
+                    >
+                        {errorMessage}
+                    </Alert>
                 ) : (
                     <>
                         <Stack

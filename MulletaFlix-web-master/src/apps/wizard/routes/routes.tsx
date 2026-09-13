@@ -1,10 +1,8 @@
 import React from 'react';
 import { Navigate, RouteObject } from 'react-router-dom';
 
-import AppLayout from 'apps/stable/AppLayout';
 import { AppType } from 'constants/appType';
 import ConnectionRequired from 'components/ConnectionRequired';
-import ErrorBoundary from 'components/router/ErrorBoundary';
 import { type LegacyRoute, toViewManagerPageRoute } from 'components/router/LegacyRoute';
 
 const ROUTES: LegacyRoute[] = [
@@ -60,17 +58,11 @@ const ROUTES: LegacyRoute[] = [
 
 export const WIZARD_APP_ROUTES: RouteObject[] = [
     {
+        path: 'wizard',
         element: <ConnectionRequired level='wizard' />,
         children: [
-            {
-                Component: AppLayout,
-                path: 'wizard',
-                children: [
-                    { index: true, element: <Navigate replace to='start' /> },
-                    ...ROUTES.map(toViewManagerPageRoute)
-                ],
-                ErrorBoundary
-            }
+            { index: true, element: <Navigate replace to='start' /> },
+            ...ROUTES.map(toViewManagerPageRoute)
         ]
     }
 ];

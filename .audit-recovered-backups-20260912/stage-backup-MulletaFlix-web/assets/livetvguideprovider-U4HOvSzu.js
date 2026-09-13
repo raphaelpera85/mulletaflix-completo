@@ -1,0 +1,8 @@
+const e=`<div id="liveTvGuideProviderPage" data-role="page" class="page type-interior liveTvSettingsPage">
+    <div>
+        <div class="content-primary">
+            <div class="readOnlyContent providerTemplate" style="margin-top: 2em;"></div>
+        </div>
+    </div>
+</div>
+`;export{e as default};

@@ -124,12 +124,16 @@ export const Component = () => {
     const {
         data: defaultBrandingOptions,
         isPending,
-        isError
+        isError,
+        refetch
     } = useBrandingOptions();
     const { themes } = useThemes();
     const [ brandingOptions, setBrandingOptions ] = useState<BrandingOptionsWithTheme>(defaultBrandingOptions || {});
 
     const [ error, setError ] = useState<string>();
+    const retryLoad = useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
     const [ isSplashscreenEnabled, setIsSplashscreenEnabled ] = useState(brandingOptions.SplashscreenEnabled ?? false);
     const [ splashscreenUrl, setSplashscreenUrl ] = useState<string>();
@@ -183,7 +187,7 @@ export const Component = () => {
             if (!reader.result) return;
 
             const dataUrl = reader.result as string; // readAsDataURL produces a string
-            // FIXME: TypeScript SDK thinks body should be a File but in reality it is a Base64 string
+            // Compatibility note: the server endpoint accepts the Base64 payload despite the SDK File type.
             const body = dataUrl.split(',')[1] as never;
             getImageApi(api)
                 .uploadCustomSplashscreen(
@@ -232,21 +236,29 @@ export const Component = () => {
     }, [ showIntroPathPicker ]);
 
     const setSplashscreenEnabled = useCallback(async (_: React.ChangeEvent<HTMLInputElement>, isEnabled: boolean) => {
+        const previousValue = isSplashscreenEnabled;
         setIsSplashscreenEnabled(isEnabled);
+        setError(undefined);
 
-        await getConfigurationApi(api!)
-            .updateNamedConfiguration({
-                key: BRANDING_CONFIG_KEY,
-                body: JSON.stringify({
-                    ...defaultBrandingOptions,
-                    SplashscreenEnabled: isEnabled
-                })
+        try {
+            await getConfigurationApi(api!)
+                .updateNamedConfiguration({
+                    key: BRANDING_CONFIG_KEY,
+                    body: JSON.stringify({
+                        ...defaultBrandingOptions,
+                        SplashscreenEnabled: isEnabled
+                    })
+                });
+
+            void queryClient.invalidateQueries({
+                queryKey: [ QUERY_KEY ]
             });
-
-        void queryClient.invalidateQueries({
-            queryKey: [ QUERY_KEY ]
-        });
-    }, [ api, defaultBrandingOptions ]);
+        } catch (caughtError) {
+            console.error('[BrandingPage] error updating splashscreen setting', caughtError);
+            setIsSplashscreenEnabled(previousValue);
+            setError('ErrorDefault');
+        }
+    }, [ api, defaultBrandingOptions, isSplashscreenEnabled ]);
 
     const setBrandingOption = useCallback((event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement> | SelectChangeEvent) => {
         if (Object.keys(BrandingOption).includes(event.target.name)) {
@@ -261,7 +273,7 @@ export const Component = () => {
         setError(undefined);
     }, []);
 
-    if (isPending) return <Loading />;
+    if (isPending && !isError) return <Loading />;
 
     return (
         <Page
@@ -275,7 +287,12 @@ export const Component = () => {
                     onSubmit={onSubmit}
                 >
                     {isError ? (
-                        <Alert severity='error'>{globalize.translate('BrandingLoadError')}</Alert>
+                        <Alert
+                            severity='error'
+                            action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                        >
+                            {globalize.translate('BrandingLoadError')}
+                        </Alert>
                     ) : (
                         <Stack spacing={3}>
                             <Typography variant='h1'>
@@ -289,7 +306,7 @@ export const Component = () => {
                             )}
 
                             {error && (
-                                <Alert severity='error'>
+                                <Alert severity='error' role='alert' aria-live='assertive'>
                                     {globalize.translate(error)}
                                 </Alert>
                             )}

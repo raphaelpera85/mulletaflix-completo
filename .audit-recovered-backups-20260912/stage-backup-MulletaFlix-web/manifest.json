@@ -1,0 +1,32 @@
+{
+    "name": "MulletaFlix",
+    "description": "The Free Software Media System",
+    "lang": "pt-BR",
+    "short_name": "MulletaFlix",
+    "start_url": "index.html#/home",
+    "theme_color": "#101010",
+    "background_color": "#101010",
+    "display": "standalone",
+    "icons": [
+        {
+            "sizes": "72x72",
+"src": "branding/favicons/touchicon72.png",
+            "type": "image/png"
+        },
+        {
+            "sizes": "114x114",
+            "src": "branding/favicons/touchicon114.png",
+            "type": "image/png"
+        },
+        {
+            "sizes": "144x144",
+            "src": "branding/favicons/touchicon144.png",
+            "type": "image/png"
+        },
+        {
+            "sizes": "512x512",
+            "src": "branding/favicons/touchicon512.png",
+            "type": "image/png"
+        }
+    ]
+}

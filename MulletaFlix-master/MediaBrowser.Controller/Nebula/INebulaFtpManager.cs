@@ -8,6 +8,8 @@ public interface INebulaFtpManager
 {
     Task<NebulaStatusDto> GetStatusAsync(CancellationToken cancellationToken = default);
 
+    Task<NebulaComponentHealthDto> GetComponentHealthAsync(CancellationToken cancellationToken = default);
+
     NebulaLogsDto GetLogs(int serverOffset, int downloaderOffset);
 
     Task<bool> StartEnvioAsync(bool streamOnly, CancellationToken cancellationToken = default);
@@ -22,9 +24,9 @@ public interface INebulaFtpManager
 
     Task<bool> StopDownloaderAsync(CancellationToken cancellationToken = default);
 
-    Task<bool> GenerateStrmAsync(CancellationToken cancellationToken = default);
+    Task<bool> GenerateStrmAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);
 
-    Task<bool> PruneCompletedAsync(CancellationToken cancellationToken = default);
+    Task<bool> PruneCompletedAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);
 
     System.Collections.Generic.List<NebulaBotDto> GetBots();
 
@@ -38,9 +40,9 @@ public interface INebulaFtpManager
 
     Task<NebulaSupabaseStatusDto> GetSupabaseStatusAsync(CancellationToken cancellationToken = default);
 
-    Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(CancellationToken cancellationToken = default);
+    Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);
 
-    Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(CancellationToken cancellationToken = default);
+    Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);
 
     string GetSupabaseSqlScript();
 }

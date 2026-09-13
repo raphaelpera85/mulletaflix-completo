@@ -60,13 +60,14 @@ export default {
      * @returns true on success
      */
     downloadFiles(items: NativeShellDownloadItem[]): boolean {
-        if (window.NativeShell?.downloadFiles) {
-            window.NativeShell.downloadFiles(items);
+        const nativeShell = window.NativeShell;
+        if (nativeShell?.downloadFiles) {
+            nativeShell.downloadFiles(items);
             return true;
         }
-        if (window.NativeShell?.downloadFile) {
+        if (nativeShell?.downloadFile) {
             items.forEach(item => {
-                window.NativeShell.downloadFile(item);
+                nativeShell.downloadFile?.(item);
             });
             return true;
         }

@@ -1,4 +1,9 @@
-$nebulaRoot = Join-Path $env:ProgramFiles 'MulletaFlix\Server\nebula'
+param(
+    [Parameter(Mandatory = $true)]
+    [string] $InstallDirectory
+)
+
+$nebulaRoot = [IO.Path]::GetFullPath((Join-Path $InstallDirectory 'nebula')).TrimEnd('\') + '\'
 
 Get-CimInstance Win32_Process |
     Where-Object {

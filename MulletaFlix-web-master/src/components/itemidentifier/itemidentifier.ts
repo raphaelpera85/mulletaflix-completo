@@ -1,4 +1,5 @@
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Module for itemidentifier media item.
  * @module components/itemidentifier/itemidentifier
@@ -86,21 +87,18 @@ function searchForIdentificationResults(page: HTMLElement): void {
         lookupInfo.IncludeDisabledProviders = true;
     }
 
-    loading.show();
-
     const apiClient = getApiClient();
 
-    apiClient.ajax({
+    loading.withLoading(() => apiClient.ajax({
         type: 'POST',
         url: apiClient.getUrl(`Items/RemoteSearch/${currentItemType}`),
         data: JSON.stringify(lookupInfo),
         contentType: 'application/json',
         dataType: 'json'
 
-    }).then((results: any[]) => {
-        loading.hide();
-        showIdentificationSearchResults(page, results);
-    });
+    })).then((results: unknown) => {
+        showIdentificationSearchResults(page, results as any[]);
+    }).catch((error: unknown) => console.error('Failed to search identification results', error));
 }
 
 function showIdentificationSearchResults(page: HTMLElement, results: any[]): void {
@@ -147,8 +145,6 @@ function showIdentificationSearchResults(page: HTMLElement, results: any[]): voi
 function finishFindNewDialog(dlg: HTMLElement, identifyResult: any): void {
     currentSearchResult = identifyResult;
     hasChanges = true;
-    loading.hide();
-
     dialogHelper.close(dlg);
 }
 
@@ -256,28 +252,23 @@ function getSearchResultHtml(result: any, index: number): string {
 }
 
 function submitIdentficationResult(page: HTMLElement): void {
-    loading.show();
-
     const options = {
         ReplaceAllImages: (page.querySelector('#chkIdentifyReplaceImages') as HTMLInputElement).checked
     };
 
     const apiClient = getApiClient();
 
-    apiClient.ajax({
+    loading.withLoading(() => apiClient.ajax({
         type: 'POST',
         url: apiClient.getUrl(`Items/RemoteSearch/Apply/${currentItem.Id}`, options),
         data: JSON.stringify(currentSearchResult),
         contentType: 'application/json'
 
-    }).then(() => {
+    })).then(() => {
         hasChanges = true;
-        loading.hide();
-
         dialogHelper.close(page);
-    }, () => {
-        loading.hide();
-
+    }).catch((error: unknown) => {
+        console.error('Failed to apply identification result', error);
         dialogHelper.close(page);
     });
 }
@@ -323,12 +314,11 @@ function showIdentificationForm(page: HTMLElement, item: any): void {
     });
 }
 
-function showEditor(itemId: string): void {
-    loading.show();
-
+async function showEditor(itemId: string): Promise<void> {
     const apiClient = getApiClient();
 
-    apiClient.getItem(apiClient.getCurrentUserId(), itemId).then((item: any) => {
+    await loading.withLoading(async () => {
+        const item = await apiClient.getItem(apiClient.getCurrentUserId(), itemId) as any;
         currentItem = item;
         currentItemType = currentItem.Type;
 
@@ -388,12 +378,10 @@ function showEditor(itemId: string): void {
         dlg.classList.add('identifyDialog');
 
         showIdentificationForm(dlg, item);
-        loading.hide();
     });
 }
 
 function onDialogClosed(): void {
-    loading.hide();
     if (hasChanges) {
         currentResolve();
     } else {
@@ -408,10 +396,12 @@ export function show(itemId: string, serverId: string): Promise<void> {
         currentServerId = serverId;
         hasChanges = false;
 
-        showEditor(itemId);
+        showEditor(itemId).catch((error: unknown) => console.error('Failed to show item identification dialog', error));
     });
 }
 
 export default {
     show: show
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @stylistic/padded-blocks */
 import escapeHtml from 'escape-html';
 
 import dialogHelper from '../dialogHelper/dialogHelper';
@@ -105,23 +106,20 @@ function renderRecording(context: Element, defaultTimer: any, program: any, apiC
     context.querySelector('.itemMiscInfoSecondary')!.innerHTML = mediaInfo.getSecondaryMediaInfoHtml(program, {
     });
 
-    loading.hide();
 }
 
 function reload(context: Element, programId: string, serverId: string, refreshRecordingStateOnly?: boolean): void {
-    loading.show();
-
     const apiClient = ServerConnections.getApiClient(serverId) as any;
 
     const promise1 = apiClient.getNewLiveTvTimerDefaults({ programId: programId });
     const promise2 = apiClient.getLiveTvProgram(programId, apiClient.getCurrentUserId());
 
-    Promise.all([promise1, promise2]).then(function (responses: any[]) {
+    loading.withLoading(() => Promise.all([promise1, promise2])).then(function (responses: any[]) {
         const defaults = responses[0];
         const program = responses[1];
 
         renderRecording(context, defaults, program, apiClient, !!refreshRecordingStateOnly);
-    }).catch(() => undefined);
+    }).catch((error: unknown) => console.error('Failed to load recording editor', error));
 }
 
 function executeCloseAction(action: string | null, programId: string, serverId: string): void {
@@ -140,8 +138,6 @@ function executeCloseAction(action: string | null, programId: string, serverId: 
 function showEditor(itemId: string, serverId: string): Promise<void> {
     return new Promise(function (resolve, reject) {
         closeAction = null;
-
-        loading.show();
 
         const dialogOptions: Record<string, any> = {
             removeOnClose: true,
@@ -200,10 +196,12 @@ function showEditor(itemId: string, serverId: string): Promise<void> {
 
         Events.on(currentRecordingFields, 'recordingchanged', onRecordingChanged);
 
-        dialogHelper.open(dlg).catch(() => undefined);
+        dialogHelper.open(dlg).catch((error: unknown) => console.error('Failed to open recording editor', error));
     });
 }
 
 export default {
     show: showEditor
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @stylistic/padded-blocks */

@@ -4,7 +4,7 @@ import DialogActions from '@mui/material/DialogActions/DialogActions';
 import DialogContent from '@mui/material/DialogContent/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle/DialogTitle';
-import React, { type FC } from 'react';
+import React, { type FC, useId } from 'react';
 
 import globalize from 'lib/globalize';
 
@@ -26,31 +26,42 @@ const ConfirmDialog: FC<ConfirmDialogProps> = ({
     onCancel,
     onConfirm,
     ...dialogProps
-}) => (
-    <Dialog onClose={onCancel} {...dialogProps}>
-        <DialogTitle>
-            {title}
-        </DialogTitle>
-        <DialogContent>
-            <DialogContentText sx={{ whiteSpace: 'pre-wrap' }}>
-                {text}
-            </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-            <Button
-                variant='text'
-                onClick={onCancel}
-            >
-                {globalize.translate('ButtonCancel')}
-            </Button>
-            <Button
-                color={confirmButtonColor}
-                onClick={onConfirm}
-            >
-                {confirmButtonText || globalize.translate('ButtonOk')}
-            </Button>
-        </DialogActions>
-    </Dialog>
-);
+}) => {
+    const dialogId = useId();
+    const titleId = `${dialogId}-title`;
+    const descriptionId = `${dialogId}-description`;
+
+    return (
+        <Dialog
+            aria-describedby={descriptionId}
+            aria-labelledby={titleId}
+            onClose={onCancel}
+            {...dialogProps}
+        >
+            <DialogTitle id={titleId}>
+                {title}
+            </DialogTitle>
+            <DialogContent>
+                <DialogContentText id={descriptionId} sx={{ whiteSpace: 'pre-wrap' }}>
+                    {text}
+                </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+                <Button
+                    variant='text'
+                    onClick={onCancel}
+                >
+                    {globalize.translate('ButtonCancel')}
+                </Button>
+                <Button
+                    color={confirmButtonColor}
+                    onClick={onConfirm}
+                >
+                    {confirmButtonText || globalize.translate('ButtonOk')}
+                </Button>
+            </DialogActions>
+        </Dialog>
+    );
+};
 
 export default ConfirmDialog;

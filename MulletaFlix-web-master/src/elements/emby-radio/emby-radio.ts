@@ -3,7 +3,11 @@ import browser from '../../scripts/browser';
 import 'webcomponents.js/webcomponents-lite';
 import './emby-radio.scss';
 
-const EmbyRadioPrototype: HTMLInputElement = Object.create(HTMLInputElement.prototype);
+type EmbyRadioElement = HTMLInputElement & {
+    attachedCallback?(): void;
+};
+
+const EmbyRadioPrototype = Object.create(HTMLInputElement.prototype) as EmbyRadioElement;
 
 function onKeyDown(this: HTMLInputElement, e: KeyboardEvent): void | false {
     // Don't submit form on enter
@@ -23,7 +27,7 @@ function onKeyDown(this: HTMLInputElement, e: KeyboardEvent): void | false {
     }
 }
 
-(EmbyRadioPrototype as any).attachedCallback = function (this: HTMLInputElement): void {
+EmbyRadioPrototype.attachedCallback = function (this: HTMLInputElement): void {
     const showFocus: boolean = !layoutManager.mobile;
 
     if (this.getAttribute('data-radio') === 'true') {

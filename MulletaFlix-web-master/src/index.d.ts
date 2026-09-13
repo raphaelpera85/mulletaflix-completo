@@ -1,16 +1,13 @@
 declare module 'jquery';
 
 declare module '*.png' {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const value: any;
+    const value: string;
     export = value;
 }
 
 declare module '*.html' {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const value: any;
+    const value: string;
     export default value;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-declare const ApiClient: any;
+declare const ApiClient: import('jellyfin-apiclient').ApiClient;

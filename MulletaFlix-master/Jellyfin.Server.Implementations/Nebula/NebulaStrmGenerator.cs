@@ -254,7 +254,9 @@ public sealed class NebulaStrmGenerator
         var port = config.ServerPort > 0 ? config.ServerPort : 2121;
 
         var authPrefix = string.Empty;
-        if (!string.IsNullOrWhiteSpace(config.Username) && !string.IsNullOrWhiteSpace(config.Password))
+        if (config.EmbedFtpCredentialsInStrmUrls &&
+            !string.IsNullOrWhiteSpace(config.Username) &&
+            !string.IsNullOrWhiteSpace(config.Password))
         {
             authPrefix = $"{Uri.EscapeDataString(config.Username)}:{Uri.EscapeDataString(config.Password)}@";
         }

@@ -21,24 +21,22 @@ interface AlphaPickerOptions {
     itemClass?: string;
     mode?: string;
     valueChangeEvent?: string;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 interface Query {
     NameLessThan?: string;
     NameStartsWith?: string;
     SortBy: string;
-    [key: string]: any;
 }
 
 function focus(this: HTMLElement): void {
-    const scope = this;
-    const selected = scope.querySelector(`.${selectedButtonClass}`) as HTMLElement | null;
+    const selected = this.querySelector(`.${selectedButtonClass}`) as HTMLElement | null;
 
     if (selected) {
         focusManager.focus(selected);
     } else {
-        focusManager.autoFocus(scope, true);
+        focusManager.autoFocus(this, true);
     }
 }
 
@@ -117,18 +115,34 @@ function render(element: HTMLElement, options: AlphaPickerOptions): void {
     element.innerHTML = html;
 
     element.classList.add('focusable');
-    element.focus = focus as any;
+    element.focus = focus as HTMLElement['focus'];
+}
+
+function updateSelectedButton(element: HTMLElement, value: string | null): void {
+    const selected = element.querySelector(`.${selectedButtonClass}`) as HTMLElement | null;
+    if (!value) {
+        selected?.classList.remove(selectedButtonClass);
+        return;
+    }
+
+    let button: HTMLElement | null = null;
+    try {
+        button = element.querySelector(`.alphaPickerButton[data-value='${value}']`) as HTMLElement | null;
+    } catch (error) {
+        console.error('error in querySelector:', error);
+    }
+
+    if (button && button !== selected) button.classList.add(selectedButtonClass);
+    if (selected && selected !== button) selected.classList.remove(selectedButtonClass);
 }
 
 export class AlphaPicker {
     options: AlphaPickerOptions;
     _currentValue: string | null = null;
-    enabled: (enabled: boolean) => void = () => {};
-    visible: (visible: boolean) => void = () => {};
+    enabled: (enabled: boolean) => void = () => undefined;
+    visible: (visible: boolean) => void = () => undefined;
 
     constructor(options: AlphaPickerOptions) {
-        const self = this;
-
         this.options = options;
 
         const element = options.element;
@@ -138,22 +152,22 @@ export class AlphaPicker {
         let itemFocusValue: string | null;
         let itemFocusTimeout: ReturnType<typeof setTimeout> | null;
 
-        function onItemFocusTimeout(): void {
+        const onItemFocusTimeout = (): void => {
             itemFocusTimeout = null;
-            self.value(itemFocusValue, true);
-        }
+            this.value(itemFocusValue, true);
+        };
 
         let alphaFocusedElement: HTMLElement | null;
         let alphaFocusTimeout: ReturnType<typeof setTimeout> | null;
 
-        function onAlphaFocusTimeout(): void {
+        const onAlphaFocusTimeout = (): void => {
             alphaFocusTimeout = null;
 
             if (document.activeElement === alphaFocusedElement) {
                 const value = alphaFocusedElement!.getAttribute('data-value');
-                self.value(value, true);
+                this.value(value, true);
             }
-        }
+        };
 
         function onAlphaPickerInKeyboardModeClick(e: MouseEvent): void {
             const alphaPickerButton = dom.parentWithClass(e.target as HTMLElement, 'alphaPickerButton') as HTMLElement | null;
@@ -170,18 +184,18 @@ export class AlphaPicker {
             }
         }
 
-        function onAlphaPickerClick(this: HTMLElement, e: MouseEvent): void {
+        const onAlphaPickerClick = (e: MouseEvent): void => {
             const alphaPickerButton = dom.parentWithClass(e.target as HTMLElement, 'alphaPickerButton') as HTMLElement | null;
 
             if (alphaPickerButton) {
                 const value = alphaPickerButton.getAttribute('data-value');
-                if ((self._currentValue || '').toUpperCase() === (value || '').toUpperCase()) {
-                    self.value(null, true);
+                if ((this._currentValue || '').toUpperCase() === (value || '').toUpperCase()) {
+                    this.value(null, true);
                 } else {
-                    self.value(value, true);
+                    this.value(value, true);
                 }
             }
-        }
+        };
 
         function onAlphaPickerFocusIn(e: FocusEvent): void {
             if (alphaFocusTimeout) {
@@ -225,7 +239,7 @@ export class AlphaPicker {
                 if (options.valueChangeEvent !== 'click') {
                     element.addEventListener('focus', onAlphaPickerFocusIn as EventListener, true);
                 } else {
-                    element.addEventListener('click', onAlphaPickerClick.bind(element));
+                    element.addEventListener('click', onAlphaPickerClick);
                 }
             } else {
                 if (itemsContainer) {
@@ -234,7 +248,7 @@ export class AlphaPicker {
 
                 element.removeEventListener('click', onAlphaPickerInKeyboardModeClick);
                 element.removeEventListener('focus', onAlphaPickerFocusIn as EventListener, true);
-                element.removeEventListener('click', onAlphaPickerClick.bind(element));
+                element.removeEventListener('click', onAlphaPickerClick);
             }
         };
 
@@ -246,37 +260,18 @@ export class AlphaPicker {
 
     value(value?: string | null, applyValue?: boolean): string | null {
         const element = this.options.element;
-        let btn: HTMLElement | null = null;
-        let selected: HTMLElement | null;
 
         if (value !== undefined) {
-            if (value != null) {
+            if (value !== null) {
                 value = value.toUpperCase();
                 this._currentValue = value;
 
                 if (this.options.mode !== 'keyboard') {
-                    selected = element.querySelector(`.${selectedButtonClass}`) as HTMLElement | null;
-
-                    try {
-                        btn = element.querySelector(`.alphaPickerButton[data-value='${value}']`) as HTMLElement | null;
-                    } catch (err) {
-                        console.error('error in querySelector:', err);
-                    }
-
-                    if (btn && btn !== selected) {
-                        btn.classList.add(selectedButtonClass);
-                    }
-                    if (selected && selected !== btn) {
-                        selected.classList.remove(selectedButtonClass);
-                    }
+                    updateSelectedButton(element, value);
                 }
             } else {
                 this._currentValue = value;
-
-                selected = element.querySelector(`.${selectedButtonClass}`) as HTMLElement | null;
-                if (selected) {
-                    selected.classList.remove(selectedButtonClass);
-                }
+                updateSelectedButton(element, null);
             }
         }
 
@@ -321,7 +316,7 @@ export class AlphaPicker {
         const element = this.options.element;
         this.enabled(false);
         element.classList.remove('focuscontainer-x');
-        this.options = null as any;
+        this.options = null as unknown as AlphaPickerOptions;
     }
 }
 

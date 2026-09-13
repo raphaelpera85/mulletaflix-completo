@@ -1,4 +1,4 @@
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import escapeHtml from 'escape-html';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import Dashboard from 'utils/dashboard';
@@ -50,15 +50,12 @@ function loadPage(page: WizardStartPage, systemInfo: WizardStartSystemInfo, conf
         }).join('');
         languageElem.value = config.UICulture || '';
     }
-
-    loading.hide();
 }
 
 function save(page: WizardStartPage): void {
-    loading.show();
     const apiClient = ServerConnections.currentApiClient() as unknown as WizardStartApiClient;
 
-    void apiClient.getJSON(apiClient.getUrl('Startup/Configuration')).then(function (config) {
+    void withLoading(() => apiClient.getJSON(apiClient.getUrl('Startup/Configuration')).then(function (config) {
         const typedConfig = config as WizardStartConfiguration;
         const serverNameElem = page.querySelector<HTMLInputElement>('#txtServerName');
         const languageElem = page.querySelector<HTMLSelectElement>('#selectLocalizationLanguage');
@@ -72,11 +69,12 @@ function save(page: WizardStartPage): void {
             url: apiClient.getUrl('Startup/Configuration'),
             contentType: 'application/json'
         });
-    }).then(function () {
-        void Dashboard.navigate('wizard/user');
-    }).catch(function () {
-        loading.hide();
-    });
+    }))
+        .then(function () {
+            void Dashboard.navigate('wizard/user');
+        }).catch(function (error: unknown) {
+            console.error('[Wizard > Start] failed to save configuration', error);
+        });
 }
 
 function onSubmit(this: HTMLFormElement, e: SubmitEvent): boolean {
@@ -90,17 +88,16 @@ export default function (view: WizardStartPage): void {
 
     view.addEventListener('viewshow', function () {
         document.querySelector('.skinHeader')?.classList.add('noHomeButtonHeader');
-        loading.show();
         const apiClient = ServerConnections.currentApiClient() as unknown as WizardStartApiClient;
 
-        void Promise.all([
+        void withLoading(() => Promise.all([
             apiClient.getPublicSystemInfo(),
             apiClient.getJSON(apiClient.getUrl('Startup/Configuration')),
             apiClient.getJSON(apiClient.getUrl('Localization/Options'))
-        ]).then(([ systemInfo, config, languageOptions ]) => {
+        ])).then(([ systemInfo, config, languageOptions ]) => {
             loadPage(view, systemInfo, config as WizardStartConfiguration, languageOptions as WizardStartLanguageOption[]);
-        }).catch(function () {
-            loading.hide();
+        }).catch(function (error: unknown) {
+            console.error('[Wizard > Start] failed to load configuration', error);
         });
     });
 

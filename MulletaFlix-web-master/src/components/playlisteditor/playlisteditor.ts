@@ -29,6 +29,9 @@ import 'elements/emby-select/emby-select';
 import 'material-design-icons-iconfont';
 import '../formdialog.scss';
 
+/* Legacy API compatibility casts are dynamically shaped at runtime. */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 interface DialogElement extends HTMLDivElement {
     playlistId?: string
     submitted?: boolean
@@ -50,30 +53,25 @@ function onSubmit(this: HTMLElement, e: Event) {
     if (panel) {
         const playlistId = panel.querySelector<HTMLSelectElement>('#selectPlaylistToAddTo')?.value;
 
-        loading.show();
-
         if (playlistId) {
             userSettings.set('playlisteditor-lastplaylistid', playlistId);
-            addToPlaylist(panel, playlistId)
+            void loading.withLoading(() => addToPlaylist(panel, playlistId))
                 .catch(err => {
                     console.error('[PlaylistEditor] Failed to add to playlist %s', playlistId, err);
                     toast(globalize.translate('PlaylistError.AddFailed'));
-                })
-                .finally(loading.hide);
+                });
         } else if (panel.playlistId) {
-            updatePlaylist(panel)
+            void loading.withLoading(() => updatePlaylist(panel))
                 .catch(err => {
                     console.error('[PlaylistEditor] Failed to update to playlist %s', panel.playlistId, err);
                     toast(globalize.translate('PlaylistError.UpdateFailed'));
-                })
-                .finally(loading.hide);
+                });
         } else {
-            createPlaylist(panel)
+            void loading.withLoading(() => createPlaylist(panel))
                 .catch(err => {
                     console.error('[PlaylistEditor] Failed to create playlist', err);
                     toast(globalize.translate('PlaylistError.CreateFailed'));
-                })
-                .finally(loading.hide);
+                });
         }
     } else {
         console.error('[PlaylistEditor] Dialog element is missing!');
@@ -142,15 +140,13 @@ function addToPlaylist(dlg: DialogElement, id: string) {
     const itemIds = dlg.querySelector<HTMLInputElement>('.fldSelectedItemIds')?.value || '';
 
     if (id === 'queue') {
-        playbackManager.queue({
+        return playbackManager.queue({
             serverId: currentServerId,
             ids: itemIds.split(',')
-        }).catch((err: any) => {
-            console.error('[PlaylistEditor] failed to add to queue', err);
+        }).then(() => {
+            dlg.submitted = true;
+            dialogHelper.close(dlg);
         });
-        dlg.submitted = true;
-        dialogHelper.close(dlg);
-        return Promise.resolve();
     }
 
     return getPlaylistsApi(api)
@@ -175,8 +171,6 @@ function populatePlaylists(editorOptions: PlaylistEditorOptions, panel: DialogEl
     if (!select) {
         return Promise.reject(new Error('Playlist <select> element is missing'));
     }
-
-    loading.show();
 
     panel.querySelector('.newPlaylistInfo')?.classList.add('hide');
 
@@ -316,12 +310,13 @@ function initEditor(content: DialogElement, options: PlaylistEditorOptions, item
 
     if (items.length) {
         content.querySelector('.fldSelectPlaylist')?.classList.remove('hide');
-        populatePlaylists(options, content)
+        void loading.withLoading(() => populatePlaylists(options, content))
             .catch(err => {
                 console.error('[PlaylistEditor] failed to populate playlists', err);
-            })
-            .finally(loading.hide);
+                toast(globalize.translate('PlaylistError.LoadFailed'));
+            });
     } else if (options.id) {
+        const playlistId = options.id;
         content.querySelector('.fldSelectPlaylist')?.classList.add('hide');
         const panel = dom.parentWithClass(content, 'dialog') as DialogElement | null;
         if (!panel) {
@@ -331,14 +326,14 @@ function initEditor(content: DialogElement, options: PlaylistEditorOptions, item
 
         const apiClient = ServerConnections.getApiClient(currentServerId);
         const api = toApi(apiClient as any);
-        Promise.all([
+        void loading.withLoading(() => Promise.all([
             getUserLibraryApi(api)
-                .getItem({ itemId: options.id }),
+                .getItem({ itemId: playlistId }),
             getPlaylistsApi(api)
-                .getPlaylist({ playlistId: options.id })
-        ])
+                .getPlaylist({ playlistId })
+        ]))
             .then(([ { data: playlistItem }, { data: playlist } ]) => {
-                panel.playlistId = options.id;
+                panel.playlistId = playlistId;
 
                 const nameField = panel.querySelector<HTMLInputElement>('#txtNewPlaylistName');
                 if (nameField) nameField.value = playlistItem.Name || '';
@@ -348,6 +343,7 @@ function initEditor(content: DialogElement, options: PlaylistEditorOptions, item
             })
             .catch(err => {
                 console.error('[playlistEditor] failed to get playlist details', err);
+                toast(globalize.translate('PlaylistError.LoadFailed'));
             });
     } else {
         content.querySelector('.fldSelectPlaylist')?.classList.add('hide');
@@ -436,3 +432,5 @@ export class PlaylistEditor {
 }
 
 export default PlaylistEditor;
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

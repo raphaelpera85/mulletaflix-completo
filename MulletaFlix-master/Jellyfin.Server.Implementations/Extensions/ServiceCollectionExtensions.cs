@@ -105,7 +105,7 @@ public static class ServiceCollectionExtensions
                         ConnectionString = "",
                         Options =
                         [
-                            new() { Key = "server", Value = "localhost" },
+                            new() { Key = "server", Value = "127.0.0.1" },
                             new() { Key = "port", Value = "3306" },
                             new() { Key = "user", Value = "root" },
                             new() { Key = "password", Value = "" },

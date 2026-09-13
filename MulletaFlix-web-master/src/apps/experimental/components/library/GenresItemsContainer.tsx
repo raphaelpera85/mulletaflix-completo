@@ -1,9 +1,10 @@
 import type { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
 import type { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
-import React, { FC } from 'react';
+import React, { FC, useCallback } from 'react';
 import { useGetGenres } from 'hooks/useFetchItems';
 import NoItemsMessage from 'components/common/NoItemsMessage';
 import Loading from 'components/loading/LoadingComponent';
+import LoadErrorMessage from 'components/common/LoadErrorMessage';
 import GenresSectionContainer from './GenresSectionContainer';
 import type { ParentId } from 'types/library';
 
@@ -19,7 +20,12 @@ const GenresItemsContainer: FC<GenresItemsContainerProps> = ({
     itemType
 // eslint-disable-next-line sonarjs/function-return-type
 }) => {
-    const { isLoading, data: genresResult } = useGetGenres(itemType, parentId);
+    const { isLoading, isError, refetch, data: genresResult } = useGetGenres(itemType, parentId);
+    const handleRetry = useCallback(() => {
+        refetch().catch(() => undefined);
+    }, [refetch]);
+
+    if (isError) return <LoadErrorMessage onRetry={handleRetry} />;
 
     if (isLoading) {
         return <Loading />;
@@ -41,4 +47,3 @@ const GenresItemsContainer: FC<GenresItemsContainerProps> = ({
 };
 
 export default GenresItemsContainer;
-

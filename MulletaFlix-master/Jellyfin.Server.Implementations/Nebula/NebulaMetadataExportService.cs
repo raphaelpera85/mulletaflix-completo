@@ -87,7 +87,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     {
         var item = args.Item;
         if (item.IsFolder || string.IsNullOrWhiteSpace(item.Path) ||
-            !IsPathWithinRoot(item.Path, GetNebulaDriveRoot()) ||
+            !IsConfiguredNebulaSourcePath(item.Path) ||
             !VideoExtensions.Contains(Path.GetExtension(item.Path)))
         {
             return;
@@ -142,7 +142,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         string targetDirectory,
         CancellationToken cancellationToken = default)
     {
-        if (!IsPathWithinRoot(strmPath, GetNebulaDriveRoot()) || !IsConfiguredStagePath(targetDirectory))
+        if (!IsConfiguredNebulaSourcePath(strmPath) || !IsConfiguredStagePath(targetDirectory))
         {
             _logger.LogWarning("[NEBULA-METADATA] Preparação ignorada fora das raízes permitidas: STRM={StrmPath}, destino={TargetDirectory}", strmPath, targetDirectory);
             return false;
@@ -189,7 +189,8 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         var automaticExport = string.IsNullOrWhiteSpace(stageDirectory);
         if (string.IsNullOrWhiteSpace(stageDirectory))
         {
-            var relativePath = Path.GetRelativePath(GetNebulaDriveRoot(), item.Path!);
+            var sourceRoot = GetConfiguredNebulaSourceRoot(item.Path!) ?? GetNebulaDriveRoot();
+            var relativePath = Path.GetRelativePath(sourceRoot, item.Path!);
             var routedDirectory = GetAutomaticStageRelativeDirectory(relativePath, Path.GetFileName(item.Path));
             if (string.IsNullOrWhiteSpace(routedDirectory))
             {
@@ -419,6 +420,37 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         }
 
         return roots.Any(root => IsPathWithinRoot(path, root));
+    }
+
+    private bool IsConfiguredNebulaSourcePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        // STRM files can live on a local monitor source (for example
+        // D:\midias) even when the optional mapped Nebula drive is N:.
+        // Metadata preparation must validate both locations; otherwise the
+        // downloader finds the file but can never prepare its metadata.
+        var config = _configurationManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+        var sources = config?.MonitorPaths?.Where(p => !string.IsNullOrWhiteSpace(p)).ToArray() ?? Array.Empty<string>();
+        if (sources.Any(root => IsPathWithinRoot(path, root)))
+        {
+            return true;
+        }
+
+        return IsPathWithinRoot(path, GetNebulaDriveRoot());
+    }
+
+    private string? GetConfiguredNebulaSourceRoot(string path)
+    {
+        var config = _configurationManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+        var roots = config?.MonitorPaths?.Where(p => !string.IsNullOrWhiteSpace(p)).ToArray() ?? Array.Empty<string>();
+        return roots
+            .Where(root => IsPathWithinRoot(path, root))
+            .OrderByDescending(root => root.Length)
+            .FirstOrDefault();
     }
 
     private static async Task CopyAtomicallyAsync(string source, string target, CancellationToken cancellationToken)

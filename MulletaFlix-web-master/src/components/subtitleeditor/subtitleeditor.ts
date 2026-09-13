@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/indent, @stylistic/padded-blocks */
 import escapeHtml from 'escape-html';
 
 import { AppFeature } from 'constants/appFeature';
@@ -99,23 +100,22 @@ function deleteLocalSubtitle(context: Element, index: string): void {
         primary: 'delete'
 
     }).then(function () {
-        loading.show();
-
         const itemId = currentItem.Id;
         const url = 'Videos/' + itemId + '/Subtitles/' + index;
 
         const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as SubtitleEditorApiClient;
 
-        apiClient.ajax({
-
-            type: 'DELETE',
-            url: apiClient.getUrl(url)
-
-        }).then(function () {
-            hasChanges = true;
-            reload(context, apiClient, itemId);
-        }, function () {
-            toast(globalize.translate('ErrorDefault'));
+        void loading.withLoading(async () => {
+            try {
+                await apiClient.ajax({
+                    type: 'DELETE',
+                    url: apiClient.getUrl(url)
+                });
+                hasChanges = true;
+                reload(context, apiClient, itemId);
+            } catch {
+                toast(globalize.translate('ErrorDefault'));
+            }
         });
     }).catch(() => undefined);
 }
@@ -269,7 +269,6 @@ function renderSearchResults(context: Element, results: SubtitleSearchResult[]):
     if (!results.length) {
         context.querySelector('.noSearchResults')!.classList.remove('hide');
         (context.querySelector('.subtitleResults') as Element).innerHTML = '';
-        loading.hide();
         return;
     }
 
@@ -299,29 +298,30 @@ function renderSearchResults(context: Element, results: SubtitleSearchResult[]):
     const elem = context.querySelector('.subtitleResults')!;
     elem.innerHTML = html;
 
-    loading.hide();
 }
 
 function searchForSubtitles(context: Element, language: string): void {
     userSettings.set('subtitleeditor-language', language);
 
-    loading.show();
-
     const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as SubtitleEditorApiClient;
     const url = apiClient.getUrl('Items/' + currentItem.Id + '/RemoteSearch/Subtitles/' + language);
 
-    void apiClient.getJSON(url).then(function (results: SubtitleSearchResult[]) {
-        renderSearchResults(context, results);
-    }).catch(() => {
-        loading.hide();
-        toast(globalize.translate('ErrorDefault'));
+    void loading.withLoading(async () => {
+        try {
+            const results = await apiClient.getJSON(url) as SubtitleSearchResult[];
+            renderSearchResults(context, results);
+        } catch {
+            toast(globalize.translate('ErrorDefault'));
+        }
     });
 }
 
 function reload(context: Element, apiClient: SubtitleEditorApiClient, itemId: string | SubtitleEditorItem): void {
     context.querySelector('.noSearchResults')!.classList.add('hide');
 
-    function onGetItem(item: SubtitleEditorItem): void {
+    void loading.withLoading(async () => {
+        try {
+            const item = typeof itemId === 'string' ? await apiClient.getItem(apiClient.getCurrentUserId(), itemId) as SubtitleEditorItem : itemId;
         currentItem = item;
 
         fillSubtitleList(context, item);
@@ -339,17 +339,10 @@ function reload(context: Element, apiClient: SubtitleEditorApiClient, itemId: st
             context.querySelector('.originalFile')!.classList.add('hide');
         }
 
-        loading.hide();
-    }
-
-    if (typeof itemId === 'string') {
-        void apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(onGetItem).catch(() => {
-            loading.hide();
+        } catch {
             toast(globalize.translate('ErrorDefault'));
-        });
-    } else {
-        onGetItem(itemId);
-    }
+        }
+    });
 }
 
 function onSearchSubmit(this: HTMLFormElement, e: Event): void {
@@ -517,11 +510,11 @@ function showEditorInternal(itemId: string, serverId: string): Promise<void> {
 }
 
 function showEditor(itemId: string, serverId: string): Promise<void> {
-    loading.show();
-
     return showEditorInternal(itemId, serverId);
 }
 
 export default {
     show: showEditor
 };
+
+/* eslint-enable @stylistic/indent, @stylistic/padded-blocks */

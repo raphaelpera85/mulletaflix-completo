@@ -1,18 +1,41 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import Page from 'components/Page';
 import globalize from 'lib/globalize';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
 import { getCategories, getTasksByCategory } from '../../features/tasks/utils/tasks';
 import Loading from 'components/loading/LoadingComponent';
 import Tasks from '../../features/tasks/components/Tasks';
 import useLiveTasks from 'apps/dashboard/features/tasks/hooks/useLiveTasks';
 
 export const Component = () => {
-    const { data: tasks, isPending } = useLiveTasks({ isHidden: false });
+    const { data: tasks, isPending, isError, refetch } = useLiveTasks({ isHidden: false });
 
-    if (isPending || !tasks) {
+    const handleRetry = useCallback(() => {
+        void refetch().catch((error: unknown) => {
+            console.error('[TasksPage] failed to retry tasks', error);
+        });
+    }, [refetch]);
+
+    if (isPending && !isError) {
         return <Loading />;
+    }
+
+    if (isError || !tasks) {
+        return (
+            <Alert
+                severity='error'
+                action={(
+                    <Button color='inherit' size='small' onClick={handleRetry}>
+                        {globalize.translate('Retry')}
+                    </Button>
+                )}
+            >
+                {globalize.translate('ErrorLoadingData')}
+            </Alert>
+        );
     }
 
     const categories = getCategories(tasks);

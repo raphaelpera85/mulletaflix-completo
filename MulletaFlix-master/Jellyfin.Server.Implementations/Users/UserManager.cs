@@ -59,6 +59,7 @@ namespace MulletaFlix.Server.Implementations.Users
 
         private readonly AsyncKeyedLocker<Guid> _userLock = new();
         private readonly SemaphoreSlim _schemaInitializationLock = new(1, 1);
+        private readonly SemaphoreSlim _userInitializationLock = new(1, 1);
         private bool _schemaInitialized;
 
         internal AsyncKeyedLocker<Guid> UserLock => _userLock;
@@ -585,44 +586,52 @@ namespace MulletaFlix.Server.Implementations.Users
         /// <inheritdoc />
         public async Task InitializeAsync()
         {
-            await EnsureSchemaCreatedAsync(force: true).ConfigureAwait(false);
-
-            // TODO: Refactor the startup wizard so that it doesn't require a user to already exist.
-            var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
-            await using (dbContext.ConfigureAwait(false))
+            await _userInitializationLock.WaitAsync().ConfigureAwait(false);
+            try
             {
-                try
+                await EnsureSchemaCreatedAsync(force: true).ConfigureAwait(false);
+
+                // TODO: Refactor the startup wizard so that it doesn't require a user to already exist.
+                var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+                await using (dbContext.ConfigureAwait(false))
                 {
-                    if (await dbContext.Users.AnyAsync().ConfigureAwait(false))
+                    try
                     {
-                        return;
+                        if (await dbContext.Users.AnyAsync().ConfigureAwait(false))
+                        {
+                            return;
+                        }
                     }
-                }
-                catch (Exception ex) when (IsMissingTableException(ex))
-                {
-                    await EnsureSchemaCreatedAsync(force: true).ConfigureAwait(false);
-                    if (await dbContext.Users.AnyAsync().ConfigureAwait(false))
+                    catch (Exception ex) when (IsMissingTableException(ex))
                     {
-                        return;
+                        await EnsureSchemaCreatedAsync(force: true).ConfigureAwait(false);
+                        if (await dbContext.Users.AnyAsync().ConfigureAwait(false))
+                        {
+                            return;
+                        }
                     }
+
+                    var defaultName = Environment.UserName;
+                    if (string.IsNullOrWhiteSpace(defaultName) || !ValidUsernameRegex().IsMatch(defaultName))
+                    {
+                        defaultName = "MyMulletaFlixUser";
+                    }
+
+                    _logger.LogWarning("No users, creating one with username {UserName}", defaultName);
+
+                    var newUser = await CreateUserInternalAsync(defaultName, dbContext).ConfigureAwait(false);
+                    newUser.SetPermission(PermissionKind.IsAdministrator, true);
+                    newUser.SetPermission(PermissionKind.EnableContentDeletion, true);
+                    newUser.SetPermission(PermissionKind.EnableRemoteControlOfOtherUsers, true);
+
+                    dbContext.Users.Add(newUser);
+                    await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                    SyncNebulaFtpCredentials(newUser.Username, null);
                 }
-
-                var defaultName = Environment.UserName;
-                if (string.IsNullOrWhiteSpace(defaultName) || !ValidUsernameRegex().IsMatch(defaultName))
-                {
-                    defaultName = "MyMulletaFlixUser";
-                }
-
-                _logger.LogWarning("No users, creating one with username {UserName}", defaultName);
-
-                var newUser = await CreateUserInternalAsync(defaultName, dbContext).ConfigureAwait(false);
-                newUser.SetPermission(PermissionKind.IsAdministrator, true);
-                newUser.SetPermission(PermissionKind.EnableContentDeletion, true);
-                newUser.SetPermission(PermissionKind.EnableRemoteControlOfOtherUsers, true);
-
-                dbContext.Users.Add(newUser);
-                await dbContext.SaveChangesAsync().ConfigureAwait(false);
-                SyncNebulaFtpCredentials(newUser.Username, null);
+            }
+            finally
+            {
+                _userInitializationLock.Release();
             }
         }
 
@@ -1110,6 +1119,7 @@ namespace MulletaFlix.Server.Implementations.Users
             if (disposing)
             {
                 _userLock.Dispose();
+                _userInitializationLock.Dispose();
             }
         }
     }

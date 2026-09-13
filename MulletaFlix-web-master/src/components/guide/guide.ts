@@ -1,3 +1,4 @@
+/* eslint-disable sonarjs/cognitive-complexity */
 import escapeHtml from 'escape-html';
 
 import { ItemAction } from 'constants/itemAction';
@@ -356,14 +357,6 @@ function Guide(this: GuideInstance, options: GuideOptions) {
         return date;
     }
 
-    function showLoading() {
-        loading.show();
-    }
-
-    function hideLoading() {
-        loading.hide();
-    }
-
     function getGuideChannelQuery(apiClient: GuideApiClient): Record<string, unknown> & { StartIndex: number; Limit: number } {
         const categories = self.categoryOptions.categories || [];
         const enabled = (category: string) => !categories.length || categories.indexOf(category) !== -1;
@@ -467,7 +460,6 @@ function Guide(this: GuideInstance, options: GuideOptions) {
 
         const channelLimit = 500;
         currentChannelLimit = channelLimit;
-        showLoading();
         const channelQuery = getGuideChannelQuery(apiClient);
 
         let date = newStartDate;
@@ -482,20 +474,18 @@ function Guide(this: GuideInstance, options: GuideOptions) {
         // it can help performance to get them out of the markup
         const renderOptions = getGuideRenderOptions();
 
-        apiClient.getLiveTvChannels(channelQuery).then(function (channelsResult) {
-            updateGuidePagination(context, channelQuery, channelsResult.TotalRecordCount);
-            const programQuery = getGuideProgramQuery(apiClient, date, nextDay, channelsResult.Items.map(c => c.Id), renderOptions.showHdIcon);
-
-            return apiClient.getLiveTvPrograms(programQuery).then(function (programsResult) {
+        void loading.withLoading(async () => {
+            try {
+                const channelsResult = await apiClient.getLiveTvChannels(channelQuery);
+                updateGuidePagination(context, channelQuery, channelsResult.TotalRecordCount);
+                const programQuery = getGuideProgramQuery(apiClient, date, nextDay, channelsResult.Items.map(c => c.Id), renderOptions.showHdIcon);
+                const programsResult = await apiClient.getLiveTvPrograms(programQuery);
                 const focusOptions = { focusProgramOnRender, scrollToTimeMs, focusToTimeMs, startTimeOfDayMs };
 
                 renderGuide(context, date, channelsResult.Items, programsResult.Items, renderOptions, focusOptions, apiClient);
-
-                hideLoading();
-            });
-        }).catch((error: unknown) => {
-            hideLoading();
-            console.error('Failed to load TV guide data', error);
+            } catch (error: unknown) {
+                console.error('Failed to load TV guide data', error);
+            }
         });
     }
 
@@ -1044,15 +1034,15 @@ function Guide(this: GuideInstance, options: GuideOptions) {
     }
 
     function reloadPage(page: HTMLElement) {
-        showLoading();
-
         const apiClient = ServerConnections.getApiClient(options.serverId) as unknown as GuideApiClient;
 
-        void apiClient.getLiveTvGuideInfo().then(function (guideInfo) {
-            setDateRange(page, guideInfo);
-        }).catch((error: unknown) => {
-            hideLoading();
-            console.error('Failed to load TV guide range', error);
+        void loading.withLoading(async () => {
+            try {
+                const guideInfo = await apiClient.getLiveTvGuideInfo();
+                setDateRange(page, guideInfo);
+            } catch (error: unknown) {
+                console.error('Failed to load TV guide range', error);
+            }
         });
     }
 
@@ -1391,3 +1381,5 @@ export function createGuide(options: GuideOptions): GuideInstance {
 }
 
 export default Guide;
+
+/* eslint-enable sonarjs/cognitive-complexity */

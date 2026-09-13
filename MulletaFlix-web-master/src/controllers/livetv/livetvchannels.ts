@@ -1,7 +1,7 @@
 import cardBuilder from '../../components/cardbuilder/cardBuilder';
 import imageLoader from '../../components/images/imageLoader';
 import libraryBrowser from '../../scripts/libraryBrowser';
-import loading from '../../components/loading/loading';
+import { withLoading } from '../../components/loading/loading';
 import * as userSettings from '../../scripts/settings/userSettings';
 import Events from '../../utils/events.ts';
 import { setFilterStatus } from 'components/filterdialog/filterIndicator';
@@ -154,23 +154,21 @@ export default function (
     }
 
     function reloadItems(context: HTMLElement): Promise<void> {
-        loading.show();
         isLoading = true;
         const query = getQuery();
         setFilterStatus(context, query);
 
         const apiClient = ApiClient;
         query.UserId = apiClient.getCurrentUserId();
-        return apiClient.getLiveTvChannels(query).then(function (result) {
+        return withLoading(async () => {
+            const result = await apiClient.getLiveTvChannels(query);
             renderChannels(context, result);
-            loading.hide();
             isLoading = false;
 
             void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(context);
             }).catch((error: unknown) => console.error('Failed to focus TV channels', error));
         }).catch((error: unknown) => {
-            loading.hide();
             isLoading = false;
             console.error('Failed to load TV channels', error);
         });

@@ -1,7 +1,8 @@
-import React, { type FC } from 'react';
+import React, { type FC, useCallback } from 'react';
 
 import { CardShape } from 'components/cardbuilder/utils/shape';
 import NoItemsMessage from 'components/common/NoItemsMessage';
+import LoadErrorMessage from 'components/common/LoadErrorMessage';
 import SectionContainer from 'components/common/SectionContainer';
 import Loading from 'components/loading/LoadingComponent';
 import { appRouter } from 'components/router/appRouter';
@@ -24,11 +25,21 @@ const ProgramsSectionView: FC<ProgramsSectionViewProps> = ({
     isUpcomingRecordingsEnabled = false
 }) => {
     const { __legacyApiClient__ } = useApi();
-    const { isLoading, data: sectionsWithItems, refetch } = useGetProgramsSectionsWithItems(parentId, sectionType);
+    const { isLoading, isError: isSectionsError, refetch: refetchSections, data: sectionsWithItems } = useGetProgramsSectionsWithItems(parentId, sectionType);
     const {
         isLoading: isUpcomingRecordingsLoading,
+        isError: isUpcomingRecordingsError,
+        refetch: refetchUpcomingRecordings,
         data: upcomingRecordings
     } = useGetTimers(isUpcomingRecordingsEnabled);
+    const handleRetry = useCallback(() => {
+        refetchSections().catch(() => undefined);
+        refetchUpcomingRecordings().catch(() => undefined);
+    }, [refetchSections, refetchUpcomingRecordings]);
+
+    if (isSectionsError || isUpcomingRecordingsError) {
+        return <LoadErrorMessage onRetry={handleRetry} />;
+    }
 
     if (isLoading || isUpcomingRecordingsLoading) {
         return <Loading />;
@@ -62,7 +73,7 @@ const ProgramsSectionView: FC<ProgramsSectionViewProps> = ({
                     }}
                     itemsContainerProps={{
                         queryKey: ['ProgramSectionWithItems'],
-                        reloadItems: refetch
+                        reloadItems: refetchSections
                     }}
                     items={items}
                     cardOptions={{
@@ -81,7 +92,7 @@ const ProgramsSectionView: FC<ProgramsSectionViewProps> = ({
                     }}
                     itemsContainerProps={{
                         queryKey: ['Timers'],
-                        reloadItems: refetch
+                        reloadItems: refetchUpcomingRecordings
                     }}
                     items={group.timerInfo}
                     cardOptions={{

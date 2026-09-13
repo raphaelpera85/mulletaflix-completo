@@ -49,57 +49,39 @@ function getIndex(item: ItemDto, options: Pick<ListViewOptions, 'index' | 'sortB
     }
 
     const sortBy = (options.sortBy || '').toLowerCase();
-    let code;
-    let name;
-
     if (sortBy.startsWith('sortname')) {
-        if (item.Type === 'Episode') {
-            return '';
-        }
-
-        // SortName
-        name = (item.SortName || item.Name || '?')[0].toUpperCase();
-
-        code = name.charCodeAt(0);
-        if (code < 65 || code > 90) {
-            return '#';
-        }
-
-        return name.toUpperCase();
+        return getNameIndex(item, 'sortname');
     }
     if (sortBy.startsWith('officialrating')) {
         return item.OfficialRating || globalize.translate('Unrated');
     }
-    if (sortBy.startsWith('communityrating')) {
-        if (item.CommunityRating == null) {
-            return globalize.translate('Unrated');
-        }
-
-        return String(Math.floor(item.CommunityRating));
-    }
-    if (sortBy.startsWith('criticrating')) {
-        if (item.CriticRating == null) {
-            return globalize.translate('Unrated');
-        }
-
-        return String(Math.floor(item.CriticRating));
+    if (sortBy.startsWith('communityrating') || sortBy.startsWith('criticrating')) {
+        return getRatingIndex(item, sortBy);
     }
     if (sortBy.startsWith('albumartist')) {
-        // SortName
-        if (!item.AlbumArtist) {
-            return '';
-        }
-
-        name = item.AlbumArtist[0].toUpperCase();
-
-        code = name.charCodeAt(0);
-        if (code < 65 || code > 90) {
-            return '#';
-        }
-
-        return name.toUpperCase();
+        return getNameIndex(item, 'albumartist');
     }
     return '';
+}
+
+function getNameIndex(item: ItemDto, mode: 'sortname' | 'albumartist'): string {
+    if (mode === 'sortname' && item.Type === 'Episode') {
+        return '';
+    }
+
+    const value = mode === 'sortname' ? item.SortName || item.Name || '?' : item.AlbumArtist;
+    if (!value) {
+        return '';
+    }
+
+    const name = value[0].toUpperCase();
+    const code = name.charCodeAt(0);
+    return code < 65 || code > 90 ? '#' : name;
+}
+
+function getRatingIndex(item: ItemDto, sortBy: string): string {
+    const rating = sortBy.startsWith('communityrating') ? item.CommunityRating : item.CriticRating;
+    return rating == null ? globalize.translate('Unrated') : String(Math.floor(rating));
 }
 
 function getImageUrl(item: ItemDto, size: number): string | null {
@@ -231,6 +213,9 @@ function getRightButtonsHtml(rightButtons: ListViewButton[]): string {
     return html;
 }
 
+// This renderer is a compatibility boundary for the legacy list-view markup.
+// Keep its behavior stable while the rendering paths are migrated incrementally.
+// eslint-disable-next-line sonarjs/cognitive-complexity
 export function getListViewHtml(options: ListViewOptions): string {
     const items = options.items ?? [];
 

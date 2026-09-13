@@ -15,14 +15,13 @@ export interface ItemDto extends BaseItem, TimerInfo, SeriesTimerInfo, SearchHin
     'EndDate'?: string | null;
     'Id'?: string | null;
     'StartDate'?: string | null;
-    'Type'?: ItemKind;
-    'Status'?: ItemStatus | string | null;
+    'Type'?: Exclude<ItemKind, undefined>;
+    'Status'?: Exclude<ItemStatus, undefined> | string;
     'CollectionType'?: CollectionTypeOptions | string | null;
     'Artists'?: Array<string> | null;
-    'MediaType'?: ItemMediaKind;
+    'MediaType'?: Exclude<ItemMediaKind, undefined>;
     'Name'?: string | null;
     'ItemId'?: string | null;
     'ProgramInfo'?: ItemDto;
     'CurrentProgram'?: ItemDto;
 }
-

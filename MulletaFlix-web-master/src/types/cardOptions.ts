@@ -7,9 +7,7 @@ import type { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/c
 import type { CardShape } from 'components/cardbuilder/utils/shape';
 import type { ItemAction } from 'constants/itemAction';
 
-import type { NullableString } from './base/common/shared/types';
 import type { ItemDto } from './base/models/item-dto';
-import type { ParentId } from './library';
 
 export interface CardOptions {
     itemsContainer?: HTMLElement | null;
@@ -49,7 +47,7 @@ export interface CardOptions {
     context?: CollectionType | string;
     action?: ItemAction | null;
     indexBy?: string;
-    parentId?: ParentId;
+    parentId?: string | null;
     showMenu?: boolean;
     cardCssClass?: string | null;
     cardClass?: string | null;
@@ -73,11 +71,10 @@ export interface CardOptions {
     showSeriesTimerChannel?: boolean;
     showSongCount?: boolean;
     width?: number;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    widths?: any;
+    widths?: Partial<Record<CardShape, number>>;
     showChannelLogo?: boolean;
     showLogo?: boolean;
-    serverId?: NullableString;
+    serverId?: string | null;
     collectionId?: string | null;
     playlistId?: string | null;
     defaultCardImageIcon?: string;
@@ -128,4 +125,3 @@ export interface CardOptions {
     imageType?: ImageType;
     queryKey?: string[]
 }
-

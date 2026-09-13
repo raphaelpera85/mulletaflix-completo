@@ -9,7 +9,7 @@ interface ThemeInfo {
     id: string;
     color: string;
     name?: string;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 function getThemes(): Promise<ThemeInfo[]> {

@@ -2,6 +2,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -12,6 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using MongoDB.Bson;
+using Prometheus;
 
 namespace Jellyfin.Server.Implementations.Nebula;
 
@@ -21,6 +24,21 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
 {
+    private static readonly TimeSpan StreamRequestTimeout = TimeSpan.FromHours(2);
+    private static readonly TimeSpan ControlRequestTimeout = TimeSpan.FromSeconds(30);
+    private static readonly Counter RequestCounter = Metrics.CreateCounter(
+        "nebula_http_requests_total",
+        "Total de requisições processadas pelo servidor HTTP Nebula.",
+        new CounterConfiguration { LabelNames = new[] { "route", "status" } });
+    private static readonly Counter SaturatedRequestCounter = Metrics.CreateCounter(
+        "nebula_http_saturated_requests_total",
+        "Total de requisições rejeitadas por limite de concorrência no servidor HTTP Nebula.",
+        new CounterConfiguration { LabelNames = new[] { "route" } });
+    private static readonly Histogram RequestDuration = Metrics.CreateHistogram(
+        "nebula_http_request_duration_seconds",
+        "Duração das requisições HTTP do servidor Nebula em segundos.",
+        new HistogramConfiguration { LabelNames = new[] { "route" } });
+
     private readonly NebulaMongoContext _mongoContext;
     private readonly NebulaTelegramPool _telegramPool;
     private readonly string _host;
@@ -29,10 +47,13 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     private readonly ILogger<NebulaHttpStreamServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _lifecycleLock = new();
+    private readonly SemaphoreSlim _streamConcurrency;
 
     private HttpListener? _listener;
     private Task? _listenTask;
     private bool _disposed;
+
+    public bool IsRunning => _listener?.IsListening == true;
 
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaHttpStreamServer"/>.
@@ -43,7 +64,8 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         string host,
         int port,
         ILogger<NebulaHttpStreamServer> logger,
-        string streamToken = "")
+        string streamToken = "",
+        int maxActiveConnections = 32)
     {
         _mongoContext = mongoContext ?? throw new ArgumentNullException(nameof(mongoContext));
         _telegramPool = telegramPool ?? throw new ArgumentNullException(nameof(telegramPool));
@@ -51,6 +73,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         _port = port > 0 ? port : 2123;
         _logger = logger;
         _streamToken = streamToken ?? string.Empty;
+        _streamConcurrency = new SemaphoreSlim(Math.Clamp(maxActiveConnections, 1, 4096));
     }
 
     /// <summary>
@@ -168,11 +191,21 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     {
         var request = context.Request;
         var response = context.Response;
+        using var requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var requestStarted = Stopwatch.GetTimestamp();
+        var route = "other";
 
         try
         {
             var path = request.Url?.AbsolutePath.TrimEnd('/') ?? string.Empty;
+            var isStreamingRequest = path.Equals("/stream", StringComparison.OrdinalIgnoreCase) ||
+                path.Equals("/transcode", StringComparison.OrdinalIgnoreCase);
+            route = GetMetricRoute(path);
+            requestCancellation.CancelAfter(isStreamingRequest ? StreamRequestTimeout : ControlRequestTimeout);
+            var requestToken = requestCancellation.Token;
             var isHead = request.HttpMethod.Equals("HEAD", StringComparison.OrdinalIgnoreCase);
+            response.Headers["Cache-Control"] = "no-store";
+            response.Headers["Pragma"] = "no-cache";
 
             if (!IsAuthorized(request))
             {
@@ -182,9 +215,25 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
                 return;
             }
 
-            if (path.Equals("/stream", StringComparison.OrdinalIgnoreCase) || path.Equals("/transcode", StringComparison.OrdinalIgnoreCase))
+            if (isStreamingRequest)
             {
-                await HandleStreamRequestAsync(context, isHead, cancellationToken).ConfigureAwait(false);
+                if (!await _streamConcurrency.WaitAsync(0, requestToken).ConfigureAwait(false))
+                {
+                    SaturatedRequestCounter.WithLabels(route).Inc();
+                    response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+                    response.Headers["Retry-After"] = "5";
+                    response.Close();
+                    return;
+                }
+
+                try
+                {
+                    await HandleStreamRequestAsync(context, isHead, requestToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _streamConcurrency.Release();
+                }
             }
             else if (path.Equals("/play", StringComparison.OrdinalIgnoreCase))
             {
@@ -192,7 +241,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             }
             else if (path.Equals("/api/files", StringComparison.OrdinalIgnoreCase))
             {
-                await HandleListFilesRequestAsync(context, isHead, cancellationToken).ConfigureAwait(false);
+                await HandleListFilesRequestAsync(context, isHead, requestToken).ConfigureAwait(false);
             }
             else
             {
@@ -202,7 +251,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
                 response.ContentLength64 = text.Length;
                 if (!isHead)
                 {
-                    await response.OutputStream.WriteAsync(text, cancellationToken).ConfigureAwait(false);
+                    await response.OutputStream.WriteAsync(text, requestToken).ConfigureAwait(false);
                 }
 
                 response.Close();
@@ -214,7 +263,16 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         }
         catch (OperationCanceledException)
         {
-            // Cancelamento solicitado
+            // Cancelamento solicitado pelo servidor ou pelo timeout da requisição.
+            // Em HttpListener, o fechamento do cliente também aparece como
+            // HttpListenerException durante a escrita do corpo.
+            try
+            {
+                response.Close();
+            }
+            catch
+            {
+            }
         }
         catch (Exception ex)
         {
@@ -228,6 +286,23 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             {
             }
         }
+        finally
+        {
+            RequestCounter.WithLabels(route, response.StatusCode.ToString(CultureInfo.InvariantCulture)).Inc();
+            RequestDuration.WithLabels(route).Observe(Stopwatch.GetElapsedTime(requestStarted).TotalSeconds);
+        }
+    }
+
+    private static string GetMetricRoute(string path)
+    {
+        return path.ToLowerInvariant() switch
+        {
+            "/stream" => "stream",
+            "/transcode" => "transcode",
+            "/play" => "play",
+            "/api/files" => "api_files",
+            _ => "other"
+        };
     }
 
     private bool IsAuthorized(HttpListenerRequest request)
@@ -237,7 +312,19 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             return false;
         }
 
-        var providedToken = request.QueryString["token"];
+        var providedToken = request.Headers["Authorization"];
+        if (!string.IsNullOrWhiteSpace(providedToken) &&
+            providedToken.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            providedToken = providedToken[7..].Trim();
+        }
+
+        // Keep query-string compatibility for existing .strm clients. New clients
+        // should send Authorization: Bearer so the token does not enter URL logs.
+        if (string.IsNullOrWhiteSpace(providedToken))
+        {
+            providedToken = request.QueryString["token"];
+        }
         if (string.IsNullOrWhiteSpace(providedToken))
         {
             return false;
@@ -595,6 +682,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             }
 
             _cts.Dispose();
+            _streamConcurrency.Dispose();
             _disposed = true;
         }
     }
@@ -606,6 +694,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         {
             Stop();
             _cts.Dispose();
+            _streamConcurrency.Dispose();
             _disposed = true;
         }
     }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, sonarjs/void-use */
 import { getLibraryApi } from '@jellyfin/sdk/lib/utils/api/library-api';
 
 import { toApi } from 'utils/jellyfin-apiclient/compat';
@@ -54,10 +55,8 @@ export class PdfPlayer {
         this.cancellationToken = false;
         this.pages = {};
 
-        loading.show();
-
         const elem = this.createMediaElement();
-        return this.setCurrentSrc(elem, options);
+        return loading.withLoading(() => this.setCurrentSrc(elem, options));
     }
 
     stop(): void {
@@ -339,9 +338,12 @@ export class PdfPlayer {
             };
 
             const renderTask = page.render(renderContext);
-            renderTask.promise.then(() => {
-                loading.hide();
+            void renderTask.promise.finally(() => loading.hide()).catch((error: unknown) => {
+                console.error('Failed to render PDF page', error);
             });
+        }).catch((error: unknown) => {
+            loading.hide();
+            console.error('Failed to load PDF page', error);
         });
     }
 
@@ -355,3 +357,5 @@ export class PdfPlayer {
 }
 
 export default PdfPlayer;
+
+/* eslint-enable @typescript-eslint/no-explicit-any, sonarjs/void-use */

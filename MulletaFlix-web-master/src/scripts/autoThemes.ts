@@ -16,7 +16,8 @@ async function getBrandingDefaultThemeId(): Promise<string | undefined> {
 
     try {
         const brandingOptions = await queryClient.fetchQuery(getBrandingOptionsQuery(api));
-        return (brandingOptions as any).DefaultTheme || undefined;
+        const options = brandingOptions as unknown as { DefaultTheme?: string };
+        return options.DefaultTheme || undefined;
     } catch (error) {
         console.warn('[autoThemes] failed to load branding default theme', error);
         return undefined;

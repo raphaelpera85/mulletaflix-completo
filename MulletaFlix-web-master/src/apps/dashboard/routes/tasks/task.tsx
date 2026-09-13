@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import Page from 'components/Page';
 import { useParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -23,7 +24,7 @@ import NewTriggerForm from 'apps/dashboard/features/tasks/components/NewTriggerF
 export const Component = () => {
     const { id: taskId } = useParams();
     const updateTask = useUpdateTask();
-    const { data: task, isLoading } = useTask({ taskId: taskId || '' });
+    const { data: task, isLoading, isError, refetch } = useTask({ taskId: taskId || '' });
     const [ isAddTriggerDialogOpen, setIsAddTriggerDialogOpen ] = useState(false);
     const [ isRemoveConfirmOpen, setIsRemoveConfirmOpen ] = useState(false);
     const [ pendingDeleteTrigger, setPendingDeleteTrigger ] = useState<TaskTriggerInfo | null>(null);
@@ -137,6 +138,30 @@ export const Component = () => {
         }
     });
 
+    if (isError) {
+        return (
+            <Page id='scheduledTaskPage' className='mainAnimatedPage type-interior'>
+                <Alert
+                    severity='error'
+                    role='alert'
+                    action={(
+                        <Button
+                            color='inherit'
+                            // eslint-disable-next-line react/jsx-no-bind
+                            onClick={() => {
+                                refetch().catch(() => undefined);
+                            }}
+                        >
+                            {globalize.translate('Retry')}
+                        </Button>
+                    )}
+                >
+                    {globalize.translate('ErrorLoadingData')}
+                </Alert>
+            </Page>
+        );
+    }
+
     if (isLoading || !task) {
         return <Loading />;
     }
@@ -180,4 +205,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'TaskPage';
-

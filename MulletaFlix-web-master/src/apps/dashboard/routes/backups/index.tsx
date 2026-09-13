@@ -30,7 +30,12 @@ import BackupHistory from 'apps/dashboard/features/backups/components/BackupHist
 
 export const Component = () => {
     const { api } = useApi();
-    const { data: backups, isPending, isError } = useBackups();
+    const {
+        data: backups,
+        isPending,
+        isError,
+        refetch: refetchBackups
+    } = useBackups();
     const [ isCreateFormOpen, setIsCreateFormOpen ] = useState(false);
     const [ backupInProgress, setBackupInProgress ] = useState(false);
     const [ restoreInProgress, setRestoreInProgress ] = useState(false);
@@ -47,8 +52,16 @@ export const Component = () => {
 
     const {
         data: tasks,
-        isPending: isTasksPending
+        isPending: isTasksPending,
+        isError: isTasksError,
+        refetch: refetchTasks
     } = useLiveTasks({ isHidden: false });
+
+    const handleRetryLoad = useCallback(() => {
+        void Promise.all([refetchBackups(), refetchTasks()]).catch((error: unknown) => {
+            console.error('[BackupsPage] failed to retry loading backups', error);
+        });
+    }, [refetchBackups, refetchTasks]);
 
     const onCreateClick = useCallback(() => {
         setIsCreateFormOpen(true);
@@ -140,24 +153,53 @@ export const Component = () => {
     }, [backupToRestore, restoreBackup]);
 
     useEffect(() => {
-        if (restoreInProgress) {
-            const serverCheckInterval = setInterval(() => {
-                void getSystemApi(api!)
+        if (restoreInProgress && api) {
+            let attempts = 0;
+            let cancelled = false;
+            const checkServer = () => {
+                void getSystemApi(api)
                     .getPublicSystemInfo()
                     .then(() => {
+                        if (cancelled) return;
                         setRestoreInProgress(false);
                         setIsRestoreSuccess(true);
-                        clearInterval(serverCheckInterval);
                     }).catch(() => {
-                        // Server is still down
+                        attempts += 1;
+                        if (!cancelled && attempts >= 60) {
+                            setRestoreInProgress(false);
+                            setIsErrorOccurred(true);
+                        }
                     });
-            }, 45000);
+            };
+
+            checkServer();
+            const serverCheckInterval = setInterval(checkServer, 5000);
 
             return () => {
+                cancelled = true;
                 clearInterval(serverCheckInterval);
             };
         }
     }, [api, restoreInProgress]);
+
+    if (isError || isTasksError) {
+        return (
+            <Page
+                id='backupsPage'
+                title={globalize.translate('HeaderBackups')}
+                className='mainAnimatedPage type-interior'
+            >
+                <Box className='content-primary'>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={handleRetryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('BackupsPageLoadError')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
 
     if (isPending || isTasksPending) {
         return <Loading />;
@@ -213,8 +255,17 @@ export const Component = () => {
                 onSave={onScheduleDialogClose}
             />
             <Box className='content-primary'>
-                {isError ? (
-                    <Alert severity='error'>{globalize.translate('BackupsPageLoadError')}</Alert>
+                {isError || isTasksError ? (
+                    <Alert
+                        severity='error'
+                        action={(
+                            <Button color='inherit' size='small' onClick={handleRetryLoad}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        )}
+                    >
+                        {globalize.translate('BackupsPageLoadError')}
+                    </Alert>
                 ) : (
                     <Stack spacing={3}>
                         <Typography variant='h1'>
@@ -259,4 +310,3 @@ export const Component = () => {
         </Page>
     );
 };
-

@@ -2,6 +2,7 @@ import alert from 'components/alert';
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { PluginType } from 'types/plugin.ts';
+import type { UserDto } from '@jellyfin/sdk/lib/generated-client';
 
 function showErrorMessage(): Promise<void> {
     return alert(globalize.translate('MessagePlayAccessRestricted'));
@@ -35,8 +36,8 @@ class PlayAccessValidation {
             return Promise.resolve();
         }
 
-        return ServerConnections.getApiClient(serverId).getCurrentUser().then(function (user: any) {
-            if (user.Policy.EnableMediaPlayback) {
+        return ServerConnections.getApiClient(serverId).getCurrentUser().then(function (user: UserDto) {
+            if (user.Policy?.EnableMediaPlayback === true) {
                 return Promise.resolve();
             }
 

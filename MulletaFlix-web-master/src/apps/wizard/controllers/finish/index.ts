@@ -1,4 +1,4 @@
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 
 interface WizardApiClient {
@@ -6,27 +6,28 @@ interface WizardApiClient {
     getUrl(path: string): string;
 }
 
-function onFinish(): void {
-    loading.show();
-
+async function onFinish(): Promise<void> {
     const apiClient = ServerConnections.currentApiClient() as (ReturnType<typeof ServerConnections.currentApiClient> & WizardApiClient) | undefined;
     if (!apiClient) {
-        loading.hide();
         return;
     }
 
-    apiClient.ajax({
-        url: apiClient.getUrl('Startup/Complete'),
-        type: 'POST'
-    }).then(() => {
-        loading.hide();
+    try {
+        await withLoading(() => apiClient.ajax({
+            url: apiClient.getUrl('Startup/Complete'),
+            type: 'POST'
+        }));
         window.location.href = '';
-    }).catch(() => loading.hide());
+    } catch (error) {
+        console.error('[Wizard > Finish] failed to complete startup', error);
+    }
 }
 
 export default function (view: HTMLElement): void {
     const nextButton = view.querySelector('.btnWizardNext');
     if (nextButton) {
-        nextButton.addEventListener('click', onFinish);
+        nextButton.addEventListener('click', () => {
+            onFinish().catch((error: unknown) => console.error('[Wizard > Finish] unexpected completion error', error));
+        });
     }
 }

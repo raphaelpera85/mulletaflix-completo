@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import escapeHtml from 'escape-html';
 
 import { getLyricsApi } from '@jellyfin/sdk/lib/utils/api/lyrics-api';
@@ -23,8 +24,6 @@ let currentFile: File | null;
 let hasChanges = false;
 
 function onFileReaderError(evt: ProgressEvent<FileReader>): void {
-    loading.hide();
-
     const error = (evt.target as FileReader).error;
     if (error && error.name !== 'AbortError') {
         toast(globalize.translate('MessageFileReadError'));
@@ -59,7 +58,6 @@ function setFiles(page: HTMLElement, files: FileList | null): void {
         page.querySelector('#fldUpload')!.classList.add('hide');
     };
     reader.onabort = function () {
-        loading.hide();
         console.debug('File read cancelled');
     };
 
@@ -88,25 +86,24 @@ async function onSubmit(this: HTMLElement, e: Event): Promise<void> {
         return;
     }
 
-    loading.show();
-    const dlg = dom.parentWithClass(this, 'dialog') as HTMLElement;
+    await loading.withLoading(async () => {
+        const dlg = dom.parentWithClass(this, 'dialog') as HTMLElement;
 
-    const api = toApi(ServerConnections.getApiClient(currentServerId) as any);
-    const lyricsApi = getLyricsApi(api);
-    try {
-        const data = await readFileAsText(file);
-        await lyricsApi.uploadLyrics({
-            itemId: currentItemId, fileName: file.name, body: data as any
-        });
+        const api = toApi(ServerConnections.getApiClient(currentServerId) as any);
+        const lyricsApi = getLyricsApi(api);
+        try {
+            const data = await readFileAsText(file);
+            await lyricsApi.uploadLyrics({
+                itemId: currentItemId, fileName: file.name, body: data as any
+            });
 
-        (dlg.querySelector('#uploadLyrics') as HTMLInputElement).value = '';
-        hasChanges = true;
-        dialogHelper.close(dlg);
-    } catch {
-        toast(globalize.translate('ErrorDefault'));
-    } finally {
-        loading.hide();
-    }
+            (dlg.querySelector('#uploadLyrics') as HTMLInputElement).value = '';
+            hasChanges = true;
+            dialogHelper.close(dlg);
+        } catch {
+            toast(globalize.translate('ErrorDefault'));
+        }
+    });
 }
 
 function initEditor(page: HTMLElement): void {
@@ -156,11 +153,10 @@ function showEditor(options: LyricsUploaderOptions, resolve: (hasChanges: boolea
         if (layoutManager.tv) {
             scrollHelper.centerFocus.off(dlg, false);
         }
-        loading.hide();
         resolve(hasChanges);
     });
 
-    dialogHelper.open(dlg).catch(() => loading.hide());
+    dialogHelper.open(dlg).catch((error: unknown) => console.error('[LyricsUploader] failed to open dialog', error));
 
     initEditor(dlg);
 
@@ -179,3 +175,5 @@ export function show(options: LyricsUploaderOptions): Promise<boolean> {
 export default {
     show
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

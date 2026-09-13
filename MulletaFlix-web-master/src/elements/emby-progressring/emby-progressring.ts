@@ -4,20 +4,31 @@ import template from './emby-progressring.template.html';
 import { getCurrentDateTimeLocale } from '../../lib/globalize';
 import { toPercentString } from '../../utils/number';
 
-const EmbyProgressRing: HTMLDivElement = Object.create(HTMLDivElement.prototype);
+interface ProgressRingElement extends HTMLDivElement {
+    observer?: MutationObserver | null;
+    setProgress: (progress: number) => void;
+}
 
-(EmbyProgressRing as any).createdCallback = function (this: HTMLDivElement & { observer?: MutationObserver | null; setProgress: (progress: number) => void }): void {
+interface ProgressRingPrototype extends HTMLDivElement {
+    createdCallback: () => void;
+    setProgress: (progress: number) => void;
+    attachedCallback: () => void;
+    detachedCallback: () => void;
+}
+
+const EmbyProgressRing = Object.create(HTMLDivElement.prototype) as ProgressRingPrototype;
+
+EmbyProgressRing.createdCallback = function (this: ProgressRingElement): void {
     this.classList.add('progressring');
     this.setAttribute('dir', 'ltr');
-    const instance = this;
 
-    instance.innerHTML = template;
+    this.innerHTML = template;
 
     if (window.MutationObserver) {
         // create an observer instance
-        const observer = new MutationObserver(function (mutations: MutationRecord[]) {
-            mutations.forEach(function () {
-                instance.setProgress(parseFloat(instance.getAttribute('data-progress') || '0'));
+        const observer = new MutationObserver((mutations: MutationRecord[]) => {
+            mutations.forEach(() => {
+                this.setProgress(parseFloat(this.getAttribute('data-progress') || '0'));
             });
         });
 
@@ -25,15 +36,15 @@ const EmbyProgressRing: HTMLDivElement = Object.create(HTMLDivElement.prototype)
         const config: MutationObserverInit = { attributes: true, childList: false, characterData: false };
 
         // pass in the target node, as well as the observer options
-        observer.observe(instance, config);
+        observer.observe(this, config);
 
-        instance.observer = observer;
+        this.observer = observer;
     }
 
-    instance.setProgress(parseFloat(instance.getAttribute('data-progress') || '0'));
+    this.setProgress(parseFloat(this.getAttribute('data-progress') || '0'));
 };
 
-(EmbyProgressRing as any).setProgress = function (this: HTMLDivElement, progress: number): void {
+EmbyProgressRing.setProgress = function (this: ProgressRingElement, progress: number): void {
     progress = Math.floor(progress);
 
     let angle: number;
@@ -74,11 +85,11 @@ const EmbyProgressRing: HTMLDivElement = Object.create(HTMLDivElement.prototype)
     (this.querySelector('.progressring-text') as HTMLElement).innerHTML = toPercentString(progress / 100, getCurrentDateTimeLocale() as string);
 };
 
-(EmbyProgressRing as any).attachedCallback = function (): void {
+EmbyProgressRing.attachedCallback = function (): void {
     // no-op
 };
 
-(EmbyProgressRing as any).detachedCallback = function (this: HTMLDivElement & { observer?: MutationObserver | null }): void {
+EmbyProgressRing.detachedCallback = function (this: ProgressRingElement): void {
     const observer = this.observer;
 
     if (observer) {

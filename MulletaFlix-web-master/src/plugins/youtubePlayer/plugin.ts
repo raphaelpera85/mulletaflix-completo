@@ -22,8 +22,20 @@ interface YoutubeApiPlayer {
     isMuted(): boolean;
 }
 
+interface YoutubePlayerOptions {
+    height: number;
+    width: number;
+    videoId: string;
+    events: {
+        onReady: (event: YoutubeOnStateChangeEvent) => void;
+        onStateChange: (event: YoutubeOnStateChangeEvent) => void;
+        onError: (event: YoutubeOnErrorEvent) => void;
+    };
+    playerVars: Record<string, number>;
+}
+
 interface YoutubeApi {
-    Player: new (elementId: string, options: any) => YoutubeApiPlayer;
+    Player: new (elementId: string, options: YoutubePlayerOptions) => YoutubeApiPlayer;
     PlayerState: {
         PLAYING: number;
         ENDED: number;
@@ -121,9 +133,8 @@ function createMediaElement(instance: YoutubePlayerInstance, options: PlayOption
 }
 
 function onVideoResize(this: YoutubePlayerInstance): void {
-    const instance = this;
-    const player = instance.currentYoutubePlayer;
-    const dlg = instance.videoDialog;
+    const player = this.currentYoutubePlayer;
+    const dlg = this.videoDialog;
     if (player && dlg) {
         player.setSize(dlg.offsetWidth, dlg.offsetHeight);
     }
@@ -193,13 +204,13 @@ function setCurrentSrc(instance: YoutubePlayerInstance, elem: HTMLDivElement, op
         const params = new URLSearchParams(options.url.split('?')[1]);
         // 3. This function creates an <iframe> (and YouTube player)
         //    after the API code downloads.
-        (window as any)['onYouTubeIframeAPIReady'] = function (): void {
+        window.onYouTubeIframeAPIReady = function (): void {
             instance.currentYoutubePlayer = new YT.Player('player', {
                 height: instance.videoDialog!.offsetHeight,
                 width: instance.videoDialog!.offsetWidth,
                 videoId: params.get('v')!,
                 events: {
-                    'onReady': onPlayerReady as any,
+                    'onReady': onPlayerReady,
                     'onStateChange': function (event: YoutubeOnStateChangeEvent) {
                         if (event.data === YT.PlayerState.PLAYING) {
                             onPlaying(instance, options, resolve);
@@ -234,13 +245,13 @@ function setCurrentSrc(instance: YoutubePlayerInstance, elem: HTMLDivElement, op
             window.addEventListener('orientationChange', resizeListener);
         };
 
-        if (!(window as any)['YT']) {
+        if (!window.YT) {
             const tag = document.createElement('script');
             tag.src = 'https://www.youtube.com/iframe_api';
             const firstScriptTag = document.getElementsByTagName('script')[0];
             firstScriptTag.parentNode!.insertBefore(tag, firstScriptTag);
         } else {
-            ((window as any)['onYouTubeIframeAPIReady'] as () => void)();
+            window.onYouTubeIframeAPIReady!();
         }
     });
 }
@@ -268,11 +279,10 @@ class YoutubePlayer {
 
     play(options: PlayOptions): Promise<void> {
         this.started = false;
-        const instance = this;
 
-        return createMediaElement(this, options).then(function (elem) {
-            return setCurrentSrc(instance, elem, options);
-        });
+        return loading.withLoading(() => createMediaElement(this, options).then((elem) => {
+            return setCurrentSrc(this, elem, options);
+        }));
     }
 
     stop(destroyPlayer?: boolean): Promise<void> {
@@ -368,11 +378,9 @@ class YoutubePlayer {
         if (currentYoutubePlayer) {
             currentYoutubePlayer.pauseVideo();
 
-            const instance = this;
-
             // This needs a delay before the youtube player will report the correct player state
-            setTimeout(function () {
-                Events.trigger(instance, 'pause');
+            setTimeout(() => {
+                Events.trigger(this, 'pause');
             }, 200);
         }
     }
@@ -383,11 +391,9 @@ class YoutubePlayer {
         if (currentYoutubePlayer) {
             currentYoutubePlayer.playVideo();
 
-            const instance = this;
-
             // This needs a delay before the youtube player will report the correct player state
-            setTimeout(function () {
-                Events.trigger(instance, 'unpause');
+            setTimeout(() => {
+                Events.trigger(this, 'unpause');
             }, 200);
         }
     }

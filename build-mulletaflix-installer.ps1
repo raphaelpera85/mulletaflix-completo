@@ -68,7 +68,7 @@ $requiredFiles = @('MulletaFlix.exe', 'MulletaFlix.dll', 'mulletaflix-windows-tr
 foreach ($file in $requiredFiles) {
     $path = Join-Path $stageDir $file
     if (-not (Test-Path -LiteralPath $path)) {
-        Write-Warning "Required file missing from stage: $path"
+        throw "Required file missing from stage: $path"
     }
 }
 

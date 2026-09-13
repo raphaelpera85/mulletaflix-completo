@@ -5,6 +5,7 @@ import type { History, Listener, To } from 'history';
 import Events, { type Event } from 'utils/events';
 
 const HISTORY_UPDATE_EVENT = 'HISTORY_UPDATE';
+export const HISTORY_READY_EVENT = 'ROUTER_HISTORY_READY';
 type Router = ReturnType<typeof createHashRouter>;
 type RouterState = Router['state'];
 
@@ -71,5 +72,18 @@ export class RouterHistory implements History {
 export const createRouterHistory = (router: Router): History => {
     return new RouterHistory(router);
 };
+
+/**
+ * The legacy router helpers need a history object, but importing it from
+ * RootAppRouter would eagerly pull the complete route tree into the entry.
+ * RootAppRouter initializes this live binding as soon as the data router is
+ * created; consumers only use it after application bootstrap.
+ */
+export let history: History;
+
+export function setRouterHistory(value: History): void {
+    history = value;
+    Events.trigger(document, HISTORY_READY_EVENT, []);
+}
 
 /* eslint-enable @typescript-eslint/no-explicit-any */

@@ -8,7 +8,7 @@ import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result
 import cardBuilder from './cardbuilder/cardBuilder';
 import imageLoader from './images/imageLoader';
 import layoutManager from './layoutManager';
-import loading from './loading/loading';
+import { withLoading } from './loading/loading';
 
 import 'elements/emby-itemscontainer/emby-itemscontainer';
 
@@ -217,7 +217,6 @@ function loadSection(elem: HTMLElement, userId: string, topParentId: string | nu
 }
 
 export function loadSections(page: HTMLElement, userId: string, topParentId: string | null, types?: string): void {
-    loading.show();
     let sections = getSections();
     const sectionid = getParameterByName('sectionid');
 
@@ -253,8 +252,8 @@ export function loadSections(page: HTMLElement, userId: string, topParentId: str
         promises.push(loadSection(elem, userId, topParentId, section, sections.length === 1));
     }
 
-    void Promise.all(promises).then(function () {
-        loading.hide();
+    void withLoading(() => Promise.all(promises)).catch((error: unknown) => {
+        console.error('[FavoriteItems] failed to load favorite sections', error);
     });
 }
 

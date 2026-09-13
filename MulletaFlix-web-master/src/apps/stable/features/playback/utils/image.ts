@@ -11,26 +11,35 @@ interface ImageOptions {
     type?: ImageType
 }
 
+interface ScaledImageApiClient {
+    getScaledImageUrl(itemId: string, options?: ImageOptions): string;
+}
+
+const getScaledImageUrl = (serverId: string, itemId: string, options: ImageOptions) => (
+    (ServerConnections.getApiClient(serverId) as unknown as ScaledImageApiClient)
+        .getScaledImageUrl(itemId, options)
+);
+
 function getSeriesImageUrl(item: ItemDto, options: ImageOptions = {}) {
     if (!item.ServerId) return null;
 
     if (item.SeriesId && options.type === ImageType.Primary && item.SeriesPrimaryImageTag) {
         options.tag = item.SeriesPrimaryImageTag;
 
-        return (ServerConnections.getApiClient(item.ServerId) as any).getScaledImageUrl(item.SeriesId, options);
+        return getScaledImageUrl(item.ServerId, item.SeriesId, options);
     }
 
     if (options.type === ImageType.Thumb) {
         if (item.SeriesId && item.SeriesThumbImageTag) {
             options.tag = item.SeriesThumbImageTag;
 
-            return (ServerConnections.getApiClient(item.ServerId) as any).getScaledImageUrl(item.SeriesId, options);
+            return getScaledImageUrl(item.ServerId, item.SeriesId, options);
         }
 
         if (item.ParentThumbItemId && item.ParentThumbImageTag) {
             options.tag = item.ParentThumbImageTag;
 
-            return (ServerConnections.getApiClient(item.ServerId) as any).getScaledImageUrl(item.ParentThumbItemId, options);
+            return getScaledImageUrl(item.ServerId, item.ParentThumbItemId, options);
         }
     }
 
@@ -48,14 +57,13 @@ export function getImageUrl(item: ItemDto, options: ImageOptions = {}) {
 
     if (itemId && item.ImageTags?.[options.type]) {
         options.tag = item.ImageTags[options.type] ?? undefined;
-        return (ServerConnections.getApiClient(item.ServerId) as any).getScaledImageUrl(itemId, options);
+        return getScaledImageUrl(item.ServerId, itemId, options);
     }
 
     if (item.AlbumId && item.AlbumPrimaryImageTag) {
         options.tag = item.AlbumPrimaryImageTag;
-        return (ServerConnections.getApiClient(item.ServerId) as any).getScaledImageUrl(item.AlbumId, options);
+        return getScaledImageUrl(item.ServerId, item.AlbumId, options);
     }
 
     return null;
 }
-

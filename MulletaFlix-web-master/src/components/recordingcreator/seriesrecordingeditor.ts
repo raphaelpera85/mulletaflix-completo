@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @stylistic/padded-blocks */
 import dialogHelper from '../dialogHelper/dialogHelper';
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -49,7 +50,6 @@ function renderTimer(context: Element, item: any): void {
 
     (context.querySelector('.optionAroundTime') as HTMLElement)!.innerHTML = globalize.translate('AroundTime', datetime.getDisplayTime(datetime.parseISO8601Date(item.StartDate)));
 
-    loading.hide();
 }
 
 function closeDialog(isDeleted: boolean): void {
@@ -66,7 +66,7 @@ function onSubmit(this: any, e: Event): void {
 
     const apiClient = ServerConnections.getApiClient(currentServerId) as any;
 
-    apiClient.getLiveTvSeriesTimer(currentItemId).then(function (item: any) {
+    loading.withLoading(() => apiClient.getLiveTvSeriesTimer(currentItemId).then(function (item: any) {
         item.PrePaddingSeconds = Number((form.querySelector('#txtPrePaddingMinutes') as HTMLInputElement).value) * 60;
         item.PostPaddingSeconds = Number((form.querySelector('#txtPostPaddingMinutes') as HTMLInputElement).value) * 60;
         item.RecordAnyChannel = (form.querySelector('.selectChannels') as HTMLSelectElement).value === 'all';
@@ -76,7 +76,7 @@ function onSubmit(this: any, e: Event): void {
         item.KeepUpTo = Number((form.querySelector('.selectKeepUpTo') as HTMLSelectElement).value);
 
         return apiClient.updateLiveTvSeriesTimer(item);
-    }).catch(() => loading.hide());
+    })).catch((error: unknown) => console.error('Failed to update series recording', error));
 
     e.preventDefault();
 
@@ -95,7 +95,7 @@ function init(context: Element): void {
         const apiClient = ServerConnections.getApiClient(currentServerId) as any;
         deleteTimer(apiClient, currentItemId).then(function () {
             closeDialog(true);
-        }).catch(() => loading.hide());
+        }).catch((error: unknown) => console.error('Failed to cancel series recording', error));
     });
 
     context.querySelector('form')!.addEventListener('submit', onSubmit);
@@ -104,19 +104,16 @@ function init(context: Element): void {
 function reload(context: Element, id: string | { Id: string }): void {
     const apiClient = ServerConnections.getApiClient(currentServerId) as any;
 
-    loading.show();
     if (typeof id === 'string') {
         currentItemId = id;
 
-        apiClient.getLiveTvSeriesTimer(id).then(function (result: any) {
+        loading.withLoading(() => apiClient.getLiveTvSeriesTimer(id)).then(function (result: any) {
             renderTimer(context, result);
-            loading.hide();
-        }).catch(() => loading.hide());
+        }).catch((error: unknown) => console.error('Failed to load series recording', error));
     } else if (id) {
         currentItemId = id.Id;
 
         renderTimer(context, id);
-        loading.hide();
     }
 }
 
@@ -148,7 +145,6 @@ function embed(itemId: string, serverId: string, options?: { context?: HTMLDivEl
     recordingUpdated = false;
     recordingDeleted = false;
     currentServerId = serverId;
-    loading.show();
     options = options || {};
 
     const dlg = options.context!;
@@ -177,7 +173,6 @@ function showEditor(itemId: string, serverId: string, options?: { enableCancel?:
         recordingUpdated = false;
         recordingDeleted = false;
         currentServerId = serverId;
-        loading.show();
         options = options || {};
 
         const dialogOptions: Record<string, any> = {
@@ -237,7 +232,7 @@ function showEditor(itemId: string, serverId: string, options?: { enableCancel?:
 
         reload(dlg, itemId);
 
-        dialogHelper.open(dlg).catch(() => loading.hide());
+        dialogHelper.open(dlg).catch((error: unknown) => console.error('Failed to open series recording editor', error));
     });
 }
 
@@ -245,3 +240,5 @@ export default {
     show: showEditor,
     embed: embed
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @stylistic/padded-blocks */

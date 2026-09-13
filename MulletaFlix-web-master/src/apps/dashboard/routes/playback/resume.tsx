@@ -51,9 +51,12 @@ export const Component = () => {
     const actionData = useActionData() as ActionData | undefined;
     const isSubmitting = navigation.state === 'submitting';
 
-    const { isPending: isConfigurationPending, isError: isConfigurationError, data: config } = useConfiguration();
+    const { isPending: isConfigurationPending, isError: isConfigurationError, data: config, refetch } = useConfiguration();
+    const handleRetry = React.useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
-    if (isConfigurationPending) {
+    if (isConfigurationPending && !isConfigurationError) {
         return <Loading />;
     }
 
@@ -66,7 +69,16 @@ export const Component = () => {
             <Box className='content-primary'>
                 <Form method='POST'>
                     {isConfigurationError ? (
-                        <Alert severity='error'>{globalize.translate('ResumeLoadError')}</Alert>
+                        <Alert
+                            severity='error'
+                            action={
+                                <Button color='inherit' size='small' onClick={handleRetry}>
+                                    {globalize.translate('Retry')}
+                                </Button>
+                            }
+                        >
+                            {globalize.translate('ResumeLoadError')}
+                        </Alert>
                     ) : (
                         <Stack spacing={3}>
                             <Typography variant='h1'>
@@ -168,4 +180,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'ResumePage';
-

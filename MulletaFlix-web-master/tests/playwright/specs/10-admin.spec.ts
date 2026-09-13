@@ -113,8 +113,12 @@ test.describe.serial('10 - Admin', () => {
 
         await page.locator('#txtUsername').fill(username);
         await page.locator('#txtPassword').fill(password);
+        // The legacy checkbox can be covered by its custom control wrapper.
+        // eslint-disable-next-line sonarjs/no-forced-browser-interaction
         await page.locator('.chkEnableAllFolders').check({ force: true });
         if (await page.locator('.chkEnableAllChannels').isVisible().catch(() => false)) {
+            // The legacy checkbox can be covered by its custom control wrapper.
+            // eslint-disable-next-line sonarjs/no-forced-browser-interaction
             await page.locator('.chkEnableAllChannels').check({ force: true });
         }
         await page.locator('.newUserProfileForm button[type="submit"]').click();

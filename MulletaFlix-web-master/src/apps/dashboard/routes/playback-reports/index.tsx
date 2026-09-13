@@ -13,6 +13,7 @@ import globalize from 'lib/globalize';
 import { useSearchParams } from 'react-router-dom';
 import { useApi } from 'hooks/useApi';
 import Button from '@mui/material/Button';
+import toast from 'components/toast/toast';
 
 import { usePlaybackReports, usePlaybackReportStats, downloadPlaybackReportsCsv, type PlaybackReportDto, type PlaybackReportSortBy } from 'apps/dashboard/features/playback/api/usePlaybackReports';
 import type { PlaybackReportCell } from 'apps/dashboard/features/playback/types/PlaybackReportCell';
@@ -128,7 +129,8 @@ export const Component = () => {
         usersById: users,
         names: userNames,
         isLoading: isUsersLoading,
-        isError: isUsersError
+        isError: isUsersError,
+        refetch: refetchUsers
     } = useUsersDetails();
 
     const UserCell = getUserCell(users);
@@ -183,20 +185,29 @@ export const Component = () => {
     }, [ pagination, columnFilters, sorting, playbackView ]);
 
     const handleExportCsv = useCallback(() => {
-        if (api) {
-            downloadPlaybackReportsCsv(api, playbackParams).catch(() => undefined);
+        if (!api) {
+            toast('Não foi possível exportar: servidor indisponível.');
+            return;
         }
+
+        downloadPlaybackReportsCsv(api, playbackParams).catch((error: unknown) => {
+            console.error('[PlaybackReports] failed to export CSV', error);
+            toast('Não foi possível exportar os relatórios de reprodução.');
+        });
     }, [ api, playbackParams ]);
 
     const {
         data,
         isLoading: isReportsLoading,
-        isError: isReportsError
+        isError: isReportsError,
+        refetch: refetchReports
     } = usePlaybackReports(playbackParams);
 
     const {
         data: stats,
-        isLoading: isStatsLoading
+        isLoading: isStatsLoading,
+        isError: isStatsError,
+        refetch: refetchStats
     } = usePlaybackReportStats(playbackParams);
 
     const playbackReports = useMemo(() => (
@@ -208,6 +219,9 @@ export const Component = () => {
     ), [ data ]);
 
     const isLoading = isUsersLoading || isReportsLoading;
+    const retryLoad = useCallback(() => {
+        void Promise.all([ refetchUsers(), refetchReports(), refetchStats() ]);
+    }, [ refetchReports, refetchStats, refetchUsers ]);
 
     const theme = useTheme();
 
@@ -483,8 +497,9 @@ export const Component = () => {
             title='Playback Reports'
             className='mainAnimatedPage type-interior'
             table={table}
-            isError={isReportsError || isUsersError}
+            isError={isReportsError || isUsersError || isStatsError}
             errorMessage={globalize.translate('ActivitiesLoadError')}
+            onRetry={retryLoad}
         >
             {showStats && stats && !isStatsLoading ? (
                 <div style={{ padding: '16px', backgroundColor: theme.palette.background.default, borderRadius: '8px' }}>

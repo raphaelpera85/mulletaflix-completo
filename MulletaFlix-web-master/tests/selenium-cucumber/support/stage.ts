@@ -4,6 +4,15 @@ const { chromium } = require('playwright');
 const { ROOT_URL } = require('./config');
 const CLIENT_INDEX_URL = `${ROOT_URL}/web/index.html`;
 
+function trimTrailingSlashes(value) {
+    let end = value.length;
+    while (end > 0 && value[end - 1] === '/') {
+        end--;
+    }
+
+    return value.slice(0, end);
+}
+
 function normalizeRoute(route = '/') {
     const value = String(route || '/').trim();
     if (!value || value === '/') {
@@ -27,7 +36,7 @@ function stageUrl(route = '/') {
 }
 
 async function stagePublicInfo(baseUrl = ROOT_URL) {
-    const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
+    const normalizedBaseUrl = trimTrailingSlashes(baseUrl);
     let lastError;
 
     for (let attempt = 1; attempt <= 60; attempt++) {
@@ -51,7 +60,7 @@ async function stagePublicInfo(baseUrl = ROOT_URL) {
 }
 
 async function completeWizardSetup(baseUrl = ROOT_URL, { serverName = 'Mulletaflix', adminUser, adminPassword } = {}) {
-    const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
+    const normalizedBaseUrl = trimTrailingSlashes(baseUrl);
 
     const configurationResponse = await fetch(`${normalizedBaseUrl}/Startup/Configuration`, {
         cache: 'no-cache'

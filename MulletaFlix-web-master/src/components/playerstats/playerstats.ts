@@ -15,6 +15,11 @@ import 'elements/emby-button/paper-icon-button-light';
 
 import './playerstats.scss';
 
+interface PlayerStatsApiClient {
+    deviceId(): string;
+    getSessions(options: { deviceId: string }): Promise<unknown[]>;
+}
+
 function init(instance: any): void {
     const parent = document.createElement('div');
 
@@ -100,8 +105,12 @@ function getSession(instance: any, player: any): Promise<any> {
         return Promise.resolve(instance.lastSession);
     }
 
-    const currentItem: any = playbackManager.currentItem(player);
-    const apiClient: any = ServerConnections.getApiClient(currentItem.ServerId as string);
+    const currentItem = playbackManager.currentItem(player) as { ServerId?: string } | null | undefined;
+    if (!currentItem?.ServerId) {
+        return Promise.resolve({});
+    }
+
+    const apiClient = ServerConnections.getApiClient(currentItem.ServerId) as unknown as PlayerStatsApiClient;
 
     return apiClient.getSessions({
         deviceId: apiClient.deviceId()

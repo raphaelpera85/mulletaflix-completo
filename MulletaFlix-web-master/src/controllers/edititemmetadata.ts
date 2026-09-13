@@ -14,28 +14,22 @@ interface ItemClickedEvent extends CustomEvent<ItemClickedEventDetail> {
 }
 
 function reload(context: HTMLElement, itemId: string | undefined): void {
-    loading.show();
-
     if (itemId) {
-        void import('../components/metadataEditor/metadataEditor').then(({ default: metadataEditor }) => {
+        loading.withLoading(() => import('../components/metadataEditor/metadataEditor').then(({ default: metadataEditor }) => {
             const content = context.querySelector('.editPageInnerContent');
             if (!(content instanceof HTMLElement)) {
                 return;
             }
 
             return metadataEditor.embed(content, itemId, ApiClient.serverInfo().Id);
-        }).then(() => {
-            loading.hide();
-        }).catch((error: unknown) => {
+        })).catch((error: unknown) => {
             console.error('[EditItemMetadata] failed to load metadata editor', error);
-            loading.hide();
         });
     } else {
         const content = context.querySelector('.editPageInnerContent');
         if (content) {
             content.innerHTML = '';
         }
-        loading.hide();
     }
 }
 

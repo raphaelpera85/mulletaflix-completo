@@ -11,6 +11,7 @@ import Grid from '@mui/material/Grid2';
 import Paper from '@mui/material/Paper';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
 import TextField from '@mui/material/TextField';
 import PlayArrow from '@mui/icons-material/PlayArrow';
 import Pause from '@mui/icons-material/Pause';
@@ -41,7 +42,12 @@ interface GroupInfoDtoWithPing extends GroupInfoDto {
 const Component = () => {
     const apiClient = ServerConnections.currentApiClient() as unknown as ApiClient | undefined;
     const { isActive, currentGroup, syncPlay } = useSyncPlay();
-    const { data: groups, isLoading: isGroupsLoading, refetch: refetchGroups } = useSyncPlayGroups();
+    const {
+        data: groups,
+        isLoading: isGroupsLoading,
+        isError: isGroupsError,
+        refetch: refetchGroups
+    } = useSyncPlayGroups();
     const createGroup = useCreateSyncPlayGroup();
     const joinGroup = useJoinSyncPlayGroup();
     const leaveGroup = useLeaveSyncPlayGroup();
@@ -63,6 +69,9 @@ const Component = () => {
 
     const openCreateGroup = useCallback(() => setIsCreatingGroup(true), []);
     const closeCreateGroup = useCallback(() => setIsCreatingGroup(false), []);
+    const retryLoad = useCallback(() => {
+        void refetchGroups();
+    }, [ refetchGroups ]);
     const handleGroupNameChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
         setNewGroupName(event.target.value);
     }, []);
@@ -138,6 +147,26 @@ const Component = () => {
 
     return (
         <Stack spacing={3} style={{ padding: '24px' }}>
+            {isGroupsError && (
+                <Alert
+                    severity='error'
+                    role='alert'
+                    action={
+                        <Button color='inherit' size='small' onClick={retryLoad}>
+                            {globalize.translate('Retry')}
+                        </Button>
+                    }
+                >
+                    {globalize.translate('SyncPlayLoadError') || globalize.translate('ErrorDefault')}
+                </Alert>
+            )}
+
+            {(createGroup.isError || joinGroup.isError || leaveGroup.isError) && (
+                <Alert severity='error' role='alert'>
+                    {globalize.translate('ErrorDefault')}
+                </Alert>
+            )}
+
             <Stack direction='row' spacing={2} justifyContent='space-between' alignItems='center'>
                 <Typography variant='h4'>SyncPlay</Typography>
                 <Stack direction='row' spacing={2}>

@@ -19,19 +19,22 @@ export const usePluginDetails = () => {
     const {
         data: configurationPages,
         isError: isConfigurationPagesError,
-        isPending: isConfigurationPagesPending
+        isPending: isConfigurationPagesPending,
+        refetch: refetchConfigurationPages
     } = useConfigurationPages();
 
     const {
         data: packages,
         isError: isPackagesError,
-        isPending: isPackagesPending
+        isPending: isPackagesPending,
+        refetch: refetchPackages
     } = usePackages();
 
     const {
         data: plugins,
         isError: isPluginsError,
-        isPending: isPluginsPending
+        isPending: isPluginsPending,
+        refetch: refetchPlugins
     } = usePlugins();
 
     const pluginDetails = useMemo<PluginDetails[]>(() => {
@@ -116,7 +119,11 @@ export const usePluginDetails = () => {
     return {
         data: pluginDetails,
         isError: isConfigurationPagesError || isPackagesError || isPluginsError,
-        isPending: isConfigurationPagesPending || isPackagesPending || isPluginsPending
+        isPending: isConfigurationPagesPending || isPackagesPending || isPluginsPending,
+        refetch: () => Promise.all([
+            refetchConfigurationPages(),
+            refetchPackages(),
+            refetchPlugins()
+        ])
     };
 };
-

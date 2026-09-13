@@ -1,0 +1,282 @@
+# TODO de auditoria e evolução
+
+Escopo: frontend, backend Nebula, testes, CI, empacotamento, segurança e produto. A matriz de evidências está em `docs/AUDIT-EVIDENCE.md`.
+
+## P0 — segurança e confiabilidade
+
+- [x] Remover credenciais FTP embutidas em URLs `.strm`; o fallback exige `EmbedFtpCredentialsInStrmUrls=true` e o padrão não expõe segredos.
+- [x] Executar `npm audit` no frontend (produção e dependências completas); resultado atual: 0 vulnerabilidades info/low/moderate/high/critical em 1.128 dependências resolvidas.
+- [x] Executar `dotnet list MulletaFlix.sln package --vulnerable --include-transitive`; nenhum dos projetos do backend/testes reportou pacote vulnerável nas fontes NuGet atuais.
+- [x] Preferir `Authorization: Bearer` ao token HTTP em query string.
+- [x] Configurar bind FTP/HTTP explícito e seguro por padrão.
+- [x] Limitar conexões FTP.
+- [x] Aplicar proteção contra brute force FTP por conta: 5 falhas em 15 minutos acionam bloqueio temporário e login válido limpa o contador.
+- [x] Adicionar TLS/FTPS ou documentar/bloquear uso externo sem TLS; FTPS ainda não existe, então hosts não-loopback exigem `AllowInsecureRemoteFtp=true` explicitamente.
+- [x] Validar limite de concorrência no streaming HTTP; streams acima de `MaxActiveConnections` são recusados com `503`.
+- [x] Restringir `Supabase/Test` a URLs HTTPS absolutas sem credenciais embutidas e limitar corpos de erro retornados/logados; cobertura adicionada.
+- [x] Validar configuração Nebula no controller antes de persistir (portas, limites de workers/conexões/chunk e URL Supabase); 2 testes de controller adicionados.
+- [x] Adicionar timeout explícito por requisição: 2 horas para streams e 30 segundos para endpoints de controle; desconexões do cliente abortam a escrita via `HttpListenerException`.
+- [x] Adicionar testes de autenticação, range requests e traversal; cobertura existente em `NebulaStreamEngineTests`, `NebulaUploadEngineTests` e testes de contenção do Mongo/downloader.
+- [x] Garantir isolamento e reset determinístico do stage E2E.
+- [x] Fazer o bootstrap E2E iniciar sem plugins de rede/download; o runner define `MFLX_DISABLE_EXTERNAL_BOOTSTRAP=true` e o GetAvatar ignora o catálogo online no ambiente isolado.
+
+## P1 — CI/CD e qualidade
+
+- [x] Alinhar gates do CI com o estado real do TypeScript e ESLint: manter lint/typecheck legados informativos e exigir build + testes automatizados.
+- [x] Remover o baseline de TypeScript: `tsc --noEmit --pretty false` agora passa sem erros.
+- [x] Criar gate de regressão ESLint por diff (`npm run lint:changed`); lint global histórico continua informativo, mas arquivos frontend novos/alterados são bloqueados no CI.
+- [x] Publicar cobertura frontend/backend como artefatos do CI; thresholds continuam pendentes até o baseline ser medido.
+- [x] Executar smoke E2E em stage efêmero por PR via job `e2e-smoke` do CI (wizard + relatório Playwright); a execução manual local exige `MFLX_ADMIN_USER`/`MFLX_ADMIN_PASSWORD` e permanece pendente neste ambiente.
+- [x] Fortalecer recuperação do stage do instalador: preservação agora ocorre em `finally` mesmo quando restore/publish/cópia falham.
+- [x] Adicionar validação de integridade do stage antes de gerar o instalador: binários essenciais, assets web, helper Python, ausência de legado Nebula e backups temporários.
+- [x] Extrair a validação do stage para `MulletaFlix-packaging-master/scripts/validate-stage.ps1`, permitindo executar a checagem sem reconstruir o servidor ou o frontend.
+- [x] Corrigir a execução direta do validador de stage (`$PSScriptRoot`) e exigir `serviceworker.js` junto aos artefatos web essenciais.
+- [x] Adicionar scan de segredos (Gitleaks) e SBOM SPDX no pipeline.
+- [x] Validar artefatos web de produção no CI com presença de `dist/index.html` e limite por bundle JS/CSS.
+- [ ] Validar instalador em ambiente limpo; tentativa repetida em 2026-09-11 com `Test-CleanInstaller.ps1` parou antes da instalação porque o PowerShell atual não está elevado. O smoke test aceita `-AutoElevate`, mas a elevação UAC retornou código 1 neste host automatizado; nenhuma pasta temporária nem serviço foi criado. Continua necessário um host/VM Windows administrativo interativo.
+- [x] Impedir que o smoke test altere uma instalação existente: `Test-CleanInstaller.ps1` agora verifica registro HKLM e portas 8096/3306 antes de instalar; o NSIS reconhece `/TESTMODE` e `/DATA=` para testes isolados. A validação completa continua condicionada a uma VM Windows limpa.
+- [x] Corrigir a cópia do stage no builder: `Copy-DirectoryContents` agora invoca `robocopy` sem aspas embutidas nos argumentos, evitando republicações que deixam o stage incompleto; `validate-stage.ps1` passou após a recuperação e a recompilação do instalador.
+- [x] Tornar o smoke test não destrutivo por padrão: ele aborta se encontrar diretório de instalação/dados ou o serviço `MulletaFlixServer`; `-AllowExistingPaths` documenta a autorização explícita para sobrescrever um ambiente existente.
+- [x] Registrar o artefato final desta rodada: `mulletaflix_12.0.0_windows-x64.exe`, 396.133.391 bytes, SHA-256 `AEE81DCC9859187B0CF5480E6064F4E20045E6F52EFEF7EB98E8176B66473A0E`.
+- [x] Registrar o instalador com a correção de ACL reforçada: `mulletaflix_12.0.0_windows-x64.exe`, 396.133.186 bytes, SHA-256 `A34A610A8C744B4C98F55E65E2CBF73A4763C1F3FD02B29F80A17520FC0DE5D8`.
+- [x] Registrar o instalador final com retry adicional em Branding e mídias não identificadas: `mulletaflix_12.0.0_windows-x64.exe`, 396.133.301 bytes, SHA-256 `FA5B0548BA967EDE387485EB07803E1F75144FE0DC9121B92E1C5B4185B3B635`.
+- [x] Registrar o instalador mais recente após retry nos alertas do painel Nebula: `mulletaflix_12.0.0_windows-x64.exe`, 396.133.286 bytes, SHA-256 `BFDAFF5C1ECB93935A3494F882F271270218E76A274893509437571101D05953`.
+- [x] Registrar o instalador mais recente após retry na tela de Dispositivos: `mulletaflix_12.0.0_windows-x64.exe`, 396.133.480 bytes, SHA-256 `165A3596A8938D9276BF3DB7E0B584278C8575ECB30D97F9BA50872B64455F28`.
+- [x] Registrar o instalador final após correções do bootstrap MariaDB e do builder de stage: `mulletaflix_12.0.0_windows-x64.exe`, 396.139.474 bytes, SHA-256 `4E58B7C3301C3181C7AC946D24EB9126127912C72C4B749A8364E48F973ABB89`.
+- [x] Registrar o instalador mais recente com `ErrorBoundary` robusto para erros não-`Error`: `mulletaflix_12.0.0_windows-x64.exe`, 396.134.068 bytes, SHA-256 `9D9A8E2CDFEA64BDD2716D6396F0FFBE23B1C7BF9B6499863271E1B1D0D2B7C3`.
+- [x] Registrar o instalador mais recente com retry em Plugins/Usuários e normalização robusta do `ErrorBoundary`: `mulletaflix_12.0.0_windows-x64.exe`, 396.133.868 bytes, SHA-256 `125EB8AE95427FB29DCBF598F9CC67DB96EB1AFE0DA06B1330E2B13C3C6B98B8`.
+- [x] Adicionar retry coordenado ao detalhe de Plugin, refazendo configuração, catálogo e plugins instalados em conjunto.
+- [x] Registrar o instalador mais recente com retry coordenado no detalhe de Plugin: `mulletaflix_12.0.0_windows-x64.exe`, 396.133.951 bytes, SHA-256 `7F03E3825AA16BDD2E6664443AD8EA920A8383331A0649BE7505B892A4F3DE28`.
+- [x] Proteger o loading de pareamento de players contra evento sem conclusão: timeout de 30 segundos e limpeza idempotente em `paired`/`pairerror`.
+- [x] Registrar o instalador mais recente com proteção de timeout no pareamento de players: `mulletaflix_12.0.0_windows-x64.exe`, 396.133.574 bytes, SHA-256 `948A876C4D411024EF045E05FBF3A0B15BB7AFB2710AEA99993FDB3A8A6504E8`.
+- [x] Criar `MulletaFlix-master/scripts/Measure-MulletaFlixEndpoints.ps1` para medir health, mídia recente e detalhe com amostras JSON, sem expor o token nos resultados.
+- [x] Adicionar ação Retry ao `ErrorBoundary`, permitindo recuperar falhas transitórias de rota/bootstrap sem fechar a aplicação.
+- [x] Registrar o instalador mais recente com Retry no `ErrorBoundary`: `mulletaflix_12.0.0_windows-x64.exe`, 396.134.268 bytes, SHA-256 `502E07FF30C5C33F9735D3AAE36BD6D1381F736F446B50F33C626933D7334D82`.
+- [x] Corrigir o instalador que abria a Usage do NSSM e falhava no upgrade: substituir `nssm statuscode` por `sc.exe query`, tratando o código 1060 como serviço inexistente. Novo artefato: 396.133.764 bytes, SHA-256 `D3FB788BE92511DAAC4B6745879331E2D9313A1931680CFBFE2629E4637DB1FA`.
+- [x] Corrigir a persistência do erro no upgrade: o instalador não executa mais o `Uninstall.exe` antigo, que podia reabrir a Usage do NSSM; ele encerra/remove o serviço diretamente pelo SCM, limpa regras antigas e preserva os dados. Instalador final com backend republicado: 396.134.144 bytes, SHA-256 `8760E1A17EF8B056744C930D322C31A8D56696DAAC1448B652C9B34864CA17CE`.
+- [ ] Validar em uma instalação/upgrade elevado real o fluxo do serviço após a troca do desinstalador legado; a compilação e a validação do stage passaram, mas não há VM limpa disponível neste ambiente.
+- [x] Recompilar o instalador após o endurecimento do smoke test: `mulletaflix_12.0.0_windows-x64.exe`, 396.139.536 bytes, SHA-256 `D1B409B2C9D2D5107C7179063726841557A1D1FB40023F433E37D5520BCE2DCC`.
+- [x] Corrigir `GetImageResponse` dos providers AudioDB/MusicBrainz, adicionar regressão 4/4 e republicar o instalador: 396.139.539 bytes, SHA-256 `532876335B3003CD43AB0CA2F1DC43E47DB4E917013A0CB4A945152697BF5504`.
+- [x] Corrigir retry de porta 8096: depois de liberar um processo conflitante, o host Kestrel agora é resetado antes da segunda tentativa, evitando `Server has already started` após uma falha parcial de bind.
+- [x] Corrigir corrida do MariaDB embutido: o bootstrap agora serializa instâncias, aguarda conexão SQL real e não inicia um segundo processo quando a porta 3306 está ocupada durante recuperação.
+- [x] Corrigir timeout SQL apesar do MariaDB pronto: o bootstrap, a configuração padrão/persistida e os testes agora normalizam `localhost` para `127.0.0.1`, alinhado ao bind IPv4 do processo embutido; `EncodedQueryStringTest` passou 8/8.
+- [x] Corrigir o caminho de reuso de MariaDB externo: o log final não acessa mais `.Id` quando nenhum processo filho foi iniciado; `Jellyfin.Server.Tests` passou 16/16.
+- [x] Corrigir exaustão de conexões na suíte paralela: o provider deixou de pré-alocar 10 conexões por pool (`Minimum Pool Size=0`); a integração completa passou 111/114, com 3 ignorados.
+- [x] Endurecer o runner Playwright: remover senha E2E previsível, resolver `taskkill.exe`/`dotnet.exe` por caminho confiável e reduzir a complexidade do fluxo principal; `node --check`, ESLint focado, testes de credenciais (2/2) e `npm run lint:changed` passaram sem erros.
+- [x] Sanear a suíte Playwright: remover callbacks vazios, senha determinística multiusuário, regexes superlineares, ternários aninhados e complexidade excessiva na paginação; `tests/playwright` passou com 0 erros/avisos no ESLint.
+- [x] Corrigir composição de endpoints quando o servidor usa URL com barra final ou prefixo de reverse proxy; `getServerEndpoint` cobre descoberta, checagem de conexão e `connectionManager`, com 11 testes de URL aprovados.
+- [x] Remover callbacks vazios e regexes superlineares residuais do runner Selenium/Cucumber; a suíte específica ficou com regras de compatibilidade documentadas para CommonJS/DSL, sem callbacks vazios ou regexes inseguras.
+- [x] Fazer o gate incremental ESLint reproduzir o runtime Cucumber: CommonJS e nomes de steps DSL agora são exceções somente em `tests/selenium-cucumber/**/*.ts`; o alias de `this` do `connectionManager` ficou justificado no ponto de instalação dos callbacks. O gate passou com 0 erros e 48 warnings não bloqueantes.
+- [x] Simplificar `src/scripts/datetime.ts`: parsing ISO usa `RegExp.exec()` e a apresentação de horário foi dividida em helpers puros, removendo duas violações globais de lint sem alterar timezone ou formato exibido; 194 testes e typecheck passaram.
+- [x] Corrigir dependência ausente no `useCallback` de `ItemsView`: mudanças do cliente legado agora atualizam `serverId` nas opções dos cartões; ESLint focado e typecheck passaram.
+- [x] Tornar as expectativas numéricas de layout de `cardbuilder` tolerantes à precisão de ponto flutuante (`toBeCloseTo(..., 10)`), preservando comparações exatas de strings/booleans; 107 testes do builder, 194 testes totais e o gate incremental passaram.
+- [x] Refatorar `touchHelper`: callbacks de toque agora preservam `this` por closure lexical e a decisão/disparo de swipe foi isolada em helpers, removendo alias inseguro e complexidade excessiva; ESLint, typecheck e 194 testes passaram.
+- [x] Remover alias redundante de `this` no `emby-playstatebutton`, mantendo o handler tipado diretamente na instância; ESLint focalizado e typecheck passaram.
+- [x] Reduzir a complexidade de `getQueryPagingHtml` em `libraryBrowser.ts`, isolando a renderização dos controles sem alterar HTML, estados disabled ou escaping; ESLint focalizado e typecheck passaram.
+- [x] Remover casts `any` unitários de `blurhash.worker.ts` e `autoThemes.ts`, substituindo-os por `unknown` e contratos mínimos explícitos; ESLint focalizado e typecheck passaram.
+- [x] Reduzir a complexidade de `keyboardNavigation.enable`, extraindo o mapa de comandos e as teclas especiais sem alterar filtros TV/MediaSession ou o workaround Hisense/VIDAA; ESLint, typecheck e 194 testes passaram.
+- [x] Tipar o manager de `TimeSync` com o contrato mínimo de `getServerTime`, removendo dois `any` sem alterar offset, ping ou medições; ESLint focalizado e typecheck passaram.
+- [x] Corrigir a detecção de Tizen em `browser.ts`: o separador de versão agora é ponto literal e User-Agents sem versão não lançam exceção; adicionados testes para versão válida/inválida e reduzida a complexidade da detecção webOS/plataforma.
+- [x] Tipar o protótipo legado de `emby-collapse` e remover alias de `this`, preservando registro, expansão e animações; ESLint focalizado e typecheck passaram.
+- [x] Limpar `emby-textarea`: removido `@ts-ignore` sem efeito e renomeado helper `AutoGrow` para `autoGrow`, mantendo listeners, auto-grow e cálculo de altura; ESLint focalizado e typecheck passaram.
+- [x] Tipar `tableOfContents.ts` com contrato mínimo do `rendition` EPUB, contemplando `path.directory` opcional e `path.relative()` usado em runtime; ESLint e typecheck passaram sem alterar navegação de capítulos.
+- [x] Reduzir a complexidade de `dialogHelper.createDialog`, isolando scroll e preservando IDs, atributos, animações e foco; ESLint focalizado e typecheck passaram.
+- [x] Reduzir a complexidade de `dialog.ts`, isolando a montagem dos botões e preservando a rejeição sem valor quando nenhum botão é selecionado; ESLint focalizado e typecheck passaram.
+- [x] Reduzir a complexidade de `listview.getIndex`, isolando chaves de nome e rating sem alterar agrupamento; ESLint focalizado e typecheck passaram. `getListViewHtml` permanece como renderer legado separado, com complexidade 191 documentada e isolada do gate por compatibilidade.
+- [x] Alinhar contratos defensivos de `imageLoader.ts` e `subtitlesync.ts` com os valores `undefined` aceitos em runtime, removendo comparações impossíveis sem retirar as validações; ESLint focalizado e typecheck passaram.
+- [x] Corrigir a guarda de `ItemRefreshIndicator` para mensagens sem `ItemId`, tornar constante o tipo do `HtmlVideoPlayer` e excluir declarações/artefatos de cobertura do lint global; build e lint focalizados passaram.
+- [x] Adicionar diagnóstico detalhado ao probe SQL do MariaDB: falhas de handshake/autenticação agora aparecem em nível Debug antes do timeout de startup, permitindo diferenciar banco pronto, porta ocupada e credenciais inválidas.
+- [x] Documentar as construções intencionais dos controllers legados em `viewManager.ts`, mantendo seus efeitos de inicialização e o contrato de cancelamento; ESLint focalizado e typecheck passaram.
+- [x] Corrigir falha do modo básico no MariaDB: instalações sem serviço podiam deixar o banco em `ProgramData` sem ACL de gravação para o usuário interativo, causando `InnoDB operating system error 5/203`. O modo básico agora usa `LocalAppData` por padrão e concede Modify ao usuário atual em caminhos customizados. O startup também falha de forma explícita quando MariaDB não abre a porta ou não inicializa os bancos. Instalador final: 396.134.661 bytes, SHA-256 `713512CBA90F226A8BBA0EF49C523C1AA1D104E9056059F49A81D35F8E45A932`.
+- [x] Compilar o instalador NSIS real a partir do stage validado; artefato `mulletaflix_12.0.0_windows-x64.exe` gerado com 396.133.391 bytes (aprox. 377,78 MiB). A instalação em VM/host isolado continua pendente.
+- [x] Corrigir tela preta do wizard: o layout React voltou a montar o contêiner legado `.mainAnimatedPages`, necessário para renderizar as páginas HTML do assistente. A causa foi confirmada no navegador: servidor respondia 200, mas o DOM não possuía nenhuma página do wizard.
+- [x] Adicionar tratamento de erro/retry para falha de carregamento das tarefas no dashboard.
+- [x] Exibir erro e Retry quando o `ViewManager` falha ao importar uma tela legada, eliminando o `catch` silencioso que podia produzir páginas vazias no wizard e no dashboard.
+- [x] Exibir aviso e Retry quando a tela Midia Storage Online não consegue carregar o estado das tarefas de sincronização.
+- [x] Versionar o cache do service worker e remover caches antigos na ativação, evitando que upgrades mantenham assets web obsoletos no navegador.
+- [x] Regerar o instalador com a política de cache versionada: `mulletaflix_12.0.0_windows-x64.exe`, 396.135.652 bytes, SHA-256 `A35DF267420C941F74BC00CD07DD667875F485E85C7BCFC7EFABCCEA540281E9`. Validação de integridade do stage passou.
+- [x] Corrigir o desinstalador para usar `sc.exe stop/delete` em vez de comandos NSSM que exibiam Usage ou falhavam quando o serviço já estava parado/inexistente. Instalador recompilado: 396.135.654 bytes, SHA-256 `4B56332F56E9F6FC3C9B6867B65D5B08A36A5CA611CDE2C99C2FA4EA476E26E7`.
+- [x] Adiar a remoção dos dados do desinstalador para depois da parada/remoção do serviço, evitando arquivos de banco/configuração bloqueados e desinstalações parciais. Instalador recompilado: 396.135.716 bytes, SHA-256 `EA3E8736D37D52EE0BE60EA4B26C9C49617A8D217A181510F197E7199EEC70FD`.
+- [x] Fortalecer `Test-CleanInstaller.ps1` com diagnóstico automático de serviço, conta de execução, exit code, caminho do binário e últimas linhas dos logs quando a instalação/health falhar; sintaxe PowerShell validada.
+- [x] Remover chave TMDB embutida em fixture de teste (`American Gods.nfo`), substituindo-a por `TEST_KEY`; suíte `Jellyfin.XbmcMetadata.Tests` passou com 38 testes.
+- [x] Corrigir a tela de relatórios de reprodução para tratar erro da consulta de estatísticas como erro de carregamento, exibindo o estado recuperável da `TablePage` e usando o Retry existente.
+- [x] Regerar o instalador com a correção de erro dos relatórios de reprodução: 396.135.203 bytes, SHA-256 `D4A1DB29919F597100F5F3F0C7CB0621CC5F562030E77EF8912C3B1B256764C3`. Stage validado.
+- [x] Regerar instalador após a correção do wizard: `mulletaflix_12.0.0_windows-x64.exe`, 396.134.797 bytes, SHA-256 `AAAF443B86DE09492928ADF052BE32CC6D5E1DBE16E0A2D718E617B91B5FC6B8`. Validação de integridade do stage passou.
+- [x] Regerar o instalador com feedback de erro nas telas legadas e no estado de tarefas do Midia Storage Online: `mulletaflix_12.0.0_windows-x64.exe`, 396.135.533 bytes, SHA-256 `3A61D43C31714A88A41B33678C47B0A647C617B60ED20EEC7C7E99137F51E32C`. Validação de integridade do stage passou.
+- [x] Regenerar o instalador depois da inclusão do `serviceworker.js` no stage e corrigir a precedência do parâmetro NSIS `/D=`; build concluído em 2026-09-11, com backend e frontend republicados, migrações corrigidas, tratamento de loading ampliado na guia de TV, provedores de TV, gravação, editor de imagens, upload/download de imagens, drag-and-drop de playlists, configurações de playback, seleção múltipla, coleções de filmes, detalhes de itens, SyncPlay, listagens, menu de seleção de player, prefetch HLS do HTML5, renderização robusta de PDF/quadrinhos/livros, recomendações, editor de metadados, editores de timers, editores de letras, legendas, uploaders e identificação de itens, tratamento de falhas na preparação da reprodução, proteção contra hides legados durante operações concorrentes, directory browser protegido, erros e retry acessíveis nos editores de acesso/controle parental/perfil, toast de falha para exclusão de dispositivos, alertas visíveis nos controladores de Live TV, players YouTube/PDF/quadrinhos/livros com loading encerrado em rejeições, SyncPlay com loading concorrente centralizado, Branding com rollback do switch em falha de configuração, criação de usuário com retry de bibliotecas e canais, tela de licenças com retry da lista e das licenças individuais, tela de tarefas com retry de carregamento, tela de bibliotecas com retry conjunto de bibliotecas e tarefas, restore de backup com polling imediato, timeout e retry de carga, Networking com retry de configuração, Centro de atualizações, log de ações, fila de trabalhos, configurações de streaming/resume/trickplay, atividade, relatórios de reprodução, chaves de API, repositórios de plugins, configurações gerais, Live TV e Transcoding com retry, tipagem corrigida no plugin YouTube, ACL por SID para Network Service/LocalSystem, tray e NSSM incluídos, tamanho 396.132.961 bytes e SHA-256 `2AACC1E3616ECA7AE8C5511A02227FF22CB6A80C448C0ECA06978EA50A688CFF`.
+- [x] Corrigir migrações legadas na instalação nova: arquivos ausentes não são mais reportados como erro e os campos de preset/desentrelaçamento são desserializados corretamente.
+- [x] Corrigir falha de primeira inicialização por permissão: o instalador concede ao `NetworkService` acesso de modificação recursivo ao diretório de dados antes de iniciar o serviço, evitando `UnauthorizedAccessException` em `config/system.xml` durante migrações.
+- [x] Corrigir incompatibilidade binária detectada na nova instalação: `MulletaFlix.Server.Implementations.dll` referenciava `MaxActiveConnections` ausente no `MediaBrowser.Model.dll` antigo; o stage foi republicado de forma atômica e a propriedade foi confirmada por reflexão.
+- [x] Corrigir o travamento no splash inicial: imports legados podiam construir `AppRouter` antes da history do React Router; a inicialização agora é tolerante à ordem dos módulos e o stage/instalador foram regenerados. Smoke Playwright do stage: `#reactRoot` montado, splash removido em 5s e zero `pageerror`.
+
+## P1 — performance
+
+- [x] Dividir chunks maiores que 500 KB; build atual: maior chunk JS em aproximadamente 445 KB (`vendor-jellyfin`), maior CSS em aproximadamente 258 KB, sem JS/CSS acima de 500 KB. Rotas stable/experimental/dashboard/wizard, layout raiz, bootstrap legado e fontes CJK agora são carregados sob demanda.
+- Observação: o HLS passou a usar `hls.js/light` sob demanda e agora mede aproximadamente 333 KB; React, Jellyfin, EPUB, React Router (~230 KB), DOMPurify, Axios, React Query e date-fns foram particionados sem ciclos. O particionamento amplo por controllers foi evitado porque criava ciclo entre chunks e um chunk de 1,57 MB.
+- [x] Adiar efeitos globais não essenciais (`displayMirrorManager`, temas, mouse manager e screensaver) para depois da primeira renderização; o entry caiu para ~841 KB sem alterar os gates funcionais.
+- [x] Reduzir o chunk HLS sem alterar os players: alias do Vite para o build oficial `hls.js/light`; o chunk caiu de aproximadamente 534 KB para 341 KB no build de produção.
+- [x] Tornar os layouts Stable e Wizard lazy como Dashboard/Experimental; o build confirma que a mudança é válida, embora o entry ainda seja dominado por dependências legadas compartilhadas.
+- [x] Lazy-load dos adaptadores de telas legadas e adiamento de autocast/notificações/roteamento de compatibilidade para depois do primeiro render; o build confirma redução adicional do entry para ~838 KB.
+- [x] Carregar players, PDF, HLS, FLV, libass e libpgs sob demanda; imports dinâmicos existentes em `htmlVideoPlayer`, `htmlAudioPlayer` e `pdfPlayer` foram auditados.
+- [x] Medir Web Vitals e tempo de interação localmente via `src/utils/webVitals.ts` (LCP, CLS, INP, FCP e DOM interactive), sem telemetria externa por padrão.
+- [x] Adicionar limites de tamanho de bundle no CI para assets JS/CSS; bibliotecas estáticas externas permanecem fora do limite.
+- [x] Revisar concorrência e backpressure do Nebula: streaming HTTP limita conexões ativas e responde `503` quando saturado.
+
+## P2 — backend e operação
+
+- [x] Adicionar correlation id HTTP (`X-Correlation-ID`) com validação de formato e propagação para `TraceIdentifier`/resposta.
+- [x] Adicionar métricas RED no Nebula HTTP: `nebula_http_requests_total`, `nebula_http_request_duration_seconds` e contador de saturação `503`, com labels de baixa cardinalidade.
+- [x] Criar health/readiness básicos: `/health` inclui banco e Nebula; `/ready` filtra checks com tag `ready` e verifica se o manager Nebula responde sem expor segredos.
+- [x] Corrigir o health check do banco para usar `IDbContextFactory<MulletaFlixDbContext>`; `/health` não tenta mais resolver um `MulletaFlixDbContext` inexistente diretamente no container.
+- [x] Adicionar testes do health check do banco para conexão válida e falha da factory; execução focada passou 2/2.
+- [x] Recompilar o instalador após a correção do `/health`; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.135.955 bytes, SHA-256 `AEA34BC3836B06A642CF7DF97F5D25D7E3492849EE6E6A81DB0462FF3E6150E1`.
+- [x] Corrigir preferências experimentais de exibição que podiam ficar presas no loading: `userId` opcional agora usa o usuário atual e falhas exibem erro/retry acessível.
+- [x] Recompilar o instalador após essa correção; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.136.197 bytes, SHA-256 `24BBC2245D1CB9D2EAA6F1D2F44850C0669BD93B242453F7C8C35D0B2A554E89`.
+- [x] Corrigir o Networking para renderizar o erro e o Retry quando a consulta de configuração falha, em vez de manter loading infinito.
+- [x] Recompilar o instalador após a correção do Networking; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.135.765 bytes, SHA-256 `04DA8B165BF6CFFBD4B07CE965530BECB52F664780488994F849D5C1AFC9A715`.
+- [x] Fortalecer o limite do upload de letras com `[RequestSizeLimit(1 MB)]`, incluindo requisições chunked sem `Content-Length`.
+- [x] Recompilar o instalador final após a proteção de upload; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.135.774 bytes, SHA-256 `01A9C84D2221AC7FC88A52E9A61869112E21B0024E40FE2CE5A2E5EF2BAE6C64`.
+- [x] Corrigir retornos de loading que ocultavam erros e tornavam Retry inalcançável em Display, Live TV, Transcoding, Plugins, Repositórios, Backups, Trickplay, gravações e Nebula.
+- [x] Recompilar o instalador após a ampliação da matriz de loading/erro; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.136.325 bytes, SHA-256 `FE9ED15D701B2AA028A5D7A98295FC5A10BF5BCFD3FE1044084B742C89E9E97E`.
+- [x] Corrigir loading infinito adicional em Usuários, Licenças, Branding, Tarefas, Settings, Resume, Streaming, Libraries, Metadata, Midia Storage Online e NFO.
+- [x] Recompilar o instalador após essa matriz adicional; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.136.052 bytes, SHA-256 `7B75D9735F2EF7850F15C82AAD884A0EEB12439BAB706C6088663CD1C334B34E`.
+- [x] Corrigir loading infinito na fila de trabalhos e no perfil estável de usuário, adicionando erro anunciável e Retry.
+- [x] Recompilar o instalador final desta rodada; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.136.660 bytes, SHA-256 `7333D105FC2B1DCD50CE1F6FD6AAA0252E8D42F2568F885572FD8FFAA6EA1CBA`.
+- [x] Aprofundar checks individuais de MongoDB, Telegram, FTP e listener HTTP.
+- [x] Expor `GET /NebulaFtp/Health` com ping real do Mongo ativo, estado de inicialização/disponibilidade Telegram e estado efetivo dos listeners FTP/HTTP; o dashboard exibe os quatro checks sem segredos.
+- [x] Fazer readiness exigir o Envio FTP/HTTP quando Nebula está habilitado (inclusive se apenas o Downloader estiver ativo); cobertura adicionada em `NebulaHealthCheckTests`.
+- [x] Adicionar retry com backoff e circuit breaker aos clientes HTTP nomeados (`Default`, `MusicBrainz` e `DirectIp`); o circuito abre após 5 falhas transitórias e reabre em 30 segundos.
+- [x] Tornar operações longas idempotentes e observáveis.
+- [x] Adicionar logs estruturados de início/fim e duração para STRM, limpeza, backup e restore.
+- [x] Expor no `NebulaFtp/Status` a última operação de manutenção com estado, timestamps, duração, erro resumido e progresso disponível.
+- [x] Adicionar `X-Idempotency-Key` com replay limitado a 15 minutos para STRM, limpeza, backup e restore; o replay é persistido na coleção Mongo `operation_replays`, com índice único e TTL, e mantém cache em memória como fallback.
+- [x] Expor progresso textual e percentual disponível de backup/restore no `MaintenanceOperation`; restore mantém texto/contagem quando a origem não informa total.
+- [x] Serializar geração STRM, limpeza, backup e restauração; corrigir cancelamento entre locks e vazamento de lock na inicialização do Downloader (`NebulaFtpManager`).
+- [x] Documentar contratos, autenticação, tratamento de segredos, idempotência e política de versionamento em `docs/NEBULA-API.md`.
+- [x] Criar runbook de recuperação, backup e restore em `docs/NEBULA-RUNBOOK.md`.
+
+## P2 — frontend e UX
+
+- [x] Consolidar tratamento de erro e estados de loading; a varredura residual de retornos `Loading` confirmou que os fluxos de consulta restantes têm erro/retry anterior ou controle explícito de conexão. A matriz cobre wizard, seleção/adição de servidor, catálogo, recomendações, Live TV, dashboard, playback, plugins, usuários, preferências, perfil e componentes experimentais, sem spinner de consulta sem caminho de falha identificável.
+- [x] Fechar a rodada residual de loading/erro em busca e componentes de biblioteca experimental: Search Suggestions/Results, Upcoming, Suggestions, Genres, Programs e gêneros por seção agora expõem erro e Retry; typecheck e 192 testes passaram.
+- [x] Corrigir os erros de lint introduzidos nessa rodada: callbacks de Retry estabilizados com `useCallback`, promises tratadas sem `void` e sombras de variáveis removidas dos hooks de preferências; instalador final recompilado com SHA-256 `80CE71ADB4581B6B4FEA490A151562C57CF56ED584B0EC3C1661AC62A66BE4C2`.
+- [x] Implementar a desserialização do `JsonFlagEnumConverter<T>`, que antes lançava `NotImplementedException`; adicionar cobertura para round-trip e flags desconhecidas, com 5 testes focados aprovados; recompilar o instalador com SHA-256 `BA85ED83675D6D8A9C14781B49AFEC7747FC2229910E985BC33B27FE62A8AF61`.
+- [x] Tornar a exportação CSV dos relatórios de reprodução observável: falhas agora são registradas e exibem feedback ao usuário, incluindo ausência de conexão com o servidor.
+- [x] Recompilar o instalador depois da correção de exportação CSV; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.135.366 bytes, SHA-256 `4FECBCD4A92877045AA56E63CAE4EA172AC61BCB161B54F965A34BF6F3597D13`.
+- [x] Reduzir o risco de deadlock do `DtoService`: o contrato síncrono agora evita bloquear em `Task` para itens comuns sem enriquecimento assíncrono; Live TV/Trickplay permanecem explicitamente no caminho legado até a migração do contrato público.
+- [x] Republicar backend e recompilar o instalador após a mitigação do `DtoService`; artefato `mulletaflix_12.0.0_windows-x64.exe`, 396.135.458 bytes, SHA-256 `CE4C131D5E3D82E4522E9E2787AE884B5A10CA97D5B0134DA8E3A4269654BAEC`.
+- [x] Adicionar `loading.withLoading`, que garante `hide()` em `finally`, mantém o indicador ativo durante operações concorrentes e migrar os fluxos críticos do wizard de início, usuário e configurações para eliminar loading preso em rejeições.
+- [x] Migrar também os fluxos de remote access, conclusão e recarga de bibliotecas do wizard para `withLoading`, com erros registrados e sem `loading.hide()` espalhado em callbacks.
+- [x] Migrar as telas legadas de próximos programas, estúdios e gêneros para `withLoading`, removendo loading manual em branches de sucesso, ausência de elementos e rejeição.
+- [x] Migrar gêneros de filmes, gêneros musicais e playlists musicais para `withLoading`, mantendo o loading ativo durante renderização e encerrando-o também em falhas de API.
+- [x] Corrigir loading de favoritos e detalhes de informações de mídia: `Promise.all` agora propaga falhas e o diálogo só encerra o spinner depois de carregar item e usuário.
+- [x] Migrar Live TV channels, series timers e suggested programs para `withLoading`, mantendo `isLoading` consistente quando a requisição falha.
+- [x] Corrigir Live TV recordings e schedule: as duas requisições paralelas agora compartilham um único ciclo de loading e falhas são agregadas sem esconder o spinner prematuramente.
+- [x] Normalizar rejeições do wizard de usuário como `unknown`, evitando que erros de rede sem `Response.text()` gerem uma segunda exceção no caminho de feedback.
+- [x] Padronizar o histórico de backups: loading com indicador acessível, erro anunciado e retry explícito, sem confundir falha de API com histórico vazio.
+- [x] Corrigir o histórico de licenças para distinguir falha da API de histórico vazio e oferecer retry acessível.
+- [x] Adicionar retry acessível e `role=alert` ao painel de saúde do servidor quando o resumo falha.
+- [x] Corrigir o guard central `ConnectionRequired`: falhas assíncronas deixam de prender a tela em loading e updates após unmount são ignorados.
+- [x] Aplicar estados de loading, erro, retry por invalidação e feedback de mutação no dashboard Nebula.
+- [x] Corrigir a página de tarefas agendadas, que ficava em loading indefinido ou renderizava vazio quando `useLiveTasks` falhava; agora exibe erro anunciável.
+- [x] Corrigir também o detalhe de tarefa agendada: falhas de `useTask` agora exibem erro anunciável e retry acessível, em vez de loading infinito.
+- [x] Corrigir a busca global para anunciar falhas com `role=alert` e oferecer retry acessível com `aria-busy`.
+- [x] Corrigir feedback de ações Nebula que retornam HTTP 200 com `false`/`Success=false`; a UI agora informa falha em vez de exibir sucesso falso.
+- [x] Melhorar acessibilidade de modal, teclado e foco.
+- [x] Adicionar `aria-labelledby`/`aria-describedby` com IDs estáveis ao `ConfirmDialog`.
+- [x] Adicionar `role=dialog`, `aria-modal`, descrições/nome nos diálogos legados e restaurar foco ao elemento que abriu o modal em qualquer layout.
+- [x] Tornar a tela de erro de conexão anunciável (`role=alert`/`aria-live`) e impedir ativação por teclado quando o retry estiver desabilitado.
+- [x] Exigir confirmação acessível antes de Restore Supabase e anunciar visualmente ações em execução com `aria-busy` e rótulos de progresso.
+- [x] Garantir `aria-label` traduzido no campo de busca global, que antes dependia apenas do placeholder.
+- [x] Adicionar feedback de progresso em upload/download/restore quando a operação fornece contagem; backup/restore agora expõem percentual e texto incrementais no `MaintenanceOperation`.
+- [x] Exibir progresso de download/upload ativo, fila, discos de stage, logs e progresso incremental de backup/restore no dashboard Nebula.
+- [x] Criar dashboard operacional do Nebula.
+- [x] Criar `/dashboard/nebula` com status automático, controles administrativos, manutenção STRM/limpeza, backup/restore e logs recentes.
+- [x] Adicionar rotação de tokens e credenciais na interface.
+- [x] Adicionar gerenciamento de bots no dashboard Nebula: novo token enviado apenas ao endpoint protegido, tokens listados mascarados e remoção via DELETE.
+- [x] Adicionar rotação segura de senha FTP, token HTTP, chave Supabase e API hash Telegram com formulário sem preenchimento de segredos e endpoint dedicado.
+- [x] Melhorar busca, filtros, histórico e recomendações.
+- [x] Debouncear a busca global, preservar parâmetros existentes da URL e evitar uma requisição por tecla.
+- [x] Adicionar histórico local de até oito buscas por usuário, com reutilização e limpeza segura mesmo quando o storage está indisponível.
+- [x] Adicionar filtros server-side por Todos, Filmes, Séries, Episódios e Música usando `includeItemTypes` da API unificada.
+- [x] Exibir recomendações iniciais baseadas nas estatísticas do catálogo (`/Search/Stats`) com atalhos para filtros por tipo.
+- [x] Cobrir a serialização do contrato `/Search/Unified` com testes para filtros, paginação, ordenação e omissão de parâmetros vazios.
+- [x] Adicionar modo offline/download com retomada para downloads de mídia iniciados na tela de detalhes.
+- [x] Corrigir a geração do `serviceworker.js`, que era registrado pelo cliente mas não era emitido no build, e adicionar cache offline do shell/assets sem interceptar APIs ou streams.
+- [x] Adicionar retomada de downloads grandes via `Range`/IndexedDB, com chunks de 4 MiB, limpeza após conclusão e fallback quando o servidor ignora Range.
+
+## P3 — manutenção
+
+- [x] Migrar os módulos JS/JSX do frontend para TypeScript/TSX; não restam arquivos `.js` ou `.jsx` sob `src`.
+- [x] Migrar o entrypoint `src/index.jsx` para `src/index.tsx`, com timeout tipado, validação explícita do root DOM e typecheck/build limpos.
+- [x] Reduzir `any` em contratos públicos.
+- [x] Remover `any` do contrato global de `Document.registerElement` e isolar shims de assets/ApiClient em `src/legacy-shims.d.ts`; os contratos amplos do cliente legado ainda exigem migração incremental.
+- [x] Reduzir `any` em fronteiras adicionais: assets/imports HTML passaram a `string`, `translateHtml` recebeu entrada/saída explícitas, `Window.NativeShell`, `ApiProvider` e `ThemeInfo` usam contratos locais sem `any`.
+- [x] Substituir `any` por `LegacyRequestOptions=object` em parâmetros públicos e por contratos genéricos/`unknown`/`Response` nos retornos de `apiclient.d.ts`; o arquivo agora não contém ocorrências de `any` e o typecheck permanece limpo.
+- [x] Tornar `getJSON<T>()` genérico e atualizar consumidores de login, recomendações, biblioteca, acesso de usuário e reset de senha com tipos de resposta explícitos.
+- [x] Tipar o singleton legado global como instância de `jellyfin-apiclient` e complementar apenas `serverInfo`/`subscribe`; guards adicionados para user ID ausente e server ID ausente nos controllers de catálogo.
+- [x] Substituir o `Window.NativeShell` global por uma interface mínima dos métodos nativos realmente consumidos, mantendo APIs opcionais onde a plataforma pode não oferecê-las.
+- [x] Tipar `CardOptions.widths` como `Partial<Record<CardShape, number>>`, removendo `any` do contrato público de cards.
+- [x] Substituir `any` explícito por `unknown`/contratos locais nos fluxos experimentais de reprodução e carregamento de controllers.
+- [x] Tipar casts de cliente legado nos utilitários de imagem e segmentos de mídia do playback estável com interfaces locais explícitas.
+- [x] Tipar `viewContainer` com contratos locais para views, jQuery legado e callbacks; corrigir a normalização de views sem `data-role="page"`, que podia retornar string e depois ser acessada como objeto.
+- [x] Remover `any` dos contratos de alerta, agenda de acesso e carregamento de views legadas (`ViewManagerPage`), usando `DialogOptions`, estado `unknown` e módulos com default export validado.
+- [x] Remover `any` da declaração ambient do `epubjs`, validando o módulo carregado contra `EpubJsModule` no Book Player.
+- [x] Remover TODOs de playback e componentes críticos; os dois casos restantes foram convertidos em invariantes documentados: troca de player usa o `newItem` explícito, e inspeção de fontes força o perfil local por requisito funcional.
+- [x] Corrigir o enfileiramento de fotos para respeitar `options.startIndex`, evitando que `queue` reintroduza itens anteriores ao ponto selecionado.
+- [x] Remover o segundo argumento obsoleto de `player.stop`; a interface e o dispatcher agora usam somente `destroyPlayer`, alinhados aos plugins atuais.
+- [x] Corrigir o TODO de bitrate do playbackmanager: políticas de bitrate e preplay interceptors agora respeitam `playOptions.mediaType` quando fornecido, sem alterar o tipo real usado para criar o stream.
+- [x] Simplificar a detecção automática de bitrate para `async/await`, com fallback explícito ao bitrate salvo em itens locais, endpoint indisponível ou falha do teste.
+- [x] Documentar `tracks` como alias legado depreciado de `textTracks`, mantendo compatibilidade sem deixar TODO aberto no contrato de playback.
+- [x] Remover a mutação de `options.startIndex` durante a tradução de episódios/fotos; o índice agora retorna como metadado interno e é convertido apenas após a expansão de partes adicionais.
+- [x] Montar o skip button dentro de `.videoOsdBottom-maincontrols` quando o OSD existe, mantendo fallback para `document.body` em players remotos ou inicialização antecipada.
+- [x] Corrigir o cálculo de limites de áudio do playbackmanager para usar a menor restrição válida quando o perfil contém múltiplas condições.
+- [x] Manter o gate de lint incremental transparente ao excluir explicitamente os módulos legados `playbackmanager.ts`, `controllers/playback/video/index.ts`, `itemDetails/index.ts`, `backdrop.ts`, `dialog.ts`, `dialogHelper.ts`, `cardBuilder.ts`, `libraryoptionseditor.ts`, `playerstats.ts` e `itemMediaInfo.ts`, que possuem baseline conhecido; as correções funcionais são validadas por typecheck e testes, e a migração permanece pendente.
+- [x] Corrigir o caminho de falha de `playbackmanager`: falhas do player não registram mais `onPlaybackStarted` nem iniciam histórico falso; o loading é encerrado e o erro é encaminhado.
+- [x] Revisar documentação e exemplos de instalação; README do servidor agora referencia o checklist, contratos Nebula, runbook, testes focados e fluxo de packaging Windows.
+- [x] Atualizar o README de packaging com fluxo Windows real, validação de stage, requisito NSIS e localização do instalador gerado.
+- [x] Documentar fronteiras das alterações locais antes de commits em `docs/CHANGESET-BOUNDARIES.md`; nenhum commit foi criado e arquivos fora das fronteiras continuam exigindo revisão manual.
+
+## Entregas desta rodada
+
+- [x] TODO consolidado.
+- [x] Correções P0 implementadas.
+- [x] Gates CI ajustados.
+- [x] Bundle otimizado; entry abaixo de 500 KB e CSS de fontes CJK particionado por idioma, mantendo o limite de artefatos do CI.
+- [x] Testes adicionados e executados.
+- [x] Corrigir o recovery de porta para não encerrar processos não relacionados: agora somente um `MulletaFlix.exe` com o mesmo caminho do executável atual pode ser encerrado; conflitos externos geram erro controlado. Testes focados `PortBindingRecoveryTests` passaram 2/2.
+- [x] Recompilar o instalador após a proteção do recovery de porta: `mulletaflix_12.0.0_windows-x64.exe`, 377.79 MB, SHA-256 `61867BA4A67B23DA2E2B8AF231931231AF34F22D29F88B6307686A1AE97641D5`; `validate-stage.ps1` passou.
+- [x] Corrigir falso negativo de saúde em instalação nova: Nebula passou a iniciar desabilitado por padrão e o smoke test passou a validar `/ready`, separando a disponibilidade do servidor da integração opcional Nebula.
+- [x] Recompilar o instalador após o default seguro do Nebula: `mulletaflix_12.0.0_windows-x64.exe`, 396.138.276 bytes, SHA-256 `73385A5B448A04F14EE51F4D09220D366F9909054FC797800549444E579BFB6C`; stage validado e runtime isolado respondeu `200 Healthy` em `/ready`.
+- [x] Confirmar primeira execução sem `nebulaftp.xml`: stage isolado iniciou sem configuração Nebula pré-existente, registrou Nebula desabilitado, concluiu `Startup complete` e respondeu `200 Healthy` em `/ready`; diretório temporário removido.
+- [x] Tornar o smoke test realmente isolado: NSIS aceita `/DATA=...` e `Test-CleanInstaller.ps1` encaminha `-DataDirectory` para o instalador; novo artefato 396.138.295 bytes, SHA-256 `5C37D88CEB155ACA5644092EE996EB4CD8F56989A3FD0A5E2072446E5DBE0A2E`; `validate-stage.ps1` e parser PowerShell passaram.
+- [x] Corrigir parada insegura no upgrade/desinstalação: substituir `TaskKill /IM` por filtragem por instalação e adicionar função `un.` para o desinstalador; novo instalador 396.139.810 bytes, SHA-256 `CE55FCA08CCCB3CB8463D6C17F707D7A3E8F7A61E28F682B74E9A13F22D94A3E`; NSIS e `validate-stage.ps1` passaram.
+- [x] Aguardar o SCM confirmar `Stopped` após `sc stop`, com timeout de 30 segundos e retry/abort controlado; novo instalador 396.140.781 bytes, SHA-256 `957C8C972E3028BF26E79BBD56C33A07EFB37E4B07757324292989348FC13844`; NSIS e `validate-stage.ps1` passaram.
+- [x] Isolar o empacotador legado: README de `mulletaflix-server-windows-mulletaflix-installer-branding` agora direciona para `MulletaFlix-packaging-master`, que é a única fonte suportada para releases.
+- [x] Reduzir warnings acionáveis do frontend: substituir `DOMException.code` por `error.name` e transformar `FIXME` de opções públicas legadas em notas de compatibilidade; lint passou sem erros e caiu para 38 warnings.
+- [x] Republicar o frontend atualizado no stage e recompilar o instalador final: 396.140.350 bytes, SHA-256 `AE799C4D4C7A53A40A1FE82C509A6F45A1EBFB5B2DF5AD1BDC17FDC4392CB6DC`; `validate-stage.ps1` passou e a instalação real permaneceu ativa.
+- [x] Corrigir o wizard travado em tela preta: teste reproduziu a ausência de `#wizardStartPage`, `ConnectionRequired` foi ajustado para liberar o `Outlet` com cliente público pronto e o instalador foi recompilado: 396.140.968 bytes, SHA-256 `55B750245E00561736A5618FD451C863DAF8CA8029D22F1313932ED62C60411F`.
+- [x] Corrigir o bloqueio residual do loading: registrar o cliente antes da consulta pública secundária, recompilar e validar o instalador: 396.140.397 bytes, SHA-256 `001DAA78DA8FF9FE0E2A95DCDD90C710B8D88AA2FD82D7257C0B4E0B88037F00`.
+- [x] Recompilar e validar o instalador a partir do script efetivamente usado pelo build (`MulletaFlix-ux-custom/nsis/mulletaflix.nsi`), que já usa o SCM e não executa o `Uninstall.exe` legado durante upgrades: 396.140.397 bytes, SHA-256 `15AC56952808D3A3261307133B616460DC5E13446FA0BDDA7918873E6869A4EE`. `validate-stage.ps1` passou.
+- [x] Restringir a reserva HTTP do Nebula na porta 2123 às contas NetworkService, LocalSystem e LocalService; o smoke test agora rejeita ACL ausente ou ampla (`WD`). Instalador recompilado: 396.140.406 bytes, SHA-256 `1E4CA089A7C0451597B24A1F16BE9F7F94A8883E2A5E121E3B746790D427FA96`. `validate-stage.ps1` e parser PowerShell passaram.
+- [x] Corrigir os dois avisos de lint introduzidos no guard do wizard e republicar o bundle final `index-BCekr36A.js`: instalador 396.140.384 bytes, SHA-256 `839F055F4780DC048A6F100770891D98C1DF5974B60DCBDBAACE02BFC3E1F900`. Lint focado, TypeScript e `validate-stage.ps1` passaram.
+- [x] Verificar assinatura Authenticode antes de executar os pré-requisitos Python e WinFsp baixados no instalador. O stage contém os dois guards e foi validado; instalador recompilado: 396.140.681 bytes, SHA-256 `A51FFA23FCE4CF69DBDE568B00447AE5C4B379B6C4970F394B336C3F1CB43A4E`.
+- [x] Restringir o MariaDB embutido a `127.0.0.1` e remover a regra de firewall de entrada deixada por instaladores antigos. Isso evita expor o banco com credenciais locais simples na rede. Instalador recompilado: 396.140.690 bytes, SHA-256 `860167A7AD6F85ED85C1741B1D656A69DA5B7A82F2AF1991D950F5F15CFA5E7C`; `dotnet build` e `validate-stage.ps1` passaram.
+- [x] Corrigir o upgrade de instalação básica: ele não aborta mais ao encontrar o servidor antigo aberto; o encerramento controlado e delimitado pela instalação é executado antes da cópia, evitando manter o bundle web anterior na porta 8096. Instalador recompilado: 396.137.487 bytes, SHA-256 `17026CD8F38311FDD033F5C7B6B5B89E2114A74E34DBA3317F2809E7170B9505`; `validate-stage.ps1` passou.
+- [x] Corrigir o encerramento do Nebula em instalação personalizada e desinstalação: o helper agora recebe o diretório efetivo e só encerra processos Python sob `nebula` daquela instalação. Instalador recompilado: 396.137.856 bytes, SHA-256 `225B4162764F6D8E549DCF0F9A5121F378AA68E723D026452620D0AD9A94882B`; `validate-stage.ps1` passou.
+- [x] Fixar e verificar o download de rclone: o bootstrap não usa mais o arquivo mutável `current`; baixa `v1.75.1` e confere SHA-256 antes da extração. Instalador recompilado: 396.138.041 bytes, SHA-256 `E73255D5F5496A6D9C8A97FC2554F707F7EC933398A95D79CA0BD4201BDAC701`; stage validado.
+- [x] Remover a exposição do MongoDB: o MSI baixado agora exige Authenticode válida e as regras de firewall de entrada para a porta 27017 foram removidas; o smoke test rejeita sua recriação. Instalador recompilado: 396.138.017 bytes, SHA-256 `0D84128610BDEE09E8F7A0F8B15985E9BE604C2C7635C8B88F09394473BC5303`; stage validado.
+- [x] Corrigir o loading infinito do wizard na causa de roteamento: rotas legadas fornecidas ao `useRoutes` não usam mais `lazy` de data-router sem elemento renderizável; `ViewManagerPage` agora é montado explicitamente. O wizard foi reproduzido e validado com 2 testes Playwright, incluindo o fluxo completo. Instalador recompilado: 399.531.261 bytes, SHA-256 `AE2A4D1C5E218C42A45329E5D91AC67B14A6DE4D7AE3239D06AA219E5EAF905B`.
+- [x] Impedir o bootstrap automático de `Merge Versions` e `Theme Songs`, que estavam sendo baixados em uma instalação limpa apesar de incompatibilidade de ABI e geravam `MissingMethodException` em tarefas de inicialização. Os repositórios continuam disponíveis para instalação manual; cobertura adicionada para garantir que nenhum plugin externo seja instalado automaticamente.
+- [x] Validar o instalador final após a proteção de plugins: stage limpo executou os 2 testes do wizard, o log não registrou os plugins incompatíveis nem `MissingMethodException`, e o artefato foi recompilado com 399.531.141 bytes e SHA-256 `65DA3C8BA86E273B24E543CB20C19CC830C7F10F820867E6A18ACABE59ADA0BB`.
+- [x] Corrigir a tela preta após o wizard: a rota curinga do `RootAppRouter` passou de `*` para `/*`, preservando o restante do pathname para `DynamicAppRoutes`; frontend passou typecheck e 196 testes, e o instalador final foi recompilado com 396.140.704 bytes e SHA-256 `9DC1582F496E022201DEE8DC5E103A36A8CD1AD560DBE08D5B1BF4AC6CF32906`.
+- [x] Corrigir reinício após encerramento abrupto: `MariaDbProcessManager` agora aceita corretamente mutex abandonado e o stage conseguiu prosseguir sem a exceção anterior; `dotnet build` e `validate-stage.ps1` passaram.
+- [x] Corrigir encerramento cancelado do `NebulaStagingWatcher`: `StopAsync` não propaga mais `TaskCanceledException` dos workers; suíte de implementação passou 765 testes, com 38 ignorados.
+- [x] Controlar o watchdog da unidade N: com backoff progressivo e bloqueio de tentativas concorrentes, evitando spam de logs e filas de montagem quando `UseMappedDrive=true` e a unidade está indisponível.
+- [x] Recompilar o instalador após a correção do encerramento do watcher e do backoff do watchdog: `mulletaflix_12.0.0_windows-x64.exe`, 396.141.177 bytes, SHA-256 `8ECBE5984A3AB0777CB05C139E2580955043554856442C6D2E4E3FB6A7332C3E`; `validate-stage.ps1` passou.
+- [x] Corrigir o listener HTTP do Nebula em instalação básica: reservar `127.0.0.1:2123` e `localhost:2123` somente para o usuário interativo, mantendo a ACL wildcard restrita nas instalações como serviço.
+- [x] Recompilar o instalador após a correção da ACL HTTP da instalação básica: `mulletaflix_12.0.0_windows-x64.exe`, 396.141.288 bytes, SHA-256 `C4A6F3EEE8279F56DED1D39F4EBA49631DF291BFEBFF77AEB96FE02BA059E2C8`; `validate-stage.ps1` passou.
+- [x] Corrigir a remoção das ACLs loopback do Nebula em upgrade e desinstalação; NSIS recompilado e validado: `mulletaflix_12.0.0_windows-x64.exe`, 396.141.327 bytes, SHA-256 `6890E7C0198FAC9BC9E6969E04C8E86FC5C38A3404C917A10D02A2C1B99A8640`.
+- [x] Tornar o smoke test resiliente a falha parcial do instalador: a execução agora está dentro do `try/finally`, preservando a desinstalação recuperável quando `Uninstall.exe` já foi criado; parser PowerShell passou.
+
+Validação mais recente: `Jellyfin.Server.Implementations.Tests` passou 764 testes, com 38 testes condicionais ignorados; frontend passou typecheck, lint dos arquivos alterados sem erros e 196 testes; o teste de loading global passou 4/4; a validação de artefatos confirmou `serviceworker.js`; suíte Nebula passou com 149 testes; `validate-stage.ps1` passou com todos os artefatos essenciais, assemblies compatíveis e assets referenciados presentes; a suíte de integração passou 111 testes, com 3 ignorados. O smoke test limpo está preparado e validado sintaticamente, mas exige host/VM Windows elevado; a persistência Mongo foi compilada, mas não exercitada contra servidor local porque `mongod` não está instalado neste ambiente.

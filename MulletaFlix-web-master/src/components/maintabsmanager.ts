@@ -34,14 +34,40 @@ interface TabsResult {
     tabsContainer: HTMLElement | null;
 }
 
+interface ReplaceTabsOptions {
+    view: HTMLElement;
+    tabsContainer: HTMLElement;
+    selectedIndex: number | null | undefined;
+    getTabsFn: () => unknown[];
+    getTabContainersFn?: () => ArrayLike<Element> | undefined;
+    onBeforeTabChange?: TabChangeHandler | null;
+    onTabChange?: TabChangeHandler | null;
+    setSelectedIndex: boolean;
+}
+
 let tabOwnerView: HTMLElement | null = null;
-const queryScope = document.querySelector<HTMLElement>('.skinHeader');
 let headerTabsContainer: HTMLElement | null = null;
 let tabsElem: TabsElement | null = null;
 
+function getHeaderTabsContainer(): HTMLElement | null {
+    let container = document.querySelector<HTMLElement>('.skinHeader .headerTabs')
+        ?? document.querySelector<HTMLElement>('.headerTabs');
+
+    if (!container) {
+        const skinHeader = document.querySelector<HTMLElement>('.skinHeader');
+        if (skinHeader) {
+            container = document.createElement('div');
+            container.className = 'headerTabs sectionTabs hide';
+            skinHeader.appendChild(container);
+        }
+    }
+
+    return container;
+}
+
 function ensureElements(): void {
-    if (!headerTabsContainer && queryScope) {
-        headerTabsContainer = queryScope.querySelector<HTMLElement>('.headerTabs');
+    if (!headerTabsContainer || !headerTabsContainer.isConnected) {
+        headerTabsContainer = getHeaderTabsContainer();
     }
 }
 
@@ -112,6 +138,67 @@ function configureSwipeTabs(view: HTMLElement, currentElement: TabsElement): voi
     });
 }
 
+function updateTabContainers(event: Event, getTabContainersFn: () => ArrayLike<Element> | undefined): void {
+    const tabEvent = event as CustomEvent<{ previousIndex?: number; selectedTabIndex: number }>;
+    const tabContainers = getTabContainersFn();
+    if (!tabContainers) return;
+
+    if (tabEvent.detail.previousIndex != null) {
+        const previousPanel = tabContainers[tabEvent.detail.previousIndex] as HTMLElement | undefined;
+        previousPanel?.classList.remove('is-active');
+    }
+
+    const newPanel = tabContainers[tabEvent.detail.selectedTabIndex] as HTMLElement | undefined;
+    newPanel?.classList.add('is-active');
+}
+
+function replaceTabs({
+    view,
+    tabsContainer,
+    selectedIndex,
+    getTabsFn,
+    getTabContainersFn,
+    onBeforeTabChange,
+    onTabChange,
+    setSelectedIndex
+}: ReplaceTabsOptions): TabsResult {
+    const tabs = getTabsFn() as TabItem[];
+    tabsContainer.innerHTML = getTabsHtml(tabs, selectedIndex);
+    window.customElements.upgrade(tabsContainer);
+
+    document.body.classList.add('withSectionTabs');
+    tabOwnerView = view;
+
+    const currentTabsElem = tabsContainer.querySelector('[is="emby-tabs"]') as TabsElement | null;
+    if (!currentTabsElem) {
+        return { tabsContainer, replaced: true };
+    }
+
+    tabsElem = currentTabsElem;
+    configureSwipeTabs(view, currentTabsElem);
+
+    if (getTabContainersFn) {
+        currentTabsElem.addEventListener('beforetabchange', event => updateTabContainers(event, getTabContainersFn));
+    }
+    if (onBeforeTabChange) {
+        currentTabsElem.addEventListener('beforetabchange', onBeforeTabChange as EventListener);
+    }
+    if (onTabChange) {
+        currentTabsElem.addEventListener('tabchange', onTabChange as EventListener);
+    }
+
+    if (setSelectedIndex) {
+        if (currentTabsElem.selectedIndex) {
+            currentTabsElem.selectedIndex(selectedIndex ?? undefined);
+        } else {
+            currentTabsElem.readySelectedIndex = selectedIndex ?? null;
+            currentTabsElem.addEventListener('ready', onViewTabsReady);
+        }
+    }
+
+    return { tabsContainer, tabs: currentTabsElem, replaced: true };
+}
+
 function getTabsHtml(tabs: TabItem[], selectedIndex: number | null | undefined): string {
     const indexAttribute = selectedIndex == null ? '' : (' data-index="' + escapeHtml(String(selectedIndex)) + '"');
     const tabsHtml = tabs.map((tab, index) => {
@@ -180,70 +267,16 @@ export function setTabs(
     }
 
     if (tabOwnerView !== view) {
-        const tabs = getTabsFn() as TabItem[];
-        const tabsHtml = getTabsHtml(tabs, selectedIndex);
-
-        tabsContainerElem.innerHTML = tabsHtml;
-        window.customElements.upgrade(tabsContainerElem);
-
-        document.body.classList.add('withSectionTabs');
-        tabOwnerView = view;
-
-        const currentTabsElem = tabsContainerElem.querySelector('[is="emby-tabs"]') as TabsElement | null;
-        if (!currentTabsElem) {
-            return {
-                tabsContainer: tabsContainerElem,
-                replaced: true
-            };
-        }
-
-        tabsElem = currentTabsElem;
-
-        configureSwipeTabs(view, currentTabsElem);
-
-        if (getTabContainersFn) {
-            currentTabsElem.addEventListener('beforetabchange', function (e: Event) {
-                const tabEvent = e as CustomEvent<{ previousIndex?: number; selectedTabIndex: number }>;
-                const tabContainers = getTabContainersFn();
-                if (!tabContainers) {
-                    return;
-                }
-                if (tabEvent.detail.previousIndex != null) {
-                    const previousPanel = tabContainers[tabEvent.detail.previousIndex] as HTMLElement | undefined;
-                    if (previousPanel) {
-                        previousPanel.classList.remove('is-active');
-                    }
-                }
-
-                const newPanel = tabContainers[tabEvent.detail.selectedTabIndex] as HTMLElement | undefined;
-
-                if (newPanel) {
-                    newPanel.classList.add('is-active');
-                }
-            });
-        }
-
-        if (onBeforeTabChange) {
-            currentTabsElem.addEventListener('beforetabchange', onBeforeTabChange as EventListener);
-        }
-        if (onTabChange) {
-            currentTabsElem.addEventListener('tabchange', onTabChange as EventListener);
-        }
-
-        if (setSelectedIndex !== false) {
-            if (currentTabsElem.selectedIndex) {
-                currentTabsElem.selectedIndex(selectedIndex ?? undefined);
-            } else {
-                currentTabsElem.readySelectedIndex = selectedIndex ?? null;
-                currentTabsElem.addEventListener('ready', onViewTabsReady);
-            }
-        }
-
-        return {
+        return replaceTabs({
+            view,
             tabsContainer: tabsContainerElem,
-            tabs: currentTabsElem,
-            replaced: true
-        };
+            selectedIndex,
+            getTabsFn,
+            getTabContainersFn,
+            onBeforeTabChange,
+            onTabChange,
+            setSelectedIndex: setSelectedIndex !== false
+        });
     }
 
     if (!tabsElem) {

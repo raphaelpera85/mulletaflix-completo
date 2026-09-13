@@ -273,12 +273,11 @@ export function translate(key: string, ...args: string[]): string {
     return val;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function translateHtml(html: any, module?: string): any {
-    html = html && html.default !== undefined ? html.default : html;
+export function translateHtml(html: string | { default?: string } | null | undefined, module?: string): string {
+    html = typeof html === 'object' && html?.default !== undefined ? html.default : html;
 
     if (typeof html !== 'string') {
-        return html;
+        return '';
     }
 
     if (!module) {

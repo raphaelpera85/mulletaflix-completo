@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
@@ -338,6 +340,7 @@ public class NebulaUploadEngineTests
     {
         var config = new NebulaFtpConfiguration();
 
+        Assert.False(config.Enabled);
         Assert.True(string.IsNullOrEmpty(config.ApiHash));
         Assert.True(string.IsNullOrEmpty(config.BotTokens));
     }
@@ -435,6 +438,41 @@ public class NebulaUploadEngineTests
         Assert.True(thirdClaim, "Após liberação, um novo worker deve conseguir reivindicar.");
     }
 
+    [Fact]
+    public async Task StagingWatcher_DoesNotKeepDirectoriesThatCannotBeMonitored()
+    {
+        var invalidDirectory = Path.Combine(Path.GetTempPath(), $"mulletaflix-staging-file-{Guid.NewGuid():N}");
+        await File.WriteAllTextAsync(invalidDirectory, "not a directory");
+
+        try
+        {
+            using var engine = new NebulaUploadEngine(
+                null!,
+                null!,
+                uploadConcurrency: 1,
+                chunkSizeMb: 16,
+                deleteSourceAfterUpload: false,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<NebulaUploadEngine>.Instance);
+            await using var watcher = new NebulaStagingWatcher(
+                engine,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<NebulaStagingWatcher>.Instance);
+
+            watcher.Start([invalidDirectory], workerCount: 1);
+
+            var stagingDirsField = typeof(NebulaStagingWatcher).GetField(
+                "_stagingDirs",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+            Assert.NotNull(stagingDirsField);
+            var stagingDirs = Assert.IsType<List<string>>(stagingDirsField.GetValue(watcher));
+            Assert.Empty(stagingDirs);
+        }
+        finally
+        {
+            File.Delete(invalidDirectory);
+        }
+    }
+
     /// <summary>
     /// Regression: o script SQL do Supabase deve incluir CREATE POLICY para service_role
     /// em todas as tabelas gerenciadas, tornando o modelo de acesso explícito.
@@ -493,6 +531,22 @@ public class NebulaUploadEngineTests
     public void NebulaFtpManager_MasksBotTokensWithoutExposingSecrets(string token, string expected)
     {
         Assert.Equal(expected, NebulaFtpManager.MaskBotToken(token));
+    }
+
+    [Theory]
+    [InlineData("https://example.supabase.co", true, "https://example.supabase.co")]
+    [InlineData("http://example.supabase.co", false, "")]
+    [InlineData("https://user:password@example.supabase.co", false, "")]
+    [InlineData("not-a-url", false, "")]
+    public void SupabaseUrl_RequiresHttpsAbsoluteUrlWithoutEmbeddedCredentials(
+        string url,
+        bool expected,
+        string expectedNormalized)
+    {
+        var result = NebulaFtpManager.IsSafeSupabaseUrl(url, out var normalizedUrl);
+
+        Assert.Equal(expected, result);
+        Assert.Equal(expectedNormalized, normalizedUrl);
     }
 
     [Theory]
@@ -865,7 +919,8 @@ public class NebulaUploadEngineTests
             UseMappedDrive = true,
             DriveLetter = "N:",
             Username = "user",
-            Password = "password"
+            Password = "password",
+            EmbedFtpCredentialsInStrmUrls = true
         };
 
         var url = NebulaStrmGenerator.BuildStrmTargetUrl(config, "Filmes/Matrix (1999)", "Matrix.mp4");
@@ -873,6 +928,23 @@ public class NebulaUploadEngineTests
         Assert.DoesNotContain("N:", url, StringComparison.OrdinalIgnoreCase);
         Assert.StartsWith("ftp://user:password@192.168.1.100:2121/", url, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Filmes/Matrix%20%281999%29/Matrix.mp4", url, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NebulaStrmGenerator_BuildStrmTargetUrl_DoesNotEmbedFtpCredentialsByDefault()
+    {
+        var config = new MediaBrowser.Model.Configuration.NebulaFtpConfiguration
+        {
+            ServerHost = "192.168.1.100",
+            ServerPort = 2121,
+            Username = "user",
+            Password = "password"
+        };
+
+        var url = NebulaStrmGenerator.BuildStrmTargetUrl(config, "Filmes", "Movie.mp4");
+
+        Assert.Equal("ftp://192.168.1.100:2121/Filmes/Movie.mp4", url);
+        Assert.DoesNotContain("password", url, StringComparison.Ordinal);
     }
 
     [Fact]

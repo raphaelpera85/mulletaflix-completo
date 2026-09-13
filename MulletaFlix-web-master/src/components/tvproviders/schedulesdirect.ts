@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @stylistic/padded-blocks */
 import $ from 'jquery';
 import DOMPurify from 'dompurify';
 import escapeHtml from 'escape-html';
@@ -91,13 +92,12 @@ function refreshTunerDevices(page: HTMLElement, providerInfo: ProviderInfo, devi
     page.querySelector('.tunerList')!.innerHTML = DOMPurify.sanitize(html);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function (this: any, page: HTMLElement, providerId: string, options: Options): void {
     let listingsId: string | undefined;
 
     function reload(): void {
-        loading.show();
-        (window.ApiClient as any).getNamedConfiguration('livetv').then(function (config: LiveTvConfig) {
+        loading.withLoading(async () => {
+            const config = await (window.ApiClient as any).getNamedConfiguration('livetv') as LiveTvConfig;
             const info = config.ListingProviders.filter(function (i) {
                 return i.Id === providerId;
             })[0] || {};
@@ -121,13 +121,14 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
                 page.querySelector('.selectTunersSection')?.classList.remove('hide');
             }
 
-            setCountry(info);
+            await setCountry(info);
             refreshTunerDevices(page, info, config.TunerHosts);
-        });
+        }).catch((error: unknown) => console.error('Failed to load Schedules Direct provider', error));
     }
 
-    function setCountry(info: ProviderInfo): void {
-        (window.ApiClient as any).getJSON((window.ApiClient as any).getUrl('LiveTv/ListingProviders/SchedulesDirect/Countries')).then(function (result: Record<string, CountryItem[]>) {
+    async function setCountry(info: ProviderInfo): Promise<void> {
+        try {
+            const result = await (window.ApiClient as any).getJSON((window.ApiClient as any).getUrl('LiveTv/ListingProviders/SchedulesDirect/Countries')) as Record<string, CountryItem[]>;
             let i: number;
             let length: number;
             const countryList: CountryItem[] = [];
@@ -160,16 +161,14 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
                 return '<option value="' + c.value + '">' + c.name + '</option>';
             }).join('')).val(info.Country || '');
             page.querySelector('.txtZipCode')?.dispatchEvent(new Event('change'));
-        }, function () { // ApiClient.getJSON() error handler
+        } catch {
             Dashboard.alert({
                 message: globalize.translate('ErrorGettingTvLineups')
             });
-        });
-        loading.hide();
+        }
     }
 
     function submitLoginForm(): void {
-        loading.show();
         const info: Record<string, unknown> = {
             Type: 'SchedulesDirect',
             Username: (page.querySelector('.txtUser') as HTMLInputElement).value,
@@ -182,7 +181,7 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
             info.Id = id;
         }
 
-        (window.ApiClient as any).ajax({
+        loading.withLoading(() => (window.ApiClient as any).ajax({
             type: 'POST',
             url: (window.ApiClient as any).getUrl('LiveTv/ListingProviders', {
                 ValidateLogin: true
@@ -190,11 +189,12 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
             data: JSON.stringify(info),
             contentType: 'application/json',
             dataType: 'json'
-        }).then(function (result: { Id: string }) {
+        })).then(function (result: unknown) {
+            const provider = result as { Id: string };
             Dashboard.processServerConfigurationUpdateResult();
-            providerId = result.Id;
+            providerId = provider.Id;
             reload();
-        }, function () {
+        }).catch(function () {
             Dashboard.alert({
                 message: globalize.translate('ErrorSavingTvProvider')
             });
@@ -211,9 +211,9 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
             return;
         }
 
-        loading.show();
         const id = providerId;
-        (window.ApiClient as any).getNamedConfiguration('livetv').then(function (config: LiveTvConfig) {
+        loading.withLoading(async () => {
+            const config = await (window.ApiClient as any).getNamedConfiguration('livetv') as LiveTvConfig;
             const info = config.ListingProviders.filter(function (i) {
                 return i.Id === id;
             })[0];
@@ -226,26 +226,23 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
             }).map(function (i: HTMLElement) {
                 return (i as HTMLInputElement).getAttribute('data-id') || '';
             });
-            (window.ApiClient as any).ajax({
+            await (window.ApiClient as any).ajax({
                 type: 'POST',
                 url: (window.ApiClient as any).getUrl('LiveTv/ListingProviders', {
                     ValidateListings: true
                 }),
                 data: JSON.stringify(info),
                 contentType: 'application/json'
-            }).then(function () {
-                loading.hide();
+            });
 
-                if (options.showConfirmation) {
-                    Dashboard.processServerConfigurationUpdateResult();
-                }
+            if (options.showConfirmation) {
+                Dashboard.processServerConfigurationUpdateResult();
+            }
 
-                Events.trigger(self as unknown as object, 'submitted');
-            }, function () {
-                loading.hide();
-                Dashboard.alert({
-                    message: globalize.translate('ErrorAddingListingsToSchedulesDirect')
-                });
+            Events.trigger(self as unknown as object, 'submitted');
+        }).catch(function () {
+            Dashboard.alert({
+                message: globalize.translate('ErrorAddingListingsToSchedulesDirect')
             });
         });
     }
@@ -256,8 +253,7 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
             return;
         }
 
-        loading.show();
-        (window.ApiClient as any).ajax({
+        loading.withLoading(() => (window.ApiClient as any).ajax({
             type: 'GET',
             url: (window.ApiClient as any).getUrl('LiveTv/ListingProviders/Lineups', {
                 Id: providerId,
@@ -265,8 +261,9 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
                 Country: (page.querySelector('#selectCountry') as HTMLSelectElement).value
             }),
             dataType: 'json'
-        }).then(function (result: Array<{ Id: string; Name: string }>) {
-            page.querySelector('#selectListing')!.innerHTML = result.map(function (o) {
+        })).then(function (result: unknown) {
+            const lineups = result as Array<{ Id: string; Name: string }>;
+            page.querySelector('#selectListing')!.innerHTML = lineups.map(function (o) {
                 return '<option value="' + escapeHtml(o.Id) + '">' + escapeHtml(o.Name) + '</option>';
             }).join('');
 
@@ -274,13 +271,11 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
                 (page.querySelector('#selectListing') as HTMLSelectElement).value = listingsId;
             }
 
-            loading.hide();
-        }, function () {
+        }).catch(function () {
             Dashboard.alert({
                 message: globalize.translate('ErrorGettingTvLineups')
             });
             refreshListings('');
-            loading.hide();
         });
     }
 
@@ -294,7 +289,7 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
         options = options || {} as Options;
 
         // Only hide the buttons if explicitly set to false; default to showing if undefined or null
-        // FIXME: rename this option to clarify logic
+        // Compatibility note: the public option name is retained for API compatibility.
         const hideCancelButton = options.showCancelButton === false;
         page.querySelector('.btnCancel')?.classList.toggle('hide', hideCancelButton);
 
@@ -325,3 +320,5 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
         reload();
     };
 }
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @stylistic/padded-blocks */

@@ -4,13 +4,20 @@ import * as userSettings from '../../scripts/settings/userSettings';
 import './style.scss';
 
 const worker = new Worker();
-const targetDic: Record<string, any[]> = {};
+interface BlurhashWorkerData {
+    pixels: Uint8ClampedArray;
+    hsh: string;
+    width: number;
+    height: number;
+}
+
+const targetDic: Record<string, HTMLElement[]> = {};
 const INITIAL_PRIORITY_IMAGE_LIMIT = 48;
 const INITIAL_PRIORITY_VIEWPORT_MARGIN = 2400;
 
 worker.addEventListener(
     'message',
-    ({ data: { pixels, hsh, width, height } }: any) => {
+    ({ data: { pixels, hsh, width, height } }: MessageEvent<BlurhashWorkerData>) => {
         const elems = targetDic[hsh];
         if (elems?.length) {
             for (const elem of elems) {
@@ -21,7 +28,7 @@ worker.addEventListener(
     }
 );
 
-export function lazyImage(elem: any, source = elem.getAttribute('data-src')): void {
+export function lazyImage(elem: HTMLElement, source = elem.getAttribute('data-src') ?? undefined): void {
     if (!source) {
         return;
     }
@@ -29,7 +36,7 @@ export function lazyImage(elem: any, source = elem.getAttribute('data-src')): vo
     fillImageElement(elem, source);
 }
 
-function drawBlurhash(target: any, pixels: Uint8ClampedArray, width: number, height: number): void {
+function drawBlurhash(target: HTMLElement, pixels: Uint8ClampedArray, width: number, height: number): void {
     const canvas = document.createElement('canvas');
     canvas.setAttribute('aria-hidden', 'true');
     canvas.width = width;
@@ -42,13 +49,13 @@ function drawBlurhash(target: any, pixels: Uint8ClampedArray, width: number, hei
 
     requestAnimationFrame(() => {
         canvas.classList.add('blurhash-canvas');
-        target.parentNode.insertBefore(canvas, target);
+        target.parentNode?.insertBefore(canvas, target);
         target.classList.add('blurhashed');
         target.removeAttribute('data-blurhash');
     });
 }
 
-function itemBlurhashing(target: any, hash: string): void {
+function itemBlurhashing(target: HTMLElement, hash: string): void {
     try {
         const width = 20;
         const height = 20;
@@ -67,19 +74,13 @@ function itemBlurhashing(target: any, hash: string): void {
     }
 }
 
-export function fillImage(entry: any): void {
+export function fillImage(entry: IntersectionObserverEntry): void {
     if (!entry) {
         throw new Error('entry cannot be null');
     }
 
-    const target = entry.target;
-    let source: any;
-
-    if (target) {
-        source = target.getAttribute('data-src');
-    } else {
-        source = entry;
-    }
+    const target = entry.target as HTMLElement;
+    const source = target.getAttribute('data-src');
 
     if (entry.isIntersecting) {
         if (source) {
@@ -90,11 +91,11 @@ export function fillImage(entry: any): void {
     }
 }
 
-function onAnimationEnd(event: any): void {
-    const elem = event.target;
+function onAnimationEnd(event: AnimationEvent): void {
+    const elem = event.target as HTMLElement;
     requestAnimationFrame(() => {
         const canvas = elem.previousSibling;
-        if (elem.classList.contains('blurhashed') && canvas?.tagName === 'CANVAS') {
+        if (elem.classList.contains('blurhashed') && canvas instanceof HTMLCanvasElement) {
             canvas.classList.add('lazy-hidden');
         }
 
@@ -103,7 +104,7 @@ function onAnimationEnd(event: any): void {
     elem.removeEventListener('animationend', onAnimationEnd);
 }
 
-function fillImageElement(elem: any, url: string): void {
+function fillImageElement(elem: HTMLElement, url: string | undefined): void {
     if (url === undefined) {
         throw new TypeError('url cannot be undefined');
     }
@@ -151,7 +152,7 @@ function fillImageElement(elem: any, url: string): void {
     });
 }
 
-function queueBlurhash(target: any, hash: string): void {
+function queueBlurhash(target: HTMLElement, hash: string): void {
     if (window.requestIdleCallback) {
         window.requestIdleCallback(() => itemBlurhashing(target, hash), { timeout: 0 });
         return;
@@ -160,10 +161,10 @@ function queueBlurhash(target: any, hash: string): void {
     window.setTimeout(() => itemBlurhashing(target, hash), 0);
 }
 
-function emptyImageElement(elem: any): void {
+function emptyImageElement(elem: HTMLElement): void {
     elem.removeEventListener('animationend', onAnimationEnd);
     const canvas = elem.previousSibling;
-    if (canvas?.tagName === 'CANVAS') {
+    if (canvas instanceof HTMLCanvasElement) {
         canvas.classList.remove('lazy-hidden');
     }
 
@@ -175,7 +176,7 @@ function emptyImageElement(elem: any): void {
         url = elem.style.backgroundImage.slice(4, -1).replace(/"/g, '');
         elem.style.backgroundImage = 'none';
     } else {
-        url = elem.getAttribute('src');
+        url = elem.getAttribute('src') ?? '';
         elem.setAttribute('src', '');
     }
     elem.setAttribute('data-src', url);
@@ -184,7 +185,7 @@ function emptyImageElement(elem: any): void {
     elem.classList.add('lazy-hidden');
 }
 
-function isNearInitialViewport(elem: any): boolean {
+function isNearInitialViewport(elem: HTMLElement): boolean {
     const rect = elem.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
@@ -195,7 +196,7 @@ function isNearInitialViewport(elem: any): boolean {
         && rect.left <= viewportWidth;
 }
 
-function fillInitialPriorityImages(lazyElems: any[]): void {
+function fillInitialPriorityImages(lazyElems: HTMLElement[]): void {
     let loadedCount = 0;
 
     for (const lazyElem of lazyElems) {
@@ -214,8 +215,8 @@ function fillInitialPriorityImages(lazyElems: any[]): void {
     }
 }
 
-export function lazyChildren(elem: any): void {
-    const lazyElems = Array.from(elem.querySelectorAll('.lazy')) as any[];
+export function lazyChildren(elem: Element): void {
+    const lazyElems = Array.from(elem.querySelectorAll<HTMLElement>('.lazy'));
 
     if (userSettings.enableBlurhash()) {
         for (const lazyElem of lazyElems) {
@@ -232,7 +233,7 @@ export function lazyChildren(elem: any): void {
     lazyLoader.lazyChildren(elem, fillImage);
 }
 
-export function getPrimaryImageAspectRatio(items: any[]): number | null {
+export function getPrimaryImageAspectRatio(items: Array<{ PrimaryImageAspectRatio?: number | null }>): number | null {
     const values: number[] = [];
 
     for (let i = 0, length = items.length; i < length; i++) {
@@ -284,14 +285,14 @@ export function getPrimaryImageAspectRatio(items: any[]): number | null {
     return result;
 }
 
-export function fillImages(elems: any[]): void {
+export function fillImages(elems: IntersectionObserverEntry[]): void {
     for (let i = 0, length = elems.length; i < length; i++) {
         const elem = elems[i];
         fillImage(elem);
     }
 }
 
-export function setLazyImage(element: any, url: string): void {
+export function setLazyImage(element: HTMLElement, url: string): void {
     element.classList.add('lazy');
     element.setAttribute('data-src', url);
     lazyImage(element);

@@ -1,6 +1,7 @@
 import React from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
@@ -12,7 +13,10 @@ import { useServerUpdateInfo } from 'apps/dashboard/features/updates/api/useServ
 import { EmptyState } from 'components/EmptyState';
 
 const Component = () => {
-    const { data: updateInfo, isLoading, isError } = useServerUpdateInfo();
+    const { data: updateInfo, isLoading, isError, refetch } = useServerUpdateInfo();
+    const handleRetry = React.useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
     return (
         <Page
@@ -29,7 +33,14 @@ const Component = () => {
                     {isLoading && <CircularProgress />}
 
                     {isError && (
-                        <Alert severity='error'>
+                        <Alert
+                            severity='error'
+                            action={
+                                <Button color='inherit' size='small' onClick={handleRetry}>
+                                    {globalize.translate('Retry')}
+                                </Button>
+                            }
+                        >
                             {globalize.translate('ErrorLoadingUpdateInfo')}
                         </Alert>
                     )}

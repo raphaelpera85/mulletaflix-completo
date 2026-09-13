@@ -51,13 +51,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export const Component = () => {
-    const { data: initialConfig, isPending, isError } = useNamedConfiguration<EncodingOptions>(CONFIG_KEY);
+    const { data: initialConfig, isPending, isError, refetch } = useNamedConfiguration<EncodingOptions>(CONFIG_KEY);
     const [ config, setConfig ] = useState<EncodingOptions | null>(null);
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;
     const submit = useSubmit();
     const isSubmitting = navigation.state === 'submitting';
     const [ isAlertOpen, setIsAlertOpen ] = useState(false);
+    const retryLoad = useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
     useEffect(() => {
         if (initialConfig && config == null) {
@@ -155,6 +158,23 @@ export const Component = () => {
         CODECS.filter(codec => codec.types.includes(hardwareAccelType))
     ), [hardwareAccelType]);
 
+    if (isError && !config) {
+        return (
+            <Page
+                id='encodingSettingsPage'
+                className='mainAnimatedPage type-interior'
+                title={globalize.translate('TitlePlayback')}
+            >
+                <Alert
+                    severity='error'
+                    action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                >
+                    {globalize.translate('ErrorDefault')}
+                </Alert>
+            </Page>
+        );
+    }
+
     if (isPending || !config) return <Loading />;
 
     return (
@@ -171,7 +191,16 @@ export const Component = () => {
             />
             <Box className='content-primary'>
                 {isError ? (
-                    <Alert severity='error'>{globalize.translate('TranscodingLoadError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={
+                            <Button color='inherit' size='small' onClick={retryLoad}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
+                    >
+                        {globalize.translate('TranscodingLoadError')}
+                    </Alert>
                 ) : (
                     <Form method='POST' onSubmit={onSubmit}>
                         <Stack spacing={3}>

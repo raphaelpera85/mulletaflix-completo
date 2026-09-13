@@ -99,7 +99,7 @@ function showDialog(options: PromptOptions): Promise<string> {
             return submitValue;
         }
 
-        return Promise.reject();
+        throw new Error('Prompt cancelled.');
     });
 }
 

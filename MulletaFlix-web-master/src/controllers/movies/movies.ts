@@ -78,8 +78,9 @@ export default function (this: MoviesController, view: HTMLElement, params: View
 
     function fetchData(): Promise<ItemDtoQueryResult> {
         isLoading = true;
-        loading.show();
-        return ApiClient.getItems(ApiClient.getCurrentUserId(), query);
+        return loading.withLoading(() => ApiClient.getItems(ApiClient.getCurrentUserId(), query)).finally(() => {
+            isLoading = false;
+        });
     }
 
     function playAll(): void {
@@ -92,16 +93,14 @@ export default function (this: MoviesController, view: HTMLElement, params: View
 
     function shuffle(): Promise<void> {
         isLoading = true;
-        loading.show();
         const newQuery = { ...query, SortBy: 'Random', StartIndex: 0, Limit: 300, Fields: 'PrimaryImageAspectRatio,MediaSourceCount,Chapters,Trickplay' };
-        return ApiClient.getItems(ApiClient.getCurrentUserId(), newQuery).then(({ Items }: ItemDtoQueryResult) => {
+        return loading.withLoading(() => ApiClient.getItems(ApiClient.getCurrentUserId(), newQuery)).then(({ Items }: ItemDtoQueryResult) => {
             playbackManager.play({
                 items: Items,
                 autoplay: true
             });
         }).finally(() => {
             isLoading = false;
-            loading.hide();
         });
     }
 
@@ -157,7 +156,6 @@ export default function (this: MoviesController, view: HTMLElement, params: View
         tabContent.querySelector('.btnShuffle')?.classList.toggle('hide', (result.TotalRecordCount ?? 0) < 1);
 
         isLoading = false;
-        loading.hide();
 
         void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(tabContent);

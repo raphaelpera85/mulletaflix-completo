@@ -50,22 +50,28 @@ export const Component = () => {
     const {
         data: config,
         isPending: isConfigPending,
-        isError: isConfigError
+        isError: isConfigError,
+        refetch: refetchConfig
     } = useConfiguration();
     const {
         data: cultures,
         isPending: isCulturesPending,
-        isError: isCulturesError
+        isError: isCulturesError,
+        refetch: refetchCultures
     } = useCultures();
     const {
         data: countries,
         isPending: isCountriesPending,
-        isError: isCountriesError
+        isError: isCountriesError,
+        refetch: refetchCountries
     } = useCountries();
 
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;
     const isSubmitting = navigation.state === 'submitting';
+    const retryLoad = React.useCallback(() => {
+        void Promise.all([ refetchConfig(), refetchCultures(), refetchCountries() ]);
+    }, [ refetchConfig, refetchCountries, refetchCultures ]);
 
     const imageResolutions = getImageResolutionOptions();
     const [language, setLanguage] = React.useState(config?.PreferredMetadataLanguage ?? '');
@@ -88,6 +94,25 @@ export const Component = () => {
         }
     }, [country, language]);
 
+    if (isConfigError || isCulturesError || isCountriesError) {
+        return (
+            <Page
+                id='metadataImagesConfigurationPage'
+                title={globalize.translate('LabelMetadata')}
+                className='type-interior mainAnimatedPage'
+            >
+                <Box className='content-primary'>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('MetadataImagesLoadError')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
+
     if (isConfigPending || isCulturesPending || isCountriesPending) {
         return <Loading />;
     }
@@ -100,7 +125,12 @@ export const Component = () => {
         >
             <Box className='content-primary'>
                 {isConfigError || isCulturesError || isCountriesError ? (
-                    <Alert severity='error'>{globalize.translate('MetadataImagesLoadError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('MetadataImagesLoadError')}
+                    </Alert>
                 ) : (
                     <Form method='POST'>
                         <Stack spacing={3}>

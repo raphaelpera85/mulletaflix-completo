@@ -33,6 +33,7 @@
     <PackageReference Include="WTelegramClient" />
     <PackageReference Include="FubarDev.FtpServer" />
     <PackageReference Include="FubarDev.FtpServer.Commands" />
+    <PackageReference Include="prometheus-net" />
   </ItemGroup>
 
 

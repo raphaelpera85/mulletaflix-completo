@@ -20,9 +20,25 @@ import Add from '@mui/icons-material/Add';
 import Alert from '@mui/material/Alert';
 
 export const Component = () => {
-    const { data: virtualFolders, isPending: isVirtualFoldersPending, isError: isVirtualFoldersError } = useVirtualFolders();
+    const {
+        data: virtualFolders,
+        isPending: isVirtualFoldersPending,
+        isError: isVirtualFoldersError,
+        refetch: refetchVirtualFolders
+    } = useVirtualFolders();
     const startTask = useStartTask();
-    const { data: tasks, isPending: isLiveTasksPending } = useLiveTasks({ isHidden: false });
+    const {
+        data: tasks,
+        isPending: isLiveTasksPending,
+        isError: isLiveTasksError,
+        refetch: refetchLiveTasks
+    } = useLiveTasks({ isHidden: false });
+
+    const handleRetry = useCallback(() => {
+        void Promise.all([refetchVirtualFolders(), refetchLiveTasks()]).catch((error: unknown) => {
+            console.error('[LibrariesPage] failed to retry loading libraries', error);
+        });
+    }, [refetchLiveTasks, refetchVirtualFolders]);
 
     const librariesTask = useMemo(() => (
         tasks?.find((value) => value.Key === 'RefreshLibrary')
@@ -51,7 +67,7 @@ export const Component = () => {
         }
     }, [ startTask, librariesTask ]);
 
-    if (isVirtualFoldersPending || isLiveTasksPending) return <Loading />;
+    if ((isVirtualFoldersPending || isLiveTasksPending) && !isVirtualFoldersError && !isLiveTasksError) return <Loading />;
 
     return (
         <Page
@@ -60,8 +76,17 @@ export const Component = () => {
             className='mainAnimatedPage type-interior'
         >
             <Box className='content-primary'>
-                {isVirtualFoldersError ? (
-                    <Alert severity='error'>{globalize.translate('LibrariesLoadError')}</Alert>
+                {isVirtualFoldersError || isLiveTasksError ? (
+                    <Alert
+                        severity='error'
+                        action={(
+                            <Button color='inherit' size='small' onClick={handleRetry}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        )}
+                    >
+                        {globalize.translate('LibrariesLoadError')}
+                    </Alert>
                 ) : (
                     <Stack spacing={3} mt={2}>
                         <Stack direction='row' alignItems={'center'} spacing={1.5}>

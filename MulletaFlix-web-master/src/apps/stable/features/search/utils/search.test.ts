@@ -6,8 +6,8 @@ import { getItemTypesFromCollectionType, getSearchScopeLabel, buildSearchScopeHr
 
 describe('search scope helpers', () => {
     it('labels well-known scopes', () => {
-        expect(getSearchScopeLabel(undefined, undefined)).toBeUndefined();
-        expect(getSearchScopeLabel('library-id', undefined)).toBe('this library');
+        expect(getSearchScopeLabel()).toBeUndefined();
+        expect(getSearchScopeLabel('library-id')).toBe('this library');
         expect(getSearchScopeLabel(undefined, CollectionType.Movies)).toBe('Movies');
         expect(getSearchScopeLabel(undefined, CollectionType.Tvshows)).toBe('TV Shows');
         expect(getSearchScopeLabel(undefined, CollectionType.Music)).toBe('Music');

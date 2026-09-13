@@ -196,7 +196,8 @@ const ItemsView: FC<ItemsViewProps> = ({
         libraryViewSettings.ShowYear,
         libraryViewSettings.CardLayout,
         collectionType,
-        viewType
+        viewType,
+        __legacyApiClient__
     ]);
 
     const getItems = useCallback(() => {
@@ -431,4 +432,3 @@ const ItemsView: FC<ItemsViewProps> = ({
 };
 
 export default memo(ItemsView);
-

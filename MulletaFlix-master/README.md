@@ -72,6 +72,25 @@ This repository contains the code for MulletaFlix's backend server. Note that th
 
 ## Server Development
 
+### MulletaFlix audit and Nebula operations
+
+The repository-wide audit checklist is maintained in the workspace root at `TODO-AUDITORIA.md`. Nebula-specific API contracts and recovery procedures are documented in [`docs/NEBULA-API.md`](../docs/NEBULA-API.md) and [`docs/NEBULA-RUNBOOK.md`](../docs/NEBULA-RUNBOOK.md).
+
+For repeatable latency measurements of `/health`, recent media, and item
+details, use `scripts/Measure-MulletaFlixEndpoints.ps1`. Set
+`MFLX_ACCESS_TOKEN` instead of placing the token in the command line; pass
+`-UserId` and `-ItemId` to include the catalog requests and `-OutputPath` to
+save JSON samples.
+
+For a focused validation of the Nebula implementation, run:
+
+```bash
+dotnet build Jellyfin.Server.Implementations/Jellyfin.Server.Implementations.csproj --no-restore
+dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj --no-restore --filter FullyQualifiedName~Nebula
+```
+
+The Windows packaging workflow, stage validator, and NSIS installer instructions are maintained in `MulletaFlix-packaging-master/README.md`.
+
 These instructions will help you get set up with a local development environment in order to contribute to this repository. Before you start, please be sure to completely read our [guidelines on development contributions](https://MulletaFlix.org/docs/general/contributing/development.html). Note that this project is supported on all major operating systems except FreeBSD, which is still incompatible.
 
 ### Prerequisites

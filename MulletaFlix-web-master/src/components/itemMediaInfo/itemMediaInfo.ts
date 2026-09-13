@@ -9,7 +9,7 @@ import escapeHtml from 'escape-html';
 import dialogHelper from 'components/dialogHelper/dialogHelper';
 import itemHelper from 'components/itemHelper';
 import layoutManager from 'components/layoutManager';
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import toast from 'components/toast/toast';
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -225,39 +225,33 @@ function createAttribute(label: string, value: any, isLtr?: boolean): string {
     return `<span class="mediaInfoLabel">${label}</span>${attributeDelimiterHtml}<span class="mediaInfoAttribute" ${isLtr && 'dir="ltr"'}>${escapeHtml(String(value))}</span>\n`;
 }
 
-function loadMediaInfo(itemId: string, serverId: string): Promise<void> {
+async function loadMediaInfo(itemId: string, serverId: string): Promise<void> {
     const apiClient: any = ServerConnections.getApiClient(serverId);
-    return apiClient.getItem(apiClient.getCurrentUserId(), itemId).then((item: any) => {
-        const dialogOptions: any = {
-            size: 'small',
-            removeOnClose: true,
-            scrollY: false
-        };
-        if (layoutManager.tv) {
-            dialogOptions.size = 'fullscreen';
-        }
-        const dlg = dialogHelper.createDialog(dialogOptions);
-        dlg.classList.add('formDialog');
-        let html = '';
-        html += globalize.translateHtml(template, 'core');
-        dlg.innerHTML = html;
-        if (layoutManager.tv) {
-            dlg.querySelector('.formDialogContent');
-        }
-        dialogHelper.open(dlg).catch(() => undefined);
-        dlg.querySelector('.btnCancel')!.addEventListener('click', () => {
-            dialogHelper.close(dlg);
-        });
-        apiClient.getCurrentUser().then((user: any) => {
-            setMediaInfo(user, dlg, item);
-        });
-        loading.hide();
+    const item = await apiClient.getItem(apiClient.getCurrentUserId(), itemId);
+    const dialogOptions: any = {
+        size: 'small',
+        removeOnClose: true,
+        scrollY: false
+    };
+    if (layoutManager.tv) {
+        dialogOptions.size = 'fullscreen';
+    }
+    const dlg = dialogHelper.createDialog(dialogOptions);
+    dlg.classList.add('formDialog');
+    dlg.innerHTML = globalize.translateHtml(template, 'core');
+    if (layoutManager.tv) {
+        dlg.querySelector('.formDialogContent');
+    }
+    await dialogHelper.open(dlg).catch(() => undefined);
+    dlg.querySelector('.btnCancel')!.addEventListener('click', () => {
+        dialogHelper.close(dlg);
     });
+    const user = await apiClient.getCurrentUser();
+    setMediaInfo(user, dlg, item);
 }
 
 export function show(itemId: string, serverId: string): Promise<void> {
-    loading.show();
-    return loadMediaInfo(itemId, serverId);
+    return withLoading(() => loadMediaInfo(itemId, serverId));
 }
 
 export default {

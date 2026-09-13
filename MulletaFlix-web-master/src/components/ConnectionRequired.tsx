@@ -1,8 +1,9 @@
-import React, { FunctionComponent, useCallback, useEffect, useState } from 'react';
+import React, { FunctionComponent, useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import type { ApiClient, ConnectResponse } from 'jellyfin-apiclient';
 
 import { ConnectionState, ServerConnections } from 'lib/jellyfin-apiclient';
+import { getServerEndpoint } from 'utils/url';
 
 import ConnectionErrorPage from './ConnectionErrorPage';
 import Loading from './loading/LoadingComponent';
@@ -47,9 +48,24 @@ const ERROR_STATES = [
     ConnectionState.Unavailable
 ];
 
+const SESSION_VALIDATION_TIMEOUT_MS = 5000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Session validation timed out')), timeoutMs);
+    });
+
+    try {
+        return await Promise.race([promise, timeout]);
+    } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
+}
+
 const fetchPublicSystemInfo = async (apiClient: Pick<ApiClient, 'serverAddress'>) => {
     const infoResponse = await fetch(
-        `${apiClient.serverAddress()}/System/Info/Public`,
+        getServerEndpoint(apiClient.serverAddress(), '/System/Info/Public'),
         { cache: 'no-cache' }
     );
 
@@ -73,13 +89,25 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
 
     const [ errorState, setErrorState ] = useState<ConnectionState>();
     const [ isLoading, setIsLoading ] = useState(true);
+    const isMountedRef = useRef(false);
+
+    const setLoadingState = useCallback((loading: boolean) => {
+        if (isMountedRef.current) setIsLoading(loading);
+    }, []);
+
+    const setConnectionError = useCallback((state: ConnectionState) => {
+        if (isMountedRef.current) {
+            setErrorState(state);
+            setIsLoading(false);
+        }
+    }, []);
 
     const navigateIfNotThere = useCallback(async (route: BounceRoutes) => {
         // If we try to navigate to the current route, just set isLoading = false
-        if (location.pathname === route) setIsLoading(false);
+        if (location.pathname === route) setLoadingState(false);
         // Otherwise navigate to the route
         else await navigate(route);
-    }, [ location.pathname, navigate ]);
+    }, [ location.pathname, navigate, setLoadingState ]);
 
     const bounce = useCallback(async (connectionResponse: ConnectResponse) => {
         switch (connectionResponse.State) {
@@ -91,7 +119,7 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
             case ConnectionState.ServerSignIn:
                 // Bounce to the login page
                 if (location.pathname === BounceRoutes.Login) {
-                    setIsLoading(false);
+                    setLoadingState(false);
                 } else {
                     console.debug('[ConnectionRequired] not logged in, redirecting to login page', location);
                     const url = encodeURIComponent(location.pathname + location.search);
@@ -107,7 +135,7 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
 
         console.warn('[ConnectionRequired] unhandled connection state', connectionResponse.State);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ navigateIfNotThere, location.pathname, navigate ]);
+    }, [ navigateIfNotThere, location.pathname, navigate, setLoadingState ]);
 
     const handleWizard = useCallback(async (firstConnection: ConnectResponse | null) => {
         const apiClient = firstConnection?.ApiClient || ServerConnections.currentApiClient();
@@ -115,17 +143,19 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
             throw new Error('No ApiClient available');
         }
 
+        // Register the client before the secondary public-info check. During
+        // first startup that check can be delayed while the server finishes
+        // booting, which otherwise leaves the wizard permanently blank even
+        // though the initial connection already succeeded.
+        ServerConnections.setLocalApiClient(apiClient as Parameters<typeof ServerConnections.setLocalApiClient>[0]);
+        setLoadingState(false);
+
         const systemInfo = await fetchPublicSystemInfo(apiClient);
         if (systemInfo?.StartupWizardCompleted) {
             console.info('[ConnectionRequired] startup wizard is complete, redirecting home');
             await navigate(BounceRoutes.Home);
-            return;
         }
-
-        // Update the current ApiClient
-        ServerConnections.setLocalApiClient(apiClient as Parameters<typeof ServerConnections.setLocalApiClient>[0]);
-        setIsLoading(false);
-    }, [ navigate ]);
+    }, [ navigate, setLoadingState ]);
 
     const handleIncompleteWizard = useCallback(async (firstConnection: ConnectResponse) => {
         if (firstConnection.State === ConnectionState.ServerSignIn) {
@@ -151,27 +181,58 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
         return bounce(firstConnection)
             .catch(err => {
                 console.error('[ConnectionRequired] failed to bounce', err);
+                setConnectionError(ConnectionState.Unavailable);
             });
-    }, [bounce, navigate]);
+    }, [bounce, navigate, setConnectionError]);
+
+    const validateStoredUserSession = useCallback(async (client: unknown) => {
+        try {
+            const clientApi = client as ClientAccessApi;
+            if (typeof clientApi.getCurrentUser !== 'function') {
+                throw new Error('Client cannot validate the current user');
+            }
+
+            await withTimeout(clientApi.getCurrentUser(), SESSION_VALIDATION_TIMEOUT_MS);
+            setLoadingState(false);
+        } catch (ex) {
+            console.warn('[ConnectionRequired] stored user session is no longer valid', ex);
+            await ServerConnections.logout().catch(err => {
+                console.debug('[ConnectionRequired] failed to clear invalid session on server', err);
+            });
+            await navigateIfNotThere(BounceRoutes.Login);
+        }
+    }, [navigateIfNotThere, setLoadingState]);
+
+    const redirectUnauthenticatedUser = useCallback(async () => {
+        try {
+            console.warn('[ConnectionRequired] unauthenticated user attempted to access user route');
+            const connection = await ServerConnections.connect();
+            if (!connection.ApiClient || connection.State == null) {
+                throw new Error('Connection response is incomplete');
+            }
+            await bounce({ ApiClient: connection.ApiClient, State: connection.State } as unknown as ConnectResponse);
+        } catch (ex) {
+            console.warn('[ConnectionRequired] error bouncing from user route', ex);
+            setConnectionError(ConnectionState.Unavailable);
+        }
+    }, [bounce, setConnectionError]);
 
     const validateUserAccess = useCallback(async () => {
         const client = ServerConnections.currentApiClient();
 
+        // The legacy client reports a session as logged in when it still has
+        // a token, even if that token was revoked or belongs to a previous
+        // server state. Validate the user with the server before mounting a
+        // protected route, otherwise the page can render an empty shell while
+        // every data request is rejected with 401 Invalid token.
+        if (level === AccessLevel.User && isClientLoggedIn(client)) {
+            await validateStoredUserSession(client);
+            return;
+        }
+
         // If this is a user route, ensure a user is logged in
         if ((level === AccessLevel.Admin || level === AccessLevel.User) && !isClientLoggedIn(client)) {
-            try {
-                console.warn('[ConnectionRequired] unauthenticated user attempted to access user route');
-                const connection = await ServerConnections.connect();
-                if (!connection.ApiClient || connection.State == null) {
-                    throw new Error('Connection response is incomplete');
-                }
-                return bounce({ ApiClient: connection.ApiClient, State: connection.State } as unknown as ConnectResponse)
-                    .catch(err => {
-                        console.error('[ConnectionRequired] failed to bounce', err);
-                    });
-            } catch (ex) {
-                console.warn('[ConnectionRequired] error bouncing from user route', ex);
-            }
+            await redirectUnauthenticatedUser();
             return;
         }
 
@@ -188,19 +249,23 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
                     return bounce({ ApiClient: connection.ApiClient, State: connection.State } as unknown as ConnectResponse)
                         .catch(err => {
                             console.error('[ConnectionRequired] failed to bounce', err);
+                            setConnectionError(ConnectionState.Unavailable);
                         });
                     return;
                 }
             } catch (ex) {
                 console.warn('[ConnectionRequired] error bouncing from admin route', ex);
+                setConnectionError(ConnectionState.Unavailable);
                 return;
             }
         }
 
-        setIsLoading(false);
-    }, [bounce, level]);
+        setLoadingState(false);
+    }, [bounce, level, redirectUnauthenticatedUser, setConnectionError, setLoadingState, validateStoredUserSession]);
 
     useEffect(() => {
+        isMountedRef.current = true;
+
         // Check connection status on initial page load
         const apiClient = ServerConnections.currentApiClient();
         const connection = Promise.resolve(ServerConnections.firstConnection ? null : ServerConnections.connect());
@@ -209,11 +274,12 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
             ServerConnections.firstConnection = true;
 
             if (firstConnection && ERROR_STATES.includes(firstConnection.State as ConnectionState)) {
-                setErrorState(firstConnection.State);
+                setConnectionError(firstConnection.State as ConnectionState);
             } else if (level === AccessLevel.Wizard) {
                 handleWizard(firstConnection as unknown as ConnectResponse)
                     .catch(err => {
                         console.error('[ConnectionRequired] could not validate wizard status', err);
+                        setConnectionError(ConnectionState.Unavailable);
                     });
             } else if (
                 firstConnection && firstConnection.State !== ConnectionState.SignedIn && !isClientLoggedIn(apiClient)
@@ -221,23 +287,39 @@ const ConnectionRequired: FunctionComponent<ConnectionRequiredProps> = ({
                 handleIncompleteWizard(firstConnection as unknown as ConnectResponse)
                     .catch(err => {
                         console.error('[ConnectionRequired] could not start wizard', err);
+                        setConnectionError(ConnectionState.Unavailable);
                     });
             } else {
                 validateUserAccess()
                     .catch(err => {
                         console.error('[ConnectionRequired] could not validate user access', err);
+                        setConnectionError(ConnectionState.Unavailable);
                     });
             }
         }).catch(err => {
             console.error('[ConnectionRequired] failed to connect', err);
+            setConnectionError(ConnectionState.Unavailable);
         });
-    }, [handleIncompleteWizard, handleWizard, level, validateUserAccess]);
+
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, [handleIncompleteWizard, handleWizard, level, setConnectionError, validateUserAccess]);
 
     if (errorState) {
         return <ConnectionErrorPage state={errorState} />;
     }
 
-    if (isLoading) {
+    // The startup wizard can be opened immediately after the connection
+    // manager has established the public API client. In that transition the
+    // connection guard may still be completing its second public-info check;
+    // keeping the outlet hidden here leaves the legacy ViewManager page with
+    // an empty shell and produces a black wizard screen. The wizard itself
+    // performs the remaining setup calls, so allow its route tree to mount as
+    // soon as a client is available.
+    const wizardClientReady = level === AccessLevel.Wizard && Boolean(ServerConnections.currentApiClient());
+
+    if (isLoading && !wizardClientReady) {
         return <Loading />;
     }
 

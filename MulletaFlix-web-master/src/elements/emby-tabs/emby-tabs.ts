@@ -64,9 +64,7 @@ function triggerBeforeTabChange(tabs: EmbyTabsElement, index: number, previousIn
 }
 
 function onClick(this: EmbyTabsElement, e: MouseEvent): void {
-    const tabs = this;
-
-    const current = tabs.querySelector('.' + activeButtonClass);
+    const current = this.querySelector('.' + activeButtonClass);
     const tabButton = dom.parentWithClass(e.target as HTMLElement, buttonClass) as HTMLElement | null;
 
     if (tabButton && tabButton !== current) {
@@ -80,13 +78,13 @@ function onClick(this: EmbyTabsElement, e: MouseEvent): void {
 
         const index = parseInt(tabButton.getAttribute('data-index')!, 10);
 
-        triggerBeforeTabChange(tabs, index, previousIndex);
+        triggerBeforeTabChange(this, index, previousIndex);
 
         // If toCenter is called syncronously within the click event, it sometimes ends up canceling it
-        setTimeout(function () {
-            tabs.selectedTabIndex = index;
+        setTimeout(() => {
+            this.selectedTabIndex = index;
 
-            tabs.dispatchEvent(new CustomEvent('tabchange', {
+            this.dispatchEvent(new CustomEvent('tabchange', {
                 detail: {
                     selectedTabIndex: index,
                     previousIndex: previousIndex
@@ -94,17 +92,16 @@ function onClick(this: EmbyTabsElement, e: MouseEvent): void {
             }));
         }, 120);
 
-        if (tabs.scroller) {
-            tabs.scroller.toCenter(tabButton, false);
+        if (this.scroller) {
+            this.scroller.toCenter(tabButton, false);
         }
     }
 }
 
 function onFocusIn(this: EmbyTabsElement, e: FocusEvent): void {
-    const tabs = this;
     const tabButton = dom.parentWithClass(e.target as HTMLElement, buttonClass) as HTMLElement | null;
-    if (tabButton && tabs.scroller) {
-        tabs.scroller.toCenter(tabButton, false);
+    if (tabButton && this.scroller) {
+        this.scroller.toCenter(tabButton, false);
     }
 }
 
@@ -129,7 +126,7 @@ function initScroller(tabs: EmbyTabsElement): void {
             itemNav: 0,
             mouseDragging: 1,
             touchDragging: 1,
-            slidee: contentScrollSlider as any,
+            slidee: contentScrollSlider,
             smart: true,
             releaseSwing: true,
             scrollBy: 200,
@@ -233,22 +230,20 @@ function getSelectedTabButton(elem: EmbyTabsElement): Element | null {
 }
 
 EmbyTabs.selectedIndex = function (selected?: number | null, triggerEvent?: boolean): number | void {
-    const tabs = this;
-
     if (selected == null) {
-        return tabs.selectedTabIndex || 0;
+        return this.selectedTabIndex || 0;
     }
 
-    const current = tabs.selectedIndex();
+    const current = this.selectedIndex();
 
-    tabs.selectedTabIndex = selected;
+    this.selectedTabIndex = selected;
 
-    const tabButtons = tabs.querySelectorAll('.' + buttonClass);
+    const tabButtons = this.querySelectorAll('.' + buttonClass);
 
     if (current === selected || triggerEvent === false) {
-        triggerBeforeTabChange(tabs, selected, current);
+        triggerBeforeTabChange(this, selected, current);
 
-        tabs.dispatchEvent(new CustomEvent('tabchange', {
+        this.dispatchEvent(new CustomEvent('tabchange', {
             detail: {
                 selectedTabIndex: selected
             }
@@ -261,7 +256,7 @@ EmbyTabs.selectedIndex = function (selected?: number | null, triggerEvent?: bool
             currentTabButton.classList.remove(activeButtonClass);
         }
     } else {
-        onClick.call(tabs, {
+        onClick.call(this, {
             target: tabButtons[selected]
         } as unknown as MouseEvent);
     }
@@ -307,17 +302,13 @@ EmbyTabs.selectPrevious = function (): void {
 };
 
 EmbyTabs.triggerBeforeTabChange = function (): void {
-    const tabs = this;
-
-    triggerBeforeTabChange(tabs, tabs.selectedIndex(), null);
+    triggerBeforeTabChange(this, this.selectedIndex(), null);
 };
 
 EmbyTabs.triggerTabChange = function (): void {
-    const tabs = this;
-
-    tabs.dispatchEvent(new CustomEvent('tabchange', {
+    this.dispatchEvent(new CustomEvent('tabchange', {
         detail: {
-            selectedTabIndex: tabs.selectedIndex()
+            selectedTabIndex: this.selectedIndex()
         }
     }));
 };

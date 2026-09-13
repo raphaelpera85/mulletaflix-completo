@@ -111,12 +111,11 @@ export default function (this: MusicalbumsController, view: HTMLElement, params:
     };
 
     const reloadItems = (): void => {
-        loading.show();
         isLoading = true;
         const query = getQuery();
         setFilterStatus(tabContent, query);
 
-        ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: ItemDtoQueryResult) => {
+        void loading.withLoading(() => ApiClient.getItems(ApiClient.getCurrentUserId(), query).then((result: ItemDtoQueryResult) => {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -200,7 +199,6 @@ export default function (this: MusicalbumsController, view: HTMLElement, params:
 
             const itemsContainer = tabContent.querySelector('.itemsContainer');
             if (!(itemsContainer instanceof HTMLElement)) {
-                loading.hide();
                 isLoading = false;
                 return;
             }
@@ -208,17 +206,15 @@ export default function (this: MusicalbumsController, view: HTMLElement, params:
             itemsContainer.innerHTML = html;
             imageLoader.lazyChildren(itemsContainer);
             userSettings.saveQuerySettings(getSavedQueryKey(), query);
-            loading.hide();
             isLoading = false;
 
             void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(tabContent);
             }).catch((error: unknown) => console.error('[MusicAlbums] failed to focus page', error));
         }).catch((error: unknown) => {
-            loading.hide();
             isLoading = false;
             console.error('[MusicAlbums] failed to load albums', error);
-        });
+        }));
     };
 
     let pageData: PageData | undefined;

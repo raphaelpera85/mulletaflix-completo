@@ -3,7 +3,7 @@ import type { VirtualFolderInfo } from '@jellyfin/sdk/lib/generated-client/model
 
 import { getDefaultBackgroundClass } from 'components/cardbuilder/utils/builder';
 import confirm from 'components/confirm/confirm';
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import dom from 'utils/dom';
@@ -221,21 +221,18 @@ function showCardMenu(page: LibraryPage, elem: HTMLElement, virtualFolders: Wiza
 }
 
 function reloadLibrary(page: LibraryPage): void {
-    loading.show();
     const apiClient = ServerConnections.currentApiClient() as WizardLibraryApiClient | undefined;
     if (!apiClient) {
-        loading.hide();
         return;
     }
-    apiClient
-        .getVirtualFolders()
-        .then(function (result: VirtualFolderInfo[]) {
+    void withLoading(async () => {
+        try {
+            const result = await apiClient.getVirtualFolders();
             reloadVirtualFolders(page, result);
-        })
-        .catch((error: unknown) => {
-            loading.hide();
+        } catch (error) {
             logLibraryError('failed to load media libraries', error);
-        });
+        }
+    });
 }
 
 function shouldRefreshLibraryAfterChanges(page: LibraryPage): boolean {
@@ -262,7 +259,6 @@ function reloadVirtualFolders(page: LibraryPage, virtualFolders: VirtualFolderIn
 
     const divVirtualFolders = page.querySelector<HTMLElement>('#divVirtualFolders');
     if (!divVirtualFolders) {
-        loading.hide();
         return;
     }
     divVirtualFolders.innerHTML = html;
@@ -294,7 +290,6 @@ function reloadVirtualFolders(page: LibraryPage, virtualFolders: VirtualFolderIn
             }
         });
     });
-    loading.hide();
 }
 
 function editImages(page: LibraryPage, virtualFolder: WizardVirtualFolder): void {

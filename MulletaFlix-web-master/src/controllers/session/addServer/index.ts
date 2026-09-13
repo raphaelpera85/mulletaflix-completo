@@ -14,7 +14,6 @@ function observeDashboardOperation(operation: unknown, label: string): void {
 }
 
 function handleConnectionResult(page: HTMLElement, result: ConnectResult): void {
-    loading.hide();
     switch (result.State) {
         case ConnectionState.SignedIn: {
             const apiClient = result.ApiClient!;
@@ -46,16 +45,15 @@ function handleConnectionResult(page: HTMLElement, result: ConnectResult): void 
 }
 
 function submitServer(page: HTMLElement): void {
-    loading.show();
     let host = (page.querySelector('#txtServerHost') as HTMLInputElement).value;
     while (host.endsWith('/')) {
         host = host.slice(0, -1);
     }
-    ServerConnections.connectToAddress(host, {
+    void loading.withLoading(() => ServerConnections.connectToAddress(host, {
         enableAutoLogin: appSettings.enableAutoLogin()
-    }).then(function(result: ConnectResult) {
+    })).then(function(result: ConnectResult) {
         handleConnectionResult(page, result);
-    }, function() {
+    }).catch(function() {
         handleConnectionResult(page, {
             State: ConnectionState.Unavailable
         });

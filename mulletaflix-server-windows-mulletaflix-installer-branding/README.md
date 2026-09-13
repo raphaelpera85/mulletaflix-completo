@@ -5,6 +5,12 @@
 
 MulletaFlix for Windows collects the tray application, service utilities, and NSIS installer that are used when setting up and running MulletaFlix Server with embedded MariaDB database engine.
 
+> **Legacy packaging tree:** this directory is retained for historical reference
+> and is not the supported installer source. Do not build releases from this
+> copy. Use `MulletaFlix-packaging-master\build-stage-and-installer.ps1`, which
+> contains the current service-stop, ACL, readiness, smoke-test and validation
+> fixes documented in the workspace audit.
+
 <br/>
 
 # Getting Started

@@ -33,10 +33,11 @@ internal static class BootstrapPluginCatalog
     [
         new(
             "https://raw.githubusercontent.com/danieladov/JellyfinPluginManifest/master/manifest.json",
-            [
-                Guid.Parse("f21bbed8-3a97-4d8b-88b2-48aaa65427cb"),
-                Guid.Parse("afe1de9c-63e4-4692-8d8c-7c964df19eb2")
-            ]),
+            // Do not install third-party plugins automatically. The published
+            // Merge Versions and Theme Songs packages currently reference
+            // server APIs that are not compatible with this build, so a clean
+            // startup must not seed them into the user's data directory.
+            []),
         new(
             "https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/10.11/manifest.json",
             [])

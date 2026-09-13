@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-floating-promises, sonarjs/no-redundant-assignments */
 import autoFocuser from 'components/autoFocuser';
 import cardBuilder from 'components/cardbuilder/cardBuilder';
 import { getBackdropShape } from 'components/cardbuilder/utils/shape';
@@ -123,7 +124,7 @@ function loadResume(view: HTMLElement, userId: string, parentId: string): Promis
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    return ApiClient.getItems(userId, options).then(function (result: ItemsResult) {
+    return loading.withLoading(() => ApiClient.getItems(userId, options).then(function (result: ItemsResult) {
         const items = result.Items ?? [];
         if (items.length) {
             view.querySelector('#resumableSection')!.classList.remove('hide');
@@ -146,10 +147,8 @@ function loadResume(view: HTMLElement, userId: string, parentId: string): Promis
             showYear: true,
             centerText: true
         });
-        loading.hide();
-
         autoFocuser.autoFocus(view);
-    }).catch((error: unknown) => console.error('[TvRecommended] failed to load resume items', error));
+    }).catch((error: unknown) => console.error('[TvRecommended] failed to load resume items', error)));
 }
 
 function loadLatest(view: HTMLElement, userId: string, parentId: string): Promise<void> {
@@ -162,7 +161,7 @@ function loadLatest(view: HTMLElement, userId: string, parentId: string): Promis
         ImageTypeLimit: 1,
         EnableImageTypes: 'Primary,Backdrop,Thumb'
     };
-    return ApiClient.getLatestItems(options).then(function (items: ItemDto[]) {
+    return loading.withLoading(() => ApiClient.getLatestItems(options).then(function (items: ItemDto[]) {
         const section = view.querySelector('#latestItemsSection') as HTMLElement;
         const allowBottomPadding = !enableScrollX();
         const container = section.querySelector('#latestEpisodesItems');
@@ -185,10 +184,8 @@ function loadLatest(view: HTMLElement, userId: string, parentId: string): Promis
             overlayPlayButton: true,
             lines: 2
         });
-        loading.hide();
-
         autoFocuser.autoFocus(view);
-    }).catch((error: unknown) => console.error('[TvRecommended] failed to load latest episodes', error));
+    }).catch((error: unknown) => console.error('[TvRecommended] failed to load latest episodes', error)));
 }
 
 function loadNextUp(view: HTMLElement, userId: string, parentId: string): Promise<void> {
@@ -202,7 +199,7 @@ function loadNextUp(view: HTMLElement, userId: string, parentId: string): Promis
         EnableTotalRecordCount: false
     };
     query.ParentId = libraryMenu.getTopParentId();
-    return ApiClient.getNextUpEpisodes(query).then(function (result: ItemsResult) {
+    return loading.withLoading(() => ApiClient.getNextUpEpisodes(query).then(function (result: ItemsResult) {
         const items = result.Items ?? [];
         if (items.length) {
             view.querySelector('.noNextUpItems')!.classList.add('hide');
@@ -226,10 +223,8 @@ function loadNextUp(view: HTMLElement, userId: string, parentId: string): Promis
             overlayPlayButton: true,
             cardLayout: false
         });
-        loading.hide();
-
         autoFocuser.autoFocus(view);
-    }).catch((error: unknown) => console.error('[TvRecommended] failed to load next-up episodes', error));
+    }).catch((error: unknown) => console.error('[TvRecommended] failed to load next-up episodes', error)));
 }
 
 function enableScrollX(): boolean {
@@ -401,3 +396,5 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
         });
     });
 }
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-floating-promises, sonarjs/no-redundant-assignments */

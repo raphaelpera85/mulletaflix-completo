@@ -1,4 +1,5 @@
 
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */
 import escapeHtml from 'escape-html';
 
 import { getUserViewsQuery } from 'hooks/api/useUserViews';
@@ -434,7 +435,7 @@ function renderPerLibrarySettings(context: HTMLElement, user: User, userViews: U
     elem.innerHTML = html;
 }
 
-function loadForm(context: HTMLElement, user: User, userSettingsInstance: UserSettingsInstance, apiClient: unknown): void {
+async function loadForm(context: HTMLElement, user: User, userSettingsInstance: UserSettingsInstance, apiClient: unknown): Promise<void> {
     (context.querySelector('.chkHidePlayedFromLatest') as HTMLInputElement).checked = user.Configuration.HidePlayedInLatest || false;
 
     updateHomeSectionValues(context, userSettingsInstance);
@@ -449,15 +450,12 @@ function loadForm(context: HTMLElement, user: User, userSettingsInstance: UserSe
         ));
     const promise2 = (apiClient as any).getJSON((apiClient as any).getUrl(`Users/${user.Id}/GroupingOptions`));
 
-    Promise.all([promise1, promise2]).then(responses => {
-        renderViewOrder(context, user, responses[0] as UserViewsResult);
+    const responses = await Promise.all([promise1, promise2]);
+    renderViewOrder(context, user, responses[0] as UserViewsResult);
 
-        renderPerLibrarySettings(context, user, (responses[0] as UserViewsResult).Items, userSettingsInstance);
+    renderPerLibrarySettings(context, user, (responses[0] as UserViewsResult).Items, userSettingsInstance);
 
-        renderViews(context, user, responses[1] as Array<{ Id: string; Name?: string }>);
-
-        loading.hide();
-    }).catch(() => loading.hide());
+    renderViews(context, user, responses[1] as Array<{ Id: string; Name?: string }>);
 }
 
 function onSectionOrderListClick(e: Event): void {
@@ -548,21 +546,14 @@ function saveUser(context: HTMLElement, user: User, userSettingsInstance: UserSe
     return (apiClient as any).updateUserConfiguration(user.Id, user.Configuration);
 }
 
-function save(instance: HomeScreenSettings, context: HTMLElement, userId: string, userSettingsInstance: UserSettingsInstance, apiClient: unknown, enableSaveConfirmation?: boolean): void {
-    loading.show();
+async function save(instance: HomeScreenSettings, context: HTMLElement, userId: string, userSettingsInstance: UserSettingsInstance, apiClient: unknown, enableSaveConfirmation?: boolean): Promise<void> {
+    const user = await (apiClient as any).getUser(userId) as User;
+    await saveUser(context, user, userSettingsInstance, apiClient);
+    if (enableSaveConfirmation) {
+        toast(globalize.translate('SettingsSaved'));
+    }
 
-    (apiClient as any).getUser(userId).then((user: User) => {
-        return saveUser(context, user, userSettingsInstance, apiClient);
-    }).then(() => {
-        loading.hide();
-        if (enableSaveConfirmation) {
-            toast(globalize.translate('SettingsSaved'));
-        }
-
-        Events.trigger(instance, 'saved');
-    }).catch(() => {
-        loading.hide();
-    });
+    Events.trigger(instance, 'saved');
 }
 
 function onSubmit(this: HomeScreenSettings, e?: Event): void {
@@ -571,10 +562,15 @@ function onSubmit(this: HomeScreenSettings, e?: Event): void {
     const userId = self.options.userId;
     const userSettingsInstance = self.options.userSettings;
 
-    userSettingsInstance.setUserInfo(userId, apiClient).then(() => {
-        const enableSaveConfirmation = self.options.enableSaveConfirmation;
-        save(self, self.options.element, userId, userSettingsInstance, apiClient, enableSaveConfirmation);
-    }).catch(() => loading.hide());
+    void loading.withLoading(async () => {
+        try {
+            await userSettingsInstance.setUserInfo(userId, apiClient);
+            const enableSaveConfirmation = self.options.enableSaveConfirmation;
+            await save(self, self.options.element, userId, userSettingsInstance, apiClient, enableSaveConfirmation);
+        } catch (error) {
+            console.error('[homeScreenSettings] failed to save settings', error);
+        }
+    });
 
     // Disable default form submission
     if (e) {
@@ -637,23 +633,25 @@ class HomeScreenSettings {
         const self = this;
         const context = self.options.element;
 
-        loading.show();
-
         const userId = self.options.userId;
         const apiClient = ServerConnections.getApiClient(self.options.serverId);
         const userSettingsInstance = self.options.userSettings;
 
-        (apiClient as any).getUser(userId).then((user: User) => {
-            return userSettingsInstance.setUserInfo(userId, apiClient).then(() => {
+        void loading.withLoading(async () => {
+            try {
+                const user = await (apiClient as any).getUser(userId) as User;
+                await userSettingsInstance.setUserInfo(userId, apiClient);
                 self.dataLoaded = true;
 
-                loadForm(context, user, userSettingsInstance, apiClient);
+                await loadForm(context, user, userSettingsInstance, apiClient);
 
                 if (autoFocus) {
                     focusManager.autoFocus(context);
                 }
-            });
-        }).catch(() => loading.hide());
+            } catch (error) {
+                console.error('[homeScreenSettings] failed to load settings', error);
+            }
+        });
     }
 
     submit(): void {
@@ -666,3 +664,5 @@ class HomeScreenSettings {
 }
 
 export default HomeScreenSettings;
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */

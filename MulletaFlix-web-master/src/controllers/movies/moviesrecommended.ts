@@ -15,8 +15,7 @@ import * as userSettings from 'scripts/settings/userSettings';
 import { LibraryTab } from 'types/libraryTab';
 import type { ItemDto } from 'types/base/models/item-dto';
 import Dashboard from 'utils/dashboard';
-import Events from 'utils/events';
-import type { Event as EventsEvent } from 'utils/events';
+import Events, { type Event as EventsEvent } from 'utils/events';
 
 import 'elements/emby-scroller/emby-scroller';
 import 'elements/emby-itemscontainer/emby-itemscontainer';
@@ -26,10 +25,6 @@ import 'elements/emby-button/emby-button';
 interface Recommendation {
     RecommendationType: string;
     BaselineItemName: string;
-    Items: ItemDto[];
-}
-
-interface ItemsResult {
     Items: ItemDto[];
 }
 
@@ -63,7 +58,7 @@ function loadLatest(page: HTMLElement, userId: string, parentId: string): Promis
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    return ApiClient.getJSON(ApiClient.getUrl('Users/' + userId + '/Items/Latest', options)).then(function (items: ItemDto[]) {
+    return ApiClient.getJSON<ItemDto[]>(ApiClient.getUrl('Users/' + userId + '/Items/Latest', options)).then(function (items: ItemDto[]) {
         const allowBottomPadding = !enableScrollX();
         const container = page.querySelector('#recentlyAddedItems');
         cardBuilder.buildCards(items, {
@@ -95,8 +90,9 @@ function loadResume(page: HTMLElement, userId: string, parentId: string): Promis
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb',
         EnableTotalRecordCount: false
     };
-    return ApiClient.getItems(userId, options).then(function (result: ItemsResult) {
-        if (result.Items.length) {
+    return ApiClient.getItems(userId, options).then(function (result) {
+        const items = result.Items || [];
+        if (items.length) {
             page.querySelector('#resumableSection')!.classList.remove('hide');
         } else {
             page.querySelector('#resumableSection')!.classList.add('hide');
@@ -104,7 +100,7 @@ function loadResume(page: HTMLElement, userId: string, parentId: string): Promis
 
         const allowBottomPadding = !enableScrollX();
         const container = page.querySelector('#resumableItems');
-        cardBuilder.buildCards(result.Items, {
+        cardBuilder.buildCards(items, {
             itemsContainer: container,
             preferThumb: true,
             shape: getBackdropShape(enableScrollX()),
@@ -189,7 +185,7 @@ function loadSuggestions(page: HTMLElement, userId: string): Promise<void> {
         ImageTypeLimit: 1,
         EnableImageTypes: 'Primary,Backdrop,Banner,Thumb'
     });
-    return ApiClient.getJSON(url).then(function (recommendations: Recommendation[]) {
+    return ApiClient.getJSON<Recommendation[]>(url).then(function (recommendations: Recommendation[]) {
         if (!recommendations.length) {
             page.querySelector('.noItemsMessage')!.classList.remove('hide');
             (page.querySelector('.recommendations') as HTMLElement).innerHTML = '';
@@ -286,7 +282,22 @@ interface ViewParams {
     tab?: string;
 }
 
-export default function (this: any, view: HTMLElement, params: ViewParams): void {
+interface MovieTabController {
+    preRender?(): void;
+    renderTab?(): void;
+    initTab?(): void;
+    destroy?(): void;
+}
+
+interface MoviesRecommendedController extends MovieTabController {
+    tabContent?: HTMLElement;
+}
+
+interface ItemTitleResult {
+    Name?: string | null;
+}
+
+export default function (this: MoviesRecommendedController, view: HTMLElement, params: ViewParams): void {
     function onBeforeTabChange(e: CustomEvent<TabChangeDetail>): void {
         preLoadTab(view, parseInt(e.detail.selectedTabIndex, 10));
     }
@@ -304,7 +315,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
         mainTabsManager.setTabs(view, currentTabIndex, getTabs, getTabContainers, onBeforeTabChange, onTabChange);
     }
 
-    const getTabController = (page: HTMLElement, index: number, callback: (controller: any) => void): void => {
+    const getTabController = (page: HTMLElement, index: number, callback: (controller: MovieTabController) => void): void => {
         let depends = 'movies';
 
         switch (index) {
@@ -359,7 +370,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
     };
 
     function preLoadTab(page: HTMLElement, index: number): void {
-        getTabController(page, index, function (controller: any) {
+        getTabController(page, index, function (controller: MovieTabController) {
             if (renderedTabs.indexOf(index) == -1 && controller.preRender) {
                 controller.preRender();
             }
@@ -368,10 +379,10 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
 
     function loadTab(page: HTMLElement, index: number): void {
         currentTabIndex = index;
-        getTabController(page, index, ((controller: any) => {
+        getTabController(page, index, ((controller: MovieTabController) => {
             if (renderedTabs.indexOf(index) == -1) {
                 renderedTabs.push(index);
-                controller.renderTab();
+                controller.renderTab?.();
             }
         }));
     }
@@ -404,7 +415,7 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
         loadSuggestionsTab(view, params, tabContent);
     };
 
-    const tabControllers: any[] = [];
+    const tabControllers: MovieTabController[] = [];
     let renderedTabs: number[] = [];
     view.addEventListener('viewshow', function () {
         initTabs();
@@ -412,9 +423,10 @@ export default function (this: any, view: HTMLElement, params: ViewParams): void
             const parentId = params.topParentId;
 
             if (parentId) {
-                ApiClient.getItem(ApiClient.getCurrentUserId(), parentId).then(function (item: any) {
-                    view.setAttribute('data-title', item.Name);
-                    libraryMenu.setTitle(item.Name);
+                ApiClient.getItem(ApiClient.getCurrentUserId(), parentId).then(function (item: ItemTitleResult) {
+                    const title = item.Name || globalize.translate('Movies');
+                    view.setAttribute('data-title', title);
+                    libraryMenu.setTitle(title);
                 }).catch((error: unknown) => console.error('[MoviesRecommended] failed to load parent title', error));
             } else {
                 view.setAttribute('data-title', globalize.translate('Movies'));

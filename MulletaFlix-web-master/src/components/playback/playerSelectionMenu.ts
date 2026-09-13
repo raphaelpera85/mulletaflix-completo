@@ -87,9 +87,11 @@ export function show(button: HTMLElement): void {
 
     const currentPlayerId = currentPlayerInfo ? currentPlayerInfo.id : null;
 
-    loading.show();
-
-    playbackManager.getTargets().then((targets: PlayTarget[]) => {
+    void loading.withLoading(async () => {
+        const targets = await playbackManager.getTargets() as PlayTarget[];
+        const actionsheet = await import('../actionSheet/actionSheet');
+        return { targets, actionsheet };
+    }).then(({ targets, actionsheet }) => {
         const menuItems: MenuItem[] = targets.map((target) => {
             let name = target.name;
 
@@ -106,43 +108,35 @@ export function show(button: HTMLElement): void {
             };
         });
 
-        import('../actionSheet/actionSheet').then((actionsheet) => {
-            loading.hide();
+        const menuOptions: ActionSheetOptions = {
+            title: globalize.translate('HeaderPlayOn'),
+            items: menuItems,
+            positionTo: button,
+            resolveOnClick: true,
+            border: true
+        };
 
-            const menuOptions: ActionSheetOptions = {
-                title: globalize.translate('HeaderPlayOn'),
-                items: menuItems,
-                positionTo: button,
-                resolveOnClick: true,
-                border: true
-            };
+        if (!(!browser.chrome && !browser.edgeChromium || appHost.supports(AppFeature.CastMenuHashChange))) {
+            menuOptions.enableHistory = false;
+        }
 
-            if (!(!browser.chrome && !browser.edgeChromium || appHost.supports(AppFeature.CastMenuHashChange))) {
-                menuOptions.enableHistory = false;
+        const isChromecastPluginLoaded = !!pluginManager.plugins.find(plugin => plugin.id === 'chromecast');
+        if (!isChromecastPluginLoaded) {
+            menuOptions.text = `(${globalize.translate('GoogleCastUnsupported')})`;
+        }
+
+        actionsheet.show(menuOptions).then((id: unknown) => {
+            const target = findTargetById(targets, id);
+
+            if (!target || !target.playerName) {
+                return;
             }
 
-            const isChromecastPluginLoaded = !!pluginManager.plugins.find(plugin => plugin.id === 'chromecast');
-            if (!isChromecastPluginLoaded) {
-                menuOptions.text = `(${globalize.translate('GoogleCastUnsupported')})`;
-            }
-
-            actionsheet.show(menuOptions).then((id: unknown) => {
-                const target = findTargetById(targets, id);
-
-                if (!target || !target.playerName) {
-                    return;
-                }
-
-                playbackManager.trySetActivePlayer(target.playerName, target);
-            }).catch(() => {
-                // action sheet closed
-            });
-        }).catch((err: unknown) => {
-            loading.hide();
-            console.error('[playerSelectionMenu] failed to import action sheet', err);
+            playbackManager.trySetActivePlayer(target.playerName, target);
+        }).catch(() => {
+            // action sheet closed
         });
     }).catch((err: unknown) => {
-        loading.hide();
         console.error('[playerSelectionMenu] failed to get playback targets', err);
     });
 }
@@ -289,16 +283,33 @@ function onAutoCastChange(this: HTMLInputElement): void {
     enable(this.checked);
 }
 
+const PAIRING_TIMEOUT_MS = 30_000;
+let pairingTimeout: ReturnType<typeof setTimeout> | undefined;
+
+function finishPairingLoading(): void {
+    if (pairingTimeout) {
+        clearTimeout(pairingTimeout);
+        pairingTimeout = undefined;
+    }
+    loading.hide();
+}
+
 Events.on(playbackManager, 'pairing', () => {
+    finishPairingLoading();
     loading.show();
+    pairingTimeout = setTimeout(() => {
+        pairingTimeout = undefined;
+        console.warn('[playerSelectionMenu] pairing timed out');
+        loading.hide();
+    }, PAIRING_TIMEOUT_MS);
 });
 
 Events.on(playbackManager, 'paired', () => {
-    loading.hide();
+    finishPairingLoading();
 });
 
 Events.on(playbackManager, 'pairerror', () => {
-    loading.hide();
+    finishPairingLoading();
 });
 
 export default {

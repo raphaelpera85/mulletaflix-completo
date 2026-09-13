@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import loading from '../loading/loading';
@@ -6,14 +7,11 @@ import confirm from '../confirm/confirm';
 import dialog from '../dialog/dialog';
 
 function changeRecordingToSeries(apiClient: any, timerId: string, programId: string, confirmTimerCancellation?: boolean): Promise<void> {
-    loading.show();
-
-    return apiClient.getItem(apiClient.getCurrentUserId(), programId).then(function (item: any) {
+    return loading.withLoading(() => apiClient.getItem(apiClient.getCurrentUserId(), programId).then(function (item: any) {
         if (item.IsSeries) {
             // create series
             return apiClient.getNewLiveTvTimerDefaults({ programId: programId }).then(function (timerDefaults: any) {
                 return apiClient.createLiveTvSeriesTimer(timerDefaults).then(function () {
-                    loading.hide();
                     toast(globalize.translate('SeriesRecordingScheduled'));
                 });
             });
@@ -23,9 +21,9 @@ function changeRecordingToSeries(apiClient: any, timerId: string, programId: str
                 return cancelTimerWithConfirmation(timerId, apiClient.serverId());
             }
 
-            return cancelTimer(apiClient.serverId(), timerId, true);
+            return cancelTimer(apiClient, timerId, true);
         }
-    });
+    }));
 }
 
 function cancelTimerWithConfirmation(timerId: string, serverId: string): Promise<void> {
@@ -38,8 +36,6 @@ function cancelTimerWithConfirmation(timerId: string, serverId: string): Promise
             cancelText: globalize.translate('HeaderKeepRecording')
 
         }).then(function () {
-            loading.show();
-
             const apiClient = ServerConnections.getApiClient(serverId) as any;
             cancelTimer(apiClient, timerId, true).then(resolve, reject);
         }, reject);
@@ -56,13 +52,9 @@ function cancelSeriesTimerWithConfirmation(timerId: string, serverId: string): P
             cancelText: globalize.translate('HeaderKeepSeries')
 
         }).then(function () {
-            loading.show();
-
             const apiClient = ServerConnections.getApiClient(serverId) as any;
-            apiClient.cancelLiveTvSeriesTimer(timerId).then(function () {
+            loading.withLoading(() => apiClient.cancelLiveTvSeriesTimer(timerId)).then(function () {
                 toast(globalize.translate('SeriesCancelled'));
-
-                loading.hide();
                 resolve();
             }, reject);
         }, reject);
@@ -70,27 +62,24 @@ function cancelSeriesTimerWithConfirmation(timerId: string, serverId: string): P
 }
 
 function cancelTimer(apiClient: any, timerId: string, hideLoading: boolean): Promise<void> {
-    loading.show();
-    return apiClient.cancelLiveTvTimer(timerId).then(function () {
+    const operation = () => apiClient.cancelLiveTvTimer(timerId).then(function () {
         if (hideLoading !== false) {
-            loading.hide();
             toast(globalize.translate('RecordingCancelled'));
         }
     });
+    return hideLoading === false ? operation() : loading.withLoading(operation);
 }
 
 function createRecording(apiClient: any, programId: string, isSeries?: boolean): Promise<void> {
-    loading.show();
-    return apiClient.getNewLiveTvTimerDefaults({ programId: programId }).then(function (item: any) {
+    return loading.withLoading(() => apiClient.getNewLiveTvTimerDefaults({ programId: programId }).then(function (item: any) {
         const promise = isSeries ?
             apiClient.createLiveTvSeriesTimer(item) :
             apiClient.createLiveTvTimer(item);
 
         return promise.then(function () {
-            loading.hide();
             toast(globalize.translate('RecordingScheduled'));
         });
-    });
+    }));
 }
 
 function showMultiCancellationPrompt(serverId: string, programId: string, timerId: string, timerStatus: string, seriesTimerId: string): Promise<void> {
@@ -130,15 +119,10 @@ function showMultiCancellationPrompt(serverId: string, programId: string, timerI
             const apiClient = ServerConnections.getApiClient(serverId) as any;
 
             if (result === 'canceltimer') {
-                loading.show();
-
                 cancelTimer(apiClient, timerId, true).then(resolve, reject);
             } else if (result === 'cancelseriestimer') {
-                loading.show();
-
-                apiClient.cancelLiveTvSeriesTimer(seriesTimerId).then(function () {
+                loading.withLoading(() => apiClient.cancelLiveTvSeriesTimer(seriesTimerId)).then(function () {
                     toast(globalize.translate('SeriesCancelled'));
-                    loading.hide();
                     resolve();
                 }, reject);
             } else {
@@ -174,3 +158,5 @@ export default {
     cancelTimerWithConfirmation: cancelTimerWithConfirmation,
     cancelSeriesTimerWithConfirmation: cancelSeriesTimerWithConfirmation
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

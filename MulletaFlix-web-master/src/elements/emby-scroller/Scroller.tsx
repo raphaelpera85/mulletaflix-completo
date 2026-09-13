@@ -161,7 +161,7 @@ const Scroller: FC<PropsWithChildren<ScrollerProps>> = ({
         const enableScrollButtons = layoutManager.desktop && !browser.touch && isHorizontalEnabled && isScrollButtonsEnabled;
         const useNativeScroll = !enableScrollButtons;
 
-        const options = {
+        const options: ConstructorParameters<typeof ScrollerFactory>[1] = {
             horizontal: isHorizontalEnabled,
             mouseDragging: 1,
             mouseWheel: isMouseWheelEnabled,
@@ -183,7 +183,7 @@ const Scroller: FC<PropsWithChildren<ScrollerProps>> = ({
         };
 
         // If just inserted it might not have any height yet - yes this is a hack
-        scrollerFactoryRef.current = new ScrollerFactory(frame, options as any);
+        scrollerFactoryRef.current = new ScrollerFactory(frame, options);
         scrollerFactoryRef.current.init();
         scrollerFactoryRef.current.reload();
 
@@ -249,4 +249,3 @@ const Scroller: FC<PropsWithChildren<ScrollerProps>> = ({
 };
 
 export default Scroller;
-

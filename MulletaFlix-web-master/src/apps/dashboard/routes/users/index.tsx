@@ -16,6 +16,8 @@ import Loading from 'components/loading/LoadingComponent';
 import { useDeleteUser } from 'apps/dashboard/features/users/api/useDeleteUser';
 import dom from 'utils/dom';
 import { UserTab } from 'apps/dashboard/features/users/constants/userTab';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
 
 type MenuEntry = {
     name?: string;
@@ -28,7 +30,7 @@ const UserProfiles = () => {
     const [ isSettingsSavedToastOpen, setIsSettingsSavedToastOpen ] = useState(false);
     const element = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
-    const { data: users, isPending } = useUsers();
+    const { data: users, isPending, isError, refetch } = useUsers();
     const deleteUser = useDeleteUser();
     const navigateSafely = useCallback((to: string) => {
         Promise.resolve(navigate(to)).catch((error: unknown) => console.error('[userprofiles] failed to navigate', error));
@@ -37,6 +39,10 @@ const UserProfiles = () => {
     const handleToastClose = useCallback(() => {
         setIsSettingsSavedToastOpen(false);
     }, []);
+
+    const retryLoad = useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
     useEffect(() => {
         const page = element.current;
@@ -162,7 +168,7 @@ const UserProfiles = () => {
         };
     }, [navigateSafely, deleteUser, location.state?.openSavedToast]);
 
-    if (isPending) {
+    if (isPending && !isError) {
         return <Loading />;
     }
 
@@ -189,11 +195,25 @@ const UserProfiles = () => {
                     />
                 </div>
 
-                <div className='localUsers itemsContainer vertical-wrap'>
-                    {users?.map(user => {
-                        return <UserCardBox key={user.Id} user={user} />;
-                    })}
-                </div>
+                {isError ? (
+                    <Alert
+                        severity='error'
+                        role='alert'
+                        action={
+                            <Button color='inherit' size='small' onClick={retryLoad}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
+                    >
+                        {globalize.translate('ErrorDefault')}
+                    </Alert>
+                ) : (
+                    <div className='localUsers itemsContainer vertical-wrap'>
+                        {users?.map(user => {
+                            return <UserCardBox key={user.Id} user={user} />;
+                        })}
+                    </div>
+                )}
             </div>
         </Page>
 

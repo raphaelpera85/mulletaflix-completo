@@ -88,7 +88,7 @@ function mapPlugins() {
     }
 }
 
-const [,, cmd, arg1, arg2] = process.argv;
+const [,, cmd, arg1] = process.argv;
 
 switch (cmd) {
     case 'list':

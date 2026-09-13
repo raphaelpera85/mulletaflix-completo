@@ -1,4 +1,3 @@
-import loading from 'components/loading/loading';
 import globalize from 'lib/globalize';
 import Dashboard, { pageIdOn } from 'utils/dashboard';
 import { getParameterByName } from 'utils/url';
@@ -26,7 +25,7 @@ function init(page: HTMLElement, type: string, providerId: string | null): void 
         })
         .catch((error: unknown) => {
             console.error('Failed to load Live TV provider', error);
-            loading.hide();
+            Dashboard.alert({ message: globalize.translate('ErrorDefault') });
         });
 }
 
@@ -41,15 +40,17 @@ function loadTemplate(page: HTMLElement, type: string, providerId: string | null
         })
         .catch((error: unknown) => {
             console.error('Failed to load Live TV provider template', error);
-            loading.hide();
+            Dashboard.alert({ message: globalize.translate('ErrorDefault') });
         });
 }
 
 pageIdOn('pageshow', 'liveTvGuideProviderPage', function (this: HTMLElement) {
-    loading.show();
     const providerId = getParameterByName('id');
     const type = getParameterByName('type');
     if (type) {
         loadTemplate(this, type, providerId);
+    } else {
+        console.error('Live TV guide provider page opened without a provider type');
+        Dashboard.alert({ message: globalize.translate('ErrorDefault') });
     }
 });

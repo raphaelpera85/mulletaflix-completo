@@ -68,13 +68,15 @@ const PluginPage: FC = () => {
     const {
         data: configurationPages,
         isError: isConfigurationPagesError,
-        isPending: isConfigurationPagesLoading
+        isPending: isConfigurationPagesLoading,
+        refetch: refetchConfigurationPages
     } = useConfigurationPages();
 
     const {
         data: packageInfo,
         isError: isPackageInfoError,
-        isPending: isPackageInfoLoading
+        isPending: isPackageInfoLoading,
+        refetch: refetchPackageInfo
     } = usePackageInfo(pluginName ? {
         name: pluginName,
         assemblyGuid: pluginId
@@ -83,11 +85,22 @@ const PluginPage: FC = () => {
     const {
         data: plugins,
         isError: isPluginsError,
-        isPending: isPluginsLoading
+        isPending: isPluginsLoading,
+        refetch: refetchPlugins
     } = usePlugins();
 
     const isLoading =
         isConfigurationPagesLoading || isPackageInfoLoading || isPluginsLoading;
+
+    const retryLoad = useCallback(() => {
+        void Promise.all([
+            refetchConfigurationPages(),
+            refetchPackageInfo(),
+            refetchPlugins()
+        ]);
+    }, [ refetchConfigurationPages, refetchPackageInfo, refetchPlugins ]);
+
+    const hasQueryError = isConfigurationPagesError || isPackageInfoError || isPluginsError;
 
     const pluginDetails = useMemo(() => {
         if (pluginId && !isPluginsLoading) {
@@ -327,6 +340,11 @@ const PluginPage: FC = () => {
                         key={messageKey}
                         severity={severity}
                         sx={{ marginBottom: 2 }}
+                        action={hasQueryError ? (
+                            <Button color='inherit' size='small' onClick={retryLoad}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        ) : undefined}
                     >
                         {globalize.translate(messageKey)}
                     </Alert>

@@ -34,6 +34,17 @@ public sealed class RateLimitMiddlewareTests
     }
 
     [Theory]
+    [InlineData("/System/Info/Public", true)]
+    [InlineData("/System/Info/Public/", true)]
+    [InlineData("/Users/Public", true)]
+    [InlineData("/System/Info/Publicity", false)]
+    [InlineData("/System/Configuration", false)]
+    public void PublicBootstrapPath_RequiresRouteBoundary(string path, bool expected)
+    {
+        Assert.Equal(expected, RateLimitMiddleware.IsPublicBootstrapPath(path));
+    }
+
+    [Theory]
     [InlineData("/media", "/media", true)]
     [InlineData("/media/", "/media", true)]
     [InlineData("/media/items", "/media", true)]
@@ -85,6 +96,27 @@ public sealed class RateLimitMiddlewareTests
             var context = new DefaultHttpContext();
             context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.18");
             context.Request.Path = "/assets/index.js";
+            await middleware.Invoke(context);
+            Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task AnonymousPublicBootstrapRequests_AreNotCountedAgainstRequestLimit()
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+
+        for (var i = 0; i < 40; i++)
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.19");
+            context.Request.Path = "/System/Info/Public";
             await middleware.Invoke(context);
             Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
         }

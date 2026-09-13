@@ -19,12 +19,12 @@ class HomeView extends TabbedView {
 
     override onPause(): void {
         super.onPause();
-        document.querySelector('.skinHeader')!.classList.remove('noHomeButtonHeader');
+        document.querySelector('.skinHeader')?.classList.remove('noHomeButtonHeader');
     }
 
     onResume(): void {
         super.onResume();
-        document.querySelector('.skinHeader')!.classList.add('noHomeButtonHeader');
+        document.querySelector('.skinHeader')?.classList.add('noHomeButtonHeader');
 
         const apiClient = ServerConnections.currentApiClient();
         if (apiClient) {

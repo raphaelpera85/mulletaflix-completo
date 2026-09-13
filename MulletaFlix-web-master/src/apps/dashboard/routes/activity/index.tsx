@@ -60,7 +60,8 @@ export const Component = () => {
         usersById: users,
         names: userNames,
         isLoading: isUsersLoading,
-        isError: isUsersError
+        isError: isUsersError,
+        refetch: refetchUsers
     } = useUsersDetails();
 
     const theme = useTheme();
@@ -114,7 +115,8 @@ export const Component = () => {
     const {
         data,
         isLoading: isLogEntriesLoading,
-        isError: isLogEntriesError
+        isError: isLogEntriesError,
+        refetch: refetchLogEntries
     } = useLogEntries(activityParams);
     const logEntries = useMemo(() => (
         data?.Items || []
@@ -124,6 +126,9 @@ export const Component = () => {
     ), [ data ]);
 
     const isLoading = isUsersLoading || isLogEntriesLoading;
+    const retryLoad = useCallback(() => {
+        void Promise.all([ refetchUsers(), refetchLogEntries() ]);
+    }, [ refetchLogEntries, refetchUsers ]);
 
     const userColumn: MRT_ColumnDef<ActivityLogEntry>[] = useMemo(() =>
         (activityView === ActivityView.System) ? [] : [{
@@ -286,9 +291,9 @@ export const Component = () => {
             table={table}
             isError={isUsersError || isLogEntriesError}
             errorMessage={globalize.translate('ActivitiesLoadError')}
+            onRetry={retryLoad}
         />
     );
 };
 
 Component.displayName = 'ActivityPage';
-

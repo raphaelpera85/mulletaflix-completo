@@ -21,35 +21,35 @@ interface FilterQuery {
     Years?: string;
     OfficialRatings?: string;
     IsUnaired?: boolean;
-    [key: string]: any;
 }
 
-export function getFilterStatus(query: FilterQuery): boolean {
+export function getFilterStatus(query: object): boolean {
+    const filterQuery = query as FilterQuery;
     return Boolean(
-        query.Filters
-            || query.IsFavorite
-            || query.VideoTypes
-            || query.SeriesStatus
-            || query.Is4K
-            || (query.IsHD !== undefined && query.IsHD !== null)
-            || query.IsSD
-            || query.Is3D
-            || query.HasSubtitles
-            || query.HasTrailer
-            || query.HasSpecialFeature
-            || query.HasThemeSong
-            || query.HasThemeVideo
-            || query.IsMissing
-            || query.ParentIndexNumber
-            || query.Genres
-            || query.Tags
-            || query.Years
-            || query.OfficialRatings
-            || query.IsUnaired
+        filterQuery.Filters
+            || filterQuery.IsFavorite
+            || filterQuery.VideoTypes
+            || filterQuery.SeriesStatus
+            || filterQuery.Is4K
+            || (filterQuery.IsHD !== undefined && filterQuery.IsHD !== null)
+            || filterQuery.IsSD
+            || filterQuery.Is3D
+            || filterQuery.HasSubtitles
+            || filterQuery.HasTrailer
+            || filterQuery.HasSpecialFeature
+            || filterQuery.HasThemeSong
+            || filterQuery.HasThemeVideo
+            || filterQuery.IsMissing
+            || filterQuery.ParentIndexNumber
+            || filterQuery.Genres
+            || filterQuery.Tags
+            || filterQuery.Years
+            || filterQuery.OfficialRatings
+            || filterQuery.IsUnaired
     );
 }
 
-export function setFilterStatus(page: HTMLElement, query: FilterQuery): void {
+export function setFilterStatus(page: HTMLElement, query: object): void {
     const hasFilters = getFilterStatus(query);
 
     const btnFilterWrapper = page.querySelector('.btnFilter-wrapper') as HTMLElement | null;

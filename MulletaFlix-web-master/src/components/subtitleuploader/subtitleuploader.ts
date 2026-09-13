@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import escapeHtml from 'escape-html';
 
 import { getSubtitleApi } from '@jellyfin/sdk/lib/utils/api/subtitle-api';
@@ -24,8 +25,6 @@ let currentFile: File | null;
 let hasChanges = false;
 
 function onFileReaderError(evt: ProgressEvent<FileReader>): void {
-    loading.hide();
-
     const error = (evt.target as FileReader).error!;
     if (error.name !== 'AbortError') {
         toast(globalize.translate('MessageFileReadError'));
@@ -59,7 +58,6 @@ function setFiles(page: Element, files: FileList): void {
         page.querySelector('#fldUpload')!.classList.add('hide');
     };
     reader.onabort = function () {
-        loading.hide();
         console.debug('File read cancelled');
     };
 
@@ -86,32 +84,30 @@ async function onSubmit(this: any, e: Event): Promise<void> {
         return;
     }
 
-    loading.show();
+    await loading.withLoading(async () => {
+        const dlg = dom.parentWithClass(this, 'dialog')!;
+        const language = (dlg.querySelector('#selectLanguage') as HTMLSelectElement).value;
+        const isForced = (dlg.querySelector('#chkIsForced') as HTMLInputElement).checked;
+        const isHearingImpaired = (dlg.querySelector('#chkIsHearingImpaired') as HTMLInputElement).checked;
 
-    const dlg = dom.parentWithClass(this, 'dialog')!;
-    const language = (dlg.querySelector('#selectLanguage') as HTMLSelectElement).value;
-    const isForced = (dlg.querySelector('#chkIsForced') as HTMLInputElement).checked;
-    const isHearingImpaired = (dlg.querySelector('#chkIsHearingImpaired') as HTMLInputElement).checked;
+        const subtitleApi = getSubtitleApi(toApi(ServerConnections.getApiClient(currentServerId) as any));
 
-    const subtitleApi = getSubtitleApi(toApi(ServerConnections.getApiClient(currentServerId) as any));
+        try {
+            const data = await readFileAsBase64(file!);
+            const format = file!.name.substring(file!.name.lastIndexOf('.') + 1).toLowerCase();
 
-    try {
-        const data = await readFileAsBase64(file!);
-        const format = file!.name.substring(file!.name.lastIndexOf('.') + 1).toLowerCase();
+            await subtitleApi.uploadSubtitle({
+                itemId: currentItemId,
+                uploadSubtitleDto: { Data: data, Language: language, IsForced: isForced, Format: format, IsHearingImpaired: isHearingImpaired }
+            });
 
-        await subtitleApi.uploadSubtitle({
-            itemId: currentItemId,
-            uploadSubtitleDto: { Data: data, Language: language, IsForced: isForced, Format: format, IsHearingImpaired: isHearingImpaired }
-        });
-
-        (dlg!.querySelector('#uploadSubtitle') as HTMLInputElement).value = '';
-        hasChanges = true;
-        dialogHelper.close(dlg);
-    } catch {
-        toast(globalize.translate('ErrorDefault'));
-    } finally {
-        loading.hide();
-    }
+            (dlg!.querySelector('#uploadSubtitle') as HTMLInputElement).value = '';
+            hasChanges = true;
+            dialogHelper.close(dlg);
+        } catch {
+            toast(globalize.translate('ErrorDefault'));
+        }
+    });
 }
 
 function initEditor(page: Element): void {
@@ -155,11 +151,10 @@ function showEditor(options: SubtitleUploaderOptions, resolve: (value: boolean) 
         if (layoutManager.tv) {
             scrollHelper.centerFocus.off(dlg, false);
         }
-        loading.hide();
         resolve(hasChanges);
     });
 
-    dialogHelper.open(dlg).catch(() => loading.hide());
+    dialogHelper.open(dlg).catch((error: unknown) => console.error('[SubtitleUploader] failed to open dialog', error));
 
     initEditor(dlg);
 
@@ -194,3 +189,5 @@ export function show(options: SubtitleUploaderOptions): Promise<boolean> {
 export default {
     show: show
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

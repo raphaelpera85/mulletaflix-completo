@@ -9,8 +9,18 @@ interface Chapter {
     source: string;
 }
 
+interface BookRendition {
+    book: {
+        path: {
+            directory?: string;
+            relative?: (href: string) => string;
+        };
+    };
+    display: (href: string) => void;
+}
+
 interface BookPlayerRef {
-    rendition: any;
+    rendition?: BookRendition;
     tocElement: TableOfContents | null;
     chapterMap: Chapter[];
     theme: string;
@@ -19,14 +29,14 @@ interface BookPlayerRef {
 
 export default class TableOfContents {
     private bookPlayer: BookPlayerRef;
-    private rendition: any;
+    private rendition: BookRendition;
     private elem: HTMLElement | null = null;
 
     private readonly handleDialogClosed: () => void;
 
     constructor(bookPlayer: BookPlayerRef) {
         this.bookPlayer = bookPlayer;
-        this.rendition = bookPlayer.rendition;
+        this.rendition = bookPlayer.rendition!;
 
         this.handleDialogClosed = this.onDialogClosed.bind(this);
 
@@ -114,7 +124,7 @@ export default class TableOfContents {
         elem.innerHTML = tocHtml;
 
         this.replaceLinks(elem, (href: string) => {
-            const relative = href.includes('#') && !href.startsWith('http') ? href : rendition.book.path.relative(href);
+            const relative = href.includes('#') && !href.startsWith('http') ? href : rendition.book.path.relative!(href);
             rendition.display(relative);
             this.destroy();
         });

@@ -23,13 +23,16 @@ export const Component = () => {
     const [ isCreateApiKeyPromptOpen, setIsCreateApiKeyPromptOpen ] = useState(false);
     const [ isConfirmDeleteOpen, setIsConfirmDeleteOpen ] = useState(false);
     const [ apiKeyToDelete, setApiKeyToDelete ] = useState('');
-    const { data, isLoading, isError } = useApiKeys();
+    const { data, isLoading, isError, refetch } = useApiKeys();
     const keys = useMemo(() => (
         data?.Items || []
     ), [ data ]);
     const revokeKey = useRevokeKey();
     const createKey = useCreateKey();
     const theme = useTheme();
+    const retryLoad = useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
 
     const columns = useMemo<MRT_ColumnDef<AuthenticationInfo>[]>(() => [
         {
@@ -172,10 +175,10 @@ export const Component = () => {
                 table={table}
                 isError={isError}
                 errorMessage={globalize.translate('ApiKeysLoadError')}
+                onRetry={retryLoad}
             />
         </>
     );
 };
 
 Component.displayName = 'ApiKeysPage';
-

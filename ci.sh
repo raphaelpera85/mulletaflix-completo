@@ -28,6 +28,13 @@ else
   fail "build — see /tmp/mf-build.log"; tail -30 /tmp/mf-build.log
 fi
 
+step "Server: audit NuGet dependencies"
+if (cd MulletaFlix-master && dotnet list MulletaFlix.sln package --vulnerable --include-transitive > /tmp/mf-nuget-audit.log 2>&1); then
+  ok "NuGet audit"
+else
+  fail "NuGet audit — see /tmp/mf-nuget-audit.log"; tail -30 /tmp/mf-nuget-audit.log
+fi
+
 step "Server: unit tests (integration excluded)"
 if (cd MulletaFlix-master && dotnet test MulletaFlix.sln -c Release --no-build \
       --filter "FullyQualifiedName!~Integration" \
@@ -51,6 +58,27 @@ if (cd MulletaFlix-web-master && npm run build:production > /tmp/mf-web.log 2>&1
   ok "web build"
 else
   fail "web build — see /tmp/mf-web.log"; tail -30 /tmp/mf-web.log
+fi
+
+step "Web: unit tests"
+if (cd MulletaFlix-web-master && npm test -- --run > /tmp/mf-web-test.log 2>&1); then
+  ok "unit tests"
+else
+  fail "unit tests — see /tmp/mf-web-test.log"; tail -30 /tmp/mf-web-test.log
+fi
+
+step "Web: verify build artifacts"
+if (cd MulletaFlix-web-master && npm run verify:build > /tmp/mf-web-artifacts.log 2>&1); then
+  ok "build artifacts"
+else
+  fail "build artifacts — see /tmp/mf-web-artifacts.log"; tail -30 /tmp/mf-web-artifacts.log
+fi
+
+step "Web: audit production dependencies"
+if (cd MulletaFlix-web-master && npm audit --omit=dev --audit-level=high > /tmp/mf-npm-audit.log 2>&1); then
+  ok "npm audit"
+else
+  fail "npm audit — see /tmp/mf-npm-audit.log"; tail -30 /tmp/mf-npm-audit.log
 fi
 
 echo ""

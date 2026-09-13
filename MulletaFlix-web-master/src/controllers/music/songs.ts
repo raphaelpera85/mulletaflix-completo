@@ -71,12 +71,17 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
     }
 
     function reloadItems(page?: HTMLElement): void {
-        loading.show();
         isLoading = true;
         const query = getQuery();
         setFilterStatus(tabContent, query);
+        const userId = Dashboard.getCurrentUserId();
+        if (!userId) {
+            isLoading = false;
+            console.error('[Songs] Cannot load items without a signed-in user');
+            return;
+        }
 
-        ApiClient.getItems(Dashboard.getCurrentUserId(), query).then(function (result: ItemDtoQueryResult) {
+        void loading.withLoading(() => ApiClient.getItems(userId, query).then(function (result: ItemDtoQueryResult) {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -133,7 +138,6 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
 
             const itemsContainer = tabContent.querySelector('.itemsContainer');
             if (!itemsContainer) {
-                loading.hide();
                 isLoading = false;
                 return;
             }
@@ -143,7 +147,6 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
 
             tabContent.querySelector('.btnShuffle')?.classList.toggle('hide', (result.TotalRecordCount ?? 0) < 1);
 
-            loading.hide();
             isLoading = false;
 
             void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
@@ -151,9 +154,8 @@ export default function (this: { showFilterMenu: () => void; getCurrentViewStyle
             }).catch((error: unknown) => console.error('[Songs] failed to focus page', error));
         }).catch((error: unknown) => {
             console.error('[Songs] failed to load songs', error);
-            loading.hide();
             isLoading = false;
-        });
+        }));
     }
 
     const data: Record<string, PageData> = {};

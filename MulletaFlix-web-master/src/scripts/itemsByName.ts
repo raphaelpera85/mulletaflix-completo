@@ -1,10 +1,12 @@
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
+import type { BaseItemDtoQueryResult } from '@jellyfin/sdk/lib/generated-client';
 
 import listView from 'components/listview/listview';
 import cardBuilder from 'components/cardbuilder/cardBuilder';
 import imageLoader from 'components/images/imageLoader';
 import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
+import type { ItemDto } from 'types/base/models/item-dto';
 
 import 'elements/emby-itemscontainer/emby-itemscontainer';
 import 'elements/emby-button/emby-button';
@@ -27,7 +29,7 @@ interface ItemData {
     Id?: string;
     Name?: string;
     ServerId?: string;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 interface QueryOptions {
@@ -46,7 +48,7 @@ interface QueryOptions {
     PersonIds?: string;
     Genres?: string;
     StudioIds?: string;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 interface ListOptions {
@@ -67,8 +69,14 @@ interface ListOptions {
     action?: string;
     smallIcon?: boolean;
     artist?: boolean;
-    items?: any[];
-    [key: string]: any;
+    items?: ItemDto[];
+    [key: string]: unknown;
+}
+
+interface ItemsApiClient {
+    getCurrentUserId(): string;
+    getAlbumArtists(userId: string, options: QueryOptions): Promise<BaseItemDtoQueryResult>;
+    getItems(userId: string, options: QueryOptions): Promise<BaseItemDtoQueryResult>;
 }
 
 function renderItems(page: HTMLElement, item: ItemData): void {
@@ -352,7 +360,7 @@ function renderSection(item: ItemData, element: HTMLElement, type: string | null
 
 function loadItems(element: HTMLElement, item: ItemData, type: string | null, query: QueryOptions, listOptions: ListOptions): void {
     query = getQuery(query, item);
-    getItemsFunction(query, item)(query.StartIndex, query.Limit, query.Fields).then(function (result: any) {
+    getItemsFunction(query, item)(query.StartIndex, query.Limit, query.Fields).then(function (result: BaseItemDtoQueryResult) {
         // If results are empty, hide the section
         if (!result.Items?.length) {
             element.classList.add('hide');
@@ -361,7 +369,7 @@ function loadItems(element: HTMLElement, item: ItemData, type: string | null, qu
 
         let html = '';
 
-        if (query.Limit && result.TotalRecordCount > query.Limit) {
+        if (query.Limit && (result.TotalRecordCount ?? 0) > query.Limit) {
             const link = element.querySelector('a')!;
             link.classList.remove('hide');
             link.setAttribute('href', getMoreItemsHref(item, type));
@@ -369,7 +377,7 @@ function loadItems(element: HTMLElement, item: ItemData, type: string | null, qu
             element.querySelector('a')!.classList.add('hide');
         }
 
-        listOptions.items = result.Items;
+        listOptions.items = result.Items as ItemDto[];
         const itemsContainer = element.querySelector('.itemsContainer')!;
 
         if (type === 'Audio') {
@@ -451,9 +459,9 @@ function getQuery(options: QueryOptions, item: ItemData): QueryOptions {
     return query;
 }
 
-function getItemsFunction(options: QueryOptions, item: ItemData): (index?: number, limit?: number, fields?: string) => Promise<any> {
+function getItemsFunction(options: QueryOptions, item: ItemData): (index?: number, limit?: number, fields?: string) => Promise<BaseItemDtoQueryResult> {
     const query = getQuery(options, item);
-    return function (index?: number, limit?: number, fields?: string): Promise<any> {
+    return function (index?: number, limit?: number, fields?: string): Promise<BaseItemDtoQueryResult> {
         query.StartIndex = index;
         query.Limit = limit;
 
@@ -461,7 +469,7 @@ function getItemsFunction(options: QueryOptions, item: ItemData): (index?: numbe
             query.Fields += ',' + fields;
         }
 
-        const apiClient = ServerConnections.getApiClient(item.ServerId!) as any;
+        const apiClient = ServerConnections.getApiClient(item.ServerId!) as unknown as ItemsApiClient;
 
         if (query.IncludeItemTypes === 'MusicArtist') {
             query.IncludeItemTypes = null;

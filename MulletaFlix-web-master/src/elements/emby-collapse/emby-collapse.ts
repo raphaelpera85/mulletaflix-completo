@@ -2,7 +2,11 @@ import './emby-collapse.scss';
 import 'webcomponents.js/webcomponents-lite';
 import '../emby-button/emby-button';
 
-const EmbyButtonPrototype: HTMLDivElement = Object.create(HTMLDivElement.prototype);
+interface EmbyCollapsePrototype extends HTMLDivElement {
+    attachedCallback?: (this: HTMLElement) => void;
+}
+
+const EmbyButtonPrototype = Object.create(HTMLDivElement.prototype) as EmbyCollapsePrototype;
 
 function slideDownToShow(button: HTMLElement, elem: HTMLElement): void {
     requestAnimationFrame(() => {
@@ -55,19 +59,18 @@ function slideUpToHide(button: HTMLElement, elem: HTMLElement): void {
 }
 
 function onButtonClick(this: HTMLElement): void {
-    const button = this;
-    const collapseContent = button.parentNode!.querySelector('.collapseContent') as HTMLElement & { expanded: boolean };
+    const collapseContent = this.parentNode!.querySelector('.collapseContent') as HTMLElement & { expanded: boolean };
 
     if (collapseContent.expanded) {
         collapseContent.expanded = false;
-        slideUpToHide(button, collapseContent);
+        slideUpToHide(this, collapseContent);
     } else {
         collapseContent.expanded = true;
-        slideDownToShow(button, collapseContent);
+        slideDownToShow(this, collapseContent);
     }
 }
 
-(EmbyButtonPrototype as any).attachedCallback = function (this: HTMLElement): void {
+EmbyButtonPrototype.attachedCallback = function (this: HTMLElement): void {
     if (this.classList.contains('emby-collapse')) {
         return;
     }

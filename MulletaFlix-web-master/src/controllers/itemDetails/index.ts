@@ -15,6 +15,7 @@ import globalize from 'lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import datetime from 'scripts/datetime';
 import libraryMenu from 'scripts/libraryMenu';
+import { downloadWithResume } from 'scripts/resumableDownloader';
 
 import 'elements/emby-button/emby-button';
 import 'elements/emby-itemscontainer/emby-itemscontainer';
@@ -473,7 +474,11 @@ function setupButtons(view: HTMLElement, item: any, apiClient: any): void {
         if (canDownload && typeof apiClient.getItemDownloadUrl === 'function') {
             btnDownload.classList.remove('hide');
             btnDownload.onclick = () => {
-                window.open(apiClient.getItemDownloadUrl(item.Id), '_blank', 'noopener,noreferrer');
+                const url = apiClient.getItemDownloadUrl(item.Id);
+                void downloadWithResume({
+                    url,
+                    fileName: String(item.Name || 'download')
+                }).catch(error => console.error('[itemDetails] resumable download failed', error));
             };
         } else {
             btnDownload.classList.add('hide');
@@ -728,33 +733,28 @@ export default function (view: HTMLElement, params: ViewParams): void {
         // Child sections
         loadSections(view, item, apiClient);
 
-        loading.hide();
         autoFocuser.autoFocus(view);
     }
 
     function loadData(): void {
         const itemId = params.id || params.itemId || params.seriesTimerId;
         if (!itemId) {
-            loading.hide();
             return;
         }
 
-        loading.show();
         const apiClient = (params.serverId ? ServerConnections.getApiClient(params.serverId) : null) || ApiClient;
 
         if (params.seriesTimerId) {
-            apiClient.getLiveTvSeriesTimer(params.seriesTimerId).then((item: any) => {
+            loading.withLoading(() => apiClient.getLiveTvSeriesTimer(params.seriesTimerId)).then((item: any) => {
                 renderItem(item, apiClient);
             }).catch((err: unknown) => {
                 console.error('[itemDetails] failed to load series timer', err);
-                loading.hide();
             });
         } else {
-            apiClient.getItem(apiClient.getCurrentUserId(), itemId).then((item: any) => {
+            loading.withLoading(() => apiClient.getItem(apiClient.getCurrentUserId(), itemId)).then((item: any) => {
                 renderItem(item, apiClient);
             }).catch((err: unknown) => {
                 console.error('[itemDetails] failed to load item', err);
-                loading.hide();
             });
         }
     }

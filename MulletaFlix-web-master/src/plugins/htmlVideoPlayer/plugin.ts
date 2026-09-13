@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, sonarjs/cognitive-complexity */
 // @ts-nocheck
 import DOMPurify from 'dompurify';
 import debounce from 'lodash-es/debounce';
@@ -370,24 +371,19 @@ export class HtmlVideoPlayer {
         if (mediaSource && item && !mediaSource.RunTimeTicks && isHls(mediaSource) && streamInfo.playMethod === 'Transcode' && (browser.iOS || browser.osx)) {
             const hlsPlaylistUrl = streamInfo.url.replace('master.m3u8', 'live.m3u8');
 
-            loading.show();
-
             console.debug(`prefetching hls playlist: ${hlsPlaylistUrl}`);
 
-            return ServerConnections.getApiClient(item.ServerId).ajax({
+            return loading.withLoading(() => ServerConnections.getApiClient(item.ServerId).ajax({
 
                 type: 'GET',
                 url: hlsPlaylistUrl
 
-            }).then(function () {
+            })).then(function () {
                 console.debug(`completed prefetching hls playlist: ${hlsPlaylistUrl}`);
 
-                loading.hide();
                 streamInfo.url = hlsPlaylistUrl;
             }, function () {
                 console.error(`error prefetching hls playlist: ${hlsPlaylistUrl}`);
-
-                loading.hide();
             });
         } else {
             return Promise.resolve();
@@ -2228,3 +2224,5 @@ export class HtmlVideoPlayer {
 }
 
 export default HtmlVideoPlayer;
+
+/* eslint-enable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, sonarjs/cognitive-complexity */

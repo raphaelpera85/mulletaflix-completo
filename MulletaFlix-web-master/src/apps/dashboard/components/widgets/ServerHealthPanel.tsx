@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import globalize from 'lib/globalize';
 import Widget from './Widget';
 import Paper from '@mui/material/Paper';
@@ -8,6 +8,7 @@ import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid2';
 import Skeleton from '@mui/material/Skeleton';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import StorageIcon from '@mui/icons-material/Storage';
 import TaskIcon from '@mui/icons-material/Task';
 import ExtensionIcon from '@mui/icons-material/Extension';
@@ -113,7 +114,15 @@ const formatBytes = (bytes: number) => {
 };
 
 const ServerHealthPanel = () => {
-    const { data: health, isLoading, isError } = useServerHealth();
+    const { data: health, isLoading, isError, refetch } = useServerHealth();
+
+    const retry = useCallback(async () => {
+        try {
+            await refetch();
+        } catch {
+            // The query state remains responsible for displaying the failure.
+        }
+    }, [refetch]);
 
     if (isLoading) {
         return (
@@ -134,9 +143,12 @@ const ServerHealthPanel = () => {
     if (isError || !health) {
         return (
             <Widget title={globalize.translate('ServerHealth')} href='/dashboard/server-health'>
-                <Paper sx={{ padding: 2, textAlign: 'center' }}>
+                <Paper sx={{ padding: 2, textAlign: 'center' }} role='alert'>
                     <ErrorIcon color='error' sx={{ mb: 1 }} fontSize='large' />
                     <Typography color='error'>{globalize.translate('ErrorLoadingHealthData')}</Typography>
+                    <Button color='error' size='small' onClick={retry} sx={{ mt: 1 }}>
+                        {globalize.translate('Retry')}
+                    </Button>
                 </Paper>
             </Widget>
         );

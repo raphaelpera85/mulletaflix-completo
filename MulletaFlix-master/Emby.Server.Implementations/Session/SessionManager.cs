@@ -2153,7 +2153,14 @@ namespace Emby.Server.Implementations.Session
             // Close open websockets to allow Kestrel to shut down cleanly
             foreach (var session in _activeConnections.Values)
             {
-                await session.DisposeAsync().ConfigureAwait(false);
+                try
+                {
+                    await session.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error closing session {SessionId} during server shutdown", session.Id);
+                }
             }
 
             _activeConnections.Clear();

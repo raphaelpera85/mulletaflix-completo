@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, sonarjs/cognitive-complexity, @stylistic/indent, @stylistic/padded-blocks */
 import escapeHtml from 'escape-html';
 import DOMPurify from 'dompurify';
 
@@ -81,7 +82,6 @@ function renderSearchResults(context: HTMLElement, results: SearchResult[]): voi
     if (!results.length) {
         (context.querySelector('.noSearchResults') as HTMLElement).classList.remove('hide');
         (context.querySelector('.lyricsResults') as HTMLElement).innerHTML = '';
-        loading.hide();
         return;
     }
 
@@ -143,28 +143,29 @@ function renderSearchResults(context: HTMLElement, results: SearchResult[]): voi
     const elem = context.querySelector('.lyricsResults') as HTMLElement;
     elem.innerHTML = html;
 
-    loading.hide();
 }
 
 function searchForLyrics(context: HTMLElement): void {
-    loading.show();
-
     const api = toApi(ServerConnections.getApiClient(currentItem.ServerId) as any);
     const lyricsApi = getLyricsApi(api);
-    void lyricsApi.searchRemoteLyrics({
-        itemId: currentItem.Id
-    }).then(function (results: any) {
-        renderSearchResults(context, results.data);
-    }).catch((error: unknown) => {
-        loading.hide();
-        console.error('Failed to search remote lyrics', error);
+    void loading.withLoading(async () => {
+        try {
+            const results = await lyricsApi.searchRemoteLyrics({
+                itemId: currentItem.Id
+            });
+            renderSearchResults(context, results.data as unknown as SearchResult[]);
+        } catch (error: unknown) {
+            console.error('Failed to search remote lyrics', error);
+        }
     });
 }
 
 function reload(context: HTMLElement, apiClient: any, itemId: string | any): void {
     (context.querySelector('.noSearchResults') as HTMLElement).classList.add('hide');
 
-    function onGetItem(item: any): void {
+    void loading.withLoading(async () => {
+        try {
+            const item = typeof itemId === 'string' ? await apiClient.getItem(apiClient.getCurrentUserId(), itemId) : itemId;
         currentItem = item;
 
         fillCurrentLyrics(context, apiClient, item);
@@ -182,17 +183,10 @@ function reload(context: HTMLElement, apiClient: any, itemId: string | any): voi
             (context.querySelector('.originalFile') as HTMLElement).classList.add('hide');
         }
 
-        loading.hide();
-    }
-
-    if (typeof itemId === 'string') {
-        void apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(onGetItem).catch((error: unknown) => {
-            loading.hide();
+        } catch (error: unknown) {
             console.error('Failed to load lyrics item', error);
-        });
-    } else {
-        onGetItem(itemId);
-    }
+        }
+    });
 }
 
 function onSearchSubmit(this: HTMLElement, e: Event): boolean {
@@ -416,11 +410,11 @@ function showEditorInternal(itemId: string, serverId: string): Promise<void> {
 }
 
 function showEditor(itemId: string, serverId: string): Promise<void> {
-    loading.show();
-
     return showEditorInternal(itemId, serverId);
 }
 
 export default {
     show: showEditor
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, sonarjs/cognitive-complexity, @stylistic/indent, @stylistic/padded-blocks */

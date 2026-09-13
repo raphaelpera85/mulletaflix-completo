@@ -1,11 +1,52 @@
 import './viewManager/viewContainer.scss';
 import Dashboard from '../utils/dashboard';
 
-const getMainAnimatedPages = (): any => {
+export type ControllerFactory =
+    new (view: HTMLElement, params: Record<string, string>) => void | { default: new (view: HTMLElement, params: Record<string, string>) => void };
+
+export interface ViewOptions {
+    cancel?: boolean;
+    controllerFactory?: ControllerFactory;
+    fullscreen?: boolean;
+    type?: string;
+    url?: string;
+    view?: string;
+    [key: string]: unknown;
+}
+
+interface NormalizedView {
+    elem: HTMLElement | string;
+    hasScript: boolean;
+    hasjQuery: boolean;
+    hasjQueryChecked: boolean;
+    hasjQuerySelect: boolean;
+}
+
+interface JQueryMobileLike {
+    activePage?: HTMLElement;
+}
+
+interface JQueryWrapper {
+    [index: number]: HTMLElement;
+    appendTo(target: HTMLElement): JQueryWrapper;
+}
+
+interface JQueryLike {
+    (element: HTMLElement): JQueryWrapper;
+    mobile?: JQueryMobileLike;
+}
+
+type BeforeChangeHandler = (view: HTMLElement, restored: boolean, options: ViewOptions) => void;
+
+const getMainAnimatedPages = (): HTMLElement | null => {
     return document.querySelector('.mainAnimatedPages');
 };
 
-function setControllerClass(view: any, options: any): Promise<void> {
+function getJQuery(): JQueryLike | undefined {
+    return (window as Window & { $?: JQueryLike }).$;
+}
+
+function setControllerClass(view: HTMLElement, options: ViewOptions): Promise<void> {
     if (options.controllerFactory) {
         return Promise.resolve();
     }
@@ -13,48 +54,43 @@ function setControllerClass(view: any, options: any): Promise<void> {
     let controllerUrl = view.getAttribute('data-controller');
 
     if (controllerUrl) {
-        if (controllerUrl.indexOf('__plugin/') === 0) {
+        if (controllerUrl.startsWith('__plugin/')) {
             controllerUrl = controllerUrl.substring('__plugin/'.length);
         }
 
         controllerUrl = Dashboard.getPluginUrl(controllerUrl);
         const apiUrl = ApiClient.getUrl('/web/' + controllerUrl);
-        return import(/* @vite-ignore */ apiUrl).then((ControllerFactory: any) => {
-            options.controllerFactory = ControllerFactory;
+        return import(/* @vite-ignore */ apiUrl).then((controllerFactory: unknown) => {
+            options.controllerFactory = controllerFactory as ControllerFactory;
         });
     }
 
     return Promise.resolve();
 }
 
-export function loadView(options: any): Promise<any> | void {
+export function loadView(options: ViewOptions): Promise<HTMLElement> | void {
     if (options.cancel) {
         return;
     }
 
     const selected = selectedPageIndex;
-    const previousAnimatable = selected === -1 ? null : allPages[selected];
+    const previousAnimatable = selected === -1 ? null : allPages[selected] || null;
     let pageIndex = selected + 1;
 
     if (pageIndex >= pageContainerCount) {
         pageIndex = 0;
     }
 
-    const isPluginpage = options.url.includes('configurationpage');
-    const newViewInfo: any = normalizeNewView(options, isPluginpage);
+    const isPluginpage = (options.url || '').includes('configurationpage');
+    const newViewInfo = normalizeNewView(options, isPluginpage);
     const newView = newViewInfo.elem;
-    const currentPage = allPages[pageIndex];
+    const currentPage = allPages[pageIndex] || null;
 
     if (currentPage) {
         triggerDestroy(currentPage);
     }
 
-    let view: any = newView;
-
-    if (typeof view == 'string') {
-        view = document.createElement('div');
-        view.innerHTML = newView;
-    }
+    let view = createViewElement(newView);
 
     view.classList.add('mainAnimatedPage');
 
@@ -64,20 +100,9 @@ export function loadView(options: any): Promise<any> | void {
         return;
     }
 
-    const jq: any = (window as any).$;
+    const jq = getJQuery();
 
-    if (currentPage) {
-        if (newViewInfo.hasScript && jq) {
-            mainAnimatedPages.removeChild(currentPage);
-            view = jq(view).appendTo(mainAnimatedPages)[0];
-        } else {
-            mainAnimatedPages.replaceChild(view, currentPage);
-        }
-    } else if (newViewInfo.hasScript && jq) {
-        view = jq(view).appendTo(mainAnimatedPages)[0];
-    } else {
-        mainAnimatedPages.appendChild(view);
-    }
+    view = attachView(view, currentPage, mainAnimatedPages, newViewInfo.hasScript, jq);
 
     if (options.type) {
         view.setAttribute('data-type', options.type);
@@ -103,7 +128,7 @@ export function loadView(options: any): Promise<any> | void {
 
             beforeAnimate(allPages, pageIndex, selected);
             selectedPageIndex = pageIndex;
-            currentUrls[pageIndex] = options.url;
+            currentUrls[pageIndex] = options.url || '';
 
             if (!options.cancel && previousAnimatable) {
                 afterAnimate(allPages, pageIndex);
@@ -118,7 +143,42 @@ export function loadView(options: any): Promise<any> | void {
         });
 }
 
-function parseHtml(html: string, hasScript: boolean): any {
+function createViewElement(newView: HTMLElement | string): HTMLElement {
+    if (typeof newView !== 'string') {
+        return newView;
+    }
+
+    const view = document.createElement('div');
+    view.innerHTML = newView;
+    return view;
+}
+
+function attachView(
+    view: HTMLElement,
+    currentPage: HTMLElement | null,
+    mainAnimatedPages: HTMLElement,
+    hasScript: boolean,
+    jq: JQueryLike | undefined
+): HTMLElement {
+    if (currentPage && hasScript && jq) {
+        mainAnimatedPages.removeChild(currentPage);
+        return jq(view).appendTo(mainAnimatedPages)[0];
+    }
+
+    if (currentPage) {
+        mainAnimatedPages.replaceChild(view, currentPage);
+        return view;
+    }
+
+    if (hasScript && jq) {
+        return jq(view).appendTo(mainAnimatedPages)[0];
+    }
+
+    mainAnimatedPages.appendChild(view);
+    return view;
+}
+
+function parseHtml(html: string, hasScript: boolean): HTMLElement {
     if (hasScript) {
         html = html
             .split('\x3c!--<script').join('<script')
@@ -127,18 +187,24 @@ function parseHtml(html: string, hasScript: boolean): any {
 
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
-    return wrapper.querySelector('div[data-role="page"]');
+    return wrapper.querySelector<HTMLElement>('div[data-role="page"]') || wrapper;
 }
 
-function normalizeNewView(options: any, isPluginpage: boolean): any {
-    const viewHtml = options.view;
+function normalizeNewView(options: ViewOptions, isPluginpage: boolean): NormalizedView {
+    const viewHtml = options.view || '';
 
     if (viewHtml.indexOf('data-role="page"') === -1) {
-        return viewHtml;
+        return {
+            elem: viewHtml,
+            hasScript: false,
+            hasjQuery: false,
+            hasjQueryChecked: false,
+            hasjQuerySelect: false
+        };
     }
 
     let hasScript = viewHtml.indexOf('<script') !== -1;
-    const elem: any = parseHtml(viewHtml, hasScript);
+    const elem = parseHtml(viewHtml, hasScript);
 
     if (hasScript) {
         hasScript = elem.querySelector('script') != null;
@@ -155,39 +221,39 @@ function normalizeNewView(options: any, isPluginpage: boolean): any {
     }
 
     return {
-        elem: elem,
-        hasScript: hasScript,
-        hasjQuerySelect: hasjQuerySelect,
-        hasjQueryChecked: hasjQueryChecked,
-        hasjQuery: hasjQuery
+        elem,
+        hasScript,
+        hasjQuerySelect,
+        hasjQueryChecked,
+        hasjQuery
     };
 }
 
-function beforeAnimate(allPages: any[], newPageIndex: number, oldPageIndex: number): void {
+function beforeAnimate(allPages: Array<HTMLElement | undefined>, newPageIndex: number, oldPageIndex: number): void {
     for (let index = 0, length = allPages.length; index < length; index++) {
         if (newPageIndex !== index && oldPageIndex !== index) {
-            allPages[index].classList.add('hide');
+            allPages[index]?.classList.add('hide');
         }
     }
 }
 
-function afterAnimate(allPages: any[], newPageIndex: number): void {
+function afterAnimate(allPages: Array<HTMLElement | undefined>, newPageIndex: number): void {
     for (let index = 0, length = allPages.length; index < length; index++) {
         if (newPageIndex !== index) {
-            allPages[index].classList.add('hide');
+            allPages[index]?.classList.add('hide');
         }
     }
 }
 
-export function setOnBeforeChange(fn: any): void {
+export function setOnBeforeChange(fn: BeforeChangeHandler): void {
     onBeforeChange = fn;
 }
 
-export function tryRestoreView(options: any): Promise<any> | void {
+export function tryRestoreView(options: ViewOptions): Promise<HTMLElement> | void {
     console.debug('[viewContainer] tryRestoreView', options);
-    const url = options.url;
+    const url = options.url || '';
     const index = currentUrls.indexOf(url);
-    const jq: any = (window as any).$;
+    const jq = getJQuery();
 
     if (index !== -1) {
         const animatable = allPages[index];
@@ -199,7 +265,7 @@ export function tryRestoreView(options: any): Promise<any> | void {
             }
 
             const selected = selectedPageIndex;
-            const previousAnimatable = selected === -1 ? null : allPages[selected];
+            const previousAnimatable = selected === -1 ? null : allPages[selected] || null;
             return setControllerClass(view, options).then(() => {
                 if (onBeforeChange) {
                     onBeforeChange(view, true, options);
@@ -226,7 +292,7 @@ export function tryRestoreView(options: any): Promise<any> | void {
     return Promise.reject();
 }
 
-function triggerDestroy(view: any): void {
+function triggerDestroy(view: HTMLElement): void {
     view.dispatchEvent(new CustomEvent('viewdestroy', {}));
 }
 
@@ -239,8 +305,8 @@ export function reset(): void {
     selectedPageIndex = -1;
 }
 
-let onBeforeChange: any;
-let allPages: any[] = [];
+let onBeforeChange: BeforeChangeHandler | undefined;
+let allPages: Array<HTMLElement | undefined> = [];
 let currentUrls: string[] = [];
 const pageContainerCount = 3;
 let selectedPageIndex = -1;

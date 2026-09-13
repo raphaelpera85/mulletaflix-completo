@@ -50,6 +50,15 @@ namespace MulletaFlix.Plugin.GetAvatar
             {
                 _logger.LogInformation("GetAvatar validation service starting...");
 
+                // Keep isolated smoke/E2E environments hermetic. The normal
+                // production path remains unchanged, while CI can opt out of
+                // downloading the online catalog through an explicit flag.
+                if (IsExternalBootstrapDisabled())
+                {
+                    _logger.LogInformation("GetAvatar online catalog bootstrap is disabled for this environment.");
+                    return;
+                }
+
                 await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
 
                 await EnsureDefaultAvatarCatalogAsync().ConfigureAwait(false);
@@ -81,6 +90,14 @@ namespace MulletaFlix.Plugin.GetAvatar
             {
                 _logger.LogError(ex, "Error during avatar validation at startup");
             }
+        }
+
+        private static bool IsExternalBootstrapDisabled()
+        {
+            var value = Environment.GetEnvironmentVariable("MFLX_DISABLE_EXTERNAL_BOOTSTRAP");
+            return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <inheritdoc />

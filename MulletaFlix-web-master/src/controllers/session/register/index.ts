@@ -25,9 +25,7 @@ interface RegisterError {
 }
 
 function registerUser(apiClient: ApiClient, email: string, password: string): Promise<RegisterData> {
-    loading.show();
-
-    return apiClient.ajax({
+    return loading.withLoading(() => apiClient.ajax({
         type: 'POST',
         url: apiClient.getUrl('/Users/Register'),
         data: JSON.stringify({
@@ -35,11 +33,9 @@ function registerUser(apiClient: ApiClient, email: string, password: string): Pr
             Password: password
         }),
         contentType: 'application/json'
-    } as never).then(function (response: Response) {
-        loading.hide();
+    } as never)).then(function (response: Response) {
         return response.json();
-    }, function (response: Response) {
-        loading.hide();
+    }).catch(function (response: Response) {
         if (response.status === 400) {
             return response.json().then(function (data: RegisterData) {
                 throw data;

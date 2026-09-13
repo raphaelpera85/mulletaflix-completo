@@ -17,7 +17,7 @@ const ScrollTime = 270;
  */
 const Epsilon = 1e-6;
 
-// FIXME: Need to scroll to top of page to fully show the top menu. This can be solved by some marker of top most elements or their containers
+// Compatibility note: the top menu has no stable marker, so minimumScrollY keeps fixed controls visible.
 /**
  * Returns minimum vertical scroll.
  * Scroll less than that value will be zeroed.
@@ -236,6 +236,14 @@ const scrollerHints = {
 } as const;
 
 type ScrollableParent = HTMLElement | DocumentScroller;
+type ScrollerHint = typeof scrollerHints.x | typeof scrollerHints.y;
+
+function isScrollableParent(parent: HTMLElement, hint: ScrollerHint, styles: CSSStyleDeclaration): boolean {
+    if (parent.getAttribute(hint.nameScrollMode) === 'custom' || styles.position === 'fixed') return true;
+    const overflow = styles[hint.nameStyle];
+    return overflow === 'scroll'
+        || overflow === 'auto' && parent[hint.nameScroll] > parent[hint.nameClient];
+}
 
 /**
  * Returns parent element that can be scrolled. If no such, returns document scroller.
@@ -251,23 +259,8 @@ function getScrollableParent(element: HTMLElement | null, vertical: boolean): Sc
         let parent = element.parentElement;
 
         while (parent && parent !== document.body) {
-            const scrollMode = parent.getAttribute(scrollerHint.nameScrollMode);
-
-            // Stop on self-scrolled containers
-            if (scrollMode === 'custom') {
-                return parent;
-            }
-
             const styles = window.getComputedStyle(parent);
-
-            // Stop on fixed parent
-            if (styles.position === 'fixed') {
-                return parent;
-            }
-
-            const overflow = styles[scrollerHint.nameStyle];
-
-            if (overflow === 'scroll' || overflow === 'auto' && (parent as unknown as HTMLElement)[scrollerHint.nameScroll] > (parent as unknown as HTMLElement)[scrollerHint.nameClient]) {
+            if (isScrollableParent(parent, scrollerHint, styles)) {
                 return parent;
             }
 
@@ -539,6 +532,22 @@ export function scrollTo(scrollX: number, scrollY: number, smooth?: boolean): vo
     doScroll(scroller, scrollX, scroller, scrollY, smooth);
 }
 
+function getVerticalScroll(
+    scroller: ScrollableParent,
+    data: ScrollerData,
+    element: HTMLElement,
+    elementRect: DOMRect,
+    center: boolean,
+    isFixed: boolean
+): { scroller: ScrollableParent | null; scroll: number } {
+    if (data.custom) return { scroller: null, scroll: 0 };
+
+    let scroll = calcScroll(data, getScrollerChildPos(scroller, element, true), elementRect.height, center);
+    if (isFixed && elementRect.bottom < 0) scroll = 0;
+    if (scroll < minimumScrollY() && scroller === documentScroller) scroll = 0;
+    return { scroller, scroll };
+}
+
 /**
  * Scrolls the document to a given element.
  *
@@ -589,23 +598,9 @@ export function scrollToElement(element: HTMLElement, smooth?: boolean): void {
         xScroller = null;
     }
 
-    if (!yScrollerData.custom) {
-        const yPos = getScrollerChildPos(yScroller, element, true);
-        scrollY = calcScroll(yScrollerData, yPos, elementRect.height, scrollCenterY);
-
-        // WORKAROUND: When element is above viewport (fixed menu), scroll to top
-        // TODO: Add scroll direction marker to handle top/bottom navigation
-        if (isFixed && elementRect.bottom < 0) {
-            scrollY = 0;
-        }
-
-        // WORKAROUND: Ensure minimum scroll position for document scroller
-        if (scrollY < minimumScrollY() && yScroller === documentScroller) {
-            scrollY = 0;
-        }
-    } else {
-        yScroller = null;
-    }
+    const verticalScroll = getVerticalScroll(yScroller, yScrollerData, element, elementRect, scrollCenterY, Boolean(isFixed));
+    yScroller = verticalScroll.scroller;
+    scrollY = verticalScroll.scroll;
 
     doScroll(xScroller, scrollX, yScroller, scrollY, smooth);
 }

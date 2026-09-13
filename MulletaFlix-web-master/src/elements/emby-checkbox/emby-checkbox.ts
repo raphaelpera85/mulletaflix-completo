@@ -4,7 +4,12 @@ import escapeHtml from 'escape-html';
 import './emby-checkbox.scss';
 import 'webcomponents.js/webcomponents-lite';
 
-const EmbyCheckboxPrototype: HTMLInputElement = Object.create(HTMLInputElement.prototype);
+type EmbyCheckboxElement = HTMLInputElement & {
+    attachedCallback?(): void;
+    detachedCallback?(): void;
+};
+
+const EmbyCheckboxPrototype = Object.create(HTMLInputElement.prototype) as EmbyCheckboxElement;
 
 function onKeyDown(this: HTMLInputElement, e: KeyboardEvent): void | false {
     // Don't submit form on enter
@@ -37,7 +42,7 @@ function forceRefresh(this: HTMLInputElement, loading?: boolean): void {
     }, (loading === true ? 520 : 20));
 }
 
-(EmbyCheckboxPrototype as any).attachedCallback = function (this: HTMLInputElement): void {
+EmbyCheckboxPrototype.attachedCallback = function (this: HTMLInputElement): void {
     if (this.getAttribute('data-embycheckbox') === 'true') {
         return;
     }
@@ -85,7 +90,7 @@ function forceRefresh(this: HTMLInputElement, loading?: boolean): void {
     }
 };
 
-(EmbyCheckboxPrototype as any).detachedCallback = function (this: HTMLInputElement): void {
+EmbyCheckboxPrototype.detachedCallback = function (this: HTMLInputElement): void {
     this.removeEventListener('keydown', onKeyDown as unknown as EventListener);
 
     dom.removeEventListener(this, 'click', forceRefresh as unknown as EventListener, {

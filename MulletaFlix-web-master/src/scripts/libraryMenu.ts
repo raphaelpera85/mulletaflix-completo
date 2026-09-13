@@ -33,7 +33,17 @@ import 'material-design-icons-iconfont';
 import '../styles/scrollstyles.scss';
 import '../styles/flexstyles.scss';
 
+function getSkinHeader(): HTMLElement | null {
+    return document.querySelector('.skinHeader');
+}
+
 function renderHeader(): void {
+    const skinHeader = getSkinHeader();
+    if (!skinHeader) {
+        window.setTimeout(renderHeader, 50);
+        return;
+    }
+
     let html = '';
     html += '<div class="flex align-items-center flex-grow headerTop">';
     html += '<div class="headerLeft">';
@@ -87,8 +97,10 @@ function getCurrentApiClient(): unknown {
 }
 
 function lazyLoadViewMenuBarImages(): void {
+    const header = getSkinHeader();
+    if (!header) return;
     import('../components/images/imageLoader').then((imageLoader) => {
-        imageLoader.lazyChildren(skinHeader);
+        imageLoader.lazyChildren(header);
     }).catch((error: unknown) => console.error('Failed to lazy-load menu images', error));
 }
 
@@ -276,18 +288,19 @@ function bindMenuEvents(): void {
         headerSearchButton.addEventListener('click', showSearch);
     }
 
-    headerUserButton!.addEventListener('click', onHeaderUserButtonClick);
-    headerHomeButton!.addEventListener('click', onHeaderHomeButtonClick);
+    if (headerUserButton) headerUserButton.addEventListener('click', onHeaderUserButtonClick);
+    if (headerHomeButton) headerHomeButton.addEventListener('click', onHeaderHomeButtonClick);
 
-    if (!layoutManager.tv) {
-        headerCastButton!.addEventListener('click', onCastButtonClicked);
+    if (!layoutManager.tv && headerCastButton) {
+        headerCastButton.addEventListener('click', onCastButtonClicked);
     }
 
-    headerAudioPlayerButton!.addEventListener('click', showAudioPlayer as EventListenerOrEventListenerObject);
-    headerSyncButton!.addEventListener('click', onSyncButtonClicked);
+    if (headerAudioPlayerButton) headerAudioPlayerButton.addEventListener('click', showAudioPlayer as EventListenerOrEventListenerObject);
+    if (headerSyncButton) headerSyncButton.addEventListener('click', onSyncButtonClicked);
 
-    if (layoutManager.mobile) {
-        initHeadRoom(skinHeader);
+    const header = getSkinHeader();
+    if (layoutManager.mobile && header) {
+        initHeadRoom(header);
     }
     Events.on(playbackManager, 'playbackstart', onPlaybackStart);
     Events.on(playbackManager, 'playbackstop', onPlaybackStop);
@@ -612,9 +625,9 @@ function updateMenuForPageType(isDashboardPage: boolean, isLibraryPage: boolean)
         currentPageType = newPageType;
 
         if (isDashboardPage && !layoutManager.mobile) {
-            skinHeader.classList.add('headroomDisabled');
+            getSkinHeader()?.classList.add('headroomDisabled');
         } else {
-            skinHeader.classList.remove('headroomDisabled');
+            getSkinHeader()?.classList.remove('headroomDisabled');
         }
 
         const bodyClassList = document.body.classList;
@@ -739,7 +752,6 @@ let headerSyncButton: HTMLElement | null;
 let currentTimeText: HTMLElement | null;
 const enableLibraryNavDrawer = layoutManager.desktop;
 const enableLibraryNavDrawerHome = !layoutManager.tv;
-const skinHeader = document.querySelector('.skinHeader') as HTMLElement;
 let requiresUserRefresh = true;
 
 function setTabs(type: string | null, selectedIndex: number, builder: () => unknown[]): void {
@@ -816,10 +828,12 @@ function setTitle(title: string | null): void {
 }
 
 function setTransparentMenu(transparent: boolean): void {
+    const header = getSkinHeader();
+    if (!header) return;
     if (transparent) {
-        skinHeader.classList.add('semiTransparent');
+        header.classList.add('semiTransparent');
     } else {
-        skinHeader.classList.remove('semiTransparent');
+        header.classList.remove('semiTransparent');
     }
 }
 

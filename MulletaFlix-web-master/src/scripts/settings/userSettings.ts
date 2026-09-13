@@ -79,8 +79,6 @@ export class UserSettings {
             return Promise.resolve();
         }
 
-        const self = this;
-
         return queryClient
             .fetchQuery(getDisplayPreferencesQuery(
                 toApi(apiClient),
@@ -93,7 +91,7 @@ export class UserSettings {
             .then((result) => {
                 const prefs = result as unknown as Record<string, unknown> & { CustomPrefs: Record<string, string> };
                 prefs.CustomPrefs = prefs.CustomPrefs || {};
-                self.displayPrefs = prefs;
+                this.displayPrefs = prefs;
             }) as unknown as Promise<void>;
     }
 
@@ -138,15 +136,15 @@ export class UserSettings {
      * @param config - Configuration or undefined.
      * @return Configuration or Promise.
      */
-    serverConfig(config?: Record<string, unknown>): unknown {
+    serverConfig(config?: Record<string, unknown>): Promise<unknown> {
         const apiClient = this.currentApiClient;
         if (config) {
             return apiClient!
                 .updateUserConfiguration(this.currentUserId!, config)
-                    .then(() => queryClient.invalidateQueries({
-                        queryKey: [ USER_QUERY_KEY, this.currentApiClient ? toApi(this.currentApiClient).basePath : undefined, this.currentUserId ]
-                    }))
-                    .catch(() => undefined);
+                .then(() => queryClient.invalidateQueries({
+                    queryKey: [ USER_QUERY_KEY, this.currentApiClient ? toApi(this.currentApiClient).basePath : undefined, this.currentUserId ]
+                }))
+                .catch(() => undefined);
         }
 
         return queryClient

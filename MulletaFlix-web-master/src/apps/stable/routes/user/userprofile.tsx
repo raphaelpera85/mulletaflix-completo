@@ -15,11 +15,15 @@ import UserPasswordForm from 'components/dashboard/users/UserPasswordForm';
 import Page from 'components/Page';
 import Loading from 'components/loading/LoadingComponent';
 import Button from 'elements/emby-button/Button';
+import Alert from '@mui/material/Alert';
 
 const UserProfile: FunctionComponent = () => {
     const [ searchParams ] = useSearchParams();
     const userId = searchParams.get('userId') || undefined;
-    const { data: user, isPending: isUserPending } = useUser({ userId });
+    const { data: user, isPending: isUserPending, isError: isUserError, refetch: refetchUser } = useUser({ userId });
+    const handleRetryUser = useCallback(() => {
+        refetchUser().catch(() => undefined);
+    }, [refetchUser]);
     const libraryMenu = useMemo(async () => ((await import('../../../../scripts/libraryMenu')).default), []);
 
     const element = useRef<HTMLDivElement>(null);
@@ -76,12 +80,11 @@ const UserProfile: FunctionComponent = () => {
         reloadUser();
 
         const onFileReaderError = (evt: ProgressEvent<FileReader>) => {
-            loading.hide();
-            switch (evt.target?.error?.code) {
-                case DOMException.NOT_FOUND_ERR:
+            switch (evt.target?.error?.name) {
+                case 'NotFoundError':
                     toast(globalize.translate('FileNotFound'));
                     break;
-                case DOMException.ABORT_ERR:
+                case 'AbortError':
                     onFileReaderAbort();
                     break;
                 default:
@@ -90,7 +93,6 @@ const UserProfile: FunctionComponent = () => {
         };
 
         const onFileReaderAbort = () => {
-            loading.hide();
             toast(globalize.translate('FileReadCancelled'));
         };
 
@@ -113,13 +115,15 @@ const UserProfile: FunctionComponent = () => {
                 }
 
                 userImage.style.backgroundImage = 'url(' + reader.result + ')';
-                window.ApiClient.uploadUserImage(userId, ImageType.Primary, file).then(function () {
-                    loading.hide();
-                    void queryClient.invalidateQueries({
-                        queryKey: ['User']
-                    });
-                }).catch(err => {
-                    console.error('[userprofile] failed to upload image', err);
+                void loading.withLoading(async () => {
+                    try {
+                        await window.ApiClient.uploadUserImage(userId, ImageType.Primary, file);
+                        await queryClient.invalidateQueries({
+                            queryKey: ['User']
+                        });
+                    } catch (err) {
+                        console.error('[userprofile] failed to upload image', err);
+                    }
                 });
             };
 
@@ -136,14 +140,15 @@ const UserProfile: FunctionComponent = () => {
                 globalize.translate('DeleteImageConfirmation'),
                 globalize.translate('DeleteImage')
             ).then(function () {
-                loading.show();
-                window.ApiClient.deleteUserImage(userId, ImageType.Primary).then(function () {
-                    loading.hide();
-                    void queryClient.invalidateQueries({
-                        queryKey: ['User']
-                    });
-                }).catch(err => {
-                    console.error('[userprofile] failed to delete image', err);
+                void loading.withLoading(async () => {
+                    try {
+                        await window.ApiClient.deleteUserImage(userId, ImageType.Primary);
+                        await queryClient.invalidateQueries({
+                            queryKey: ['User']
+                        });
+                    } catch (err) {
+                        console.error('[userprofile] failed to delete image', err);
+                    }
                 });
             }).catch(() => {
                 // confirm dialog closed
@@ -170,6 +175,30 @@ const UserProfile: FunctionComponent = () => {
             (page.querySelector('#uploadImage') as HTMLInputElement).removeEventListener('change', onUploadImage);
         };
     }, [reloadUser, user, userId]);
+
+    if (isUserError) {
+        return (
+            <Page
+                id='userProfilePage'
+                title={globalize.translate('Profile')}
+                className='libraryPage userPreferencesPage noSecondaryNavPage'
+            >
+                <Alert
+                    severity='error'
+                    action={(
+                        <Button
+                            type='button'
+                            onClick={handleRetryUser}
+                        >
+                            {globalize.translate('Retry')}
+                        </Button>
+                    )}
+                >
+                    {globalize.translate('ErrorDefault')}
+                </Alert>
+            </Page>
+        );
+    }
 
     if (isUserPending || !user) {
         return <Loading />;
@@ -231,4 +260,3 @@ const UserProfile: FunctionComponent = () => {
 };
 
 export default UserProfile;
-

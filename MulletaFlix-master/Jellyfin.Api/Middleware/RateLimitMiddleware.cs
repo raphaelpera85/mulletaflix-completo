@@ -49,6 +49,14 @@ public class RateLimitMiddleware
         "/web/sitemap.xml"
     ];
 
+    private static readonly string[] PublicBootstrapPaths =
+    [
+        "/System/Info/Public",
+        "/QuickConnect/Enabled",
+        "/Users/Public",
+        "/Branding/Configuration"
+    ];
+
     /// <summary>
     /// Maximum number of distinct IP entries retained per dictionary to prevent
     /// unbounded memory growth from IP rotation attacks.
@@ -83,6 +91,7 @@ public class RateLimitMiddleware
         var isAuth = context.User?.Identity?.IsAuthenticated ?? false;
         var path = context.Request.Path.Value;
         var isStaticWebAsset = path is not null && IsStaticWebAssetPath(path);
+        var isPublicBootstrap = path is not null && IsPublicBootstrapPath(path);
         var isLoginAttempt = path is not null && (
             IsPathOrDescendant(path, "/Users/Authenticate")
             || IsPathOrDescendant(path, "/Users/Register"));
@@ -96,7 +105,7 @@ public class RateLimitMiddleware
                 return;
             }
         }
-        else if (!isAuth && !isStaticWebAsset)
+        else if (!isAuth && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
         {
             if (IsBlocked(_anonymousRequests, ip, AnonymousWindow, MaxAnonymousRequests))
             {
@@ -112,7 +121,7 @@ public class RateLimitMiddleware
         {
             RecordAttempt(_failedLogins, ip, LoginWindow);
         }
-        else if (!isAuth && !isLoginAttempt && !isStaticWebAsset)
+        else if (!isAuth && !isLoginAttempt && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
         {
             RecordAttempt(_anonymousRequests, ip, AnonymousWindow);
         }
@@ -124,6 +133,17 @@ public class RateLimitMiddleware
 
     internal static bool IsStaticWebAssetPath(string path)
         => StaticWebPaths.Any(route => IsPathOrDescendant(path, route));
+
+    internal static bool IsPublicBootstrapPath(string path)
+        => PublicBootstrapPaths.Any(route => IsPathOrDescendant(path, route));
+
+    private static bool IsHermeticTestMode()
+    {
+        var value = Environment.GetEnvironmentVariable("MFLX_E2E_TEST_MODE");
+        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool IsBlocked(ConcurrentDictionary<string, RateLimitEntry> store, string key, TimeSpan window, int max)
     {

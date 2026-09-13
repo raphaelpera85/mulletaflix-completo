@@ -169,12 +169,14 @@ export const Component = () => {
     const {
         data: config,
         isPending: isConfigPending,
-        isError: isConfigError
+        isError: isConfigError,
+        refetch: refetchConfig
     } = useNamedConfiguration<MidiaStorageOnlineConfiguration>(CONFIG_KEY);
     const {
         data: status,
         isPending: isStatusPending,
-        isError: isStatusError
+        isError: isStatusError,
+        refetch: refetchStatus
     } = useQuery({
         queryKey: STATUS_QUERY_KEY,
         queryFn: ({ signal }) => fetchStatus(api!, { signal }),
@@ -182,12 +184,18 @@ export const Component = () => {
     });
     const {
         data: tasks,
-        isPending: isTasksPending
+        isPending: isTasksPending,
+        isError: isTasksError,
+        refetch: refetchTasks
     } = useLiveTasks({ isHidden: false });
 
     const syncTask = useMemo(() => (
         tasks?.find((value) => value.Key === TASK_KEY)
     ), [ tasks ]);
+
+    const retryLoad = useCallback(() => {
+        void Promise.all([ refetchConfig(), refetchStatus(), refetchTasks() ]);
+    }, [ refetchConfig, refetchStatus, refetchTasks ]);
 
     useEffect(() => {
         if (!isConfigPending && !isConfigError) {
@@ -224,7 +232,7 @@ export const Component = () => {
         }
     }, [ syncTask?.Id, startTask ]);
 
-    if (isConfigPending || isTasksPending) {
+    if ((isConfigPending || isTasksPending) && !isConfigError && !isTasksError) {
         return <Loading />;
     }
 
@@ -235,8 +243,21 @@ export const Component = () => {
             className='mainAnimatedPage type-interior'
         >
             <Box className='content-primary'>
+                {isTasksError && (
+                    <Alert
+                        severity='warning'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        Não foi possível carregar o estado das tarefas de sincronização. A configuração continua disponível, mas o botão de sincronização pode ficar indisponível.
+                    </Alert>
+                )}
                 {isConfigError ? (
-                    <Alert severity='error'>{globalize.translate('HeaderError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('HeaderError')}
+                    </Alert>
                 ) : (
                     <Form method='POST'>
                         <Stack spacing={3}>
@@ -347,7 +368,12 @@ export const Component = () => {
                                 <Typography variant='h2'>Status</Typography>
                                 {isStatusPending && <Loading />}
                                 {!isStatusPending && isStatusError && (
-                                    <Alert severity='error'>{globalize.translate('HeaderError')}</Alert>
+                                    <Alert
+                                        severity='error'
+                                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                                    >
+                                        {globalize.translate('HeaderError')}
+                                    </Alert>
                                 )}
                                 {!isStatusPending && !isStatusError && status && (
                                     <Stack spacing={2}>

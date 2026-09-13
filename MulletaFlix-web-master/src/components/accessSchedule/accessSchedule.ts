@@ -19,6 +19,10 @@ interface AccessScheduleOptions {
     };
 }
 
+interface ScheduleDialogElement extends HTMLDivElement {
+    submitted?: boolean;
+}
+
 function getDisplayTime(hours: number): string {
     let minutes = 0;
     const pct = hours % 1;
@@ -48,7 +52,7 @@ function loadSchedule(context: HTMLElement, { DayOfWeek, StartHour, EndHour }: A
     (context.querySelector('#selectEnd') as HTMLSelectElement).value = String(EndHour || 0);
 }
 
-function submitSchedule(context: HTMLDivElement, options: AccessScheduleOptions): void {
+function submitSchedule(context: ScheduleDialogElement, options: AccessScheduleOptions): void {
     const updatedSchedule = {
         DayOfWeek: (context.querySelector('#selectDay') as HTMLSelectElement).value,
         StartHour: (context.querySelector('#selectStart') as HTMLSelectElement).value,
@@ -60,7 +64,7 @@ function submitSchedule(context: HTMLDivElement, options: AccessScheduleOptions)
         return;
     }
 
-    (context as any).submitted = true;
+    context.submitted = true;
     options.schedule = Object.assign(options.schedule, updatedSchedule);
     dialogHelper.close(context);
 }
@@ -71,25 +75,26 @@ export function show(options: AccessScheduleOptions): Promise<AccessScheduleOpti
             removeOnClose: true,
             size: 'small'
         });
-        dlg.classList.add('formDialog');
+        const scheduleDialog = dlg as ScheduleDialogElement;
+        scheduleDialog.classList.add('formDialog');
         let html = '';
         html += globalize.translateHtml(template);
-        dlg.innerHTML = html;
-        populateHours(dlg);
-        loadSchedule(dlg, options.schedule);
-        dialogHelper.open(dlg).catch(reject);
-        dlg.addEventListener('close', () => {
-            if ((dlg as any).submitted) {
+        scheduleDialog.innerHTML = html;
+        populateHours(scheduleDialog);
+        loadSchedule(scheduleDialog, options.schedule);
+        dialogHelper.open(scheduleDialog).catch(reject);
+        scheduleDialog.addEventListener('close', () => {
+            if (scheduleDialog.submitted) {
                 resolve(options.schedule);
             } else {
                 reject();
             }
         });
-        dlg.querySelector('.btnCancel')!.addEventListener('click', () => {
-            dialogHelper.close(dlg);
+        scheduleDialog.querySelector('.btnCancel')!.addEventListener('click', () => {
+            dialogHelper.close(scheduleDialog);
         });
-        dlg.querySelector('form')!.addEventListener('submit', (event: Event) => {
-            submitSchedule(dlg, options);
+        scheduleDialog.querySelector('form')!.addEventListener('submit', (event: Event) => {
+            submitSchedule(scheduleDialog, options);
             event.preventDefault();
             return false;
         });

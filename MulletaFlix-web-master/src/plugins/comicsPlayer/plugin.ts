@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { getLibraryApi } from '@jellyfin/sdk/lib/utils/api/library-api';
 import { Archive } from 'libarchive.js';
 import escapeHtml from 'escape-html';
@@ -71,7 +72,7 @@ export class ComicsPlayer {
         this.comicsPlayerSettings = userSettings.getComicsPlayerSettings(mediaSourceId);
 
         const elem = this.createMediaElement();
-        return this.setCurrentSrc(elem, options);
+        return loading.withLoading(() => this.setCurrentSrc(elem, options));
     }
 
     stop(): void {
@@ -322,8 +323,6 @@ export class ComicsPlayer {
             }
         };
 
-        loading.show();
-
         Archive.init({
             workerUrl: appRouter.baseUrl() + '/libraries/worker-bundle.js'
         });
@@ -339,8 +338,6 @@ export class ComicsPlayer {
             // eslint-disable-next-line import/no-unresolved
             .then(() => import('swiper/bundle'))
             .then(({ Swiper }) => {
-                loading.hide();
-
                 this.pageCount = this.archiveSource!.urls.length;
                 this.currentPage = (options.startPositionTicks || 0) / 10000 || 0;
 
@@ -386,7 +383,7 @@ export class ComicsPlayer {
                     this.currentPage = this.swiperInstance.activeIndex;
                     Events.trigger(this, 'pause');
                 });
-            });
+            }).finally(() => loading.hide());
     }
 
     getImgFromUrl(url: string): string {
@@ -460,3 +457,5 @@ class ArchiveSource {
 }
 
 export default ComicsPlayer;
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

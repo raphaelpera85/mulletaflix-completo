@@ -149,7 +149,20 @@ export const Component = () => {
                 {loading && <Loading />}
 
                 {error && (
-                    <Alert severity='error' sx={{ mb: 2 }}>
+                    <Alert
+                        severity='error'
+                        sx={{ mb: 2 }}
+                        action={
+                            <IconButton
+                                color='inherit'
+                                size='small'
+                                aria-label={globalize.translate('Retry')}
+                                onClick={onRefreshClick}
+                            >
+                                <RefreshIcon fontSize='small' />
+                            </IconButton>
+                        }
+                    >
                         {error}
                     </Alert>
                 )}

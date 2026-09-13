@@ -15,6 +15,25 @@ import { fetchItemsByType } from './fetchItemsByType';
 import { useProgramsSearch } from './useProgramsSearch';
 import { LIVETV_CARD_OPTIONS } from '../constants/liveTvCardOptions';
 
+const addTypedItemSections = (sections: Section[], items: BaseItemDto[], itemTypes: BaseItemKind[]): void => {
+    const typeMap = new Map<BaseItemKind, BaseItemDto[]>();
+    for (const searchItem of items) {
+        const type = searchItem.Type;
+        if (!type) continue;
+        const list = typeMap.get(type);
+        if (list) {
+            list.push(searchItem);
+        } else {
+            typeMap.set(type, [ searchItem ]);
+        }
+    }
+
+    for (const itemType of itemTypes) {
+        const typedItems = typeMap.get(itemType);
+        addSection(sections, getTitleFromType(itemType), typedItems, getCardOptionsFromType(itemType));
+    }
+};
+
 export const useSearchItems = (
     parentId?: string,
     collectionType?: CollectionType,
@@ -82,23 +101,7 @@ export const useSearchItems = (
                 { signal }
             );
 
-            if (searchData.Items) {
-                const typeMap = new Map<BaseItemKind, BaseItemDto[]>();
-                for (const searchItem of searchData.Items) {
-                    const type = searchItem.Type;
-                    if (!type) continue;
-                    const list = typeMap.get(type);
-                    if (list) {
-                        list.push(searchItem);
-                    } else {
-                        typeMap.set(type, [searchItem]);
-                    }
-                }
-                for (const itemType of itemTypes) {
-                    const items = typeMap.get(itemType);
-                    addSection(sections, getTitleFromType(itemType), items, getCardOptionsFromType(itemType));
-                }
-            }
+            if (searchData.Items) addTypedItemSections(sections, searchData.Items, itemTypes);
 
             return sortSections(sections);
         },
@@ -114,4 +117,3 @@ export const useSearchItems = (
         )
     });
 };
-

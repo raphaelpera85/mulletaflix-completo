@@ -44,10 +44,6 @@ interface ApiClientLike {
 
 declare const ApiClient: ApiClientLike;
 
-function onDialogClosed(): void {
-    loading.hide();
-}
-
 function getResultsElement(page: HTMLDivElement): HTMLDivElement {
     return page.querySelector<HTMLDivElement>('.results')!;
 }
@@ -61,8 +57,6 @@ function refreshDirectoryBrowser(page: HTMLDivElement, path: string | undefined,
         throw new Error('invalid path');
     }
 
-    loading.show();
-
     const promises: Array<Promise<DirectoryEntry[] | string>> = [];
 
     if (path) {
@@ -72,7 +66,7 @@ function refreshDirectoryBrowser(page: HTMLDivElement, path: string | undefined,
         promises.push(ApiClient.getDrives());
     }
 
-    Promise.all(promises).then((responses) => {
+    void loading.withLoading(() => Promise.all(promises)).then((responses) => {
         const folders = responses[0] as DirectoryEntry[];
         const parentPath = (responses[1] ? JSON.parse(responses[1] as string) : '') || '';
         let html = '';
@@ -90,12 +84,10 @@ function refreshDirectoryBrowser(page: HTMLDivElement, path: string | undefined,
         }
 
         getResultsElement(page).innerHTML = html;
-        loading.hide();
-    }, () => {
+    }).catch(() => {
         if (updatePathOnError) {
             getPathInput(page).value = '';
             getResultsElement(page).innerHTML = '';
-            loading.hide();
         }
     });
 }
@@ -211,7 +203,7 @@ function initEditor(content: HTMLDivElement, options: DirectoryBrowserOptions, f
     content.querySelector('form')!.addEventListener('submit', function (e) {
         if (options.callback) {
             const path = (this.querySelector('#txtDirectoryPickerPath') as HTMLInputElement).value;
-            validatePath(path, !!options.validateWriteable, ApiClient)
+            loading.withLoading(() => validatePath(path, !!options.validateWriteable, ApiClient))
                 .then(() => options.callback?.(path))
                 .catch(() => { /* no-op */ });
         }
@@ -248,7 +240,7 @@ class DirectoryBrowser {
             fileOptions.includeFiles = options.includeFiles;
         }
 
-        getDefaultPath(options).then((fetchedInitialPath) => {
+        loading.withLoading(() => getDefaultPath(options)).then((fetchedInitialPath) => {
             const dlg = dialogHelper.createDialog({
                 size: 'small',
                 removeOnClose: true,
@@ -270,7 +262,6 @@ class DirectoryBrowser {
             html += getEditorHtml(options);
             dlg.innerHTML = html;
             initEditor(dlg, options, fileOptions);
-            dlg.addEventListener('close', onDialogClosed);
             dialogHelper.open(dlg).catch(() => undefined);
             dlg.querySelector('.btnCloseDialog')?.addEventListener('click', () => {
                 dialogHelper.close(dlg);

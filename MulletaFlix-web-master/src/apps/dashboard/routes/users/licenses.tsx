@@ -150,7 +150,7 @@ const getStatus = (
 
 export const Component = () => {
     const { api } = useApi();
-    const { data: users, isPending, isError } = useUsers();
+    const { data: users, isPending, isError, refetch: refetchUsers } = useUsers();
     const setLicenseMutation = useSetUserLicense();
     const revokeLicenseMutation = useRevokeUserLicense();
     const [ durationDrafts, setDurationDrafts ] = useState<Record<string, string>>({});
@@ -206,16 +206,59 @@ export const Component = () => {
 
     const {
         data: timelineData,
-        isPending: isTimelineLoading
+        isPending: isTimelineLoading,
+        isError: isTimelineError,
+        refetch: refetchTimeline
     } = useLogEntries(timelineParams);
 
     const timelineEntries = useMemo<ActivityLogEntry[]>(() => (
         timelineData?.Items || []
     ), [timelineData]);
 
+    const retryTimeline = useCallback(async () => {
+        try {
+            await refetchTimeline();
+        } catch {
+            // The query state remains responsible for announcing the error.
+        }
+    }, [refetchTimeline]);
+
+    const retryUsers = useCallback(() => {
+        void refetchUsers().catch((error: unknown) => {
+            console.error('[UserLicenses] failed to retry users', error);
+        });
+    }, [refetchUsers]);
+
+    const retryLicense = useCallback((userId: string) => {
+        const rowIndex = users?.findIndex(user => user.Id === userId) ?? -1;
+        const refetch = rowIndex >= 0 ? licenseQueries[rowIndex]?.refetch : undefined;
+        if (!refetch) return;
+
+        return refetch().catch((error: unknown) => {
+            console.error('[UserLicenses] failed to retry license', error);
+        });
+    }, [licenseQueries, users]);
+
+    const handleRetryLicenseClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        void retryLicense(event.currentTarget.dataset.userId || '');
+    }, [retryLicense]);
+
     let timelineContent: React.ReactNode;
     if (isTimelineLoading) {
         timelineContent = <CircularProgress size={24} />;
+    } else if (isTimelineError) {
+        timelineContent = (
+            <Alert
+                severity='error'
+                action={(
+                    <Button color='inherit' size='small' onClick={retryTimeline}>
+                        Tentar novamente
+                    </Button>
+                )}
+            >
+                Não foi possível carregar o histórico de alterações de licença.
+            </Alert>
+        );
     } else if (timelineEntries.length === 0) {
         timelineContent = (
             <Typography color='text.secondary'>
@@ -330,7 +373,7 @@ export const Component = () => {
         );
     }, [handleRevoke]);
 
-    if (isPending) {
+    if (isPending && !isError) {
         return <Loading />;
     }
 
@@ -349,7 +392,14 @@ export const Component = () => {
                         Grid centralizada para acompanhar a data de início da licença e aplicar o tempo selecionado por usuário.
                     </Typography>
                     {isError && (
-                        <Alert severity='error'>
+                        <Alert
+                            severity='error'
+                            action={(
+                                <Button color='inherit' size='small' onClick={retryUsers}>
+                                    Tentar novamente
+                                </Button>
+                            )}
+                        >
                             Não foi possível carregar a lista de usuários.
                         </Alert>
                     )}
@@ -419,6 +469,15 @@ export const Component = () => {
                                                 <Typography variant='body2' color='text.secondary'>
                                                     {status.details}
                                                 </Typography>
+                                                {status.label === 'Erro' && (
+                                                    <Button
+                                                        size='small'
+                                                        data-user-id={userId}
+                                                        onClick={handleRetryLicenseClick}
+                                                    >
+                                                        Tentar novamente
+                                                    </Button>
+                                                )}
                                                 {license?.AdminNotes && !isNoLicense && (
                                                     <Typography variant='caption' color='text.secondary'>
                                                         Observação: {license.AdminNotes}

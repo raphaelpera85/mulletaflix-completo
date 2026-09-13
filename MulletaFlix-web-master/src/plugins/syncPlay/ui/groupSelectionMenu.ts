@@ -79,7 +79,7 @@ class GroupSelectionMenu {
     private showNewJoinGroupSelection(button: HTMLElement, user: SyncPlayUser, apiClient: SyncPlayApiClient): void {
         const policy = user.localUser?.Policy || {};
 
-        apiClient.getSyncPlayGroups().then((response) => {
+        loading.withLoading(() => apiClient.getSyncPlayGroups()).then((response) => {
             return response.json().then((groups) => {
                 const menuItems = groups.map((group) => {
                     return {
@@ -105,7 +105,6 @@ class GroupSelectionMenu {
                     toast({
                         text: globalize.translate('MessageSyncPlayCreateGroupDenied')
                     });
-                    loading.hide();
                     return;
                 }
 
@@ -134,12 +133,9 @@ class GroupSelectionMenu {
                         console.error('SyncPlay: unexpected error listing groups:', error);
                     }
                 });
-
-                loading.hide();
             });
         }).catch((error) => {
             console.error(error);
-            loading.hide();
             toast({
                 text: globalize.translate('MessageSyncPlayErrorAccessingGroups')
             });
@@ -217,41 +213,34 @@ class GroupSelectionMenu {
                 console.error('SyncPlay: unexpected error showing group menu:', error);
             }
         });
-
-        loading.hide();
     }
 
     show(button: HTMLElement): void {
-        loading.show();
-
-        playbackPermissionManager.check().then(() => {
-            console.debug('Playback is allowed.');
-        }).catch((error) => {
-            console.error('Playback not allowed!', error);
-            toast({
-                text: globalize.translate('MessageSyncPlayPlaybackPermissionRequired')
+        void loading.withLoading(async () => {
+            await playbackPermissionManager.check().catch((error) => {
+                console.error('Playback not allowed!', error);
+                toast({
+                    text: globalize.translate('MessageSyncPlayPlaybackPermissionRequired')
+                });
             });
-        });
 
-        const currentApiClient = ServerConnections.currentApiClient();
-        if (!currentApiClient) {
-            loading.hide();
-            toast({
-                text: globalize.translate('MessageSyncPlayNoGroupsAvailable')
-            });
-            return;
-        }
+            const currentApiClient = ServerConnections.currentApiClient();
+            if (!currentApiClient) {
+                toast({
+                    text: globalize.translate('MessageSyncPlayNoGroupsAvailable')
+                });
+                return;
+            }
 
-        const apiClient = currentApiClient as SyncPlayApiClient;
-        ServerConnections.user(apiClient).then((user: SyncPlayUser) => {
+            const apiClient = currentApiClient as unknown as SyncPlayApiClient;
+            const user = await ServerConnections.user(apiClient);
             if (this.syncPlayEnabled) {
                 this.showLeaveGroupSelection(button, user, apiClient);
             } else {
                 this.showNewJoinGroupSelection(button, user, apiClient);
             }
         }).catch((error) => {
-            console.error(error);
-            loading.hide();
+            console.error('SyncPlay: failed to open group selection', error);
             toast({
                 text: globalize.translate('MessageSyncPlayNoGroupsAvailable')
             });

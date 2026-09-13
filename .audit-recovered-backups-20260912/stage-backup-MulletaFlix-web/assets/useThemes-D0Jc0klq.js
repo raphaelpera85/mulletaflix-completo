@@ -1,0 +1,1 @@
+import{r as s}from"./vendor-react-CeUY3tRn.js";import{am as o}from"./index-CFwqrzSZ.js";function n(){const{themes:e}=o(),t=s.useMemo(()=>e?.find(r=>r.default),[e]);return{themes:e||[],defaultTheme:t}}export{n as u};

@@ -39,9 +39,11 @@ export default tseslint.config(
         ignores: [
             'node_modules',
             'coverage',
+            '**/coverage/**',
             'dist',
             '.idea',
-            '.vscode'
+            '.vscode',
+            '**/*.d.ts'
         ]
     },
 
@@ -442,6 +444,17 @@ export default tseslint.config(
             'sonarjs/no-invariant-returns': 'warn',
             'sonarjs/no-nested-functions': 'off',
             'sonarjs/void-use': 'off'
+        }
+    },
+
+    // The Selenium/Cucumber harness is intentionally loaded as CommonJS by
+    // Cucumber's runtime. Its step definitions are also invoked as DSL
+    // functions whose names are capitalized by the feature vocabulary.
+    {
+        files: [ 'tests/selenium-cucumber/**/*.ts' ],
+        rules: {
+            '@typescript-eslint/no-require-imports': 'off',
+            'new-cap': 'off'
         }
     }
 );

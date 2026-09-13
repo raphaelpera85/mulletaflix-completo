@@ -1,5 +1,7 @@
 import { Action } from 'history';
-import { FunctionComponent, useEffect } from 'react';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import { FunctionComponent, useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigationType } from 'react-router-dom';
 
 import globalize from 'lib/globalize';
@@ -7,6 +9,7 @@ import type { RestoreViewFailResponse } from 'types/viewManager';
 
 import viewManager from './viewManager';
 import { AppType } from 'constants/appType';
+import type { ControllerFactory } from '../viewContainer';
 
 export interface ViewManagerPageProps {
     appType?: AppType
@@ -22,8 +25,7 @@ export interface ViewManagerPageProps {
 interface ViewOptions {
     url: string
     type?: string
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    state: any
+    state: unknown
     autoFocus: boolean
     fullscreen?: boolean
     transition?: string
@@ -64,14 +66,21 @@ const defaultViews = import.meta.glob([
     '../../controllers/**/*.html'
 ], { query: '?raw', import: 'default' });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const resolveModule = (glob: Record<string, () => Promise<any>>, basePath: string, name: string) => {
+function getDefaultExport(moduleValue: unknown): unknown {
+    if (moduleValue && typeof moduleValue === 'object' && 'default' in moduleValue) {
+        return (moduleValue as { default?: unknown }).default || moduleValue;
+    }
+
+    return moduleValue;
+}
+
+const resolveModule = <T = unknown>(glob: Record<string, () => Promise<unknown>>, basePath: string, name: string): Promise<T> => {
     const extensions = ['', '.ts', '.tsx', '.html'];
     for (const ext of extensions) {
         const path = `${basePath}/${name}${ext}`;
         const loadFn = glob[path];
         if (loadFn) {
-            return loadFn().then(mod => mod.default || mod);
+            return loadFn().then(mod => getDefaultExport(mod) as T);
         }
     }
     return Promise.reject(new Error(`Module not found: ${basePath}/${name}`));
@@ -81,9 +90,9 @@ const importController = (
     appType: AppType,
     controller: string,
     view: string
-) => {
-    const resolveView = (htmlModule: any) => {
-        const html = htmlModule?.default !== undefined ? htmlModule.default : htmlModule;
+) : Promise<[ControllerFactory, string]> => {
+    const resolveView = (htmlModule: unknown): string => {
+        const html = getDefaultExport(htmlModule);
         if (typeof html === 'string') {
             return globalize.translateHtml(html);
         }
@@ -93,20 +102,20 @@ const importController = (
     switch (appType) {
         case AppType.Dashboard:
             return Promise.all([
-                resolveModule(dashboardControllers, '../../apps/dashboard/controllers', controller),
-                resolveModule(dashboardViews, '../../apps/dashboard/controllers', view)
+                resolveModule<ControllerFactory>(dashboardControllers, '../../apps/dashboard/controllers', controller),
+                resolveModule<unknown>(dashboardViews, '../../apps/dashboard/controllers', view)
                     .then(resolveView)
             ]);
         case AppType.Wizard:
             return Promise.all([
-                resolveModule(wizardControllers, '../../apps/wizard/controllers', controller),
-                resolveModule(wizardViews, '../../apps/wizard/controllers', view)
+                resolveModule<ControllerFactory>(wizardControllers, '../../apps/wizard/controllers', controller),
+                resolveModule<unknown>(wizardViews, '../../apps/wizard/controllers', view)
                     .then(resolveView)
             ]);
         default:
             return Promise.all([
-                resolveModule(defaultControllers, '../../controllers', controller),
-                resolveModule(defaultViews, '../../controllers', view)
+                resolveModule<ControllerFactory>(defaultControllers, '../../controllers', controller),
+                resolveModule<unknown>(defaultViews, '../../controllers', view)
                     .then(resolveView)
             ]);
     }
@@ -143,8 +152,13 @@ const ViewManagerPage: FunctionComponent<ViewManagerPageProps> = ({
 }) => {
     const location = useLocation();
     const navigationType = useNavigationType();
+    const [ loadError, setLoadError ] = useState<unknown>(null);
+    const [ retryCount, setRetryCount ] = useState(0);
+    const handleRetry = useCallback(() => setRetryCount(value => value + 1), []);
 
     useEffect(() => {
+        setLoadError(null);
+
         const loadPage = () => {
             const viewOptions = {
                 url: location.pathname + location.search,
@@ -174,7 +188,10 @@ const ViewManagerPage: FunctionComponent<ViewManagerPageProps> = ({
                 });
         };
 
-        loadPage().catch(() => undefined);
+        loadPage().catch((error: unknown) => {
+            console.error('[ViewManagerPage] failed to load legacy view', { view, error });
+            setLoadError(error);
+        });
     },
     // location.state and navigationType are NOT included as dependencies here since dialogs will update state while the current view stays the same
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,8 +204,26 @@ const ViewManagerPage: FunctionComponent<ViewManagerPageProps> = ({
         isThemeMediaSupported,
         transition,
         location.pathname,
-        location.search
+        location.search,
+        retryCount
     ]);
+
+    if (loadError) {
+        return (
+            <Alert
+                severity='error'
+                role='alert'
+                action={(
+                    <Button color='inherit' size='small' onClick={handleRetry}>
+                        Tentar novamente
+                    </Button>
+                )}
+                sx={{ m: 2 }}
+            >
+                Não foi possível carregar esta tela. Tente novamente.
+            </Alert>
+        );
+    }
 
     return null;
 };

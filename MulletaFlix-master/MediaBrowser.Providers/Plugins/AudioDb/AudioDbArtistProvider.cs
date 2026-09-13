@@ -195,7 +195,7 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
         /// <inheritdoc />
         public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
         {
-            throw new NotImplementedException();
+            return _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(url, cancellationToken);
         }
 
         public class Artist
@@ -292,4 +292,3 @@ namespace MediaBrowser.Providers.Plugins.AudioDb
         }
     }
 }
-

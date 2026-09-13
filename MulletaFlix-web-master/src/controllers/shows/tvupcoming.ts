@@ -2,7 +2,7 @@ import cardBuilder from 'components/cardbuilder/cardBuilder';
 import { getBackdropShape } from 'components/cardbuilder/utils/shape';
 import imageLoader from 'components/images/imageLoader';
 import layoutManager from 'components/layoutManager';
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import datetime from 'scripts/datetime';
 import globalize from 'lib/globalize';
 import type { ItemDto } from 'types/base/models/item-dto';
@@ -17,7 +17,6 @@ interface ViewParams {
 }
 
 function getUpcomingPromise(params: ViewParams): Promise<ItemDtoQueryResult> {
-    loading.show();
     const query: Record<string, unknown> = {
         Limit: 48,
         Fields: 'AirTime',
@@ -31,7 +30,8 @@ function getUpcomingPromise(params: ViewParams): Promise<ItemDtoQueryResult> {
 }
 
 function loadUpcoming(context: HTMLElement, promise: Promise<ItemDtoQueryResult>): void {
-    promise.then(function (result: ItemDtoQueryResult) {
+    void withLoading(async () => {
+        const result = await promise;
         const items = result.Items ?? [];
         const noItemsMessage = context.querySelector('.noItemsMessage');
 
@@ -43,10 +43,8 @@ function loadUpcoming(context: HTMLElement, promise: Promise<ItemDtoQueryResult>
         if (upcomingItems instanceof HTMLElement) {
             renderUpcoming(upcomingItems, items);
         }
-        loading.hide();
     }).catch((error: unknown) => {
         console.error('[TvUpcoming] failed to load upcoming shows', error);
-        loading.hide();
     });
 }
 

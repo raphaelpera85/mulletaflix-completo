@@ -1,62 +1,42 @@
-import { ThemeProvider } from '@mui/material/styles';
-import React from 'react';
+import React, { Suspense } from 'react';
 import {
     RouterProvider,
-    createHashRouter,
-    Outlet
+    createHashRouter
 } from 'react-router-dom';
 
-import { DASHBOARD_APP_ROUTES } from 'apps/dashboard/routes/routes';
-import { EXPERIMENTAL_APP_ROUTES } from 'apps/experimental/routes/routes';
-import { STABLE_APP_ROUTES } from 'apps/stable/routes/routes';
-import { WIZARD_APP_ROUTES } from 'apps/wizard/routes/routes';
-import AppHeader from 'components/AppHeader';
-import Backdrop from 'components/Backdrop';
-import layoutManager from 'components/layoutManager';
-import BangRedirect from 'components/router/BangRedirect';
-import { createRouterHistory } from 'components/router/routerHistory';
-import { LayoutMode } from 'constants/layoutMode';
-import appTheme from 'themes';
-import { ThemeStorageManager } from 'themes/themeStorageManager';
-
-const isExperimentalLayout = layoutManager.layout === LayoutMode.Experimental;
+import DynamicAppRoutes from 'components/router/DynamicAppRoutes';
+import { createRouterHistory, setRouterHistory } from 'components/router/routerHistory';
+import ThemedRootAppLayout from 'components/router/ThemedRootAppLayout';
 
 const router = createHashRouter([
     {
-        element: <RootAppLayout />,
+        element: (
+            <Suspense fallback={null}>
+                <ThemedRootAppLayout />
+            </Suspense>
+        ),
         children: [
-            ...(isExperimentalLayout ? EXPERIMENTAL_APP_ROUTES : STABLE_APP_ROUTES),
-            ...DASHBOARD_APP_ROUTES,
-            ...WIZARD_APP_ROUTES,
+            {
+                // Keep the remaining pathname available to the dynamically
+                // selected application route tree (dashboard, wizard, or
+                // stable). A plain '*' consumes the full pathname here and
+                // can leave the nested useRoutes tree with no match.
+                path: '/*',
+                element: <DynamicAppRoutes />
+            },
             {
                 path: '!/*',
-                Component: BangRedirect
+                lazy: async () => ({
+                    Component: (await import('components/router/BangRedirect')).default
+                })
             }
         ]
     }
 ]);
 
 export const history = createRouterHistory(router);
+setRouterHistory(history);
 
 export default function RootAppRouter() {
     return <RouterProvider router={router} />;
-}
-
-/**
- * Layout component that renders legacy components required on all pages.
- * NOTE: The app will crash if these get removed from the DOM.
- */
-function RootAppLayout() {
-    return (
-        <ThemeProvider
-            theme={appTheme}
-            defaultMode='dark'
-            storageManager={ThemeStorageManager}
-        >
-            <Backdrop />
-            <AppHeader isHidden />
-
-            <Outlet />
-        </ThemeProvider>
-    );
 }

@@ -21,11 +21,13 @@ internal static class PortBindingRecovery
         Func<Task> startAsync,
         IEnumerable<int> ports,
         ILogger logger,
-        string componentName)
+        string componentName,
+        Func<Task>? resetAsync = null)
     {
         var portList = ports.Distinct().ToArray();
         var currentPid = Environment.ProcessId;
 
+        Exception? bindException;
         try
         {
             await startAsync().ConfigureAwait(false);
@@ -33,6 +35,7 @@ internal static class PortBindingRecovery
         }
         catch (Exception ex) when (IsAddressInUseException(ex))
         {
+            bindException = ex;
             logger.LogWarning(
                 ex,
                 "{Component} could not bind to one of the configured ports. Attempting to free them and retry once.",
@@ -43,12 +46,39 @@ internal static class PortBindingRecovery
         if (!killedAny)
         {
             logger.LogWarning(
-                "{Component} did not find a listener process to terminate on ports {Ports}. Retrying startup anyway.",
+                "{Component} did not find a safe listener process to terminate on ports {Ports}. Startup will not terminate an unrelated process.",
                 componentName,
                 portList);
+
+            throw new InvalidOperationException(
+                $"{componentName} could not start because one of the configured ports is already in use. Stop the conflicting service or choose another port.",
+                bindException);
         }
 
-        await WaitForPortsToFreeAsync(portList, currentPid, TimeSpan.FromSeconds(10), logger).ConfigureAwait(false);
+        var portsReleased = await WaitForPortsToFreeAsync(portList, currentPid, TimeSpan.FromSeconds(10), logger).ConfigureAwait(false);
+        if (!portsReleased)
+        {
+            throw new InvalidOperationException(
+                $"{componentName} could not reclaim the configured ports because another process is still listening.",
+                bindException);
+        }
+
+        if (resetAsync is not null)
+        {
+            try
+            {
+                // Kestrel can remain in a partially-started state after a
+                // bind failure. Reset the host before invoking StartAsync
+                // again; otherwise the retry fails with "Server has already
+                // started" even after the conflicting process was removed.
+                await resetAsync().ConfigureAwait(false);
+            }
+            catch (Exception resetException)
+            {
+                logger.LogDebug(resetException, "Could not reset {Component} before port recovery retry.", componentName);
+            }
+        }
+
         await startAsync().ConfigureAwait(false);
     }
 
@@ -81,10 +111,21 @@ internal static class PortBindingRecovery
             try
             {
                 var process = Process.GetProcessById(pid);
-                logger.LogWarning("Killing process {ProcessName} (PID {Pid}) because it is listening on one of the configured ports.", process.ProcessName, pid);
+                var currentPath = Environment.ProcessPath;
+                var targetPath = process.MainModule?.FileName;
+                if (!CanTerminateProcess(currentPath, targetPath))
+                {
+                    logger.LogWarning(
+                        "Refusing to terminate process {ProcessName} (PID {Pid}) on a configured port because its executable does not match the current server.",
+                        process.ProcessName,
+                        pid);
+                    continue;
+                }
+
+                logger.LogWarning("Killing matching server process {ProcessName} (PID {Pid}) because it is listening on one of the configured ports.", process.ProcessName, pid);
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit(5000);
-                killedAny = true;
+                killedAny |= process.HasExited;
             }
             catch (ArgumentException)
             {
@@ -99,11 +140,11 @@ internal static class PortBindingRecovery
         return killedAny;
     }
 
-    private static async Task WaitForPortsToFreeAsync(IEnumerable<int> ports, int currentPid, TimeSpan timeout, ILogger logger)
+    private static async Task<bool> WaitForPortsToFreeAsync(IEnumerable<int> ports, int currentPid, TimeSpan timeout, ILogger logger)
     {
         if (!OperatingSystem.IsWindows())
         {
-            return;
+            return false;
         }
 
         var portSet = ports.Distinct().ToHashSet();
@@ -114,7 +155,7 @@ internal static class PortBindingRecovery
             var pids = await GetListeningPidsAsync(portSet).ConfigureAwait(false);
             if (pids.Count == 0 || pids.All(pid => pid == currentPid))
             {
-                return;
+                return true;
             }
 
             logger.LogWarning(
@@ -122,6 +163,28 @@ internal static class PortBindingRecovery
                 portSet,
                 pids);
             await Task.Delay(500).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    internal static bool CanTerminateProcess(string? currentPath, string? targetPath)
+    {
+        if (string.IsNullOrWhiteSpace(currentPath) || string.IsNullOrWhiteSpace(targetPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(currentPath),
+                Path.GetFullPath(targetPath),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
         }
     }
 

@@ -56,7 +56,8 @@ export const Component = () => {
     const {
         data: config,
         isPending: isConfigPending,
-        isError: isConfigError
+        isError: isConfigError,
+        refetch: refetchConfig
     } = useNamedConfiguration<XbmcMetadataOptions>(CONFIG_KEY);
     const {
         data: users
@@ -64,6 +65,9 @@ export const Component = () => {
     const navigation = useNavigation();
     const actionData = useActionData() as ActionData | undefined;
     const isSubmitting = navigation.state === 'submitting';
+    const retryLoad = useCallback(() => {
+        void refetchConfig();
+    }, [ refetchConfig ]);
     const [isAlertOpen, setIsAlertOpen] = useState(false);
 
     const onAlertClose = useCallback(() => {
@@ -74,7 +78,7 @@ export const Component = () => {
         setIsAlertOpen(true);
     }, []);
 
-    if (isConfigPending) {
+    if (isConfigPending && !isConfigError) {
         return <Loading />;
     }
 
@@ -91,7 +95,12 @@ export const Component = () => {
             />
             <Box className='content-primary'>
                 {isConfigError ? (
-                    <Alert severity='error'>{globalize.translate('MetadataNfoLoadError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('MetadataNfoLoadError')}
+                    </Alert>
                 ) : (
                     <Form method='POST' onSubmit={onSubmit}>
                         <Stack spacing={3}>
@@ -176,4 +185,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'NFOSettingsPage';
-

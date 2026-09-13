@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @typescript-eslint/no-shadow, sonarjs/cognitive-complexity */
 import globalize from '../lib/globalize';
 import listView from '../components/listview/listview';
 import * as userSettings from '../scripts/settings/userSettings';
@@ -1045,13 +1046,12 @@ class ItemsView {
             const isRestored = e.detail.isRestored;
 
             if (!isRestored) {
-                loading.show();
                 updateSortText(self);
                 updateItemsContainerForViewType(self);
             }
 
             setTitle(null);
-            void getItem(params).then(function (item: JellyfinItem | null) {
+            void loading.withLoading(() => getItem(params).then(function (item: JellyfinItem | null) {
                 setTitle(item);
                 if (item && item.Type == 'Genre') {
                     item.ParentId = params.parentId;
@@ -1059,16 +1059,13 @@ class ItemsView {
 
                 self.currentItem = item;
                 const refresh = !isRestored;
-                self.itemsContainer.resume({
+                const resumePromise = self.itemsContainer.resume({
                     refresh: refresh
                 }).then(function () {
-                    loading.hide();
-
                     if (refresh) {
                         focusManager.autoFocus(self.itemsContainer);
                     }
                 }).catch((error: unknown) => {
-                    loading.hide();
                     console.error('Failed to resume list', error);
                 });
 
@@ -1111,8 +1108,9 @@ class ItemsView {
                     // Hide Queue button
                     hideOrShowAll(view.querySelectorAll<HTMLElement>('.btnQueue'), true);
                 }
-            }).catch((error: unknown) => {
-                loading.hide();
+
+                return resumePromise;
+            })).catch((error: unknown) => {
                 console.error('Failed to load list context', error);
             });
 
@@ -1519,3 +1517,5 @@ class ItemsView {
 }
 
 export default ItemsView;
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @typescript-eslint/no-shadow, sonarjs/cognitive-complexity */

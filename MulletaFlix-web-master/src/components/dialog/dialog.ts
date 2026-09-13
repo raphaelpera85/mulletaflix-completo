@@ -24,14 +24,16 @@ interface DialogCreateOptions {
     removeOnClose?: boolean;
     scrollY?: boolean;
     size?: string;
+    id?: string;
 }
 
-interface DialogOptions {
+export interface DialogOptions {
     dialogOptions?: DialogCreateOptions;
     buttons?: DialogButtonOption[];
     html?: string;
     text?: string;
     title?: string;
+    type?: string;
 }
 
 interface FormDialogElement extends HTMLDivElement {
@@ -53,6 +55,37 @@ interface FormDialogElement extends HTMLDivElement {
             };
         };
     };
+}
+
+function getDialogButtonsHtml(buttonOptions: DialogButtonOption[]): { html: string; hasDescriptions: boolean } {
+    let html = '';
+    let hasDescriptions = false;
+
+    for (let i = 0, length = buttonOptions.length; i < length; i++) {
+        const item = buttonOptions[i];
+        const autoFocus = i === 0 ? ' autofocus' : '';
+        let buttonClass = 'btnOption raised formDialogFooterItem formDialogFooterItem-autosize';
+
+        if (item.type) {
+            buttonClass += ` button-${item.type}`;
+        }
+
+        if (item.description) {
+            hasDescriptions = true;
+        }
+
+        if (hasDescriptions) {
+            buttonClass += ' formDialogFooterItem-vertical formDialogFooterItem-nomarginbottom';
+        }
+
+        html += `<button is="emby-button" type="button" class="${escapeHtml(buttonClass)}" data-id="${escapeHtml(String(item.id || ''))}"${autoFocus}>${escapeHtml(item.name)}</button>`;
+
+        if (item.description) {
+            html += `<div class="formDialogFooterItem formDialogFooterItem-autosize fieldDescription" style="margin-top:.25em!important;margin-bottom:1.25em!important;">${item.description}</div>`;
+        }
+    }
+
+    return { html, hasDescriptions };
 }
 
 function showDialog(options: DialogOptions = { dialogOptions: {}, buttons: [] }): Promise<string> {
@@ -93,6 +126,9 @@ function showDialog(options: DialogOptions = { dialogOptions: {}, buttons: [] })
     const headerTitle = dlg.querySelector<HTMLElement>('.formDialogHeaderTitle');
     if (headerTitle) {
         if (options.title) {
+            const titleId = `${dlg.id}-title`;
+            headerTitle.id = titleId;
+            dlg.setAttribute('aria-labelledby', titleId);
             headerTitle.innerText = options.title || '';
         } else {
             headerTitle.classList.add('hide');
@@ -102,6 +138,9 @@ function showDialog(options: DialogOptions = { dialogOptions: {}, buttons: [] })
     const displayText = options.html || options.text || '';
     const dialogText = dlg.querySelector<HTMLElement>('.text');
     if (dialogText) {
+        const descriptionId = `${dlg.id}-description`;
+        dialogText.id = descriptionId;
+        dlg.setAttribute('aria-describedby', descriptionId);
         dialogText.innerHTML = DOMPurify.sanitize(displayText);
     }
 
@@ -109,33 +148,7 @@ function showDialog(options: DialogOptions = { dialogOptions: {}, buttons: [] })
         dlg.querySelector<HTMLElement>('.dialogContentInner')?.classList.add('hide');
     }
 
-    let html = '';
-    let hasDescriptions = false;
-
-    for (let i = 0, length = buttonOptions.length; i < length; i++) {
-        const item = buttonOptions[i];
-        const autoFocus = i === 0 ? ' autofocus' : '';
-
-        let buttonClass = 'btnOption raised formDialogFooterItem formDialogFooterItem-autosize';
-
-        if (item.type) {
-            buttonClass += ` button-${item.type}`;
-        }
-
-        if (item.description) {
-            hasDescriptions = true;
-        }
-
-        if (hasDescriptions) {
-            buttonClass += ' formDialogFooterItem-vertical formDialogFooterItem-nomarginbottom';
-        }
-
-        html += `<button is="emby-button" type="button" class="${escapeHtml(buttonClass)}" data-id="${escapeHtml(String(item.id || ''))}"${autoFocus}>${escapeHtml(item.name)}</button>`;
-
-        if (item.description) {
-            html += `<div class="formDialogFooterItem formDialogFooterItem-autosize fieldDescription" style="margin-top:.25em!important;margin-bottom:1.25em!important;">${item.description}</div>`;
-        }
-    }
+    const { html, hasDescriptions } = getDialogButtonsHtml(buttonOptions);
 
     const footer = dlg.querySelector<HTMLElement>('.formDialogFooter');
     if (footer) {
@@ -157,7 +170,7 @@ function showDialog(options: DialogOptions = { dialogOptions: {}, buttons: [] })
         dialogButtons[i].addEventListener('click', onButtonClick);
     }
 
-    return dialogHelper.open(dlg).then(() => {
+    return dialogHelper.open(dlg).then(async (): Promise<string> => {
         if (enableTvLayout && formDialogContent) {
             scrollHelper.centerFocus.off(formDialogContent, false);
         }

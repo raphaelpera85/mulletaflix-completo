@@ -28,6 +28,19 @@ function Get-PythonPath {
     return $null
 }
 
+function Assert-ValidAuthenticodeSignature {
+    param([Parameter(Mandatory = $true)][string] $Path)
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid') {
+        throw "A assinatura do instalador do Python não é válida: $($signature.Status)."
+    }
+
+    if ($signature.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
+        throw "O instalador do Python não foi assinado pela Python Software Foundation: $($signature.SignerCertificate.Subject)."
+    }
+}
+
 $python = Get-PythonPath
 if ($python) {
     Write-Host "[OK] Python encontrado em $python." -ForegroundColor Green
@@ -44,6 +57,7 @@ try {
     if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
         throw 'O instalador do Python não foi baixado.'
     }
+    Assert-ValidAuthenticodeSignature -Path $installer
 
     $arguments = @(
         '/quiet',

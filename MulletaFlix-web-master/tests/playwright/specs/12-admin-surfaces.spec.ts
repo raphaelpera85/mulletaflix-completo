@@ -21,7 +21,7 @@ test.describe.serial('12 - Admin surfaces', () => {
 
         await navigateStage(page, '/dashboard');
         await expect(page.locator('#dashboardPage')).toBeVisible();
-        await expect(page.getByRole('button', { name: /Scan All Libraries|ButtonScanAllLibraries|Scanar todas as bibliotecas/i }).first()).toBeVisible().catch(() => {});
+        await expect(page.getByRole('button', { name: /Scan All Libraries|ButtonScanAllLibraries|Scanar todas as bibliotecas/i }).first()).toBeVisible().catch(() => undefined);
         await expect(page.getByRole('button', { name: /Restart|Reiniciar/i }).first()).toBeVisible();
         await expect(page.getByRole('button', { name: /Shutdown|Desligar/i }).first()).toBeVisible();
 
@@ -46,7 +46,7 @@ test.describe.serial('12 - Admin surfaces', () => {
         }
 
         await navigateStage(page, '/dashboard/libraries');
-        await expect(page.getByRole('button', { name: /ButtonAddMediaLibrary|Add Media Library|Adicionar biblioteca/i }).first()).toBeVisible().catch(() => {});
+        await expect(page.getByRole('button', { name: /ButtonAddMediaLibrary|Add Media Library|Adicionar biblioteca/i }).first()).toBeVisible().catch(() => undefined);
     });
 
     test('covers activity, logs, devices, plugins, backups, networking and task surfaces', async ({ page }) => {
@@ -73,7 +73,7 @@ test.describe.serial('12 - Admin surfaces', () => {
         await expect(page.locator('#logPage a[href*="/dashboard/logs/"]').first()).toBeVisible({ timeout: 30_000 });
 
         await navigateStage(page, '/dashboard/plugins');
-        await expect(page.locator('#pluginsPage a[href*="/dashboard/plugins/"]').first()).toBeVisible({ timeout: 30_000 }).catch(() => {});
+        await expect(page.locator('#pluginsPage a[href*="/dashboard/plugins/"]').first()).toBeVisible({ timeout: 30_000 }).catch(() => undefined);
     });
 
     test('covers live tv and recordings surfaces', async ({ page }) => {
@@ -81,8 +81,8 @@ test.describe.serial('12 - Admin surfaces', () => {
 
         await navigateStage(page, '/dashboard/livetv');
         await expect(page.locator('#liveTvStatusPage')).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByRole('button', { name: /Add Provider|Adicionar provedor|ButtonAddProvider/i }).first()).toBeVisible().catch(() => {});
-        await expect(page.getByRole('button', { name: /Add Tuner Device|Adicionar dispositivo sintonizador|ButtonAddTunerDevice/i }).first()).toBeVisible().catch(() => {});
+        await expect(page.getByRole('button', { name: /Add Provider|Adicionar provedor|ButtonAddProvider/i }).first()).toBeVisible().catch(() => undefined);
+        await expect(page.getByRole('button', { name: /Add Tuner Device|Adicionar dispositivo sintonizador|ButtonAddTunerDevice/i }).first()).toBeVisible().catch(() => undefined);
 
         await navigateStage(page, '/dashboard/livetv/recordings');
         await expect(page.locator('#liveTvSettingsPage')).toBeVisible({ timeout: 30_000 });
@@ -90,4 +90,3 @@ test.describe.serial('12 - Admin surfaces', () => {
         await expect(page.locator('input[name="SeriesRecordingPath"]')).toBeVisible();
     });
 });
-

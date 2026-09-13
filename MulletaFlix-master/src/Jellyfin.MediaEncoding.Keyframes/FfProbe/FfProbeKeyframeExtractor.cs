@@ -89,12 +89,22 @@ public static class FfProbeKeyframeExtractor
                 }
 
                 var firstComma = line.IndexOf(',');
+                if (firstComma < 0)
+                {
+                    continue;
+                }
+
                 var lineType = line[..firstComma];
                 var rest = line[(firstComma + 1)..];
                 if (lineType.Equals("packet", StringComparison.OrdinalIgnoreCase))
                 {
                     // Split time and flags from the packet line. Example line: packet,7169.079000,K_
                     var secondComma = rest.IndexOf(',');
+                    if (secondComma < 0)
+                    {
+                        continue;
+                    }
+
                     var ptsTime = rest[..secondComma];
                     var flags = rest[(secondComma + 1)..];
                     if (flags.StartsWith("K_"))
@@ -129,4 +139,3 @@ public static class FfProbeKeyframeExtractor
         }
     }
 }
-

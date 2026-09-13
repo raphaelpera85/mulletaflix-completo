@@ -4,9 +4,23 @@ import layoutManager from '../layoutManager';
 import template from './subtitlesync.template.html';
 import './subtitlesync.scss';
 
-let player: any;
-let subtitleSyncSlider: any;
-let subtitleSyncTextField: any;
+interface SubtitleSyncSlider extends HTMLInputElement {
+    enableKeyboardDragging?: () => void;
+    updateOffset: (value: number | undefined) => void;
+    getBubbleHtml: (_event: unknown, value: number) => string;
+}
+
+interface SubtitleSyncTextField extends HTMLElement {
+    hasFocus?: boolean;
+    updateOffset: (offset: number) => void;
+    prototype?: {
+        blur: () => void;
+    };
+}
+
+let player: unknown;
+let subtitleSyncSlider: SubtitleSyncSlider;
+let subtitleSyncTextField: SubtitleSyncTextField;
 let subtitleSyncCloseButton: HTMLElement;
 let subtitleSyncContainer: HTMLElement;
 
@@ -15,15 +29,15 @@ function init(instance: SubtitleSync): void {
     document.body.appendChild(parent);
     parent.innerHTML = template;
 
-    subtitleSyncSlider = parent.querySelector('.subtitleSyncSlider') as any;
-    subtitleSyncTextField = parent.querySelector('.subtitleSyncTextField') as any;
+    subtitleSyncSlider = parent.querySelector('.subtitleSyncSlider') as SubtitleSyncSlider;
+    subtitleSyncTextField = parent.querySelector('.subtitleSyncTextField') as SubtitleSyncTextField;
     subtitleSyncCloseButton = parent.querySelector('.subtitleSync-closeButton') as HTMLElement;
     subtitleSyncContainer = parent.querySelector('.subtitleSyncContainer') as HTMLElement;
 
     if (layoutManager.tv) {
         subtitleSyncSlider.classList.add('focusable');
         setTimeout(function () {
-            subtitleSyncSlider.enableKeyboardDragging();
+            subtitleSyncSlider.enableKeyboardDragging?.();
         }, 0);
     }
 
@@ -33,26 +47,26 @@ function init(instance: SubtitleSync): void {
         this.textContent = offset + 's';
     };
 
-    subtitleSyncTextField.addEventListener('click', function (this: any) {
-        this.hasFocus = true;
+    subtitleSyncTextField.addEventListener('click', () => {
+        subtitleSyncTextField.hasFocus = true;
     });
 
-    subtitleSyncTextField.addEventListener('keydown', function (this: any, event: KeyboardEvent) {
+    subtitleSyncTextField.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
-            const inputOffset = /[-+]?\d+\.?\d*/g.exec(this.textContent);
+            const inputOffset = /[-+]?\d+\.?\d*/g.exec(subtitleSyncTextField.textContent);
             if (inputOffset) {
                 const offsetStr = inputOffset[0];
                 const parsedOffset = parseFloat(offsetStr);
 
                 subtitleSyncSlider.updateOffset(parsedOffset);
             } else {
-                this.textContent = (playbackManager.getPlayerSubtitleOffset(player) || 0) + 's';
+                subtitleSyncTextField.textContent = (playbackManager.getPlayerSubtitleOffset(player) || 0) + 's';
             }
-            this.hasFocus = false;
+            subtitleSyncTextField.hasFocus = false;
             event.preventDefault();
         } else {
-            this.hasFocus = true;
-            if (event.key.match(/[+-\d.s]/) === null) {
+            subtitleSyncTextField.hasFocus = true;
+            if (/[+-\d.s]/.exec(event.key) === null) {
                 event.preventDefault();
             }
         }
@@ -60,11 +74,11 @@ function init(instance: SubtitleSync): void {
         event.stopPropagation();
     });
 
-    subtitleSyncTextField.blur = function (this: any) {
+    subtitleSyncTextField.blur = function (this: SubtitleSyncTextField): void {
         if (!this.hasFocus && this.prototype) {
             this.prototype.blur();
         }
-    } as any;
+    };
 
     function updateSubtitleOffset(): void {
         const value = parseFloat(subtitleSyncSlider.value);
@@ -72,15 +86,15 @@ function init(instance: SubtitleSync): void {
         subtitleSyncTextField.updateOffset(value);
     }
 
-    subtitleSyncSlider.updateOffset = function (sliderValue: number): void {
-        this.value = sliderValue === undefined ? 0 : sliderValue;
+    subtitleSyncSlider.updateOffset = function (sliderValue: number | undefined): void {
+        this.value = String(sliderValue === undefined ? 0 : sliderValue);
 
         updateSubtitleOffset();
     };
 
     subtitleSyncSlider.addEventListener('change', () => updateSubtitleOffset());
 
-    subtitleSyncSlider.getBubbleHtml = function (_: any, value: number): string {
+    subtitleSyncSlider.getBubbleHtml = function (_: unknown, value: number): string {
         return '<h1 class="sliderBubbleText">'
             + (value > 0 ? '+' : '') + parseFloat(value as unknown as string) + 's'
             + '</h1>';
@@ -94,10 +108,29 @@ function init(instance: SubtitleSync): void {
     instance.element = parent;
 }
 
+function showSubtitleOffsetIfAvailable(): boolean {
+    if (!player || !playbackManager.supportSubtitleOffset(player)) {
+        return false;
+    }
+
+    if (!playbackManager.isShowingSubtitleOffsetEnabled(player) || !playbackManager.canHandleOffsetOnCurrentSubtitle(player)) {
+        return false;
+    }
+
+    if (!(playbackManager.getPlayerSubtitleOffset(player) || subtitleSyncTextField.hasFocus)) {
+        subtitleSyncSlider.value = '0';
+        subtitleSyncTextField.textContent = '0s';
+        playbackManager.setSubtitleOffset(0, player);
+    }
+
+    subtitleSyncContainer.classList.remove('hide');
+    return true;
+}
+
 class SubtitleSync {
     element: HTMLDivElement | null = null;
 
-    constructor(currentPlayer: any) {
+    constructor(currentPlayer: unknown) {
         player = currentPlayer;
         init(this);
     }
@@ -121,23 +154,19 @@ class SubtitleSync {
             return;
         }
 
-        if (player && playbackManager.supportSubtitleOffset(player)) {
-            if (!action) {
-                if (playbackManager.isShowingSubtitleOffsetEnabled(player) && playbackManager.canHandleOffsetOnCurrentSubtitle(player)) {
-                    if (!(playbackManager.getPlayerSubtitleOffset(player) || subtitleSyncTextField.hasFocus)) {
-                        subtitleSyncSlider.value = '0';
-                        subtitleSyncTextField.textContent = '0s';
-                        playbackManager.setSubtitleOffset(0, player);
-                    }
-                    subtitleSyncContainer.classList.remove('hide');
-                    return;
-                }
-            } else if (action === 'hide' && subtitleSyncTextField.hasFocus) {
-                return;
-            }
-
-            subtitleSyncContainer.classList.add('hide');
+        if (!player || !playbackManager.supportSubtitleOffset(player)) {
+            return;
         }
+
+        if (!action && showSubtitleOffsetIfAvailable()) {
+            return;
+        }
+
+        if (action === 'hide' && subtitleSyncTextField.hasFocus) {
+            return;
+        }
+
+        subtitleSyncContainer.classList.add('hide');
     }
 
     update(offset: number): void {

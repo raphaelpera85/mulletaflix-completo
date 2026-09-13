@@ -92,7 +92,6 @@ function renderSelectServerItems(view: HTMLElement, servers: ServerItem[]): void
     }
 
     itemsContainer.innerHTML = html;
-    loading.hide();
 }
 
 function updatePageStyle(view: HTMLElement, params: SelectServerViewParams): void {
@@ -130,12 +129,9 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
     let servers: ServerItem[] = [];
 
     function connectToServer(server: ServerItem): void {
-        loading.show();
-        ServerConnections.connectToServer(server as never, {
+        void loading.withLoading(() => ServerConnections.connectToServer(server as never, {
             enableAutoLogin: appSettings.enableAutoLogin()
-        }).then(function (result: ConnectResult) {
-            loading.hide();
-
+        })).then(function (result: ConnectResult) {
             switch (result.State) {
                 case ConnectionState.SignedIn: {
                     const apiClient = result.ApiClient;
@@ -172,7 +168,6 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
                     showServerConnectionFailure();
             }
         }).catch((error: unknown) => {
-            loading.hide();
             console.error('[selectServer] failed to connect to server', error);
             showServerConnectionFailure();
         });
@@ -185,12 +180,9 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
             confirmText: globalize.translate('Delete'),
             primary: 'delete'
         }).then(function () {
-            loading.show();
-            ServerConnections.deleteServer(server.Id).then(function () {
-                loading.hide();
+            void loading.withLoading(() => ServerConnections.deleteServer(server.Id)).then(function () {
                 loadServers();
             }).catch((err: unknown) => {
-                loading.hide();
                 console.error('[selectServer] failed to delete server', err);
             });
         }).catch(() => {
@@ -234,9 +226,7 @@ export default function (view: HTMLElement, params: SelectServerViewParams): voi
     }
 
     function loadServers(): void {
-        loading.show();
-        ServerConnections.getAvailableServers().then(onServersRetrieved as never).catch((error: unknown) => {
-            loading.hide();
+        void loading.withLoading(() => ServerConnections.getAvailableServers()).then(onServersRetrieved as never).catch((error: unknown) => {
             console.error('[selectServer] failed to load servers', error);
             showServerConnectionFailure();
         });

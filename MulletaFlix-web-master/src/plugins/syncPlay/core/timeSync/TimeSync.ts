@@ -12,6 +12,12 @@ type PingResult = {
     responseReceived: Date;
 };
 
+export type TimeSyncManager = {
+    getApiClient: () => {
+        getServerTime: () => Promise<Response>;
+    };
+};
+
 class Measurement {
     private requestSent: number;
 
@@ -42,7 +48,7 @@ class Measurement {
 }
 
 abstract class TimeSync {
-    protected manager: any;
+    protected manager: TimeSyncManager;
 
     private pingStop = true;
 
@@ -56,7 +62,7 @@ abstract class TimeSync {
 
     private measurements: Measurement[] = [];
 
-    constructor(syncPlayManager: any) {
+    constructor(syncPlayManager: TimeSyncManager) {
         this.manager = syncPlayManager;
     }
 

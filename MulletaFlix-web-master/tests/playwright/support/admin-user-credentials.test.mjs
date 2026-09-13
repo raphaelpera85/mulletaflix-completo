@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 
 import { getAdminCredentials } from './admin-user.mjs';
 
@@ -25,11 +26,12 @@ test('getAdminCredentials requires credentials from the environment', () => {
 });
 
 test('getAdminCredentials returns configured environment credentials', () => {
+    const configuredPassword = `test-${crypto.randomBytes(16).toString('hex')}`;
     process.env.MFLX_ADMIN_USER = 'test-admin';
-    process.env.MFLX_ADMIN_PASSWORD = 'test-password';
+    process.env.MFLX_ADMIN_PASSWORD = configuredPassword;
 
     assert.deepEqual(getAdminCredentials(), {
         username: 'test-admin',
-        password: 'test-password'
+        password: configuredPassword
     });
 });

@@ -145,6 +145,39 @@ The installer expects these branding files:
 - `installer-header.bmp`
 - `installer-right.bmp`
 
+### Local MulletaFlix build flow
+
+From the workspace root, the maintained build script prepares the stage, validates its contents and compiles the NSIS installer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\MulletaFlix-packaging-master\build-stage-and-installer.ps1 -NoPause
+```
+
+To validate an existing stage without rebuilding it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\MulletaFlix-packaging-master\scripts\validate-stage.ps1
+```
+
+Em uma VM Windows limpa, execute o smoke test elevado para validar instalação,
+serviço, endpoint de readiness, permissões do `NetworkService`, tray e
+desinstalação:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\MulletaFlix-packaging-master\scripts\Test-CleanInstaller.ps1 `
+  -InstallerPath .\MulletaFlix-packaging-master\jellyfin-server-windows\nsis\mulletaflix_12.0.0_windows-x64.exe `
+  -ExpectedSha256 65DA3C8BA86E273B24E543CB20C19CC830C7F10F820867E6A18ACABE59ADA0BB
+```
+
+O script exige uma sessão administrativa; para solicitar elevação UAC
+automaticamente, acrescente `-AutoElevate`. Ele instala silenciosamente em
+`Program Files`, aguarda o serviço responder em `/ready`, verifica a ACL do
+diretório de dados isolado informado por `-DataDirectory` e sempre tenta
+desinstalar no bloco `finally`. O instalador encaminha esse valor ao NSIS por
+`/DATA=...`, evitando que o smoke test escreva em `ProgramData`.
+
+The installer compiler requires NSIS 3.x (`makensis.exe`). The generated executable is written under `MulletaFlix-packaging-master\jellyfin-server-windows\nsis\`. The stage validator checks required server binaries, web assets including `serviceworker.js`, helper scripts, absence of legacy Nebula artifacts and absence of temporary stage backups before compilation. Run it directly with `powershell -ExecutionPolicy Bypass -File .\MulletaFlix-packaging-master\scripts\validate-stage.ps1`.
+
 ## Why This Fork Exists
 
 MulletaFlix exists to provide a more tailored, polished Jellyfin-derived experience for users who want:

@@ -15,7 +15,7 @@ import { setBackdropTransparency } from '../components/backdrop/backdrop';
 import DirectoryBrowser from '../components/directorybrowser/directorybrowser';
 import dialogHelper from '../components/dialogHelper/dialogHelper';
 import itemIdentifier from '../components/itemidentifier/itemidentifier';
-import { getLocationSearch } from './url';
+import { getLocationSearch, getServerEndpoint } from './url';
 import { queryClient } from './query/queryClient';
 import { getClientCapabilities } from './clientCapabilities';
 
@@ -62,7 +62,7 @@ export async function serverAddress(): Promise<string | undefined> {
         const timeoutId = window.setTimeout(() => controller.abort(), SERVER_DISCOVERY_TIMEOUT_MS);
 
         try {
-            const resp = await fetch(`${url}/System/Info/Public`, {
+            const resp = await fetch(getServerEndpoint(url, '/System/Info/Public'), {
                 cache: 'no-cache',
                 signal: controller.signal
             });

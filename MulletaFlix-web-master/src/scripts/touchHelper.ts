@@ -5,6 +5,50 @@ function getTouches(e: TouchEvent): TouchList {
     return e.changedTouches || e.targetTouches || e.touches;
 }
 
+function getSwipeDirection(
+    deltaX: number,
+    deltaY: number,
+    swipeXThreshold: number,
+    swipeYThreshold: number,
+    swipeXMaxY: number,
+    thresholdYMet: boolean
+): string | null {
+    if (deltaX > swipeXThreshold && Math.abs(deltaY) < swipeXMaxY) {
+        return 'swiperight';
+    }
+
+    if (deltaX < (0 - swipeXThreshold) && Math.abs(deltaY) < swipeXMaxY) {
+        return 'swipeleft';
+    }
+
+    if ((deltaY < (0 - swipeYThreshold) || thresholdYMet) && Math.abs(deltaX) < swipeXMaxY) {
+        return 'swipeup';
+    }
+
+    if ((deltaY > swipeYThreshold || thresholdYMet) && Math.abs(deltaX) < swipeXMaxY) {
+        return 'swipedown';
+    }
+
+    return null;
+}
+
+function triggerSwipe(
+    helper: TouchHelper,
+    direction: string,
+    target: EventTarget,
+    details: Record<string, number | undefined>
+): boolean {
+    const isVerticalSwipe = direction === 'swipeup' || direction === 'swipedown';
+    const eventArgs: unknown[] = [target];
+
+    if (isVerticalSwipe) {
+        eventArgs.push(details);
+    }
+
+    Events.trigger(helper, direction, eventArgs);
+    return isVerticalSwipe;
+}
+
 interface TouchHelperOptions {
     swipeXThreshold?: number;
     swipeYThreshold?: number;
@@ -26,8 +70,6 @@ class TouchHelper {
         let lastDeltaX: number | null | undefined;
         let lastDeltaY: number | null | undefined;
         let thresholdYMet: boolean;
-        const self = this;
-
         const swipeXThreshold = opts.swipeXThreshold || 50;
         const swipeYThreshold = opts.swipeYThreshold || 50;
         const swipeXMaxY = 30;
@@ -56,7 +98,7 @@ class TouchHelper {
             }
         };
 
-        const touchEnd = function (e: TouchEvent): void {
+        const touchEnd = (e: TouchEvent): void => {
             const isTouchMove = e.type === 'touchmove';
 
             if (touchTarget) {
@@ -84,32 +126,16 @@ class TouchHelper {
                 lastDeltaX = deltaX;
                 lastDeltaY = deltaY;
 
-                if (deltaX > swipeXThreshold && Math.abs(deltaY) < swipeXMaxY) {
-                    Events.trigger(self, 'swiperight', [touchTarget]);
-                } else if (deltaX < (0 - swipeXThreshold) && Math.abs(deltaY) < swipeXMaxY) {
-                    Events.trigger(self, 'swipeleft', [touchTarget]);
-                } else if ((deltaY < (0 - swipeYThreshold) || thresholdYMet) && Math.abs(deltaX) < swipeXMaxY) {
-                    thresholdYMet = true;
-
-                    Events.trigger(self, 'swipeup', [touchTarget, {
+                const swipeDirection = getSwipeDirection(deltaX, deltaY, swipeXThreshold, swipeYThreshold, swipeXMaxY, thresholdYMet);
+                if (swipeDirection) {
+                    thresholdYMet = triggerSwipe(this, swipeDirection, touchTarget, {
                         deltaY: deltaY,
                         deltaX: deltaX,
                         clientX: clientX,
                         clientY: clientY,
                         currentDeltaX: currentDeltaX,
                         currentDeltaY: currentDeltaY
-                    }]);
-                } else if ((deltaY > swipeYThreshold || thresholdYMet) && Math.abs(deltaX) < swipeXMaxY) {
-                    thresholdYMet = true;
-
-                    Events.trigger(self, 'swipedown', [touchTarget, {
-                        deltaY: deltaY,
-                        deltaX: deltaX,
-                        clientX: clientX,
-                        clientY: clientY,
-                        currentDeltaX: currentDeltaX,
-                        currentDeltaY: currentDeltaY
-                    }]);
+                    });
                 }
 
                 if (isTouchMove && opts.preventDefaultOnMove) {

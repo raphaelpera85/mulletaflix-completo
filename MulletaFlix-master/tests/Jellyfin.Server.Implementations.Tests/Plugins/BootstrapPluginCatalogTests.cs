@@ -23,4 +23,12 @@ public sealed class BootstrapPluginCatalogTests
             BootstrapPluginCatalog.BootstrapRepositories.SelectMany(repository => repository.PluginIds),
             pluginId => blockedIds.Contains(pluginId));
     }
+
+    [Fact]
+    public void BootstrapRepositories_DoNotInstallThirdPartyPluginsAutomatically()
+    {
+        Assert.All(
+            BootstrapPluginCatalog.BootstrapRepositories,
+            repository => Assert.Empty(repository.PluginIds));
+    }
 }

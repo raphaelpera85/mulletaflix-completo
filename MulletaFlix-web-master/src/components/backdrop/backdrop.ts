@@ -1,7 +1,6 @@
 import isEqual from 'lodash-es/isEqual';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import browser from '../../scripts/browser';
-import { playbackManager } from '../playback/playbackmanager';
 import dom from '../../utils/dom';
 import * as userSettings from '../../scripts/settings/userSettings';
 
@@ -235,10 +234,14 @@ export function setBackdropImages(images: string[]): void {
 }
 
 function onRotationInterval(): void {
-    if (playbackManager.isPlayingLocally(['Video'])) {
-        return;
-    }
+    void import('../playback/playbackmanager').then(({ playbackManager }) => {
+        if (playbackManager.isPlayingLocally(['Video'])) return;
 
+        rotateBackdropImage();
+    });
+}
+
+function rotateBackdropImage(): void {
     let newIndex = currentRotationIndex + 1;
     if (newIndex >= currentRotatingImages.length) {
         newIndex = 0;

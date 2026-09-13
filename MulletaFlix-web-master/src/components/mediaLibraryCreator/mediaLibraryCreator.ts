@@ -46,7 +46,6 @@ function onAddLibrary(this: HTMLElement, e: Event): void {
     }
 
     isCreating = true;
-    loading.show();
     const dlg = dom.parentWithClass(this as HTMLElement, 'dlg-librarycreator') as HTMLElement;
     const name = (dlg.querySelector('#txtValue') as HTMLInputElement).value.trim();
     let type: string | null = (dlg.querySelector('#selectCollectionType') as HTMLSelectElement).value;
@@ -58,7 +57,6 @@ function onAddLibrary(this: HTMLElement, e: Event): void {
         }).catch((error: unknown) => console.error('[MediaLibraryCreator] failed to show validation alert', error));
 
         isCreating = false;
-        loading.hide();
 
         return;
     }
@@ -71,17 +69,18 @@ function onAddLibrary(this: HTMLElement, e: Event): void {
         ...libraryoptionseditor.getLibraryOptions(dlg.querySelector('.libraryOptions') as HTMLElement),
         PathInfos: pathInfos
     };
-    window.ApiClient.addVirtualFolder(name, type || undefined, currentOptions.refresh, libraryOptions).then(() => {
-        hasChanges = true;
-        isCreating = false;
-        loading.hide();
-        dialogHelper.close(dlg);
-    }, () => {
-        toast(globalize.translate('ErrorAddingMediaPathToVirtualFolder'));
-
-        isCreating = false;
-        loading.hide();
-    });
+    void loading.withLoading(() => window.ApiClient.addVirtualFolder(name, type || undefined, currentOptions.refresh, libraryOptions))
+        .then(() => {
+            hasChanges = true;
+            dialogHelper.close(dlg);
+        })
+        .catch((error: unknown) => {
+            console.error('[MediaLibraryCreator] failed to add virtual folder', error);
+            toast(globalize.translate('ErrorAddingMediaPathToVirtualFolder'));
+        })
+        .finally(() => {
+            isCreating = false;
+        });
 }
 
 interface CollectionTypeOption {
@@ -103,7 +102,7 @@ function initEditor(page: HTMLElement, collectionTypeOptions: CollectionTypeOpti
     selectCollectionType.addEventListener('change', function (this: HTMLSelectElement) {
         const value = this.value;
         const dlg = dom.parentWithClass(this, 'dialog') as HTMLElement;
-        libraryoptionseditor.setContentType(dlg.querySelector('.libraryOptions') as HTMLElement, value);
+        void libraryoptionseditor.setContentType(dlg.querySelector('.libraryOptions') as HTMLElement, value);
 
         if (value) {
             (dlg.querySelector('.libraryOptions') as HTMLElement).classList.remove('hide');

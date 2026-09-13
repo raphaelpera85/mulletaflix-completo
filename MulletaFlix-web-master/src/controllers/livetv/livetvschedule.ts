@@ -2,7 +2,7 @@ import cardBuilder from 'components/cardbuilder/cardBuilder';
 import { getBackdropShape } from 'components/cardbuilder/utils/shape';
 import imageLoader from 'components/images/imageLoader';
 import layoutManager from 'components/layoutManager';
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import { getTimersHtml, type TimerItem, type TimerOptions } from 'scripts/livetvcomponents';
 import Dashboard from 'utils/dashboard';
 
@@ -75,57 +75,47 @@ function renderRecordings(elem: HTMLElement | null, recordings: TimerItem[], car
     imageLoader.lazyChildren(recordingItems);
 }
 
-function renderActiveRecordings(context: HTMLElement, promise: Promise<LiveTvItemsResult>): void {
-    promise.then(function (result: LiveTvItemsResult) {
-        renderRecordings(context.querySelector('#activeRecordings') as HTMLElement, result.Items, {
-            shape: enableScrollX() ? 'autooverflow' : 'auto',
-            defaultShape: getBackdropShape(enableScrollX()),
-            showParentTitle: false,
-            showParentTitleOrTitle: true,
-            showTitle: true,
-            showAirTime: true,
-            showAirEndTime: true,
-            showChannelName: true,
-            coverImage: true,
-            overlayText: false,
-            overlayMoreButton: true
-        });
-    }).catch((error: unknown) => {
-        loading.hide();
-        console.error('[LiveTvSchedule] failed to load active recordings', error);
+async function renderActiveRecordings(context: HTMLElement, promise: Promise<LiveTvItemsResult>): Promise<void> {
+    const result = await promise;
+    renderRecordings(context.querySelector('#activeRecordings') as HTMLElement, result.Items, {
+        shape: enableScrollX() ? 'autooverflow' : 'auto',
+        defaultShape: getBackdropShape(enableScrollX()),
+        showParentTitle: false,
+        showParentTitleOrTitle: true,
+        showTitle: true,
+        showAirTime: true,
+        showAirEndTime: true,
+        showChannelName: true,
+        coverImage: true,
+        overlayText: false,
+        overlayMoreButton: true
     });
 }
 
-function renderTimers(context: HTMLElement | null, timers: TimerItem[], options?: TimerOptions): void {
+async function renderTimers(context: HTMLElement | null, timers: TimerItem[], options?: TimerOptions): Promise<void> {
     if (!context) {
         return;
     }
 
-    getTimersHtml(timers, options).then(function (html: string) {
-        const elem = context;
+    const html = await getTimersHtml(timers, options);
+    const elem = context;
 
-        if (html) {
-            elem.classList.remove('hide');
-        } else {
-            elem.classList.add('hide');
-        }
+    if (html) {
+        elem.classList.remove('hide');
+    } else {
+        elem.classList.add('hide');
+    }
 
-        const recordingItems = elem.querySelector('.recordingItems');
-        if (recordingItems instanceof HTMLElement) {
-            recordingItems.innerHTML = html;
-            imageLoader.lazyChildren(elem);
-        }
-    }).catch((error: unknown) => console.error('[LiveTvSchedule] failed to render timers', error));
+    const recordingItems = elem.querySelector('.recordingItems');
+    if (recordingItems instanceof HTMLElement) {
+        recordingItems.innerHTML = html;
+        imageLoader.lazyChildren(elem);
+    }
 }
 
-function renderUpcomingRecordings(context: HTMLElement, promise: Promise<LiveTvItemsResult>): void {
-    promise.then(function (result: LiveTvItemsResult) {
-        renderTimers(context.querySelector('#upcomingRecordings') as HTMLElement, result.Items);
-        loading.hide();
-    }).catch((error: unknown) => {
-        loading.hide();
-        console.error('[LiveTvSchedule] failed to load upcoming recordings', error);
-    });
+async function renderUpcomingRecordings(context: HTMLElement, promise: Promise<LiveTvItemsResult>): Promise<void> {
+    const result = await promise;
+    await renderTimers(context.querySelector('#upcomingRecordings') as HTMLElement, result.Items);
 }
 
 export default function (this: ScheduleController, view: HTMLElement, params: Record<string, unknown>, tabContent: HTMLElement): void {
@@ -152,8 +142,9 @@ export default function (this: ScheduleController, view: HTMLElement, params: Re
     };
 
     this.renderTab = function () {
-        loading.show();
-        renderActiveRecordings(tabContent, activeRecordingsPromise);
-        renderUpcomingRecordings(tabContent, upcomingRecordingsPromise);
+        void withLoading(() => Promise.all([
+            renderActiveRecordings(tabContent, activeRecordingsPromise),
+            renderUpcomingRecordings(tabContent, upcomingRecordingsPromise)
+        ])).catch((error: unknown) => console.error('[LiveTvSchedule] failed to load schedule', error));
     };
 }

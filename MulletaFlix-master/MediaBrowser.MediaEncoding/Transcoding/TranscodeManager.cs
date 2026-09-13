@@ -173,21 +173,34 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
     private async void OnTranscodeKillTimerStopped(object? state)
     {
-        var job = state as TranscodingJob ?? throw new ArgumentException($"{nameof(state)} is not of type {nameof(TranscodingJob)}", nameof(state));
-        if (!job.HasExited && job.Type != TranscodingJobType.Progressive)
+        var job = state as TranscodingJob;
+        if (job is null)
         {
-            var timeSinceLastPing = (DateTime.UtcNow - job.LastPingDate).TotalMilliseconds;
-
-            if (timeSinceLastPing < job.PingTimeout)
-            {
-                job.StartKillTimer(OnTranscodeKillTimerStopped, job.PingTimeout);
-                return;
-            }
+            _logger.LogError("Transcoding kill timer received invalid state of type {StateType}.", state?.GetType().FullName ?? "null");
+            return;
         }
 
-        _logger.LogInformation("Transcoding kill timer stopped for JobId {0} PlaySessionId {1}. Killing transcoding", job.Id, job.PlaySessionId);
+        try
+        {
+            if (!job.HasExited && job.Type != TranscodingJobType.Progressive)
+            {
+                var timeSinceLastPing = (DateTime.UtcNow - job.LastPingDate).TotalMilliseconds;
 
-        await KillTranscodingJob(job, true, path => true).ConfigureAwait(false);
+                if (timeSinceLastPing < job.PingTimeout)
+                {
+                    job.StartKillTimer(OnTranscodeKillTimerStopped, job.PingTimeout);
+                    return;
+                }
+            }
+
+            _logger.LogInformation("Transcoding kill timer stopped for JobId {0} PlaySessionId {1}. Killing transcoding", job.Id, job.PlaySessionId);
+
+            await KillTranscodingJob(job, true, path => true).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error while handling transcoding kill timer for JobId {JobId}.", job.Id);
+        }
     }
 
     /// <inheritdoc />
@@ -755,4 +768,3 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         _transcodingLocks.Dispose();
     }
 }
-

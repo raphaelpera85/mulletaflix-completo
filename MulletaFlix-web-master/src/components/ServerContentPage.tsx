@@ -33,10 +33,13 @@ const ServerContentPage: FunctionComponent<ServerContentPageProps> = ({ view }) 
                 .catch(async (result?: RestoreViewFailResponse) => {
                     if (!result?.cancelled) {
                         const apiClient = ServerConnections.currentApiClient();
+                        if (!apiClient) {
+                            throw new Error('Cannot load server content without an API client.');
+                        }
 
                         // Fetch the view html from the server and translate it
-                        const viewHtml = await (apiClient as any)?.get((apiClient as any).getUrl(view + location.search))
-                            .then((html: string) => globalize.translateHtml(html));
+                        const viewHtml = await apiClient.get(apiClient.getUrl(view + location.search))
+                            .then((html) => globalize.translateHtml(String(html)));
 
                         viewManager.loadView({
                             ...viewOptions,
@@ -60,4 +63,3 @@ const ServerContentPage: FunctionComponent<ServerContentPageProps> = ({ view }) 
 };
 
 export default ServerContentPage;
-

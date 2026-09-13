@@ -1,4 +1,4 @@
-import loading from 'components/loading/loading';
+import { withLoading } from 'components/loading/loading';
 import escapeHtml from 'escape-html';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import Dashboard from 'utils/dashboard';
@@ -36,13 +36,12 @@ type WizardSettingsApiClient = NonNullable<ReturnType<typeof ServerConnections.c
 };
 
 function save(context: HTMLElement): void {
-    loading.show();
     const apiClient = ServerConnections.currentApiClient() as WizardSettingsApiClient;
     const config = apiClient.getJSON<WizardSettingsConfiguration>(apiClient.getUrl('Startup/Configuration'));
     const selectLanguage = context.querySelector<HTMLSelectElement>('#selectLanguage');
     const selectCountry = context.querySelector<HTMLSelectElement>('#selectCountry');
 
-    void config.then(function (currentConfig) {
+    void withLoading(() => config.then(function (currentConfig) {
         currentConfig.PreferredMetadataLanguage = selectLanguage?.value || '';
         currentConfig.MetadataCountryCode = selectCountry?.value || '';
 
@@ -52,11 +51,10 @@ function save(context: HTMLElement): void {
             url: apiClient.getUrl('Startup/Configuration'),
             contentType: 'application/json'
         });
-    }).then(function () {
-        loading.hide();
+    })).then(function () {
         navigateToNextPage();
-    }).catch(function () {
-        loading.hide();
+    }).catch(function (error: unknown) {
+        console.error('[Wizard > Settings] failed to save configuration', error);
     });
 }
 
@@ -139,22 +137,19 @@ function reloadData(page: HTMLElement, config: WizardSettingsConfiguration, cult
     if (config.MetadataCountryCode) {
         void syncMetadataLanguageFromCountry(page);
     }
-
-    loading.hide();
 }
 
 function reload(page: HTMLElement): void {
-    loading.show();
     const apiClient = ServerConnections.currentApiClient() as WizardSettingsApiClient;
 
-    void Promise.all([
+    void withLoading(() => Promise.all([
         apiClient.getJSON<WizardSettingsConfiguration>(apiClient.getUrl('Startup/Configuration')),
         apiClient.getCultures(),
         apiClient.getCountries()
-    ]).then(function (responses) {
+    ])).then(function (responses) {
         reloadData(page, responses[0], responses[1], responses[2]);
-    }).catch(function () {
-        loading.hide();
+    }).catch(function (error: unknown) {
+        console.error('[Wizard > Settings] failed to load settings', error);
     });
 }
 

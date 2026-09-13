@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { AppFeature } from 'constants/appFeature';
 import browser from '../../scripts/browser';
 import { appHost } from '../apphost';
@@ -398,16 +399,13 @@ function combineVersions(apiClient: any, selection: string[]): void {
         return;
     }
 
-    loading.show();
-
-    apiClient.ajax({
+    loading.withLoading(() => apiClient.ajax({
         type: 'POST',
         url: apiClient.getUrl('Videos/MergeVersions', { Ids: selection.join(',') })
-    }).then(() => {
-        loading.hide();
+    })).then(() => {
         hideSelections();
         dispatchNeedsRefresh();
-    }).catch(() => undefined);
+    }).catch((error: unknown) => console.error('Failed to combine video versions', error));
 }
 
 function showSelections(initialCard: HTMLElement, addInitialCheck: boolean): void {
@@ -630,3 +628,5 @@ export const startMultiSelect = (card: HTMLElement): void => {
 export const stopMultiSelect = (): void => {
     hideSelections();
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

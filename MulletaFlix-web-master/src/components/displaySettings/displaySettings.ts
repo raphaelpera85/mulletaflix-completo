@@ -26,6 +26,9 @@ import '../../elements/emby-checkbox/emby-checkbox';
 import '../../elements/emby-button/emby-button';
 import '../../elements/emby-textarea/emby-textarea';
 
+/* Legacy settings and API contracts are dynamically shaped at runtime. */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */
+
 function fillThemes(select: HTMLSelectElement, selectedTheme?: string): void {
     skinManager.getThemes().then((themes: any[]) => {
         select.innerHTML = themes.map(t => {
@@ -148,8 +151,6 @@ function loadForm(context: HTMLElement, user: any, userSettings: any): void {
     (context.querySelector('.selectLayout') as HTMLSelectElement).value = layoutManager.getSavedLayout() || '';
 
     showOrHideMissingEpisodesField(context);
-
-    loading.hide();
 }
 
 function saveUser(context: HTMLElement, user: any, userSettingsInstance: any, apiClient: any): Promise<void> {
@@ -192,22 +193,13 @@ function saveUser(context: HTMLElement, user: any, userSettingsInstance: any, ap
     return apiClient.updateUserConfiguration(user.Id, user.Configuration);
 }
 
-function save(instance: DisplaySettings, context: HTMLElement, userId: string, userSettings: any, apiClient: any, enableSaveConfirmation: boolean): void {
-    loading.show();
-
-    apiClient.getUser(userId).then((user: any) => {
-        saveUser(context, user, userSettings, apiClient).then(() => {
-            loading.hide();
-            if (enableSaveConfirmation) {
-                toast(globalize.translate('SettingsSaved'));
-            }
-            Events.trigger(instance, 'saved');
-        }, () => {
-            loading.hide();
-        });
-    }).catch(() => {
-        loading.hide();
-    });
+async function save(instance: DisplaySettings, context: HTMLElement, userId: string, userSettings: any, apiClient: any, enableSaveConfirmation: boolean): Promise<void> {
+    const user = await apiClient.getUser(userId);
+    await saveUser(context, user, userSettings, apiClient);
+    if (enableSaveConfirmation) {
+        toast(globalize.translate('SettingsSaved'));
+    }
+    Events.trigger(instance, 'saved');
 }
 
 function onSubmit(this: any, e: Event): void {
@@ -216,11 +208,13 @@ function onSubmit(this: any, e: Event): void {
     const userId = self.options.userId;
     const userSettings = self.options.userSettings;
 
-    userSettings.setUserInfo(userId, apiClient).then(() => {
+    void loading.withLoading(async () => {
+        await userSettings.setUserInfo(userId, apiClient);
         const enableSaveConfirmation = self.options.enableSaveConfirmation;
-        save(self, self.options.element, userId, userSettings, apiClient, enableSaveConfirmation);
-    }).catch(() => {
-        loading.hide();
+        await save(self, self.options.element, userId, userSettings, apiClient, enableSaveConfirmation);
+    }).catch((error: unknown) => {
+        console.error('[DisplaySettings] failed to save settings', error);
+        toast(globalize.translate('ErrorDefault'));
     });
 
     // Disable default form submission
@@ -235,8 +229,9 @@ function embed(options: any, self: DisplaySettings): void {
     if (options.enableSaveButton) {
         options.element.querySelector('.btnSave').classList.remove('hide');
     }
-    self.loadData(options.autoFocus).catch(() => {
-        loading.hide();
+    void self.loadData(options.autoFocus).catch((error: unknown) => {
+        console.error('[DisplaySettings] failed to load settings', error);
+        toast(globalize.translate('ErrorDefault'));
     });
 }
 
@@ -253,26 +248,26 @@ class DisplaySettings {
         const self = this;
         const context = self.options.element;
 
-        loading.show();
-
         const userId = self.options.userId;
         const apiClient: any = ServerConnections.getApiClient(self.options.serverId);
         const userSettings = self.options.userSettings;
 
         let user: any;
-        try {
-            user = await queryClient.fetchQuery(getUserQuery(toApi(apiClient), { userId }));
-        } catch (error) {
-            console.warn('Error fetching user with React Query, falling back to direct API call:', error);
-            user = await apiClient.getUser(userId);
-        }
-        await userSettings.setUserInfo(userId, apiClient);
+        await loading.withLoading(async () => {
+            try {
+                user = await queryClient.fetchQuery(getUserQuery(toApi(apiClient), { userId }));
+            } catch (error) {
+                console.warn('Error fetching user with React Query, falling back to direct API call:', error);
+                user = await apiClient.getUser(userId);
+            }
+            await userSettings.setUserInfo(userId, apiClient);
 
-        self.dataLoaded = true;
-        loadForm(context, user, userSettings);
-        if (autoFocus) {
-            focusManager.autoFocus(context);
-        }
+            self.dataLoaded = true;
+            loadForm(context, user, userSettings);
+            if (autoFocus) {
+                focusManager.autoFocus(context);
+            }
+        });
     }
 
     submit(): void {
@@ -285,3 +280,5 @@ class DisplaySettings {
 }
 
 export default DisplaySettings;
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */

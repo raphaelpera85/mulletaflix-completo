@@ -35,4 +35,16 @@ describe('Browser', () => {
         expect(browser.xboxOne).toBe(true);
         expect(browser.tv).toBe(true);
     });
+
+    it('should parse a valid Tizen version', () => {
+        const browser = detectBrowser('Mozilla/5.0 (SMART-TV; Linux; Tizen 7.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/5.0 TV Safari/537.36');
+        expect(browser.tizen).toBe(true);
+        expect(browser.tizenVersion).toBe(7);
+    });
+
+    it('should not throw for a Tizen user agent without a parseable version', () => {
+        const browser = detectBrowser('Mozilla/5.0 (SMART-TV; Linux; Tizen unknown) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/5.0 TV Safari/537.36');
+        expect(browser.tizen).toBe(true);
+        expect(browser.tizenVersion).toBeUndefined();
+    });
 });

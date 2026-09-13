@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { setSetting } from '../../core/Settings';
 import dialogHelper from '../../../../components/dialogHelper/dialogHelper';
 import layoutManager from '../../../../components/layoutManager';
@@ -124,9 +125,7 @@ class SettingsEditor {
     }
 
     async save(): Promise<void> {
-        loading.show();
-        await this.saveToAppSettings();
-        loading.hide();
+        await loading.withLoading(() => this.saveToAppSettings());
         toast(globalize.translate('SettingsSaved'));
         Events.trigger(this, 'saved');
     }
@@ -158,3 +157,5 @@ class SettingsEditor {
 }
 
 export default SettingsEditor;
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

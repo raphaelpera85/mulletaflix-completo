@@ -1,5 +1,11 @@
 
-const ProgressBarPrototype: HTMLDivElement = Object.create(HTMLDivElement.prototype);
+type ProgressBarElement = HTMLDivElement & {
+    timeInterval?: ReturnType<typeof setInterval> | null;
+    attachedCallback?(): void;
+    detachedCallback?(): void;
+};
+
+const ProgressBarPrototype = Object.create(HTMLDivElement.prototype) as ProgressBarElement;
 
 function onAutoTimeProgress(this: HTMLDivElement & { timeInterval?: ReturnType<typeof setInterval> | null }): void {
     const start: number = parseInt(this.getAttribute('data-starttime') || '0', 10);
@@ -16,7 +22,7 @@ function onAutoTimeProgress(this: HTMLDivElement & { timeInterval?: ReturnType<t
     itemProgressBarForeground.style.width = pct + '%';
 }
 
-(ProgressBarPrototype as any).attachedCallback = function (this: HTMLDivElement & { timeInterval?: ReturnType<typeof setInterval> | null }): void {
+ProgressBarPrototype.attachedCallback = function (this: ProgressBarElement): void {
     if (this.timeInterval) {
         clearInterval(this.timeInterval);
     }
@@ -26,7 +32,7 @@ function onAutoTimeProgress(this: HTMLDivElement & { timeInterval?: ReturnType<t
     }
 };
 
-(ProgressBarPrototype as any).detachedCallback = function (this: HTMLDivElement & { timeInterval?: ReturnType<typeof setInterval> | null }): void {
+ProgressBarPrototype.detachedCallback = function (this: ProgressBarElement): void {
     if (this.timeInterval) {
         clearInterval(this.timeInterval);
         this.timeInterval = null;

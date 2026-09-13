@@ -32,7 +32,8 @@ const UserPasswordForm: FunctionComponent<IProps> = ({ user }: IProps) => {
 
         (await libraryMenu).setTitle(user.Name || '');
 
-        if (user.HasConfiguredPassword) {
+        const hasConfiguredPassword = (user as unknown as { HasConfiguredPassword?: boolean }).HasConfiguredPassword;
+        if (hasConfiguredPassword) {
             if (!user.Policy?.IsAdministrator) {
                 (page.querySelector('#btnResetPassword') as HTMLDivElement).classList.remove('hide');
             }
@@ -64,7 +65,7 @@ const UserPasswordForm: FunctionComponent<IProps> = ({ user }: IProps) => {
             return;
         }
 
-        loadUser().catch(err => {
+        void loading.withLoading(loadUser).catch(err => {
             console.error('[UserPasswordForm] failed to load user', err);
         });
 
@@ -74,15 +75,14 @@ const UserPasswordForm: FunctionComponent<IProps> = ({ user }: IProps) => {
             } else if ((page.querySelector('#txtNewPassword') as HTMLInputElement).value == '' && user?.Policy?.IsAdministrator) {
                 toast(globalize.translate('PasswordMissingSaveError'));
             } else {
-                loading.show();
-                savePassword();
+                void savePassword();
             }
 
             e.preventDefault();
             return false;
         };
 
-        const savePassword = () => {
+        const savePassword = async () => {
             if (!user.Id) {
                 console.error('[UserPasswordForm.savePassword] missing user id');
                 return;
@@ -97,36 +97,32 @@ const UserPasswordForm: FunctionComponent<IProps> = ({ user }: IProps) => {
                 currentPassword = '';
             }
 
-            window.ApiClient.updateUserPassword(user.Id, currentPassword, newPassword).then(function () {
-                loading.hide();
-                toast(globalize.translate('PasswordSaved'));
-
-                loadUser().catch(err => {
-                    console.error('[UserPasswordForm] failed to load user', err);
+            try {
+                await loading.withLoading(async () => {
+                    await window.ApiClient.updateUserPassword(user.Id!, currentPassword, newPassword);
+                    toast(globalize.translate('PasswordSaved'));
+                    await loadUser();
                 });
-            }, function () {
-                loading.hide();
-                Dashboard.alert({
+            } catch (err) {
+                console.error('[UserPasswordForm] failed to save password', err);
+                await Dashboard.alert({
                     title: globalize.translate('HeaderLoginFailure'),
                     message: globalize.translate('MessageInvalidUser')
                 });
-            });
+            }
         };
 
         const resetPassword = () => {
             const msg = globalize.translate('PasswordResetConfirmation');
             confirm(msg, globalize.translate('ResetPassword')).then(function () {
-                loading.show();
                 if (user.Id) {
-                    window.ApiClient.resetUserPassword(user.Id).then(function () {
-                        loading.hide();
-                        Dashboard.alert({
+                    void loading.withLoading(async () => {
+                        await window.ApiClient.resetUserPassword(user.Id!);
+                        await Dashboard.alert({
                             message: globalize.translate('PasswordResetComplete'),
                             title: globalize.translate('ResetPassword')
                         });
-                        loadUser().catch(err => {
-                            console.error('[UserPasswordForm] failed to load user', err);
-                        });
+                        await loadUser();
                     }).catch(err => {
                         console.error('[UserPasswordForm] failed to reset user password', err);
                     });
@@ -197,4 +193,3 @@ const UserPasswordForm: FunctionComponent<IProps> = ({ user }: IProps) => {
 };
 
 export default UserPasswordForm;
-

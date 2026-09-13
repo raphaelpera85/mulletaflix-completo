@@ -1,7 +1,7 @@
 import * as userSettings from '../../scripts/settings/userSettings';
 import cardBuilder from '../../components/cardbuilder/cardBuilder';
 import imageLoader from '../../components/images/imageLoader';
-import loading from '../../components/loading/loading';
+import { withLoading } from '../../components/loading/loading';
 import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
 interface QueryParams {
@@ -50,14 +50,14 @@ export default function (this: { getViewStyles: () => string[]; getCurrentViewSt
     }
 
     function getPromise(): Promise<ItemDtoQueryResult> {
-        loading.show();
         const query = getQuery();
         return ApiClient.getGenres(ApiClient.getCurrentUserId(), query as unknown as Record<string, unknown>);
     }
 
     const reloadItems = (context: HTMLElement, promise: Promise<ItemDtoQueryResult>): void => {
         const query = getQuery();
-        void promise.then((result: ItemDtoQueryResult) => {
+        void withLoading(async () => {
+            const result = await promise;
             let html = '';
             const viewStyle = this.getCurrentViewStyle();
             const items = result.Items ?? [];
@@ -102,19 +102,16 @@ export default function (this: { getViewStyles: () => string[]; getCurrentViewSt
 
             const elem = context.querySelector('#items');
             if (!elem) {
-                loading.hide();
                 return;
             }
             elem.innerHTML = html;
             imageLoader.lazyChildren(elem);
             userSettings.saveQuerySettings(getSavedQueryKey(), query as unknown as Record<string, unknown>);
-            loading.hide();
 
             void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(context);
             }).catch((error: unknown) => console.error('[MusicGenres] failed to focus page', error));
         }).catch((error: unknown) => {
-            loading.hide();
             console.error('[MusicGenres] failed to load genres', error);
         });
     };

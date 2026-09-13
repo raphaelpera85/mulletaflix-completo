@@ -29,6 +29,10 @@ type ControllerProps = {
     destroy: () => void;
 };
 
+type ControllerModule = {
+    default: new (element: Element, options: null) => ControllerProps;
+};
+
 const Home = () => {
     const [ searchParams ] = useSearchParams();
     const initialTabIndex = parseInt(searchParams.get('tab') ?? '0', 10);
@@ -43,9 +47,9 @@ const Home = () => {
     const documentRef = useRef<Document>(document);
     const element = useRef<HTMLDivElement>(null);
 
-    const setTitle = async () => {
+    const setTitle = useCallback(async () => {
         (await libraryMenu).setTitle(null);
-    };
+    }, [libraryMenu]);
 
     const getTabs = () => {
         return [{
@@ -80,8 +84,9 @@ const Home = () => {
         if (!loadFn) {
             return Promise.reject(new Error(`Controller not found in glob: ${depends}`));
         }
-        return loadFn().then((mod: any) => {
-            const ControllerFactory = mod.default;
+        return loadFn().then((mod) => {
+            const controllerModule = mod as ControllerModule;
+            const ControllerFactory = controllerModule.default;
             let controller = tabControllers[index];
 
             if (!controller) {
@@ -101,7 +106,7 @@ const Home = () => {
     }, [ tabControllers ]);
 
     const loadTab = useCallback((index: number, previousIndex: number | null, retryCount = 0) => {
-        getTabController(index).then((controller: any) => {
+        getTabController(index).then((controller: ControllerProps) => {
             const refresh = !controller.refreshed;
 
             controller.onResume({
@@ -112,7 +117,7 @@ const Home = () => {
             controller.refreshed = true;
             tabController.current = controller;
             homeTabLoadPending.current = false;
-        }).catch((err: any) => {
+        }).catch((err: unknown) => {
             if (err instanceof Error && err.message.startsWith('Home tab content not ready') && retryCount < 10) {
                 window.requestAnimationFrame(() => loadTab(index, previousIndex, retryCount + 1));
                 return;
@@ -151,19 +156,26 @@ const Home = () => {
             }
 
             homeTabLoadPending.current = true;
-            (await mainTabsManager).selectedTabIndex(initialTabIndex);
+            const tabsMgr = await mainTabsManager;
+            tabsMgr.selectedTabIndex(initialTabIndex);
+
+            window.setTimeout(() => {
+                if (!tabController.current) {
+                    loadTab(initialTabIndex, null);
+                }
+            }, 150);
         } else if (currentTabController?.onResume) {
             currentTabController.onResume({});
         }
-        (documentRef.current.querySelector('.skinHeader') as HTMLDivElement).classList.add('noHomeButtonHeader');
-    }, [ initialTabIndex, mainTabsManager ]);
+        documentRef.current.querySelector('.skinHeader')?.classList.add('noHomeButtonHeader');
+    }, [ initialTabIndex, loadTab, mainTabsManager, setTitle ]);
 
     const onPause = useCallback(() => {
         const currentTabController = tabController.current;
         if (currentTabController?.onPause) {
             currentTabController.onPause();
         }
-        (documentRef.current.querySelector('.skinHeader') as HTMLDivElement).classList.remove('noHomeButtonHeader');
+        documentRef.current.querySelector('.skinHeader')?.classList.remove('noHomeButtonHeader');
     }, []);
 
     const renderHome = useCallback(async () => {
@@ -172,9 +184,7 @@ const Home = () => {
     }, [ onResume, onSetTabs ]);
 
     useEffect(() => {
-        if (documentRef.current?.querySelector('.headerTabs')) {
-            void renderHome();
-        }
+        void renderHome();
 
         return () => {
             onPause();

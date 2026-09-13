@@ -25,13 +25,14 @@ public class SecurityHeadersMiddleware
         headers["X-Application-Name"] = "Jellyfin";
         headers["Content-Security-Policy"] =
             "default-src 'self'; "
-            + "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-            + "script-src-elem 'self' 'unsafe-inline' 'unsafe-eval'; "
+            + "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://*.gstatic.com https://*.gstatic.com http://www.gstatic.com https://www.gstatic.com chrome-extension:; "
+            + "script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' http://*.gstatic.com https://*.gstatic.com http://www.gstatic.com https://www.gstatic.com chrome-extension:; "
             + "style-src 'self' 'unsafe-inline'; "
-            + "img-src 'self' data: blob: https:; "
-            + "media-src 'self' data: blob: https:; "
+            + "img-src 'self' data: blob: https: http: chrome-extension:; "
+            + "media-src 'self' data: blob: https: http:; "
             + "font-src 'self' data:; "
-            + "connect-src 'self' ws: wss:;";
+            + "connect-src 'self' blob: ws: wss: http: https: chrome-extension:; "
+            + "frame-src 'self' http: https: chrome-extension:;";
 
         await _next(context);
     }

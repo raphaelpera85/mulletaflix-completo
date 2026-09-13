@@ -106,12 +106,17 @@ export default function (this: EpisodesController, view: HTMLElement, params: Vi
     }
 
     function reloadItems(page: HTMLElement): void {
-        loading.show();
         isLoading = true;
         const query = getQuery();
         setFilterStatus(page, query);
+        const userId = Dashboard.getCurrentUserId();
+        if (!userId) {
+            isLoading = false;
+            console.error('[Episodes] Cannot load items without a signed-in user');
+            return;
+        }
 
-        ApiClient.getItems(Dashboard.getCurrentUserId(), query).then(function (result: ItemDtoQueryResult) {
+        void loading.withLoading(() => ApiClient.getItems(userId, query).then(function (result: ItemDtoQueryResult) {
             function onNextPageClick(): void {
                 if (isLoading) {
                     return;
@@ -193,17 +198,15 @@ export default function (this: EpisodesController, view: HTMLElement, params: Vi
             itemsContainer.innerHTML = html;
             imageLoader.lazyChildren(itemsContainer);
             userSettings.saveQuerySettings(getSavedQueryKey(), query);
-            loading.hide();
             isLoading = false;
 
             void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
                 autoFocuser.autoFocus(page);
             }).catch((error: unknown) => console.error('[Episodes] failed to focus page', error));
         }).catch((error: unknown) => {
-            loading.hide();
             isLoading = false;
             console.error('[Episodes] failed to load episodes', error);
-        });
+        }));
     }
 
     const data: Record<string, PageData> = {};

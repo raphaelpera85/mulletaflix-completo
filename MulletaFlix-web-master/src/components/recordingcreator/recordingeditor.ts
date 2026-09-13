@@ -1,4 +1,4 @@
-
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */
 import dialogHelper from '../dialogHelper/dialogHelper';
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -32,8 +32,6 @@ function deleteTimer(apiClient: any, timerId: string): Promise<void> {
 function renderTimer(context: Element, item: any): void {
     (context.querySelector('#txtPrePaddingMinutes') as HTMLInputElement).value = String(item.PrePaddingSeconds / 60);
     (context.querySelector('#txtPostPaddingMinutes') as HTMLInputElement).value = String(item.PostPaddingSeconds / 60);
-
-    loading.hide();
 }
 
 function closeDialog(isDeleted: boolean): void {
@@ -48,12 +46,16 @@ function onSubmit(this: any, e: Event): void {
 
     const apiClient = ServerConnections.getApiClient(currentServerId) as any;
 
-    apiClient.getLiveTvTimer(currentItemId).then(function (item: any) {
-        item.PrePaddingSeconds = Number((form.querySelector('#txtPrePaddingMinutes') as HTMLInputElement).value) * 60;
-        item.PostPaddingSeconds = Number((form.querySelector('#txtPostPaddingMinutes') as HTMLInputElement).value) * 60;
-        return apiClient.updateLiveTvTimer(item);
-    }).then(currentResolve).catch(() => {
-        loading.hide();
+    void loading.withLoading(async () => {
+        try {
+            const item = await apiClient.getLiveTvTimer(currentItemId);
+            item.PrePaddingSeconds = Number((form.querySelector('#txtPrePaddingMinutes') as HTMLInputElement).value) * 60;
+            item.PostPaddingSeconds = Number((form.querySelector('#txtPostPaddingMinutes') as HTMLInputElement).value) * 60;
+            await apiClient.updateLiveTvTimer(item);
+            currentResolve();
+        } catch (error) {
+            console.error('[RecordingEditor] failed to update timer', error);
+        }
     });
 
     e.preventDefault();
@@ -70,30 +72,37 @@ function init(context: Element): void {
     context.querySelector('.btnCancelRecording')!.addEventListener('click', function () {
         const apiClient = ServerConnections.getApiClient(currentServerId) as any;
 
-        deleteTimer(apiClient, currentItemId).then(function () {
-            closeDialog(true);
-        }).catch(() => loading.hide());
+        void loading.withLoading(async () => {
+            try {
+                await deleteTimer(apiClient, currentItemId);
+                closeDialog(true);
+            } catch (error) {
+                console.error('[RecordingEditor] failed to delete timer', error);
+            }
+        });
     });
 
     context.querySelector('form')!.addEventListener('submit', onSubmit);
 }
 
 function reload(context: Element, id: string): void {
-    loading.show();
     currentItemId = id;
 
     const apiClient = ServerConnections.getApiClient(currentServerId) as any;
-    apiClient.getLiveTvTimer(id).then(function (result: any) {
-        renderTimer(context, result);
-        loading.hide();
-    }).catch(() => loading.hide());
+    void loading.withLoading(async () => {
+        try {
+            const result = await apiClient.getLiveTvTimer(id);
+            renderTimer(context, result);
+        } catch (error) {
+            console.error('[RecordingEditor] failed to load timer', error);
+        }
+    });
 }
 
 function showEditor(itemId: string, serverId: string, options?: { enableCancel?: boolean }): Promise<any> {
     return new Promise(function (resolve) {
         recordingDeleted = false;
         currentServerId = serverId;
-        loading.show();
         options = options || {};
         currentResolve = resolve;
 
@@ -151,10 +160,14 @@ function showEditor(itemId: string, serverId: string, options?: { enableCancel?:
 
         reload(dlg, itemId);
 
-        dialogHelper.open(dlg).catch(() => loading.hide());
+        dialogHelper.open(dlg).catch((error: unknown) => {
+            console.error('[RecordingEditor] failed to open dialog', error);
+        });
     });
 }
 
 export default {
     show: showEditor
 };
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */

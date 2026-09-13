@@ -1,0 +1,1 @@
+import{l as t}from"./vendor-jellyfin-Bee54tkY.js";import{u as r}from"./vendor-react-query-BiAmjtRH.js";import{u as o}from"./index-CFwqrzSZ.js";const n="Tasks",u=async(e,s,a)=>(await t(e).getTasks(s,a)).data,k=e=>{const{api:s}=o();return r({queryKey:[n,s?.basePath],queryFn:({signal:a})=>u(s,e,{signal:a}),enabled:!!s})};export{n as Q,k as u};

@@ -33,6 +33,12 @@ public class MigrateEncodingOptions : IMigrationRoutine
     public void Perform()
     {
         string path = Path.Combine(_applicationPaths.ConfigurationDirectoryPath, "encoding.xml");
+        if (!File.Exists(path))
+        {
+            _logger.LogDebug("Skipping legacy encoding options migration because {Path} does not exist.", path);
+            return;
+        }
+
         var oldSerializer = new XmlSerializer(typeof(OldEncodingOptions), new XmlRootAttribute("EncodingOptions"));
         OldEncodingOptions? oldConfig = null;
 
@@ -43,11 +49,11 @@ public class MigrateEncodingOptions : IMigrationRoutine
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogError(ex, "Migrate EncodingOptions deserialize Invalid Operation error");
+            _logger.LogWarning(ex, "Skipping legacy encoding options migration because {Path} is not in the expected legacy format.", path);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Migrate EncodingOptions deserialize error");
+            _logger.LogWarning(ex, "Skipping legacy encoding options migration because {Path} could not be read.", path);
         }
 
         if (oldConfig is null)
@@ -80,13 +86,13 @@ public class MigrateEncodingOptions : IMigrationRoutine
         }
 
         var encoderPreset = EncoderPreset.superfast;
-        if (Enum.TryParse<EncoderPreset>(oldConfig.TonemappingRange, true, out var parsedEncoderPreset))
+        if (Enum.TryParse<EncoderPreset>(oldConfig.EncoderPreset, true, out var parsedEncoderPreset))
         {
             encoderPreset = parsedEncoderPreset;
         }
 
         var deinterlaceMethod = DeinterlaceMethod.yadif;
-        if (Enum.TryParse<DeinterlaceMethod>(oldConfig.TonemappingRange, true, out var parsedDeinterlaceMethod))
+        if (Enum.TryParse<DeinterlaceMethod>(oldConfig.DeinterlaceMethod, true, out var parsedDeinterlaceMethod))
         {
             deinterlaceMethod = parsedDeinterlaceMethod;
         }
@@ -237,4 +243,3 @@ public class MigrateEncodingOptions : IMigrationRoutine
         public string[] AllowOnDemandMetadataBasedKeyframeExtractionForExtensions { get; set; }
     }
 }
-

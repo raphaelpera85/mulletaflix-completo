@@ -1,4 +1,4 @@
 declare module 'epubjs' {
-    const epubjs: any;
+    const epubjs: unknown;
     export default epubjs;
 }

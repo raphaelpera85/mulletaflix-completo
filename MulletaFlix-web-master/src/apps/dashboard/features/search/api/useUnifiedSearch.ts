@@ -11,7 +11,7 @@ import type { CardOptions } from 'types/cardOptions';
 
 type UnifiedSearchItem = BaseItemDto | SearchHint;
 
-interface UnifiedSearchQuery {
+export interface UnifiedSearchQuery {
     userId?: string;
     searchTerm?: string;
     parentId?: string;
@@ -73,11 +73,7 @@ function setNonEmptyArrayParam(
     }
 }
 
-const fetchUnifiedSearch = async (
-    api: Api,
-    query: UnifiedSearchQuery,
-    options?: AxiosRequestConfig
-) => {
+export const buildUnifiedSearchParams = (query: UnifiedSearchQuery): URLSearchParams => {
     const params = new URLSearchParams();
     setDefinedParam(params, 'userId', query.userId);
     setDefinedParam(params, 'searchTerm', query.searchTerm);
@@ -95,6 +91,16 @@ const fetchUnifiedSearch = async (
     setDefinedParam(params, 'includeArtists', query.includeArtists);
     setNonEmptyArrayParam(params, 'sortBy', query.sortBy);
     setDefinedParam(params, 'sortOrder', query.sortOrder);
+
+    return params;
+};
+
+const fetchUnifiedSearch = async (
+    api: Api,
+    query: UnifiedSearchQuery,
+    options?: AxiosRequestConfig
+) => {
+    const params = buildUnifiedSearchParams(query);
 
     const response = await api.axiosInstance.request({
         url: `/Search/Unified?${params.toString()}`,

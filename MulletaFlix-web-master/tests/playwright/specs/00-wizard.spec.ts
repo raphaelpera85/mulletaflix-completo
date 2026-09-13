@@ -3,7 +3,7 @@ import { getAdminCredentials } from '../support/admin-user.mjs';
 import { assertCleanWizardStage, fetchStagePublicInfo, openStage, seedStageConnection, STAGE_ROUTES } from '../support/stage.mjs';
 import { completeWizard } from '../support/wizard.mjs';
 
-const ADMIN_USER = process.env.MFLX_ADMIN_USER || 'Raphael';
+const ADMIN_USER = getAdminCredentials().username;
 
 test.describe.serial('00 - Wizard', () => {
     test('stage starts clean and wizard pages are reachable', async ({ page }) => {

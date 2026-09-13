@@ -20,6 +20,7 @@ export const useServerUpdateInfo = () => {
     return useQuery({
         queryKey: ['UpdateInfo', api?.basePath],
         queryFn: ({ signal }) => fetchUpdateInfo(api!, signal),
-        enabled: !!api
+        enabled: !!api,
+        retry: 2
     });
 };

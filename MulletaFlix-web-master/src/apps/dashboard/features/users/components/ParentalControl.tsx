@@ -57,11 +57,12 @@ function handleSaveUser(
         userPolicy.AccessSchedules = getSchedulesFromPage();
         userPolicy.AllowedTags = getAllowedTagsFromPage();
         userPolicy.BlockedTags = getBlockedTagsFromPage();
-        ServerConnections.getCurrentApiClientAsync()
+        return ServerConnections.getCurrentApiClientAsync()
             .then(apiClient => (apiClient as unknown as ApiClient).updateUserPolicy(userId, userPolicy))
             .then(() => onSaveComplete())
             .catch(err => {
                 console.error('[userparentalcontrol] failed to update user policy', err);
+                throw err;
             });
     };
 }
@@ -74,6 +75,7 @@ const ParentalControl = ({ userId }: ParentalControlProps) => {
     const [ allowedTags, setAllowedTags ] = useState<string[]>([]);
     const [ blockedTags, setBlockedTags ] = useState<string[]>([]);
     const [ isSettingsSavedToastOpen, setIsSettingsSavedToastOpen ] = useState(false);
+    const [ hasLoadError, setHasLoadError ] = useState(false);
     const libraryMenu = useMemo(async () => ((await import('scripts/libraryMenu')).default), []);
 
     const element = useRef<HTMLDivElement>(null);
@@ -198,7 +200,6 @@ const ParentalControl = ({ userId }: ParentalControlProps) => {
             (page.querySelector('.accessScheduleSection') as HTMLDivElement).classList.remove('hide');
         }
         setAccessSchedules(user.Policy?.AccessSchedules || []);
-        loading.hide();
     }, [libraryMenu, setAllowedTags, setBlockedTags, loadUnratedItems]);
 
     const loadData = useCallback(() => {
@@ -207,13 +208,17 @@ const ParentalControl = ({ userId }: ParentalControlProps) => {
             return;
         }
 
-        loading.show();
-        const promise1 = window.ApiClient.getUser(userId);
-        const promise2 = window.ApiClient.getParentalRatings();
-        Promise.all([promise1, promise2]).then(function (responses) {
-            loadUser(responses[0], responses[1]);
-        }).catch(err => {
-            console.error('[userparentalcontrol] failed to load data', err);
+        setHasLoadError(false);
+        void loading.withLoading(async () => {
+            try {
+                const promise1 = window.ApiClient.getUser(userId);
+                const promise2 = window.ApiClient.getParentalRatings();
+                const responses = await Promise.all([promise1, promise2]);
+                loadUser(responses[0], responses[1]);
+            } catch (err) {
+                console.error('[userparentalcontrol] failed to load data', err);
+                setHasLoadError(true);
+            }
         });
     }, [loadUser, userId]);
 
@@ -302,7 +307,6 @@ const ParentalControl = ({ userId }: ParentalControlProps) => {
         };
 
         const onSaveComplete = () => {
-            loading.hide();
             setIsSettingsSavedToastOpen(true);
         };
 
@@ -314,11 +318,14 @@ const ParentalControl = ({ userId }: ParentalControlProps) => {
                 return;
             }
 
-            loading.show();
-            window.ApiClient.getUser(userId).then(function (result) {
-                saveUser(result);
-            }).catch(err => {
-                console.error('[userparentalcontrol] failed to fetch user', err);
+            void loading.withLoading(async () => {
+                try {
+                    const result = await window.ApiClient.getUser(userId);
+                    await saveUser(result);
+                } catch (err) {
+                    console.error('[userparentalcontrol] failed to save user parental controls', err);
+                    setHasLoadError(true);
+                }
             });
             e.preventDefault();
             e.stopPropagation();
@@ -392,6 +399,16 @@ const ParentalControl = ({ userId }: ParentalControlProps) => {
                 onClose={handleToastClose}
                 message={globalize.translate('SettingsSaved')}
             />
+            {hasLoadError && (
+                <div role='alert' aria-live='assertive' className='alert alert-error'>
+                    <span>{globalize.translate('ErrorDefault')}</span>
+                    <Button
+                        type='button'
+                        title={globalize.translate('Retry')}
+                        onClick={loadData}
+                    />
+                </div>
+            )}
             <form className='userParentalControlForm'>
                 <div className='selectContainer'>
                     <SelectElement

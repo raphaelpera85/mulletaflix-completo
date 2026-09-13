@@ -1,4 +1,4 @@
-import loading from '../../components/loading/loading';
+import { withLoading } from '../../components/loading/loading';
 import cardBuilder from '../../components/cardbuilder/cardBuilder';
 import type { ItemDtoQueryResult } from 'types/base/models/item-dto-query-result';
 
@@ -39,15 +39,14 @@ function getSavedQueryKey(params: ViewParams): string {
 
 function getPromise(params: ViewParams): Promise<ItemDtoQueryResult> {
     const query = getQuery(params);
-    loading.show();
     return ApiClient.getStudios(ApiClient.getCurrentUserId(), query);
 }
 
 function reloadItems(context: HTMLElement, params: ViewParams, promise: Promise<ItemDtoQueryResult>): void {
-    promise.then(function (result: ItemDtoQueryResult) {
+    void withLoading(async () => {
+        const result = await promise;
         const elem = context.querySelector('#items');
         if (!elem) {
-            loading.hide();
             return;
         }
         cardBuilder.buildCards(result.Items ?? [], {
@@ -60,14 +59,12 @@ function reloadItems(context: HTMLElement, params: ViewParams, promise: Promise<
             overlayMoreButton: true,
             context: 'tvshows'
         });
-        loading.hide();
 
         void import('../../components/autoFocuser').then(({ default: autoFocuser }) => {
             autoFocuser.autoFocus(context);
         }).catch((error: unknown) => console.error('[TvStudios] failed to focus page', error));
     }).catch((error: unknown) => {
         console.error('[TvStudios] failed to load studios', error);
-        loading.hide();
     });
 }
 

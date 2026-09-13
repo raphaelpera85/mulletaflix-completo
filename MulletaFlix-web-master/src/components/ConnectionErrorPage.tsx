@@ -35,6 +35,15 @@ const ConnectionErrorPage: FC<ConnectionErrorPageProps> = ({
         }
     }, []);
 
+    const onForceConnectClick = useCallback((event: React.MouseEvent<HTMLAnchorElement>) => {
+        if (isConnectDisabled) {
+            event.preventDefault();
+            return;
+        }
+
+        void onForceConnect();
+    }, [ isConnectDisabled, onForceConnect ]);
+
     useEffect(() => {
         switch (state) {
             case ConnectionState.ServerMismatch:
@@ -66,7 +75,11 @@ const ConnectionErrorPage: FC<ConnectionErrorPageProps> = ({
             isBackButtonEnabled={false}
             shouldAutoFocus
         >
-            <div className='padded-left padded-right'>
+            <div
+                aria-live='assertive'
+                className='padded-left padded-right'
+                role='alert'
+            >
                 <h1>{title}</h1>
                 {htmlMessage && (
                     <p
@@ -91,8 +104,9 @@ const ConnectionErrorPage: FC<ConnectionErrorPageProps> = ({
 
                 {state === ConnectionState.ServerMismatch && (
                     <LinkButton
-                        onClick={onForceConnect}
-                        style={ isConnectDisabled ? { pointerEvents: 'none' } : undefined }
+                        aria-disabled={isConnectDisabled}
+                        tabIndex={isConnectDisabled ? -1 : undefined}
+                        onClick={onForceConnectClick}
                     >
                         {globalize.translate('ConnectAnyway')}
                     </LinkButton>
@@ -103,4 +117,3 @@ const ConnectionErrorPage: FC<ConnectionErrorPageProps> = ({
 };
 
 export default ConnectionErrorPage;
-

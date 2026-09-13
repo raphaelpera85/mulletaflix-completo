@@ -56,12 +56,14 @@ export const Component = () => {
     const {
         data: config,
         isPending: isConfigPending,
-        isError: isConfigError
+        isError: isConfigError,
+        refetch: refetchConfig
     } = useConfiguration();
     const {
         data: languageOptions,
         isPending: isLocalizationOptionsPending,
-        isError: isLocalizationOptionsError
+        isError: isLocalizationOptionsError,
+        refetch: refetchLocalizationOptions
     } = useLocalizationOptions();
 
     const navigation = useNavigation();
@@ -69,6 +71,10 @@ export const Component = () => {
     const isSubmitting = navigation.state === 'submitting';
     const [ cachePath, setCachePath ] = useState<string | null | undefined>('');
     const [ metadataPath, setMetadataPath ] = useState<string | null | undefined>('');
+
+    const retryLoad = useCallback(() => {
+        void Promise.all([ refetchConfig(), refetchLocalizationOptions() ]);
+    }, [ refetchConfig, refetchLocalizationOptions ]);
 
     const onCachePathChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => {
         setCachePath(event.target.value);
@@ -120,6 +126,25 @@ export const Component = () => {
         }
     }, [config, isConfigPending, isConfigError]);
 
+    if (isConfigError || isLocalizationOptionsError) {
+        return (
+            <Page
+                id='dashboardGeneralPage'
+                title={globalize.translate('General')}
+                className='type-interior mainAnimatedPage'
+            >
+                <Box className='content-primary'>
+                    <Alert
+                        severity='error'
+                        action={<Button color='inherit' size='small' onClick={retryLoad}>{globalize.translate('Retry')}</Button>}
+                    >
+                        {globalize.translate('SettingsPageLoadError')}
+                    </Alert>
+                </Box>
+            </Page>
+        );
+    }
+
     if (isConfigPending || isLocalizationOptionsPending) {
         return <Loading />;
     }
@@ -132,7 +157,16 @@ export const Component = () => {
         >
             <Box className='content-primary'>
                 {isConfigError || isLocalizationOptionsError ? (
-                    <Alert severity='error'>{globalize.translate('SettingsPageLoadError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={
+                            <Button color='inherit' size='small' onClick={retryLoad}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
+                    >
+                        {globalize.translate('SettingsPageLoadError')}
+                    </Alert>
                 ) : (
                     <Form method='POST'>
                         <Stack spacing={3}>
@@ -269,4 +303,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'SettingsPage';
-

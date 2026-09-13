@@ -49,15 +49,12 @@ function authenticateUserByName(
     username: string,
     password: string
 ): void {
-    loading.show();
-    apiClient.authenticateUserByName(username, password).then(function (result) {
+    void loading.withLoading(() => apiClient.authenticateUserByName(username, password)).then(function (result) {
         const user = result.User!;
-        loading.hide();
-
         onLoginSuccessful(user.Id || '', result.AccessToken || '', apiClient, url);
-    }, function (response: Response) {
+    }).catch(function (error: unknown) {
+        const response = error as Response;
         (page.querySelector('#txtManualPassword') as HTMLInputElement).value = '';
-        loading.hide();
 
         const UnauthorizedOrForbidden: number[] = [401, 403];
         if (UnauthorizedOrForbidden.includes(response.status)) {
@@ -120,7 +117,7 @@ function authenticateQuickConnect(apiClient: ApiClientType, targetUrl: string): 
         const connectUrl: string = apiClient.getUrl('/QuickConnect/Connect?Secret=' + json.Secret);
 
         const interval = setInterval(function() {
-            apiClient.getJSON(connectUrl).then(async function(data: QuickConnectAuthData) {
+            apiClient.getJSON<QuickConnectAuthData>(connectUrl).then(async function(data: QuickConnectAuthData) {
                 if (!data.Authenticated) {
                     return;
                 }
@@ -167,7 +164,7 @@ function onLoginSuccessful(id: string, accessToken: string, apiClient: ApiClient
     Dashboard.onServerChanged(id, accessToken, apiClient as never);
     void Dashboard.navigate(url || 'home');
 
-    apiClient.getJSON(apiClient.getUrl('Users/' + id + '/License')).then(function (license: LicenseInfo) {
+    apiClient.getJSON<LicenseInfo>(apiClient.getUrl('Users/' + id + '/License')).then(function (license: LicenseInfo) {
         if (!license || license.IsUnlimited) {
             return;
         }
@@ -385,7 +382,6 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
     });
 
     view.addEventListener('viewshow', () => {
-        loading.show();
         setHeaderVisibility(true);
         libraryMenu.setTransparentMenu(true);
 
@@ -405,7 +401,7 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
                 console.debug('Failed to get QuickConnect status');
             });
 
-        void apiClient.getPublicUsers().then(function (users: unknown[]) {
+        void loading.withLoading(() => apiClient.getPublicUsers()).then(function (users: unknown[]) {
             if (users.length) {
                 showVisualForm();
                 loadUserList(view, apiClient, users as PublicUser[]);
@@ -418,10 +414,8 @@ export default function (view: HTMLElement, params: LoginPageParams): void {
                 message: globalize.translate('MessageUnableToConnectToServer'),
                 title: globalize.translate('HeaderConnectionFailure')
             });
-        }).then(function () {
-            loading.hide();
         });
-        void apiClient.getJSON(apiClient.getUrl('Branding/Configuration')).then(function (options: BrandingOptions) {
+        void apiClient.getJSON<BrandingOptions>(apiClient.getUrl('Branding/Configuration')).then(function (options: BrandingOptions) {
             const loginDisclaimer = view.querySelector('.loginDisclaimer') as HTMLElement;
 
             loginDisclaimer.innerHTML = DOMPurify.sanitize(markdownIt({ html: false }).render(options.LoginDisclaimer || ''));

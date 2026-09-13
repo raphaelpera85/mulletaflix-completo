@@ -1,5 +1,4 @@
 // Cucumber loads this support module through CommonJS require().
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require('node:path');
 
 function trimTrailingSlashes(value) {
@@ -13,16 +12,7 @@ function trimTrailingSlashes(value) {
 
 const ROOT_URL = trimTrailingSlashes(process.env.STAGE_URL || process.env.PW_BASE_URL || 'http://127.0.0.1:8096');
 
-function getRequiredSecret(name) {
-    const value = process.env[name]?.trim();
-    if (!value) {
-        throw new Error(`Set ${name} before running Selenium/Cucumber tests.`);
-    }
-
-    return value;
-}
-
-function getRequiredPath(name) {
+function getRequiredEnv(name) {
     const value = process.env[name]?.trim();
     if (!value) {
         throw new Error(`Set ${name} before running Selenium/Cucumber tests.`);
@@ -35,20 +25,20 @@ module.exports = {
     ROOT_URL,
     ADMIN_USER: process.env.MFLX_ADMIN_USER || 'Raphael',
     get ADMIN_PASSWORD() {
-        return getRequiredSecret('MFLX_ADMIN_PASSWORD');
+        return getRequiredEnv('MFLX_ADMIN_PASSWORD');
     },
     COMMON_USER: process.env.MFLX_COMMON_USER || 'mflx-user',
     get COMMON_PASSWORD() {
-        return getRequiredSecret('MFLX_COMMON_PASSWORD');
+        return getRequiredEnv('MFLX_COMMON_PASSWORD');
     },
     get MOVIES_PATH() {
-        return getRequiredPath('MFLX_MOVIES_PATH');
+        return getRequiredEnv('MFLX_MOVIES_PATH');
     },
     get SERIES_PATH() {
-        return getRequiredPath('MFLX_SERIES_PATH');
+        return getRequiredEnv('MFLX_SERIES_PATH');
     },
     get IPTV_PATH() {
-        return getRequiredPath('MFLX_IPTV_PATH');
+        return getRequiredEnv('MFLX_IPTV_PATH');
     },
     REPORT_DIR: process.env.SELENIUM_CUCUMBER_REPORT_DIR
         || path.join(process.cwd(), 'tests', 'selenium-cucumber', 'reports'),

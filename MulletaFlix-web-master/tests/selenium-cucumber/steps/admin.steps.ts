@@ -181,18 +181,18 @@ When('I save the general, streaming and branding settings shells', { timeout: 2 
     await waitForVisibleCss(this.driver, 'input[name="CachePath"]');
     await waitForVisibleCss(this.driver, 'input[name="MetadataPath"]');
     await clickCss(this.driver, '#dashboardGeneralPage button[type="submit"]');
-    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => {});
+    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => undefined);
 
     await openAndWait(this.driver, '/dashboard/playback/streaming', '#streamingSettingsPage');
     await waitForVisibleCss(this.driver, 'input[name="StreamingBitrateLimit"]');
     await clickCss(this.driver, '#streamingSettingsPage button[type="submit"]');
-    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => {});
+    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => undefined);
 
     await openAndWait(this.driver, '/dashboard/branding', '#brandingPage');
     await waitForVisibleCss(this.driver, 'textarea[name="LoginDisclaimer"]');
     await waitForVisibleCss(this.driver, 'textarea[name="CustomCss"]');
     await clickCss(this.driver, '#brandingPage button[type="submit"]');
-    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => {});
+    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => undefined);
 });
 
 When('I inspect live tv status and recordings settings', async function () {
@@ -250,7 +250,7 @@ When('I inspect api keys, jobs and backup dialogs', async function () {
     await assertVisibleByTextOrTitle(this.driver, 'label,span,div', /Metadata|Metadados|LabelMetadata/i);
     await assertVisibleByTextOrTitle(this.driver, 'label,span,div', /Subtitles|Legendas/i);
     await assertVisibleByTextOrTitle(this.driver, 'label,span,div', /Trickplay|Pr.-visualiza/i);
-    await clickVisibleByTextOrTitle(this.driver, 'button', /Cancel|ButtonCancel|Cancelar/i).catch(() => {});
+    await clickVisibleByTextOrTitle(this.driver, 'button', /Cancel|ButtonCancel|Cancelar/i).catch(() => undefined);
 });
 
 When('I save networking and library metadata shells', { timeout: 2 * 60 * 1000 }, async function () {
@@ -259,23 +259,23 @@ When('I save networking and library metadata shells', { timeout: 2 * 60 * 1000 }
     await waitForVisibleCss(this.driver, 'input[name="BaseUrl"]');
     await waitForVisibleCss(this.driver, 'input[name="KnownProxies"]');
     await clickCss(this.driver, '#networkingPage button[type="submit"]');
-    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => {});
+    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => undefined);
 
     await openAndWait(this.driver, '/dashboard/libraries/display', '#libraryDisplayPage');
     await assertBodyText(this.driver, /Comportamento da data de adi..o|Date added behavior/i);
     await clickCss(this.driver, '#libraryDisplayPage button[type="submit"]');
-    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => {});
+    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => undefined);
 
     await openAndWait(this.driver, '/dashboard/libraries/metadata', '#metadataImagesConfigurationPage');
     await assertBodyText(this.driver, /Idioma|Language/i);
     await assertBodyText(this.driver, /Pa.s|Country/i);
     await clickCss(this.driver, '#metadataImagesConfigurationPage button[type="submit"]');
-    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => {});
+    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => undefined);
 
     await openAndWait(this.driver, '/dashboard/libraries/nfo', '#metadataNfoPage');
     await assertBodyText(this.driver, /NFO|Salvar|Save/i);
     await clickCss(this.driver, '#metadataNfoPage button[type="submit"]');
-    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => {});
+    await waitForAlert(this.driver, /Settings saved|SettingsSaved|Saved|Salvo/i, 8000).catch(() => undefined);
 
     await openAndWait(this.driver, '/dashboard/libraries/unidentified', '#unidentifiedMediaPage');
     await assertVisibleByTextOrTitle(this.driver, '[role="tab"],button', /Movies|Filmes/i);
@@ -319,7 +319,7 @@ When('I inspect every admin management surface', async function () {
     await waitForVisibleCss(this.driver, '#logPage a[href*="/dashboard/logs/"]');
 
     await openAndWait(this.driver, '/dashboard/libraries', '#mediaLibraryPage');
-    await assertVisibleByTextOrTitle(this.driver, 'button', /Add Media Library|Adicionar biblioteca|ButtonAddMediaLibrary/i).catch(() => {});
+    await assertVisibleByTextOrTitle(this.driver, 'button', /Add Media Library|Adicionar biblioteca|ButtonAddMediaLibrary/i).catch(() => undefined);
 });
 
 Then('the admin dashboard shells should be available', async function () {

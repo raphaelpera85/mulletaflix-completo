@@ -149,39 +149,26 @@ function closeDialog(): void {
 }
 
 function submitUpdatedItem(form: HTMLFormElement, item: Item): void {
-    function afterContentTypeUpdated(): void {
-        toast(globalize.translate('MessageItemSaved'));
-
-        loading.hide();
-        closeDialog();
-    }
-
     const apiClient = getApiClient();
+    void loading.withLoading(async () => {
+        try {
+            await apiClient.updateItem(item);
+            const newContentType = (form.querySelector('#selectContentType') as HTMLSelectElement).value || '';
 
-    apiClient.updateItem(item).then(function () {
-        const newContentType = (form.querySelector('#selectContentType') as HTMLSelectElement).value || '';
+            if ((metadataEditorInfo.ContentType || '') !== newContentType) {
+                await apiClient.ajax({
+                    url: apiClient.getUrl('Items/' + item.Id + '/ContentType', {
+                        ContentType: newContentType
+                    }),
+                    type: 'POST'
+                });
+            }
 
-        if ((metadataEditorInfo.ContentType || '') !== newContentType) {
-            apiClient.ajax({
-
-                url: apiClient.getUrl('Items/' + item.Id + '/ContentType', {
-                    ContentType: newContentType
-                }),
-
-                type: 'POST'
-
-            }).then(function () {
-                afterContentTypeUpdated();
-            }).catch((error: unknown) => {
-                loading.hide();
-                console.error('[MetadataEditor] failed to update content type', error);
-            });
-        } else {
-            afterContentTypeUpdated();
+            toast(globalize.translate('MessageItemSaved'));
+            closeDialog();
+        } catch (error) {
+            console.error('[MetadataEditor] failed to update item metadata', error);
         }
-    }).catch((error: unknown) => {
-        loading.hide();
-        console.error('[MetadataEditor] failed to update item', error);
     });
 }
 
@@ -230,8 +217,6 @@ function getDateValue(form: HTMLFormElement, element: string, property: keyof It
 }
 
 function onSubmit(e: Event): void {
-    loading.show();
-
     const form = e.currentTarget as HTMLFormElement;
 
     const item: Item = {
@@ -1049,9 +1034,7 @@ function fillMetadataSettings(context: HTMLElement, item: Item, lockedFields?: s
 }
 
 function reload(context: HTMLElement, itemId: string, serverId: string): void {
-    loading.show();
-
-    Promise.all([getItem(itemId, serverId), getEditorConfig(itemId, serverId)]).then(function (responses) {
+    void loading.withLoading(() => Promise.all([getItem(itemId, serverId), getEditorConfig(itemId, serverId)]).then(function (responses) {
         const item = responses[0];
         metadataEditorInfo = responses[1];
 
@@ -1084,12 +1067,9 @@ function reload(context: HTMLElement, itemId: string, serverId: string): void {
         } else {
             hideElement('#fldTagline', context);
         }
-
-        loading.hide();
     }).catch(error => {
-        loading.hide();
         console.error('[MetadataEditor] failed to reload metadata', error);
-    });
+    }));
 }
 
 function centerFocus(elem: HTMLElement | null, horiz: boolean, on: boolean): void {
@@ -1103,8 +1083,6 @@ function centerFocus(elem: HTMLElement | null, horiz: boolean, on: boolean): voi
 }
 
 function show(itemId: string, serverId: string, resolve: () => void): void {
-    loading.show();
-
     const dialogOptions = {
         removeOnClose: true,
         scrollY: false,
@@ -1155,8 +1133,6 @@ export default {
 
     embed: function (elem: HTMLElement, itemId: string, serverId: string): Promise<void> {
         return new Promise(function (resolve) {
-            loading.show();
-
             elem.innerHTML = globalize.translateHtml(template, 'core');
 
             elem.querySelector('.formDialogFooter')?.classList.remove('formDialogFooter');

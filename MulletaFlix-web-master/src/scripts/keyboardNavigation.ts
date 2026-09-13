@@ -138,6 +138,69 @@ export function isInteractiveElement(element: Element | null | undefined): boole
     return false;
 }
 
+const keyCommands: Record<string, string> = {
+    ArrowUp: 'up',
+    ArrowDown: 'down',
+    GamepadA: 'select',
+    Back: 'back',
+    Find: 'search',
+    BrowserHome: 'home',
+    MediaPlay: 'play',
+    Pause: 'pause',
+    MediaPlayPause: 'playpause',
+    MediaRewind: 'rewind',
+    MediaFastForward: 'fastforward',
+    MediaStop: 'stop',
+    MediaTrackPrevious: 'previoustrack',
+    MediaTrackNext: 'nexttrack'
+};
+
+function handleSpecialKey(key: string): boolean | undefined {
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+        if (isInteractiveElement(document.activeElement)) {
+            return false;
+        }
+
+        inputManager.handleCommand(key === 'ArrowLeft' ? 'left' : 'right');
+        return true;
+    }
+
+    if (key === 'Backspace') {
+        if (browser.tv && browser.hisense && browser.vidaa) {
+            inputManager.handleCommand('back');
+            return true;
+        }
+
+        return false;
+    }
+
+    if (key === 'Escape') {
+        if (layoutManager.tv) {
+            inputManager.handleCommand('back');
+            return true;
+        }
+
+        return false;
+    }
+
+    return undefined;
+}
+
+function handleKey(key: string): boolean {
+    const specialResult = handleSpecialKey(key);
+    if (specialResult !== undefined) {
+        return specialResult;
+    }
+
+    const command = keyCommands[key];
+    if (!command) {
+        return false;
+    }
+
+    inputManager.handleCommand(command);
+    return true;
+}
+
 export function enable(): void {
     const hasMediaSession = 'mediaSession' in navigator;
     window.addEventListener('keydown', function (e: KeyboardEvent) {
@@ -158,89 +221,7 @@ export function enable(): void {
             return;
         }
 
-        let capture = true;
-
-        switch (key) {
-            case 'ArrowLeft':
-                if (!isInteractiveElement(document.activeElement)) {
-                    inputManager.handleCommand('left');
-                } else {
-                    capture = false;
-                }
-                break;
-            case 'ArrowUp':
-                inputManager.handleCommand('up');
-                break;
-            case 'ArrowRight':
-                if (!isInteractiveElement(document.activeElement)) {
-                    inputManager.handleCommand('right');
-                } else {
-                    capture = false;
-                }
-                break;
-            case 'ArrowDown':
-                inputManager.handleCommand('down');
-                break;
-
-            case 'GamepadA':
-                inputManager.handleCommand('select');
-                break;
-            case 'Back':
-                inputManager.handleCommand('back');
-                break;
-
-            // WORKAROUND: Hisense TV (VIDAA OS) maps Backspace to Back action
-            case 'Backspace':
-                if (browser.tv && browser.hisense && browser.vidaa) {
-                    inputManager.handleCommand('back');
-                } else {
-                    capture = false;
-                }
-                break;
-
-            case 'Escape':
-                if (layoutManager.tv) {
-                    inputManager.handleCommand('back');
-                } else {
-                    capture = false;
-                }
-                break;
-
-            case 'Find':
-                inputManager.handleCommand('search');
-                break;
-            case 'BrowserHome':
-                inputManager.handleCommand('home');
-                break;
-
-            case 'MediaPlay':
-                inputManager.handleCommand('play');
-                break;
-            case 'Pause':
-                inputManager.handleCommand('pause');
-                break;
-            case 'MediaPlayPause':
-                inputManager.handleCommand('playpause');
-                break;
-            case 'MediaRewind':
-                inputManager.handleCommand('rewind');
-                break;
-            case 'MediaFastForward':
-                inputManager.handleCommand('fastforward');
-                break;
-            case 'MediaStop':
-                inputManager.handleCommand('stop');
-                break;
-            case 'MediaTrackPrevious':
-                inputManager.handleCommand('previoustrack');
-                break;
-            case 'MediaTrackNext':
-                inputManager.handleCommand('nexttrack');
-                break;
-
-            default:
-                capture = false;
-        }
+        const capture = handleKey(key);
 
         if (capture) {
             console.debug('disabling default event handling');

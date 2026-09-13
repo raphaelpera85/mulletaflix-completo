@@ -22,7 +22,17 @@ interface ApiItem {
     Type?: string;
 }
 
-function onRecordingButtonClick(this: any): void {
+interface RecordingButtonInstance {
+    item?: ApiItem;
+    refresh(serverId: string, itemId: string): void;
+}
+
+interface RecordingApiClient {
+    getCurrentUserId(): string;
+    getItem(userId: string, itemId: string): Promise<ApiItem>;
+}
+
+function onRecordingButtonClick(this: RecordingButtonInstance): void {
     const item = this.item;
 
     if (item) {
@@ -32,10 +42,8 @@ function onRecordingButtonClick(this: any): void {
         const timerStatus = item.Status;
         const seriesTimerId = item.SeriesTimerId;
 
-        const instance = this;
-
-        recordingHelper.toggleRecording(serverId!, programId!, timerId!, timerStatus!, seriesTimerId!).then(function () {
-            instance.refresh(serverId!, programId!);
+        void recordingHelper.toggleRecording(serverId!, programId!, timerId!, timerStatus!, seriesTimerId!).then(() => {
+            this.refresh(serverId!, programId!);
         }).catch(() => undefined);
     }
 }
@@ -62,7 +70,7 @@ class RecordingButton {
         if (options.item) {
             this.refreshItem(options.item);
         } else if (options.itemId && options.serverId) {
-            this.refresh(options.itemId, options.serverId);
+            this.refresh(options.serverId, options.itemId);
         }
 
         const clickFn = onRecordingButtonClick.bind(this);
@@ -74,10 +82,11 @@ class RecordingButton {
     }
 
     refresh(serverId: string, itemId: string): void {
-        const apiClient = ServerConnections.getApiClient(serverId) as any;
-        const self = this;
-        apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(function (item: ApiItem) {
-            self.refreshItem(item);
+        const apiClient = ServerConnections.getApiClient(serverId) as unknown as RecordingApiClient;
+        void apiClient.getItem(apiClient.getCurrentUserId(), itemId).then((item) => {
+            this.refreshItem(item);
+        }).catch((error: unknown) => {
+            console.error('[RecordingButton] failed to refresh item', error);
         });
     }
 

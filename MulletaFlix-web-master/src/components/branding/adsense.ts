@@ -14,7 +14,7 @@ interface BrandingConfiguration {
 
 interface AdSenseApiClient {
     accessToken?: () => string | null;
-    getNamedConfiguration?: (name: string) => Promise<BrandingConfiguration>;
+    getNamedConfiguration?: (name: string) => Promise<unknown>;
 }
 
 type AdSensePlacement = 'login' | 'home' | 'playback';
@@ -24,7 +24,9 @@ function getBrandingConfiguration(apiClient: AdSenseApiClient): Promise<Branding
         return Promise.resolve({});
     }
 
-    return apiClient.getNamedConfiguration('branding').catch(() => ({}));
+    return apiClient.getNamedConfiguration('branding')
+        .then((value) => value && typeof value === 'object' ? value as BrandingConfiguration : {})
+        .catch(() => ({}));
 }
 
 function isPlacementEnabled(config: BrandingConfiguration, placement: AdSensePlacement): boolean {

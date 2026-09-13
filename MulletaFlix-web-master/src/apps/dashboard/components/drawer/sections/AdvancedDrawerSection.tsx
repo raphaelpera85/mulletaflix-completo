@@ -1,5 +1,6 @@
 import Article from '@mui/icons-material/Article';
 import Backup from '@mui/icons-material/Backup';
+import Cloud from '@mui/icons-material/Cloud';
 import Lan from '@mui/icons-material/Lan';
 import Schedule from '@mui/icons-material/Schedule';
 import VpnKey from '@mui/icons-material/VpnKey';
@@ -37,6 +38,14 @@ const AdvancedDrawerSection = () => {
                         <VpnKey />
                     </ListItemIcon>
                     <ListItemText primary={globalize.translate('HeaderApiKeys')} />
+                </ListItemLink>
+            </ListItem>
+            <ListItem disablePadding>
+                <ListItemLink to='/dashboard/nebula'>
+                    <ListItemIcon>
+                        <Cloud />
+                    </ListItemIcon>
+                    <ListItemText primary='Operações Nebula' />
                 </ListItemLink>
             </ListItem>
             <ListItem disablePadding>

@@ -16,11 +16,12 @@ import '../formdialog.scss';
 import '../../styles/flexstyles.scss';
 import toast from '../toast/toast';
 
+/* The legacy Jellyfin API client and dialog contract are dynamically shaped. */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 let currentServerId: string | null;
 
 function onSubmit(this: HTMLElement, e: Event): void {
-    loading.show();
-
     const panel = dom.parentWithClass(this, 'dialog')!;
 
     const collectionId = (panel.querySelector('#selectCollectionToAddTo') as HTMLSelectElement).value;
@@ -28,15 +29,21 @@ function onSubmit(this: HTMLElement, e: Event): void {
     const apiClient = ServerConnections.getApiClient(currentServerId!);
 
     if (collectionId) {
-        addToCollection(apiClient, panel, collectionId);
+        void loading.withLoading(() => addToCollection(apiClient, panel, collectionId)).catch((error: unknown) => {
+            console.error('[CollectionEditor] failed to add items to collection', error);
+            toast(globalize.translate('ErrorDefault'));
+        });
     } else {
-        createCollection(apiClient, panel);
+        void loading.withLoading(() => createCollection(apiClient, panel)).catch((error: unknown) => {
+            console.error('[CollectionEditor] failed to create collection', error);
+            toast(globalize.translate('ErrorDefault'));
+        });
     }
 
     e.preventDefault();
 }
 
-function createCollection(apiClient: any, dlg: HTMLElement): void {
+function createCollection(apiClient: any, dlg: HTMLElement): Promise<void> {
     const url = apiClient.getUrl('Collections', {
 
         Name: (dlg.querySelector('#txtNewCollectionName') as HTMLInputElement).value,
@@ -44,14 +51,12 @@ function createCollection(apiClient: any, dlg: HTMLElement): void {
         Ids: (dlg.querySelector('.fldSelectedItemIds') as HTMLInputElement).value || ''
     });
 
-    apiClient.ajax({
+    return apiClient.ajax({
         type: 'POST',
         url: url,
         dataType: 'json'
 
     }).then((result: any) => {
-        loading.hide();
-
         const id = result.Id;
 
         (dlg as any).submitted = true;
@@ -64,19 +69,17 @@ function redirectToCollection(apiClient: any, id: string): void {
     appRouter.showItem(id, apiClient.serverId());
 }
 
-function addToCollection(apiClient: any, dlg: HTMLElement, id: string): void {
+function addToCollection(apiClient: any, dlg: HTMLElement, id: string): Promise<void> {
     const url = apiClient.getUrl(`Collections/${id}/Items`, {
 
         Ids: (dlg.querySelector('.fldSelectedItemIds') as HTMLInputElement).value || ''
     });
 
-    apiClient.ajax({
+    return apiClient.ajax({
         type: 'POST',
         url: url
 
     }).then(() => {
-        loading.hide();
-
         (dlg as any).submitted = true;
         dialogHelper.close(dlg);
 
@@ -89,8 +92,6 @@ function triggerChange(select: HTMLElement): void {
 }
 
 function populateCollections(panel: HTMLElement): void {
-    loading.show();
-
     const select = panel.querySelector('#selectCollectionToAddTo') as HTMLSelectElement;
 
     panel.querySelector('.newCollectionInfo')!.classList.add('hide');
@@ -104,7 +105,7 @@ function populateCollections(panel: HTMLElement): void {
     };
 
     const apiClient: any = ServerConnections.getApiClient(currentServerId!);
-    apiClient.getItems(apiClient.getCurrentUserId(), options).then((result: any) => {
+    void loading.withLoading(() => apiClient.getItems(apiClient.getCurrentUserId(), options)).then((result: any) => {
         let html = '';
 
         html += `<option value="">${globalize.translate('OptionNew')}</option>`;
@@ -116,8 +117,9 @@ function populateCollections(panel: HTMLElement): void {
         select.innerHTML = html;
         select.value = '';
         triggerChange(select);
-
-        loading.hide();
+    }).catch((error: unknown) => {
+        console.error('[CollectionEditor] failed to load collections', error);
+        toast(globalize.translate('ErrorDefault'));
     });
 }
 
@@ -263,3 +265,5 @@ class CollectionEditor {
 }
 
 export default CollectionEditor;
+
+/* eslint-enable @typescript-eslint/no-explicit-any */

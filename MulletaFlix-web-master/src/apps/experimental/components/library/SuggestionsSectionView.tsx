@@ -1,6 +1,6 @@
 import type { RecommendationDto } from '@jellyfin/sdk/lib/generated-client/models/recommendation-dto';
 import { RecommendationType } from '@jellyfin/sdk/lib/generated-client/models/recommendation-type';
-import React, { memo, type FC } from 'react';
+import React, { memo, useCallback, type FC } from 'react';
 
 import { CardShape } from 'components/cardbuilder/utils/shape';
 import { useApi } from 'hooks/useApi';
@@ -12,6 +12,7 @@ import { appRouter } from 'components/router/appRouter';
 import globalize from 'lib/globalize';
 import Loading from 'components/loading/LoadingComponent';
 import NoItemsMessage from 'components/common/NoItemsMessage';
+import LoadErrorMessage from 'components/common/LoadErrorMessage';
 import SectionContainer from '../../../../components/common/SectionContainer';
 import type { ParentId } from 'types/library';
 import type { Section, SectionType } from 'types/sections';
@@ -29,13 +30,23 @@ const SuggestionsSectionView: FC<SuggestionsSectionViewProps> = ({
     isMovieRecommendationEnabled = false
 }) => {
     const { __legacyApiClient__ } = useApi();
-    const { isLoading, data: sectionsWithItems } =
+    const { isLoading, isError: isSectionsError, refetch: refetchSections, data: sectionsWithItems } =
         useGetSuggestionSectionsWithItems(parentId, sectionType);
 
     const {
         isLoading: isRecommendationsLoading,
+        isError: isRecommendationsError,
+        refetch: refetchRecommendations,
         data: movieRecommendationsItems
     } = useGetMovieRecommendations(isMovieRecommendationEnabled, parentId);
+    const handleRetry = useCallback(() => {
+        refetchSections().catch(() => undefined);
+        refetchRecommendations().catch(() => undefined);
+    }, [refetchRecommendations, refetchSections]);
+
+    if (isSectionsError || isRecommendationsError) {
+        return <LoadErrorMessage onRetry={handleRetry} />;
+    }
 
     if (isLoading || isRecommendationsLoading) {
         return <Loading />;
@@ -144,4 +155,3 @@ const SuggestionsSectionView: FC<SuggestionsSectionViewProps> = ({
 };
 
 export default memo(SuggestionsSectionView);
-

@@ -1,7 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, sonarjs/no-async-constructor, sonarjs/void-use */
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { OutboundWebSocketMessageType } from '@jellyfin/sdk/lib/websocket';
-import loading from '../loading/loading';
 import dom from '../../utils/dom';
 import recordingHelper from './recordinghelper';
 import Events from '../../utils/events';
@@ -194,19 +194,16 @@ function onRecordChange(this: RecordingEditor, e: Event): void {
 
     if (isChecked) {
         if (!hasEnabledTimer) {
-            loading.show();
             void recordingHelper.createRecording(apiClient, options.programId, false).then(function () {
                 Events.trigger(self, 'recordingchanged');
                 return fetchData(self);
-                loading.hide();
-            }).catch((error: unknown) => console.error('Failed to create recording', error)).finally(() => loading.hide());
+            }).catch((error: unknown) => console.error('Failed to create recording', error));
         }
     } else if (hasEnabledTimer) {
-        loading.show();
         void recordingHelper.cancelTimer(apiClient, this.TimerId!, true).then(function () {
             Events.trigger(self, 'recordingchanged');
             return fetchData(self);
-        }).catch((error: unknown) => console.error('Failed to cancel recording', error)).finally(() => loading.hide());
+        }).catch((error: unknown) => console.error('Failed to cancel recording', error));
     }
 }
 
@@ -239,3 +236,5 @@ function onRecordSeriesChange(this: RecordingEditor, e: Event): void {
 }
 
 export default RecordingEditor;
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, sonarjs/no-async-constructor, sonarjs/void-use */

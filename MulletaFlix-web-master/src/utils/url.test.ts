@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { getLocationSearch, getSafeHttpUrl, safeDecodeURIComponent } from './url';
+import { getLocationSearch, getSafeHttpUrl, getServerEndpoint, safeDecodeURIComponent } from './url';
 
 const mockLocation = (urlString: string) => {
     const url = new URL(urlString);
@@ -79,5 +79,17 @@ describe('getSafeHttpUrl', () => {
         expect(getSafeHttpUrl('data:text/html,<svg onload=alert(1)>')).toBe('');
         expect(getSafeHttpUrl('file:///C:/secret.txt')).toBe('');
         expect(getSafeHttpUrl('/relative/path.jpg')).toBe(new URL('/relative/path.jpg', window.location.href).toString());
+    });
+});
+
+describe('getServerEndpoint', () => {
+    it('Should preserve a reverse-proxy prefix without double slashes', () => {
+        expect(getServerEndpoint('https://example.com/mulletaflix///', '/System/Info/Public'))
+            .toBe('https://example.com/mulletaflix/System/Info/Public');
+    });
+
+    it('Should add a leading slash to a relative endpoint', () => {
+        expect(getServerEndpoint('http://127.0.0.1:8096/', 'System/Info/Public'))
+            .toBe('http://127.0.0.1:8096/System/Info/Public');
     });
 });

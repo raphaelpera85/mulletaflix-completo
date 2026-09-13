@@ -13,7 +13,6 @@ function onKeyDown(this: HTMLInputElement, e: KeyboardEvent): void {
         this.dispatchEvent(new CustomEvent('change', {
             bubbles: true
         }));
-
     }
 }
 

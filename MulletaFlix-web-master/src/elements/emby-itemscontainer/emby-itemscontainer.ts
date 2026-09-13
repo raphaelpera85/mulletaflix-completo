@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */
 import 'webcomponents.js/webcomponents-lite';
 import Sortable from 'sortablejs';
 
@@ -102,15 +103,10 @@ function onDrop(evt: Sortable.SortableEvent, itemsContainer: ItemsContainerEleme
     const serverId = el.getAttribute('data-serverid')!;
     const apiClient = ServerConnections.getApiClient(serverId) as any;
 
-    loading.show();
-
-    apiClient.ajax({
+    loading.withLoading(() => apiClient.ajax({
         url: apiClient.getUrl('Playlists/' + playlistId + '/Items/' + itemId + '/Move/' + newIndex),
         type: 'POST'
-    }).then(function () {
-        loading.hide();
-    }, function () {
-        loading.hide();
+    })).catch(function () {
         itemsContainer.refreshItems().catch(() => undefined);
     });
 }
@@ -542,3 +538,5 @@ document.registerElement('emby-itemscontainer', {
     prototype: ItemsContainerPrototype,
     extends: 'div'
 });
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */

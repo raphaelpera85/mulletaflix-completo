@@ -22,6 +22,10 @@ import toast from '../toast/toast';
 import confirm from '../confirm/confirm';
 import template from './mediaLibraryEditor.template.html';
 
+/* This legacy editor still depends on the dynamically shaped Jellyfin API and
+ * preserves its historical promise/deferred constructor contract. */
+/* eslint-disable @typescript-eslint/no-explicit-any, new-cap, sonarjs/no-async-constructor */
+
 let currentDeferred: any;
 let currentOptions: MediaLibraryEditorOptions;
 let hasChanges = false;
@@ -34,48 +38,39 @@ function onEditLibrary(this: HTMLElement): boolean {
     }
 
     isCreating = true;
-    loading.show();
     const dlg = dom.parentWithClass(this, 'dlg-libraryeditor') as HTMLElement;
-    const proceedUpdate = (itemId: string) => {
+    const updateLibrary = async (): Promise<void> => {
         let libraryOptions = libraryoptionseditor.getLibraryOptions(dlg.querySelector('.libraryOptions') as HTMLElement);
         libraryOptions = Object.assign(currentOptions.library.LibraryOptions || {}, libraryOptions);
-        (window as any).ApiClient.updateVirtualFolderOptions(itemId, libraryOptions).then(() => {
-            hasChanges = true;
-            isCreating = false;
-            loading.hide();
-            dialogHelper.close(dlg);
-        }, () => {
-            isCreating = false;
-            loading.hide();
-        });
-    };
 
-    // when the library has moved or symlinked, the ItemId is not correct anymore
-    // this can lead to a forever spinning value on edit the library parameters
-    if (!currentOptions.library.ItemId) {
-        (window as any).ApiClient.getVirtualFolders().then((result: any[]) => {
+        let itemId = currentOptions.library.ItemId;
+        if (!itemId) {
+            // When the library has moved or symlinked, the ItemId is not correct anymore.
+            const result = await (window as any).ApiClient.getVirtualFolders();
             const library = (result || []).find((f: any) => f.Name === currentOptions.library.Name);
-            if (library && library.ItemId) {
-                currentOptions.library = library;
-                proceedUpdate(library.ItemId);
-            } else {
-                loading.hide();
+            if (!library?.ItemId) {
                 dialogHelper.close(dlg);
-                void alert({
+                await alert({
                     text: globalize.translate('LibraryInvalidItemIdError')
                 });
+                return;
             }
-        }, () => {
-            loading.hide();
-            dialogHelper.close(dlg);
-            void alert({
-                text: globalize.translate('LibraryInvalidItemIdError')
-            });
-        });
-        return false;
-    }
 
-    proceedUpdate(currentOptions.library.ItemId);
+            currentOptions.library = library;
+            itemId = library.ItemId;
+        }
+
+        await (window as any).ApiClient.updateVirtualFolderOptions(itemId, libraryOptions);
+        hasChanges = true;
+        dialogHelper.close(dlg);
+    };
+
+    void loading.withLoading(updateLibrary).catch((error: unknown) => {
+        console.error('[MediaLibraryEditor] failed to update library', error);
+        toast(globalize.translate('ErrorDefault'));
+    }).finally(() => {
+        isCreating = false;
+    });
     return false;
 }
 
@@ -87,22 +82,22 @@ function addMediaLocation(page: HTMLElement, path: string): void {
     const isPathInLibrary = virtualFolder.Locations.some((p: string) => path === p);
     if (isPathInLibrary) return;
 
-    (window as any).ApiClient.addMediaPath(virtualFolder.Name, path, null, refreshAfterChange).then(() => {
+    void loading.withLoading(() => (window as any).ApiClient.addMediaPath(virtualFolder.Name, path, null, refreshAfterChange)).then(() => {
         hasChanges = true;
         refreshLibraryFromServer(page);
-    }, () => {
+    }).catch(() => {
         toast(globalize.translate('ErrorAddingMediaPathToVirtualFolder'));
     });
 }
 
 function updateMediaLocation(page: HTMLElement, path: string): void {
     const virtualFolder = currentOptions.library;
-    (window as any).ApiClient.updateMediaPath(virtualFolder.Name, {
+    void loading.withLoading(() => (window as any).ApiClient.updateMediaPath(virtualFolder.Name, {
         Path: path
-    }).then(() => {
+    })).then(() => {
         hasChanges = true;
         refreshLibraryFromServer(page);
-    }, () => {
+    }).catch(() => {
         toast(globalize.translate('ErrorAddingMediaPathToVirtualFolder'));
     });
 }
@@ -118,10 +113,10 @@ function onRemoveClick(btnRemovePath: HTMLElement, location: string): void {
         primary: 'delete'
     }).then(() => {
         const refreshAfterChange = currentOptions.refresh;
-        (window as any).ApiClient.removeMediaPath(virtualFolder.Name, location, refreshAfterChange).then(() => {
+        void loading.withLoading(() => (window as any).ApiClient.removeMediaPath(virtualFolder.Name, location, refreshAfterChange)).then(() => {
             hasChanges = true;
             refreshLibraryFromServer(dom.parentWithClass(button, 'dlg-libraryeditor') as HTMLElement);
-        }, () => {
+        }).catch(() => {
             toast(globalize.translate('ErrorDefault'));
         });
     }).catch(() => {
@@ -169,8 +164,9 @@ function getFolderHtml(pathInfo: { Path: string; NetworkPath?: string }, index: 
 }
 
 function refreshLibraryFromServer(page: HTMLElement): void {
-    (window as any).ApiClient.getVirtualFolders().then((result: any[]) => {
-        const library = (result || []).filter(f => {
+    void loading.withLoading(() => (window as any).ApiClient.getVirtualFolders()).then((result: unknown) => {
+        const folders = Array.isArray(result) ? result as any[] : [];
+        const library = folders.filter(f => {
             return f.Name === currentOptions.library.Name;
         })[0];
 
@@ -178,7 +174,7 @@ function refreshLibraryFromServer(page: HTMLElement): void {
             currentOptions.library = library;
             renderLibrary(page, currentOptions);
         }
-    }, () => {
+    }).catch(() => {
         toast(globalize.translate('ErrorDefault'));
     });
 }
@@ -291,3 +287,5 @@ export class MediaLibraryEditor {
 }
 
 export default MediaLibraryEditor;
+
+/* eslint-enable @typescript-eslint/no-explicit-any, new-cap, sonarjs/no-async-constructor */

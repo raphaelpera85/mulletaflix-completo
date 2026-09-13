@@ -13,7 +13,7 @@ export default function (view: HTMLElement) {
     const remoteControl = new RemoteControl();
     remoteControl.init(view, view.querySelector('.remoteControlContent'));
 
-    let currentPlayer: any;
+    let currentPlayer: ReturnType<typeof playbackManager.getCurrentPlayer>;
 
     function onKeyDown(e: KeyboardEvent) {
         if (e.key === ' ' && (e.target as HTMLElement).tagName !== 'BUTTON') {
@@ -24,11 +24,10 @@ export default function (view: HTMLElement) {
     }
 
     function releaseCurrentPlayer() {
-        const player = currentPlayer;
-        if (player) currentPlayer = null;
+        if (currentPlayer) currentPlayer = null;
     }
 
-    function bindToPlayer(player: any) {
+    function bindToPlayer(player: typeof currentPlayer) {
         if (player !== currentPlayer) {
             releaseCurrentPlayer();
             currentPlayer = player;

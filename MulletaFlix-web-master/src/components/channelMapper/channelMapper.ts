@@ -13,6 +13,9 @@ import '../listview/listview.scss';
 import 'material-design-icons-iconfont';
 import '../formdialog.scss';
 
+/* The legacy API client and channel DTOs are dynamically shaped. */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */
+
 interface ChannelMapperOptions {
     serverId: string;
     providerId: string;
@@ -46,10 +49,9 @@ export default class ChannelMapper {
         const self = this;
 
         function mapChannel(button: HTMLElement, channelId: string | null, providerChannelId: string | null): void {
-            loading.show();
             const providerId = options.providerId;
             const apiClient: any = ServerConnections.getApiClient(options.serverId);
-            apiClient.ajax({
+            void loading.withLoading(() => apiClient.ajax({
                 type: 'POST',
                 url: (window as any).ApiClient.getUrl('LiveTv/ChannelMappings'),
                 data: JSON.stringify({
@@ -59,13 +61,11 @@ export default class ChannelMapper {
                 }),
                 contentType: 'application/json',
                 dataType: 'json'
-            }).then((mapping: any) => {
+            })).then((mapping: any) => {
                 const listItem = dom.parentWithClass(button, 'listItem') as HTMLElement | null;
                 button.setAttribute('data-providerid', mapping.ProviderChannelId);
                 (listItem!.querySelector('.secondary') as HTMLElement)!.innerText = getMappingSecondaryName(mapping, self.currentMappingOptions.ProviderName);
-                loading.hide();
             }).catch(() => {
-                loading.hide();
                 toast(globalize.translate('MessageUnableToConnectToServer'));
             });
         }
@@ -143,7 +143,7 @@ export default class ChannelMapper {
         }
 
         function initEditor(dlg: HTMLElement, initOptions: ChannelMapperOptions): void {
-            void getChannelMappingOptions(initOptions.serverId, initOptions.providerId).then(result => {
+            void loading.withLoading(() => getChannelMappingOptions(initOptions.serverId, initOptions.providerId)).then(result => {
                 self.currentMappingOptions = result;
                 const channelsElement = dlg.querySelector('.channels')!;
                 channelsElement.innerHTML = result.TunerChannels.map(channel => {
@@ -185,3 +185,5 @@ export default class ChannelMapper {
         };
     }
 }
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */

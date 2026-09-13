@@ -1,5 +1,7 @@
 ﻿using System.IO;
 using System.Text.Json;
+using System;
+using System.Text;
 using Xunit;
 
 namespace MulletaFlix.MediaEncoding.Keyframes.FfProbe
@@ -24,6 +26,16 @@ namespace MulletaFlix.MediaEncoding.Keyframes.FfProbe
             Assert.Equal(expectedResult.TotalDuration, result.TotalDuration);
             Assert.Equal(expectedResult.KeyframeTicks, result.KeyframeTicks);
         }
+
+        [Fact]
+        public void ParseStream_MalformedLines_IgnoresInvalidRecords()
+        {
+            using var streamReader = new StreamReader(new MemoryStream(Encoding.UTF8.GetBytes("unexpected output\npacket,1.5\npacket,2.5,K_\nformat,3.0\n")));
+
+            var result = FfProbeKeyframeExtractor.ParseStream(streamReader);
+
+            Assert.Equal(TimeSpan.FromSeconds(3).Ticks, result.TotalDuration);
+            Assert.Equal(new[] { TimeSpan.FromSeconds(2.5).Ticks }, result.KeyframeTicks);
+        }
     }
 }
-

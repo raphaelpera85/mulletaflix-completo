@@ -5,6 +5,9 @@ import ListItemText from '@mui/material/ListItemText';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
@@ -70,15 +73,31 @@ export const BackupHistory = () => {
 
     if (isPending) {
         return (
-            <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography variant='body2' color='text.secondary'>
-                    {globalize.translate('Loading')}
-                </Typography>
+            <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}>
+                <CircularProgress size={24} aria-label={globalize.translate('Loading')} />
             </Box>
         );
     }
 
-    if (isError || !history || history.length === 0) {
+    if (isError) {
+        return (
+            <Box sx={{ p: 2 }}>
+                <Alert
+                    severity='error'
+                    role='alert'
+                    action={(
+                        <Button color='inherit' size='small' onClick={refreshHistory}>
+                            {globalize.translate('Retry')}
+                        </Button>
+                    )}
+                >
+                    {globalize.translate('ErrorLoadingUpdateInfo')}
+                </Alert>
+            </Box>
+        );
+    }
+
+    if (!history || history.length === 0) {
         return (
             <Box sx={{ p: 2, textAlign: 'center' }}>
                 <Typography variant='body2' color='text.secondary'>

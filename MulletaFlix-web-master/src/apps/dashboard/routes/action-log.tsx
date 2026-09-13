@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { Api } from '@jellyfin/sdk';
 import type { AxiosRequestConfig } from 'axios';
 import globalize from 'lib/globalize';
@@ -29,6 +29,8 @@ import MenuItem from '@mui/material/MenuItem';
 import Select, { type SelectChangeEvent } from '@mui/material/Select';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -200,14 +202,18 @@ const ActionLogPage = () => {
         void navigate('/dashboard/action-log/export');
     }, [ navigate ]);
 
-    const { data, isLoading, isError } = useQuery({
+    const { data, isLoading, isError, refetch } = useQuery({
         queryKey: ['ActionLog', 'Entries', api?.basePath, JSON.stringify(query)],
         queryFn: ({ signal }) => fetchActionLogs(api!, query, { signal, headers: { 'Cache-Control': 'no-cache' } }),
         enabled: !!api,
         placeholderData: { items: [], totalRecordCount: 0, startIndex: 0 }
     });
 
-    const items = data?.items ?? [];
+    const handleRetry = useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
+
+    const items = useMemo(() => data?.items ?? [], [ data?.items ]);
     const totalCount = data?.totalRecordCount ?? 0;
 
     const handleDetailClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
@@ -227,9 +233,16 @@ const ActionLogPage = () => {
         );
     } else if (isError) {
         stateContent = (
-            <Paper sx={{ p: 3, textAlign: 'center', color: 'error' }}>
+            <Alert
+                severity='error'
+                action={
+                    <Button color='inherit' size='small' onClick={handleRetry}>
+                        {globalize.translate('Retry')}
+                    </Button>
+                }
+            >
                 {globalize.translate('ErrorLoadingData')}
-            </Paper>
+            </Alert>
         );
     } else if (items.length === 0) {
         stateContent = (

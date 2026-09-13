@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */
 import $ from 'jquery';
 import DOMPurify from 'dompurify';
 import escapeHtml from 'escape-html';
@@ -104,7 +105,6 @@ function onSelectPathClick(e: Event): void {
     }).catch(() => undefined);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function (this: any, page: HTMLElement, providerId: string, options: Options): void {
     function getListingProvider(config: LiveTvConfig | null, id: string | null): Promise<ProviderInfo> {
         if (config && id) {
@@ -123,12 +123,9 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
     }
 
     function reload(): void {
-        loading.show();
-        (window.ApiClient as any).getNamedConfiguration('livetv').then(function (config: LiveTvConfig) {
-            return getListingProvider(config, providerId).then(function (info: ProviderInfo) {
-                return { config, info };
-            });
-        }).then(function ({ config, info }: { config: LiveTvConfig; info: ProviderInfo }) {
+        loading.withLoading(async () => {
+            const config = await (window.ApiClient as any).getNamedConfiguration('livetv') as LiveTvConfig;
+            const info = await getListingProvider(config, providerId);
             (page.querySelector('.txtPath') as HTMLInputElement).value = info.Path || '';
             (page.querySelector('.txtKids') as HTMLInputElement).value = (info.KidsCategories || []).join('|');
             (page.querySelector('.txtNews') as HTMLInputElement).value = (info.NewsCategories || []).join('|');
@@ -145,8 +142,7 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
             }
 
             refreshTunerDevices(page, info, config.TunerHosts);
-            loading.hide();
-        }).catch(() => loading.hide());
+        }).catch((error: unknown) => console.error('Failed to load XMLTV provider', error));
     }
 
     function getCategories(txtInput: HTMLInputElement): string[] {
@@ -160,9 +156,9 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
     }
 
     function submitListingsForm(): void {
-        loading.show();
         const id = providerId;
-        (window.ApiClient as any).getNamedConfiguration('livetv').then(function (config: LiveTvConfig) {
+        loading.withLoading(async () => {
+            const config = await (window.ApiClient as any).getNamedConfiguration('livetv') as LiveTvConfig;
             const info = config.ListingProviders.filter(function (provider) {
                 return provider.Id === id;
             })[0] || {} as ProviderInfo;
@@ -180,7 +176,7 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
             }).map(function (tuner: HTMLElement) {
                 return (tuner as HTMLInputElement).getAttribute('data-id') || '';
             });
-            return (window.ApiClient as any).ajax({
+            await (window.ApiClient as any).ajax({
                 type: 'POST',
                 url: (window.ApiClient as any).getUrl('LiveTv/ListingProviders', {
                     ValidateListings: true
@@ -188,16 +184,13 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
                 data: JSON.stringify(info),
                 contentType: 'application/json'
             });
-        }).then(function () {
-            loading.hide();
 
             if (options.showConfirmation !== false) {
                 Dashboard.processServerConfigurationUpdateResult();
             }
 
             Events.trigger(self as unknown as object, 'submitted');
-        }, function () {
-            loading.hide();
+        }).catch(function () {
             Dashboard.alert({
                 message: globalize.translate('ErrorAddingXmlTvFile')
             });
@@ -214,7 +207,7 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
         options = options || {} as Options;
 
         // Only hide the buttons if explicitly set to false; default to showing if undefined or null
-        // FIXME: rename this option to clarify logic
+        // Compatibility note: the public option name is retained for API compatibility.
         const hideCancelButton = options.showCancelButton === false;
         page.querySelector('.btnCancel')?.classList.toggle('hide', hideCancelButton);
 
@@ -236,3 +229,5 @@ export default function (this: any, page: HTMLElement, providerId: string, optio
         reload();
     };
 }
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias */

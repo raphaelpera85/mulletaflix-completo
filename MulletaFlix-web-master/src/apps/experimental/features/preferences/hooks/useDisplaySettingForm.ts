@@ -16,7 +16,9 @@ export function useDisplaySettingForm() {
     const [urlParams] = useSearchParams();
     const {
         displaySettings,
+        error,
         loading,
+        retry,
         saveDisplaySettings
     } = useDisplaySettings({ userId: urlParams.get('userId') });
     const [formValues, setFormValues] = useState<DisplaySettingsValues>();
@@ -41,8 +43,8 @@ export function useDisplaySettingForm() {
             try {
                 await saveDisplaySettings(formValues);
                 toast(globalize.translate('SettingsSaved'));
-            } catch (error) {
-                console.error('[DisplaySettingsForm] failed to save preferences', error);
+            } catch (saveError) {
+                console.error('[DisplaySettingsForm] failed to save preferences', saveError);
                 toast(globalize.translate('ErrorDefault'));
             }
         }
@@ -50,6 +52,8 @@ export function useDisplaySettingForm() {
 
     return {
         loading,
+        error,
+        retry,
         values: formValues,
         submitChanges,
         updateField

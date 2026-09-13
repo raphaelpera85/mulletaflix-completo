@@ -25,5 +25,22 @@ public class JsonFlagEnumTests
 
         Assert.Equal(output, result);
     }
-}
 
+    [Fact]
+    public void Deserialize_Transcode_Reason()
+    {
+        var result = JsonSerializer.Deserialize<TranscodeReason>(
+            "[\"AudioIsExternal\",\"ContainerNotSupported\"]",
+            _jsonOptions);
+
+        Assert.Equal(TranscodeReason.AudioIsExternal | TranscodeReason.ContainerNotSupported, result);
+    }
+
+    [Fact]
+    public void Deserialize_Unknown_Flag_Throws()
+    {
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<TranscodeReason>(
+            "[\"UnknownReason\"]",
+            _jsonOptions));
+    }
+}

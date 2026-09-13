@@ -94,12 +94,13 @@ test.describe.serial('21 - Multi user playback', () => {
 
         const movie = await getFirstItemFromVirtualFolder(page, folderId);
         if (!movie?.id) {
+            // A clean stage may legitimately contain no media library.
             test.skip(true, 'no movie item available to validate concurrent playback');
         }
 
         const firstUsername = `mflx-playback-${crypto.randomUUID().slice(0, 8)}@example.com`;
         const secondUsername = `mflx-playback-${crypto.randomUUID().slice(0, 8)}@example.com`;
-        const password = `User@${crypto.randomUUID().slice(0, 8)}2026`;
+        const password = crypto.randomBytes(24).toString('base64url');
 
         let firstUser: PlayableUser | undefined;
         let secondUser: PlayableUser | undefined;
@@ -129,14 +130,14 @@ test.describe.serial('21 - Multi user playback', () => {
             expect(new Set(sessions.map((session) => session.sessionId)).size).toBe(2);
         } finally {
             if (firstPage) {
-                await firstPage.close().catch(() => {});
+                await firstPage.close().catch(() => undefined);
             }
             if (secondPage) {
-                await secondPage.close().catch(() => {});
+                await secondPage.close().catch(() => undefined);
             }
 
-            await firstContext.close().catch(() => {});
-            await secondContext.close().catch(() => {});
+            await firstContext.close().catch(() => undefined);
+            await secondContext.close().catch(() => undefined);
 
             if (firstUser?.userId) {
                 await deleteUserById(page, firstUser.userId);

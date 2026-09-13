@@ -21,17 +21,22 @@ interface UseDisplaySettingsParams {
 
 export function useDisplaySettings({ userId }: UseDisplaySettingsParams) {
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<Error | null>(null);
+    const [reloadToken, setReloadToken] = useState(0);
     const [userSettings, setUserSettings] = useState<UserSettings>();
     const [displaySettings, setDisplaySettings] = useState<DisplaySettingsValues>();
     const { __legacyApiClient__, api, user: currentUser } = useApi();
     const { defaultThemeId } = useBrandingTheme();
 
     useEffect(() => {
-        if (!userId || !currentUser || !api || !__legacyApiClient__) {
+        if (!currentUser || !api || !__legacyApiClient__) {
+            setLoading(false);
+            setError(new Error('Display settings dependencies are not available.'));
             return;
         }
 
         setLoading(true);
+        setError(null);
         let isActive = true;
 
         void (async () => {
@@ -51,12 +56,13 @@ export function useDisplaySettings({ userId }: UseDisplaySettingsParams) {
                 setDisplaySettings(loadedSettings.displaySettings);
                 setUserSettings(loadedSettings.userSettings);
                 setLoading(false);
-            } catch (error) {
+            } catch (loadError) {
                 if (!isActive) {
                     return;
                 }
 
-                console.error('[DisplaySettings] failed to load preferences', error);
+                console.error('[DisplaySettings] failed to load preferences', loadError);
+                setError(loadError instanceof Error ? loadError : new Error('Failed to load display settings.'));
                 setLoading(false);
             }
         })();
@@ -64,7 +70,11 @@ export function useDisplaySettings({ userId }: UseDisplaySettingsParams) {
         return () => {
             isActive = false;
         };
-    }, [api, __legacyApiClient__, currentUser, defaultThemeId, userId]);
+    }, [api, __legacyApiClient__, currentUser, defaultThemeId, reloadToken, userId]);
+
+    const retry = useCallback(() => {
+        setReloadToken((value) => value + 1);
+    }, []);
 
     const saveSettings = useCallback(async (newSettings: DisplaySettingsValues) => {
         if (!userId || !userSettings || !api) {
@@ -80,14 +90,16 @@ export function useDisplaySettings({ userId }: UseDisplaySettingsParams) {
 
     return {
         displaySettings,
+        error,
         loading,
+        retry,
         saveDisplaySettings: saveSettings
     };
 }
 
 interface LoadDisplaySettingsParams {
     currentUser: UserDto
-    userId?: string
+    userId?: string | null
     api: Api
     legacyApiClient: ApiClient
     defaultThemeId?: string
@@ -105,7 +117,7 @@ async function loadDisplaySettings({
         currentUser :
         (await getUserApi(api).getUserById({ userId })).data;
 
-    await settings.setUserInfo(userId, legacyApiClient);
+    await settings.setUserInfo(userId ?? undefined, legacyApiClient);
 
     const displaySettings = {
         customCss: settings.customCss() || '',
@@ -189,9 +201,9 @@ async function saveDisplaySettings({
 
     try {
         await Promise.all(promises);
-    } catch (error) {
-        console.error('[DisplaySettings] failed to save preferences', error);
-        throw error;
+    } catch (saveError) {
+        console.error('[DisplaySettings] failed to save preferences', saveError);
+        throw saveError;
     }
 }
 

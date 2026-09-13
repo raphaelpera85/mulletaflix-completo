@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -16,7 +17,37 @@ public class JsonFlagEnumConverter<T> : JsonConverter<T>
     /// <inheritdoc />
     public override T Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            throw new JsonException($"Expected an array of {typeToConvert.Name} values.");
+        }
+
+        ulong rawValue = 0;
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.String)
+            {
+                throw new JsonException($"Expected string values in the {typeToConvert.Name} flags array.");
+            }
+
+            var name = reader.GetString();
+            if (!Enum.TryParse<T>(name, ignoreCase: true, out var enumValue)
+                || !Enum.IsDefined(typeof(T), enumValue))
+            {
+                throw new JsonException($"Unknown {typeToConvert.Name} flag '{name}'.");
+            }
+
+            rawValue |= Convert.ToUInt64(enumValue, CultureInfo.InvariantCulture);
+        }
+
+        if (reader.TokenType != JsonTokenType.EndArray)
+        {
+            throw new JsonException($"The {typeToConvert.Name} flags array was not terminated.");
+        }
+
+        var underlyingType = Enum.GetUnderlyingType(typeToConvert);
+        var convertedValue = Convert.ChangeType(rawValue, underlyingType, CultureInfo.InvariantCulture);
+        return (T)Enum.ToObject(typeToConvert, convertedValue!);
     }
 
     /// <inheritdoc />
@@ -34,4 +65,3 @@ public class JsonFlagEnumConverter<T> : JsonConverter<T>
         writer.WriteEndArray();
     }
 }
-

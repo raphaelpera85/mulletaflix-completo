@@ -165,7 +165,7 @@ function applyStyleList(styles: TextStyleItem[], elem: HTMLElement): void {
     for (let i = 0, length = styles.length; i < length; i++) {
         const style = styles[i];
 
-        (elem.style as any)[style.name] = style.value;
+        elem.style.setProperty(style.name, style.value);
     }
 }
 

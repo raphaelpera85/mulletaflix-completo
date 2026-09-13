@@ -16,7 +16,7 @@ import { useSetRepositories } from 'apps/dashboard/features/plugins/api/useSetRe
 import NewRepositoryForm from 'apps/dashboard/features/plugins/components/NewRepositoryForm';
 
 export const Component = () => {
-    const { data: repositories, isPending, isError } = useRepositories();
+    const { data: repositories, isPending, isError, refetch } = useRepositories();
     const [ isRepositoryFormOpen, setIsRepositoryFormOpen ] = useState(false);
     const setRepositories = useSetRepositories();
 
@@ -51,7 +51,11 @@ export const Component = () => {
         setIsRepositoryFormOpen(false);
     }, []);
 
-    if (isPending) {
+    const retryLoad = useCallback(() => {
+        void refetch();
+    }, [ refetch ]);
+
+    if (isPending && !isError) {
         return <Loading />;
     }
 
@@ -68,7 +72,16 @@ export const Component = () => {
             />
             <Box className='content-primary'>
                 {isError ? (
-                    <Alert severity='error'>{globalize.translate('RepositoriesPageLoadError')}</Alert>
+                    <Alert
+                        severity='error'
+                        action={
+                            <Button color='inherit' size='small' onClick={retryLoad}>
+                                {globalize.translate('Retry')}
+                            </Button>
+                        }
+                    >
+                        {globalize.translate('RepositoriesPageLoadError')}
+                    </Alert>
                 ) : (
                     <Stack spacing={3}>
                         <Typography variant='h1'>{globalize.translate('TabRepositories')}</Typography>
@@ -105,4 +118,3 @@ export const Component = () => {
 };
 
 Component.displayName = 'PluginRepositoriesPage';
-

@@ -71,3 +71,17 @@ export const getSafeHttpUrl = (value: string | null | undefined): string => {
         return '';
     }
 };
+
+/**
+ * Appends an API path to a server base URL without creating a double slash.
+ * The base path is intentionally preserved for reverse-proxy deployments.
+ */
+export const getServerEndpoint = (serverAddress: string, endpoint: string): string => {
+    let baseEnd = serverAddress.length;
+    while (baseEnd > 0 && serverAddress[baseEnd - 1] === '/') {
+        baseEnd--;
+    }
+
+    const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${serverAddress.slice(0, baseEnd)}${normalizedEndpoint}`;
+};

@@ -202,7 +202,7 @@ namespace MulletaFlix.Server
             _setupServer.Dispose();
 
             // Parar o MariaDB Embutido
-            MariaDbProcessManager.StopMariaDb(_logger);
+            await MariaDbProcessManager.StopMariaDbAsync(_logger).ConfigureAwait(false);
         }
 
         private static void ConfigureThreadPool()
@@ -295,7 +295,8 @@ namespace MulletaFlix.Server
                             () => _MulletaFlixHost.StartAsync(),
                             bindPorts,
                             _logger,
-                            "Main server").ConfigureAwait(false);
+                            "Main server",
+                            () => _MulletaFlixHost.StopAsync()).ConfigureAwait(false);
 
                         if (!OperatingSystem.IsWindows() && startupConfig.UseUnixSocket())
                         {
@@ -305,9 +306,9 @@ namespace MulletaFlix.Server
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    _logger.LogError("Kestrel failed to start! This is most likely due to an invalid address or port bind - correct your bind configuration in network.xml and try again");
+                    _logger.LogError(ex, "Kestrel failed to start! This is most likely due to an invalid address or port bind - correct your bind configuration in network.xml and try again");
                     throw;
                 }
 

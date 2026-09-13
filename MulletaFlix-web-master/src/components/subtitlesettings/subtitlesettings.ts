@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @stylistic/indent, @stylistic/padded-blocks */
 import { AppFeature } from 'constants/appFeature';
 import globalize from '../../lib/globalize';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -56,8 +57,9 @@ function getSubtitleAppearanceObject(context: Element): SubtitleAppearanceObject
     };
 }
 
-function loadForm(context: Element, user: any, userSettings: any, appearanceSettings: any, apiClient: any): void {
-    apiClient.getCultures().then(function (allCultures: any[]) {
+function loadForm(context: Element, user: any, userSettings: any, appearanceSettings: any, apiClient: any): Promise<void> {
+    return loading.withLoading(async () => {
+        const allCultures = await apiClient.getCultures() as any[];
         if (appHost.supports(AppFeature.SubtitleBurnIn) && user.Policy.EnableVideoPlaybackTranscoding) {
             context.querySelector('.fldBurnIn')!.classList.remove('hide');
         }
@@ -92,7 +94,6 @@ function loadForm(context: Element, user: any, userSettings: any, appearanceSett
             target: context.querySelector('#selectTextSize')
         } as Event);
 
-        loading.hide();
     });
 }
 
@@ -108,24 +109,19 @@ function saveUser(context: Element, user: any, userSettings: any, appearanceKey:
     return apiClient.updateUserConfiguration(user.Id, user.Configuration);
 }
 
-function save(instance: SubtitleSettings, context: Element, userId: string | undefined, userSettings: any, apiClient: any, enableSaveConfirmation: boolean | undefined): void {
-    loading.show();
-
+async function save(instance: SubtitleSettings, context: Element, userId: string | undefined, userSettings: any, apiClient: any, enableSaveConfirmation: boolean | undefined): Promise<void> {
+    await loading.withLoading(async () => {
     appSettings.set('subtitleburnin', (context.querySelector('#selectSubtitleBurnIn') as HTMLSelectElement).value);
     appSettings.set('subtitlerenderpgs', String((context.querySelector('#chkSubtitleRenderPgs') as HTMLInputElement).checked));
     appSettings.alwaysBurnInSubtitleWhenTranscoding((context.querySelector('#chkAlwaysBurnInSubtitleWhenTranscoding') as HTMLInputElement).checked);
 
-    apiClient.getUser(userId).then(function (user: any) {
-        saveUser(context, user, userSettings, instance.appearanceKey, apiClient).then(function () {
-            loading.hide();
-            if (enableSaveConfirmation) {
-                toast(globalize.translate('SettingsSaved'));
-            }
+        const user = await apiClient.getUser(userId);
+        await saveUser(context, user, userSettings, instance.appearanceKey, apiClient);
+        if (enableSaveConfirmation) {
+            toast(globalize.translate('SettingsSaved'));
+        }
 
-            Events.trigger(instance, 'saved');
-        }, function () {
-            loading.hide();
-        });
+        Events.trigger(instance, 'saved');
     });
 }
 
@@ -300,21 +296,19 @@ export class SubtitleSettings {
         const self = this;
         const context = self.options!.element;
 
-        loading.show();
-
         const userId = self.options!.userId;
         const apiClient = ServerConnections.getApiClient(self.options!.serverId!) as any;
         const userSettings = self.options!.userSettings;
 
-        apiClient.getUser(userId).then(function (user: any) {
-            userSettings.setUserInfo(userId, apiClient).then(function () {
-                self.dataLoaded = true;
+        loading.withLoading(async () => {
+            const user = await apiClient.getUser(userId);
+            await userSettings.setUserInfo(userId, apiClient);
+            self.dataLoaded = true;
 
-                const appearanceSettings = userSettings.getSubtitleAppearanceSettings(self.options!.appearanceKey);
+            const appearanceSettings = userSettings.getSubtitleAppearanceSettings(self.options!.appearanceKey);
 
-                loadForm(context, user, userSettings, appearanceSettings, apiClient);
-            });
-        });
+            await loadForm(context, user, userSettings, appearanceSettings, apiClient);
+        }).catch((error: unknown) => console.error('Failed to load subtitle settings', error));
     }
 
     submit(): void {
@@ -333,8 +327,8 @@ export class SubtitleSettings {
 
         userSettings.setUserInfo(userId, apiClient).then(function () {
             const enableSaveConfirmation = self.options!.enableSaveConfirmation;
-            save(self, self.options!.element, userId, userSettings, apiClient, enableSaveConfirmation);
-        });
+            return save(self, self.options!.element, userId, userSettings, apiClient, enableSaveConfirmation);
+        }).catch((error: unknown) => console.error('Failed to save subtitle settings', error));
 
         // Disable default form submission
         if (e) {
@@ -345,3 +339,5 @@ export class SubtitleSettings {
 }
 
 export default SubtitleSettings;
+
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-this-alias, @stylistic/indent, @stylistic/padded-blocks */

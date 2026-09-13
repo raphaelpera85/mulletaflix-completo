@@ -3,14 +3,13 @@ import Events from '../../../../utils/events.ts';
 import { toFloat } from '../../../../utils/string.ts';
 import { getSetting } from '../Settings';
 import TimeSyncServer from './TimeSyncServer';
+import type { TimeSyncManager } from './TimeSync';
 
 function offsetDate(date: Date, offset: number): Date {
     return new Date(date.getTime() + offset);
 }
 
 class TimeSyncCore {
-    private manager: any;
-
     private timeSyncServer: TimeSyncServer | null;
 
     timeSyncDeviceId: string;
@@ -18,15 +17,13 @@ class TimeSyncCore {
     extraTimeOffset: number;
 
     constructor() {
-        this.manager = null;
         this.timeSyncServer = null;
 
         this.timeSyncDeviceId = getSetting('timeSyncDevice') || 'server';
         this.extraTimeOffset = toFloat(getSetting('extraTimeOffset'), 0.0);
     }
 
-    init(syncPlayManager: any): void {
-        this.manager = syncPlayManager;
+    init(syncPlayManager: TimeSyncManager): void {
         this.timeSyncServer = new TimeSyncServer(syncPlayManager);
 
         Events.on(this.timeSyncServer, 'update', (_event, error, timeOffset, ping) => {

@@ -1,4 +1,5 @@
 import type { RouteObject } from 'react-router-dom';
+import type { ComponentType } from 'react';
 
 import { AppType } from 'constants/appType';
 
@@ -14,11 +15,16 @@ export interface AsyncRoute {
     type?: AppType
 }
 
-const dashboardModules = import.meta.glob('../../apps/dashboard/routes/**/*.tsx');
-const experimentalModules = import.meta.glob('../../apps/experimental/routes/**/*.tsx');
-const stableModules = import.meta.glob('../../apps/stable/routes/**/*.tsx');
+type AsyncRouteModule = {
+    default?: ComponentType;
+    [key: string]: unknown;
+};
 
-const importRoute = (page: string, type: AppType): Promise<any> => {
+const dashboardModules = import.meta.glob<AsyncRouteModule>('../../apps/dashboard/routes/**/*.tsx');
+const experimentalModules = import.meta.glob<AsyncRouteModule>('../../apps/experimental/routes/**/*.tsx');
+const stableModules = import.meta.glob<AsyncRouteModule>('../../apps/stable/routes/**/*.tsx');
+
+const importRoute = (page: string, type: AppType): Promise<AsyncRouteModule> => {
     const key1 = `../../apps/dashboard/routes/${page}.tsx`;
     const key2 = `../../apps/dashboard/routes/${page}/index.tsx`;
     const key3 = `../../apps/experimental/routes/${page}.tsx`;

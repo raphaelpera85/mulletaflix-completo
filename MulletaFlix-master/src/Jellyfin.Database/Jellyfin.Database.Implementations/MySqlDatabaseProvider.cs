@@ -23,7 +23,7 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
     private readonly ILogger<MySqlDatabaseProvider> _logger;
     private string? _toolsDir;
     private string _backupDir = string.Empty;
-    private string _server = "localhost";
+    private string _server = "127.0.0.1";
     private int _port = 3306;
     private string _user = "root";
     private string _password = string.Empty;
@@ -31,7 +31,7 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
     private const string BackupFolderName = "MySQLBackups";
 
     private static readonly string DefaultConnectionString =
-        "Server=localhost;Port=3306;User ID=root;Password=;CharSet=utf8mb4;";
+        "Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;SslMode=None;";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MySqlDatabaseProvider"/> class.
@@ -50,7 +50,13 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
     public void Initialise(DbContextOptionsBuilder options, DatabaseConfigurationOptions databaseConfiguration)
     {
         var opts = databaseConfiguration.CustomProviderOptions?.Options;
-        _server = GetOption(opts, "server", e => e, () => "localhost");
+        _server = GetOption(opts, "server", e => e, () => "127.0.0.1");
+        if (string.Equals(_server, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            // The embedded MariaDB is bound to IPv4 loopback. On Windows,
+            // resolving localhost may prefer an unavailable IPv6 endpoint.
+            _server = "127.0.0.1";
+        }
         _port = int.TryParse(GetOption(opts, "port", e => e, () => "3306"), out var p) ? p : 3306;
         _user = GetOption(opts, "user", e => e, () => "root");
         _password = GetOption(opts, "password", e => e, () => "");
@@ -72,7 +78,7 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
         _backupDir = GetOption(opts, "backup-dir", e => e, () => string.Empty);
 
         var connString = opts is not null
-            ? $"Server={_server};Port={_port};User ID={_user};Password={_password};CharSet=utf8mb4;Pooling=True;Minimum Pool Size=10;Maximum Pool Size=200;Connection Idle Timeout=300;Connection Lifetime=1800;Default Command Timeout=120;"
+            ? $"Server={_server};Port={_port};User ID={_user};Password={_password};CharSet=utf8mb4;Pooling=True;Minimum Pool Size=0;Maximum Pool Size=200;Connection Idle Timeout=300;Connection Lifetime=1800;Default Command Timeout=120;"
             : DefaultConnectionString;
 
         connString = ApplySchema(connString, DatabaseNames.Main);
