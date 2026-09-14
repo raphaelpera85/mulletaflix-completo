@@ -25,10 +25,12 @@ class AuthRepositoryImpl @Inject constructor(
         val previousUrl = sessionRepository.getBaseUrl().first()
         sessionRepository.setBaseUrl(url.trimEnd('/'))
         try {
+            val startedAt = System.nanoTime()
             val info = api.getPublicSystemInfo()
             ServerVerification(
                 name = info.serverName ?: info.productName ?: "MulletaFlix Server",
                 version = info.version,
+                latencyMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0L),
             )
         } catch (error: Throwable) {
             sessionRepository.setBaseUrl(previousUrl)
@@ -48,7 +50,8 @@ class AuthRepositoryImpl @Inject constructor(
 
         val token = result.accessToken ?: throw IllegalStateException("Token de acesso não retornado pelo servidor")
         val user = result.user ?: throw IllegalStateException("Usuário não retornado pelo servidor")
-        val userId = user.id ?: throw IllegalStateException("ID de usuário inválido")
+        val userId = user.id.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("ID de usuário inválido")
         val userName = user.name
 
         sessionRepository.saveSession(

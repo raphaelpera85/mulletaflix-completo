@@ -861,6 +861,54 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Faz upsert de vários documentos restaurados em uma única operação MongoDB.
+    /// </summary>
+    public async Task<int> BulkUpsertRawDocsAsync(IReadOnlyCollection<BsonDocument> docs, CancellationToken cancellationToken = default)
+    {
+        if (docs == null || docs.Count == 0)
+        {
+            return 0;
+        }
+
+        var writes = new List<WriteModel<BsonDocument>>(docs.Count);
+        foreach (var doc in docs)
+        {
+            if (doc == null || !doc.Contains("_id"))
+            {
+                continue;
+            }
+
+            if (doc["_id"].IsString && ObjectId.TryParse(doc["_id"].AsString, out var docOid))
+            {
+                doc["_id"] = docOid;
+            }
+
+            if (doc.Contains("parent") && doc["parent"].IsString && ObjectId.TryParse(doc["parent"].AsString, out var parentOid))
+            {
+                doc["parent"] = parentOid;
+            }
+
+            writes.Add(new ReplaceOneModel<BsonDocument>(
+                Builders<BsonDocument>.Filter.Eq("_id", doc["_id"]),
+                doc)
+            {
+                IsUpsert = true
+            });
+        }
+
+        if (writes.Count == 0)
+        {
+            return 0;
+        }
+
+        await _filesCollection.BulkWriteAsync(
+            writes,
+            new BulkWriteOptions { IsOrdered = false },
+            cancellationToken).ConfigureAwait(false);
+        return writes.Count;
+    }
+
+    /// <summary>
     /// Faz upsert de um documento de usuário bruto restaurado do Supabase para o MongoDB.
     /// </summary>
     /// <param name="doc">Documento BSON do usuário.</param>

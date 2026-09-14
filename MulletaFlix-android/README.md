@@ -12,11 +12,11 @@ Aplicativo Android oficial do [MulletaFlix](https://github.com/raphaelpera85/Mul
 | 🎬 Detalhe completo (Filmes, Séries, Músicas, Livros) | ✅ |
 | ▶️ Player ExoPlayer HLS/DASH + OSD completo | ✅ |
 | 🔍 Busca universal em tempo real | ✅ |
-| ⬇️ Downloads offline | 🔜 |
-| 📺 Live TV + EPG | 🔜 |
+| ⬇️ Downloads offline | ✅ |
+| 📺 Live TV + EPG | ✅ |
 | ⚙️ Configurações com 8 temas | ✅ |
-| 👤 Perfil multi-usuário | 🔜 |
-| 📡 SyncPlay | 🔜 |
+| 👤 Perfil multi-usuário | ✅ |
+| 📡 SyncPlay | ✅ |
 | 📺 Chromecast | ✅ (estrutura) |
 
 ## 🏗️ Arquitetura

@@ -64,12 +64,24 @@ class PlayerViewModel @Inject constructor(
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _state.update { it.copy(isPlaying = isPlaying) }
-                if (isPlaying) startProgressReporting() else stopProgressReporting()
+                if (isPlaying) {
+                    startProgressReporting()
+                } else {
+                    stopProgressReporting()
+                    reportPlaybackProgress(isPaused = true)
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 _state.update {
                     it.copy(isBuffering = playbackState == Player.STATE_BUFFERING)
+                }
+                if (playbackState == Player.STATE_ENDED) reportPlaybackStopped()
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                _state.update {
+                    it.copy(isBuffering = false, error = error.localizedMessage ?: "Não foi possível reproduzir esta mídia.")
                 }
             }
         })
@@ -84,15 +96,17 @@ class PlayerViewModel @Inject constructor(
     private var currentItemId: String? = null
     private var currentPlaySessionId: String? = null
     private var currentMediaSourceId: String? = null
+    private var stoppedReported = false
 
     fun loadMedia(itemId: String) {
         currentItemId = itemId
+        stoppedReported = false
         viewModelScope.launch {
             val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
 
             // Get playback info from server to determine best play method
             val item = mediaRepository.getItem(userId, itemId).getOrNull() ?: return@launch
-            _state.update { it.copy(title = item.name) }
+            _state.update { it.copy(title = item.name, error = null) }
 
             val playbackInfo = playbackRepository.getPlaybackInfo(itemId, userId).getOrNull()
                 ?: return@launch
@@ -112,7 +126,13 @@ class PlayerViewModel @Inject constructor(
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
                 .mapIndexed { i, stream -> TrackInfo(i, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}") }
 
-            _state.update { it.copy(subtitleTracks = subtitleTracks, audioTracks = audioTracks) }
+            _state.update {
+                it.copy(
+                    subtitleTracks = subtitleTracks,
+                    audioTracks = audioTracks,
+                    availableQualities = qualityOptions(item.mediaStreams + mediaSource.mediaStreams),
+                )
+            }
 
             // Prepare Media3. CastPlayer automatically transfers this item when a
             // compatible Cast route is selected by the user.
@@ -258,6 +278,29 @@ class PlayerViewModel @Inject constructor(
 
     private fun stopProgressReporting() {
         progressJob?.cancel()
+        progressJob = null
+    }
+
+    private fun reportPlaybackProgress(isPaused: Boolean) {
+        viewModelScope.launch {
+            val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
+            currentItemId?.let { id ->
+                playbackRepository.reportPlaybackProgress(
+                    itemId = id,
+                    playSessionId = currentPlaySessionId,
+                    mediaSourceId = currentMediaSourceId,
+                    positionTicks = player.currentPosition * 10_000L,
+                    audioIndex = null,
+                    subtitleIndex = null,
+                    isPaused = isPaused,
+                )
+            }
+        }
+    }
+
+    private fun reportPlaybackStopped() {
+        if (stoppedReported) return
+        stoppedReported = true
         viewModelScope.launch {
             val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
             currentItemId?.let { id ->
@@ -272,8 +315,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        super.onCleared()
         progressJob?.cancel()
+        reportPlaybackStopped()
         player.release()
+        super.onCleared()
     }
 }

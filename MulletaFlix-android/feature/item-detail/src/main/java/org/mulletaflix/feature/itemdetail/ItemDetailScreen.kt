@@ -389,7 +389,7 @@ private fun SeriesSection(
 ) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         // Season tabs
-        ScrollableTabRow(
+        PrimaryScrollableTabRow(
             selectedTabIndex = selectedSeasonIndex,
             containerColor = MaterialTheme.colorScheme.background,
             edgePadding = 16.dp
@@ -501,7 +501,7 @@ private fun TrackListSection(tracks: List<MediaItem>, onTrackPlay: (String) -> U
                 }
                 Icon(Icons.Default.PlayArrow, contentDescription = "Reproduzir", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }

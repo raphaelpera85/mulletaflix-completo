@@ -142,6 +142,7 @@ fun ServerSelectionScreen(
                             SavedServerCard(
                                 name = server.name,
                                 url = server.url,
+                                latencyMs = server.latencyMs,
                                 version = server.version,
                                 onClick = { viewModel.connectToServer(server.url) { onServerSelected() } },
                                 onRemove = {},
@@ -157,6 +158,7 @@ fun ServerSelectionScreen(
                             SavedServerCard(
                                 name = server.name,
                                 url = server.url,
+                                latencyMs = server.latencyMs,
                                 version = server.version,
                                 onClick = { viewModel.connectToServer(server.url) { onServerSelected() } },
                                 onRemove = { viewModel.removeServer(server.url) },
@@ -173,6 +175,7 @@ fun ServerSelectionScreen(
 private fun SavedServerCard(
     name: String,
     url: String,
+    latencyMs: Long? = null,
     version: String?,
     onClick: () -> Unit,
     onRemove: () -> Unit,
@@ -190,7 +193,10 @@ private fun SavedServerCard(
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, color = Color.White)
                 Text(url, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.5f))
-                version?.let { Text("v$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    version?.let { Text("v$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
+                    latencyMs?.let { Text("${it} ms", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
+                }
             }
             if (showRemove) {
                 IconButton(onClick = onRemove) {

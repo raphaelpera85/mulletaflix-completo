@@ -105,6 +105,21 @@ fun VideoPlayerScreen(
             }
         }
 
+        AnimatedVisibility(visible = state.error != null, modifier = Modifier.align(Alignment.Center)) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(state.error ?: "Erro de reprodução", color = MaterialTheme.colorScheme.onSurface)
+                    Button(onClick = { viewModel.loadMedia(itemId) }) {
+                        Text("Tentar novamente")
+                    }
+                }
+            }
+        }
+
         // ── Skip Intro button ────────────────────────────────────────────────
         AnimatedVisibility(
             visible = state.showSkipIntro,

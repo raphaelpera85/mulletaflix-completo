@@ -64,7 +64,7 @@ class AuthViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             serverUrl = url,
-                            savedServers = listOf(ServerInfo("MulletaFlix Server", url, 12))
+                            savedServers = listOf(ServerInfo("MulletaFlix Server", url))
                         )
                     }
                 }
@@ -85,7 +85,7 @@ class AuthViewModel @Inject constructor(
     fun discoverLocalServers(context: Context) {
         viewModelScope.launch {
             _state.update { it.copy(isDiscovering = true, error = null) }
-            val servers = LocalServerDiscovery(context).discover()
+            val servers = LocalServerDiscovery().discover()
             _state.update { current ->
                 val localServer = servers.firstOrNull()
                 current.copy(
@@ -117,7 +117,11 @@ class AuthViewModel @Inject constructor(
     fun connectToServer(url: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            val cleanUrl = url.trimEnd('/')
+            val cleanUrl = normalizeServerUrl(url)
+            if (cleanUrl == null) {
+                _state.update { it.copy(isLoading = false, error = "Informe uma URL HTTP ou HTTPS válida") }
+                return@launch
+            }
             authRepository.verifyServer(cleanUrl)
                 .onSuccess { verification ->
                 authRepository.setServerUrl(cleanUrl)
@@ -126,7 +130,12 @@ class AuthViewModel @Inject constructor(
                         isLoading = false,
                         serverUrl = cleanUrl,
                         discoveredServers = it.discoveredServers.filterNot { server -> server.url == cleanUrl },
-                        savedServers = (it.savedServers + ServerInfo(verification.name, cleanUrl, version = verification.version)).distinctBy { s -> s.url }
+                        savedServers = (it.savedServers + ServerInfo(
+                            name = verification.name,
+                            url = cleanUrl,
+                            latencyMs = verification.latencyMs,
+                            version = verification.version,
+                        )).distinctBy { s -> s.url }
                     )
                 }
                 onSuccess()

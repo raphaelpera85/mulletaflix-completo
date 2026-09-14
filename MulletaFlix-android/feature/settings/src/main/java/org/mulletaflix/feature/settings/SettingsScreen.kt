@@ -100,7 +100,15 @@ fun SettingsScreen(
 
             // ── Subtítulos ───────────────────────────────────────────────────
             SettingsGroup(title = "Legendas") {
-                SettingsItem(icon = Icons.Default.ClosedCaption, title = "Idioma Padrão", subtitle = state.subtitleLanguage) {}
+                var showSubtitleDialog by remember { mutableStateOf(false) }
+                SettingsItem(icon = Icons.Default.ClosedCaption, title = "Idioma Padrão", subtitle = state.subtitleLanguage, onClick = { showSubtitleDialog = true })
+                if (showSubtitleDialog) {
+                    SubtitleLanguageDialog(
+                        current = state.subtitleLanguage,
+                        onSelect = { viewModel.setSubtitleLanguage(it); showSubtitleDialog = false },
+                        onDismiss = { showSubtitleDialog = false },
+                    )
+                }
                 SettingsItem(icon = Icons.Default.TextFields, title = "Tamanho da Fonte", subtitle = "${state.subtitleFontSize}%") {}
             }
 
@@ -158,7 +166,7 @@ private fun SettingsItem(icon: ImageVector, title: String, subtitle: String, onC
         }
         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    Divider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -174,7 +182,7 @@ private fun SettingsToggle(icon: ImageVector, title: String, subtitle: String, c
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
-    Divider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -200,6 +208,33 @@ private fun ThemePickerDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
+}
+
+@Composable
+private fun SubtitleLanguageDialog(
+    current: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf("Português (Brasil)", "English", "Idioma original", "Desativadas")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Idioma das legendas") },
+        text = {
+            Column {
+                options.forEach { option ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable { onSelect(option) }.padding(vertical = 8.dp),
+                    ) {
+                        RadioButton(selected = current == option, onClick = { onSelect(option) })
+                        Text(option, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }
 

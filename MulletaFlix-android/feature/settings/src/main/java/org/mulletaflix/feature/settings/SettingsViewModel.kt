@@ -61,6 +61,11 @@ class SettingsViewModel @Inject constructor(
                 _state.update { it.copy(theme = variant) }
             }
         }
+        viewModelScope.launch {
+            settingsRepository.getPreferredSubtitleLanguage().collect { language ->
+                _state.update { it.copy(subtitleLanguage = subtitleLabel(language)) }
+            }
+        }
     }
 
     fun setTheme(theme: MulletaFlixThemeVariant) {
@@ -84,6 +89,13 @@ class SettingsViewModel @Inject constructor(
         _state.update { it.copy(autoPlay = autoPlay) }
     }
 
+    fun setSubtitleLanguage(language: String) {
+        _state.update { it.copy(subtitleLanguage = subtitleLabel(language)) }
+        viewModelScope.launch {
+            settingsRepository.setPreferredSubtitleLanguage(languageCode(language))
+        }
+    }
+
     fun setSkipIntro(skipIntro: Boolean) {
         _state.update { it.copy(skipIntro = skipIntro) }
     }
@@ -102,5 +114,19 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             authRepository.logout()
         }
+    }
+
+    private fun subtitleLabel(language: String?): String = when (language?.lowercase()) {
+        "por", "pt", "pt-br" -> "Português (Brasil)"
+        "eng", "en" -> "English"
+        "off", "none" -> "Desativadas"
+        else -> "Idioma original"
+    }
+
+    private fun languageCode(label: String): String = when (label) {
+        "Português (Brasil)" -> "por"
+        "English" -> "eng"
+        "Desativadas" -> "off"
+        else -> "original"
     }
 }

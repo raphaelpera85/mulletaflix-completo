@@ -2,6 +2,7 @@ package org.mulletaflix.feature.auth
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +31,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import android.widget.Toast
+import coil.compose.AsyncImage
+import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
+import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
+import org.mulletaflix.designsystem.media.resolveMediaUrl
 
 /**
  * Login screen — first authentication step after server is selected.
@@ -98,7 +103,7 @@ fun LoginScreen(
 
             // ── Tab Selector (Login / Quick Connect) ──────────────────────────
             var selectedTab by remember { mutableIntStateOf(0) }
-            TabRow(
+            PrimaryTabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.secondary,
@@ -369,7 +374,44 @@ private fun UserAvatarRow(
     users: List<AuthUser>,
     onUserSelect: (AuthUser) -> Unit,
 ) {
-    // TODO: render user avatar row with coil images
+    val serverUrl = LocalMulletaFlixServerUrl.current
+    val accessToken = LocalMulletaFlixAccessToken.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Escolha um usuário", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+        ) {
+            users.take(6).forEach { user ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(72.dp).clickable { onUserSelect(user) },
+                ) {
+                    val imagePath = user.primaryImageTag?.let { tag ->
+                        "Users/${user.id}/Images/Primary?tag=$tag"
+                    }
+                    AsyncImage(
+                        model = resolveMediaUrl(serverUrl, imagePath, accessToken),
+                        contentDescription = "Selecionar ${user.name}",
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                    Text(
+                        user.name,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        }
+    }
 }
 
 private val Int.sp get() = androidx.compose.ui.unit.TextUnit(this.toFloat(), androidx.compose.ui.unit.TextUnitType.Sp)

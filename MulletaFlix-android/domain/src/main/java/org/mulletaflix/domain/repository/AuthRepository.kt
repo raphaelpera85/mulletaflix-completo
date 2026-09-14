@@ -31,6 +31,7 @@ interface AuthRepository {
 data class ServerVerification(
     val name: String,
     val version: String?,
+    val latencyMs: Long? = null,
 )
 
 data class RegistrationResult(

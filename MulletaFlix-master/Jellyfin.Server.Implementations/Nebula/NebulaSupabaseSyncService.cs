@@ -31,6 +31,9 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaSupabaseSyncService : IDisposable
 {
+    private const int SupabaseUploadBatchSize = 250;
+    private const int SupabaseUploadConcurrency = 6;
+    private const int SupabaseRestorePageSize = 1000;
     private readonly ILogger<NebulaSupabaseSyncService> _logger;
     private readonly NebulaMongoContext _mongoContext;
     private readonly IDbContextFactory<UsersDbContext>? _usersDbProvider;
@@ -250,76 +253,50 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             _logger.LogInformation("[SUPABASE-SYNC] Iniciando sincronização completa para o Supabase ({Url})...", supabaseUrl);
             progressAction?.Invoke($"[SUPABASE-SYNC] Iniciando sincronização completa para {supabaseUrl}...");
 
-            // 1. Sincroniza arquivos em lotes leves de 25 itens para não esgotar a memória do Supabase (nano tier)
+            // 1. Envia lotes maiores em paralelo limitado. O lote anterior de 25 itens
+            // fazia 1.899 round-trips para 47k arquivos e ainda dormia 50ms entre eles.
             var allFiles = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
-            var batchSize = 25;
+            var batchSize = SupabaseUploadBatchSize;
             var totalFiles = allFiles.Count;
             var totalBatches = (int)Math.Ceiling(totalFiles / (double)batchSize);
             var syncedFiles = 0;
+            var completedBatches = 0;
+            var progressGate = new object();
 
             progressAction?.Invoke($"[SUPABASE-SYNC] {totalFiles} arquivos encontrados no MongoDB local ({totalBatches} lotes de {batchSize}).");
 
-            for (int i = 0; i < totalFiles; i += batchSize)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var currentBatchIndex = (i / batchSize) + 1;
-                var chunk = allFiles.GetRange(i, Math.Min(batchSize, totalFiles - i));
-                var records = new List<SupabaseFileRecord>(chunk.Count);
+            var batches = Enumerable.Range(0, totalBatches)
+                .Select(index => allFiles.GetRange(
+                    index * batchSize,
+                    Math.Min(batchSize, totalFiles - index * batchSize)));
 
-                foreach (var doc in chunk)
+            await Parallel.ForEachAsync(
+                batches,
+                new ParallelOptions
                 {
-                    records.Add(ConvertBsonDocToSupabaseRecord(doc));
-                }
-
-                var json = JsonSerializer.Serialize(records);
-                var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?on_conflict=id";
-
-                var success = false;
-                var maxAttempts = 3;
-                for (var attempt = 1; attempt <= maxAttempts && !success; attempt++)
+                    MaxDegreeOfParallelism = SupabaseUploadConcurrency,
+                    CancellationToken = cancellationToken
+                },
+                async (chunk, ct) =>
                 {
-                    try
+                    var records = chunk.Select(ConvertBsonDocToSupabaseRecord).ToList();
+                    await SendSupabaseBatchWithRetryAsync(
+                        supabaseUrl,
+                        supabaseKey,
+                        "nebula_files?on_conflict=id",
+                        records,
+                        ct).ConfigureAwait(false);
+
+                    var done = Interlocked.Add(ref syncedFiles, records.Count);
+                    var batch = Interlocked.Increment(ref completedBatches);
+                    if (batch % 4 == 0 || batch == totalBatches)
                     {
-                        using var req = new HttpRequestMessage(HttpMethod.Post, uri)
+                        lock (progressGate)
                         {
-                            Content = new StringContent(json, Encoding.UTF8, "application/json")
-                        };
-                        req.Headers.Add("apikey", supabaseKey);
-                        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-                        req.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
-
-                        using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
-                        if (resp.IsSuccessStatusCode)
-                        {
-                            syncedFiles += records.Count;
-                            success = true;
-                            _logger.LogDebug("[SUPABASE-SYNC] Lote {Batch}/{Total} ({Count} arquivos) enviado com sucesso.", currentBatchIndex, totalBatches, records.Count);
-                        }
-                        else
-                        {
-                            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                            _logger.LogWarning("[SUPABASE-SYNC] Falha no lote {Batch}/{Total} (Tentativa {Attempt}/{Max}): HTTP {Code} - {Body}", currentBatchIndex, totalBatches, attempt, maxAttempts, resp.StatusCode, body);
-                            if (attempt < maxAttempts)
-                            {
-                                await Task.Delay(TimeSpan.FromSeconds(attempt * 1.5), cancellationToken).ConfigureAwait(false);
-                            }
+                            progressAction?.Invoke($"[SUPABASE-SYNC] Progresso dos arquivos: {done}/{totalFiles} sincronizados (Lotes {batch}/{totalBatches}, concorrência {SupabaseUploadConcurrency}).");
                         }
                     }
-                    catch (Exception ex) when (attempt < maxAttempts && !cancellationToken.IsCancellationRequested)
-                    {
-                        _logger.LogWarning(ex, "[SUPABASE-SYNC] Exceção transitória no lote {Batch}/{Total} (Tentativa {Attempt}/{Max}).", currentBatchIndex, totalBatches, attempt, maxAttempts);
-                        await Task.Delay(TimeSpan.FromSeconds(attempt * 1.5), cancellationToken).ConfigureAwait(false);
-                    }
-                }
-
-                if (currentBatchIndex % 4 == 0 || currentBatchIndex == totalBatches)
-                {
-                    progressAction?.Invoke($"[SUPABASE-SYNC] Progresso dos arquivos: {syncedFiles}/{totalFiles} sincronizados (Lote {currentBatchIndex}/{totalBatches}).");
-                }
-
-                // Pequeno respiro entre requisições para evitar pico de CPU/RAM no PostgREST/Postgres
-                await Task.Delay(50, cancellationToken).ConfigureAwait(false);
-            }
+                }).ConfigureAwait(false);
 
             // 2. Sincroniza usuários
             var allUsers = await _mongoContext.GetAllUsersForSyncAsync(cancellationToken).ConfigureAwait(false);
@@ -436,7 +413,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
             // 1. Restaura arquivos e diretórios em lotes
             var offset = 0;
-            var limit = 250;
+            var limit = SupabaseRestorePageSize;
             var restoredFiles = 0;
 
             while (true)
@@ -461,6 +438,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     break;
                 }
 
+                var pageDocs = new List<BsonDocument>(arr.GetArrayLength());
                 foreach (var item in arr.EnumerateArray())
                 {
                     BsonDocument? bson = null;
@@ -504,9 +482,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
                     if (bson != null)
                     {
-                        await _mongoContext.UpsertRawDocAsync(bson, cancellationToken).ConfigureAwait(false);
-                        restoredFiles++;
+                        pageDocs.Add(bson);
                     }
+                }
+
+                if (pageDocs.Count > 0)
+                {
+                    restoredFiles += await _mongoContext.BulkUpsertRawDocsAsync(pageDocs, cancellationToken).ConfigureAwait(false);
                 }
 
                 progressAction?.Invoke($"[SUPABASE-RESTORE] {restoredFiles} arquivos recuperados...");
@@ -517,7 +499,6 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 }
 
                 offset += limit;
-                await Task.Delay(50, cancellationToken).ConfigureAwait(false);
             }
 
             // 2. Restaura usuários
@@ -677,6 +658,54 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             UploadedAt = uploadedAt,
             DocData = cleanDict
         };
+    }
+
+    private async Task SendSupabaseBatchWithRetryAsync<T>(
+        string supabaseUrl,
+        string supabaseKey,
+        string endpoint,
+        IReadOnlyCollection<T> records,
+        CancellationToken cancellationToken)
+    {
+        var json = JsonSerializer.Serialize(records);
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/{endpoint}";
+
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                request.Headers.Add("apikey", supabaseKey);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+                request.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return;
+                }
+
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var retryable = response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500;
+                if (!retryable || attempt == 3)
+                {
+                    throw new InvalidOperationException($"Supabase rejeitou o lote: HTTP {(int)response.StatusCode} - {body}");
+                }
+
+                _logger.LogWarning("[SUPABASE-SYNC] Falha transitória no lote (tentativa {Attempt}/3): HTTP {Code}.", attempt, response.StatusCode);
+            }
+            catch (Exception ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested && (ex is HttpRequestException or TaskCanceledException))
+            {
+                _logger.LogWarning(ex, "[SUPABASE-SYNC] Erro transitório no lote (tentativa {Attempt}/3).", attempt);
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException("Não foi possível enviar o lote ao Supabase após 3 tentativas.");
     }
 
     /// <summary>

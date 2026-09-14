@@ -24,4 +24,5 @@ class AppSmokeTest {
         composeRule.onNodeWithText("URL do Servidor", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("Procurar na rede", useUnmergedTree = true).assertIsDisplayed()
     }
+
 }
