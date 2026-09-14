@@ -16,6 +16,8 @@ data class QuickConnectState(
 )
 
 interface AuthRepository {
+    suspend fun verifyServer(url: String): Result<ServerVerification>
+    suspend fun register(username: String, password: String): Result<RegistrationResult>
     suspend fun login(username: String, password: String): Result<UserSession>
     suspend fun initiateQuickConnect(): Result<QuickConnectState>
     suspend fun checkQuickConnect(secret: String): Result<UserSession?>
@@ -25,3 +27,13 @@ interface AuthRepository {
     fun getSavedUserId(): Flow<String?>
     fun getSavedToken(): Flow<String?>
 }
+
+data class ServerVerification(
+    val name: String,
+    val version: String?,
+)
+
+data class RegistrationResult(
+    val success: Boolean,
+    val message: String? = null,
+)

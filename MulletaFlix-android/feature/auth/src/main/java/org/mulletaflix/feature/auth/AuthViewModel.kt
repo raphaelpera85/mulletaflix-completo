@@ -8,13 +8,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import org.mulletaflix.domain.repository.AuthRepository
 import javax.inject.Inject
+
+const val DEFAULT_MULLETAFLIX_SERVER_URL = "http://mulletaflix.duckdns.org:8096"
 
 data class ServerInfo(
     val name: String,
     val url: String,
     val latencyMs: Long? = null,
+    val version: String? = null,
 )
 
 data class AuthUser(
@@ -24,7 +29,7 @@ data class AuthUser(
 )
 
 data class AuthState(
-    val serverUrl: String? = null,
+    val serverUrl: String? = DEFAULT_MULLETAFLIX_SERVER_URL,
     val username: String = "",
     val password: String = "",
     val isLoading: Boolean = false,
@@ -35,11 +40,15 @@ data class AuthState(
     val quickConnectPin: String? = null,
     val quickConnectSecret: String? = null,
     val isWaitingForQuickConnect: Boolean = false,
+    val discoveredServers: List<ServerInfo> = emptyList(),
+    val isDiscovering: Boolean = false,
+    val isRegistering: Boolean = false,
 )
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    @ApplicationContext context: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthState())
@@ -48,6 +57,7 @@ class AuthViewModel @Inject constructor(
     private var quickConnectPollingJob: Job? = null
 
     init {
+        discoverLocalServers(context)
         viewModelScope.launch {
             authRepository.getSavedServerUrl().collect { url ->
                 if (url.isNotBlank()) {
@@ -72,6 +82,26 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun discoverLocalServers(context: Context) {
+        viewModelScope.launch {
+            _state.update { it.copy(isDiscovering = true, error = null) }
+            val servers = LocalServerDiscovery(context).discover()
+            _state.update { current ->
+                val localServer = servers.firstOrNull()
+                current.copy(
+                    isDiscovering = false,
+                    // Prefer the LAN address over the public DuckDNS fallback.
+                    // This keeps playback inside the local network whenever the
+                    // server advertises itself there.
+                    serverUrl = localServer?.url ?: current.serverUrl,
+                    discoveredServers = servers.filterNot { discovered ->
+                        current.savedServers.any { saved -> saved.url == discovered.url }
+                    },
+                )
+            }
+        }
+    }
+
     fun onUsernameChange(newUsername: String) {
         _state.update { it.copy(username = newUsername, error = null) }
     }
@@ -87,20 +117,23 @@ class AuthViewModel @Inject constructor(
     fun connectToServer(url: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            runCatching {
-                val cleanUrl = url.trimEnd('/')
+            val cleanUrl = url.trimEnd('/')
+            authRepository.verifyServer(cleanUrl)
+                .onSuccess { verification ->
                 authRepository.setServerUrl(cleanUrl)
                 _state.update {
                     it.copy(
                         isLoading = false,
                         serverUrl = cleanUrl,
-                        savedServers = (it.savedServers + ServerInfo("Servidor", cleanUrl, 15)).distinctBy { s -> s.url }
+                        discoveredServers = it.discoveredServers.filterNot { server -> server.url == cleanUrl },
+                        savedServers = (it.savedServers + ServerInfo(verification.name, cleanUrl, version = verification.version)).distinctBy { s -> s.url }
                     )
                 }
                 onSuccess()
-            }.onFailure { err ->
-                _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Erro ao conectar") }
-            }
+                }
+                .onFailure { err ->
+                    _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Servidor não encontrado ou indisponível") }
+                }
         }
     }
 
@@ -125,6 +158,36 @@ class AuthViewModel @Inject constructor(
                 }
                 .onFailure { err ->
                     _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Falha na autenticação") }
+                }
+        }
+    }
+
+    fun register(username: String, password: String, onSuccess: () -> Unit = {}) {
+        val cleanUsername = username.trim().lowercase()
+        when {
+            cleanUsername.isBlank() -> {
+                _state.update { it.copy(error = "Digite um nome de usuário ou e-mail") }
+                return
+            }
+            password.length < 8 -> {
+                _state.update { it.copy(error = "A senha deve ter pelo menos 8 caracteres") }
+                return
+            }
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isRegistering = true, error = null) }
+            authRepository.register(cleanUsername, password)
+                .onSuccess { result ->
+                    if (result.success) {
+                        _state.update { it.copy(isRegistering = false, error = null) }
+                        onSuccess()
+                    } else {
+                        _state.update { it.copy(isRegistering = false, error = result.message ?: "Ocorreu um erro durante o cadastro") }
+                    }
+                }
+                .onFailure { err ->
+                    _state.update { it.copy(isRegistering = false, error = err.localizedMessage ?: "Ocorreu um erro durante o cadastro") }
                 }
         }
     }

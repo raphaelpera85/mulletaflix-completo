@@ -1,6 +1,7 @@
 package org.mulletaflix.data.repository
 
 import org.mulletaflix.core.api.MulletaFlixApiService
+import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.dto.PlaybackInfoRequestDto
 import org.mulletaflix.core.api.dto.PlaybackProgressInfoDto
 import org.mulletaflix.core.api.dto.PlaybackStartInfoDto
@@ -10,10 +11,12 @@ import org.mulletaflix.domain.repository.PlaybackInfo
 import org.mulletaflix.domain.repository.PlaybackRepository
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 
 @Singleton
 class PlaybackRepositoryImpl @Inject constructor(
     private val api: MulletaFlixApiService,
+    private val sessionRepository: SessionRepository,
 ) : PlaybackRepository {
 
     override suspend fun getPlaybackInfo(
@@ -33,9 +36,21 @@ class PlaybackRepositoryImpl @Inject constructor(
             enableTranscoding = true,
         )
         val response = api.getPlaybackInfo(itemId = itemId, userId = userId, body = request)
+        val baseUrl = sessionRepository.getBaseUrl().first().trimEnd('/')
+        val token = sessionRepository.getAccessToken().first()
         PlaybackInfo(
             playSessionId = response.playSessionId ?: "",
-            mediaSources = response.mediaSources.map { it.toDomain() },
+            mediaSources = response.mediaSources.map { source ->
+                val sourceId = source.id.orEmpty()
+                val query = buildString {
+                    append("MediaSourceId=").append(sourceId)
+                    token?.takeIf { it.isNotBlank() }?.let { append("&api_key=").append(java.net.URLEncoder.encode(it, Charsets.UTF_8.name())) }
+                }
+                source.toDomain().copy(
+                    directStreamUrl = "$baseUrl/Videos/$itemId/stream?Static=true&$query",
+                    transcodeUrl = "$baseUrl/Videos/$itemId/master.m3u8?$query",
+                )
+            },
         )
     }
 

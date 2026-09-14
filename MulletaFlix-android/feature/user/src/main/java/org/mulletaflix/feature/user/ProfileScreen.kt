@@ -3,6 +3,8 @@ package org.mulletaflix.feature.user
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -25,6 +27,7 @@ fun ProfileScreen() {
                 .fillMaxSize()
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.background)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -45,7 +48,7 @@ fun ProfileScreen() {
 
             Spacer(modifier = Modifier.height(16.dp))
             Text("Mulleta User", style = MaterialTheme.typography.titleLarge)
-            Text("Administrador do Servidor", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+            Text("Administrador do Servidor", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
 
             Spacer(modifier = Modifier.height(32.dp))
 
@@ -79,7 +82,7 @@ private fun ProfilePrivilegeRow(title: String, enabled: Boolean) {
         Icon(
             imageVector = if (enabled) Icons.Default.CheckCircle else Icons.Default.Cancel,
             contentDescription = null,
-            tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            tint = if (enabled) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error,
             modifier = Modifier.size(20.dp)
         )
     }

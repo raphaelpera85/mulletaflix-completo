@@ -4,7 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem as Media3Item
 import androidx.media3.common.Player
+import androidx.media3.common.C
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.cast.CastPlayer
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
@@ -13,12 +17,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
-import org.mulletaflix.domain.repository.SessionRepository
+import org.mulletaflix.core.api.SessionRepository
 import javax.inject.Inject
 
 data class TrackInfo(val index: Int, val displayName: String)
@@ -52,7 +57,10 @@ class PlayerViewModel @Inject constructor(
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
-    val player: ExoPlayer = ExoPlayer.Builder(context).build().also { exo ->
+    private val trackSelector = DefaultTrackSelector(context)
+    private val localPlayer: ExoPlayer = ExoPlayer.Builder(context)
+        .setTrackSelector(trackSelector)
+        .build().also { exo ->
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _state.update { it.copy(isPlaying = isPlaying) }
@@ -67,33 +75,47 @@ class PlayerViewModel @Inject constructor(
         })
     }
 
+    /** Media3's unified player keeps the same controls for local and Cast output. */
+    val player: CastPlayer = CastPlayer.Builder(context)
+        .setLocalPlayer(localPlayer)
+        .build()
+
     private var progressJob: Job? = null
     private var currentItemId: String? = null
+    private var currentPlaySessionId: String? = null
+    private var currentMediaSourceId: String? = null
 
     fun loadMedia(itemId: String) {
         currentItemId = itemId
         viewModelScope.launch {
-            val userId = sessionRepository.getUserId() ?: return@launch
+            val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
 
             // Get playback info from server to determine best play method
             val item = mediaRepository.getItem(userId, itemId).getOrNull() ?: return@launch
             _state.update { it.copy(title = item.name) }
 
-            val playbackInfo = playbackRepository.getPlaybackInfo(userId, itemId).getOrNull()
-            val streamUrl = playbackInfo?.streamUrl ?: return@launch
+            val playbackInfo = playbackRepository.getPlaybackInfo(itemId, userId).getOrNull()
+                ?: return@launch
+            val mediaSource = playbackInfo.mediaSources.firstOrNull() ?: return@launch
+            val streamUrl = mediaSource.directStreamUrl
+                ?: mediaSource.transcodeUrl
+                ?: return@launch
+            currentPlaySessionId = playbackInfo.playSessionId
+            currentMediaSourceId = mediaSource.id
 
             // Set subtitle tracks from media streams
             val subtitleTracks = item.mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Subtitle }
-                .mapIndexed { i, stream -> TrackInfo(i, stream.displayTitle ?: stream.displayLanguage ?: "Track $i") }
+                .mapIndexed { i, stream -> TrackInfo(i, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Legenda ${i + 1}") }
 
             val audioTracks = item.mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
-                .mapIndexed { i, stream -> TrackInfo(i, stream.displayTitle ?: stream.displayLanguage ?: "Track $i") }
+                .mapIndexed { i, stream -> TrackInfo(i, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}") }
 
             _state.update { it.copy(subtitleTracks = subtitleTracks, audioTracks = audioTracks) }
 
-            // Prepare ExoPlayer
+            // Prepare Media3. CastPlayer automatically transfers this item when a
+            // compatible Cast route is selected by the user.
             val mediaItem = Media3Item.Builder()
                 .setUri(streamUrl)
                 .build()
@@ -110,7 +132,14 @@ class PlayerViewModel @Inject constructor(
             player.play()
 
             // Report start to server
-            playbackRepository.reportPlaybackStart(userId, itemId, player.currentPosition)
+            playbackRepository.reportPlaybackStart(
+                itemId = itemId,
+                playSessionId = currentPlaySessionId,
+                mediaSourceId = currentMediaSourceId,
+                audioIndex = mediaSource.defaultAudioStreamIndex,
+                subtitleIndex = mediaSource.defaultSubtitleStreamIndex,
+                positionTicks = player.currentPosition * 10_000L,
+            )
         }
     }
 
@@ -121,9 +150,17 @@ class PlayerViewModel @Inject constructor(
     fun seekTo(positionMs: Long) {
         player.seekTo(positionMs)
         viewModelScope.launch {
-            val userId = sessionRepository.getUserId() ?: return@launch
+            val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
             currentItemId?.let { id ->
-                playbackRepository.reportProgress(userId, id, positionMs)
+                playbackRepository.reportPlaybackProgress(
+                    itemId = id,
+                    playSessionId = currentPlaySessionId,
+                    mediaSourceId = currentMediaSourceId,
+                    audioIndex = null,
+                    subtitleIndex = null,
+                    positionTicks = positionMs * 10_000L,
+                    isPaused = !player.isPlaying,
+                )
             }
         }
     }
@@ -145,17 +182,27 @@ class PlayerViewModel @Inject constructor(
 
     fun selectSubtitle(index: Int) {
         _state.update { it.copy(selectedSubtitleIndex = index) }
-        // TODO: switch subtitle track via ExoPlayer TrackSelectionOverride
+        selectTrack(index, C.TRACK_TYPE_TEXT)
     }
 
     fun selectAudio(index: Int) {
         _state.update { it.copy(selectedAudioIndex = index) }
-        // TODO: switch audio track via ExoPlayer TrackSelectionOverride
+        selectTrack(index, C.TRACK_TYPE_AUDIO)
     }
 
     fun selectQuality(quality: String) {
         _state.update { it.copy(selectedQuality = quality) }
-        // TODO: trigger transcode with target bitrate or let HLS adapt
+        val maxBitrate = when (quality.uppercase()) {
+            "4K" -> Int.MAX_VALUE
+            "1080P", "FULL HD" -> 10_000_000
+            "720P", "HD" -> 6_000_000
+            "480P", "SD" -> 2_500_000
+            else -> Int.MAX_VALUE
+        }
+        localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
+            .buildUpon()
+            .setMaxVideoBitrate(maxBitrate)
+            .build()
     }
 
     fun setPlaybackSpeed(speed: Float) {
@@ -164,7 +211,26 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun startCast() {
-        // TODO: initiate Google Cast session with current media item
+        // The visible MediaRouteButton opens the official system chooser. This
+        // method remains as a semantic hook for custom controls and keeps the
+        // current position ready for a transfer.
+        if (player.currentMediaItem == null) return
+        player.seekTo(player.currentPosition)
+    }
+
+    private fun selectTrack(index: Int, trackType: Int) {
+        val candidates = player.currentTracks.groups
+            .filter { it.type == trackType }
+            .flatMap { group ->
+                (0 until group.length).mapNotNull { trackIndex ->
+                    if (group.isTrackSupported(trackIndex)) group to trackIndex else null
+                }
+            }
+        val selected = candidates.getOrNull(index) ?: return
+        localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
+            .buildUpon()
+            .setOverrideForType(TrackSelectionOverride(selected.first.mediaTrackGroup, selected.second))
+            .build()
     }
 
     private fun startProgressReporting() {
@@ -172,11 +238,19 @@ class PlayerViewModel @Inject constructor(
         progressJob = viewModelScope.launch {
             while (isActive) {
                 delay(5_000)
-                val userId = sessionRepository.getUserId() ?: continue
+                val userId = sessionRepository.getCurrentUserId().first() ?: continue
                 currentItemId?.let { id ->
                     val position = player.currentPosition
                     _state.update { it.copy(currentPosition = position, duration = player.duration.coerceAtLeast(0L)) }
-                    playbackRepository.reportProgress(userId, id, position)
+                    playbackRepository.reportPlaybackProgress(
+                        itemId = id,
+                        playSessionId = currentPlaySessionId,
+                        mediaSourceId = currentMediaSourceId,
+                        audioIndex = null,
+                        subtitleIndex = null,
+                        positionTicks = position * 10_000L,
+                        isPaused = false,
+                    )
                 }
             }
         }
@@ -185,9 +259,14 @@ class PlayerViewModel @Inject constructor(
     private fun stopProgressReporting() {
         progressJob?.cancel()
         viewModelScope.launch {
-            val userId = sessionRepository.getUserId() ?: return@launch
+            val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
             currentItemId?.let { id ->
-                playbackRepository.reportPlaybackStopped(userId, id, player.currentPosition)
+                playbackRepository.reportPlaybackStopped(
+                    itemId = id,
+                    playSessionId = currentPlaySessionId,
+                    mediaSourceId = currentMediaSourceId,
+                    positionTicks = player.currentPosition * 10_000L,
+                )
             }
         }
     }

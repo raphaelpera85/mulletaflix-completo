@@ -32,6 +32,7 @@ import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 @Composable
 fun SettingsScreen(
     onLogout: () -> Unit,
+    onSyncPlay: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -52,6 +53,7 @@ fun SettingsScreen(
             SettingsGroup(title = "Servidor") {
                 SettingsItem(icon = Icons.Default.Dns, title = "Servidor", subtitle = state.serverUrl ?: "Não configurado") {}
                 SettingsItem(icon = Icons.Default.Person, title = "Conta", subtitle = state.username ?: "") {}
+                SettingsItem(icon = Icons.Default.Group, title = "Salas SyncPlay", subtitle = "Assistir sincronizado com amigos", onClick = onSyncPlay)
                 SettingsItem(icon = Icons.Default.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
                     viewModel.logout()
                     onLogout()
@@ -131,7 +133,7 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
         Text(
             text = title,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
+            color = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
         Card(

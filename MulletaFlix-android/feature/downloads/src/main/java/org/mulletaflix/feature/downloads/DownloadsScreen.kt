@@ -1,138 +1,41 @@
 package org.mulletaflix.feature.downloads
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.mulletaflix.designsystem.components.MediaCard
-import org.mulletaflix.designsystem.components.MediaCardShape
-import org.mulletaflix.domain.model.MediaItem
-import org.mulletaflix.domain.model.MediaItemType
+import androidx.hilt.navigation.compose.hiltViewModel
+import org.mulletaflix.domain.repository.DownloadEntry
+import org.mulletaflix.domain.repository.DownloadState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DownloadsScreen(
-    onItemClick: (String) -> Unit,
-) {
-    var downloadedItems by remember {
-        mutableStateOf(
-            listOf(
-                MediaItem(
-                    id = "offline-1",
-                    name = "MulletaFlix Demo Offline",
-                    type = MediaItemType.Movie,
-                    overview = "Mídia disponível localmente para reprodução sem conexão à internet.",
-                    year = 2026,
-                    hasHD = true,
-                )
-            )
-        )
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Downloads Offline") },
-                actions = {
-                    IconButton(onClick = { /* Refresh storage */ }) {
-                        Icon(Icons.Default.Storage, contentDescription = "Armazenamento")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            if (downloadedItems.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DownloadDone,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Nenhum download concluído",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Baixe filmes e séries para assistir sem internet",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.CloudDone, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text("Modo Offline Ativo", style = MaterialTheme.typography.titleSmall)
-                                    Text("1 item disponível • 1.8 GB utilizados", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    }
-
-                    items(downloadedItems) { item ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onItemClick(item.id) }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            MediaCard(
-                                title = item.name,
-                                imageUrl = null,
-                                shape = MediaCardShape.Landscape,
-                                isWatched = item.isPlayed,
-                                onClick = { onItemClick(item.id) },
-                                modifier = Modifier.width(120.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.name, style = MaterialTheme.typography.titleMedium)
-                                item.year?.let { Text("$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                Text("Download Concluído (1080p)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                            IconButton(onClick = { downloadedItems = downloadedItems.filterNot { it.id == item.id } }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remover", tint = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                        Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    }
-                }
+fun DownloadsScreen(onItemClick: (String) -> Unit, viewModel: DownloadsViewModel = hiltViewModel()) {
+    val downloads by viewModel.downloads.collectAsState()
+    Scaffold(topBar = { TopAppBar(title = { Text("Downloads Offline") }, actions = { Icon(Icons.Default.Storage, "Armazenamento", modifier = Modifier.padding(end = 16.dp)) }) }) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
+            if (downloads.isEmpty()) EmptyDownloads()
+            else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item { OfflineSummary(downloads) }
+                items(downloads, key = { it.id }) { entry -> DownloadRow(entry, onPlay = { onItemClick(entry.id) }, onRemove = { viewModel.remove(entry.id) }) }
             }
         }
     }
 }
+
+@Composable private fun OfflineSummary(downloads: List<DownloadEntry>) { Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CloudDone, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Column { Text("Modo offline", style = MaterialTheme.typography.titleSmall); Text("${downloads.count { it.state == DownloadState.Completed }} concluído(s) • ${downloads.size} na fila", style = MaterialTheme.typography.bodySmall) } } } }
+
+@Composable private fun DownloadRow(entry: DownloadEntry, onPlay: () -> Unit, onRemove: () -> Unit) { Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(if (entry.state == DownloadState.Completed) Icons.Default.DownloadDone else Icons.Default.Downloading, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp)); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(entry.title, style = MaterialTheme.typography.titleMedium); Text(statusText(entry), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); if (entry.state == DownloadState.Downloading || entry.state == DownloadState.Queued) LinearProgressIndicator(progress = { entry.percent / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) }; if (entry.state == DownloadState.Completed) IconButton(onClick = onPlay) { Icon(Icons.Default.PlayArrow, "Reproduzir offline") }; IconButton(onClick = onRemove) { Icon(Icons.Default.Delete, "Remover", tint = MaterialTheme.colorScheme.error) } } } }
+
+private fun statusText(entry: DownloadEntry) = when (entry.state) { DownloadState.Completed -> "Disponível offline"; DownloadState.Downloading -> "Baixando… ${entry.percent}%"; DownloadState.Queued -> "Aguardando conexão"; DownloadState.Removing -> "Removendo…"; DownloadState.Failed -> entry.error ?: "Falha no download" }
+
+@Composable private fun EmptyDownloads() { Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.DownloadDone, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(16.dp)); Text("Nenhum download concluído", style = MaterialTheme.typography.titleMedium); Text("Os downloads iniciados no player aparecerão aqui.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }

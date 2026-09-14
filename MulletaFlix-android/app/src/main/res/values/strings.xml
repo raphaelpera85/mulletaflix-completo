@@ -4,7 +4,7 @@
     <!-- Auth -->
     <string name="server_selection_title">Selecionar Servidor</string>
     <string name="server_url_hint">URL do Servidor</string>
-    <string name="server_url_placeholder">http://192.168.1.100:8096</string>
+    <string name="server_url_placeholder">http://mulletaflix.duckdns.org:8096</string>
     <string name="connect">Conectar</string>
     <string name="saved_servers">Servidores Salvos</string>
     <string name="remove_server">Remover servidor</string>

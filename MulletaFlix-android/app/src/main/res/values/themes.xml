@@ -1,6 +1,6 @@
 <resources>
     <!-- Base theme — uses Compose for all UI, this is just the XML base -->
-    <style name="Theme.MulletaFlix" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.MulletaFlix" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -14,7 +14,6 @@
     <style name="Theme.MulletaFlix.SplashScreen" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_mulletaflix_logo</item>
-        <item name="windowSplashScreenBrandingImage">@drawable/ic_mulletaflix_wordmark</item>
         <item name="postSplashScreenTheme">@style/Theme.MulletaFlix</item>
     </style>
 </resources>

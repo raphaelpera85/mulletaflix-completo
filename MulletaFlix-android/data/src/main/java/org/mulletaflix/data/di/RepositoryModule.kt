@@ -44,4 +44,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindSyncPlayRepository(impl: SyncPlayRepositoryImpl): SyncPlayRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPlaylistRepository(impl: PlaylistRepositoryImpl): PlaylistRepository
 }

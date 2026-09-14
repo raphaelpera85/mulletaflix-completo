@@ -6,8 +6,11 @@ import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.dto.AuthenticateByNameDto
 import org.mulletaflix.core.api.dto.QuickConnectDto
+import org.mulletaflix.core.api.dto.RegisterUserDto
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.QuickConnectState
+import org.mulletaflix.domain.repository.ServerVerification
+import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.UserSession
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,14 +21,35 @@ class AuthRepositoryImpl @Inject constructor(
     private val sessionRepository: SessionRepository,
 ) : AuthRepository {
 
+    override suspend fun verifyServer(url: String): Result<ServerVerification> = runCatching {
+        val previousUrl = sessionRepository.getBaseUrl().first()
+        sessionRepository.setBaseUrl(url.trimEnd('/'))
+        try {
+            val info = api.getPublicSystemInfo()
+            ServerVerification(
+                name = info.serverName ?: info.productName ?: "MulletaFlix Server",
+                version = info.version,
+            )
+        } catch (error: Throwable) {
+            sessionRepository.setBaseUrl(previousUrl)
+            throw error
+        }
+    }
+
+    override suspend fun register(username: String, password: String): Result<RegistrationResult> = runCatching {
+        val response = api.registerUser(RegisterUserDto(name = username.trim().lowercase(), password = password))
+        RegistrationResult(success = response.success, message = response.message)
+    }
+
     override suspend fun login(username: String, password: String): Result<UserSession> = runCatching {
         val deviceId = sessionRepository.getDeviceId().first()
         val serverUrl = sessionRepository.getBaseUrl().first()
         val result = api.authenticateByName(AuthenticateByNameDto(username = username, pw = password))
 
         val token = result.accessToken ?: throw IllegalStateException("Token de acesso não retornado pelo servidor")
-        val userId = result.user?.id ?: throw IllegalStateException("ID de usuário inválido")
-        val userName = result.user.name
+        val user = result.user ?: throw IllegalStateException("Usuário não retornado pelo servidor")
+        val userId = user.id ?: throw IllegalStateException("ID de usuário inválido")
+        val userName = user.name
 
         sessionRepository.saveSession(
             serverUrl = serverUrl,

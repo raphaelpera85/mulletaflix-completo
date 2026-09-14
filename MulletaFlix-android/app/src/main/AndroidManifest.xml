@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
     <!-- Armazenamento (Downloads offline) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -73,8 +74,7 @@
         <service
             android:name=".service.MulletaFlixPlaybackService"
             android:exported="true"
-            android:foregroundServiceType="mediaPlayback"
-            android:permission="android.permission.BIND_INPUT_METHOD">
+            android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
@@ -93,6 +93,12 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- Permite ao seletor de saída do Android descobrir e transferir
+             a reprodução para dispositivos Cast compatíveis. -->
+        <receiver
+            android:name="androidx.mediarouter.media.MediaTransferReceiver"
+            android:exported="true" />
 
         <!-- Cast (Chromecast) -->
         <meta-data

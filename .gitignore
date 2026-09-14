@@ -56,3 +56,9 @@ MulletaFlix-packaging-master/jellyfin-server-windows/
 graphify-out/
 .planning/
 /nebula/
+
+# Android local/build outputs
+MulletaFlix-android/.gradle/
+MulletaFlix-android/.kotlin/
+MulletaFlix-android/**/build/
+MulletaFlix-android/local.properties

@@ -11,6 +11,11 @@ data class BaseItemDtoQueryResultDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class PlaylistCreationResultDto(
+    @Json(name = "Id") val id: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
 data class BaseItemDto(
     @Json(name = "Id") val id: String,
     @Json(name = "Name") val name: String? = null,

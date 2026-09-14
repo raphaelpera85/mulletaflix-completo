@@ -4,14 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.MediaRepository
-import org.mulletaflix.domain.repository.SessionRepository
+import org.mulletaflix.core.api.SessionRepository
 import javax.inject.Inject
 
 data class HomeState(
@@ -46,41 +48,94 @@ class HomeViewModel @Inject constructor(
 
     private fun loadHome(refresh: Boolean = false) {
         viewModelScope.launch {
-            val userId = sessionRepository.getUserId() ?: return@launch
+            val userId = sessionRepository.getCurrentUserId().first()
+            if (userId.isNullOrBlank()) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = "Sessão expirada. Entre novamente para carregar sua biblioteca.",
+                    )
+                }
+                return@launch
+            }
             _state.update { it.copy(isLoading = !refresh, error = null) }
 
-            // Parallel evidence fan-out per fable-loop Stage 2 pattern
-            val resumeDeferred = async { mediaRepository.getResumeItems(userId) }
-            val nextUpDeferred = async { mediaRepository.getNextUp(userId) }
-            val librariesDeferred = async { mediaRepository.getLibraries(userId) }
-            val liveTvDeferred = async { mediaRepository.getLiveTvChannels(userId) }
+            val result = runCatching {
+                coroutineScope {
+                    // Parallel fan-out keeps the home responsive on real libraries.
+                    val resumeDeferred = async { mediaRepository.getResumeItems(userId) }
+                    val nextUpDeferred = async { mediaRepository.getNextUp(userId) }
+                    val librariesDeferred = async { mediaRepository.getLibraries(userId) }
+                    val liveTvDeferred = async { mediaRepository.getLiveTvChannels(userId) }
 
-            val resume = resumeDeferred.await().getOrDefault(emptyList())
-            val nextUp = nextUpDeferred.await().getOrDefault(emptyList())
-            val libraries = librariesDeferred.await().getOrDefault(emptyList())
-            val liveChannels = liveTvDeferred.await().getOrDefault(emptyList())
+                    val resumeResult = resumeDeferred.await()
+                    val nextUpResult = nextUpDeferred.await()
+                    val librariesResult = librariesDeferred.await()
+                    val liveTvResult = liveTvDeferred.await()
+                    val libraries = librariesResult.getOrThrow()
 
-            // Fetch recently added per library (parallel)
-            val recentlyAdded = libraries.associate { lib ->
-                lib.name to (mediaRepository.getLatestItems(userId, parentId = lib.id).getOrDefault(emptyList()))
+                    val recentlyAdded = libraries.map { lib ->
+                        async {
+                            lib.name to mediaRepository
+                                .getLatestItems(userId, parentId = lib.id)
+                                .getOrThrow()
+                        }
+                    }.map { it.await() }.toMap()
+
+                    HomePayload(
+                        resumeItems = resumeResult.getOrThrow(),
+                        nextUpItems = nextUpResult.getOrThrow(),
+                        libraries = libraries,
+                        liveTvChannels = liveTvResult.getOrThrow(),
+                        recentlyAddedByLibrary = recentlyAdded,
+                    )
+                }
             }
 
-            // Hero = first resume item or first recently added with backdrop
-            val hero = resume.firstOrNull()
-                ?: recentlyAdded.values.flatten().firstOrNull { it.backdropImageTags.isNotEmpty() }
+            result.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = error.userMessage(),
+                    )
+                }
+            }.onSuccess { payload ->
+                val recentlyAdded = payload.recentlyAddedByLibrary
 
-            _state.update {
-                it.copy(
-                    isLoading = false,
-                    isRefreshing = false,
-                    heroItem = hero,
-                    resumeItems = resume,
-                    nextUpItems = nextUp,
-                    recentlyAddedByLibrary = recentlyAdded,
-                    liveTvChannels = liveChannels,
-                    libraries = libraries,
-                )
+                // Hero = first resume item or first recently added with backdrop.
+                val hero = payload.resumeItems.firstOrNull()
+                    ?: recentlyAdded.values.flatten().firstOrNull { it.backdropImageTags.isNotEmpty() }
+
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        heroItem = hero,
+                        resumeItems = payload.resumeItems,
+                        nextUpItems = payload.nextUpItems,
+                        recentlyAddedByLibrary = recentlyAdded,
+                        liveTvChannels = payload.liveTvChannels,
+                        libraries = payload.libraries,
+                        error = null,
+                    )
+                }
             }
         }
     }
+}
+
+private data class HomePayload(
+    val resumeItems: List<MediaItem>,
+    val nextUpItems: List<MediaItem>,
+    val recentlyAddedByLibrary: Map<String, List<MediaItem>>,
+    val liveTvChannels: List<MediaItem>,
+    val libraries: List<MediaItem>,
+)
+
+private fun Throwable.userMessage(): String = when (this) {
+    is java.net.UnknownHostException -> "Servidor indisponível. Verifique a conexão com a rede."
+    is java.net.ConnectException -> "Não foi possível conectar ao servidor."
+    else -> localizedMessage ?: "Não foi possível carregar o conteúdo do servidor."
 }

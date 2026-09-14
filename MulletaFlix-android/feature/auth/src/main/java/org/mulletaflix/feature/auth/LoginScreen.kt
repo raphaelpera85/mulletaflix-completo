@@ -18,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -27,6 +29,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import android.widget.Toast
 
 /**
  * Login screen — first authentication step after server is selected.
@@ -45,6 +48,8 @@ fun LoginScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    var showRegisterDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.isAuthenticated) {
         if (state.isAuthenticated) onLoginSuccess()
@@ -55,7 +60,7 @@ fun LoginScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xFF0A1628), Color(0xFF101010))
+                    colors = listOf(Color(0xFF1A0507), Color(0xFF080808))
                 )
             )
     ) {
@@ -72,7 +77,7 @@ fun LoginScreen(
             Icon(
                 painter = painterResource(id = org.mulletaflix.designsystem.R.drawable.ic_mulletaflix_logo),
                 contentDescription = "MulletaFlix",
-                tint = Color(0xFF00A4DC),
+                tint = Color.Unspecified,
                 modifier = Modifier.size(80.dp)
             )
 
@@ -95,8 +100,8 @@ fun LoginScreen(
             var selectedTab by remember { mutableIntStateOf(0) }
             TabRow(
                 selectedTabIndex = selectedTab,
-                containerColor = Color(0xFF1A1A1A),
-                contentColor = Color(0xFF00A4DC),
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
@@ -123,6 +128,7 @@ fun LoginScreen(
                         onLogin = { viewModel.login() },
                         users = state.availableUsers,
                         onUserSelect = viewModel::onUserSelect,
+                        onRegister = { showRegisterDialog = true },
                     )
                     1 -> QuickConnectForm(
                         pin = state.quickConnectPin,
@@ -136,6 +142,24 @@ fun LoginScreen(
             }
         }
     }
+
+    if (showRegisterDialog) {
+        RegisterDialog(
+            isLoading = state.isRegistering,
+            error = state.error,
+            onDismiss = { if (!state.isRegistering) showRegisterDialog = false },
+            onRegister = { username, password, confirmation ->
+                if (password != confirmation) {
+                    Toast.makeText(context, "As senhas não conferem", Toast.LENGTH_SHORT).show()
+                } else {
+                    viewModel.register(username, password) {
+                        showRegisterDialog = false
+                        Toast.makeText(context, "Cadastro realizado com sucesso. Sua conta recebeu 30 minutos de teste.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -147,8 +171,9 @@ private fun PasswordLoginForm(
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
-    users: List<org.mulletaflix.domain.model.UserInfo>,
-    onUserSelect: (org.mulletaflix.domain.model.UserInfo) -> Unit,
+    users: List<AuthUser>,
+    onUserSelect: (AuthUser) -> Unit,
+    onRegister: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
     var passwordVisible by remember { mutableStateOf(false) }
@@ -174,8 +199,8 @@ private fun PasswordLoginForm(
             modifier = Modifier.fillMaxWidth(),
             enabled = !isLoading,
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFF00A4DC),
-                cursorColor = Color(0xFF00A4DC),
+                focusedBorderColor = MaterialTheme.colorScheme.secondary,
+                cursorColor = MaterialTheme.colorScheme.secondary,
             )
         )
 
@@ -203,8 +228,8 @@ private fun PasswordLoginForm(
             modifier = Modifier.fillMaxWidth(),
             enabled = !isLoading,
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Color(0xFF00A4DC),
-                cursorColor = Color(0xFF00A4DC),
+                focusedBorderColor = MaterialTheme.colorScheme.secondary,
+                cursorColor = MaterialTheme.colorScheme.secondary,
             )
         )
 
@@ -228,7 +253,76 @@ private fun PasswordLoginForm(
                 Text("Entrar", style = MaterialTheme.typography.labelLarge)
             }
         }
+
+        OutlinedButton(
+            onClick = onRegister,
+            enabled = !isLoading,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
+        ) {
+            Text("Cadastrar", style = MaterialTheme.typography.labelLarge)
+        }
     }
+}
+
+@Composable
+private fun RegisterDialog(
+    isLoading: Boolean,
+    error: String?,
+    onDismiss: () -> Unit,
+    onRegister: (String, String, String) -> Unit,
+) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Criar Conta") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Crie sua conta para acessar o Mulletaflix.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("E-mail ou usuário") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Senha") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = confirmation,
+                    onValueChange = { confirmation = it },
+                    label = { Text("Confirmar senha") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onRegister(username, password, confirmation) }, enabled = !isLoading) {
+                if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                else Text("Cadastrar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Voltar") } },
+    )
 }
 
 @Composable
@@ -249,17 +343,17 @@ private fun QuickConnectForm(
             Text(
                 text = pin,
                 style = MaterialTheme.typography.displaySmall,
-                color = Color(0xFF00A4DC),
+                color = MaterialTheme.colorScheme.secondary,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 8.sp
             )
             if (isWaiting) {
-                CircularProgressIndicator(color = Color(0xFF00A4DC))
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
                 Text("Aguardando autorização...", color = Color.White.copy(0.7f))
             }
             OutlinedButton(onClick = onCancel) { Text("Cancelar") }
         } else {
-            Icon(Icons.Default.QrCode2, contentDescription = null, tint = Color(0xFF00A4DC), modifier = Modifier.size(64.dp))
+            Icon(Icons.Default.QrCode2, contentDescription = "Quick Connect", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(64.dp))
             Text("Gera um código de 6 dígitos para entrar sem senha.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(0.8f))
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Button(onClick = onInitiate, enabled = !isLoading, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp)) {
@@ -272,8 +366,8 @@ private fun QuickConnectForm(
 
 @Composable
 private fun UserAvatarRow(
-    users: List<org.mulletaflix.domain.model.UserInfo>,
-    onUserSelect: (org.mulletaflix.domain.model.UserInfo) -> Unit,
+    users: List<AuthUser>,
+    onUserSelect: (AuthUser) -> Unit,
 ) {
     // TODO: render user avatar row with coil images
 }

@@ -4,14 +4,16 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
-/** Default dark theme — #101010 bg, MulletaFlix blue accent */
+/** Default dark theme — preto cinematográfico com vermelho MulletaFlix */
 val DarkColorScheme = darkColorScheme(
-    primary = MulletaFlixBlue,
-    onPrimary = DarkBackground,
-    primaryContainer = MulletaFlixBlueDark,
-    onPrimaryContainer = MulletaFlixBlueLight,
-    secondary = MulletaFlixBlueLight,
-    onSecondary = DarkBackground,
+    primary = MulletaFlixBlack,
+    onPrimary = Color.White,
+    primaryContainer = MulletaFlixRedDark,
+    onPrimaryContainer = Color.White,
+    secondary = MulletaFlixRed,
+    onSecondary = Color.White,
+    secondaryContainer = MulletaFlixRedDark,
+    onSecondaryContainer = Color.White,
     background = DarkBackground,
     onBackground = DarkOnBackground,
     surface = DarkSurface,
@@ -28,10 +30,10 @@ val DarkColorScheme = darkColorScheme(
 
 /** Light theme */
 val LightColorScheme = lightColorScheme(
-    primary = MulletaFlixBlue,
+    primary = MulletaFlixRed,
     onPrimary = LightBackground,
-    primaryContainer = MulletaFlixBlueLight,
-    onPrimaryContainer = MulletaFlixBlueDark,
+    primaryContainer = MulletaFlixRedLight,
+    onPrimaryContainer = MulletaFlixRedDark,
     background = LightBackground,
     onBackground = LightOnBackground,
     surface = LightSurface,

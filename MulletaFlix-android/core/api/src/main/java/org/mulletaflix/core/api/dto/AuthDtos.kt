@@ -10,6 +10,18 @@ data class AuthenticateByNameDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class RegisterUserDto(
+    @Json(name = "Name") val name: String,
+    @Json(name = "Password") val password: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class RegisterUserResultDto(
+    @Json(name = "Success") val success: Boolean = false,
+    @Json(name = "Message") val message: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
 data class QuickConnectDto(
     @Json(name = "Secret") val secret: String,
 )

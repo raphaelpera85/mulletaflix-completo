@@ -30,7 +30,9 @@ import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
-import org.mulletaflix.designsystem.components.SectionHeader
+import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
+import org.mulletaflix.designsystem.media.resolveMediaUrl
+import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 
 /**
  * Home screen — the first screen users see after login.
@@ -64,6 +66,48 @@ fun HomeScreen(
                 .background(MaterialTheme.colorScheme.background),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
+
+            if (state.isLoading && state.heroItem == null && state.libraries.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(280.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
+                    }
+                }
+            }
+
+            state.error?.let { message ->
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Não foi possível carregar o conteúdo",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Text(
+                                text = message,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                            TextButton(
+                                onClick = viewModel::refresh,
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) {
+                                Text("Tentar novamente")
+                            }
+                        }
+                    }
+                }
+            }
 
             // ── Hero Banner ─────────────────────────────────────────────────
             state.heroItem?.let { hero ->
@@ -139,16 +183,44 @@ fun HomeScreen(
                 }
             }
 
+            if (!state.isLoading && state.error == null && state.heroItem == null &&
+                state.resumeItems.isEmpty() && state.libraries.isEmpty()
+            ) {
+                item {
+                    EmptyHomeState(modifier = Modifier.fillMaxWidth().padding(32.dp))
+                }
+            }
+
             // Bottom spacing for nav bar
             item { Spacer(modifier = Modifier.height(80.dp)) }
         }
     }
 
-    // Error snackbar
-    state.error?.let { error ->
-        LaunchedEffect(error) {
-            // Show snackbar — SnackbarHost in parent scaffold handles display
-        }
+}
+
+@Composable
+private fun EmptyHomeState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = Icons.Default.MovieFilter,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(52.dp),
+        )
+        Text(
+            text = "Nenhum conteúdo disponível",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        Text(
+            text = "Verifique as bibliotecas configuradas no servidor.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -160,6 +232,8 @@ private fun HeroBanner(
     onPlay: () -> Unit,
     onMoreInfo: () -> Unit,
 ) {
+    val serverUrl = LocalMulletaFlixServerUrl.current
+    val accessToken = LocalMulletaFlixAccessToken.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -167,7 +241,7 @@ private fun HeroBanner(
     ) {
         // Blurred backdrop
         AsyncImage(
-            model = item.backdropImageUrl,
+            model = resolveMediaUrl(serverUrl, item.backdropImageUrl, accessToken),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()

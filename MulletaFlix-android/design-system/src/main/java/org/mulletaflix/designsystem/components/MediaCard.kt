@@ -19,8 +19,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import org.mulletaflix.designsystem.theme.MulletaFlixBlue
+import org.mulletaflix.designsystem.theme.MulletaFlixRed
 import org.mulletaflix.designsystem.theme.WatchedBadge
+import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
+import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
+import org.mulletaflix.designsystem.media.resolveMediaUrl
 
 /**
  * Supported card shapes for different content types:
@@ -69,16 +72,18 @@ fun MediaCard(
         else -> 8.dp
     }
 
-    Box(
-        modifier = modifier
+    val resolvedImageUrl = resolveMediaUrl(LocalMulletaFlixServerUrl.current, imageUrl, LocalMulletaFlixAccessToken.current)
+    Column(modifier = modifier.clickable(onClick = onClick)) {
+      Box(
+        modifier = Modifier
+            .fillMaxWidth()
             .aspectRatio(aspectRatio)
             .clip(RoundedCornerShape(cornerRadius))
-            .clickable(onClick = onClick)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-    ) {
+      ) {
         // Poster image
         AsyncImage(
-            model = imageUrl,
+            model = resolvedImageUrl,
             contentDescription = title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
@@ -110,7 +115,7 @@ fun MediaCard(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(progress)
-                        .background(MulletaFlixBlue)
+                        .background(MulletaFlixRed)
                 )
             }
         }
@@ -150,7 +155,7 @@ fun MediaCard(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(4.dp)
-                    .background(MulletaFlixBlue, RoundedCornerShape(12.dp))
+                    .background(MulletaFlixRed, RoundedCornerShape(12.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
@@ -162,18 +167,15 @@ fun MediaCard(
         }
 
         // Title at bottom
-        if (shape != MediaCardShape.Portrait) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                color = Color.White,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(8.dp)
-            )
-        }
+      }
+      Text(
+          text = title,
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.onSurface,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp)
+      )
     }
 }
 

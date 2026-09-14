@@ -23,6 +23,7 @@ import org.mulletaflix.feature.settings.SettingsScreen
 import org.mulletaflix.feature.user.ProfileScreen
 import org.mulletaflix.feature.livetv.LiveTvScreen
 import org.mulletaflix.feature.downloads.DownloadsScreen
+import org.mulletaflix.feature.syncplay.SyncPlayScreen
 
 /**
  * Root navigation host for MulletaFlix.
@@ -143,11 +144,19 @@ fun MulletaFlixNavHost(
 
         composable(MulletaFlixRoute.SETTINGS) {
             SettingsScreen(
+                onSyncPlay = { navController.navigate(MulletaFlixRoute.SYNC_PLAY) },
                 onLogout = {
                     navController.navigate(MulletaFlixRoute.SERVER_SELECTION) {
                         popUpTo(MulletaFlixRoute.HOME) { inclusive = true }
                     }
                 }
+            )
+        }
+
+        composable(MulletaFlixRoute.SYNC_PLAY) {
+            SyncPlayScreen(
+                onJoinGroup = {},
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -192,6 +201,7 @@ object MulletaFlixRoute {
     const val LIVE_TV = "main/live-tv"
     const val SETTINGS = "main/settings"
     const val PROFILE = "main/profile"
+    const val SYNC_PLAY = "main/sync-play"
 
     const val LIBRARY = "main/library/{libId}"
     const val ITEM_DETAIL = "detail/{itemId}"

@@ -12,86 +12,31 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.domain.model.MediaItem
-import org.mulletaflix.domain.model.MediaItemType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LiveTvScreen(
-    onChannelPlay: (String) -> Unit,
-) {
-    val channels = remember {
-        listOf(
-            MediaItem(id = "ch-1", name = "Mulleta Cinema HD", type = MediaItemType.LiveTvChannel, overview = "O Poderoso Chefão (Ao Vivo)"),
-            MediaItem(id = "ch-2", name = "Mulleta Series 4K", type = MediaItemType.LiveTvChannel, overview = "Breaking Bad S03E05"),
-            MediaItem(id = "ch-3", name = "Mulleta Notícias 24h", type = MediaItemType.LiveTvChannel, overview = "Edição das 14h"),
-            MediaItem(id = "ch-4", name = "Mulleta Esportes", type = MediaItemType.LiveTvChannel, overview = "Fórmula 1 - GP de Interlagos"),
-            MediaItem(id = "ch-5", name = "Mulleta Documentários", type = MediaItemType.LiveTvChannel, overview = "Planeta Terra II"),
-        )
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("TV Ao Vivo & EPG") },
-                actions = {
-                    IconButton(onClick = { /* Guia EPG */ }) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = "Guia EPG")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Text(
-                    text = "Canais em Destaque",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
-
-            items(channels) { channel ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onChannelPlay(channel.id) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.LiveTv, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(channel.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                            Text(channel.overview ?: "Sem informações de guia", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = { onChannelPlay(channel.id) }) {
-                            Icon(Icons.Default.PlayCircleOutline, contentDescription = "Assistir", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-            }
+fun LiveTvScreen(onChannelPlay: (String) -> Unit, viewModel: LiveTvViewModel = hiltViewModel()) {
+    val state by viewModel.state.collectAsState()
+    var showGuide by remember { mutableStateOf(false) }
+    Scaffold(topBar = { TopAppBar(title = { Text("TV Ao Vivo & EPG") }, actions = { IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) { Icon(Icons.Default.Refresh, "Atualizar canais") }; IconButton(onClick = { showGuide = true; viewModel.loadGuide() }, enabled = state.channels.isNotEmpty() && !state.isLoadingGuide) { Icon(Icons.Default.CalendarMonth, "Guia EPG") } }) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item { Text("Canais disponíveis", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(bottom = 8.dp)) }
+            state.error?.let { error -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); TextButton(onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }
+            if (state.isLoading && state.channels.isEmpty()) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+            if (!state.isLoading && state.channels.isEmpty() && state.error == null) item { EmptyLiveTvState() }
+            items(state.channels, key = { it.id }) { channel -> ChannelRow(channel, onPlay = { onChannelPlay(channel.id) }) }
         }
     }
+    if (showGuide) AlertDialog(onDismissRequest = { showGuide = false }, title = { Text("Guia das próximas 24 horas") }, text = { GuideContent(state) }, confirmButton = { TextButton(onClick = { showGuide = false }) { Text("Fechar") } })
 }
+
+@Composable
+private fun ChannelRow(channel: MediaItem, onPlay: () -> Unit) { Card(Modifier.fillMaxWidth().clickable(onClick = onPlay), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Surface(Modifier.size(48.dp), shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.LiveTv, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) } }; Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(channel.name, style = MaterialTheme.typography.titleSmall); Text(channel.overview ?: "Sem informações de guia", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; IconButton(onClick = onPlay) { Icon(Icons.Default.PlayCircleOutline, "Assistir", tint = MaterialTheme.colorScheme.secondary) } } } }
+
+@Composable
+private fun GuideContent(state: LiveTvUiState) { when { state.isLoadingGuide -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; state.guideError != null -> Text(state.guideError); state.programs.isEmpty() -> Text("Nenhum programa encontrado para as próximas 24 horas."); else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { state.programs.forEach { program -> Text(program.name, style = MaterialTheme.typography.bodyMedium); program.overview?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } } }
+
+@Composable
+private fun EmptyLiveTvState() { Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.LiveTv, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(8.dp)); Text("Nenhum canal disponível", style = MaterialTheme.typography.titleMedium); Text("O servidor não retornou canais de TV ao vivo.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }

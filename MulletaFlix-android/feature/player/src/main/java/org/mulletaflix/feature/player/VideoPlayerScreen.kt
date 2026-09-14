@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
+import androidx.media3.cast.MediaRouteButton
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
@@ -100,7 +101,7 @@ fun VideoPlayerScreen(
         // ── Loading indicator ────────────────────────────────────────────────
         AnimatedVisibility(visible = state.isBuffering) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFF00A4DC))
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
             }
         }
 
@@ -113,7 +114,7 @@ fun VideoPlayerScreen(
         ) {
             Button(
                 onClick = { viewModel.skipSegment() },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A4DC))
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Text("Pular Introdução")
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
@@ -129,7 +130,7 @@ fun VideoPlayerScreen(
         ) {
             Button(
                 onClick = { viewModel.skipSegment() },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A4DC))
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Text("Pular Créditos")
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
@@ -202,10 +203,11 @@ private fun PlayerOsd(
                 color = Color.White
             )
             Row {
-                // Cast button
-                IconButton(onClick = onCastClick) {
-                    Icon(Icons.Default.Cast, contentDescription = "Chromecast", tint = Color.White)
-                }
+                // Official Media3 Cast button: opens the system device chooser
+                // and lets CastPlayer transfer the current media item.
+                MediaRouteButton(
+                    modifier = Modifier.size(48.dp),
+                )
                 // Audio tracks
                 IconButton(onClick = { showAudioMenu = true }) {
                     Icon(Icons.Default.Audiotrack, contentDescription = "Áudio", tint = Color.White)
@@ -273,8 +275,8 @@ private fun PlayerOsd(
                 value = if (state.duration > 0) state.currentPosition.toFloat() / state.duration else 0f,
                 onValueChange = { fraction -> onSeek((fraction * state.duration).toLong()) },
                 colors = SliderDefaults.colors(
-                    thumbColor = Color(0xFF00A4DC),
-                    activeTrackColor = Color(0xFF00A4DC),
+                    thumbColor = MaterialTheme.colorScheme.secondary,
+                    activeTrackColor = MaterialTheme.colorScheme.secondary,
                     inactiveTrackColor = Color.White.copy(0.3f)
                 ),
                 modifier = Modifier.fillMaxWidth()

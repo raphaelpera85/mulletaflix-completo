@@ -9,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.mulletaflix.core.api.AuthInterceptor
+import org.mulletaflix.core.api.BuildConfig
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.ServerUrlInterceptor
 import retrofit2.Retrofit

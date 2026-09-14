@@ -18,6 +18,9 @@ interface MulletaFlixApiService {
     @POST("Users/AuthenticateByName")
     suspend fun authenticateByName(@Body body: AuthenticateByNameDto): AuthenticationResultDto
 
+    @POST("Users/Register")
+    suspend fun registerUser(@Body body: RegisterUserDto): RegisterUserResultDto
+
     @GET("QuickConnect/Initiate")
     suspend fun initiateQuickConnect(): QuickConnectResultDto
 
@@ -158,6 +161,31 @@ interface MulletaFlixApiService {
         @Path("userId") userId: String,
         @Path("itemId") itemId: String,
     ): UserItemDataDto
+
+    // ── Playlists ───────────────────────────────────────────────────────────
+
+    @GET("Users/{userId}/Items")
+    suspend fun getPlaylists(
+        @Path("userId") userId: String,
+        @Query("IncludeItemTypes") includeItemTypes: String = "Playlist",
+        @Query("SortBy") sortBy: String = "SortName",
+        @Query("SortOrder") sortOrder: String = "Ascending",
+        @Query("Recursive") recursive: Boolean = true,
+    ): BaseItemDtoQueryResultDto
+
+    @POST("Playlists")
+    suspend fun createPlaylist(
+        @Query("Name") name: String,
+        @Query("UserId") userId: String,
+        @Query("Ids") ids: String? = null,
+    ): PlaylistCreationResultDto
+
+    @POST("Playlists/{playlistId}/Items")
+    suspend fun addItemToPlaylist(
+        @Path("playlistId") playlistId: String,
+        @Query("Ids") ids: String,
+        @Query("UserId") userId: String,
+    )
 
     // ── Playback session reporting ───────────────────────────────────────────
 

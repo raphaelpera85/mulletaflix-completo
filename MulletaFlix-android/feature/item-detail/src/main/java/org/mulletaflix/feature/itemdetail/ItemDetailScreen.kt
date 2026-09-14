@@ -25,8 +25,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.Playlist
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
+import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
+import org.mulletaflix.designsystem.media.resolveMediaUrl
+import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 
 /**
  * Item detail screen covering all content types:
@@ -65,12 +69,20 @@ fun ItemDetailScreen(
                     onPlay = { onPlay(item.id) },
                     onFavorite = { viewModel.toggleFavorite() },
                     onMarkWatched = { viewModel.toggleWatched() },
-                    onAddToPlaylist = { /* TODO */ },
+                    onDownload = { viewModel.downloadItem() },
+                    onPlaylist = { viewModel.openPlaylistPicker() },
                     isLoading = state.isLoading
                 )
 
                 // ── Metadata pills ────────────────────────────────────────────
                 MetadataPills(item = item)
+
+                state.downloadMessage?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                }
+                state.playlistMessage?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                }
 
                 // ── Overview ─────────────────────────────────────────────────
                 item.overview?.let { overview ->
@@ -119,21 +131,38 @@ fun ItemDetailScreen(
             }
         }
 
+        if (state.isPlaylistDialogVisible) {
+            PlaylistPickerDialog(
+                playlists = state.playlists,
+                isLoading = state.isPlaylistLoading,
+                message = state.playlistMessage,
+                onDismiss = viewModel::closePlaylistPicker,
+                onPlaylistSelected = viewModel::addToPlaylist,
+                onCreate = viewModel::createPlaylist,
+            )
+        }
+
         // Loading overlay
         if (state.isLoading && state.item == null) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
-                color = Color(0xFF00A4DC)
+                color = MaterialTheme.colorScheme.secondary
             )
         }
 
         // Error
         state.error?.let { err ->
-            Text(
-                text = err,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.align(Alignment.Center).padding(16.dp)
-            )
+            Card(
+                modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(err, color = MaterialTheme.colorScheme.onErrorContainer)
+                    TextButton(onClick = { viewModel.loadItem(itemId) }) {
+                        Text("Tentar novamente")
+                    }
+                }
+            }
         }
     }
 }
@@ -145,13 +174,16 @@ private fun DetailHero(
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
     onMarkWatched: () -> Unit,
-    onAddToPlaylist: () -> Unit,
+    onDownload: () -> Unit,
+    onPlaylist: () -> Unit,
     isLoading: Boolean,
 ) {
+    val serverUrl = LocalMulletaFlixServerUrl.current
+    val accessToken = LocalMulletaFlixAccessToken.current
     Box(modifier = Modifier.fillMaxWidth().height(420.dp)) {
         // Backdrop
         AsyncImage(
-            model = item.backdropImageUrl,
+            model = resolveMediaUrl(serverUrl, item.backdropImageUrl, accessToken),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
@@ -199,11 +231,11 @@ private fun DetailHero(
                 // Play
                 Button(
                     onClick = onPlay,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A4DC))
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(4.dp))
-                    Text(if (item.playbackPositionTicks != null && item.playbackPositionTicks > 0) "Continuar" else "Reproduzir")
+                    Text(if ((item.playbackPositionTicks ?: 0L) > 0L) "Continuar" else "Reproduzir")
                 }
 
                 // Favorite
@@ -230,16 +262,67 @@ private fun DetailHero(
                     )
                 }
 
-                // More options
+                // Download for offline playback
                 IconButton(
-                    onClick = onAddToPlaylist,
+                    onClick = onDownload,
                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
                 ) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Mais opções", tint = Color.White)
+                    Icon(Icons.Default.Download, contentDescription = "Baixar para assistir offline", tint = Color.White)
+                }
+
+                IconButton(
+                    onClick = onPlaylist,
+                    modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+                ) {
+                    Icon(Icons.Default.PlaylistAdd, contentDescription = "Adicionar à playlist", tint = Color.White)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PlaylistPickerDialog(
+    playlists: List<Playlist>,
+    isLoading: Boolean,
+    message: String?,
+    onDismiss: () -> Unit,
+    onPlaylistSelected: (Playlist) -> Unit,
+    onCreate: (String) -> Unit,
+) {
+    var newName by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Adicionar à playlist") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                } else if (playlists.isEmpty()) {
+                    Text("Nenhuma playlist encontrada.")
+                } else {
+                    playlists.forEach { playlist ->
+                        TextButton(onClick = { onPlaylistSelected(playlist) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(playlist.name, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Start)
+                            Icon(Icons.Default.Add, contentDescription = null)
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Nova playlist") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onCreate(newName) }, enabled = newName.isNotBlank() && !isLoading) { Text("Criar e adicionar") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
 }
 
 @Composable
@@ -289,7 +372,7 @@ private fun ExpandableOverview(text: String) {
         Text(
             text = if (expanded) "Ver menos" else "Ver mais",
             style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF00A4DC),
+            color = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.padding(top = 4.dp)
         )
     }
@@ -336,10 +419,10 @@ private fun EpisodeRow(episode: MediaItem, onPlay: () -> Unit, onClick: () -> Un
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(modifier = Modifier.width(160.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            AsyncImage(model = episode.primaryImageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            if (episode.playedPercentage != null && episode.playedPercentage > 0) {
+            AsyncImage(model = resolveMediaUrl(LocalMulletaFlixServerUrl.current, episode.primaryImageUrl, LocalMulletaFlixAccessToken.current), contentDescription = episode.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            episode.playedPercentage?.takeIf { it > 0.0 }?.let { playedPercentage ->
                 Box(modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.BottomCenter).background(MaterialTheme.colorScheme.surface)) {
-                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth((episode.playedPercentage / 100f).toFloat()).background(Color(0xFF00A4DC)))
+                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth((playedPercentage / 100.0).toFloat()).background(MaterialTheme.colorScheme.secondary))
                 }
             }
             IconButton(onClick = onPlay, modifier = Modifier.align(Alignment.Center).size(40.dp).background(Color.Black.copy(0.5f), CircleShape)) {
@@ -365,7 +448,7 @@ private fun CastSection(people: List<org.mulletaflix.domain.model.PersonInfo>, o
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     AsyncImage(
-                        model = person.primaryImageTag?.let { "Persons/${person.id}/Images/Primary?tag=$it" },
+                        model = resolveMediaUrl(LocalMulletaFlixServerUrl.current, person.primaryImageTag?.let { "Persons/${person.id}/Images/Primary?tag=$it" }, LocalMulletaFlixAccessToken.current),
                         contentDescription = person.name,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)

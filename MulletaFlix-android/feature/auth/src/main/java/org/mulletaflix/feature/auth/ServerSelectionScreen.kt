@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -36,6 +37,17 @@ fun ServerSelectionScreen(
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+    var manualUrl by remember { mutableStateOf(DEFAULT_MULLETAFLIX_SERVER_URL) }
+    var manuallyEdited by remember { mutableStateOf(false) }
+
+    // A discovered LAN server has priority over the public fallback. Do not
+    // overwrite an address while the user is actively editing the field.
+    LaunchedEffect(state.serverUrl) {
+        if (!manuallyEdited && !state.serverUrl.isNullOrBlank()) {
+            manualUrl = state.serverUrl.orEmpty()
+        }
+    }
 
     LaunchedEffect(state.isAuthenticated) {
         if (state.isAuthenticated) onServerSelected()
@@ -44,7 +56,7 @@ fun ServerSelectionScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(colors = listOf(Color(0xFF0A1628), Color(0xFF101010))))
+            .background(Brush.verticalGradient(colors = listOf(Color(0xFF1A0507), Color(0xFF080808))))
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -56,26 +68,25 @@ fun ServerSelectionScreen(
             Icon(
                 painter = androidx.compose.ui.res.painterResource(org.mulletaflix.designsystem.R.drawable.ic_mulletaflix_logo),
                 contentDescription = "MulletaFlix",
-                tint = Color(0xFF00A4DC),
+                tint = Color.Unspecified,
                 modifier = Modifier.size(72.dp)
             )
             Text("MulletaFlix", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
             Text("The Free Software Media System", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.5f), modifier = Modifier.padding(bottom = 32.dp))
 
             // Manual URL entry
-            var manualUrl by remember { mutableStateOf("http://") }
             OutlinedTextField(
                 value = manualUrl,
-                onValueChange = { manualUrl = it },
+                onValueChange = { manuallyEdited = true; manualUrl = it },
                 label = { Text("URL do Servidor") },
                 leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null) },
-                placeholder = { Text("http://192.168.1.100:8096") },
+                placeholder = { Text(DEFAULT_MULLETAFLIX_SERVER_URL) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF00A4DC),
-                    cursorColor = Color(0xFF00A4DC),
+                    focusedBorderColor = MaterialTheme.colorScheme.secondary,
+                    cursorColor = MaterialTheme.colorScheme.secondary,
                 )
             )
 
@@ -99,18 +110,58 @@ fun ServerSelectionScreen(
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
             }
 
-            // Saved servers
-            if (state.savedServers.isNotEmpty()) {
-                Text("Servidores Salvos", style = MaterialTheme.typography.titleSmall, color = Color.White.copy(0.7f), modifier = Modifier.padding(vertical = 16.dp).align(Alignment.Start))
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    items(state.savedServers) { server ->
-                        SavedServerCard(
-                            name = server.name,
-                            url = server.url,
-                            version = server.version,
-                            onClick = { viewModel.connectToServer(server.url) { onServerSelected() } },
-                            onRemove = { viewModel.removeServer(server.url) }
-                        )
+            OutlinedButton(
+                onClick = { viewModel.discoverLocalServers(context) },
+                enabled = !state.isDiscovering && !state.isLoading,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
+            ) {
+                if (state.isDiscovering) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = "Procurar servidores na rede")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (state.isDiscovering) "Procurando na rede…" else "Procurar na rede")
+            }
+
+            // Servers found automatically or saved from previous connections.
+            if (state.discoveredServers.isNotEmpty() || state.savedServers.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (state.discoveredServers.isNotEmpty()) {
+                        item {
+                            Text("Encontrados nesta rede", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(vertical = 8.dp))
+                        }
+                        items(state.discoveredServers, key = { it.url }) { server ->
+                            SavedServerCard(
+                                name = server.name,
+                                url = server.url,
+                                version = server.version,
+                                onClick = { viewModel.connectToServer(server.url) { onServerSelected() } },
+                                onRemove = {},
+                                showRemove = false,
+                            )
+                        }
+                    }
+                    if (state.savedServers.isNotEmpty()) {
+                        item {
+                            Text("Servidores salvos", style = MaterialTheme.typography.titleSmall, color = Color.White.copy(0.7f), modifier = Modifier.padding(vertical = 8.dp))
+                        }
+                        items(state.savedServers, key = { it.url }) { server ->
+                            SavedServerCard(
+                                name = server.name,
+                                url = server.url,
+                                version = server.version,
+                                onClick = { viewModel.connectToServer(server.url) { onServerSelected() } },
+                                onRemove = { viewModel.removeServer(server.url) },
+                            )
+                        }
                     }
                 }
             }
@@ -119,23 +170,32 @@ fun ServerSelectionScreen(
 }
 
 @Composable
-private fun SavedServerCard(name: String, url: String, version: String?, onClick: () -> Unit, onRemove: () -> Unit) {
+private fun SavedServerCard(
+    name: String,
+    url: String,
+    version: String?,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    showRemove: Boolean = true,
+) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Storage, contentDescription = null, tint = Color(0xFF00A4DC))
+            Icon(Icons.Default.Storage, contentDescription = "Servidor salvo", tint = MaterialTheme.colorScheme.secondary)
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, color = Color.White)
                 Text(url, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.5f))
-                version?.let { Text("v$it", style = MaterialTheme.typography.labelSmall, color = Color(0xFF00A4DC)) }
+                version?.let { Text("v$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
             }
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Default.Close, contentDescription = "Remover servidor", tint = Color.White.copy(0.5f))
+            if (showRemove) {
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Default.Close, contentDescription = "Remover servidor", tint = Color.White.copy(0.5f))
+                }
             }
         }
     }

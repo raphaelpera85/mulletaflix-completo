@@ -4,18 +4,20 @@ import androidx.compose.ui.graphics.Color
 
 // ────────────────────────────────────────────────────────────────────────────
 // MulletaFlix Brand Colors
-// Primary: #00A4DC (azul MulletaFlix — mesma cor do Jellyfin-web)
-// Background: #101010 (conforme manifest.json)
+// Primary: #0F0F0F (preto MulletaFlix)
+// Accent: #E50914 (vermelho para detalhes e estados ativos)
+// Background: #080808 (preto cinematográfico)
 // ────────────────────────────────────────────────────────────────────────────
 
 // Brand
-val MulletaFlixBlue = Color(0xFF00A4DC)
-val MulletaFlixBlueDark = Color(0xFF0085B0)
-val MulletaFlixBlueLight = Color(0xFF4DC8F0)
+val MulletaFlixBlack = Color(0xFF0F0F0F)
+val MulletaFlixRed = Color(0xFFE50914)
+val MulletaFlixRedDark = Color(0xFFB20710)
+val MulletaFlixRedLight = Color(0xFFFF5A60)
 
 // Dark theme surfaces
-val DarkBackground = Color(0xFF101010)
-val DarkSurface = Color(0xFF1A1A1A)
+val DarkBackground = Color(0xFF080808)
+val DarkSurface = Color(0xFF141414)
 val DarkSurfaceVariant = Color(0xFF252525)
 val DarkSurfaceContainer = Color(0xFF1E1E1E)
 val DarkSurfaceContainerHigh = Color(0xFF2A2A2A)
@@ -56,10 +58,10 @@ val BlueRadianceBackground = Color(0xFF0A0F1E)
 val BlueRadianceSurface = Color(0xFF0D1628)
 
 // Progress / Badge colors
-val ProgressBarColor = MulletaFlixBlue
+val ProgressBarColor = MulletaFlixRed
 val WatchedBadge = Color(0xFF4CAF50)
 val UnwatchedBadge = Color(0xFF9E9E9E)
 val HdBadge = Color(0xFF2196F3)
 val FourKBadge = Color(0xFFFF9800)
 val LiveBadge = Color(0xFFE53935)
-val NewBadge = MulletaFlixBlue
+val NewBadge = MulletaFlixRed
