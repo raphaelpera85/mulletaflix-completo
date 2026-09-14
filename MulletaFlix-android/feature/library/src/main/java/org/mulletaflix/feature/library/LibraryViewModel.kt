@@ -147,7 +147,8 @@ class LibraryViewModel @Inject constructor(
                 it.activeFilters - filter
             } else {
                 (it.activeFilters.filterNot { active ->
-                    filter == FILTER_PLAYED || filter == FILTER_UNPLAYED
+                    (filter == FILTER_PLAYED || filter == FILTER_UNPLAYED) &&
+                        (active == FILTER_PLAYED || active == FILTER_UNPLAYED)
                 } + filter).distinct()
             }
             it.copy(activeFilters = filters, showFilterMenu = false)

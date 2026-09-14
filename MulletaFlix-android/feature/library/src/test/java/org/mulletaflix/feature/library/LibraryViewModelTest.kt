@@ -53,10 +53,34 @@ class LibraryViewModelTest {
         assertTrue(viewModel.state.value.hasMore)
     }
 
+    @Test
+    fun `library filters are sent to the server`() = runTest {
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+        val viewModel = LibraryViewModel(media, FakeAuthRepository())
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        viewModel.toggleFilter(LibraryViewModel.FILTER_FAVORITES)
+        advanceUntilIdle()
+
+        assertEquals(true, media.lastIsFavorite)
+        assertEquals(null, media.lastIsPlayed)
+
+        viewModel.toggleFilter(LibraryViewModel.FILTER_PLAYED)
+        advanceUntilIdle()
+        assertEquals(true, media.lastIsFavorite)
+        assertEquals(true, media.lastIsPlayed)
+    }
+
     private class FakeMediaRepository : MediaRepository {
         val pages = mutableMapOf<Int, Result<Pair<List<MediaItem>, Int>>>()
+        var lastIsPlayed: Boolean? = null
+        var lastIsFavorite: Boolean? = null
         override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> =
-            pages[startIndex] ?: Result.success(emptyList<MediaItem>() to 0)
+            pages[startIndex].also {
+                lastIsPlayed = isPlayed
+                lastIsFavorite = isFavorite
+            } ?: Result.success(emptyList<MediaItem>() to 0)
         override suspend fun getItem(userId: String, itemId: String) = Result.success(MediaItem(itemId, "Biblioteca", MediaItemType.CollectionFolder))
         override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
         override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
