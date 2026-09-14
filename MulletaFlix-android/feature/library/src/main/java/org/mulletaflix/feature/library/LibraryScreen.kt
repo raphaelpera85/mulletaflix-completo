@@ -4,9 +4,13 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -35,7 +39,7 @@ fun LibraryScreen(
     onBack: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val loadError = state.error
 
     LaunchedEffect(libraryId) { viewModel.loadLibrary(libraryId) }
@@ -45,7 +49,7 @@ fun LibraryScreen(
             TopAppBar(
                 title = { Text(state.libraryName) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Voltar") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.loadLibrary(libraryId) }, enabled = !state.isLoading) {
@@ -53,11 +57,11 @@ fun LibraryScreen(
                     }
                     // View toggle (grid / list)
                     IconButton(onClick = viewModel::toggleView) {
-                        Icon(if (state.isGridView) Icons.Default.ViewList else Icons.Default.GridView, contentDescription = "Alternar visualização")
+                        Icon(if (state.isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, contentDescription = "Alternar visualização")
                     }
                     // Sort
                     IconButton(onClick = viewModel::showSortMenu) {
-                        Icon(Icons.Default.Sort, contentDescription = "Ordenar")
+                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Ordenar")
                     }
                     // Filter
                     IconButton(onClick = viewModel::showFilterMenu) {

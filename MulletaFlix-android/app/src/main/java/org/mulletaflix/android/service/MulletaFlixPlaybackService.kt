@@ -6,29 +6,44 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
+import org.mulletaflix.feature.player.PlayerMediaSessionBridge
 
 @UnstableApi
 @AndroidEntryPoint
 class MulletaFlixPlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
+    private var fallbackPlayer: ExoPlayer? = null
+    private var ownsFallbackSession = false
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build()
-        mediaSession = MediaSession.Builder(this, player).build()
+        PlayerMediaSessionBridge.current()?.takeIf { PlayerMediaSessionBridge.retainForService(it) }?.let {
+            mediaSession = it
+            return
+        }
+
+        fallbackPlayer = ExoPlayer.Builder(this).build()
+        mediaSession = MediaSession.Builder(this, fallbackPlayer!!)
+            .setId("mulletaflix-service-fallback")
+            .build()
+        ownsFallbackSession = true
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        return mediaSession
+        return PlayerMediaSessionBridge.current() ?: mediaSession
     }
 
     override fun onDestroy() {
-        mediaSession?.run {
-            player.release()
-            release()
-            mediaSession = null
+        if (ownsFallbackSession) {
+            mediaSession?.release()
+            fallbackPlayer?.release()
+        } else {
+            mediaSession?.let(PlayerMediaSessionBridge::detachService)
         }
+        mediaSession = null
+        fallbackPlayer = null
+        ownsFallbackSession = false
         super.onDestroy()
     }
 }

@@ -1,0 +1,10 @@
+package org.mulletaflix.feature.player
+
+/** Allows one direct-play recovery attempt without creating an error loop. */
+internal fun shouldFallbackToTranscode(
+    currentUri: String?,
+    transcodeUri: String?,
+    alreadyTried: Boolean,
+): Boolean = !alreadyTried &&
+    !transcodeUri.isNullOrBlank() &&
+    currentUri != transcodeUri

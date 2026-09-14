@@ -12,6 +12,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.media3.common.util.UnstableApi
+import android.net.Uri
 import org.mulletaflix.feature.auth.LoginScreen
 import org.mulletaflix.feature.auth.ServerSelectionScreen
 import org.mulletaflix.feature.home.HomeScreen
@@ -42,6 +44,7 @@ import org.mulletaflix.feature.syncplay.SyncPlayScreen
  *   player/video/{itemId}   → Full-screen video player
  */
 @Composable
+@UnstableApi
 fun MulletaFlixNavHost(
     navController: NavHostController = rememberNavController(),
     startDestination: String = MulletaFlixRoute.SERVER_SELECTION
@@ -128,8 +131,8 @@ fun MulletaFlixNavHost(
 
         composable(MulletaFlixRoute.DOWNLOADS) {
             DownloadsScreen(
-                onItemClick = { itemId ->
-                    navController.navigate(MulletaFlixRoute.itemDetail(itemId))
+                onItemClick = { entry ->
+                    navController.navigate(MulletaFlixRoute.offlinePlayer(entry.id, entry.uri, entry.title))
                 }
             )
         }
@@ -155,7 +158,9 @@ fun MulletaFlixNavHost(
 
         composable(MulletaFlixRoute.SYNC_PLAY) {
             SyncPlayScreen(
-                onJoinGroup = {},
+                onJoinGroup = { playingItemId ->
+                    playingItemId?.let { navController.navigate(MulletaFlixRoute.videoPlayer(it)) }
+                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -189,6 +194,22 @@ fun MulletaFlixNavHost(
                 onBack = { navController.popBackStack() }
             )
         }
+
+        composable(
+            route = MulletaFlixRoute.OFFLINE_PLAYER,
+            arguments = listOf(
+                navArgument("itemId") { type = NavType.StringType },
+                navArgument("uri") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType },
+            ),
+        ) { backStack ->
+            VideoPlayerScreen(
+                itemId = backStack.arguments?.getString("itemId") ?: "offline",
+                offlineUri = backStack.arguments?.getString("uri"),
+                offlineTitle = backStack.arguments?.getString("title"),
+                onBack = { navController.popBackStack() },
+            )
+        }
     }
 }
 
@@ -206,8 +227,11 @@ object MulletaFlixRoute {
     const val LIBRARY = "main/library/{libId}"
     const val ITEM_DETAIL = "detail/{itemId}"
     const val VIDEO_PLAYER = "player/video/{itemId}"
+    const val OFFLINE_PLAYER = "player/offline/{itemId}?uri={uri}&title={title}"
 
     fun library(libId: String) = "main/library/$libId"
     fun itemDetail(itemId: String) = "detail/$itemId"
     fun videoPlayer(itemId: String) = "player/video/$itemId"
+    fun offlinePlayer(itemId: String, uri: String, title: String) =
+        "player/offline/${Uri.encode(itemId)}?uri=${Uri.encode(uri)}&title=${Uri.encode(title)}"
 }

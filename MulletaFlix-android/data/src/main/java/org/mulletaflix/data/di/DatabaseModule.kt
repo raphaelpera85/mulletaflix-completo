@@ -22,7 +22,7 @@ object DatabaseModule {
             context,
             MulletaFlixDatabase::class.java,
             "mulletaflix.db"
-        ).fallbackToDestructiveMigration()
+        ).fallbackToDestructiveMigration(dropAllTables = true)
          .build()
 
     @Provides

@@ -8,8 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -19,14 +19,14 @@ import org.mulletaflix.domain.repository.DownloadState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DownloadsScreen(onItemClick: (String) -> Unit, viewModel: DownloadsViewModel = hiltViewModel()) {
-    val downloads by viewModel.downloads.collectAsState()
+fun DownloadsScreen(onItemClick: (DownloadEntry) -> Unit, viewModel: DownloadsViewModel = hiltViewModel()) {
+    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     Scaffold(topBar = { TopAppBar(title = { Text("Downloads Offline") }, actions = { Icon(Icons.Default.Storage, "Armazenamento", modifier = Modifier.padding(end = 16.dp)) }) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
             if (downloads.isEmpty()) EmptyDownloads()
             else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item { OfflineSummary(downloads) }
-                items(downloads, key = { it.id }) { entry -> DownloadRow(entry, onPlay = { onItemClick(entry.id) }, onRemove = { viewModel.remove(entry.id) }) }
+                items(downloads, key = { it.id }) { entry -> DownloadRow(entry, onPlay = { onItemClick(entry) }, onRemove = { viewModel.remove(entry.id) }) }
             }
         }
     }

@@ -7,6 +7,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import androidx.media3.exoplayer.offline.DownloadService as Media3DownloadService
+import org.mulletaflix.core.api.OfflineDownloadCache
 import org.mulletaflix.android.R
 
 private const val CHANNEL_ID = "mulletaflix_downloads"
@@ -48,11 +49,7 @@ object DownloadManagerSingleton {
     fun get(context: Context): DownloadManager {
         return downloadManager ?: run {
             val databaseProvider = androidx.media3.database.StandaloneDatabaseProvider(context)
-            val downloadCache = androidx.media3.datasource.cache.SimpleCache(
-                context.cacheDir.resolve("downloads"),
-                androidx.media3.datasource.cache.NoOpCacheEvictor(),
-                databaseProvider
-            )
+            val downloadCache = OfflineDownloadCache.get(context)
             val upstreamFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
             DownloadManager(context, databaseProvider, downloadCache, upstreamFactory, Runnable::run).also {
                 downloadManager = it

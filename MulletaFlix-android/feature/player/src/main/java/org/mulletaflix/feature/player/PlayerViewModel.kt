@@ -5,10 +5,16 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem as Media3Item
 import androidx.media3.common.Player
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.cast.CastPlayer
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
@@ -23,7 +29,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
+import org.mulletaflix.domain.model.Chapter
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.api.OfflineDownloadCache
 import javax.inject.Inject
 
 data class TrackInfo(val index: Int, val displayName: String)
@@ -43,10 +51,12 @@ data class PlayerState(
     val selectedAudioIndex: Int = 0,
     val showSkipIntro: Boolean = false,
     val showSkipCredits: Boolean = false,
+    val skipTargetPosition: Long? = null,
     val error: String? = null,
 )
 
 @HiltViewModel
+@UnstableApi
 class PlayerViewModel @Inject constructor(
     @ApplicationContext context: Context,
     private val mediaRepository: MediaRepository,
@@ -60,9 +70,17 @@ class PlayerViewModel @Inject constructor(
     private val trackSelector = DefaultTrackSelector(context)
     private val localPlayer: ExoPlayer = ExoPlayer.Builder(context)
         .setTrackSelector(trackSelector)
+        .setMediaSourceFactory(
+            DefaultMediaSourceFactory(
+                CacheDataSource.Factory()
+                    .setCache(OfflineDownloadCache.get(context))
+                    .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory())
+            )
+        )
         .build().also { exo ->
         exo.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) playbackRetryCount = 0
                 _state.update { it.copy(isPlaying = isPlaying) }
                 if (isPlaying) {
                     startProgressReporting()
@@ -79,7 +97,41 @@ class PlayerViewModel @Inject constructor(
                 if (playbackState == Player.STATE_ENDED) reportPlaybackStopped()
             }
 
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            override fun onPlayerError(error: PlaybackException) {
+                val transcodeUrl = currentTranscodeUrl
+                if (shouldFallbackToTranscode(
+                        currentUri = localPlayer.currentMediaItem?.localConfiguration?.uri?.toString(),
+                        transcodeUri = transcodeUrl,
+                        alreadyTried = triedTranscodeFallback,
+                    )
+                ) {
+                    triedTranscodeFallback = true
+                    _state.update { it.copy(isBuffering = true, error = null) }
+                    player.setMediaItem(Media3Item.Builder().setUri(transcodeUrl!!).build())
+                    player.prepare()
+                    player.seekTo(localPlayer.currentPosition)
+                    player.play()
+                    return
+                }
+                val itemIdAtError = currentItemId
+                val uriAtError = localPlayer.currentMediaItem?.localConfiguration?.uri
+                if (itemIdAtError != null && shouldRetryPlayback(error.errorCode, playbackRetryCount)) {
+                    playbackRetryCount += 1
+                    val positionAtError = localPlayer.currentPosition
+                    retryJob?.cancel()
+                    _state.update { it.copy(isBuffering = true, error = null) }
+                    retryJob = viewModelScope.launch {
+                        delay(750)
+                        if (currentItemId == itemIdAtError &&
+                            localPlayer.currentMediaItem?.localConfiguration?.uri == uriAtError
+                        ) {
+                            player.prepare()
+                            player.seekTo(positionAtError)
+                            player.play()
+                        }
+                    }
+                    return
+                }
                 _state.update {
                     it.copy(isBuffering = false, error = error.localizedMessage ?: "Não foi possível reproduzir esta mídia.")
                 }
@@ -92,48 +144,112 @@ class PlayerViewModel @Inject constructor(
         .setLocalPlayer(localPlayer)
         .build()
 
+    private val mediaSession: androidx.media3.session.MediaSession =
+        PlayerMediaSessionBridge.attach(context, player)
+
     private var progressJob: Job? = null
+    private var loadJob: Job? = null
+    private var retryJob: Job? = null
     private var currentItemId: String? = null
     private var currentPlaySessionId: String? = null
     private var currentMediaSourceId: String? = null
+    private var currentTranscodeUrl: String? = null
+    private var triedTranscodeFallback = false
+    private var playbackRetryCount = 0
     private var stoppedReported = false
 
     fun loadMedia(itemId: String) {
+        loadJob?.cancel()
+        retryJob?.cancel()
+        player.stop()
         currentItemId = itemId
+        currentItemChapters = emptyList()
         stoppedReported = false
-        viewModelScope.launch {
-            val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
+        currentTranscodeUrl = null
+        triedTranscodeFallback = false
+        playbackRetryCount = 0
+        _state.update {
+            it.copy(
+                title = null,
+                isPlaying = false,
+                isBuffering = true,
+                currentPosition = 0L,
+                duration = 0L,
+                error = null,
+            )
+        }
+        loadJob = viewModelScope.launch {
+            val userId = sessionRepository.getCurrentUserId().first()
+            if (userId == null) {
+                showLoadError("Faça login para reproduzir esta mídia.")
+                return@launch
+            }
 
             // Get playback info from server to determine best play method
-            val item = mediaRepository.getItem(userId, itemId).getOrNull() ?: return@launch
+            val item = mediaRepository.getItem(userId, itemId).getOrElse {
+                showLoadError("Não foi possível carregar os dados desta mídia.")
+                return@launch
+            }
+            if (currentItemId != itemId) return@launch
+            currentItemChapters = item.chapters
             _state.update { it.copy(title = item.name, error = null) }
 
-            val playbackInfo = playbackRepository.getPlaybackInfo(itemId, userId).getOrNull()
-                ?: return@launch
-            val mediaSource = playbackInfo.mediaSources.firstOrNull() ?: return@launch
+            val playbackInfo = playbackRepository.getPlaybackInfo(
+                itemId = itemId,
+                userId = userId,
+                startTimeTicks = item.userProgress?.playbackPositionTicks,
+            ).getOrElse {
+                showLoadError("O servidor não conseguiu preparar esta mídia.")
+                return@launch
+            }
+            val mediaSource = playbackInfo.mediaSources.firstOrNull() ?: run {
+                showLoadError("Nenhuma fonte de reprodução está disponível para esta mídia.")
+                return@launch
+            }
             val streamUrl = mediaSource.directStreamUrl
                 ?: mediaSource.transcodeUrl
-                ?: return@launch
+                ?: run {
+                    showLoadError("O servidor não forneceu uma URL de reprodução.")
+                    return@launch
+                }
+            if (currentItemId != itemId) return@launch
             currentPlaySessionId = playbackInfo.playSessionId
             currentMediaSourceId = mediaSource.id
+            currentTranscodeUrl = mediaSource.transcodeUrl
 
-            // Set subtitle tracks from media streams
-            val subtitleTracks = item.mediaStreams
+            // Some Jellyfin-compatible servers include streams only in PlaybackInfo.
+            // Prefer those streams and fall back to the item details when necessary.
+            val mediaStreams = mediaSource.mediaStreams.ifEmpty { item.mediaStreams }
+            val subtitleTracks = mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Subtitle }
                 .mapIndexed { i, stream -> TrackInfo(stream.index, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Legenda ${i + 1}") }
 
-            val audioTracks = item.mediaStreams
+            val audioTracks = mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
                 .mapIndexed { i, stream -> TrackInfo(stream.index, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}") }
+
+            val selectedAudioIndex = uiTrackIndex(
+                tracks = audioTracks,
+                serverStreamIndex = mediaSource.defaultAudioStreamIndex,
+                fallback = 0,
+            )
+            val selectedSubtitleIndex = uiTrackIndex(
+                tracks = subtitleTracks,
+                serverStreamIndex = mediaSource.defaultSubtitleStreamIndex,
+                fallback = -1,
+            )
 
             _state.update {
                 it.copy(
                     subtitleTracks = subtitleTracks,
                     audioTracks = audioTracks,
-                    selectedSubtitleIndex = -1,
-                    selectedAudioIndex = mediaSource.defaultAudioStreamIndex ?: audioTracks.firstOrNull()?.index ?: 0,
+                    selectedSubtitleIndex = selectedSubtitleIndex,
+                    selectedAudioIndex = selectedAudioIndex.coerceAtLeast(0),
                     selectedQuality = "Auto",
-                    availableQualities = qualityOptions(item.mediaStreams + mediaSource.mediaStreams),
+                    availableQualities = qualityOptions(mediaStreams),
+                    showSkipIntro = false,
+                    showSkipCredits = false,
+                    skipTargetPosition = null,
                 )
             }
 
@@ -166,6 +282,24 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /** Plays a completed Media3 download through the shared cache, without server calls. */
+    fun loadOffline(uri: String, title: String) {
+        loadJob?.cancel()
+        retryJob?.cancel()
+        progressJob?.cancel()
+        player.stop()
+        currentItemId = null
+        currentPlaySessionId = null
+        currentMediaSourceId = null
+        currentTranscodeUrl = null
+        triedTranscodeFallback = true
+        playbackRetryCount = 0
+        _state.value = PlayerState(title = title, isBuffering = true, error = null)
+        player.setMediaItem(Media3Item.Builder().setUri(uri).build())
+        player.prepare()
+        player.play()
+    }
+
     fun togglePlayPause() {
         if (player.isPlaying) player.pause() else player.play()
     }
@@ -188,18 +322,20 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /** Updates the local player while the seek bar is being dragged.
+     * The server report is intentionally deferred until [seekTo] is called.
+     */
+    fun previewSeekTo(positionMs: Long) {
+        player.seekTo(positionMs)
+        _state.update { it.copy(currentPosition = positionMs.coerceAtLeast(0L)) }
+    }
+
     fun skipPrevious() { player.seekToPreviousMediaItem() }
 
     fun skipNext() { player.seekToNextMediaItem() }
 
     fun skipSegment() {
-        // Jump past the current intro/credits marker
-        _state.value.let { s ->
-            if (s.showSkipIntro || s.showSkipCredits) {
-                // Seek to segment end — markers come from trickplay/MediaSegments
-                player.seekTo(player.currentPosition + 30_000)
-            }
-        }
+        _state.value.skipTargetPosition?.let(player::seekTo)
         _state.update { it.copy(showSkipIntro = false, showSkipCredits = false) }
     }
 
@@ -272,7 +408,16 @@ class PlayerViewModel @Inject constructor(
                 val userId = sessionRepository.getCurrentUserId().first() ?: continue
                 currentItemId?.let { id ->
                     val position = player.currentPosition
-                    _state.update { it.copy(currentPosition = position, duration = player.duration.coerceAtLeast(0L)) }
+                    _state.update {
+                        val skip = chapterSkipAction(currentItemChapters, position)
+                        it.copy(
+                            currentPosition = position,
+                            duration = player.duration.coerceAtLeast(0L),
+                            showSkipIntro = skip?.kind == ChapterSkipKind.INTRO,
+                            showSkipCredits = skip?.kind == ChapterSkipKind.CREDITS,
+                            skipTargetPosition = skip?.targetPositionMs,
+                        )
+                    }
                     playbackRepository.reportPlaybackProgress(
                         itemId = id,
                         playSessionId = currentPlaySessionId,
@@ -326,9 +471,18 @@ class PlayerViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        loadJob?.cancel()
+        retryJob?.cancel()
         progressJob?.cancel()
         reportPlaybackStopped()
-        player.release()
-        super.onCleared()
+        PlayerMediaSessionBridge.detach(mediaSession)
     }
+
+    private fun showLoadError(message: String) {
+        if (currentItemId != null) {
+            _state.update { it.copy(isBuffering = false, isPlaying = false, error = message) }
+        }
+    }
+
+    private var currentItemChapters: List<Chapter> = emptyList()
 }

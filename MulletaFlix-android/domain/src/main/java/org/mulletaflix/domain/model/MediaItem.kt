@@ -31,6 +31,7 @@ data class MediaItem(
     val studios: List<Studio> = emptyList(),
     val people: List<PersonInfo> = emptyList(),
     val mediaStreams: List<MediaStream> = emptyList(),
+    val chapters: List<Chapter> = emptyList(),
     val mediaSources: List<MediaSource> = emptyList(),
     val childCount: Int? = null,
     val unplayedItemCount: Int? = null,
@@ -128,4 +129,10 @@ data class MediaSource(
     val mediaStreams: List<MediaStream> = emptyList(),
     val defaultAudioStreamIndex: Int? = null,
     val defaultSubtitleStreamIndex: Int? = null,
+)
+
+data class Chapter(
+    val startPositionTicks: Long,
+    val name: String? = null,
+    val imageTag: String? = null,
 )

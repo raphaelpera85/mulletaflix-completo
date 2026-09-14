@@ -21,6 +21,20 @@ class SyncPlayViewModel @Inject constructor(private val repository: SyncPlayRepo
     init { refresh() }
     fun refresh() { viewModelScope.launch { _state.update { it.copy(isLoading = true, error = null) }; repository.getGroups().onSuccess { groups -> _state.update { it.copy(groups = groups, isLoading = false) } }.onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "Não foi possível carregar as salas.") } } } }
     fun createGroup(name: String, onCreated: () -> Unit = {}) { val cleanName = name.trim(); if (cleanName.isEmpty()) return; viewModelScope.launch { _state.update { it.copy(isSubmitting = true, error = null) }; repository.createGroup(cleanName).onSuccess { _state.update { it.copy(isSubmitting = false) }; onCreated(); refresh() }.onFailure { e -> _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível criar a sala.") } } } }
-    fun joinGroup(groupId: String) { viewModelScope.launch { _state.update { it.copy(isSubmitting = true, error = null) }; repository.joinGroup(groupId).onSuccess { _state.update { it.copy(isSubmitting = false, activeGroupId = groupId) }; refresh() }.onFailure { e -> _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível entrar na sala.") } } } }
+    fun joinGroup(groupId: String, onJoined: (SyncPlayGroup?) -> Unit = {}) {
+        viewModelScope.launch {
+            _state.update { it.copy(isSubmitting = true, error = null) }
+            repository.joinGroup(groupId)
+                .onSuccess {
+                    val joinedGroup = _state.value.groups.firstOrNull { it.groupId == groupId }
+                    _state.update { it.copy(isSubmitting = false, activeGroupId = groupId) }
+                    onJoined(joinedGroup)
+                    refresh()
+                }
+                .onFailure { e ->
+                    _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível entrar na sala.") }
+                }
+        }
+    }
     fun leaveGroup() { viewModelScope.launch { _state.update { it.copy(isSubmitting = true, error = null) }; repository.leaveGroup().onSuccess { _state.update { it.copy(isSubmitting = false, activeGroupId = null) }; refresh() }.onFailure { e -> _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível sair da sala.") } } } }
 }

@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -18,7 +19,7 @@ import org.mulletaflix.domain.model.MediaItem
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveTvScreen(onChannelPlay: (String) -> Unit, viewModel: LiveTvViewModel = hiltViewModel()) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var showGuide by remember { mutableStateOf(false) }
     Scaffold(topBar = { TopAppBar(title = { Text("TV Ao Vivo & EPG") }, actions = { IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) { Icon(Icons.Default.Refresh, "Atualizar canais") }; IconButton(onClick = { showGuide = true; viewModel.loadGuide() }, enabled = state.channels.isNotEmpty() && !state.isLoadingGuide) { Icon(Icons.Default.CalendarMonth, "Guia EPG") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

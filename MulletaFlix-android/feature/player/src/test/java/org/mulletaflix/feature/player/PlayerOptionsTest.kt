@@ -29,4 +29,12 @@ class PlayerOptionsTest {
         assertEquals(VideoQualityConstraint(1920, 1080, 10_000_000), videoQualityConstraint("1080p"))
         assertEquals(VideoQualityConstraint(Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE), videoQualityConstraint("Auto"))
     }
+
+    @Test
+    fun `quality menu has one auto option and removes duplicates`() {
+        assertEquals(
+            listOf("Auto", "1080p", "720p"),
+            qualityMenuOptions(listOf("Auto", "1080p", "1080p", "", "720p")),
+        )
+    }
 }

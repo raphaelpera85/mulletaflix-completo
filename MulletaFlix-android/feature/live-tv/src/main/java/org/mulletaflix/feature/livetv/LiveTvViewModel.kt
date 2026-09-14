@@ -11,8 +11,10 @@ import kotlinx.coroutines.launch
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.LiveTvRepository
-import java.time.Instant
-import java.time.temporal.ChronoUnit
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 data class LiveTvUiState(
@@ -53,8 +55,12 @@ class LiveTvViewModel @Inject constructor(
             val ids = _state.value.channels.map { it.id }
             if (ids.isEmpty()) return@launch
             _state.update { it.copy(isLoadingGuide = true, guideError = null) }
-            val start = Instant.now()
-            repository.getPrograms(ids, start.toString(), start.plus(24, ChronoUnit.HOURS).toString())
+            val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
+            val startMillis = System.currentTimeMillis()
+            val endMillis = startMillis + TimeUnit.HOURS.toMillis(24)
+            repository.getPrograms(ids, formatter.format(Date(startMillis)), formatter.format(Date(endMillis)))
                 .onSuccess { programs -> _state.update { it.copy(programs = programs, isLoadingGuide = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoadingGuide = false, guideError = e.message ?: "Não foi possível carregar o guia.") } }
         }

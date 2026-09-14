@@ -53,6 +53,19 @@ class SyncPlayViewModelTest {
         assertEquals(null, viewModel.state.value.activeGroupId)
     }
 
+    @Test fun `notifies navigation only after successful join and exposes playing item`() = runTest {
+        repository.groups = listOf(SyncPlayGroup("room-1", "Sessão", "Playing", emptyList(), "item-42", 0L))
+        val viewModel = SyncPlayViewModel(repository)
+        advanceUntilIdle()
+        var playingItemId: String? = null
+
+        viewModel.joinGroup("room-1") { group -> playingItemId = group?.playingItemId }
+        advanceUntilIdle()
+
+        assertEquals("item-42", playingItemId)
+        assertEquals("room-1", viewModel.state.value.activeGroupId)
+    }
+
     private class FakeSyncPlayRepository : SyncPlayRepository {
         var groups: List<SyncPlayGroup> = emptyList()
         var createdName: String? = null

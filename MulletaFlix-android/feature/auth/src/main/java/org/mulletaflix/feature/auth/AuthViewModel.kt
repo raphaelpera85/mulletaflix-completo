@@ -46,6 +46,7 @@ data class AuthState(
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    private val localServerDiscovery: LocalServerDiscovery,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthState())
@@ -83,7 +84,7 @@ class AuthViewModel @Inject constructor(
     fun discoverLocalServers() {
         viewModelScope.launch {
             _state.update { it.copy(isDiscovering = true, error = null) }
-            runCatching { LocalServerDiscovery().discover() }
+            runCatching { localServerDiscovery.discover() }
                 .onSuccess { servers ->
                     _state.update { current ->
                         current.copy(

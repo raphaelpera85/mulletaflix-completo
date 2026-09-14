@@ -8,10 +8,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,7 +51,7 @@ fun ItemDetailScreen(
     onBack: () -> Unit,
     viewModel: ItemDetailViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(itemId) { viewModel.loadItem(itemId) }
 
@@ -204,7 +207,7 @@ private fun DetailHero(
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
                 .background(Color.Black.copy(0.4f), CircleShape)
         ) {
-            Icon(Icons.Default.ArrowBack, contentDescription = "Voltar", tint = Color.White)
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = Color.White)
         }
 
         // Bottom content
@@ -274,7 +277,7 @@ private fun DetailHero(
                     onClick = onPlaylist,
                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
                 ) {
-                    Icon(Icons.Default.PlaylistAdd, contentDescription = "Adicionar à playlist", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = "Adicionar à playlist", tint = Color.White)
                 }
             }
         }

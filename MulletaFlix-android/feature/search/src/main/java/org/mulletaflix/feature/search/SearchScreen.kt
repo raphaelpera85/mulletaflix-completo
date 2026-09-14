@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,26 +33,32 @@ fun SearchScreen(
     onItemClick: (String) -> Unit,
     viewModel: SearchViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize()) {
 
         // ── Search field ───────────────────────────────────────────────────
         SearchBar(
-            query = state.query,
-            onQueryChange = viewModel::onQueryChange,
-            onSearch = viewModel::search,
-            active = false,
-            onActiveChange = {},
-            placeholder = { Text("Buscar filmes, séries, músicas...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (state.query.isNotEmpty()) {
-                    IconButton(onClick = { viewModel.onQueryChange("") }) {
-                        Icon(Icons.Default.Close, contentDescription = "Limpar")
-                    }
-                }
+            inputField = {
+                SearchBarDefaults.InputField(
+                    query = state.query,
+                    onQueryChange = viewModel::onQueryChange,
+                    onSearch = viewModel::search,
+                    expanded = false,
+                    onExpandedChange = {},
+                    placeholder = { Text("Buscar filmes, séries, músicas...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (state.query.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.onQueryChange("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "Limpar")
+                            }
+                        }
+                    },
+                )
             },
+            expanded = false,
+            onExpandedChange = {},
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             content = {}
         )

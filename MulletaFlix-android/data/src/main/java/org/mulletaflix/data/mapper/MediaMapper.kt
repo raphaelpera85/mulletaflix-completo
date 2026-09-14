@@ -92,6 +92,13 @@ fun BaseItemDto.toDomain(): MediaItem {
         parentIndexNumber = parentIndexNumber,
         people = people?.map { it.toDomain() } ?: emptyList(),
         mediaStreams = streams,
+        chapters = chapters?.map { chapter ->
+            Chapter(
+                startPositionTicks = chapter.startPositionTicks,
+                name = chapter.name,
+                imageTag = chapter.imageTag,
+            )
+        } ?: emptyList(),
         mediaSources = mediaSources?.map { it.toDomain() } ?: emptyList(),
         collectionType = collectionType,
         channelId = channelId,

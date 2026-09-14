@@ -42,13 +42,15 @@ class PlaybackRepositoryImpl @Inject constructor(
             playSessionId = response.playSessionId ?: "",
             mediaSources = response.mediaSources.map { source ->
                 val sourceId = source.id.orEmpty()
-                val query = buildString {
-                    append("MediaSourceId=").append(sourceId)
-                    token?.takeIf { it.isNotBlank() }?.let { append("&api_key=").append(java.net.URLEncoder.encode(it, Charsets.UTF_8.name())) }
-                }
+                val urls = buildPlaybackStreamUrls(
+                    baseUrl = baseUrl,
+                    itemId = itemId,
+                    mediaSourceId = sourceId,
+                    accessToken = token,
+                )
                 source.toDomain().copy(
-                    directStreamUrl = "$baseUrl/Videos/$itemId/stream?Static=true&$query",
-                    transcodeUrl = "$baseUrl/Videos/$itemId/master.m3u8?$query",
+                    directStreamUrl = urls.directStream,
+                    transcodeUrl = urls.transcode,
                 )
             },
         )

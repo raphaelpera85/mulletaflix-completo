@@ -1,6 +1,8 @@
 package org.mulletaflix.feature.player
 
 import android.app.Activity
+import android.media.AudioManager
+import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -10,20 +12,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.cast.MediaRouteButton
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 /**
  * Full-screen video player screen using Media3 / ExoPlayer.
@@ -43,13 +50,23 @@ import kotlinx.coroutines.delay
  *  - Lock screen OSD (MediaSession via playback service)
  */
 @Composable
+@UnstableApi
 fun VideoPlayerScreen(
     itemId: String,
     onBack: () -> Unit,
+    offlineUri: String? = null,
+    offlineTitle: String? = null,
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    var gestureHint by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(gestureHint) {
+        if (gestureHint != null) {
+            delay(900)
+            gestureHint = null
+        }
+    }
 
     // Keep screen on while playing
     val activity = context as? Activity
@@ -60,7 +77,10 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(itemId) { viewModel.loadMedia(itemId) }
+    LaunchedEffect(itemId, offlineUri) {
+        if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId)
+        else viewModel.loadMedia(itemId)
+    }
 
     // OSD visibility auto-hide
     var osdVisible by remember { mutableStateOf(true) }
@@ -73,15 +93,51 @@ fun VideoPlayerScreen(
 
     // PiP on back when playing
     BackHandler(enabled = state.isPlaying) {
-        activity?.enterPictureInPictureMode(
-            android.app.PictureInPictureParams.Builder().build()
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            activity?.enterPictureInPictureMode(
+                android.app.PictureInPictureParams.Builder().build()
+            )
+        } else {
+            activity?.finish()
+        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .pointerInput(Unit) {
+                var startX = 0f
+                detectDragGestures(
+                    onDragStart = { startX = it.x },
+                    onDragCancel = {},
+                    onDragEnd = {},
+                    onDrag = { change, dragAmount ->
+                        // Up increases the level; down decreases it. The side
+                        // of the screen selects brightness or media volume.
+                        val delta = -dragAmount.y / 900f
+                        if (startX < size.width / 2f) {
+                            val window = activity?.window
+                            if (window != null) {
+                                val attributes = window.attributes
+                                val current = attributes.screenBrightness.takeIf { it >= 0f } ?: 0.5f
+                                attributes.screenBrightness = adjustBrightness(current, delta)
+                                window.attributes = attributes
+                                gestureHint = "Brilho ${(attributes.screenBrightness * 100).roundToInt()}%"
+                            }
+                        } else {
+                            val audioManager = context.getSystemService(AudioManager::class.java)
+                            if (audioManager != null) {
+                                val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                val maximum = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                                val next = adjustVolume(current, maximum, delta)
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+                                gestureHint = "Volume ${(next * 100f / maximum.coerceAtLeast(1)).roundToInt()}%"
+                            }
+                        }
+                    },
+                )
+            }
             .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {
                 osdVisible = !osdVisible
             }
@@ -113,7 +169,10 @@ fun VideoPlayerScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(state.error ?: "Erro de reprodução", color = MaterialTheme.colorScheme.onSurface)
-                    Button(onClick = { viewModel.loadMedia(itemId) }) {
+                    Button(onClick = {
+                        if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId)
+                        else viewModel.loadMedia(itemId)
+                    }) {
                         Text("Tentar novamente")
                     }
                 }
@@ -133,6 +192,16 @@ fun VideoPlayerScreen(
             ) {
                 Text("Pular Introdução")
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+
+        gestureHint?.let { hint ->
+            Surface(
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.Black.copy(alpha = 0.72f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            ) {
+                Text(hint, color = Color.White, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp))
             }
         }
 
@@ -162,7 +231,8 @@ fun VideoPlayerScreen(
                 state = state,
                 onBack = onBack,
                 onPlayPause = { viewModel.togglePlayPause() },
-                onSeek = { position -> viewModel.seekTo(position) },
+                onSeekPreview = { position -> viewModel.previewSeekTo(position) },
+                onSeekFinished = { position -> viewModel.seekTo(position) },
                 onPrevious = { viewModel.skipPrevious() },
                 onNext = { viewModel.skipNext() },
                 onSubtitleSelect = { index -> viewModel.selectSubtitle(index) },
@@ -176,11 +246,13 @@ fun VideoPlayerScreen(
 }
 
 @Composable
+@UnstableApi
 private fun PlayerOsd(
     state: PlayerState,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
-    onSeek: (Long) -> Unit,
+    onSeekPreview: (Long) -> Unit,
+    onSeekFinished: (Long) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onSubtitleSelect: (Int) -> Unit,
@@ -193,6 +265,12 @@ private fun PlayerOsd(
     var showAudioMenu by remember { mutableStateOf(false) }
     var showQualityMenu by remember { mutableStateOf(false) }
     var showSpeedMenu by remember { mutableStateOf(false) }
+    var isSeeking by remember { mutableStateOf(false) }
+    var seekFraction by remember(state.duration) {
+        mutableFloatStateOf(
+            if (state.duration > 0) state.currentPosition.toFloat() / state.duration else 0f,
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -210,7 +288,7 @@ private fun PlayerOsd(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Voltar", tint = Color.White)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = Color.White)
             }
             Text(
                 text = state.title ?: "",
@@ -287,8 +365,18 @@ private fun PlayerOsd(
             }
             // Seek bar
             Slider(
-                value = if (state.duration > 0) state.currentPosition.toFloat() / state.duration else 0f,
-                onValueChange = { fraction -> onSeek((fraction * state.duration).toLong()) },
+                value = if (isSeeking) seekFraction else {
+                    if (state.duration > 0) state.currentPosition.toFloat() / state.duration else 0f
+                },
+                onValueChange = { fraction ->
+                    isSeeking = true
+                    seekFraction = fraction
+                    onSeekPreview(seekPositionFromFraction(fraction, state.duration))
+                },
+                onValueChangeFinished = {
+                    isSeeking = false
+                    onSeekFinished(seekPositionFromFraction(seekFraction, state.duration))
+                },
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.secondary,
                     activeTrackColor = MaterialTheme.colorScheme.secondary,
@@ -393,7 +481,7 @@ private fun QualityMenu(
         title = { Text("Qualidade") },
         text = {
             Column {
-                listOf("Auto") .plus(qualities).forEach { q ->
+                qualityMenuOptions(qualities).forEach { q ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clickable { onSelect(q) }.fillMaxWidth().padding(vertical = 8.dp)
@@ -442,7 +530,7 @@ private fun Long.toTimeString(): String {
     val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
     return if (hours > 0)
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
+        String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
     else
-        String.format("%d:%02d", minutes, seconds)
+        String.format(java.util.Locale.US, "%d:%02d", minutes, seconds)
 }

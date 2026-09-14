@@ -24,6 +24,9 @@ internal fun qualityOptions(mediaStreams: List<MediaStream>): List<String> =
         .distinct()
         .toList()
 
+internal fun qualityMenuOptions(qualities: List<String>): List<String> =
+    (listOf("Auto") + qualities).filter(String::isNotBlank).distinct()
+
 internal data class VideoQualityConstraint(
     val maxWidth: Int,
     val maxHeight: Int,

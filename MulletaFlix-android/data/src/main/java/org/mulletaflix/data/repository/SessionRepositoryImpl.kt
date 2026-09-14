@@ -8,6 +8,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import org.mulletaflix.core.api.SessionRepository
 import java.util.UUID
@@ -35,11 +38,19 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override fun getDeviceId(): Flow<String> {
-        return context.dataStore.data.map { preferences ->
-            preferences[PreferencesKeys.DEVICE_ID] ?: run {
-                val newId = UUID.randomUUID().toString()
-                newId
+        return flow {
+            val storedId = context.dataStore.data.first()[PreferencesKeys.DEVICE_ID]
+            val deviceId = storedId ?: UUID.randomUUID().toString().also { generatedId ->
+                context.dataStore.edit { preferences ->
+                    preferences[PreferencesKeys.DEVICE_ID] = generatedId
+                }
             }
+            emit(deviceId)
+            emitAll(
+                context.dataStore.data.map { preferences ->
+                    preferences[PreferencesKeys.DEVICE_ID] ?: deviceId
+                }
+            )
         }
     }
 

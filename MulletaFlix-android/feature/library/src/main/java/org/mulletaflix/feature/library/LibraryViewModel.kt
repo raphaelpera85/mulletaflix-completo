@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
@@ -37,6 +38,7 @@ class LibraryViewModel @Inject constructor(
     private var currentStartIndex: Int = 0
     private val pageSize = 40
     private var totalItems = 0
+    private var loadJob: Job? = null
 
     companion object {
         const val FILTER_FAVORITES = "Favoritos"
@@ -53,9 +55,10 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun loadLibrary(libraryId: String) {
+        loadJob?.cancel()
         currentLibraryId = libraryId
         currentStartIndex = 0
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
             _state.update { it.copy(isLoading = true, error = null) }
 
@@ -93,7 +96,7 @@ class LibraryViewModel @Inject constructor(
         val userId = currentUserId ?: return
         if (_state.value.isLoading || !_state.value.hasMore) return
 
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             val requestedStartIndex = currentStartIndex + pageSize
             _state.update { it.copy(isLoading = true, error = null) }
             mediaRepository.getItems(
