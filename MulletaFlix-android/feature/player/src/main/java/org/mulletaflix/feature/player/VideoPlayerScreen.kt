@@ -315,6 +315,7 @@ private fun PlayerOsd(
                 title = "Faixa de Áudio",
                 tracks = state.audioTracks,
                 selectedIndex = state.selectedAudioIndex,
+                allowNone = false,
                 onSelect = { onAudioSelect(it); showAudioMenu = false },
                 onDismiss = { showAudioMenu = false }
             )
@@ -347,6 +348,7 @@ private fun PlayerTrackMenu(
     title: String,
     tracks: List<TrackInfo>,
     selectedIndex: Int,
+    allowNone: Boolean = true,
     onSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -355,13 +357,14 @@ private fun PlayerTrackMenu(
         title = { Text(title) },
         text = {
             Column {
-                // Disable subtitles option
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onSelect(-1) }.fillMaxWidth().padding(vertical = 8.dp)
-                ) {
-                    RadioButton(selected = selectedIndex == -1, onClick = { onSelect(-1) })
-                    Text("Nenhuma", modifier = Modifier.padding(start = 8.dp))
+                if (allowNone) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onSelect(-1) }.fillMaxWidth().padding(vertical = 8.dp)
+                    ) {
+                        RadioButton(selected = selectedIndex == -1, onClick = { onSelect(-1) })
+                        Text("Nenhuma", modifier = Modifier.padding(start = 8.dp))
+                    }
                 }
                 tracks.forEachIndexed { index, track ->
                     Row(

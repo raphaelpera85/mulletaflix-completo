@@ -105,6 +105,15 @@ namespace MulletaFlix.Server
             // Create an instance of the application configuration to use for application startup
             IConfiguration startupConfig = CreateAppConfiguration(options, appPaths);
             StartupHelpers.InitializeLoggingFramework(startupConfig, appPaths);
+            using var instanceMutex = new Mutex(true, "Global\\MulletaFlix.Server", out var isFirstInstance);
+            if (!isFirstInstance)
+            {
+                _loggerFactory.CreateLogger("Main").LogWarning(
+                    "Outra instância do MulletaFlix já está iniciando ou executando; esta instância será encerrada para evitar conflito na porta {Port}.",
+                    startupConfig.GetValue<int?>("HttpServerPort") ?? 8096);
+                return;
+            }
+
             _setupServer = new SetupServer(static () => _MulletaFlixHost?.Services?.GetService<INetworkManager>(), appPaths, static () => _appHost, _loggerFactory, startupConfig);
             await _setupServer.RunAsync().ConfigureAwait(false);
             _logger = _loggerFactory.CreateLogger("Main");

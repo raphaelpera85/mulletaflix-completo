@@ -17,6 +17,7 @@ data class LibraryState(
     val items: List<MediaItem> = emptyList(),
     val activeFilters: List<String> = emptyList(),
     val hasMore: Boolean = false,
+    val error: String? = null,
     val showSortMenu: Boolean = false,
     val showFilterMenu: Boolean = false,
     val sortBy: SortOption = SortOption.Name,
@@ -37,6 +38,12 @@ class LibraryViewModel @Inject constructor(
     private val pageSize = 40
     private var totalItems = 0
 
+    companion object {
+        const val FILTER_FAVORITES = "Favoritos"
+        const val FILTER_PLAYED = "Assistidos"
+        const val FILTER_UNPLAYED = "Não assistidos"
+    }
+
     init {
         viewModelScope.launch {
             authRepository.getSavedUserId().collect { userId ->
@@ -50,7 +57,7 @@ class LibraryViewModel @Inject constructor(
         currentStartIndex = 0
         viewModelScope.launch {
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
-            _state.update { it.copy(isLoading = true) }
+            _state.update { it.copy(isLoading = true, error = null) }
 
             // Get library details
             val libResult = mediaRepository.getItem(userId, libraryId)
@@ -62,6 +69,8 @@ class LibraryViewModel @Inject constructor(
                 sortBy = _state.value.sortBy.apiValue,
                 startIndex = 0,
                 limit = pageSize,
+                isPlayed = playedFilter(_state.value.activeFilters),
+                isFavorite = favoriteFilter(_state.value.activeFilters),
             ).onSuccess { (items, total) ->
                 totalItems = total
                 _state.update {
@@ -70,10 +79,11 @@ class LibraryViewModel @Inject constructor(
                         items = items,
                         hasMore = items.size < total,
                         isLoading = false,
+                        error = null,
                     )
                 }
-            }.onFailure {
-                _state.update { it.copy(isLoading = false) }
+            }.onFailure { error ->
+                _state.update { it.copy(isLoading = false, error = error.message ?: "Não foi possível carregar a biblioteca.") }
             }
         }
     }
@@ -84,21 +94,29 @@ class LibraryViewModel @Inject constructor(
         if (_state.value.isLoading || !_state.value.hasMore) return
 
         viewModelScope.launch {
-            currentStartIndex += pageSize
+            val requestedStartIndex = currentStartIndex + pageSize
+            _state.update { it.copy(isLoading = true, error = null) }
             mediaRepository.getItems(
                 userId = userId,
                 parentId = libId,
                 sortBy = _state.value.sortBy.apiValue,
-                startIndex = currentStartIndex,
+                startIndex = requestedStartIndex,
                 limit = pageSize,
+                isPlayed = playedFilter(_state.value.activeFilters),
+                isFavorite = favoriteFilter(_state.value.activeFilters),
             ).onSuccess { (newItems, total) ->
                 val combined = _state.value.items + newItems
+                currentStartIndex = requestedStartIndex
                 _state.update {
                     it.copy(
                         items = combined,
                         hasMore = combined.size < total,
+                        isLoading = false,
+                        error = null,
                     )
                 }
+            }.onFailure { error ->
+                _state.update { it.copy(isLoading = false, error = error.message ?: "Não foi possível carregar mais itens.") }
             }
         }
     }
@@ -119,6 +137,24 @@ class LibraryViewModel @Inject constructor(
         _state.update { it.copy(showFilterMenu = true) }
     }
 
+    fun hideFilterMenu() {
+        _state.update { it.copy(showFilterMenu = false) }
+    }
+
+    fun toggleFilter(filter: String) {
+        _state.update {
+            val filters = if (filter in it.activeFilters) {
+                it.activeFilters - filter
+            } else {
+                (it.activeFilters.filterNot { active ->
+                    filter == FILTER_PLAYED || filter == FILTER_UNPLAYED
+                } + filter).distinct()
+            }
+            it.copy(activeFilters = filters, showFilterMenu = false)
+        }
+        currentLibraryId?.let { loadLibrary(it) }
+    }
+
     fun setSortBy(option: SortOption) {
         _state.update { it.copy(sortBy = option, showSortMenu = false) }
         currentLibraryId?.let { loadLibrary(it) }
@@ -133,4 +169,13 @@ class LibraryViewModel @Inject constructor(
         _state.update { it.copy(activeFilters = emptyList()) }
         currentLibraryId?.let { loadLibrary(it) }
     }
+
+    private fun playedFilter(filters: List<String>): Boolean? = when {
+        FILTER_PLAYED in filters -> true
+        FILTER_UNPLAYED in filters -> false
+        else -> null
+    }
+
+    private fun favoriteFilter(filters: List<String>): Boolean? =
+        if (FILTER_FAVORITES in filters) true else null
 }

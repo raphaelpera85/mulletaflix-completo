@@ -23,6 +23,7 @@
 
     <!-- Câmera (QR Connect) -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- Wake lock (reprodução de áudio em background) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />

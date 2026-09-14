@@ -8,8 +8,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
 import org.mulletaflix.domain.repository.AuthRepository
 import javax.inject.Inject
 
@@ -48,7 +46,6 @@ data class AuthState(
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    @ApplicationContext context: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthState())
@@ -57,13 +54,14 @@ class AuthViewModel @Inject constructor(
     private var quickConnectPollingJob: Job? = null
 
     init {
-        discoverLocalServers(context)
+        discoverLocalServers()
         viewModelScope.launch {
             authRepository.getSavedServerUrl().collect { url ->
                 if (url.isNotBlank()) {
                     _state.update {
+                        val hasLocalServer = it.discoveredServers.isNotEmpty()
                         it.copy(
-                            serverUrl = url,
+                            serverUrl = if (hasLocalServer) it.serverUrl else url,
                             savedServers = listOf(ServerInfo("MulletaFlix Server", url))
                         )
                     }
@@ -82,23 +80,34 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun discoverLocalServers(context: Context) {
+    fun discoverLocalServers() {
         viewModelScope.launch {
             _state.update { it.copy(isDiscovering = true, error = null) }
-            val servers = LocalServerDiscovery().discover()
-            _state.update { current ->
-                val localServer = servers.firstOrNull()
-                current.copy(
-                    isDiscovering = false,
-                    // Prefer the LAN address over the public DuckDNS fallback.
-                    // This keeps playback inside the local network whenever the
-                    // server advertises itself there.
-                    serverUrl = localServer?.url ?: current.serverUrl,
-                    discoveredServers = servers.filterNot { discovered ->
-                        current.savedServers.any { saved -> saved.url == discovered.url }
-                    },
-                )
-            }
+            runCatching { LocalServerDiscovery().discover() }
+                .onSuccess { servers ->
+                    _state.update { current ->
+                        current.copy(
+                            isDiscovering = false,
+                            // Prefer the LAN address over the public DuckDNS fallback.
+                            // This keeps playback inside the local network whenever the
+                            // server advertises itself there.
+                            serverUrl = preferredServerUrl(servers, emptyList(), current.serverUrl),
+                            // Keep LAN results even when the URL is already saved.
+                            // The UI uses this list to trigger the automatic LAN
+                            // connection on every startup.
+                            discoveredServers = servers.distinctBy { it.url },
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isDiscovering = false,
+                            error = error.localizedMessage?.takeIf(String::isNotBlank)
+                                ?: "Não foi possível procurar servidores nesta rede",
+                        )
+                    }
+                }
         }
     }
 
@@ -114,12 +123,13 @@ class AuthViewModel @Inject constructor(
         _state.update { it.copy(username = user.name, error = null) }
     }
 
-    fun connectToServer(url: String, onSuccess: () -> Unit) {
+    fun connectToServer(url: String, onSuccess: () -> Unit, onFailure: () -> Unit = {}) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             val cleanUrl = normalizeServerUrl(url)
             if (cleanUrl == null) {
                 _state.update { it.copy(isLoading = false, error = "Informe uma URL HTTP ou HTTPS válida") }
+                onFailure()
                 return@launch
             }
             authRepository.verifyServer(cleanUrl)
@@ -142,6 +152,7 @@ class AuthViewModel @Inject constructor(
                 }
                 .onFailure { err ->
                     _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Servidor não encontrado ou indisponível") }
+                    onFailure()
                 }
         }
     }

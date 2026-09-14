@@ -1106,26 +1106,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             _isEnvioRunning = true;
             _streamOnly = streamOnly;
 
-            // 7. Auto-monta o disco N: apenas se UseMappedDrive=true (compatibilidade legada)
-            if (config.UseMappedDrive)
+            // 7. A montagem inicial é coordenada pelo NebulaHostedService depois
+            // que o servidor FTP estiver pronto. Não dispare outra montagem em
+            // paralelo aqui: isso pode deixar o rclone apontando para um FTP que
+            // ainda está subindo e causar erros de E/S durante a varredura do Jellyfin.
+            // O modo streamOnly é iniciado pelo próprio MountDriveNAsync, portanto
+            // também não pode iniciar uma montagem recursiva neste ponto.
+            if (config.UseMappedDrive && !streamOnly)
             {
-                _ = Task.Run(
-                    async () =>
-                    {
-                        try
-                        {
-                            await MountDriveNAsync(CancellationToken.None).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Erro ao auto-montar unidade N: no startup do Envio");
-                        }
-                    },
-                    CancellationToken.None);
+                AddServerLog("[NEBULA-MOUNT] Montagem N: será coordenada pelo serviço de startup após o FTP ficar pronto.");
             }
             else
             {
-                AddServerLog("[NEBULA-MOUNT] UseMappedDrive=false: pulando montagem automática da unidade N:. Streaming via HTTP/FTP direto.");
+                AddServerLog(config.UseMappedDrive
+                    ? "[NEBULA-MOUNT] Modo Somente Streaming: montagem N: será concluída pelo fluxo que solicitou o mount."
+                    : "[NEBULA-MOUNT] UseMappedDrive=false: pulando montagem automática da unidade N:. Streaming via HTTP/FTP direto.");
             }
 
             return true;

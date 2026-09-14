@@ -31,13 +31,14 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaSupabaseSyncService : IDisposable
 {
-    private const int SupabaseUploadBatchSize = 250;
-    private const int SupabaseUploadConcurrency = 6;
+    private const int SupabaseUploadBatchSize = 50;
+    private const int SupabaseUploadConcurrency = 3;
     private const int SupabaseRestorePageSize = 1000;
     private readonly ILogger<NebulaSupabaseSyncService> _logger;
     private readonly NebulaMongoContext _mongoContext;
     private readonly IDbContextFactory<UsersDbContext>? _usersDbProvider;
     private readonly HttpClient _httpClient;
+    private readonly SemaphoreSlim _backupGate = new(1, 1);
     private CancellationTokenSource? _continuousSyncCts;
     private Task? _continuousSyncTask;
     private bool _disposed;
@@ -248,13 +249,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             return result;
         }
 
+        await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             _logger.LogInformation("[SUPABASE-SYNC] Iniciando sincronização completa para o Supabase ({Url})...", supabaseUrl);
             progressAction?.Invoke($"[SUPABASE-SYNC] Iniciando sincronização completa para {supabaseUrl}...");
 
-            // 1. Envia lotes maiores em paralelo limitado. O lote anterior de 25 itens
-            // fazia 1.899 round-trips para 47k arquivos e ainda dormia 50ms entre eles.
+            // 1. Envia lotes pequenos em paralelo limitado para evitar statement_timeout
+            // no Postgres quando doc_data contém metadados grandes.
             var allFiles = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
             var batchSize = SupabaseUploadBatchSize;
             var totalFiles = allFiles.Count;
@@ -374,6 +376,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             progressAction?.Invoke($"[SUPABASE-ERRO] Falha na sincronização: {result.Message}");
             return result;
         }
+        finally
+        {
+            _backupGate.Release();
+        }
     }
 
     /// <summary>
@@ -406,6 +412,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             return result;
         }
 
+        await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             _logger.LogInformation("[SUPABASE-RESTORE] Iniciando restauração do acervo a partir do Supabase...");
@@ -610,6 +617,10 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             progressAction?.Invoke($"[SUPABASE-RESTORE-ERRO] Falha na restauração: {result.Message}");
             return result;
         }
+        finally
+        {
+            _backupGate.Release();
+        }
     }
 
     private static SupabaseFileRecord ConvertBsonDocToSupabaseRecord(BsonDocument doc)
@@ -695,7 +706,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     throw new InvalidOperationException($"Supabase rejeitou o lote: HTTP {(int)response.StatusCode} - {body}");
                 }
 
-                _logger.LogWarning("[SUPABASE-SYNC] Falha transitória no lote (tentativa {Attempt}/3): HTTP {Code}.", attempt, response.StatusCode);
+                _logger.LogWarning("[SUPABASE-SYNC] Falha transitória no lote (tentativa {Attempt}/3): HTTP {Code} - {Body}", attempt, response.StatusCode, body);
             }
             catch (Exception ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested && (ex is HttpRequestException or TaskCanceledException))
             {
@@ -1032,6 +1043,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
         StopContinuousSync();
         _httpClient.Dispose();
+        _backupGate.Dispose();
         _disposed = true;
     }
 

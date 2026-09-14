@@ -1,7 +1,7 @@
 package org.mulletaflix.android
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -21,6 +21,7 @@ class AppSmokeTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("MulletaFlix", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Player conectado ao servidor remoto", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("URL do Servidor", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("Procurar na rede", useUnmergedTree = true).assertIsDisplayed()
     }

@@ -22,4 +22,11 @@ class PlayerOptionsTest {
     fun `quality options are empty when server has no video metadata`() {
         assertEquals(emptyList<String>(), qualityOptions(emptyList()))
     }
+
+    @Test
+    fun `quality choices map to actual resolution constraints`() {
+        assertEquals(VideoQualityConstraint(2560, 1440, 16_000_000), videoQualityConstraint("1440p"))
+        assertEquals(VideoQualityConstraint(1920, 1080, 10_000_000), videoQualityConstraint("1080p"))
+        assertEquals(VideoQualityConstraint(Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE), videoQualityConstraint("Auto"))
+    }
 }

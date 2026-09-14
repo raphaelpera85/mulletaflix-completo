@@ -36,6 +36,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val loadError = state.error
 
     LaunchedEffect(libraryId) { viewModel.loadLibrary(libraryId) }
 
@@ -47,6 +48,9 @@ fun LibraryScreen(
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Voltar") }
                 },
                 actions = {
+                    IconButton(onClick = { viewModel.loadLibrary(libraryId) }, enabled = !state.isLoading) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Atualizar biblioteca")
+                    }
                     // View toggle (grid / list)
                     IconButton(onClick = viewModel::toggleView) {
                         Icon(if (state.isGridView) Icons.Default.ViewList else Icons.Default.GridView, contentDescription = "Alternar visualização")
@@ -66,6 +70,17 @@ fun LibraryScreen(
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (state.isLoading && state.items.isEmpty()) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else if (loadError != null && state.items.isEmpty()) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(loadError, color = MaterialTheme.colorScheme.error)
+                    Button(onClick = { viewModel.loadLibrary(libraryId) }) {
+                        Text("Tentar novamente")
+                    }
+                }
             } else {
                 val columns = if (state.isGridView) 3 else 1
 
@@ -76,6 +91,19 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     // Active filters summary
+                    if (loadError != null) {
+                        item(span = { GridItemSpan(columns) }) {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(loadError, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
+                                    TextButton(onClick = { viewModel.loadLibrary(libraryId) }) { Text("Tentar novamente") }
+                                }
+                            }
+                        }
+                    }
                     if (state.activeFilters.isNotEmpty()) {
                         item(span = { GridItemSpan(columns) }) {
                             ActiveFiltersRow(
@@ -127,8 +155,54 @@ fun LibraryScreen(
                     onDismiss = viewModel::hideSortMenu
                 )
             }
+            if (state.showFilterMenu) {
+                FilterDialog(
+                    activeFilters = state.activeFilters,
+                    onToggle = viewModel::toggleFilter,
+                    onClear = viewModel::clearFilters,
+                    onDismiss = viewModel::hideFilterMenu,
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun FilterDialog(
+    activeFilters: List<String>,
+    onToggle: (String) -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val filters = listOf(
+        LibraryViewModel.FILTER_FAVORITES,
+        LibraryViewModel.FILTER_PLAYED,
+        LibraryViewModel.FILTER_UNPLAYED,
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Filtrar biblioteca") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                filters.forEach { filter ->
+                    FilterChip(
+                        selected = filter in activeFilters,
+                        onClick = { onToggle(filter) },
+                        label = { Text(filter) },
+                        leadingIcon = if (filter in activeFilters) {
+                            { Icon(Icons.Default.Check, contentDescription = null) }
+                        } else null,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fechar") }
+        },
+        dismissButton = if (activeFilters.isNotEmpty()) {
+            { TextButton(onClick = onClear) { Text("Limpar") } }
+        } else null,
+    )
 }
 
 @Composable

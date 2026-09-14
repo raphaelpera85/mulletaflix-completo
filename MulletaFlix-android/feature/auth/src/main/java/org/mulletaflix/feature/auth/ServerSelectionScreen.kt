@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -37,9 +36,9 @@ fun ServerSelectionScreen(
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
     var manualUrl by remember { mutableStateOf(DEFAULT_MULLETAFLIX_SERVER_URL) }
     var manuallyEdited by remember { mutableStateOf(false) }
+    var automaticConnectionStarted by remember { mutableStateOf(false) }
 
     // A discovered LAN server has priority over the public fallback. Do not
     // overwrite an address while the user is actively editing the field.
@@ -51,6 +50,29 @@ fun ServerSelectionScreen(
 
     LaunchedEffect(state.isAuthenticated) {
         if (state.isAuthenticated) onServerSelected()
+    }
+
+    // Verify LAN first; when discovery finds nothing, verify the saved/public
+    // endpoint as a fallback. The callback only advances to login; credentials
+    // are still required by the user.
+    LaunchedEffect(state.isDiscovering, state.discoveredServers, state.serverUrl, manuallyEdited) {
+        automaticServerCandidate(state, manuallyEdited, automaticConnectionStarted)?.let { endpoint ->
+            automaticConnectionStarted = true
+            viewModel.connectToServer(
+                url = endpoint,
+                onSuccess = { onServerSelected() },
+                onFailure = {
+                    // A stale LAN advertisement must not prevent access through
+                    // the saved/public endpoint.
+                    if (state.discoveredServers.firstOrNull()?.url == endpoint) {
+                        viewModel.connectToServer(
+                            fallbackServerCandidate(state, endpoint),
+                            onSuccess = { onServerSelected() },
+                        )
+                    }
+                },
+            )
+        }
     }
 
     Box(
@@ -72,7 +94,7 @@ fun ServerSelectionScreen(
                 modifier = Modifier.size(72.dp)
             )
             Text("MulletaFlix", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
-            Text("The Free Software Media System", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.5f), modifier = Modifier.padding(bottom = 32.dp))
+            Text("Player conectado ao servidor remoto", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.5f), modifier = Modifier.padding(bottom = 32.dp))
 
             // Manual URL entry
             OutlinedTextField(
@@ -93,7 +115,7 @@ fun ServerSelectionScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Button(
-                onClick = { viewModel.connectToServer(manualUrl) { onServerSelected() } },
+                onClick = { viewModel.connectToServer(manualUrl, onSuccess = { onServerSelected() }) },
                 enabled = !state.isLoading && manualUrl.length > 10,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(12.dp)
@@ -111,7 +133,11 @@ fun ServerSelectionScreen(
             }
 
             OutlinedButton(
-                onClick = { viewModel.discoverLocalServers(context) },
+                onClick = {
+                    // A manual refresh starts a new automatic selection cycle.
+                    automaticConnectionStarted = false
+                    viewModel.discoverLocalServers()
+                },
                 enabled = !state.isDiscovering && !state.isLoading,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(12.dp),
@@ -144,7 +170,7 @@ fun ServerSelectionScreen(
                                 url = server.url,
                                 latencyMs = server.latencyMs,
                                 version = server.version,
-                                onClick = { viewModel.connectToServer(server.url) { onServerSelected() } },
+                                onClick = { viewModel.connectToServer(server.url, onSuccess = { onServerSelected() }) },
                                 onRemove = {},
                                 showRemove = false,
                             )
@@ -160,7 +186,7 @@ fun ServerSelectionScreen(
                                 url = server.url,
                                 latencyMs = server.latencyMs,
                                 version = server.version,
-                                onClick = { viewModel.connectToServer(server.url) { onServerSelected() } },
+                                onClick = { viewModel.connectToServer(server.url, onSuccess = { onServerSelected() }) },
                                 onRemove = { viewModel.removeServer(server.url) },
                             )
                         }

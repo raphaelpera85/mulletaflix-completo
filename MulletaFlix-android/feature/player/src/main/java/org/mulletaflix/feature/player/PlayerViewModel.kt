@@ -120,16 +120,19 @@ class PlayerViewModel @Inject constructor(
             // Set subtitle tracks from media streams
             val subtitleTracks = item.mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Subtitle }
-                .mapIndexed { i, stream -> TrackInfo(i, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Legenda ${i + 1}") }
+                .mapIndexed { i, stream -> TrackInfo(stream.index, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Legenda ${i + 1}") }
 
             val audioTracks = item.mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
-                .mapIndexed { i, stream -> TrackInfo(i, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}") }
+                .mapIndexed { i, stream -> TrackInfo(stream.index, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}") }
 
             _state.update {
                 it.copy(
                     subtitleTracks = subtitleTracks,
                     audioTracks = audioTracks,
+                    selectedSubtitleIndex = -1,
+                    selectedAudioIndex = mediaSource.defaultAudioStreamIndex ?: audioTracks.firstOrNull()?.index ?: 0,
+                    selectedQuality = "Auto",
                     availableQualities = qualityOptions(item.mediaStreams + mediaSource.mediaStreams),
                 )
             }
@@ -212,16 +215,11 @@ class PlayerViewModel @Inject constructor(
 
     fun selectQuality(quality: String) {
         _state.update { it.copy(selectedQuality = quality) }
-        val maxBitrate = when (quality.uppercase()) {
-            "4K" -> Int.MAX_VALUE
-            "1080P", "FULL HD" -> 10_000_000
-            "720P", "HD" -> 6_000_000
-            "480P", "SD" -> 2_500_000
-            else -> Int.MAX_VALUE
-        }
+        val constraint = videoQualityConstraint(quality)
         localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
             .buildUpon()
-            .setMaxVideoBitrate(maxBitrate)
+            .setMaxVideoSize(constraint.maxWidth, constraint.maxHeight)
+            .setMaxVideoBitrate(constraint.maxBitrate)
             .build()
     }
 
@@ -239,6 +237,16 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun selectTrack(index: Int, trackType: Int) {
+        if (index < 0) {
+            if (trackType == C.TRACK_TYPE_TEXT) {
+                localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(trackType, true)
+                    .build()
+            }
+            return
+        }
+
         val candidates = player.currentTracks.groups
             .filter { it.type == trackType }
             .flatMap { group ->
@@ -246,9 +254,12 @@ class PlayerViewModel @Inject constructor(
                     if (group.isTrackSupported(trackIndex)) group to trackIndex else null
                 }
             }
-        val selected = candidates.getOrNull(index) ?: return
+        val selected = candidates.firstOrNull { (group, trackIndex) ->
+            group.getTrackFormat(trackIndex).id?.toIntOrNull() == index
+        } ?: candidates.getOrNull(index) ?: return
         localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
             .buildUpon()
+            .setTrackTypeDisabled(trackType, false)
             .setOverrideForType(TrackSelectionOverride(selected.first.mediaTrackGroup, selected.second))
             .build()
     }
