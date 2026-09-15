@@ -388,7 +388,7 @@ function enableIntros(item) {
 }
 
 function getIntros(firstItem, apiClient, options) {
-    if (options.startPositionTicks || options.startIndex || !enableIntros(firstItem)) {
+    if (!enableIntros(firstItem)) {
         return Promise.resolve({
             Items: []
         });
@@ -2426,6 +2426,61 @@ export class PlaybackManager {
             return Promise.all(items.map((item: any, index: any) => getItemAndParts(item, index === (startIndex || 0))));
         };
 
+        function prebufferItemDuringIntro(item, apiClient, options) {
+            try {
+                if (!item || !enableIntros(item)) {
+                    return;
+                }
+
+                const player = getPlayer(item, options);
+                if (!player) {
+                    return;
+                }
+
+                const mediaType = options.mediaType || item.MediaType;
+                const startPosition = options.startPositionTicks || 0;
+
+                void player.getDeviceProfile(item).then(function (deviceProfile: any) {
+                    const mediaOptions = {
+                        maxBitrate: getSavedMaxStreamingBitrate(apiClient, mediaType),
+                        startPosition: startPosition,
+                        isPlayback: true,
+                        audioStreamIndex: options.audioStreamIndex,
+                        subtitleStreamIndex: options.subtitleStreamIndex,
+                        mediaSourceId: options.mediaSourceId,
+                        enableDirectPlay: null,
+                        enableDirectStream: null,
+                        allowVideoStreamCopy: null,
+                        allowAudioStreamCopy: null
+                    };
+
+                    return getPlaybackMediaSource(player, apiClient, deviceProfile, item, options.mediaSourceId, mediaOptions)
+                        .then(function (mediaSource: any) {
+                            if (mediaSource) {
+                                item.PrebufferedMediaSource = mediaSource;
+
+                                const streamInfo = createStreamInfo(apiClient, item.MediaType, item, mediaSource, startPosition, player);
+                                if (streamInfo && streamInfo.url) {
+                                    // Pre-warm the media stream URL in browser network cache/socket pool
+                                    fetch(streamInfo.url, {
+                                        method: 'GET',
+                                        headers: { 'Range': 'bytes=0-2097151' }
+                                    }).then(function () {
+                                        console.info('[playbackmanager] Main media prebuffer successful for:', item.Name || item.Id);
+                                    }).catch(function (err: any) {
+                                        console.debug('[playbackmanager] Stream warmup fetch error (non-fatal):', err);
+                                    });
+                                }
+                            }
+                        });
+                }).catch(function (err: any) {
+                    console.debug('[playbackmanager] Prebuffer resolution error (non-fatal):', err);
+                });
+            } catch (e) {
+                console.debug('[playbackmanager] Prebuffer error (non-fatal):', e);
+            }
+        }
+
         function playWithIntros(items, options) {
             let playStartIndex = options.startIndex || 0;
             let firstItem = items[playStartIndex];
@@ -2453,21 +2508,28 @@ export class PlaybackManager {
                     item.IsIntro = true;
                     return item;
                 });
-                const introStartIndex = introItems.length ? 0 : playStartIndex;
-                let introPlayOptions;
 
                 firstItem.playOptions = truncatePlayOptions(options);
                 firstItem.playOptions.hasIntros = introItems.length > 0;
+
+                let introPlayOptions;
+                let introStartIndex;
 
                 if (introItems.length) {
                     introPlayOptions = {
                         fullscreen: firstItem.playOptions.fullscreen
                     };
+
+                    // Insert intro items directly before the target item
+                    items.splice(playStartIndex, 0, ...introItems);
+                    introStartIndex = playStartIndex;
+
+                    // Trigger prebuffering of firstItem concurrently while the intro plays
+                    prebufferItemDuringIntro(firstItem, apiClient, options);
                 } else {
                     introPlayOptions = firstItem.playOptions;
+                    introStartIndex = playStartIndex;
                 }
-
-                items = introItems.concat(items);
 
                 // Register the full playlist before playback starts so the intro is current from the first event.
                 self._playQueueManager.setPlaylist(items);
@@ -3102,6 +3164,12 @@ export class PlaybackManager {
         }
 
         function getPlaybackMediaSource(player, apiClient, deviceProfile, item, mediaSourceId, options) {
+            if (item.PrebufferedMediaSource) {
+                const cached = item.PrebufferedMediaSource;
+                delete item.PrebufferedMediaSource;
+                return Promise.resolve(cached);
+            }
+
             options.isPlayback = true;
 
             return getPlaybackInfo(player, apiClient, item, deviceProfile, mediaSourceId, null, options).then(function (playbackInfoResult: any) {

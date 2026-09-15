@@ -40,40 +40,61 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
     public async Task PrepareAsync(BaseItem item)
     {
         var options = _configurationManager.GetConfiguration<BrandingOptions>("branding");
-        if (!options.PrebufferEnabled || item.Path is null || !item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+        var prebufferActive = options.PrebufferEnabled || options.IntroEnabled || !string.IsNullOrWhiteSpace(options.IntroPath);
+        if (!prebufferActive || item.Path is null)
         {
             return;
         }
 
-        if (_sessions.ContainsKey(item.Id))
+        if (item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
         {
+            if (_sessions.ContainsKey(item.Id))
+            {
+                return;
+            }
+
+            string url;
+            try
+            {
+                url = (await File.ReadAllTextAsync(item.Path).ConfigureAwait(false)).Trim();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to read STRM item {ItemPath} for prebuffering", item.Path);
+                return;
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var upstreamUri)
+                || (upstreamUri.Scheme != Uri.UriSchemeHttp && upstreamUri.Scheme != Uri.UriSchemeHttps))
+            {
+                return;
+            }
+
+            var session = new Session(upstreamUri, Math.Clamp(options.PrebufferSizeMb, 1, 256) * 1024L * 1024L);
+            if (!_sessions.TryAdd(item.Id, session))
+            {
+                session.Dispose();
+                return;
+            }
+
+            _ = FillAsync(item.Id, session);
             return;
         }
 
-        string url;
-        try
+        if (File.Exists(item.Path))
         {
-            url = (await File.ReadAllTextAsync(item.Path).ConfigureAwait(false)).Trim();
+            try
+            {
+                await using var fs = new FileStream(item.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
+                var headerBuf = new byte[64 * 1024];
+                _ = await fs.ReadAsync(headerBuf, 0, headerBuf.Length).ConfigureAwait(false);
+                _logger.LogDebug("Filesystem cache pre-warmed for {ItemPath}", item.Path);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Warmup read failed for local item {ItemPath}", item.Path);
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Unable to read STRM item {ItemPath} for prebuffering", item.Path);
-            return;
-        }
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var upstreamUri)
-            || (upstreamUri.Scheme != Uri.UriSchemeHttp && upstreamUri.Scheme != Uri.UriSchemeHttps))
-        {
-            return;
-        }
-
-        var session = new Session(upstreamUri, Math.Clamp(options.PrebufferSizeMb, 1, 256) * 1024L * 1024L);
-        if (!_sessions.TryAdd(item.Id, session))
-        {
-            session.Dispose();
-            return;
-        }
-
-        _ = FillAsync(item.Id, session);
     }
 
     public bool TryGetProxyUrl(Guid itemId, out string url)

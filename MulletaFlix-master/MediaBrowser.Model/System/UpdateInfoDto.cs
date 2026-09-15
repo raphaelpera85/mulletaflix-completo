@@ -28,8 +28,33 @@ namespace MediaBrowser.Model.System
         public string? Changelog { get; set; }
 
         /// <summary>
+        /// Gets or sets the download URL of the update archive.
+        /// </summary>
+        public string? ArchiveUrl { get; set; }
+
+        /// <summary>
+        /// Gets or sets the size of the update package in bytes.
+        /// </summary>
+        public long? PackageSize { get; set; }
+
+        /// <summary>
         /// Gets or sets the timestamp of the last successful check, or null when never checked.
         /// </summary>
         public DateTime? LastCheckedAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the current installation state.
+        /// </summary>
+        public string? InstallState { get; set; }
+
+        /// <summary>
+        /// Gets or sets the current install/download progress percentage (0-100).
+        /// </summary>
+        public int? InstallProgress { get; set; }
+
+        /// <summary>
+        /// Gets or sets any error message from the last update attempt.
+        /// </summary>
+        public string? ErrorMessage { get; set; }
     }
 }

@@ -41,7 +41,7 @@ public sealed class NativeIntroProvider : IIntroProvider
     public async Task<IEnumerable<IntroInfo>> GetIntros(BaseItem item, User user)
     {
         var options = _configurationManager.GetConfiguration<BrandingOptions>("branding");
-        if (!options.IntroEnabled || string.IsNullOrWhiteSpace(options.IntroPath))
+        if (string.IsNullOrWhiteSpace(options.IntroPath))
         {
             return [];
         }

@@ -378,7 +378,7 @@ export const Component = () => {
                             <Typography variant='h2'>Intro e pre-buffer STRM</Typography>
 
                             <FormControlLabel
-                                control={<Switch name={BrandingOption.IntroEnabled} defaultChecked={brandingOptions.IntroEnabled ?? false} />}
+                                control={<Switch name={BrandingOption.IntroEnabled} defaultChecked={brandingOptions.IntroEnabled ?? (Boolean(brandingOptions.IntroPath))} />}
                                 label='Ativar intro nativa antes das midias'
                             />
 

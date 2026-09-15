@@ -35,7 +35,7 @@ public class BrandingOptions
     /// <summary>
     /// Gets or sets a value indicating whether native local intros are enabled.
     /// </summary>
-    public bool IntroEnabled { get; set; }
+    public bool IntroEnabled { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the local intro video path.
