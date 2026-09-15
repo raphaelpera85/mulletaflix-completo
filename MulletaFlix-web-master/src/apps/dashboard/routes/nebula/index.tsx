@@ -8,6 +8,8 @@ import Download from '@mui/icons-material/Download';
 import PlayArrow from '@mui/icons-material/PlayArrow';
 import Restore from '@mui/icons-material/Restore';
 import Stop from '@mui/icons-material/Stop';
+import SmartToy from '@mui/icons-material/SmartToy';
+import VpnKey from '@mui/icons-material/VpnKey';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -17,6 +19,8 @@ import IconButton from '@mui/material/IconButton';
 import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -440,6 +444,7 @@ const NebulaPage = () => {
         void logsQuery.refetch();
     }, [ logsQuery ]);
 
+    const [ activeTab, setActiveTab ] = useState(0);
     const [ isRestoreDialogOpen, setIsRestoreDialogOpen ] = useState(false);
     const [ botName, setBotName ] = useState('');
     const [ botToken, setBotToken ] = useState('');
@@ -653,7 +658,50 @@ const NebulaPage = () => {
                     </Alert>
                 )}
 
-                {status && (
+                <Tabs
+                    value={activeTab}
+                    onChange={(_event, val) => setActiveTab(val)}
+                    sx={{
+                        borderBottom: 1,
+                        borderColor: '#3a3a3a',
+                        '& .MuiTab-root': {
+                            textTransform: 'none',
+                            fontWeight: 500,
+                            fontSize: '0.95rem',
+                            minHeight: 44,
+                            color: '#b9b9b9',
+                            '&.Mui-selected': {
+                                color: '#00a4dc'
+                            }
+                        },
+                        '& .MuiTabs-indicator': {
+                            bgcolor: '#00a4dc'
+                        }
+                    }}
+                >
+                    <Tab label='Geral' />
+                    <Tab
+                        label={
+                            <Stack direction='row' alignItems='center' spacing={1}>
+                                <span>Bots e Tokens</span>
+                                {(botsQuery.data?.length ?? 0) > 0 && (
+                                    <Chip
+                                        size='small'
+                                        label={botsQuery.data?.length}
+                                        sx={{
+                                            height: 20,
+                                            fontSize: '0.75rem',
+                                            bgcolor: activeTab === 1 ? '#00a4dc' : 'rgba(255,255,255,0.12)',
+                                            color: activeTab === 1 ? '#07151b' : '#f5f5f5'
+                                        }}
+                                    />
+                                )}
+                            </Stack>
+                        }
+                    />
+                </Tabs>
+
+                {activeTab === 0 && status && (
                     <>
                         <Paper variant='outlined' sx={{ p: 2 }}>
                             <Stack spacing={1.5}>
@@ -816,75 +864,7 @@ const NebulaPage = () => {
                                         {restoreMutation.isPending ? 'Restaurando...' : 'Restore Supabase'}
                                     </Button>
                                 </Stack>
-                            </Stack>
-                        </Paper>
-
-                        <Paper variant='outlined' sx={{ p: 2 }}>
-                            <Stack spacing={1.5}>
-                                <Box>
-                                    <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>Bots e tokens</Typography>
-                                    <Typography variant='body2' color='text.secondary'>
-                                        Tokens nunca são exibidos novamente. Salvar um token existente cria a rotação do segredo no servidor.
-                                    </Typography>
-                                </Box>
-                                <Box component='form' onSubmit={handleBotSubmit}>
-                                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                                        <TextField
-                                            label='Nome (opcional)'
-                                            value={botName}
-                                            onChange={handleBotNameChange}
-                                            size='small'
-                                            fullWidth
-                                        />
-                                        <TextField
-                                            label='Novo token do bot'
-                                            type='password'
-                                            value={botToken}
-                                            onChange={handleBotTokenChange}
-                                            size='small'
-                                            fullWidth
-                                            required
-                                            autoComplete='new-password'
-                                        />
-                                        <Button type='submit' variant='contained' disabled={isBusy}>
-                                            {botMutation.isPending ? 'Salvando...' : 'Salvar token'}
-                                        </Button>
-                                    </Stack>
-                                </Box>
-                                {botsQuery.isError && (
-                                    <Alert
-                                        severity='warning'
-                                        action={<Button color='inherit' size='small' onClick={retryBots}>Tentar novamente</Button>}
-                                    >
-                                        Não foi possível carregar os bots: {getErrorMessage(botsQuery.error)}
-                                    </Alert>
-                                )}
-                                {(botsQuery.data ?? []).length > 0 ? (
-                                    <Stack divider={<Divider flexItem />}>
-                                        {(botsQuery.data ?? []).map(bot => (
-                                            <Stack key={bot.Index} direction='row' alignItems='center' spacing={1} sx={{ py: 1 }}>
-                                                <Box sx={{ flex: 1 }}>
-                                                    <Typography>{bot.Name || `Bot ${bot.Index + 1}`}</Typography>
-                                                    <Typography variant='caption' color='text.secondary'>
-                                                        {bot.MaskedToken || 'Token configurado'} · {bot.SessionExists ? 'sessão ativa' : 'sessão pendente'}
-                                                    </Typography>
-                                                </Box>
-                                                <IconButton
-                                                    aria-label={getBotAriaLabel(bot)}
-                                                    color='error'
-                                                    disabled={isBusy}
-                                                    data-bot-index={bot.Index}
-                                                    onClick={handleBotDeleteClick}
-                                                >
-                                                    <Delete />
-                                                </IconButton>
-                                            </Stack>
-                                        ))}
-                                    </Stack>
-                                ) : (
-                                    <Typography color='text.secondary'>Nenhum bot configurado.</Typography>
-                                )}
-                            </Stack>
+                                      </Stack>
                         </Paper>
 
                         <Paper variant='outlined' sx={{ p: 2 }}>
@@ -908,6 +888,223 @@ const NebulaPage = () => {
                             <LogsContent isLoading={logsQuery.isLoading} isError={logsQuery.isError} error={logsQuery.error} logs={logs} onRetry={retryLogs} />
                         </Paper>
                     </>
+                )}
+
+                {activeTab === 1 && (
+                    <Stack spacing={3}>
+                        <Paper variant='outlined' sx={{ p: 2.5 }}>
+                            <Stack spacing={2}>
+                                <Box>
+                                    <Stack direction='row' alignItems='center' spacing={1} sx={{ mb: 0.5 }}>
+                                        <VpnKey color='primary' />
+                                        <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>
+                                            Novo Bot / Token
+                                        </Typography>
+                                    </Stack>
+                                    <Typography variant='body2' color='text.secondary'>
+                                        Tokens nunca são exibidos novamente após salvos. Cadastrar um bot existente rotaciona o segredo de sessão no servidor.
+                                    </Typography>
+                                </Box>
+
+                                <Box component='form' onSubmit={handleBotSubmit}>
+                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'flex-start' }}>
+                                        <TextField
+                                            label='Nome do Bot (opcional)'
+                                            placeholder='Ex: Nebula_Bot_1'
+                                            value={botName}
+                                            onChange={handleBotNameChange}
+                                            size='small'
+                                            sx={{ flex: { xs: '1 1 auto', sm: '1 1 35%' } }}
+                                        />
+                                        <TextField
+                                            label='Token do Bot no Telegram'
+                                            placeholder='123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ'
+                                            type='password'
+                                            value={botToken}
+                                            onChange={handleBotTokenChange}
+                                            size='small'
+                                            required
+                                            autoComplete='new-password'
+                                            sx={{ flex: { xs: '1 1 auto', sm: '1 1 65%' } }}
+                                        />
+                                        <Button
+                                            type='submit'
+                                            variant='contained'
+                                            disabled={isBusy}
+                                            startIcon={<VpnKey />}
+                                            sx={{ minWidth: 140, whiteSpace: 'nowrap' }}
+                                        >
+                                            {botMutation.isPending ? 'Salvando...' : 'Salvar Token'}
+                                        </Button>
+                                    </Stack>
+                                </Box>
+                            </Stack>
+                        </Paper>
+
+                        {botsQuery.isError && (
+                            <Alert
+                                severity='warning'
+                                action={<Button color='inherit' size='small' onClick={retryBots}>Tentar novamente</Button>}
+                            >
+                                Não foi possível carregar os bots: {getErrorMessage(botsQuery.error)}
+                            </Alert>
+                        )}
+
+                        <Box>
+                            <Stack direction='row' justifyContent='space-between' alignItems='center' sx={{ mb: 2 }}>
+                                <Typography variant='h2' component='h2' sx={{ fontSize: '1.15rem' }}>
+                                    Bots Configurados ({(botsQuery.data ?? []).length})
+                                </Typography>
+                                <Button
+                                    size='small'
+                                    variant='outlined'
+                                    startIcon={<Cached />}
+                                    onClick={retryBots}
+                                    disabled={botsQuery.isFetching}
+                                >
+                                    Atualizar lista
+                                </Button>
+                            </Stack>
+
+                            {(botsQuery.data ?? []).length > 0 ? (
+                                <Box
+                                    sx={{
+                                        display: 'grid',
+                                        gridTemplateColumns: {
+                                            xs: '1fr',
+                                            sm: 'repeat(auto-fill, minmax(320px, 1fr))'
+                                        },
+                                        gap: 2
+                                    }}
+                                >
+                                    {(botsQuery.data ?? []).map(bot => {
+                                        const botDisplayName = bot.Name || `Bot ${bot.Index + 1}`;
+                                        const isSessionActive = Boolean(bot.SessionExists);
+
+                                        return (
+                                            <Paper
+                                                key={bot.Index}
+                                                variant='outlined'
+                                                sx={{
+                                                    p: 2,
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    justifyContent: 'space-between',
+                                                    gap: 1.5,
+                                                    bgcolor: '#252525 !important',
+                                                    borderColor: isSessionActive ? 'rgba(0, 164, 220, 0.4) !important' : '#3a3a3a !important',
+                                                    transition: 'transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease',
+                                                    '&:hover': {
+                                                        transform: 'translateY(-2px)',
+                                                        borderColor: '#00a4dc !important',
+                                                        boxShadow: '0 4px 12px rgba(0, 0, 0, .45)'
+                                                    }
+                                                }}
+                                            >
+                                                <Stack direction='row' justifyContent='space-between' alignItems='flex-start'>
+                                                    <Stack direction='row' spacing={1.5} alignItems='center' sx={{ minWidth: 0, flex: 1, pr: 1 }}>
+                                                        <Box
+                                                            sx={{
+                                                                width: 40,
+                                                                height: 40,
+                                                                borderRadius: '8px',
+                                                                bgcolor: isSessionActive ? 'rgba(0, 164, 220, 0.16)' : 'rgba(255, 255, 255, 0.05)',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                flexShrink: 0
+                                                            }}
+                                                        >
+                                                            <SmartToy sx={{ color: isSessionActive ? '#00b7ef' : '#888' }} />
+                                                        </Box>
+                                                        <Box sx={{ minWidth: 0 }}>
+                                                            <Typography
+                                                                variant='body1'
+                                                                fontWeight={600}
+                                                                noWrap
+                                                                title={botDisplayName}
+                                                            >
+                                                                {botDisplayName}
+                                                            </Typography>
+                                                            <Typography variant='caption' color='text.secondary'>
+                                                                Índice #{bot.Index}
+                                                            </Typography>
+                                                        </Box>
+                                                    </Stack>
+
+                                                    <IconButton
+                                                        aria-label={getBotAriaLabel(bot)}
+                                                        color='error'
+                                                        disabled={isBusy}
+                                                        data-bot-index={bot.Index}
+                                                        onClick={handleBotDeleteClick}
+                                                        size='small'
+                                                        sx={{
+                                                            color: '#ff6b6b',
+                                                            '&:hover': { bgcolor: 'rgba(255, 77, 77, 0.12)' }
+                                                        }}
+                                                    >
+                                                        <Delete fontSize='small' />
+                                                    </IconButton>
+                                                </Stack>
+
+                                                <Divider sx={{ my: 0.5 }} />
+
+                                                <Stack spacing={1}>
+                                                    <Box
+                                                        sx={{
+                                                            p: 1,
+                                                            borderRadius: '4px',
+                                                            bgcolor: 'rgba(0, 0, 0, 0.35)',
+                                                            fontFamily: 'monospace',
+                                                            fontSize: '0.82rem',
+                                                            color: '#e0e0e0',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 1
+                                                        }}
+                                                    >
+                                                        <VpnKey sx={{ fontSize: '0.95rem', color: '#888' }} />
+                                                        <span style={{ letterSpacing: '0.05em' }}>
+                                                            {bot.MaskedToken || '••••••••••••••••'}
+                                                        </span>
+                                                    </Box>
+
+                                                    <Stack direction='row' justifyContent='space-between' alignItems='center'>
+                                                        <Chip
+                                                            size='small'
+                                                            label={isSessionActive ? 'Sessão ativa' : 'Sessão pendente'}
+                                                            sx={{
+                                                                fontWeight: 500,
+                                                                fontSize: '0.75rem',
+                                                                bgcolor: isSessionActive ? 'rgba(105, 195, 107, 0.2)' : 'rgba(255, 171, 26, 0.15)',
+                                                                color: isSessionActive ? '#69c36b' : '#ffab1a',
+                                                                border: '1px solid',
+                                                                borderColor: isSessionActive ? 'rgba(105, 195, 107, 0.4)' : 'rgba(255, 171, 26, 0.3)'
+                                                            }}
+                                                        />
+                                                        <Typography variant='caption' color='text.secondary'>
+                                                            Telegram Bot
+                                                        </Typography>
+                                                    </Stack>
+                                                </Stack>
+                                            </Paper>
+                                        );
+                                    })}
+                                </Box>
+                            ) : (
+                                <Paper variant='outlined' sx={{ p: 4, textAlign: 'center' }}>
+                                    <SmartToy sx={{ fontSize: 48, color: '#666', mb: 1 }} />
+                                    <Typography variant='body1' color='text.secondary'>
+                                        Nenhum bot configurado até o momento.
+                                    </Typography>
+                                    <Typography variant='caption' color='text.secondary'>
+                                        Utilize o formulário acima para adicionar os tokens dos seus bots do Telegram.
+                                    </Typography>
+                                </Paper>
+                            )}
+                        </Box>
+                    </Stack>
                 )}
             </Stack>
             <ConfirmDialog
