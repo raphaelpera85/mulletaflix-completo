@@ -46,5 +46,12 @@ public interface INebulaFtpManager
 
     string GetSupabaseSqlScript();
 
+    /// <summary>
+    /// Envia uma notificação formatada para o canal ou chat do Telegram.
+    /// </summary>
+    /// <param name="messageHtml">Mensagem em formato HTML.</param>
+    /// <param name="targetChatId">Chat ID de destino opcional.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns>Verdadeiro se entregue com sucesso.</returns>
     Task<bool> SendTelegramNotificationAsync(string messageHtml, string? targetChatId = null, CancellationToken cancellationToken = default);
 }

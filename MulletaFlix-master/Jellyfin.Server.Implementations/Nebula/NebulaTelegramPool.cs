@@ -1448,6 +1448,10 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     /// <summary>
     /// Envia uma mensagem em formato HTML usando a Bot API do Telegram via pool de bots com fallback automático.
     /// </summary>
+    /// <param name="text">Texto formatado em HTML para envio.</param>
+    /// <param name="targetChatId">ID do chat ou canal destino (opcional, padrão canal configurado).</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns><c>true</c> se a mensagem foi entregue com sucesso por algum bot; caso contrário, <c>false</c>.</returns>
     public async Task<bool> SendMessageAsync(string text, string? targetChatId = null, CancellationToken cancellationToken = default)
     {
         if (_botTokens.Count == 0 || string.IsNullOrWhiteSpace(text))
@@ -1457,7 +1461,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 
         var effectiveChatId = !string.IsNullOrWhiteSpace(targetChatId)
             ? targetChatId
-            : _chatId.ToString();
+            : _chatId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         if (string.IsNullOrWhiteSpace(effectiveChatId) || effectiveChatId == "0")
         {

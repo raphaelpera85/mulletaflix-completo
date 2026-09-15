@@ -941,8 +941,8 @@ public class ItemsController : BaseMulletaFlixApiController
             ExcludeItemIds = excludeItemIds
         });
 
-        var deduplicatedItems = new List<BaseItem>();
-        var seenSeriesIds = new HashSet<Guid>();
+        var deduplicatedItems = new System.Collections.Generic.List<BaseItem>();
+        var seenSeriesIds = new System.Collections.Generic.HashSet<Guid>();
         foreach (var item in itemsResult.Items)
         {
             if (item is IHasSeries seriesItem)

@@ -424,7 +424,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
-    public async Task<ActionResult> SendTelegramNotification([FromBody] NebulaTelegramNotificationRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<object>> SendTelegramNotification([FromBody] NebulaTelegramNotificationRequest request, CancellationToken cancellationToken)
     {
         if (request is null || string.IsNullOrWhiteSpace(request.Message))
         {

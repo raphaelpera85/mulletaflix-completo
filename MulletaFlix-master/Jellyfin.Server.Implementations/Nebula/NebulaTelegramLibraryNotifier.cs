@@ -36,12 +36,14 @@ public sealed class NebulaTelegramLibraryNotifier : IHostedService, IDisposable
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded += OnItemAdded;
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded -= OnItemAdded;
@@ -88,7 +90,7 @@ public sealed class NebulaTelegramLibraryNotifier : IHostedService, IDisposable
 
                     if (movie.CommunityRating.HasValue)
                     {
-                        sb.Append("⭐ <b>Nota:</b> ").Append(movie.CommunityRating.Value.ToString("0.0")).AppendLine(" / 10");
+                        sb.Append("⭐ <b>Nota:</b> ").Append(movie.CommunityRating.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)).AppendLine(" / 10");
                     }
 
                     if (movie.Genres is { Length: > 0 })
@@ -136,9 +138,10 @@ public sealed class NebulaTelegramLibraryNotifier : IHostedService, IDisposable
             {
                 _logger.LogWarning(ex, "[NEBULA-NOTIFIER] Falha ao enviar notificação de item adicionado para o Telegram.");
             }
-        }, _cts.Token);
+        });
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         _libraryManager.ItemAdded -= OnItemAdded;

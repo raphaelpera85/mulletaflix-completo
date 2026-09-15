@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $installRoot = [IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\') + '\'
 $dataRoot = [IO.Path]::GetFullPath($DataDirectory).TrimEnd('\') + '\'
-$processNames = @('MulletaFlix.exe', 'MulletaFlix.Windows.Tray.exe', 'mysqld.exe', 'mariadbd.exe')
+$processNames = @('MulletaFlix.exe', 'MulletaFlix.Windows.Tray.exe', 'mysqld.exe', 'mariadbd.exe', 'rclone.exe', 'ffmpeg.exe')
 
 function Test-UnderRoot {
     param([string] $Path, [string] $Root)

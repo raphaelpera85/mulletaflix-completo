@@ -377,6 +377,14 @@ export async function getCommands(options: ContextMenuOptions): Promise<ContextM
         });
     }
 
+    if (item.UserData && item.UserData.PlaybackPositionTicks > 0) {
+        commands.push({
+            name: globalize.translate('RemoveFromContinueWatching') || 'Remover de Continuar Assistindo',
+            id: 'removefromresume',
+            icon: 'remove_circle_outline'
+        });
+    }
+
     if (!browser.tv && options.share === true && itemHelper.canShare(item, user)) {
         commands.push({
             name: globalize.translate('Share'),
@@ -690,6 +698,17 @@ function executeCommand(item: ContextItem, id: string, options: ContextMenuOptio
                     })
                 }).then(function () {
                     getResolveFunction(resolve, id, true)();
+                });
+            case 'removefromresume':
+                apiClient.ajax({
+                    type: 'DELETE',
+                    url: apiClient.getUrl('UserResumeItems/' + itemId)
+                }).then(function () {
+                    toast(globalize.translate('ItemRemoved') || 'Removido de Continuar Assistindo');
+                    getResolveFunction(resolve, id, true)();
+                }).catch(function (err: any) {
+                    console.error('[ItemContextMenu] Falha ao remover de continuar assistindo', err);
+                    getResolveFunction(resolve, id)();
                 });
                 break;
             case 'canceltimer':

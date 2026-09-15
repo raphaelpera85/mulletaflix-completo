@@ -2759,13 +2759,13 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         {
             var config = Config;
             var botTokens = await LoadBotTokensAsync(config, cancellationToken).ConfigureAwait(false);
-            if (botTokens.Count == 0)
+            if (botTokens.Length == 0)
             {
                 return false;
             }
 
-            _ = int.TryParse(config.ApiId, out var apiId);
-            _ = long.TryParse(config.ChatId, out var chatId);
+            _ = int.TryParse(config.ApiId, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var apiId);
+            _ = long.TryParse(config.ChatId, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var chatId);
             await using var tempPool = new NebulaTelegramPool(apiId, config.ApiHash, botTokens, chatId, GetSessionsDirectory(), _loggerFactory.CreateLogger<NebulaTelegramPool>());
             return await tempPool.SendMessageAsync(messageHtml, targetChatId, cancellationToken).ConfigureAwait(false);
         }
