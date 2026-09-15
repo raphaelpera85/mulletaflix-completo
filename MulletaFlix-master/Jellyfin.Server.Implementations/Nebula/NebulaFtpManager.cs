@@ -36,6 +36,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private readonly object _lock = new();
     private readonly List<string> _serverLogs = new();
     private readonly List<string> _downloaderLogs = new();
+    private long _serverLogSeq;
+    private long _downloaderLogSeq;
     private const int MaxLogLines = 600;
 
     private NebulaMongoContext? _mongoContext;
@@ -910,15 +912,39 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     {
         lock (_lock)
         {
-            var serverTotal = _serverLogs.Count;
-            var serverSlice = serverOffset < serverTotal
-                ? _serverLogs.Skip(Math.Max(0, serverOffset)).ToList()
-                : new List<string>();
+            var serverTotal = (int)_serverLogSeq;
+            List<string> serverSlice;
+            if (serverOffset <= 0)
+            {
+                serverSlice = _serverLogs.ToList();
+            }
+            else if (serverOffset >= serverTotal)
+            {
+                serverSlice = new List<string>();
+            }
+            else
+            {
+                var diff = serverTotal - serverOffset;
+                var takeCount = Math.Min(diff, _serverLogs.Count);
+                serverSlice = _serverLogs.Skip(_serverLogs.Count - takeCount).ToList();
+            }
 
-            var dlTotal = _downloaderLogs.Count;
-            var dlSlice = downloaderOffset < dlTotal
-                ? _downloaderLogs.Skip(Math.Max(0, downloaderOffset)).ToList()
-                : new List<string>();
+            var dlTotal = (int)_downloaderLogSeq;
+            List<string> dlSlice;
+            if (downloaderOffset <= 0)
+            {
+                dlSlice = _downloaderLogs.ToList();
+            }
+            else if (downloaderOffset >= dlTotal)
+            {
+                dlSlice = new List<string>();
+            }
+            else
+            {
+                var diff = dlTotal - downloaderOffset;
+                var takeCount = Math.Min(diff, _downloaderLogs.Count);
+                dlSlice = _downloaderLogs.Skip(_downloaderLogs.Count - takeCount).ToList();
+            }
 
             return new NebulaLogsDto
             {
@@ -1857,6 +1883,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         lock (_lock)
         {
             _serverLogs.Add(line);
+            _serverLogSeq++;
             if (_serverLogs.Count > MaxLogLines)
             {
                 _serverLogs.RemoveRange(0, _serverLogs.Count - MaxLogLines);
@@ -1996,6 +2023,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         lock (_lock)
         {
             _downloaderLogs.Add(formatted);
+            _downloaderLogSeq++;
             if (_downloaderLogs.Count > MaxLogLines)
             {
                 _downloaderLogs.RemoveRange(0, _downloaderLogs.Count - MaxLogLines);

@@ -27,8 +27,8 @@ namespace Jellyfin.Server.Implementations.Nebula;
 public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 {
     private static readonly string[] VideoExtensions = [".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".webm"];
-    private static readonly Regex EpisodeRegex = new(@"(?i)(?<prefix>.*?)(?:[.\s_-]+)?s(?<season>\d{1,2})[.\s_-]*e(?<episode>\d{1,3})", RegexOptions.Compiled);
-    private static readonly Regex YearRegex = new(@"(?<!\d)((?:19|20)\d{2})(?!\d)", RegexOptions.Compiled);
+    internal static readonly Regex EpisodeRegex = new(@"(?i)(?<prefix>.*?)(?:[.\s_-]+)?s(?<season>\d{1,2})[.\s_-]*e(?<episode>\d{1,3})", RegexOptions.Compiled);
+    internal static readonly Regex YearRegex = new(@"(?<!\d)((?:19|20)\d{2})(?!\d)", RegexOptions.Compiled);
 
     private readonly NebulaMongoContext _mongoContext;
     private readonly NebulaTelegramPool _telegramPool;
@@ -554,8 +554,12 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 var nextPercent = 1;
                 long lastLoggedBytes = 0;
 
-                while ((read = await contentStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false)) > 0)
+                using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                readCts.CancelAfter(TimeSpan.FromSeconds(45));
+
+                while ((read = await contentStream.ReadAsync(buffer, 0, buffer.Length, readCts.Token).ConfigureAwait(false)) > 0)
                 {
+                    readCts.CancelAfter(TimeSpan.FromSeconds(45));
                     await fileStream.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
                     totalRead += read;
 
@@ -593,7 +597,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     partFiles[i] = $"{targetFilePath}.part{i}";
                 }
 
-                long totalBytesDownloaded = 0;
+                var partDownloadedAmounts = new long[partsCount];
                 var progressLock = new object();
                 var startTime = DateTime.UtcNow;
                 var nextPercent = 1;
@@ -611,7 +615,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                         var len = new FileInfo(partFiles[i]).Length;
                         if (len == expected)
                         {
-                            totalBytesDownloaded += expected;
+                            partDownloadedAmounts[i] = expected;
                         }
                         else
                         {
@@ -620,12 +624,13 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     }
                 }
 
-                if (totalBytesDownloaded > 0)
+                long initialDownloaded = partDownloadedAmounts.Sum();
+                if (initialDownloaded > 0)
                 {
-                    var resPct = (int)((totalBytesDownloaded * 100.0) / totalSize);
-                    LogInfo($"Resumindo {fileName}: {(totalBytesDownloaded / (1024.0 * 1024.0)):F1} MB / {status.TotalMb:F1} MB ({resPct}%) já no disco.");
+                    var resPct = (int)((initialDownloaded * 100.0) / totalSize);
+                    LogInfo($"Resumindo {fileName}: {(initialDownloaded / (1024.0 * 1024.0)):F1} MB / {status.TotalMb:F1} MB ({resPct}%) já no disco.");
                     nextPercent = resPct + 1;
-                    lastLoggedBytes = totalBytesDownloaded;
+                    lastLoggedBytes = initialDownloaded;
                 }
 
                 // Use todas as partes configuradas (até 32), como no downloader
@@ -650,60 +655,90 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                         }
 
                         var partTmp = partFile + ".tmp";
-                        if (File.Exists(partTmp))
+                        const int maxPartAttempts = 4;
+
+                        for (int attempt = 1; attempt <= maxPartAttempts; attempt++)
                         {
-                            File.Delete(partTmp);
-                        }
+                            cancellationToken.ThrowIfCancellationRequested();
+                            if (File.Exists(partTmp))
+                            {
+                                File.Delete(partTmp);
+                            }
 
-                        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                        req.Headers.Range = new RangeHeaderValue(start, end);
-
-                        using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-                        ValidateRangeResponse(resp, start, end, totalSize, expected);
-                        using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                        using var fs = new FileStream(partTmp, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, true);
-
-                        var buf = new byte[64 * 1024];
-                        int r;
-                        long partBytesRead = 0;
-                        while ((r = await stream.ReadAsync(buf, 0, buf.Length, cancellationToken).ConfigureAwait(false)) > 0)
-                        {
-                            await fs.WriteAsync(buf, 0, r, cancellationToken).ConfigureAwait(false);
-                            partBytesRead += r;
                             lock (progressLock)
                             {
-                                totalBytesDownloaded += r;
-                                var elapsed = Math.Max(0.1, (DateTime.UtcNow - startTime).TotalSeconds);
-                                var speedMb = (totalBytesDownloaded / (1024.0 * 1024.0)) / elapsed;
-                                var percent = (totalBytesDownloaded * 100.0) / totalSize;
+                                partDownloadedAmounts[index] = 0;
+                            }
 
-                                status.DoneMb = Math.Round(totalBytesDownloaded / (1024.0 * 1024.0), 2);
-                                status.Percentage = Math.Round(percent, 1);
-                                status.Speed = $"{speedMb:F1} MB/s";
-                                status.DetailText = $"{status.Percentage:F1}% ({FormatBytes(totalBytesDownloaded)}/{FormatBytes(totalSize)}) - {status.Speed}";
-                                OnProgressChanged?.Invoke(status);
+                            try
+                            {
+                                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                                req.Headers.Range = new RangeHeaderValue(start, end);
 
-                                if (percent >= nextPercent || (totalBytesDownloaded - lastLoggedBytes) >= 25 * 1024 * 1024)
+                                using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                                ValidateRangeResponse(resp, start, end, totalSize, expected);
+                                using var stream = await resp.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                                using var fs = new FileStream(partTmp, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, true);
+
+                                using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                                readCts.CancelAfter(TimeSpan.FromSeconds(45));
+
+                                var buf = new byte[64 * 1024];
+                                int r;
+                                long partBytesRead = 0;
+                                while ((r = await stream.ReadAsync(buf, 0, buf.Length, readCts.Token).ConfigureAwait(false)) > 0)
                                 {
-                                    LogInfo($"Baixando {fileName}: {status.DoneMb:F1} MB / {status.TotalMb:F1} MB ({(int)percent}%) - Vel: {speedMb:F1} MB/s");
-                                    nextPercent = (int)percent + 1;
-                                    lastLoggedBytes = totalBytesDownloaded;
+                                    readCts.CancelAfter(TimeSpan.FromSeconds(45));
+                                    await fs.WriteAsync(buf, 0, r, cancellationToken).ConfigureAwait(false);
+                                    partBytesRead += r;
+                                    lock (progressLock)
+                                    {
+                                        partDownloadedAmounts[index] = partBytesRead;
+                                        var currentDownloaded = partDownloadedAmounts.Sum();
+                                        var elapsed = Math.Max(0.1, (DateTime.UtcNow - startTime).TotalSeconds);
+                                        var speedMb = (currentDownloaded / (1024.0 * 1024.0)) / elapsed;
+                                        var percent = (currentDownloaded * 100.0) / totalSize;
+
+                                        status.DoneMb = Math.Round(currentDownloaded / (1024.0 * 1024.0), 2);
+                                        status.Percentage = Math.Round(percent, 1);
+                                        status.Speed = $"{speedMb:F1} MB/s";
+                                        status.DetailText = $"{status.Percentage:F1}% ({FormatBytes(currentDownloaded)}/{FormatBytes(totalSize)}) - {status.Speed}";
+                                        OnProgressChanged?.Invoke(status);
+
+                                        if (percent >= nextPercent || (currentDownloaded - lastLoggedBytes) >= 25 * 1024 * 1024)
+                                        {
+                                            LogInfo($"Baixando {fileName}: {status.DoneMb:F1} MB / {status.TotalMb:F1} MB ({(int)percent}%) - Vel: {speedMb:F1} MB/s");
+                                            nextPercent = (int)percent + 1;
+                                            lastLoggedBytes = currentDownloaded;
+                                        }
+                                    }
                                 }
+
+                                fs.Close();
+                                if (partBytesRead != expected)
+                                {
+                                    throw new IOException($"Parte {index} incompleta: {partBytesRead} de {expected} bytes.");
+                                }
+
+                                if (File.Exists(partFile))
+                                {
+                                    File.Delete(partFile);
+                                }
+
+                                File.Move(partTmp, partFile);
+                                break; // Sucesso na parte!
+                            }
+                            catch (Exception ex) when (attempt < maxPartAttempts && !cancellationToken.IsCancellationRequested)
+                            {
+                                lock (progressLock)
+                                {
+                                    partDownloadedAmounts[index] = 0;
+                                }
+                                var errDesc = ex is OperationCanceledException ? "conexão estagnou (sem dados por 45s)" : ex.Message;
+                                LogInfo($"[STRM] Parte {index + 1}/{partsCount} de {fileName} {errDesc} (tentativa {attempt}/{maxPartAttempts}). Reconectando...");
+                                await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken).ConfigureAwait(false);
                             }
                         }
-
-                        fs.Close();
-                        if (partBytesRead != expected)
-                        {
-                            throw new IOException($"Parte {index} incompleta: {partBytesRead} de {expected} bytes.");
-                        }
-
-                        if (File.Exists(partFile))
-                        {
-                            File.Delete(partFile);
-                        }
-
-                        File.Move(partTmp, partFile);
                     }
                     finally
                     {
@@ -1006,7 +1041,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         return (false, false, string.Empty);
     }
 
-    private static string NormalizeMediaTitle(string value)
+    internal static string NormalizeMediaTitle(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -1028,7 +1063,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         return Regex.Replace(cleaned, @"\s+", " ");
     }
 
-    private static (string Title, int Year)? MovieIdentity(string value)
+    internal static (string Title, int Year)? MovieIdentity(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -1048,7 +1083,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         return string.IsNullOrEmpty(normTitle) ? null : (normTitle, year);
     }
 
-    private static (string Series, int Season, int Episode)? EpisodeIdentity(string seriesName, string fileName)
+    internal static (string Series, int Season, int Episode)? EpisodeIdentity(string seriesName, string fileName)
     {
         var stem = Path.GetFileNameWithoutExtension(fileName);
         var m = EpisodeRegex.Match(stem);
