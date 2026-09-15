@@ -237,6 +237,29 @@ class ItemDetailViewModelTest {
         assertTrue(state.error!!.contains("Network connection failed"))
     }
 
+    @Test
+    fun `selectSeason succeeds even if called before init collect finishes`() = runTest {
+        val series = MediaItem(id = "s1", name = "Test Series", type = MediaItemType.Series)
+        val seasons = listOf(MediaItem(id = "sea-1", name = "Season 1", type = MediaItemType.Season))
+        val episodesS1 = listOf(MediaItem(id = "ep-1", name = "Episode 1", type = MediaItemType.Episode))
+
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(series)
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(seasons)
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> = Result.success(episodesS1)
+        }
+        val authRepo = FakeAuthRepository(userId = "u1")
+        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, FakePlaybackRepository(), FakeDownloadRepository(), FakePlaylistRepository())
+
+        viewModel.loadItem("s1")
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(1, state.seasons.size)
+        assertEquals(1, state.episodes.size)
+        assertEquals("Episode 1", state.episodes.first().name)
+    }
+
     // ── Fakes ────────────────────────────────────────────────────────────────
     private open class FakeAuthRepository(private val userId: String?) : AuthRepository {
         override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.failure(NotImplementedError())

@@ -94,6 +94,7 @@
     <PackageVersion Include="WTelegramClient" Version="3.1.5" />
     <PackageVersion Include="FubarDev.FtpServer" Version="3.1.2" />
     <PackageVersion Include="FubarDev.FtpServer.Commands" Version="3.1.2" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 </Project>
 

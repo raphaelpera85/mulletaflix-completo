@@ -21,13 +21,19 @@ class SyncPlayViewModel @Inject constructor(private val repository: SyncPlayRepo
     val state: StateFlow<SyncPlayUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
     init { refresh() }
-    fun refresh() {
+    fun refresh(isBackground: Boolean = false) {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+            if (!isBackground) {
+                _state.update { it.copy(isLoading = true, error = null) }
+            }
             repository.getGroups()
-                .onSuccess { groups -> _state.update { it.copy(groups = groups, isLoading = false) } }
-                .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "Não foi possível carregar as salas.") } }
+                .onSuccess { groups -> _state.update { it.copy(groups = groups, isLoading = false, error = null) } }
+                .onFailure { e ->
+                    if (!isBackground) {
+                        _state.update { it.copy(isLoading = false, error = e.message ?: "Não foi possível carregar as salas.") }
+                    }
+                }
         }
     }
     fun createGroup(name: String, onCreated: () -> Unit = {}) { val cleanName = name.trim(); if (cleanName.isEmpty()) return; viewModelScope.launch { _state.update { it.copy(isSubmitting = true, error = null) }; repository.createGroup(cleanName).onSuccess { _state.update { it.copy(isSubmitting = false) }; onCreated(); refresh() }.onFailure { e -> _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível criar a sala.") } } } }

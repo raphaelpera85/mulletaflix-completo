@@ -24,7 +24,7 @@ fun SyncPlayScreen(onJoinGroup: (String?) -> Unit = {}, onBack: () -> Unit = {},
     LaunchedEffect(Unit) {
         while (isActive) {
             delay(5_000)
-            viewModel.refresh()
+            viewModel.refresh(isBackground = true)
         }
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Salas SyncPlay") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } }, actions = { IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) { Icon(Icons.Default.Refresh, "Atualizar salas") }; IconButton(onClick = { showCreateDialog = true }, enabled = !state.isSubmitting) { Icon(Icons.Default.Add, "Criar sala") } }) }) { padding ->

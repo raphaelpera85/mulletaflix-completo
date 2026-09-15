@@ -1,0 +1,24 @@
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-License-Identifier: GPL-3.0-only
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+
+namespace IntroSkipper.Db;
+
+/// <summary>
+/// IntroSkipperDbContext factory.
+/// </summary>
+public class IntroSkipperDbContextFactory : IDesignTimeDbContextFactory<IntroSkipperDbContext>
+{
+    /// <inheritdoc/>
+    public IntroSkipperDbContext CreateDbContext(string[] args)
+    {
+        var optionsBuilder = new DbContextOptionsBuilder<IntroSkipperDbContext>();
+        SqlitePragmas.Configure(optionsBuilder, "introskipper-v2.db");
+
+        return new IntroSkipperDbContext(optionsBuilder.Options);
+    }
+}

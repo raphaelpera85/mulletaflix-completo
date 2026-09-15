@@ -46,8 +46,17 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            authRepository.getSavedUserId().collect { userId ->
-                _state.update { it.copy(username = if (!userId.isNullOrBlank()) "Usuário Ativo" else null) }
+            combine(
+                authRepository.getSavedUserName(),
+                authRepository.getSavedUserId(),
+            ) { name, id ->
+                when {
+                    !name.isNullOrBlank() -> name
+                    !id.isNullOrBlank() -> "Usuário Ativo"
+                    else -> null
+                }
+            }.collect { resolvedUsername ->
+                _state.update { it.copy(username = resolvedUsername) }
             }
         }
         viewModelScope.launch {

@@ -59,7 +59,10 @@ class LibraryViewModel @Inject constructor(
         currentLibraryId = libraryId
         currentStartIndex = 0
         loadJob = viewModelScope.launch {
-            val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
+            val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
+                _state.update { it.copy(isLoading = false, error = "Sessão expirada. Entre novamente.") }
+                return@launch
+            }
             _state.update { it.copy(isLoading = true, error = null) }
 
             // Get library details
@@ -93,10 +96,10 @@ class LibraryViewModel @Inject constructor(
 
     fun loadMore() {
         val libId = currentLibraryId ?: return
-        val userId = currentUserId ?: return
         if (_state.value.isLoading || !_state.value.hasMore) return
 
         loadJob = viewModelScope.launch {
+            val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
             val requestedStartIndex = currentStartIndex + pageSize
             _state.update { it.copy(isLoading = true, error = null) }
             mediaRepository.getItems(

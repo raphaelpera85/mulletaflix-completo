@@ -85,6 +85,11 @@ fun LibraryScreen(
                         Text("Tentar novamente")
                     }
                 }
+            } else if (state.items.isEmpty()) {
+                EmptyLibraryState(
+                    hasFilters = state.activeFilters.isNotEmpty(),
+                    onClearFilters = viewModel::clearFilters,
+                )
             } else {
                 val columns = if (state.isGridView) 3 else 1
 
@@ -276,3 +281,33 @@ enum class SortOption(val label: String, val apiValue: String) {
 
 private val MediaItem.primaryImageUrl: String? get() =
     imageTags[org.mulletaflix.domain.model.ImageType.Primary]?.let { "Items/$id/Images/Primary?tag=$it" }
+
+@Composable
+private fun EmptyLibraryState(
+    hasFilters: Boolean,
+    onClearFilters: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                Icons.Default.FolderOpen,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = if (hasFilters) "Nenhum item corresponde aos filtros selecionados" else "Nenhum item nesta biblioteca",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (hasFilters) {
+                Button(onClick = onClearFilters) {
+                    Text("Limpar filtros")
+                }
+            }
+        }
+    }
+}
