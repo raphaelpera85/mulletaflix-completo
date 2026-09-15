@@ -64,15 +64,57 @@ class SearchViewModelTest {
         assertEquals("term-11", viewModel.state.value.history.first())
     }
 
+    @Test
+    fun `search failure sets error message and clears loading`() = runTest {
+        searchRepository.shouldFail = true
+        viewModel.search("matrix")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoading)
+        assertEquals("Erro ao buscar conteúdo", viewModel.state.value.error)
+        assertEquals(0, viewModel.state.value.results.size)
+    }
+
+    @Test
+    fun `retrySearch executes search again after failure`() = runTest {
+        searchRepository.shouldFail = true
+        viewModel.search("matrix")
+        advanceUntilIdle()
+        assertEquals("Erro ao buscar conteúdo", viewModel.state.value.error)
+
+        searchRepository.shouldFail = false
+        viewModel.retrySearch()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.error)
+        assertEquals(1, viewModel.state.value.results.size)
+    }
+
+    @Test
+    fun `removeHistoryItem removes single entry from search history`() = runTest {
+        viewModel.search("batman")
+        viewModel.search("superman")
+        advanceUntilIdle()
+
+        assertEquals(listOf("superman", "batman"), viewModel.state.value.history)
+
+        viewModel.removeHistoryItem("superman")
+        assertEquals(listOf("batman"), viewModel.state.value.history)
+    }
+
     private class RecordingSearchRepository : SearchRepository {
         var called = false
         var term: String? = null
         var itemTypes: String? = null
+        var shouldFail = false
         override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
         override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> {
             called = true
             this.term = term
             this.itemTypes = itemTypes
+            if (shouldFail) {
+                return Result.failure(Exception("Network error"))
+            }
             return Result.success(listOf(MediaItem("1", "Result", MediaItemType.Movie)))
         }
     }

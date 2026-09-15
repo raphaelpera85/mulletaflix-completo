@@ -135,6 +135,93 @@ class UseCaseTest {
         assertEquals("item-123", unmarkedId)
     }
 
+    @Test
+    fun `GetNextEpisodeUseCase returns null when item has no seriesId`() = runTest {
+        val movie = MediaItem(id = "m1", name = "Movie", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {}
+        val useCase = GetNextEpisodeUseCase(mediaRepo)
+        val result = useCase("u1", movie)
+
+        assertTrue(result.isSuccess)
+        assertEquals(null, result.getOrNull())
+    }
+
+    @Test
+    fun `GetNextEpisodeUseCase finds next episode in same season`() = runTest {
+        val ep1 = MediaItem(
+            id = "e1",
+            name = "Ep 1",
+            type = MediaItemType.Episode,
+            seriesId = "s1",
+            seasonId = "season1",
+            indexNumber = 1,
+            parentIndexNumber = 1,
+        )
+        val ep2 = MediaItem(
+            id = "e2",
+            name = "Ep 2",
+            type = MediaItemType.Episode,
+            seriesId = "s1",
+            seasonId = "season1",
+            indexNumber = 2,
+            parentIndexNumber = 1,
+        )
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> {
+                return Result.success(listOf(ep1, ep2))
+            }
+        }
+        val useCase = GetNextEpisodeUseCase(mediaRepo)
+        val result = useCase("u1", ep1)
+
+        assertTrue(result.isSuccess)
+        assertEquals("e2", result.getOrNull()?.id)
+        assertEquals("Ep 2", result.getOrNull()?.name)
+    }
+
+    @Test
+    fun `GetNextEpisodeUseCase advances to first episode of next season when season finishes`() = runTest {
+        val s1e2 = MediaItem(
+            id = "e2",
+            name = "S1 Finale",
+            type = MediaItemType.Episode,
+            seriesId = "s1",
+            seasonId = "season1",
+            indexNumber = 2,
+            parentIndexNumber = 1,
+        )
+        val s2e1 = MediaItem(
+            id = "e3",
+            name = "S2 Premiere",
+            type = MediaItemType.Episode,
+            seriesId = "s1",
+            seasonId = "season2",
+            indexNumber = 1,
+            parentIndexNumber = 2,
+        )
+        val season1 = MediaItem(id = "season1", name = "Season 1", type = MediaItemType.Season, indexNumber = 1)
+        val season2 = MediaItem(id = "season2", name = "Season 2", type = MediaItemType.Season, indexNumber = 2)
+
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> {
+                return Result.success(listOf(season1, season2))
+            }
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> {
+                return if (seasonId == "season1") {
+                    Result.success(listOf(s1e2))
+                } else {
+                    Result.success(listOf(s2e1))
+                }
+            }
+        }
+        val useCase = GetNextEpisodeUseCase(mediaRepo)
+        val result = useCase("u1", s1e2)
+
+        assertTrue(result.isSuccess)
+        assertEquals("e3", result.getOrNull()?.id)
+        assertEquals("S2 Premiere", result.getOrNull()?.name)
+    }
+
     private open class FakeAuthRepository : AuthRepository {
         override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.failure(NotImplementedError())
         override suspend fun register(username: String, password: String): Result<RegistrationResult> = Result.failure(NotImplementedError())

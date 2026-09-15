@@ -100,10 +100,13 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
   - [x] Picture-in-Picture (PiP) automático ao sair do app
   - [x] Suporte a rotação automática e bloqueio de orientação da tela
   - [x] Controle de brilho e volume por gestos verticais nas laterais da tela
+  - [x] Liberação imediata de decodificadores de hardware e codecs no `onCleared` (sem vazamento de memória)
+  - [x] Tratamento de navegação no `BackHandler` retornando à tela anterior sem finalizar a Activity
 - [x] **Interface OSD (On-Screen Display)**
   - [x] Controles modernos de play/pause, avançar/retroceder 10s
   - [x] Barra de progresso com visualização de capítulos e thumbnails de busca
   - [x] Botões "Pular Introdução" (Skip Intro) e "Pular Créditos" (Skip Credits)
+  - [x] **Próximo Episódio Automático**: Descoberta inteligente do próximo episódio de séries (`GetNextEpisodeUseCase`), contagem regressiva visual de 5s, botão "Assistir Agora" e avanço automático ao fim do episódio
 - [x] **Seleção de Faixas & Qualidade**
   - [x] Seleção de faixas de áudio (Dolby Atmos, 5.1, Estéreo, idiomas secundários)
   - [x] Seleção de legendas (embutidas e externas via OpenSubtitles / SRT / VTT)
@@ -119,9 +122,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 ## 🔍 7. Busca Global Instantânea (`:feature:search`)
 
 - [x] **Mecanismo de Busca em Tempo Real**
-  - [x] Busca instantânea com debounce de digitação
+  - [x] Busca instantânea com debounce de digitação (350ms)
   - [x] Chips de filtro rápido por tipo de mídia (Filmes, Séries, Músicas, Pessoas)
-  - [x] Histórico de buscas recentes com remoção individual e limpeza total
+  - [x] Histórico de buscas recentes com remoção individual por item e limpeza total
+  - [x] Tratamento robusto de erros com card explicativo e botão "Tentar novamente"
+  - [x] Navegação de retorno (`onBack`) com ícone na SearchBar
   - [x] Resultados agrupados por categoria com navegação direta
 
 ---
@@ -132,11 +137,19 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
   - [x] Integração com `Media3 DownloadService` para downloads estáveis em segundo plano
   - [x] Notificação de progresso persistente com pausa e cancelamento
   - [x] Fila de downloads priorizada com controle de Wi-Fi apenas
-- [x] **Armazenamento Local & Banco de Dados**
-  - [x] Registro Room para itens baixados e verificação de integridade
-  - [x] Reprodução offline transparente no Player sem necessidade de internet
+- [x] **Experiência do Usuário & Armazenamento Local**
+  - [x] Navegação com TopAppBar e botão de voltar (`onBack`)
+  - [x] Estado vazio intuitivo com chamada para ação ("Explorar Catálogo")
+  - [x] Diálogo de confirmação de exclusão prevenindo perda acidental de mídias baixadas
+  - [x] Registro Room para itens baixados e reprodução offline direta no Player
 
 ---
+
+## 📺 9. TV Ao Vivo & EPG (`:feature:live-tv`)
+
+- [x] Navegação integrada com botão de voltar na TopAppBar
+- [x] Guia EPG com programação de 24 horas e agendamento de gravações
+- [x] Reprodução direta de canais ao vivo e gravações realizadas
 
 ## 📺 9. Live TV & Guia de Programação (EPG) (`:feature:live-tv`)
 

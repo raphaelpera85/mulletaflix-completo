@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,10 +19,36 @@ import org.mulletaflix.domain.model.MediaItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LiveTvScreen(onChannelPlay: (String) -> Unit, viewModel: LiveTvViewModel = hiltViewModel()) {
+fun LiveTvScreen(
+    onChannelPlay: (String) -> Unit,
+    onBack: () -> Unit = {},
+    viewModel: LiveTvViewModel = hiltViewModel()
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showGuide by remember { mutableStateOf(false) }
-    Scaffold(topBar = { TopAppBar(title = { Text("TV Ao Vivo & EPG") }, actions = { IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) { Icon(Icons.Default.Refresh, "Atualizar canais") }; IconButton(onClick = { showGuide = true; viewModel.loadGuide() }, enabled = state.channels.isNotEmpty() && !state.isLoadingGuide) { Icon(Icons.Default.CalendarMonth, "Guia EPG") } }) }) { padding ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("TV Ao Vivo & EPG") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) {
+                        Icon(Icons.Default.Refresh, "Atualizar canais")
+                    }
+                    IconButton(
+                        onClick = { showGuide = true; viewModel.loadGuide() },
+                        enabled = state.channels.isNotEmpty() && !state.isLoadingGuide
+                    ) {
+                        Icon(Icons.Default.CalendarMonth, "Guia EPG")
+                    }
+                }
+            )
+        }
+    ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Text("Canais disponíveis", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(bottom = 8.dp)) }
             state.error?.let { error -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); TextButton(onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,15 +23,17 @@ import org.mulletaflix.domain.model.MediaItemType
 /**
  * Universal search screen.
  *
- * - Search field with debounce 300ms
+ * - Search field with debounce 350ms
  * - Results grouped by type: Movies, Series, Episodes, Music, Albums, Artists, People
- * - Search history (local) shown when field is empty
+ * - Search history (with individual remove and instant replay) shown when field is empty
  * - Filter chips by content type
+ * - Error feedback with retry action
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     onItemClick: (String) -> Unit,
+    onBack: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -47,7 +50,11 @@ fun SearchScreen(
                     expanded = false,
                     onExpandedChange = {},
                     placeholder = { Text("Buscar filmes, séries, músicas...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    leadingIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                        }
+                    },
                     trailingIcon = {
                         if (state.query.isNotEmpty()) {
                             IconButton(onClick = { viewModel.onQueryChange("") }) {
@@ -90,11 +97,34 @@ fun SearchScreen(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+        } else if (state.error != null) {
+            Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = state.error ?: "Erro ao buscar",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Button(onClick = viewModel::retrySearch) {
+                            Text("Tentar novamente")
+                        }
+                    }
+                }
+            }
         } else if (state.query.isEmpty()) {
             // Show search history
             SearchHistory(
                 history = state.history,
-                onItemClick = viewModel::onQueryChange,
+                onItemClick = viewModel::search,
+                onRemoveItem = viewModel::removeHistoryItem,
                 onClearHistory = viewModel::clearHistory
             )
         } else if (state.results.isEmpty()) {
@@ -150,6 +180,7 @@ fun SearchScreen(
 private fun SearchHistory(
     history: List<String>,
     onItemClick: (String) -> Unit,
+    onRemoveItem: (String) -> Unit,
     onClearHistory: () -> Unit,
 ) {
     if (history.isEmpty()) return
@@ -164,12 +195,22 @@ private fun SearchHistory(
         }
         history.forEach { query ->
             Row(
-                modifier = Modifier.fillMaxWidth().clickable { onItemClick(query) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onItemClick(query) }
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(query, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
-                Icon(Icons.Default.NorthWest, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = { onRemoveItem(query) }) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Remover da busca",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }

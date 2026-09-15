@@ -125,7 +125,8 @@ fun MulletaFlixNavHost(
             SearchScreen(
                 onItemClick = { itemId ->
                     navController.navigate(MulletaFlixRoute.itemDetail(itemId))
-                }
+                },
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -133,7 +134,13 @@ fun MulletaFlixNavHost(
             DownloadsScreen(
                 onItemClick = { entry ->
                     navController.navigate(MulletaFlixRoute.offlinePlayer(entry.id, entry.uri, entry.title))
-                }
+                },
+                onBack = { navController.popBackStack() },
+                onExploreClick = {
+                    navController.navigate(MulletaFlixRoute.HOME) {
+                        popUpTo(MulletaFlixRoute.HOME) { inclusive = true }
+                    }
+                },
             )
         }
 
@@ -141,7 +148,8 @@ fun MulletaFlixNavHost(
             LiveTvScreen(
                 onChannelPlay = { channelId ->
                     navController.navigate(MulletaFlixRoute.videoPlayer(channelId))
-                }
+                },
+                onBack = { navController.popBackStack() },
             )
         }
 

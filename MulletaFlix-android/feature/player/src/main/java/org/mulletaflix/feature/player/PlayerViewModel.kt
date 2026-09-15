@@ -32,11 +32,19 @@ import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
 import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.model.Chapter
+import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
 import javax.inject.Inject
 
 data class TrackInfo(val index: Int, val displayName: String)
+
+data class NextEpisodeInfo(
+    val id: String,
+    val title: String,
+    val episodeNumber: Int?,
+    val seasonNumber: Int?,
+)
 
 data class PlayerState(
     val title: String? = null,
@@ -56,6 +64,8 @@ data class PlayerState(
     val showSkipIntro: Boolean = false,
     val showSkipCredits: Boolean = false,
     val skipTargetPosition: Long? = null,
+    val nextEpisode: NextEpisodeInfo? = null,
+    val nextEpisodeCountdown: Int? = null,
     val error: String? = null,
 )
 
@@ -67,6 +77,7 @@ class PlayerViewModel @Inject constructor(
     private val playbackRepository: PlaybackRepository,
     private val sessionRepository: SessionRepository,
     private val settingsRepository: SettingsRepository,
+    private val getNextEpisodeUseCase: GetNextEpisodeUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlayerState())
@@ -99,7 +110,10 @@ class PlayerViewModel @Inject constructor(
                 _state.update {
                     it.copy(isBuffering = playbackState == Player.STATE_BUFFERING)
                 }
-                if (playbackState == Player.STATE_ENDED) reportPlaybackStopped()
+                if (playbackState == Player.STATE_ENDED) {
+                    reportPlaybackStopped()
+                    handlePlaybackEnded()
+                }
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -222,6 +236,7 @@ class PlayerViewModel @Inject constructor(
         loadJob?.cancel()
         retryJob?.cancel()
         serverProgressJob?.cancel()
+        nextEpisodeCountdownJob?.cancel()
         player.stop()
         currentItemId = itemId
         currentItemChapters = emptyList()
@@ -238,6 +253,8 @@ class PlayerViewModel @Inject constructor(
                 isBuffering = true,
                 currentPosition = 0L,
                 duration = 0L,
+                nextEpisode = null,
+                nextEpisodeCountdown = null,
                 error = null,
             )
         }
@@ -256,6 +273,24 @@ class PlayerViewModel @Inject constructor(
             if (currentItemId != itemId) return@launch
             currentItemChapters = item.chapters
             _state.update { it.copy(title = item.name, error = null) }
+
+            // Check for next episode in series
+            viewModelScope.launch {
+                getNextEpisodeUseCase(userId, item).onSuccess { next ->
+                    if (next != null && currentItemId == itemId) {
+                        _state.update {
+                            it.copy(
+                                nextEpisode = NextEpisodeInfo(
+                                    id = next.id,
+                                    title = next.name,
+                                    episodeNumber = next.indexNumber,
+                                    seasonNumber = next.parentIndexNumber,
+                                )
+                            )
+                        }
+                    }
+                }
+            }
 
             val playbackInfo = playbackRepository.getPlaybackInfo(
                 itemId = itemId,
@@ -373,6 +408,7 @@ class PlayerViewModel @Inject constructor(
         retryJob?.cancel()
         progressJob?.cancel()
         serverProgressJob?.cancel()
+        nextEpisodeCountdownJob?.cancel()
         player.stop()
         currentItemId = null
         currentPlaySessionId = null
@@ -421,7 +457,14 @@ class PlayerViewModel @Inject constructor(
 
     fun skipPrevious() { player.seekToPreviousMediaItem() }
 
-    fun skipNext() { player.seekToNextMediaItem() }
+    fun skipNext() {
+        val next = _state.value.nextEpisode
+        if (next != null) {
+            playNextEpisodeNow()
+        } else {
+            player.seekToNextMediaItem()
+        }
+    }
 
     fun skipSegment() {
         _state.value.skipTargetPosition?.let(player::seekTo)
@@ -588,13 +631,44 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private var nextEpisodeCountdownJob: Job? = null
+
+    private fun handlePlaybackEnded() {
+        val next = _state.value.nextEpisode ?: return
+        if (!autoPlayEnabled) return
+        nextEpisodeCountdownJob?.cancel()
+        nextEpisodeCountdownJob = viewModelScope.launch {
+            for (i in 5 downTo 1) {
+                _state.update { it.copy(nextEpisodeCountdown = i) }
+                delay(1000)
+            }
+            _state.update { it.copy(nextEpisodeCountdown = null) }
+            loadMedia(next.id)
+        }
+    }
+
+    fun playNextEpisodeNow() {
+        val next = _state.value.nextEpisode ?: return
+        nextEpisodeCountdownJob?.cancel()
+        _state.update { it.copy(nextEpisodeCountdown = null) }
+        loadMedia(next.id)
+    }
+
+    fun cancelNextEpisodeCountdown() {
+        nextEpisodeCountdownJob?.cancel()
+        _state.update { it.copy(nextEpisodeCountdown = null) }
+    }
+
     override fun onCleared() {
         loadJob?.cancel()
         retryJob?.cancel()
         progressJob?.cancel()
         serverProgressJob?.cancel()
+        nextEpisodeCountdownJob?.cancel()
         reportPlaybackStopped()
         PlayerMediaSessionBridge.detach(mediaSession)
+        player.release()
+        localPlayer.release()
     }
 
     private fun showLoadError(message: String) {

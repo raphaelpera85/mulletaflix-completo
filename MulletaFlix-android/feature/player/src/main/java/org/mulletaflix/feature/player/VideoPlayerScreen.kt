@@ -116,7 +116,7 @@ fun VideoPlayerScreen(
                 android.app.PictureInPictureParams.Builder().build()
             )
         } else {
-            activity?.finish()
+            onBack()
         }
     }
 
@@ -287,6 +287,72 @@ fun VideoPlayerScreen(
             ) {
                 Text("Pular Créditos")
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+
+        // ── Next Episode Auto-Play Prompt ────────────────────────────────────
+        val nextEpisode = state.nextEpisode
+        val showNextEpisode = nextEpisode != null && shouldShowNextEpisodePrompt(
+            hasNextEpisode = true,
+            isPlaybackEnded = !state.isPlaying && state.currentPosition > 0 && state.duration > 0 && state.currentPosition >= state.duration - 1500L,
+            countdownActive = state.nextEpisodeCountdown != null,
+        )
+        AnimatedVisibility(
+            visible = showNextEpisode,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 100.dp)
+        ) {
+            if (nextEpisode != null) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    modifier = Modifier.widthIn(max = 340.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Próximo Episódio",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Text(
+                            text = nextEpisode.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        formatNextEpisodeSubtitle(nextEpisode.seasonNumber, nextEpisode.episodeNumber)?.let { subtitle ->
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        state.nextEpisodeCountdown?.let { seconds ->
+                            Text(
+                                text = "Reproduzindo em ${seconds}s...",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                        ) {
+                            TextButton(onClick = { viewModel.cancelNextEpisodeCountdown() }) {
+                                Text("Cancelar")
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Button(onClick = { viewModel.playNextEpisodeNow() }) {
+                                Text("Assistir Agora")
+                            }
+                        }
+                    }
+                }
             }
         }
 
