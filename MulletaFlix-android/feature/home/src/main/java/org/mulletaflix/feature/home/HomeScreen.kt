@@ -67,6 +67,15 @@ fun HomeScreen(
                 .background(MaterialTheme.colorScheme.background),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
+            item {
+                HomeTopBar(
+                    onSearch = { navController.navigate("main/search") },
+                    onLiveTv = { navController.navigate("main/live-tv") },
+                    onDownloads = { navController.navigate("main/downloads") },
+                    onSettings = { navController.navigate("main/settings") },
+                    onProfile = { navController.navigate("main/profile") },
+                )
+            }
 
             if (state.isLoading && state.heroItem == null && state.libraries.isEmpty()) {
                 item {
@@ -420,3 +429,49 @@ private val MediaItem.backdropImageUrl: String? get() {
 
 private val MediaItem.runtimeMinutes: Int? get() =
     runtimeTicks?.div(600_000_000L)?.toInt()?.takeIf { it > 0 }
+
+@Composable
+private fun HomeTopBar(
+    onSearch: () -> Unit,
+    onLiveTv: () -> Unit,
+    onDownloads: () -> Unit,
+    onSettings: () -> Unit,
+    onProfile: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "MULLETAFLIX",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Black,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            IconButton(onClick = onSearch) {
+                Icon(Icons.Default.Search, contentDescription = "Buscar", tint = MaterialTheme.colorScheme.onBackground)
+            }
+            IconButton(onClick = onLiveTv) {
+                Icon(Icons.Default.Tv, contentDescription = "TV Ao Vivo", tint = MaterialTheme.colorScheme.onBackground)
+            }
+            IconButton(onClick = onDownloads) {
+                Icon(Icons.Default.FileDownload, contentDescription = "Downloads", tint = MaterialTheme.colorScheme.onBackground)
+            }
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = MaterialTheme.colorScheme.onBackground)
+            }
+            IconButton(onClick = onProfile) {
+                Icon(Icons.Default.AccountCircle, contentDescription = "Meu Perfil", tint = MaterialTheme.colorScheme.secondary)
+            }
+        }
+    }
+}
+

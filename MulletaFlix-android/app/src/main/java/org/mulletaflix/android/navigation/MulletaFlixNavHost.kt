@@ -147,7 +147,9 @@ fun MulletaFlixNavHost(
 
         composable(MulletaFlixRoute.SETTINGS) {
             SettingsScreen(
+                onProfile = { navController.navigate(MulletaFlixRoute.PROFILE) },
                 onSyncPlay = { navController.navigate(MulletaFlixRoute.SYNC_PLAY) },
+                onBack = { navController.popBackStack() },
                 onLogout = {
                     navController.navigate(MulletaFlixRoute.SERVER_SELECTION) {
                         popUpTo(MulletaFlixRoute.HOME) { inclusive = true }
@@ -166,7 +168,17 @@ fun MulletaFlixNavHost(
         }
 
         composable(MulletaFlixRoute.PROFILE) {
-            ProfileScreen()
+            ProfileScreen(
+                onBack = { navController.popBackStack() },
+                onLogout = {
+                    navController.navigate(MulletaFlixRoute.SERVER_SELECTION) {
+                        popUpTo(MulletaFlixRoute.HOME) { inclusive = true }
+                    }
+                },
+                onSwitchServer = {
+                    navController.navigate(MulletaFlixRoute.SERVER_SELECTION)
+                },
+            )
         }
 
         // Detail

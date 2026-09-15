@@ -29,13 +29,15 @@ interface AuthRepository {
     suspend fun initiateQuickConnect(): Result<QuickConnectState>
     suspend fun checkQuickConnect(secret: String): Result<UserSession?>
     suspend fun logout(): Result<Unit>
-    suspend fun getCurrentUserProfile(): Result<org.mulletaflix.domain.model.UserProfile>
+    suspend fun getCurrentUserProfile(): Result<org.mulletaflix.domain.model.UserProfile> =
+        Result.failure(UnsupportedOperationException())
     fun getSavedServerUrl(): Flow<String>
     suspend fun setServerUrl(url: String)
     fun getSavedUserId(): Flow<String?>
-    fun getSavedUserName(): Flow<String?>
+    fun getSavedUserName(): Flow<String?> = kotlinx.coroutines.flow.flowOf(null)
     fun getSavedToken(): Flow<String?>
 }
+
 
 data class ServerVerification(
     val name: String,

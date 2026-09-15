@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,13 +35,24 @@ import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 fun SettingsScreen(
     onLogout: () -> Unit,
     onSyncPlay: () -> Unit = {},
+    onProfile: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Configurações") })
+            TopAppBar(
+                title = { Text("Configurações") },
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                        }
+                    }
+                }
+            )
         }
     ) { padding ->
         Column(
@@ -53,7 +65,7 @@ fun SettingsScreen(
             // ── Servidor ─────────────────────────────────────────────────────
             SettingsGroup(title = "Servidor") {
                 SettingsItem(icon = Icons.Default.Dns, title = "Servidor", subtitle = state.serverUrl ?: "Não configurado") {}
-                SettingsItem(icon = Icons.Default.Person, title = "Conta", subtitle = state.username ?: "") {}
+                SettingsItem(icon = Icons.Default.Person, title = "Meu Perfil", subtitle = state.username ?: "Ver perfil, permissões e alternar usuário", onClick = onProfile)
                 SettingsItem(icon = Icons.Default.Group, title = "Salas SyncPlay", subtitle = "Assistir sincronizado com amigos", onClick = onSyncPlay)
                 SettingsItem(icon = Icons.Default.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
                     viewModel.logout()

@@ -39,7 +39,6 @@ data class UserProfileUiState(
 class UserProfileViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val sessionRepository: SessionRepository,
-    private val settingsRepository: SettingsRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -76,20 +75,30 @@ class UserProfileViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             calculateCacheSize()
 
+            val currentUrl = sessionRepository.getBaseUrl().firstOrNull() ?: ""
+            val currentUserId = sessionRepository.getCurrentUserId().firstOrNull()
+            val currentUserName = sessionRepository.getCurrentUserName().firstOrNull()
+
+            _uiState.update {
+                it.copy(
+                    serverUrl = currentUrl,
+                    fallbackUserId = currentUserId,
+                    fallbackUserName = currentUserName,
+                )
+            }
+
             // 1. Fetch remote user profile
             val profileResult = authRepository.getCurrentUserProfile()
             if (profileResult.isSuccess) {
                 val profile = profileResult.getOrNull()
                 _uiState.update { it.copy(userProfile = profile) }
             } else {
-                // If remote fetch fails, we retain fallback username/id from local session
-                val err = profileResult.exceptionOrNull()
                 _uiState.update {
                     it.copy(
-                        userProfile = it.fallbackUserId?.let { id ->
+                        userProfile = currentUserId?.let { id ->
                             UserProfile(
                                 id = id,
-                                name = it.fallbackUserName ?: "Usuário MulletaFlix",
+                                name = currentUserName ?: "Usuário MulletaFlix",
                                 isAdministrator = false,
                                 canDownload = true,
                                 canAccessLiveTv = true,
@@ -101,7 +110,6 @@ class UserProfileViewModel @Inject constructor(
             }
 
             // 2. Fetch server verification / latency
-            val currentUrl = _uiState.value.serverUrl
             if (currentUrl.isNotBlank()) {
                 authRepository.verifyServer(currentUrl).onSuccess { verification ->
                     _uiState.update { it.copy(serverVerification = verification) }
@@ -110,14 +118,15 @@ class UserProfileViewModel @Inject constructor(
 
             // 3. Fetch public users for quick switching
             authRepository.getAvailableUsers().onSuccess { users ->
-                val currentId = _uiState.value.userProfile?.id ?: _uiState.value.fallbackUserId
-                val otherUsers = users.filter { it.id != currentId }
+                val myId = _uiState.value.userProfile?.id ?: currentUserId
+                val otherUsers = users.filter { it.id != myId }
                 _uiState.update { it.copy(availableUsers = otherUsers) }
             }
 
             _uiState.update { it.copy(isLoading = false) }
         }
     }
+
 
     fun selectUserToSwitch(user: AvailableUser?) {
         _uiState.update {
@@ -177,8 +186,9 @@ class UserProfileViewModel @Inject constructor(
     fun clearCache() {
         viewModelScope.launch {
             try {
-                context.cacheDir?.deleteRecursively()
-                settingsRepository.clearCache()
+                context.cacheDir.resolve("image_cache").deleteRecursively()
+                context.cacheDir.resolve("coil").deleteRecursively()
+                context.cacheDir.resolve("code_cache").deleteRecursively()
                 calculateCacheSize()
                 _uiState.update {
                     it.copy(
@@ -191,6 +201,7 @@ class UserProfileViewModel @Inject constructor(
             }
         }
     }
+
 
     private fun calculateCacheSize() {
         try {
