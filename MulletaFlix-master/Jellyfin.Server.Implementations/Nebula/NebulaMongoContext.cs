@@ -1011,6 +1011,114 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Verifica se uma mídia já foi enviada e concluída no Telegram (status='completed' com partes enviadas).
+    /// Suporta correspondência por nome exato, stem, identidade de filme (Título + Ano) e episódio (Série + Temporada + Episódio).
+    /// </summary>
+    public async Task<BsonDocument?> FindCompletedMediaAsync(
+        string fileName,
+        string? localFilePath = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return null;
+        }
+
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        var dirName = !string.IsNullOrWhiteSpace(localFilePath)
+            ? Path.GetFileName(Path.GetDirectoryName(localFilePath) ?? string.Empty)
+            : string.Empty;
+
+        // 1. Busca direta por nome exato ou stem em arquivos concluídos
+        var filterByName = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Ne("type", "dir"),
+            Builders<BsonDocument>.Filter.Eq("status", "completed"),
+            Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.Eq("name", fileName),
+                Builders<BsonDocument>.Filter.Regex("name", new BsonRegularExpression($"^{Regex.Escape(fileName)}$", "i")),
+                Builders<BsonDocument>.Filter.Regex("name", new BsonRegularExpression($"^{Regex.Escape(stem)}\\.[a-zA-Z0-9]+$", "i"))));
+
+        using (var cursor = await _filesCollection.FindAsync(filterByName, cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
+            var match = await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            if (match != null && HasTelegramParts(match))
+            {
+                return match;
+            }
+        }
+
+        // 2. Busca por Identidade de Filme (Título normalizado + Ano)
+        var movieIdent = NebulaDownloaderEngine.MovieIdentity(stem) ?? NebulaDownloaderEngine.MovieIdentity(dirName);
+        if (movieIdent.HasValue)
+        {
+            var yearFilter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Ne("type", "dir"),
+                Builders<BsonDocument>.Filter.Eq("status", "completed"),
+                Builders<BsonDocument>.Filter.Regex("name", new BsonRegularExpression(movieIdent.Value.Year.ToString(CultureInfo.InvariantCulture))));
+
+            using var cursor = await _filesCollection.FindAsync(yearFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var candidates = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var doc in candidates)
+            {
+                var docName = doc.GetValue("name", string.Empty).AsString;
+                var docStem = Path.GetFileNameWithoutExtension(docName);
+                var docIdent = NebulaDownloaderEngine.MovieIdentity(docStem);
+                if (docIdent.HasValue &&
+                    docIdent.Value.Year == movieIdent.Value.Year &&
+                    string.Equals(docIdent.Value.Title, movieIdent.Value.Title, StringComparison.OrdinalIgnoreCase) &&
+                    HasTelegramParts(doc))
+                {
+                    return doc;
+                }
+            }
+        }
+
+        // 3. Busca por Identidade de Episódio de Série
+        var epIdent = NebulaDownloaderEngine.EpisodeIdentity(dirName, fileName);
+        if (epIdent.HasValue)
+        {
+            var sStr = epIdent.Value.Season.ToString("00", CultureInfo.InvariantCulture);
+            var eStr = epIdent.Value.Episode.ToString("00", CultureInfo.InvariantCulture);
+            var epPattern = $"(?i)s{sStr}e{eStr}|{epIdent.Value.Season}x{eStr}";
+            var epFilter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Ne("type", "dir"),
+                Builders<BsonDocument>.Filter.Eq("status", "completed"),
+                Builders<BsonDocument>.Filter.Regex("name", new BsonRegularExpression(epPattern)));
+
+            using var cursor = await _filesCollection.FindAsync(epFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var candidates = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var doc in candidates)
+            {
+                var docName = doc.GetValue("name", string.Empty).AsString;
+                var docIdent = NebulaDownloaderEngine.EpisodeIdentity(string.Empty, docName);
+                if (docIdent.HasValue &&
+                    docIdent.Value.Season == epIdent.Value.Season &&
+                    docIdent.Value.Episode == epIdent.Value.Episode &&
+                    string.Equals(docIdent.Value.Series, epIdent.Value.Series, StringComparison.OrdinalIgnoreCase) &&
+                    HasTelegramParts(doc))
+                {
+                    return doc;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasTelegramParts(BsonDocument doc)
+    {
+        if (doc.TryGetValue("parts", out var partsVal) && partsVal.IsBsonArray && partsVal.AsBsonArray.Count > 0)
+        {
+            return partsVal.AsBsonArray.Any(p => p is BsonDocument pDoc &&
+                (!string.IsNullOrWhiteSpace(pDoc.GetValue("tg_file_id", string.Empty).AsString) ||
+                 !string.IsNullOrWhiteSpace(pDoc.GetValue("tg_file", string.Empty).AsString)));
+        }
+
+        return !string.IsNullOrWhiteSpace(doc.GetValue("tg_file_id", string.Empty).AsString) ||
+               !string.IsNullOrWhiteSpace(doc.GetValue("file_id", string.Empty).AsString);
+    }
+
+    /// <summary>
     /// Garante que a estrutura de diretórios relativos informada existe no MongoDB e retorna o ID da pasta pai folha.
     /// </summary>
     /// <param name="relDir">Diretório relativo.</param>
@@ -1544,6 +1652,32 @@ public sealed class NebulaMongoContext : IDisposable
                     }
                     else
                     {
+                        // Verifica se esta mídia já foi enviada e concluída anteriormente no Telegram
+                        var alreadyCompleted = await FindCompletedMediaAsync(fileName, fileInfo.FullName, cancellationToken).ConfigureAwait(false);
+                        if (alreadyCompleted != null)
+                        {
+                            var compName = alreadyCompleted.GetValue("name", fileName).AsString;
+                            _logger.LogInformation("[NEBULA-MONGO] Mídia '{File}' já foi enviada e concluída no Telegram anteriormente ('{Comp}'). Ignorando enfileiramento para evitar envio duplicado.", fileName, compName);
+
+                            if (deleteCompletedFromStaging)
+                            {
+                                try
+                                {
+                                    if (File.Exists(fileInfo.FullName))
+                                    {
+                                        File.Delete(fileInfo.FullName);
+                                        _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging duplicado removido do disco: {Path}", fileInfo.FullName);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover staging file duplicado: {Path}", fileInfo.FullName);
+                                }
+                            }
+
+                            continue;
+                        }
+
                         // Arquivo novo detectado
                         var newDoc = new BsonDocument
                         {

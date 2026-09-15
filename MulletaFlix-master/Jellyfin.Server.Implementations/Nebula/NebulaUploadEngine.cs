@@ -250,6 +250,42 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     ? parentObjectId
                     : parentId;
 
+            // 0. Verifica se esta mídia já foi enviada e concluída no Telegram (evita duplicata universal)
+            var alreadyCompleted = _mongoContext != null
+                ? await _mongoContext.FindCompletedMediaAsync(targetFileName, localFilePath, cancellationToken).ConfigureAwait(false)
+                : null;
+
+            if (alreadyCompleted != null)
+            {
+                var compName = alreadyCompleted.GetValue("name", targetFileName).AsString;
+                var compId = alreadyCompleted.GetValue("_id").ToString();
+                _logger.LogInformation(
+                    "[NEBULA-UPLOAD] Mídia '{Target}' já foi enviada para o Telegram anteriormente (Registro '{Comp}', ID: {Id}). Ignorando envio para evitar duplicata.",
+                    targetFileName,
+                    compName,
+                    compId);
+                LogServer("INFO", $"[NEBULA-UPLOAD] Mídia '{targetFileName}' já enviada ao Telegram anteriormente. Upload ignorado.");
+
+                if (_deleteSourceAfterUpload)
+                {
+                    try
+                    {
+                        if (File.Exists(localFilePath))
+                        {
+                            File.Delete(localFilePath);
+                            _logger.LogInformation("[NEBULA-UPLOAD] Arquivo local de mídia já enviada removido: {Path}", localFilePath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível remover arquivo local já enviado: {Path}", localFilePath);
+                    }
+                }
+
+                NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
+                return true;
+            }
+
             // 1. Busca documento existente no MongoDB para verificar se já há partes enviadas
             var existingDoc = _mongoContext != null
                 ? await _mongoContext.FindFileForUploadAsync(targetFileName, parentId, localFilePath, cancellationToken).ConfigureAwait(false)

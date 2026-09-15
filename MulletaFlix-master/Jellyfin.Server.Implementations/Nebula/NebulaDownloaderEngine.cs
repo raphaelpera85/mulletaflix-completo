@@ -953,6 +953,14 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         string url,
         CancellationToken cancellationToken)
     {
+        // 0. Checa se já existe mídia concluída no Telegram (verificação universal via FindCompletedMediaAsync)
+        var completedDoc = await _mongoContext.FindCompletedMediaAsync(finalMediaFileName, strmPath, cancellationToken).ConfigureAwait(false);
+        if (completedDoc != null)
+        {
+            var matchedName = completedDoc.GetValue("name", finalMediaFileName).AsString;
+            return (true, true, $"Mídia '{matchedName}' já concluída e enviada ao Telegram anteriormente");
+        }
+
         var fileNameWithoutExt = Path.GetFileNameWithoutExtension(strmPath);
         var files = await _mongoContext.GetCompletedOrActiveFilesAsync(cancellationToken).ConfigureAwait(false);
 
