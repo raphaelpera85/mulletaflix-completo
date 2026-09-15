@@ -8,10 +8,12 @@ using System.Net.Http.Headers;
 using System.Reflection;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
+using Moq;
 using MulletaFlix.Server.Implementations.Nebula;
 using Xunit;
 
@@ -979,5 +981,45 @@ public class NebulaUploadEngineTests
         var url = NebulaStrmGenerator.BuildStrmTargetUrl(config, "Filmes", "Movie.mp4", useHttp: true);
 
         Assert.Equal("http://192.168.1.100:2123/stream?id=Filmes/Movie.mp4&token=token%20with%20spaces", url);
+    }
+
+    [Fact]
+    public void NebulaFtpManager_DoesNotMountMonitoredMediaPaths_AndRemovesExistingMonitoredPaths()
+    {
+        var libraryManagerMock = new Mock<ILibraryManager>(MockBehavior.Strict);
+
+        var moviesFolder = new VirtualFolderInfo
+        {
+            Name = "Filmes",
+            Locations = new[] { @"D:\midias\Filmes", @"D:\External\Movies" }
+        };
+        var seriesFolder = new VirtualFolderInfo
+        {
+            Name = "Series",
+            Locations = new[] { @"D:\midias2\Series" }
+        };
+
+        libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns(new List<VirtualFolderInfo> { moviesFolder, seriesFolder });
+        libraryManagerMock.Setup(m => m.RemoveMediaPath("Filmes", @"D:\midias\Filmes"));
+        libraryManagerMock.Setup(m => m.RemoveMediaPath("Series", @"D:\midias2\Series"));
+
+        var manager = new NebulaFtpManager(
+            null!,
+            NullLogger<NebulaFtpManager>.Instance,
+            NullLoggerFactory.Instance,
+            libraryManager: libraryManagerMock.Object);
+
+        var config = new NebulaFtpConfiguration
+        {
+            MonitorPaths = new[] { @"D:\midias", @"D:\midias2" }
+        };
+
+        manager.RemoveMonitoredMediaLibraryPaths(config);
+
+        libraryManagerMock.Verify(m => m.RemoveMediaPath("Filmes", @"D:\midias\Filmes"), Times.Once);
+        libraryManagerMock.Verify(m => m.RemoveMediaPath("Series", @"D:\midias2\Series"), Times.Once);
+        libraryManagerMock.Verify(m => m.RemoveMediaPath(It.IsAny<string>(), @"D:\External\Movies"), Times.Never);
+        libraryManagerMock.Verify(m => m.AddMediaPath(It.IsAny<string>(), It.IsAny<MediaPathInfo>()), Times.Never);
     }
 }

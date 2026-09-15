@@ -428,7 +428,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
     }
 
-    private void EnsureLocalMediaLibraryPaths(NebulaFtpConfiguration config)
+    internal void RemoveMonitoredMediaLibraryPaths(NebulaFtpConfiguration config)
     {
         if (_libraryManager == null)
         {
@@ -444,25 +444,37 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             return;
         }
 
-        foreach (var libraryName in new[] { "Filmes", "Series" })
+        foreach (var library in _libraryManager.GetVirtualFolders())
         {
-            var localPath = roots
-                .Select(root => Path.Combine(root, libraryName))
-                .FirstOrDefault(Directory.Exists);
-            if (localPath == null)
-            {
-                continue;
-            }
+            var locationsToRemove = library.Locations
+                .Where(loc => roots.Any(root =>
+                {
+                    try
+                    {
+                        var fullLoc = Path.GetFullPath(loc);
+                        var cleanRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        return string.Equals(fullLoc, cleanRoot, StringComparison.OrdinalIgnoreCase) ||
+                               fullLoc.StartsWith(cleanRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }))
+                .ToList();
 
-            var library = _libraryManager.GetVirtualFolders()
-                .FirstOrDefault(folder => string.Equals(folder.Name, libraryName, StringComparison.OrdinalIgnoreCase));
-            if (library == null || library.Locations.Any(path => string.Equals(Path.GetFullPath(path), localPath, StringComparison.OrdinalIgnoreCase)))
+            foreach (var loc in locationsToRemove)
             {
-                continue;
+                try
+                {
+                    _libraryManager.RemoveMediaPath(library.Name, loc);
+                    _logger.LogInformation("[NEBULA-LIBRARY] Caminho monitorado do Nebula removido da biblioteca {Library}: {Path}", library.Name, loc);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[NEBULA-LIBRARY] Não foi possível remover caminho monitorado {Path} da biblioteca {Library}", loc, library.Name);
+                }
             }
-
-            _libraryManager.AddMediaPath(library.Name, new MediaPathInfo(localPath));
-            _logger.LogInformation("[NEBULA-LIBRARY] Caminho local adicionado à biblioteca {Library}: {Path}", library.Name, localPath);
         }
     }
 
@@ -950,7 +962,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             _configManager.SaveConfiguration("nebulaftp", config);
-            EnsureLocalMediaLibraryPaths(config);
+            RemoveMonitoredMediaLibraryPaths(config);
             _activeUploads.Clear();
             EmitRawLog(streamOnly ? "Iniciando NebulaFTP Server (Modo Somente Streaming)." : "Iniciando NebulaFTP Server (Modo Envio de Mídias).");
 
