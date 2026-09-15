@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
@@ -30,6 +31,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.cast.MediaRouteButton
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -60,6 +62,10 @@ fun VideoPlayerScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val latestPosition by rememberUpdatedState(state.currentPosition)
+    val latestDuration by rememberUpdatedState(state.duration)
+    val latestPlaying by rememberUpdatedState(state.isPlaying)
+    val latestPipEnabled by rememberUpdatedState(state.pictureInPictureEnabled)
     var gestureHint by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(gestureHint) {
         if (gestureHint != null) {
@@ -72,8 +78,18 @@ fun VideoPlayerScreen(
     val activity = context as? Activity
     DisposableEffect(Unit) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        PlayerPictureInPictureController.register {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                shouldEnterPictureInPicture(latestPipEnabled, latestPlaying, Build.VERSION.SDK_INT)
+            ) {
+                activity?.enterPictureInPictureMode(
+                    android.app.PictureInPictureParams.Builder().build()
+                )
+            }
+        }
         onDispose {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            PlayerPictureInPictureController.unregister()
         }
     }
 
@@ -93,7 +109,9 @@ fun VideoPlayerScreen(
 
     // PiP on back when playing
     BackHandler(enabled = state.isPlaying) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            shouldEnterPictureInPicture(state.pictureInPictureEnabled, state.isPlaying, Build.VERSION.SDK_INT)
+        ) {
             activity?.enterPictureInPictureMode(
                 android.app.PictureInPictureParams.Builder().build()
             )
@@ -108,11 +126,46 @@ fun VideoPlayerScreen(
             .background(Color.Black)
             .pointerInput(Unit) {
                 var startX = 0f
+                var startPosition = 0L
+                var previewPosition = 0L
+                var totalDrag = Offset.Zero
+                var horizontalDrag = false
+                var axisLocked = false
                 detectDragGestures(
-                    onDragStart = { startX = it.x },
+                    onDragStart = {
+                        startX = it.x
+                        startPosition = latestPosition
+                        previewPosition = latestPosition
+                        totalDrag = Offset.Zero
+                        horizontalDrag = false
+                        axisLocked = false
+                    },
                     onDragCancel = {},
-                    onDragEnd = {},
-                    onDrag = { change, dragAmount ->
+                    onDragEnd = {
+                        if (horizontalDrag) viewModel.seekTo(previewPosition)
+                    },
+                    onDrag = { _, dragAmount ->
+                        totalDrag += dragAmount
+                        if (!axisLocked && totalDrag.getDistance() >= 12f) {
+                            axisLocked = true
+                            horizontalDrag = abs(totalDrag.x) > abs(totalDrag.y)
+                        }
+
+                        if (horizontalDrag) {
+                            val delta = seekDeltaFromHorizontalDrag(
+                                dragPixels = totalDrag.x,
+                                viewportWidthPixels = size.width.toFloat(),
+                                durationMs = latestDuration,
+                            )
+                            previewPosition = (startPosition + delta).coerceIn(
+                                0L,
+                                latestDuration.coerceAtLeast(0L),
+                            )
+                            viewModel.previewSeekTo(previewPosition)
+                            gestureHint = "${previewPosition.toTimeString()} / ${latestDuration.toTimeString()}"
+                            return@detectDragGestures
+                        }
+
                         // Up increases the level; down decreases it. The side
                         // of the screen selects brightness or media volume.
                         val delta = -dragAmount.y / 900f
@@ -138,8 +191,19 @@ fun VideoPlayerScreen(
                     },
                 )
             }
-            .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {
-                osdVisible = !osdVisible
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { osdVisible = !osdVisible },
+                    onDoubleTap = { offset ->
+                        val seekDelta = if (offset.x < size.width / 2f) -10_000L else 10_000L
+                        val target = (latestPosition + seekDelta).coerceIn(
+                            0L,
+                            latestDuration.coerceAtLeast(0L),
+                        )
+                        viewModel.seekTo(target)
+                        gestureHint = if (seekDelta < 0) "−10 segundos" else "+10 segundos"
+                    },
+                )
             }
     ) {
 
@@ -150,6 +214,11 @@ fun VideoPlayerScreen(
                     useController = false  // We use our own OSD
                     player = viewModel.player
                 }
+            },
+            update = { playerView ->
+                playerView.subtitleView?.setFractionalTextSize(
+                    0.0533f * state.subtitleFontSize.coerceIn(50, 200) / 100f,
+                )
             },
             modifier = Modifier.fillMaxSize()
         )

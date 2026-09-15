@@ -5,12 +5,14 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.core.api.SessionRepository
@@ -36,18 +38,20 @@ class HomeViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
+    private var loadJob: Job? = null
 
     init {
         loadHome()
     }
 
     fun refresh() {
+        loadJob?.cancel()
         _state.update { it.copy(isRefreshing = true) }
         loadHome(refresh = true)
     }
 
     private fun loadHome(refresh: Boolean = false) {
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             val userId = sessionRepository.getCurrentUserId().first()
             if (userId.isNullOrBlank()) {
                 _state.update {
@@ -61,8 +65,8 @@ class HomeViewModel @Inject constructor(
             }
             _state.update { it.copy(isLoading = !refresh, error = null) }
 
-            val result = runCatching {
-                coroutineScope {
+            val result = try {
+                Result.success(coroutineScope {
                     // Parallel fan-out keeps the home responsive on real libraries.
                     val resumeDeferred = async { mediaRepository.getResumeItems(userId) }
                     val nextUpDeferred = async { mediaRepository.getNextUp(userId) }
@@ -90,7 +94,11 @@ class HomeViewModel @Inject constructor(
                         liveTvChannels = liveTvResult.getOrThrow(),
                         recentlyAddedByLibrary = recentlyAdded,
                     )
-                }
+                })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                Result.failure<HomePayload>(error)
             }
 
             result.onFailure { error ->

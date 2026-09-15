@@ -84,6 +84,7 @@ class SearchViewModelTest {
         override suspend fun verifyServer(url: String) = Result.success(ServerVerification("Test", "1"))
         override suspend fun register(username: String, password: String) = Result.success(RegistrationResult(true))
         override suspend fun login(username: String, password: String) = Result.success(UserSession("1", username, "t", null))
+        override suspend fun getAvailableUsers() = Result.success(emptyList<org.mulletaflix.domain.repository.AvailableUser>())
         override suspend fun initiateQuickConnect() = Result.success(QuickConnectState("1234", "secret", false))
         override suspend fun checkQuickConnect(secret: String) = Result.success(null)
         override suspend fun logout() = Result.success(Unit)

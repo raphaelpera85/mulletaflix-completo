@@ -104,5 +104,6 @@ internal fun parseDiscoveryResponse(payload: String): ServerInfo? = runCatching 
         name = json["Name"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: "MulletaFlix Server",
         url = url,
         version = json["Version"]?.jsonPrimitive?.contentOrNull?.ifBlank { null },
+        serverId = (json["Id"] ?: json["ServerId"])?.jsonPrimitive?.contentOrNull?.ifBlank { null },
     )
 }.getOrNull()

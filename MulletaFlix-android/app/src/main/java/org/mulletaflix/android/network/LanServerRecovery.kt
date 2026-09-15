@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.feature.auth.LocalServerDiscovery
+import org.mulletaflix.feature.auth.DEFAULT_MULLETAFLIX_SERVER_URL
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,6 +35,7 @@ class LanServerRecovery @Inject constructor(
     private val scanMutex = Mutex()
     private var scanJob: Job? = null
     private var sessionJob: Job? = null
+    private var started = false
     private var registered = false
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
@@ -43,8 +45,9 @@ class LanServerRecovery @Inject constructor(
     }
 
     fun start() {
-        if (registered) return
-        val callbackRegistered = runCatching {
+        if (started) return
+        started = true
+        registered = runCatching {
             connectivityManager.registerNetworkCallback(
                 NetworkRequest.Builder()
                     .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -53,25 +56,33 @@ class LanServerRecovery @Inject constructor(
             )
             true
         }.getOrDefault(false)
-        if (callbackRegistered) {
-            registered = true
-            sessionJob = scope.launch {
-                sessionRepository.getCurrentUserId()
-                    .distinctUntilChanged()
-                    .collect { userId ->
-                        if (shouldScanAfterAuthentication(userId)) {
-                            scheduleScan()
-                        }
+        // Authentication-driven discovery must not depend on the optional
+        // ConnectivityManager callback. Some devices reject callback
+        // registration even though UDP discovery still works normally.
+        sessionJob = scope.launch {
+            sessionRepository.getCurrentUserId()
+                .distinctUntilChanged()
+                .collect { userId ->
+                    if (shouldScanAfterAuthentication(userId)) {
+                        scheduleScan()
                     }
+                }
             }
-            scheduleScan()
-        }
+        scheduleScan()
+    }
+
+    /** Re-checks LAN reachability when the activity returns to the foreground. */
+    fun refresh() {
+        if (started) scheduleScan()
     }
 
     fun stop() {
-        if (!registered) return
-        registered = false
-        runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+        if (!started) return
+        started = false
+        if (registered) {
+            registered = false
+            runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+        }
         scanJob?.cancel()
         scanJob = null
         sessionJob?.cancel()
@@ -84,9 +95,20 @@ class LanServerRecovery @Inject constructor(
             scanMutex.withLock {
                 val userId = sessionRepository.getCurrentUserId().first() ?: return@withLock
                 val currentUrl = sessionRepository.getBaseUrl().first()
-                val localServer = discovery.discover(timeoutMs = 2_500).firstOrNull() ?: return@withLock
-                if (shouldSwitchToLan(currentUrl, localServer.url)) {
-                    sessionRepository.setBaseUrl(localServer.url)
+                val authenticatedServerId = sessionRepository.getServerId().first()
+                val localServer = selectAuthenticatedLanServer(
+                    discovered = discovery.discover(timeoutMs = 2_500),
+                    authenticatedServerId = authenticatedServerId,
+                )
+                if (localServer != null) {
+                    if (shouldSwitchToLan(currentUrl, localServer.url)) {
+                        sessionRepository.setBaseUrl(localServer.url)
+                    }
+                } else {
+                    publicFallbackAfterLanLoss(
+                        currentUrl = currentUrl,
+                        publicUrl = DEFAULT_MULLETAFLIX_SERVER_URL,
+                    )?.let { fallbackUrl -> sessionRepository.setBaseUrl(fallbackUrl) }
                 }
             }
         }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.SyncPlayGroup
 import org.mulletaflix.domain.repository.SyncPlayRepository
@@ -18,8 +19,17 @@ data class SyncPlayUiState(val groups: List<SyncPlayGroup> = emptyList(), val is
 class SyncPlayViewModel @Inject constructor(private val repository: SyncPlayRepository) : ViewModel() {
     private val _state = MutableStateFlow(SyncPlayUiState())
     val state: StateFlow<SyncPlayUiState> = _state.asStateFlow()
+    private var refreshJob: Job? = null
     init { refresh() }
-    fun refresh() { viewModelScope.launch { _state.update { it.copy(isLoading = true, error = null) }; repository.getGroups().onSuccess { groups -> _state.update { it.copy(groups = groups, isLoading = false) } }.onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "Não foi possível carregar as salas.") } } } }
+    fun refresh() {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
+            _state.update { it.copy(isLoading = true, error = null) }
+            repository.getGroups()
+                .onSuccess { groups -> _state.update { it.copy(groups = groups, isLoading = false) } }
+                .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "Não foi possível carregar as salas.") } }
+        }
+    }
     fun createGroup(name: String, onCreated: () -> Unit = {}) { val cleanName = name.trim(); if (cleanName.isEmpty()) return; viewModelScope.launch { _state.update { it.copy(isSubmitting = true, error = null) }; repository.createGroup(cleanName).onSuccess { _state.update { it.copy(isSubmitting = false) }; onCreated(); refresh() }.onFailure { e -> _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível criar a sala.") } } } }
     fun joinGroup(groupId: String, onJoined: (SyncPlayGroup?) -> Unit = {}) {
         viewModelScope.launch {
@@ -37,4 +47,9 @@ class SyncPlayViewModel @Inject constructor(private val repository: SyncPlayRepo
         }
     }
     fun leaveGroup() { viewModelScope.launch { _state.update { it.copy(isSubmitting = true, error = null) }; repository.leaveGroup().onSuccess { _state.update { it.copy(isSubmitting = false, activeGroupId = null) }; refresh() }.onFailure { e -> _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível sair da sala.") } } } }
+
+    override fun onCleared() {
+        refreshJob?.cancel()
+        super.onCleared()
+    }
 }

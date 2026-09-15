@@ -16,6 +16,8 @@ import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.LiveTvRepository
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 class LiveTvViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private lateinit var repository: FakeLiveTvRepository
@@ -39,12 +41,47 @@ class LiveTvViewModelTest {
         assertEquals(0, repository.channelRequests)
     }
 
+    @Test fun `loads recordings for active session`() = runTest {
+        val recording = MediaItem(id = "recording-1", name = "Jornal", type = org.mulletaflix.domain.model.MediaItemType.Recording)
+        repository.recordings = listOf(recording)
+        val viewModel = LiveTvViewModel(repository, FakeSessionRepository())
+        advanceUntilIdle()
+        assertEquals(listOf(recording), viewModel.state.value.recordings)
+        assertEquals(1, repository.recordingRequests)
+    }
+
+    @Test fun `schedules a guide program and marks it as scheduled`() = runTest {
+        val program = MediaItem(
+            id = "program-1",
+            name = "Filme teste",
+            type = org.mulletaflix.domain.model.MediaItemType.LiveTvProgram,
+            channelId = "channel-1",
+            startDate = "2026-09-14T20:00:00Z",
+            endDate = "2026-09-14T22:00:00Z",
+        )
+        val viewModel = LiveTvViewModel(repository, FakeSessionRepository())
+        advanceUntilIdle()
+
+        viewModel.scheduleRecording(program)
+        advanceUntilIdle()
+
+        assertEquals(listOf("program-1"), repository.scheduledIds)
+        assertTrue("program-1" in viewModel.state.value.scheduledProgramIds)
+    }
+
     private class FakeLiveTvRepository : LiveTvRepository {
         var channels = emptyList<MediaItem>()
+        var recordings = emptyList<MediaItem>()
         var channelRequests = 0
+        var recordingRequests = 0
+        val scheduledIds = mutableListOf<String>()
         override suspend fun getChannels(userId: String): Result<List<MediaItem>> { channelRequests++; return Result.success(channels) }
         override suspend fun getPrograms(channelIds: List<String>, minStartDate: String?, maxEndDate: String?) = Result.success(emptyList<MediaItem>())
-        override suspend fun getRecordings(userId: String) = Result.success(emptyList<MediaItem>())
+        override suspend fun getRecordings(userId: String): Result<List<MediaItem>> { recordingRequests++; return Result.success(recordings) }
+        override suspend fun scheduleRecording(program: MediaItem): Result<Unit> {
+            scheduledIds += program.id
+            return Result.success(Unit)
+        }
     }
 
     private class FakeSessionRepository(private val userId: String? = "user-1") : SessionRepository {

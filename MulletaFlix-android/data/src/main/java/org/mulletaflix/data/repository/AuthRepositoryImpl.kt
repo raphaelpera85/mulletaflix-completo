@@ -8,6 +8,7 @@ import org.mulletaflix.core.api.dto.AuthenticateByNameDto
 import org.mulletaflix.core.api.dto.QuickConnectDto
 import org.mulletaflix.core.api.dto.RegisterUserDto
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.AvailableUser
 import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.RegistrationResult
@@ -60,6 +61,7 @@ class AuthRepositoryImpl @Inject constructor(
             userId = userId,
             deviceId = deviceId,
         )
+        sessionRepository.setServerId(result.serverId)
 
         UserSession(
             userId = userId,
@@ -67,6 +69,16 @@ class AuthRepositoryImpl @Inject constructor(
             token = token,
             serverId = result.serverId,
         )
+    }
+
+    override suspend fun getAvailableUsers(): Result<List<AvailableUser>> = runCatching {
+        api.getPublicUsers().map { user ->
+            AvailableUser(
+                id = user.id,
+                name = user.name,
+                primaryImageTag = user.primaryImageTag,
+            )
+        }
     }
 
     override suspend fun initiateQuickConnect(): Result<QuickConnectState> = runCatching {
@@ -92,6 +104,7 @@ class AuthRepositoryImpl @Inject constructor(
                 userId = user.id,
                 deviceId = deviceId,
             )
+            sessionRepository.setServerId(res.serverId)
             UserSession(
                 userId = user.id,
                 userName = user.name,

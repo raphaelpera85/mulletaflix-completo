@@ -9,6 +9,12 @@ data class UserSession(
     val serverId: String?,
 )
 
+data class AvailableUser(
+    val id: String,
+    val name: String,
+    val primaryImageTag: String? = null,
+)
+
 data class QuickConnectState(
     val code: String,
     val secret: String,
@@ -19,6 +25,7 @@ interface AuthRepository {
     suspend fun verifyServer(url: String): Result<ServerVerification>
     suspend fun register(username: String, password: String): Result<RegistrationResult>
     suspend fun login(username: String, password: String): Result<UserSession>
+    suspend fun getAvailableUsers(): Result<List<AvailableUser>>
     suspend fun initiateQuickConnect(): Result<QuickConnectState>
     suspend fun checkQuickConnect(secret: String): Result<UserSession?>
     suspend fun logout(): Result<Unit>

@@ -43,10 +43,28 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
         manager.addDownload(DownloadRequest.Builder(id, Uri.parse(uri)).build())
     }
 
+    override fun retry(id: String, title: String, uri: String): Result<Unit> = runCatching {
+        require(id.isNotBlank()) { "O identificador da mídia é obrigatório." }
+        require(uri.startsWith("http://") || uri.startsWith("https://")) { "A URL da mídia não é válida." }
+        titles[id] = title
+        metadata.edit().putString("title:$id", title).apply()
+        // Re-adding the same request makes Media3 restart a failed download
+        // while preserving its stable id and metadata in the local index.
+        manager.addDownload(DownloadRequest.Builder(id, Uri.parse(uri)).build())
+    }
+
     override fun remove(id: String): Result<Unit> = runCatching {
         manager.removeDownload(id)
         titles.remove(id)
         metadata.edit().remove("title:$id").apply()
+    }
+
+    override fun pauseAll(): Result<Unit> = runCatching {
+        manager.pauseDownloads()
+    }
+
+    override fun resumeAll(): Result<Unit> = runCatching {
+        manager.resumeDownloads()
     }
 
     private fun snapshot(): List<DownloadEntry> {

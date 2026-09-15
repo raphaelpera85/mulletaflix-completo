@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -19,6 +21,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun SyncPlayScreen(onJoinGroup: (String?) -> Unit = {}, onBack: () -> Unit = {}, viewModel: SyncPlayViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle(); var showCreateDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            delay(5_000)
+            viewModel.refresh()
+        }
+    }
     Scaffold(topBar = { TopAppBar(title = { Text("Salas SyncPlay") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } }, actions = { IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) { Icon(Icons.Default.Refresh, "Atualizar salas") }; IconButton(onClick = { showCreateDialog = true }, enabled = !state.isSubmitting) { Icon(Icons.Default.Add, "Criar sala") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Group, null, tint = MaterialTheme.colorScheme.onPrimaryContainer); Spacer(Modifier.width(12.dp)); Column { Text("Assistir em grupo", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer); Text("Sincronize a reprodução em tempo real com seus amigos.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer) } } } }

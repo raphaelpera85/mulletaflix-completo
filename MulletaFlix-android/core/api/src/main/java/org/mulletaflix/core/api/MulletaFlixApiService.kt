@@ -35,6 +35,9 @@ interface MulletaFlixApiService {
     @GET("Users")
     suspend fun getUsers(): List<UserDto>
 
+    @GET("Users/Public")
+    suspend fun getPublicUsers(): List<UserDto>
+
     @GET("Users/{userId}")
     suspend fun getUser(@Path("userId") userId: String): UserDto
 
@@ -241,6 +244,9 @@ interface MulletaFlixApiService {
         @Query("UserId") userId: String,
         @Query("Limit") limit: Int = 20,
     ): BaseItemDtoQueryResultDto
+
+    @POST("LiveTv/Timers")
+    suspend fun createLiveTvTimer(@Body body: CreateLiveTvTimerDto)
 
     // ── Lyrics ───────────────────────────────────────────────────────────────
 

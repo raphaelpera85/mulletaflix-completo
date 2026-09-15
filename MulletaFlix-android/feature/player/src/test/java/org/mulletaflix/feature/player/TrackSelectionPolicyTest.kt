@@ -19,4 +19,12 @@ class TrackSelectionPolicyTest {
         assertEquals(0, uiTrackIndex(tracks, serverStreamIndex = null, fallback = 0))
         assertEquals(-1, uiTrackIndex(emptyList(), serverStreamIndex = null, fallback = 0))
     }
+
+    @Test
+    fun `maps filtered UI position back to the global server stream index`() {
+        val tracks = listOf(TrackInfo(2, "Português"), TrackInfo(5, "Inglês"))
+
+        assertEquals(5, serverTrackIndexAt(tracks, 1))
+        assertEquals(null, serverTrackIndexAt(tracks, 2))
+    }
 }

@@ -14,4 +14,5 @@ interface LiveTvRepository {
     suspend fun getChannels(userId: String): Result<List<MediaItem>>
     suspend fun getPrograms(channelIds: List<String>, minStartDate: String?, maxEndDate: String?): Result<List<MediaItem>>
     suspend fun getRecordings(userId: String): Result<List<MediaItem>>
+    suspend fun scheduleRecording(program: MediaItem): Result<Unit>
 }

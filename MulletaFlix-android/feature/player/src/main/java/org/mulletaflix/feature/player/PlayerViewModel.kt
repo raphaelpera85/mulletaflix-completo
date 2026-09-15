@@ -23,12 +23,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
+import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.model.Chapter
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
@@ -49,6 +51,8 @@ data class PlayerState(
     val selectedSubtitleIndex: Int = -1,
     val audioTracks: List<TrackInfo> = emptyList(),
     val selectedAudioIndex: Int = 0,
+    val subtitleFontSize: Int = 100,
+    val pictureInPictureEnabled: Boolean = true,
     val showSkipIntro: Boolean = false,
     val showSkipCredits: Boolean = false,
     val skipTargetPosition: Long? = null,
@@ -62,6 +66,7 @@ class PlayerViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
     private val playbackRepository: PlaybackRepository,
     private val sessionRepository: SessionRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlayerState())
@@ -97,6 +102,22 @@ class PlayerViewModel @Inject constructor(
                 if (playbackState == Player.STATE_ENDED) reportPlaybackStopped()
             }
 
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                pendingAudioStreamIndex?.let { index ->
+                    selectTrackByServerIndex(index, C.TRACK_TYPE_AUDIO)
+                    pendingAudioStreamIndex = null
+                }
+                if (pendingSubtitlesDisabled) {
+                    selectSubtitle(-1)
+                    pendingSubtitlesDisabled = false
+                } else {
+                    pendingSubtitleStreamIndex?.let { index ->
+                        selectTrackByServerIndex(index, C.TRACK_TYPE_TEXT)
+                        pendingSubtitleStreamIndex = null
+                    }
+                }
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 val transcodeUrl = currentTranscodeUrl
                 if (shouldFallbackToTranscode(
@@ -106,10 +127,11 @@ class PlayerViewModel @Inject constructor(
                     )
                 ) {
                     triedTranscodeFallback = true
+                    val positionAtError = fallbackPosition(localPlayer.currentPosition)
                     _state.update { it.copy(isBuffering = true, error = null) }
                     player.setMediaItem(Media3Item.Builder().setUri(transcodeUrl!!).build())
                     player.prepare()
-                    player.seekTo(localPlayer.currentPosition)
+                    player.seekTo(positionAtError)
                     player.play()
                     return
                 }
@@ -148,6 +170,7 @@ class PlayerViewModel @Inject constructor(
         PlayerMediaSessionBridge.attach(context, player)
 
     private var progressJob: Job? = null
+    private var serverProgressJob: Job? = null
     private var loadJob: Job? = null
     private var retryJob: Job? = null
     private var currentItemId: String? = null
@@ -157,15 +180,55 @@ class PlayerViewModel @Inject constructor(
     private var triedTranscodeFallback = false
     private var playbackRetryCount = 0
     private var stoppedReported = false
+    private var autoPlayEnabled = true
+    private var skipIntroEnabled = true
+    private var defaultQuality = "Auto"
+    private var defaultPlaybackSpeed = 1f
+    private var subtitleFontSize = 100
+    private var pendingAudioStreamIndex: Int? = null
+    private var pendingSubtitleStreamIndex: Int? = null
+    private var pendingSubtitlesDisabled = false
+    /** Global stream indexes required by the server's playback reporting API. */
+    private var currentAudioStreamIndex: Int? = null
+    private var currentSubtitleStreamIndex: Int? = null
+
+    init {
+        viewModelScope.launch {
+            settingsRepository.isAutoPlayEnabled().collect { autoPlayEnabled = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.isSkipIntroEnabled().collect { skipIntroEnabled = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.getDefaultQuality().collect { defaultQuality = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.getDefaultPlaybackSpeed().collect { defaultPlaybackSpeed = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.getSubtitleFontSize().collect { size ->
+                subtitleFontSize = size
+                _state.update { it.copy(subtitleFontSize = size) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.isPiPEnabled().collect { enabled ->
+                _state.update { it.copy(pictureInPictureEnabled = enabled) }
+            }
+        }
+    }
 
     fun loadMedia(itemId: String) {
         loadJob?.cancel()
         retryJob?.cancel()
+        serverProgressJob?.cancel()
         player.stop()
         currentItemId = itemId
         currentItemChapters = emptyList()
         stoppedReported = false
         currentTranscodeUrl = null
+        currentAudioStreamIndex = null
+        currentSubtitleStreamIndex = null
         triedTranscodeFallback = false
         playbackRetryCount = 0
         _state.update {
@@ -220,22 +283,43 @@ class PlayerViewModel @Inject constructor(
             // Some Jellyfin-compatible servers include streams only in PlaybackInfo.
             // Prefer those streams and fall back to the item details when necessary.
             val mediaStreams = mediaSource.mediaStreams.ifEmpty { item.mediaStreams }
-            val subtitleTracks = mediaStreams
+            val subtitleStreams = mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Subtitle }
+            val audioStreams = mediaStreams
+                .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
+            val preferredAudioLanguage = settingsRepository.getPreferredAudioLanguage().first()
+            val preferredSubtitleLanguage = settingsRepository.getPreferredSubtitleLanguage().first()
+            val preferredAudioStreamIndex = preferredStreamIndex(
+                streams = audioStreams,
+                preferredLanguage = preferredAudioLanguage,
+                serverDefaultIndex = mediaSource.defaultAudioStreamIndex,
+            )
+            val preferredSubtitleStreamIndex = preferredStreamIndex(
+                streams = subtitleStreams,
+                preferredLanguage = preferredSubtitleLanguage,
+                serverDefaultIndex = mediaSource.defaultSubtitleStreamIndex,
+            )
+            pendingAudioStreamIndex = preferredAudioStreamIndex
+            pendingSubtitleStreamIndex = preferredSubtitleStreamIndex
+            currentAudioStreamIndex = preferredAudioStreamIndex
+            currentSubtitleStreamIndex = preferredSubtitleStreamIndex
+            pendingSubtitlesDisabled = preferredSubtitleLanguage.equals("off", ignoreCase = true) ||
+                preferredSubtitleLanguage.equals("none", ignoreCase = true)
+
+            val subtitleTracks = subtitleStreams
                 .mapIndexed { i, stream -> TrackInfo(stream.index, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Legenda ${i + 1}") }
 
-            val audioTracks = mediaStreams
-                .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
+            val audioTracks = audioStreams
                 .mapIndexed { i, stream -> TrackInfo(stream.index, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}") }
 
             val selectedAudioIndex = uiTrackIndex(
                 tracks = audioTracks,
-                serverStreamIndex = mediaSource.defaultAudioStreamIndex,
+                serverStreamIndex = preferredAudioStreamIndex,
                 fallback = 0,
             )
             val selectedSubtitleIndex = uiTrackIndex(
                 tracks = subtitleTracks,
-                serverStreamIndex = mediaSource.defaultSubtitleStreamIndex,
+                serverStreamIndex = preferredSubtitleStreamIndex,
                 fallback = -1,
             )
 
@@ -245,7 +329,7 @@ class PlayerViewModel @Inject constructor(
                     audioTracks = audioTracks,
                     selectedSubtitleIndex = selectedSubtitleIndex,
                     selectedAudioIndex = selectedAudioIndex.coerceAtLeast(0),
-                    selectedQuality = "Auto",
+                    selectedQuality = defaultQuality,
                     availableQualities = qualityOptions(mediaStreams),
                     showSkipIntro = false,
                     showSkipCredits = false,
@@ -261,6 +345,7 @@ class PlayerViewModel @Inject constructor(
 
             player.setMediaItem(mediaItem)
             player.prepare()
+            applyDefaultPlaybackPreferences()
 
             // Resume from last position
             item.userProgress?.playbackPositionTicks?.let { ticks ->
@@ -268,15 +353,15 @@ class PlayerViewModel @Inject constructor(
                 if (positionMs > 0) player.seekTo(positionMs)
             }
 
-            player.play()
+            if (autoPlayEnabled) player.play()
 
             // Report start to server
             playbackRepository.reportPlaybackStart(
                 itemId = itemId,
                 playSessionId = currentPlaySessionId,
                 mediaSourceId = currentMediaSourceId,
-                audioIndex = mediaSource.defaultAudioStreamIndex,
-                subtitleIndex = mediaSource.defaultSubtitleStreamIndex,
+                audioIndex = currentAudioStreamIndex,
+                subtitleIndex = currentSubtitleStreamIndex,
                 positionTicks = player.currentPosition * 10_000L,
             )
         }
@@ -287,16 +372,20 @@ class PlayerViewModel @Inject constructor(
         loadJob?.cancel()
         retryJob?.cancel()
         progressJob?.cancel()
+        serverProgressJob?.cancel()
         player.stop()
         currentItemId = null
         currentPlaySessionId = null
         currentMediaSourceId = null
         currentTranscodeUrl = null
+        currentAudioStreamIndex = null
+        currentSubtitleStreamIndex = null
         triedTranscodeFallback = true
         playbackRetryCount = 0
         _state.value = PlayerState(title = title, isBuffering = true, error = null)
         player.setMediaItem(Media3Item.Builder().setUri(uri).build())
         player.prepare()
+        applyDefaultPlaybackPreferences()
         player.play()
     }
 
@@ -313,8 +402,8 @@ class PlayerViewModel @Inject constructor(
                     itemId = id,
                     playSessionId = currentPlaySessionId,
                     mediaSourceId = currentMediaSourceId,
-                    audioIndex = null,
-                    subtitleIndex = null,
+                    audioIndex = currentAudioStreamIndex,
+                    subtitleIndex = currentSubtitleStreamIndex,
                     positionTicks = positionMs * 10_000L,
                     isPaused = !player.isPlaying,
                 )
@@ -341,12 +430,21 @@ class PlayerViewModel @Inject constructor(
 
     fun selectSubtitle(index: Int) {
         _state.update { it.copy(selectedSubtitleIndex = index) }
-        selectTrack(index, C.TRACK_TYPE_TEXT)
+        if (index < 0) {
+            currentSubtitleStreamIndex = null
+            selectTrackByServerIndex(-1, C.TRACK_TYPE_TEXT)
+            return
+        }
+        val serverIndex = serverTrackIndexAt(_state.value.subtitleTracks, index) ?: return
+        currentSubtitleStreamIndex = serverIndex
+        selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_TEXT)
     }
 
     fun selectAudio(index: Int) {
         _state.update { it.copy(selectedAudioIndex = index) }
-        selectTrack(index, C.TRACK_TYPE_AUDIO)
+        val serverIndex = serverTrackIndexAt(_state.value.audioTracks, index) ?: return
+        currentAudioStreamIndex = serverIndex
+        selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_AUDIO)
     }
 
     fun selectQuality(quality: String) {
@@ -364,6 +462,11 @@ class PlayerViewModel @Inject constructor(
         _state.update { it.copy(playbackSpeed = speed) }
     }
 
+    private fun applyDefaultPlaybackPreferences() {
+        selectQuality(defaultQuality)
+        setPlaybackSpeed(defaultPlaybackSpeed.coerceIn(0.5f, 2f))
+    }
+
     fun startCast() {
         // The visible MediaRouteButton opens the official system chooser. This
         // method remains as a semantic hook for custom controls and keeps the
@@ -372,7 +475,8 @@ class PlayerViewModel @Inject constructor(
         player.seekTo(player.currentPosition)
     }
 
-    private fun selectTrack(index: Int, trackType: Int) {
+    /** Applies a server-global stream index; UI positions are mapped by callers. */
+    private fun selectTrackByServerIndex(index: Int, trackType: Int) {
         if (index < 0) {
             if (trackType == C.TRACK_TYPE_TEXT) {
                 localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
@@ -392,7 +496,8 @@ class PlayerViewModel @Inject constructor(
             }
         val selected = candidates.firstOrNull { (group, trackIndex) ->
             group.getTrackFormat(trackIndex).id?.toIntOrNull() == index
-        } ?: candidates.getOrNull(index) ?: return
+        } ?: candidates.firstOrNull { (_, trackIndex) -> trackIndex == index }
+            ?: return
         localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
             .buildUpon()
             .setTrackTypeDisabled(trackType, false)
@@ -402,22 +507,33 @@ class PlayerViewModel @Inject constructor(
 
     private fun startProgressReporting() {
         progressJob?.cancel()
+        serverProgressJob?.cancel()
         progressJob = viewModelScope.launch {
+            while (isActive) {
+                val position = player.currentPosition.coerceAtLeast(0L)
+                _state.update {
+                    val skip = if (skipIntroEnabled) {
+                        chapterSkipAction(currentItemChapters, position)
+                    } else {
+                        null
+                    }
+                    it.copy(
+                        currentPosition = position,
+                        duration = player.duration.coerceAtLeast(0L),
+                        showSkipIntro = skip?.kind == ChapterSkipKind.INTRO,
+                        showSkipCredits = skip?.kind == ChapterSkipKind.CREDITS,
+                        skipTargetPosition = skip?.targetPositionMs,
+                    )
+                }
+                delay(250)
+            }
+        }
+        serverProgressJob = viewModelScope.launch {
             while (isActive) {
                 delay(5_000)
                 val userId = sessionRepository.getCurrentUserId().first() ?: continue
                 currentItemId?.let { id ->
-                    val position = player.currentPosition
-                    _state.update {
-                        val skip = chapterSkipAction(currentItemChapters, position)
-                        it.copy(
-                            currentPosition = position,
-                            duration = player.duration.coerceAtLeast(0L),
-                            showSkipIntro = skip?.kind == ChapterSkipKind.INTRO,
-                            showSkipCredits = skip?.kind == ChapterSkipKind.CREDITS,
-                            skipTargetPosition = skip?.targetPositionMs,
-                        )
-                    }
+                    val position = player.currentPosition.coerceAtLeast(0L)
                     playbackRepository.reportPlaybackProgress(
                         itemId = id,
                         playSessionId = currentPlaySessionId,
@@ -435,6 +551,8 @@ class PlayerViewModel @Inject constructor(
     private fun stopProgressReporting() {
         progressJob?.cancel()
         progressJob = null
+        serverProgressJob?.cancel()
+        serverProgressJob = null
     }
 
     private fun reportPlaybackProgress(isPaused: Boolean) {
@@ -446,8 +564,8 @@ class PlayerViewModel @Inject constructor(
                     playSessionId = currentPlaySessionId,
                     mediaSourceId = currentMediaSourceId,
                     positionTicks = player.currentPosition * 10_000L,
-                    audioIndex = null,
-                    subtitleIndex = null,
+                    audioIndex = currentAudioStreamIndex,
+                    subtitleIndex = currentSubtitleStreamIndex,
                     isPaused = isPaused,
                 )
             }
@@ -474,6 +592,7 @@ class PlayerViewModel @Inject constructor(
         loadJob?.cancel()
         retryJob?.cancel()
         progressJob?.cancel()
+        serverProgressJob?.cancel()
         reportPlaybackStopped()
         PlayerMediaSessionBridge.detach(mediaSession)
     }

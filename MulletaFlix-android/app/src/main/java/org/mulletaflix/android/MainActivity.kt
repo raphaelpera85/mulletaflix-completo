@@ -29,6 +29,7 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.android.network.LanServerRecovery
+import org.mulletaflix.feature.player.PlayerPictureInPictureController
 import androidx.media3.common.util.UnstableApi
 import javax.inject.Inject
 import kotlinx.coroutines.flow.combine
@@ -98,6 +99,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // The Wi-Fi network may have changed while the activity was paused;
+        // refresh the LAN endpoint before the next playback request.
+        if (::lanServerRecovery.isInitialized) {
+            lanServerRecovery.refresh()
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        PlayerPictureInPictureController.dispatchUserLeaveHint()
     }
 
     override fun onDestroy() {

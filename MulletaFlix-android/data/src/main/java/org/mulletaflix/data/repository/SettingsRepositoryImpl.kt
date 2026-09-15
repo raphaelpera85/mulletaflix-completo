@@ -25,6 +25,11 @@ class SettingsRepositoryImpl @Inject constructor(
         val PIP_ENABLED = booleanPreferencesKey("pip_enabled")
         val AUDIO_LANG = stringPreferencesKey("preferred_audio_lang")
         val SUBTITLE_LANG = stringPreferencesKey("preferred_subtitle_lang")
+        val AUTOPLAY_ENABLED = booleanPreferencesKey("autoplay_enabled")
+        val SKIP_INTRO_ENABLED = booleanPreferencesKey("skip_intro_enabled")
+        val DEFAULT_QUALITY = stringPreferencesKey("default_quality")
+        val DEFAULT_PLAYBACK_SPEED = floatPreferencesKey("default_playback_speed")
+        val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size")
     }
 
     override fun getTheme(): Flow<AppThemeSetting> {
@@ -72,5 +77,44 @@ class SettingsRepositoryImpl @Inject constructor(
         context.settingsDataStore.edit {
             if (language != null) it[Keys.SUBTITLE_LANG] = language else it.remove(Keys.SUBTITLE_LANG)
         }
+    }
+
+    override fun isAutoPlayEnabled(): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.AUTOPLAY_ENABLED] ?: true }
+
+    override suspend fun setAutoPlayEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.AUTOPLAY_ENABLED] = enabled }
+    }
+
+    override fun isSkipIntroEnabled(): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.SKIP_INTRO_ENABLED] ?: true }
+
+    override suspend fun setSkipIntroEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.SKIP_INTRO_ENABLED] = enabled }
+    }
+
+    override fun getDefaultQuality(): Flow<String> =
+        context.settingsDataStore.data.map { it[Keys.DEFAULT_QUALITY] ?: "Auto" }
+
+    override suspend fun setDefaultQuality(quality: String) {
+        context.settingsDataStore.edit { it[Keys.DEFAULT_QUALITY] = quality }
+    }
+
+    override fun getDefaultPlaybackSpeed(): Flow<Float> =
+        context.settingsDataStore.data.map { it[Keys.DEFAULT_PLAYBACK_SPEED] ?: 1f }
+
+    override suspend fun setDefaultPlaybackSpeed(speed: Float) {
+        context.settingsDataStore.edit { it[Keys.DEFAULT_PLAYBACK_SPEED] = speed.coerceIn(0.5f, 2f) }
+    }
+
+    override suspend fun clearLocalPreferences() {
+        context.settingsDataStore.edit { it.clear() }
+    }
+
+    override fun getSubtitleFontSize(): Flow<Int> =
+        context.settingsDataStore.data.map { (it[Keys.SUBTITLE_FONT_SIZE] ?: 100).coerceIn(50, 200) }
+
+    override suspend fun setSubtitleFontSize(size: Int) {
+        context.settingsDataStore.edit { it[Keys.SUBTITLE_FONT_SIZE] = size.coerceIn(50, 200) }
     }
 }

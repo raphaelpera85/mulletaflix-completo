@@ -8,3 +8,6 @@ internal fun shouldFallbackToTranscode(
 ): Boolean = !alreadyTried &&
     !transcodeUri.isNullOrBlank() &&
     currentUri != transcodeUri
+
+/** Keeps the playback position valid when rebuilding the item with a transcode URL. */
+internal fun fallbackPosition(positionMs: Long): Long = positionMs.coerceAtLeast(0L)

@@ -81,8 +81,28 @@ fun SettingsScreen(
 
             // ── Reprodução ───────────────────────────────────────────────────
             SettingsGroup(title = "Reprodução") {
-                SettingsItem(icon = Icons.Default.Hd, title = "Qualidade Padrão", subtitle = state.defaultQuality) {}
-                SettingsItem(icon = Icons.Default.Speed, title = "Velocidade Padrão", subtitle = "${state.defaultSpeed}x") {}
+                var showQualityDialog by remember { mutableStateOf(false) }
+                var showSpeedDialog by remember { mutableStateOf(false) }
+                SettingsItem(icon = Icons.Default.Hd, title = "Qualidade Padrão", subtitle = qualityLabel(state.defaultQuality), onClick = { showQualityDialog = true })
+                SettingsItem(icon = Icons.Default.Speed, title = "Velocidade Padrão", subtitle = "${state.defaultSpeed}x", onClick = { showSpeedDialog = true })
+                if (showQualityDialog) {
+                    ChoiceDialog(
+                        title = "Qualidade padrão",
+                        options = listOf("Auto", "1080p", "720p", "480p"),
+                        selected = state.defaultQuality,
+                        onSelect = { viewModel.setDefaultQuality(it); showQualityDialog = false },
+                        onDismiss = { showQualityDialog = false },
+                    )
+                }
+                if (showSpeedDialog) {
+                    ChoiceDialog(
+                        title = "Velocidade padrão",
+                        options = listOf("0.5", "0.75", "1.0", "1.25", "1.5", "2.0"),
+                        selected = state.defaultSpeed.toString(),
+                        onSelect = { viewModel.setDefaultPlaybackSpeed(it.toFloat()); showSpeedDialog = false },
+                        onDismiss = { showSpeedDialog = false },
+                    )
+                }
                 SettingsToggle(
                     icon = Icons.Default.PlayCircle,
                     title = "Reprodução Automática",
@@ -97,6 +117,13 @@ fun SettingsScreen(
                     checked = state.skipIntro,
                     onCheckedChange = viewModel::setSkipIntro
                 )
+                SettingsToggle(
+                    icon = Icons.Default.PictureInPicture,
+                    title = "Picture-in-Picture",
+                    subtitle = "Continuar assistindo ao sair do player",
+                    checked = state.pictureInPicture,
+                    onCheckedChange = viewModel::setPictureInPicture,
+                )
             }
 
             // ── Subtítulos ───────────────────────────────────────────────────
@@ -110,7 +137,17 @@ fun SettingsScreen(
                         onDismiss = { showSubtitleDialog = false },
                     )
                 }
-                SettingsItem(icon = Icons.Default.TextFields, title = "Tamanho da Fonte", subtitle = "${state.subtitleFontSize}%") {}
+                var showFontSizeDialog by remember { mutableStateOf(false) }
+                SettingsItem(icon = Icons.Default.TextFields, title = "Tamanho da Fonte", subtitle = "${state.subtitleFontSize}%", onClick = { showFontSizeDialog = true })
+                if (showFontSizeDialog) {
+                    ChoiceDialog(
+                        title = "Tamanho da legenda",
+                        options = listOf("75", "100", "125", "150", "200"),
+                        selected = state.subtitleFontSize.toString(),
+                        onSelect = { viewModel.setSubtitleFontSize(it.toInt()); showFontSizeDialog = false },
+                        onDismiss = { showFontSizeDialog = false },
+                    )
+                }
             }
 
             // ── Downloads ────────────────────────────────────────────────────
@@ -135,6 +172,35 @@ fun SettingsScreen(
         }
     }
 }
+
+@Composable
+private fun ChoiceDialog(
+    title: String,
+    options: List<String>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { option ->
+                    TextButton(onClick = { onSelect(option) }, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(option)
+                            if (option == selected) Icon(Icons.Default.Check, contentDescription = "Selecionado")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+    )
+}
+
+private fun qualityLabel(value: String): String = if (value == "Auto") "Automático" else value
 
 @Composable
 private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {

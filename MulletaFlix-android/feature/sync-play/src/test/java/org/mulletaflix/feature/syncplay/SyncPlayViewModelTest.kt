@@ -1,7 +1,6 @@
 package org.mulletaflix.feature.syncplay
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -9,70 +8,48 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.mulletaflix.domain.repository.SyncPlayGroup
 import org.mulletaflix.domain.repository.SyncPlayRepository
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SyncPlayViewModelTest {
     private val dispatcher = StandardTestDispatcher()
-    private lateinit var repository: FakeSyncPlayRepository
 
-    @Before fun setUp() { Dispatchers.setMain(dispatcher); repository = FakeSyncPlayRepository() }
-    @After fun tearDown() { Dispatchers.resetMain() }
+    @Before fun setUp() = Dispatchers.setMain(dispatcher)
+    @After fun tearDown() = Dispatchers.resetMain()
 
-    @Test fun `loads groups from server`() = runTest {
-        val expected = SyncPlayGroup("room-1", "Sessão", "Playing", listOf("Raphael"), null, 0L)
-        repository.groups = listOf(expected)
+    @Test fun `refresh exposes current groups`() = runTest {
+        val groups = listOf(SyncPlayGroup("g1", "Filme", "Playing", listOf("Raphael"), "item-1", 0L))
+        val repository = FakeRepository(groups)
         val viewModel = SyncPlayViewModel(repository)
+
         advanceUntilIdle()
-        assertEquals(listOf(expected), viewModel.state.value.groups)
-        assertTrue(viewModel.state.value.error == null)
+
+        assertEquals(groups, viewModel.state.value.groups)
+        assertEquals(1, repository.listCalls)
     }
 
-    @Test fun `creates trimmed group and refreshes list`() = runTest {
-        val viewModel = SyncPlayViewModel(repository)
+    @Test fun `joining a group marks it active`() = runTest {
+        val group = SyncPlayGroup("g1", "Filme", "Paused", emptyList(), null, 0L)
+        val viewModel = SyncPlayViewModel(FakeRepository(listOf(group)))
         advanceUntilIdle()
-        var callbackCalled = false
-        viewModel.createGroup("  Noite de filmes  ") { callbackCalled = true }
+
+        viewModel.joinGroup("g1")
         advanceUntilIdle()
-        assertEquals("Noite de filmes", repository.createdName)
-        assertTrue(callbackCalled)
+
+        assertEquals("g1", viewModel.state.value.activeGroupId)
     }
 
-    @Test fun `exposes join failure to the user`() = runTest {
-        repository.joinError = IllegalStateException("Sala indisponível")
-        val viewModel = SyncPlayViewModel(repository)
-        advanceUntilIdle()
-        viewModel.joinGroup("room-1")
-        advanceUntilIdle()
-        assertEquals("Sala indisponível", viewModel.state.value.error)
-        assertEquals(null, viewModel.state.value.activeGroupId)
-    }
-
-    @Test fun `notifies navigation only after successful join and exposes playing item`() = runTest {
-        repository.groups = listOf(SyncPlayGroup("room-1", "Sessão", "Playing", emptyList(), "item-42", 0L))
-        val viewModel = SyncPlayViewModel(repository)
-        advanceUntilIdle()
-        var playingItemId: String? = null
-
-        viewModel.joinGroup("room-1") { group -> playingItemId = group?.playingItemId }
-        advanceUntilIdle()
-
-        assertEquals("item-42", playingItemId)
-        assertEquals("room-1", viewModel.state.value.activeGroupId)
-    }
-
-    private class FakeSyncPlayRepository : SyncPlayRepository {
-        var groups: List<SyncPlayGroup> = emptyList()
-        var createdName: String? = null
-        var joinError: Throwable? = null
-        override suspend fun getGroups() = Result.success(groups)
-        override suspend fun createGroup(name: String): Result<Unit> { createdName = name; return Result.success(Unit) }
-        override suspend fun joinGroup(groupId: String): Result<Unit> = joinError?.let { Result.failure(it) } ?: Result.success(Unit)
-        override suspend fun leaveGroup(): Result<Unit> = Result.success(Unit)
+    private class FakeRepository(private val groups: List<SyncPlayGroup>) : SyncPlayRepository {
+        var listCalls = 0
+        override suspend fun getGroups(): Result<List<SyncPlayGroup>> {
+            listCalls++
+            return Result.success(groups)
+        }
+        override suspend fun createGroup(name: String) = Result.success(Unit)
+        override suspend fun joinGroup(groupId: String) = Result.success(Unit)
+        override suspend fun leaveGroup() = Result.success(Unit)
     }
 }

@@ -1,6 +1,7 @@
 package org.mulletaflix.data.repository
 
 import org.mulletaflix.core.api.MulletaFlixApiService
+import org.mulletaflix.core.api.dto.CreateLiveTvTimerDto
 import org.mulletaflix.data.mapper.toDomain
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.LiveTvRepository
@@ -30,5 +31,24 @@ class LiveTvRepositoryImpl @Inject constructor(
 
     override suspend fun getRecordings(userId: String): Result<List<MediaItem>> = runCatching {
         api.getRecordings(userId = userId).items.map { it.toDomain() }
+    }
+
+    override suspend fun scheduleRecording(program: MediaItem): Result<Unit> = runCatching {
+        val channelId = program.channelId?.takeIf(String::isNotBlank)
+            ?: error("O programa não possui um canal válido.")
+        val startDate = program.startDate?.takeIf(String::isNotBlank)
+            ?: error("O programa não possui horário de início.")
+        val endDate = program.endDate?.takeIf(String::isNotBlank)
+            ?: error("O programa não possui horário de término.")
+        api.createLiveTvTimer(
+            CreateLiveTvTimerDto(
+                programId = program.id,
+                channelId = channelId,
+                name = program.name,
+                overview = program.overview,
+                startDate = startDate,
+                endDate = endDate,
+            ),
+        )
     }
 }

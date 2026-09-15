@@ -8,10 +8,10 @@ class LocalServerDiscoveryTest {
     @Test
     fun `parses a valid discovery response and normalizes endpoint`() {
         val server = parseDiscoveryResponse(
-            """{"Address":"HTTP://192.168.1.20:8096/","Name":"Sala","Version":"10.9.0"}"""
+            """{"Address":"HTTP://192.168.1.20:8096/","Name":"Sala","Version":"10.9.0","Id":"server-1"}"""
         )
 
-        assertEquals(ServerInfo("Sala", "http://192.168.1.20:8096", version = "10.9.0"), server)
+        assertEquals(ServerInfo("Sala", "http://192.168.1.20:8096", version = "10.9.0", serverId = "server-1"), server)
     }
 
     @Test

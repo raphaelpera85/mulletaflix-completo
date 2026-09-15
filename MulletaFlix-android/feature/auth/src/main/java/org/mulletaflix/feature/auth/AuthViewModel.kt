@@ -10,6 +10,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.AuthRepository
 import javax.inject.Inject
+import retrofit2.HttpException
 
 const val DEFAULT_MULLETAFLIX_SERVER_URL = "http://mulletaflix.duckdns.org:8096"
 
@@ -18,6 +19,7 @@ data class ServerInfo(
     val url: String,
     val latencyMs: Long? = null,
     val version: String? = null,
+    val serverId: String? = null,
 )
 
 data class AuthUser(
@@ -53,11 +55,13 @@ class AuthViewModel @Inject constructor(
     val state: StateFlow<AuthState> = _state.asStateFlow()
 
     private var quickConnectPollingJob: Job? = null
+    private var usersLoadJob: Job? = null
+    private var usersLoadedForUrl: String? = null
 
     init {
         discoverLocalServers()
         viewModelScope.launch {
-            authRepository.getSavedServerUrl().collect { url ->
+            authRepository.getSavedServerUrl().distinctUntilChanged().collect { url ->
                 if (url.isNotBlank()) {
                     _state.update {
                         val hasLocalServer = it.discoveredServers.isNotEmpty()
@@ -66,6 +70,7 @@ class AuthViewModel @Inject constructor(
                             savedServers = listOf(ServerInfo("MulletaFlix Server", url))
                         )
                     }
+                    loadAvailableUsers(url)
                 }
             }
         }
@@ -77,6 +82,23 @@ class AuthViewModel @Inject constructor(
                 !token.isNullOrBlank() && !userId.isNullOrBlank()
             }.collect { isAuth ->
                 _state.update { it.copy(isAuthenticated = isAuth) }
+            }
+        }
+    }
+
+    private fun loadAvailableUsers(serverUrl: String) {
+        if (usersLoadedForUrl == serverUrl) return
+        usersLoadedForUrl = serverUrl
+        usersLoadJob?.cancel()
+        usersLoadJob = viewModelScope.launch {
+            authRepository.getAvailableUsers().onSuccess { users ->
+                _state.update {
+                    it.copy(
+                        availableUsers = users.map { user ->
+                            AuthUser(user.id, user.name, user.primaryImageTag)
+                        },
+                    )
+                }
             }
         }
     }
@@ -164,21 +186,33 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun login() {
+    fun login(usernameOverride: String? = null, passwordOverride: String? = null) {
         val current = _state.value
-        if (current.username.isBlank()) {
+        val username = usernameOverride ?: current.username
+        val password = passwordOverride ?: current.password
+        if (username.isBlank()) {
             _state.update { it.copy(error = "Digite o nome de usuário") }
             return
         }
 
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            authRepository.login(current.username, current.password)
+            authRepository.login(username, password)
                 .onSuccess {
-                    _state.update { it.copy(isLoading = false, isAuthenticated = true) }
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            isAuthenticated = true,
+                            username = username,
+                            password = password,
+                        )
+                    }
                 }
                 .onFailure { err ->
-                    _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Falha na autenticação") }
+                    val message = (err as? HttpException)?.let { authenticationErrorMessage(it.code()) }
+                        ?: err.localizedMessage
+                        ?: "Falha na autenticação"
+                    _state.update { it.copy(isLoading = false, error = message) }
                 }
         }
     }

@@ -9,7 +9,6 @@ import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.mulletaflix.core.api.AuthInterceptor
-import org.mulletaflix.core.api.BuildConfig
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.ServerUrlInterceptor
 import retrofit2.Retrofit
@@ -35,14 +34,11 @@ object NetworkModule {
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(serverUrlInterceptor)   // replaces base URL dynamically
         .addInterceptor(authInterceptor)         // injects Bearer token
-        .addInterceptor(
-            HttpLoggingInterceptor().apply {
-                level = if (BuildConfig.DEBUG)
-                    HttpLoggingInterceptor.Level.BODY
-                else
-                    HttpLoggingInterceptor.Level.NONE
-            }
-        )
+        // Do not log bodies, Authorization headers, or playback URLs. Media
+        // URLs may contain api_key tokens even when the app is a debug build.
+        .addInterceptor(HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.NONE
+        })
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)      // 2h for streams handled at OkHttp level; per API contract
         .writeTimeout(30, TimeUnit.SECONDS)

@@ -160,6 +160,7 @@ fun LoginScreen(
                 } else {
                     viewModel.register(username, password) {
                         showRegisterDialog = false
+                        viewModel.login(username, password)
                         Toast.makeText(context, "Cadastro realizado com sucesso. Sua conta recebeu 30 minutos de teste.", Toast.LENGTH_LONG).show()
                     }
                 }

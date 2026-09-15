@@ -29,6 +29,7 @@ class SessionRepositoryImpl @Inject constructor(
         val ACCESS_TOKEN = stringPreferencesKey("access_token")
         val USER_ID = stringPreferencesKey("user_id")
         val DEVICE_ID = stringPreferencesKey("device_id")
+        val SERVER_ID = stringPreferencesKey("server_id")
     }
 
     override fun getAccessToken(): Flow<String?> {
@@ -66,6 +67,10 @@ class SessionRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun getServerId(): Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.SERVER_ID]
+    }
+
     override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SERVER_URL] = serverUrl.trimEnd('/')
@@ -81,10 +86,18 @@ class SessionRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun setServerId(serverId: String?) {
+        context.dataStore.edit { preferences ->
+            if (serverId.isNullOrBlank()) preferences.remove(PreferencesKeys.SERVER_ID)
+            else preferences[PreferencesKeys.SERVER_ID] = serverId
+        }
+    }
+
     override suspend fun clearSession() {
         context.dataStore.edit { preferences ->
             preferences.remove(PreferencesKeys.ACCESS_TOKEN)
             preferences.remove(PreferencesKeys.USER_ID)
+            preferences.remove(PreferencesKeys.SERVER_ID)
         }
     }
 }

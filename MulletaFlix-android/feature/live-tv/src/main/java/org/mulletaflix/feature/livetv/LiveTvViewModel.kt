@@ -19,11 +19,15 @@ import javax.inject.Inject
 
 data class LiveTvUiState(
     val channels: List<MediaItem> = emptyList(),
+    val recordings: List<MediaItem> = emptyList(),
     val programs: List<MediaItem> = emptyList(),
     val isLoading: Boolean = true,
     val isLoadingGuide: Boolean = false,
     val error: String? = null,
     val guideError: String? = null,
+    val recordingsError: String? = null,
+    val schedulingProgramId: String? = null,
+    val scheduledProgramIds: Set<String> = emptySet(),
 )
 
 @HiltViewModel
@@ -47,6 +51,9 @@ class LiveTvViewModel @Inject constructor(
             repository.getChannels(userId)
                 .onSuccess { channels -> _state.update { it.copy(channels = channels, isLoading = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "Não foi possível carregar os canais.") } }
+            repository.getRecordings(userId)
+                .onSuccess { recordings -> _state.update { it.copy(recordings = recordings, recordingsError = null) } }
+                .onFailure { e -> _state.update { it.copy(recordingsError = e.message ?: "Não foi possível carregar as gravações.") } }
         }
     }
 
@@ -63,6 +70,30 @@ class LiveTvViewModel @Inject constructor(
             repository.getPrograms(ids, formatter.format(Date(startMillis)), formatter.format(Date(endMillis)))
                 .onSuccess { programs -> _state.update { it.copy(programs = programs, isLoadingGuide = false) } }
                 .onFailure { e -> _state.update { it.copy(isLoadingGuide = false, guideError = e.message ?: "Não foi possível carregar o guia.") } }
+        }
+    }
+
+    fun scheduleRecording(program: MediaItem) {
+        if (program.id in _state.value.scheduledProgramIds) return
+        viewModelScope.launch {
+            _state.update { it.copy(schedulingProgramId = program.id, guideError = null) }
+            repository.scheduleRecording(program)
+                .onSuccess {
+                    _state.update {
+                        it.copy(
+                            schedulingProgramId = null,
+                            scheduledProgramIds = it.scheduledProgramIds + program.id,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            schedulingProgramId = null,
+                            guideError = error.message ?: "Não foi possível agendar a gravação.",
+                        )
+                    }
+                }
         }
     }
 }

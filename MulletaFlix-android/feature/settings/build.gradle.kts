@@ -29,6 +29,7 @@ dependencies {
     ksp(libs.hilt.android.compiler)
     implementation(libs.hilt.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
+    testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)
 }
