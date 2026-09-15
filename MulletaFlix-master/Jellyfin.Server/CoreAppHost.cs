@@ -128,6 +128,9 @@ namespace MulletaFlix.Server
             // GetAvatar is now shipped with the server source.
             yield return typeof(MulletaFlix.Plugin.GetAvatar.Plugin).Assembly;
 
+            // IntroSkipper is now shipped with the server source.
+            yield return typeof(global::IntroSkipper.Plugin).Assembly;
+
             // MulletaFlix.Database.Implementations
             yield return typeof(MulletaFlixDbContext).Assembly;
 

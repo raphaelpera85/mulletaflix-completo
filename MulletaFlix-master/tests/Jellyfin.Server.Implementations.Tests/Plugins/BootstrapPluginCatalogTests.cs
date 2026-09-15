@@ -31,4 +31,13 @@ public sealed class BootstrapPluginCatalogTests
             BootstrapPluginCatalog.BootstrapRepositories,
             repository => Assert.Empty(repository.PluginIds));
     }
+
+    [Fact]
+    public void BootstrapPluginCatalog_DefaultPluginRepositories_DoNotIncludeIntroSkipper()
+    {
+        Assert.DoesNotContain(
+            BootstrapPluginCatalog.DefaultPluginRepositories,
+            repo => repo.Name.Contains("Intro Skipper", StringComparison.OrdinalIgnoreCase)
+                 || repo.Url.Contains("intro-skipper.org", StringComparison.OrdinalIgnoreCase));
+    }
 }
