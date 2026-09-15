@@ -41,4 +41,6 @@ interface PlaybackRepository {
         mediaSourceId: String?,
         positionTicks: Long,
     ): Result<Unit>
+
+    suspend fun getMediaSegments(itemId: String): Result<List<org.mulletaflix.domain.model.MediaSegment>> = Result.success(emptyList())
 }

@@ -315,4 +315,9 @@ interface MulletaFlixApiService {
         @Path("index") index: Int,
         @Query("MediaSourceId") mediaSourceId: String? = null,
     ): okhttp3.ResponseBody
+
+    // ── Media Segments (Intro Skipper) ──────────────────────────────────────────
+
+    @GET("MediaSegments/{itemId}")
+    suspend fun getMediaSegments(@Path("itemId") itemId: String): MediaSegmentsQueryResultDto
 }

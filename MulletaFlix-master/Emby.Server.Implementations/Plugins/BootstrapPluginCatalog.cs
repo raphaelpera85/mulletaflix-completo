@@ -26,6 +26,12 @@ internal static class BootstrapPluginCatalog
             Name = "IAmParadox Plugins",
             Url = "https://www.iamparadox.dev/jellyfin/plugins/manifest.json",
             Enabled = true
+        },
+        new RepositoryInfo
+        {
+            Name = "Intro Skipper",
+            Url = "https://intro-skipper.org/manifest.json",
+            Enabled = true
         }
     ];
 
@@ -40,6 +46,9 @@ internal static class BootstrapPluginCatalog
             []),
         new(
             "https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/10.11/manifest.json",
+            []),
+        new(
+            "https://intro-skipper.org/manifest.json",
             [])
         // IAmParadox plugins removed from bootstrap due to circular dependency in File Transformation plugin
         // Users can install them manually from the repository if needed

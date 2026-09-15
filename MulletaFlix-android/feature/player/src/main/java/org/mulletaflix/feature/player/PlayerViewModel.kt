@@ -32,6 +32,7 @@ import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
 import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.model.Chapter
+import org.mulletaflix.domain.model.MediaSegment
 import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
@@ -240,6 +241,7 @@ class PlayerViewModel @Inject constructor(
         player.stop()
         currentItemId = itemId
         currentItemChapters = emptyList()
+        currentItemSegments = emptyList()
         stoppedReported = false
         currentTranscodeUrl = null
         currentAudioStreamIndex = null
@@ -273,6 +275,15 @@ class PlayerViewModel @Inject constructor(
             if (currentItemId != itemId) return@launch
             currentItemChapters = item.chapters
             _state.update { it.copy(title = item.name, error = null) }
+
+            // Fetch Intro Skipper / native media segments
+            viewModelScope.launch {
+                playbackRepository.getMediaSegments(itemId).onSuccess { segments ->
+                    if (currentItemId == itemId) {
+                        currentItemSegments = segments
+                    }
+                }
+            }
 
             // Check for next episode in series
             viewModelScope.launch {
@@ -556,7 +567,7 @@ class PlayerViewModel @Inject constructor(
                 val position = player.currentPosition.coerceAtLeast(0L)
                 _state.update {
                     val skip = if (skipIntroEnabled) {
-                        chapterSkipAction(currentItemChapters, position)
+                        skipAction(currentItemSegments, currentItemChapters, position)
                     } else {
                         null
                     }
@@ -678,4 +689,5 @@ class PlayerViewModel @Inject constructor(
     }
 
     private var currentItemChapters: List<Chapter> = emptyList()
+    private var currentItemSegments: List<MediaSegment> = emptyList()
 }

@@ -60,3 +60,18 @@ data class PlaybackStopInfoDto(
     @Json(name = "PositionTicks") val positionTicks: Long = 0,
     @Json(name = "Failed") val failed: Boolean = false,
 )
+
+@JsonClass(generateAdapter = true)
+data class MediaSegmentDto(
+    @Json(name = "Id") val id: String? = null,
+    @Json(name = "ItemId") val itemId: String? = null,
+    @Json(name = "Type") val type: String? = null,
+    @Json(name = "StartTicks") val startTicks: Long = 0L,
+    @Json(name = "EndTicks") val endTicks: Long = 0L,
+)
+
+@JsonClass(generateAdapter = true)
+data class MediaSegmentsQueryResultDto(
+    @Json(name = "Items") val items: List<MediaSegmentDto> = emptyList(),
+    @Json(name = "TotalRecordCount") val totalRecordCount: Int = 0,
+)

@@ -5,7 +5,7 @@
 
 using IntroSkipper.Configuration;
 using IntroSkipper.Helper;
-using Jellyfin.Data.Enums;
+using MulletaFlix.Data.Enums;
 using MulletaFlix.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;

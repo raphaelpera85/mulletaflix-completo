@@ -1,6 +1,8 @@
 package org.mulletaflix.feature.player
 
 import org.mulletaflix.domain.model.Chapter
+import org.mulletaflix.domain.model.MediaSegment
+import org.mulletaflix.domain.model.MediaSegmentType
 
 internal enum class ChapterSkipKind { INTRO, CREDITS }
 
@@ -8,6 +10,28 @@ internal data class ChapterSkipAction(
     val kind: ChapterSkipKind,
     val targetPositionMs: Long,
 )
+
+/** Returns a skip target if playback is inside an Intro Skipper media segment. */
+internal fun mediaSegmentSkipAction(segments: List<MediaSegment>, positionMs: Long): ChapterSkipAction? {
+    val activeSegment = segments.firstOrNull { segment ->
+        positionMs in segment.startPositionMs until segment.endPositionMs
+    } ?: return null
+
+    return when (activeSegment.type) {
+        MediaSegmentType.Intro -> ChapterSkipAction(kind = ChapterSkipKind.INTRO, targetPositionMs = activeSegment.endPositionMs)
+        MediaSegmentType.Outro -> ChapterSkipAction(kind = ChapterSkipKind.CREDITS, targetPositionMs = activeSegment.endPositionMs)
+        else -> null
+    }
+}
+
+/** Returns a skip target using media segments first, falling back to chapter tags. */
+internal fun skipAction(
+    segments: List<MediaSegment>,
+    chapters: List<Chapter>,
+    positionMs: Long
+): ChapterSkipAction? {
+    return mediaSegmentSkipAction(segments, positionMs) ?: chapterSkipAction(chapters, positionMs)
+}
 
 /** Returns a skip target only while playback is inside a named intro/credits chapter. */
 internal fun chapterSkipAction(chapters: List<Chapter>, positionMs: Long): ChapterSkipAction? {

@@ -113,4 +113,27 @@ class PlaybackRepositoryImpl @Inject constructor(
             )
         )
     }
+
+    override suspend fun getMediaSegments(itemId: String): Result<List<org.mulletaflix.domain.model.MediaSegment>> = runCatching {
+        val response = api.getMediaSegments(itemId)
+        response.items.mapNotNull { dto ->
+            val id = dto.id ?: return@mapNotNull null
+            val item = dto.itemId ?: itemId
+            val type = when (dto.type?.trim()?.lowercase()) {
+                "intro" -> org.mulletaflix.domain.model.MediaSegmentType.Intro
+                "outro" -> org.mulletaflix.domain.model.MediaSegmentType.Outro
+                "preview" -> org.mulletaflix.domain.model.MediaSegmentType.Preview
+                "recap" -> org.mulletaflix.domain.model.MediaSegmentType.Recap
+                "commercial" -> org.mulletaflix.domain.model.MediaSegmentType.Commercial
+                else -> org.mulletaflix.domain.model.MediaSegmentType.Unknown
+            }
+            org.mulletaflix.domain.model.MediaSegment(
+                id = id,
+                itemId = item,
+                type = type,
+                startTicks = dto.startTicks,
+                endTicks = dto.endTicks,
+            )
+        }
+    }
 }
