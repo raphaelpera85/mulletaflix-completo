@@ -29,9 +29,11 @@ interface AuthRepository {
     suspend fun initiateQuickConnect(): Result<QuickConnectState>
     suspend fun checkQuickConnect(secret: String): Result<UserSession?>
     suspend fun logout(): Result<Unit>
+    suspend fun getCurrentUserProfile(): Result<org.mulletaflix.domain.model.UserProfile>
     fun getSavedServerUrl(): Flow<String>
     suspend fun setServerUrl(url: String)
     fun getSavedUserId(): Flow<String?>
+    fun getSavedUserName(): Flow<String?>
     fun getSavedToken(): Flow<String?>
 }
 
