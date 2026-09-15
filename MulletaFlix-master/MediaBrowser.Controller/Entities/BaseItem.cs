@@ -2082,6 +2082,23 @@ namespace MediaBrowser.Controller.Entities
         }
 
         /// <summary>
+        /// Clears the playback position ticks for the user, removing it from continue watching without marking as played or wiping play count.
+        /// </summary>
+        /// <param name="user">The user.</param>
+        /// <exception cref="ArgumentNullException">Throws if user is null.</exception>
+        public virtual void ClearPlaybackPosition(User user)
+        {
+            ArgumentNullException.ThrowIfNull(user);
+
+            var data = UserDataManager.GetUserData(user, this);
+            if (data is not null && data.PlaybackPositionTicks > 0)
+            {
+                data.PlaybackPositionTicks = 0;
+                UserDataManager.SaveUserData(user, this, data, UserDataSaveReason.UpdateUserData, CancellationToken.None);
+            }
+        }
+
+        /// <summary>
         /// Do whatever refreshing is necessary when the filesystem pertaining to this item has changed.
         /// </summary>
         public virtual void ChangedExternally()

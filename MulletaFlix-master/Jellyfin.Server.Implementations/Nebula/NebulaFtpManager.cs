@@ -2741,6 +2741,38 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 ";
     }
 
+    /// <summary>
+    /// Obtém o pool de clientes Telegram MTProto e Bot API em execução.
+    /// </summary>
+    public NebulaTelegramPool? TelegramPool => _telegramPool;
+
+    /// <inheritdoc />
+    public async Task<bool> SendTelegramNotificationAsync(string messageHtml, string? targetChatId = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(messageHtml))
+        {
+            return false;
+        }
+
+        var pool = _telegramPool;
+        if (pool == null)
+        {
+            var config = Config;
+            var botTokens = await LoadBotTokensAsync(config, cancellationToken).ConfigureAwait(false);
+            if (botTokens.Count == 0)
+            {
+                return false;
+            }
+
+            _ = int.TryParse(config.ApiId, out var apiId);
+            _ = long.TryParse(config.ChatId, out var chatId);
+            await using var tempPool = new NebulaTelegramPool(apiId, config.ApiHash, botTokens, chatId, GetSessionsDirectory(), _loggerFactory.CreateLogger<NebulaTelegramPool>());
+            return await tempPool.SendMessageAsync(messageHtml, targetChatId, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await pool.SendMessageAsync(messageHtml, targetChatId, cancellationToken).ConfigureAwait(false);
+    }
+
     public void Dispose()
     {
         try

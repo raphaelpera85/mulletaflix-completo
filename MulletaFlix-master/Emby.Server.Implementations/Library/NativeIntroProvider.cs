@@ -70,9 +70,20 @@ public sealed class NativeIntroProvider : IIntroProvider
             return null;
         }
 
-        return Directory.EnumerateFiles(path)
+        var files = Directory.EnumerateFiles(path)
             .Where(file => SupportedExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-            .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+            .ToArray();
+
+        if (files.Length == 0)
+        {
+            return null;
+        }
+
+        if (files.Length == 1)
+        {
+            return files[0];
+        }
+
+        return files[Random.Shared.Next(files.Length)];
     }
 }

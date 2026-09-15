@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading.Tasks;
@@ -941,11 +941,32 @@ public class ItemsController : BaseMulletaFlixApiController
             ExcludeItemIds = excludeItemIds
         });
 
-        var returnItems = await _dtoService.GetBaseItemDtosAsync(itemsResult.Items, dtoOptions, user).ConfigureAwait(false);
+        var deduplicatedItems = new List<BaseItem>();
+        var seenSeriesIds = new HashSet<Guid>();
+        foreach (var item in itemsResult.Items)
+        {
+            if (item is IHasSeries seriesItem)
+            {
+                var seriesId = seriesItem.SeriesId != Guid.Empty ? seriesItem.SeriesId : seriesItem.FindSeriesId();
+                if (seriesId != Guid.Empty)
+                {
+                    if (seenSeriesIds.Add(seriesId))
+                    {
+                        deduplicatedItems.Add(item);
+                    }
+
+                    continue;
+                }
+            }
+
+            deduplicatedItems.Add(item);
+        }
+
+        var returnItems = await _dtoService.GetBaseItemDtosAsync(deduplicatedItems, dtoOptions, user).ConfigureAwait(false);
 
         return new QueryResult<BaseItemDto>(
             startIndex,
-            itemsResult.TotalRecordCount,
+            itemsResult.TotalRecordCount > 0 ? deduplicatedItems.Count : 0,
             returnItems);
     }
 

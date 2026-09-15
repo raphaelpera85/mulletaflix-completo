@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
@@ -209,6 +209,66 @@ public class PlaystateController : BaseMulletaFlixApiController
         }
 
         return MarkUnplayedItem(userId, itemId);
+    }
+
+    /// <summary>
+    /// Removes an item from the user's continue watching / resume list without marking as played.
+    /// </summary>
+    /// <param name="userId">User id.</param>
+    /// <param name="itemId">Item id.</param>
+    /// <response code="200">Item removed from resume list.</response>
+    /// <response code="404">Item not found.</response>
+    /// <returns>A <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>, or a <see cref="NotFoundResult"/> if item was not found.</returns>
+    [HttpDelete("UserResumeItems/{itemId}")]
+    [HttpDelete("UserItems/{itemId}/Resume")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [Tags("UserData")]
+    public ActionResult<UserItemDataDto?> RemoveFromResume(
+        [FromQuery] Guid? userId,
+        [FromRoute, Required] Guid itemId)
+    {
+        userId = RequestHelpers.GetUserId(User, userId);
+        var user = _userManager.GetUserById(userId.Value);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        if (item is null)
+        {
+            return NotFound();
+        }
+
+        item.ClearPlaybackPosition(user);
+
+        return _userDataRepository.GetUserDataDto(item, user);
+    }
+
+    /// <summary>
+    /// Removes an item from the user's continue watching / resume list without marking as played.
+    /// </summary>
+    /// <param name="userId">User id.</param>
+    /// <param name="itemId">Item id.</param>
+    /// <response code="200">Item removed from resume list.</response>
+    /// <response code="404">Item not found.</response>
+    /// <returns>A <see cref="OkResult"/> containing the <see cref="UserItemDataDto"/>, or a <see cref="NotFoundResult"/> if item was not found.</returns>
+    [HttpDelete("Users/{userId}/Items/{itemId}/Resume")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [Obsolete("Kept for backwards compatibility")]
+    [ApiExplorerSettings(IgnoreApi = true)]
+    public ActionResult<UserItemDataDto?> RemoveFromResumeLegacy(
+        [FromRoute, Required] Guid userId,
+        [FromRoute, Required] Guid itemId)
+    {
+        if (!UserExists(userId))
+        {
+            return NotFound();
+        }
+
+        return RemoveFromResume(userId, itemId);
     }
 
     /// <summary>

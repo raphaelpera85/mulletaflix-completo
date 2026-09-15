@@ -191,6 +191,8 @@ namespace MulletaFlix.Server
             // the STRM downloader can await metadata preparation before downloading.
             services.AddSingleton<NebulaMetadataExportService>();
             services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<NebulaMetadataExportService>());
+            services.AddSingleton<NebulaTelegramLibraryNotifier>();
+            services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<NebulaTelegramLibraryNotifier>());
         }
 
         /// <summary>

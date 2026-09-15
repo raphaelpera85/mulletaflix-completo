@@ -244,3 +244,10 @@ public class NebulaSupabaseRestoreResultDto
 
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
+
+public class NebulaTelegramNotificationRequest
+{
+    public string Message { get; set; } = string.Empty;
+
+    public string? TargetChatId { get; set; }
+}

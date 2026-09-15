@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CA1002, CA1721, CA1819, CS1591
 
@@ -1902,6 +1902,27 @@ namespace MediaBrowser.Controller.Entities
             foreach (var item in itemsResult)
             {
                 item.MarkUnplayed(user);
+            }
+        }
+
+        /// <summary>
+        /// Clears the playback position ticks for children items for the user.
+        /// </summary>
+        /// <param name="user">The user.</param>
+        public override void ClearPlaybackPosition(User user)
+        {
+            var itemsResult = GetItemList(new InternalItemsQuery
+            {
+                User = user,
+                Recursive = true,
+                IsFolder = false,
+                EnableTotalRecordCount = false,
+                IsResumable = true
+            });
+
+            foreach (var item in itemsResult)
+            {
+                item.ClearPlaybackPosition(user);
             }
         }
 

@@ -1445,6 +1445,58 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         return new NebulaTelegramUploadResult(botIndex, response.Result.MessageId, response.Result.Chat.Id, response.Result.Document.FileId);
     }
 
+    /// <summary>
+    /// Envia uma mensagem em formato HTML usando a Bot API do Telegram via pool de bots com fallback automático.
+    /// </summary>
+    public async Task<bool> SendMessageAsync(string text, string? targetChatId = null, CancellationToken cancellationToken = default)
+    {
+        if (_botTokens.Count == 0 || string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var effectiveChatId = !string.IsNullOrWhiteSpace(targetChatId)
+            ? targetChatId
+            : _chatId.ToString();
+
+        if (string.IsNullOrWhiteSpace(effectiveChatId) || effectiveChatId == "0")
+        {
+            return false;
+        }
+
+        foreach (var token in _botTokens)
+        {
+            try
+            {
+                var url = $"https://api.telegram.org/bot{token}/sendMessage";
+                var payload = new Dictionary<string, object>
+                {
+                    ["chat_id"] = effectiveChatId,
+                    ["text"] = text,
+                    ["parse_mode"] = "HTML",
+                    ["disable_web_page_preview"] = false
+                };
+
+                var json = JsonSerializer.Serialize(payload);
+                using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+                using var response = await _httpClient.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+
+                var respBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                _logger.LogWarning("[NEBULA-TG] Falha ao enviar mensagem bot: {Status} - {Body}", response.StatusCode, respBody);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "[NEBULA-TG] Exceção ao enviar mensagem Telegram via Bot API.");
+            }
+        }
+
+        return false;
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {

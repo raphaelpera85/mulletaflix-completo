@@ -419,4 +419,24 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             config.SupabaseKey = existing.SupabaseKey;
         }
     }
+
+    [HttpPost("Telegram/Notification")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult> SendTelegramNotification([FromBody] NebulaTelegramNotificationRequest request, CancellationToken cancellationToken)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Message))
+        {
+            return BadRequest("A mensagem não pode ser vazia.");
+        }
+
+        var success = await _nebulaManager.SendTelegramNotificationAsync(request.Message, request.TargetChatId, cancellationToken).ConfigureAwait(false);
+        if (success)
+        {
+            return Ok(new { success = true });
+        }
+
+        return StatusCode(StatusCodes.Status502BadGateway, new { success = false, message = "Falha ao entregar notificação via bot do Telegram." });
+    }
 }

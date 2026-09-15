@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.MediaInfo;
@@ -45,6 +45,30 @@ public class BaseItemTests
 
         Assert.Equal(name, video.GetMediaSourceName(video));
         Assert.Equal(altName, video.GetMediaSourceName(videoAlt));
+    }
+
+    [Fact]
+    public void ClearPlaybackPosition_ResetsPositionTicks_WhenResumable()
+    {
+        var item = new Video();
+        var user = new MulletaFlix.Database.Implementations.Entities.User("test", "test", "test");
+        var userDataManager = new Mock<IUserDataManager>();
+        var userData = new UserItemData
+        {
+            Key = "test_key",
+            PlaybackPositionTicks = 1234567,
+            Played = false,
+            PlayCount = 2
+        };
+        userDataManager.Setup(m => m.GetUserData(user, item)).Returns(userData);
+        BaseItem.UserDataManager = userDataManager.Object;
+
+        item.ClearPlaybackPosition(user);
+
+        Assert.Equal(0, userData.PlaybackPositionTicks);
+        Assert.False(userData.Played);
+        Assert.Equal(2, userData.PlayCount);
+        userDataManager.Verify(m => m.SaveUserData(user, item, userData, MediaBrowser.Model.Entities.UserDataSaveReason.UpdateUserData, It.IsAny<System.Threading.CancellationToken>()), Times.Once);
     }
 }
 

@@ -45,4 +45,6 @@ public interface INebulaFtpManager
     Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);
 
     string GetSupabaseSqlScript();
+
+    Task<bool> SendTelegramNotificationAsync(string messageHtml, string? targetChatId = null, CancellationToken cancellationToken = default);
 }

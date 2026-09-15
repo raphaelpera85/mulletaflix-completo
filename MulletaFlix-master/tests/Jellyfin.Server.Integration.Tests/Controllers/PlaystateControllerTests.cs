@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Threading.Tasks;
 using Xunit;
@@ -56,6 +56,28 @@ public class PlaystateControllerTests : IClassFixture<MulletaFlixApplicationFact
         var userDto = await AuthHelper.GetUserDtoAsync(client);
 
         using var response = await client.PostAsync($"Users/{userDto.Id}/PlayedItems/{Guid.NewGuid()}", null, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteRemoveFromResume_NonexistentItemId_NotFound()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
+
+        var userDto = await AuthHelper.GetUserDtoAsync(client);
+
+        using var response = await client.DeleteAsync($"Users/{userDto.Id}/Items/{Guid.NewGuid()}/Resume", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteRemoveFromResume_UserResumeItems_NonexistentItemId_NotFound()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
+
+        using var response = await client.DeleteAsync($"UserResumeItems/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 }
