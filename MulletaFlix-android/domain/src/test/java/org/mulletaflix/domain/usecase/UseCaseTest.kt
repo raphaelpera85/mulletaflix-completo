@@ -1,0 +1,176 @@
+package org.mulletaflix.domain.usecase
+
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.mulletaflix.domain.model.*
+import org.mulletaflix.domain.repository.*
+
+class UseCaseTest {
+
+    @Test
+    fun `GetUserProfileUseCase returns user profile on success`() = runTest {
+        val expected = UserProfile(
+            id = "u1",
+            name = "Test User",
+            isAdministrator = true,
+            canDownload = true,
+            canAccessLiveTv = true,
+            canPlayMedia = true,
+        )
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun getCurrentUserProfile(): Result<UserProfile> = Result.success(expected)
+        }
+        val useCase = GetUserProfileUseCase(authRepo)
+        val result = useCase()
+
+        assertTrue(result.isSuccess)
+        assertEquals(expected, result.getOrNull())
+    }
+
+    @Test
+    fun `LogoutUseCase triggers auth logout`() = runTest {
+        var loggedOut = false
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun logout(): Result<Unit> {
+                loggedOut = true
+                return Result.success(Unit)
+            }
+        }
+        val useCase = LogoutUseCase(authRepo)
+        val result = useCase()
+
+        assertTrue(result.isSuccess)
+        assertTrue(loggedOut)
+    }
+
+    @Test
+    fun `GetItemDetailUseCase retrieves item by id`() = runTest {
+        val expected = MediaItem(
+            id = "m1",
+            name = "Inception",
+            type = MediaItemType.Movie,
+        )
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
+                return if (userId == "u1" && itemId == "m1") Result.success(expected) else Result.failure(Exception("Not found"))
+            }
+        }
+        val useCase = GetItemDetailUseCase(mediaRepo)
+        val result = useCase("u1", "m1")
+
+        assertTrue(result.isSuccess)
+        assertEquals("Inception", result.getOrNull()?.name)
+    }
+
+    @Test
+    fun `ToggleFavoriteUseCase marks as favorite when currently not favorite`() = runTest {
+        var markedId: String? = null
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> {
+                markedId = itemId
+                return Result.success(Unit)
+            }
+        }
+        val useCase = ToggleFavoriteUseCase(mediaRepo)
+        val result = useCase("u1", "item-123", currentFavorite = false)
+
+        assertTrue(result.isSuccess)
+        assertEquals(true, result.getOrNull())
+        assertEquals("item-123", markedId)
+    }
+
+    @Test
+    fun `ToggleFavoriteUseCase unmarks favorite when currently favorite`() = runTest {
+        var unmarkedId: String? = null
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun unmarkAsFavorite(userId: String, itemId: String): Result<Unit> {
+                unmarkedId = itemId
+                return Result.success(Unit)
+            }
+        }
+        val useCase = ToggleFavoriteUseCase(mediaRepo)
+        val result = useCase("u1", "item-123", currentFavorite = true)
+
+        assertTrue(result.isSuccess)
+        assertEquals(false, result.getOrNull())
+        assertEquals("item-123", unmarkedId)
+    }
+
+    @Test
+    fun `TogglePlayedUseCase marks as played when currently unplayed`() = runTest {
+        var markedId: String? = null
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun markAsPlayed(userId: String, itemId: String): Result<Unit> {
+                markedId = itemId
+                return Result.success(Unit)
+            }
+        }
+        val useCase = TogglePlayedUseCase(mediaRepo)
+        val result = useCase("u1", "item-123", currentPlayed = false)
+
+        assertTrue(result.isSuccess)
+        assertEquals(true, result.getOrNull())
+        assertEquals("item-123", markedId)
+    }
+
+    @Test
+    fun `TogglePlayedUseCase marks as unplayed when currently played`() = runTest {
+        var unmarkedId: String? = null
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun markAsUnplayed(userId: String, itemId: String): Result<Unit> {
+                unmarkedId = itemId
+                return Result.success(Unit)
+            }
+        }
+        val useCase = TogglePlayedUseCase(mediaRepo)
+        val result = useCase("u1", "item-123", currentPlayed = true)
+
+        assertTrue(result.isSuccess)
+        assertEquals(false, result.getOrNull())
+        assertEquals("item-123", unmarkedId)
+    }
+
+    private open class FakeAuthRepository : AuthRepository {
+        override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.failure(NotImplementedError())
+        override suspend fun register(username: String, password: String): Result<RegistrationResult> = Result.failure(NotImplementedError())
+        override suspend fun login(username: String, password: String): Result<UserSession> = Result.failure(NotImplementedError())
+        override suspend fun getAvailableUsers(): Result<List<AvailableUser>> = Result.success(emptyList())
+        override suspend fun initiateQuickConnect(): Result<QuickConnectState> = Result.failure(NotImplementedError())
+        override suspend fun checkQuickConnect(secret: String): Result<UserSession?> = Result.success(null)
+        override suspend fun logout(): Result<Unit> = Result.success(Unit)
+        override suspend fun getCurrentUserProfile(): Result<UserProfile> = Result.failure(NotImplementedError())
+        override fun getSavedServerUrl(): Flow<String> = flowOf("http://localhost:8096")
+        override suspend fun setServerUrl(url: String) = Unit
+        override fun getSavedUserId(): Flow<String?> = flowOf("u1")
+        override fun getSavedUserName(): Flow<String?> = flowOf("Test User")
+        override fun getSavedToken(): Flow<String?> = flowOf("token-123")
+    }
+
+    private open class FakeMediaRepository : MediaRepository {
+        override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getLibraries(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> = Result.success(Pair(emptyList(), 0))
+        override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.failure(NotImplementedError())
+        override suspend fun getSimilarItems(userId: String, itemId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getSpecialFeatures(userId: String, itemId: String): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun markAsPlayed(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
+        override suspend fun markAsUnplayed(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
+        override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
+        override suspend fun unmarkAsFavorite(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
+        override suspend fun search(userId: String, searchTerm: String, limit: Int, includeItemTypes: String?): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getLiveTvChannels(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getRecordings(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
+        override suspend fun getSuggestions(userId: String, itemId: String): Result<List<MediaItem>> = Result.success(emptyList())
+        override fun observeFavorites(userId: String): Flow<List<MediaItem>> = emptyFlow()
+        override fun observeRecentlyWatched(userId: String): Flow<List<MediaItem>> = emptyFlow()
+    }
+}
