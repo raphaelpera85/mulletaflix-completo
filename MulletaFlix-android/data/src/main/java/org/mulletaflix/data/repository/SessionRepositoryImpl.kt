@@ -28,6 +28,7 @@ class SessionRepositoryImpl @Inject constructor(
         val SERVER_URL = stringPreferencesKey("server_url")
         val ACCESS_TOKEN = stringPreferencesKey("access_token")
         val USER_ID = stringPreferencesKey("user_id")
+        val USER_NAME = stringPreferencesKey("user_name")
         val DEVICE_ID = stringPreferencesKey("device_id")
         val SERVER_ID = stringPreferencesKey("server_id")
     }
@@ -67,15 +68,30 @@ class SessionRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun getCurrentUserName(): Flow<String?> {
+        return context.dataStore.data.map { preferences ->
+            preferences[PreferencesKeys.USER_NAME]
+        }
+    }
+
     override fun getServerId(): Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.SERVER_ID]
     }
 
     override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) {
+        saveSession(serverUrl, token, userId, null, deviceId)
+    }
+
+    override suspend fun saveSession(serverUrl: String, token: String, userId: String, userName: String?, deviceId: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SERVER_URL] = serverUrl.trimEnd('/')
             preferences[PreferencesKeys.ACCESS_TOKEN] = token
             preferences[PreferencesKeys.USER_ID] = userId
+            if (!userName.isNullOrBlank()) {
+                preferences[PreferencesKeys.USER_NAME] = userName
+            } else {
+                preferences.remove(PreferencesKeys.USER_NAME)
+            }
             preferences[PreferencesKeys.DEVICE_ID] = deviceId
         }
     }
@@ -97,6 +113,7 @@ class SessionRepositoryImpl @Inject constructor(
         context.dataStore.edit { preferences ->
             preferences.remove(PreferencesKeys.ACCESS_TOKEN)
             preferences.remove(PreferencesKeys.USER_ID)
+            preferences.remove(PreferencesKeys.USER_NAME)
             preferences.remove(PreferencesKeys.SERVER_ID)
         }
     }

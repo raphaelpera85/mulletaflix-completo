@@ -59,6 +59,7 @@ class AuthRepositoryImpl @Inject constructor(
             serverUrl = serverUrl,
             token = token,
             userId = userId,
+            userName = userName,
             deviceId = deviceId,
         )
         sessionRepository.setServerId(result.serverId)
@@ -102,6 +103,7 @@ class AuthRepositoryImpl @Inject constructor(
                 serverUrl = serverUrl,
                 token = token,
                 userId = user.id,
+                userName = user.name,
                 deviceId = deviceId,
             )
             sessionRepository.setServerId(res.serverId)
@@ -120,6 +122,22 @@ class AuthRepositoryImpl @Inject constructor(
         sessionRepository.clearSession()
     }
 
+    override suspend fun getCurrentUserProfile(): Result<org.mulletaflix.domain.model.UserProfile> = runCatching {
+        val userDto = api.getCurrentUser()
+        org.mulletaflix.domain.model.UserProfile(
+            id = userDto.id,
+            name = userDto.name,
+            serverId = userDto.serverId,
+            primaryImageTag = userDto.primaryImageTag,
+            isAdministrator = userDto.policy?.isAdministrator ?: false,
+            canDownload = userDto.policy?.enableContentDownloading ?: true,
+            canAccessLiveTv = userDto.policy?.enableLiveTvAccess ?: true,
+            canPlayMedia = userDto.policy?.enableMediaPlayback ?: true,
+            audioLanguagePreference = userDto.configuration?.audioLanguagePreference,
+            subtitleLanguagePreference = userDto.configuration?.subtitleLanguagePreference,
+        )
+    }
+
     override fun getSavedServerUrl(): Flow<String> = sessionRepository.getBaseUrl()
 
     override suspend fun setServerUrl(url: String) {
@@ -128,5 +146,8 @@ class AuthRepositoryImpl @Inject constructor(
 
     override fun getSavedUserId(): Flow<String?> = sessionRepository.getCurrentUserId()
 
+    override fun getSavedUserName(): Flow<String?> = sessionRepository.getCurrentUserName()
+
     override fun getSavedToken(): Flow<String?> = sessionRepository.getAccessToken()
 }
+
