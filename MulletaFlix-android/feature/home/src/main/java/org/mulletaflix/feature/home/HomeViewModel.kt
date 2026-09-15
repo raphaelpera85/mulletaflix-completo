@@ -77,21 +77,29 @@ class HomeViewModel @Inject constructor(
                     val nextUpResult = nextUpDeferred.await()
                     val librariesResult = librariesDeferred.await()
                     val liveTvResult = liveTvDeferred.await()
-                    val libraries = librariesResult.getOrThrow()
+                    val libraries = librariesResult.getOrDefault(emptyList())
 
                     val recentlyAdded = libraries.map { lib ->
                         async {
                             lib.name to mediaRepository
                                 .getLatestItems(userId, parentId = lib.id)
-                                .getOrThrow()
+                                .getOrDefault(emptyList())
                         }
                     }.map { it.await() }.toMap()
 
+                    val resumeItems = resumeResult.getOrDefault(emptyList())
+                    val nextUpItems = nextUpResult.getOrDefault(emptyList())
+                    val liveTvChannels = liveTvResult.getOrDefault(emptyList())
+
+                    if (libraries.isEmpty() && resumeItems.isEmpty() && nextUpItems.isEmpty() && librariesResult.isFailure) {
+                        throw librariesResult.exceptionOrNull() ?: Exception("Não foi possível carregar o catálogo.")
+                    }
+
                     HomePayload(
-                        resumeItems = resumeResult.getOrThrow(),
-                        nextUpItems = nextUpResult.getOrThrow(),
+                        resumeItems = resumeItems,
+                        nextUpItems = nextUpItems,
                         libraries = libraries,
-                        liveTvChannels = liveTvResult.getOrThrow(),
+                        liveTvChannels = liveTvChannels,
                         recentlyAddedByLibrary = recentlyAdded,
                     )
                 })
