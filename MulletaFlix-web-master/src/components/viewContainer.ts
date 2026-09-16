@@ -153,6 +153,48 @@ function createViewElement(newView: HTMLElement | string): HTMLElement {
     return view;
 }
 
+function ensureStylesheets(container: HTMLElement): void {
+    const links = Array.from(container.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
+    for (const oldLink of links) {
+        const href = oldLink.getAttribute('href');
+        if (href && !href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//') && !href.startsWith('/')) {
+            const resolved = (window as unknown as { ApiClient?: { getUrl: (p: string) => string } }).ApiClient?.getUrl('web/' + href) || href;
+            oldLink.href = resolved;
+        }
+    }
+}
+
+function executeScripts(container: HTMLElement): void {
+    const scripts = Array.from(container.querySelectorAll('script'));
+    for (const oldScript of scripts) {
+        if (oldScript.src || oldScript.getAttribute('src')) {
+            const newScript = document.createElement('script');
+            for (const attr of Array.from(oldScript.attributes)) {
+                if (attr.name === 'src') {
+                    const src = attr.value;
+                    if (src && !src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('//') && !src.startsWith('/')) {
+                        const resolved = (window as unknown as { ApiClient?: { getUrl: (p: string) => string } }).ApiClient?.getUrl('web/' + src) || src;
+                        newScript.src = resolved;
+                    } else {
+                        newScript.src = src;
+                    }
+                } else {
+                    newScript.setAttribute(attr.name, attr.value);
+                }
+            }
+            newScript.async = false;
+            oldScript.parentNode?.replaceChild(newScript, oldScript);
+        } else if (oldScript.textContent) {
+            try {
+                // Execute inline script in global scope
+                (0, eval)(oldScript.textContent);
+            } catch (error) {
+                console.error('[viewContainer] Error executing inline script:', error);
+            }
+        }
+    }
+}
+
 function attachView(
     view: HTMLElement,
     currentPage: HTMLElement | null,
@@ -162,19 +204,18 @@ function attachView(
 ): HTMLElement {
     if (currentPage && hasScript && jq) {
         mainAnimatedPages.removeChild(currentPage);
-        return jq(view).appendTo(mainAnimatedPages)[0];
-    }
-
-    if (currentPage) {
+        view = jq(view).appendTo(mainAnimatedPages)[0];
+    } else if (currentPage) {
         mainAnimatedPages.replaceChild(view, currentPage);
-        return view;
+    } else if (hasScript && jq) {
+        view = jq(view).appendTo(mainAnimatedPages)[0];
+    } else {
+        mainAnimatedPages.appendChild(view);
     }
 
-    if (hasScript && jq) {
-        return jq(view).appendTo(mainAnimatedPages)[0];
-    }
+    ensureStylesheets(view);
+    executeScripts(view);
 
-    mainAnimatedPages.appendChild(view);
     return view;
 }
 
@@ -187,7 +228,16 @@ function parseHtml(html: string, hasScript: boolean): HTMLElement {
 
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
-    return wrapper.querySelector<HTMLElement>('div[data-role="page"]') || wrapper;
+    const pageElem = wrapper.querySelector<HTMLElement>('div[data-role="page"]');
+    if (pageElem) {
+        const outsideNodes = Array.from(wrapper.querySelectorAll('script, link[rel="stylesheet"]'))
+            .filter((node) => !pageElem.contains(node));
+        for (const node of outsideNodes) {
+            pageElem.appendChild(node);
+        }
+        return pageElem;
+    }
+    return wrapper;
 }
 
 function normalizeNewView(options: ViewOptions, isPluginpage: boolean): NormalizedView {

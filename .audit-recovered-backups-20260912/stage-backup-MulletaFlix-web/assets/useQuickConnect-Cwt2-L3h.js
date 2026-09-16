@@ -1,1 +1,0 @@
-import{d as t}from"./vendor-jellyfin-Bee54tkY.js";import{u as o}from"./vendor-react-query-BiAmjtRH.js";import{u as a}from"./index-CFwqrzSZ.js";const s=async(e,n)=>(await t(e).getQuickConnectEnabled(n)).data,p=()=>{const{api:e}=a();return o({queryKey:["QuickConnect","Enabled",e?.basePath],queryFn:({signal:n})=>s(e,{signal:n}),enabled:!!e})};export{p as u};

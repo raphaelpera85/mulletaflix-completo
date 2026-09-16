@@ -1,1 +1,0 @@
-import{u as s}from"./vendor-react-query-BiAmjtRH.js";import{u as a}from"./index-CFwqrzSZ.js";const r=async(e,t)=>(await e.axiosInstance.get("/System/UpdateInfo",{signal:t})).data,u=()=>{const{api:e}=a();return s({queryKey:["UpdateInfo",e?.basePath],queryFn:({signal:t})=>r(e,t),enabled:!!e,retry:2})};export{u};

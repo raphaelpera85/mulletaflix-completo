@@ -1,1 +1,0 @@
-import{j as o}from"./vendor-react-CeUY3tRn.js";import{s}from"./index-CFwqrzSZ.js";import{a6 as t,B as a}from"./vendor-mui-CstY5C4d.js";const n=({onRetry:r})=>o.jsx(t,{severity:"error",action:r?o.jsx(a,{color:"inherit",size:"small",onClick:r,children:s.translate("Retry")}):void 0,children:s.translate("ErrorDefault")});export{n as L};

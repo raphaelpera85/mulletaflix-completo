@@ -1,1 +1,0 @@
-import{u}from"./vendor-react-query-BiAmjtRH.js";import{u as a,ao as o,ap as t}from"./index-CFwqrzSZ.js";const Q=t,U=({userId:s})=>{const{api:r,user:e}=a();return u(o(r,{userId:s||e?.Id}))};export{Q,U as u};
