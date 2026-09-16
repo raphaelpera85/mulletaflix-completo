@@ -222,6 +222,99 @@ class UseCaseTest {
         assertEquals("S2 Premiere", result.getOrNull()?.name)
     }
 
+    @Test
+    fun `GetHomeFeedUseCase loads sections and selects hero`() = runTest {
+        val resumeItem = MediaItem(id = "r1", name = "Resume Movie", type = MediaItemType.Movie)
+        val library = MediaItem(id = "lib1", name = "Filmes", type = MediaItemType.CollectionFolder)
+        val latestMovie = MediaItem(id = "l1", name = "Latest Movie", type = MediaItemType.Movie)
+
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(listOf(resumeItem))
+            override suspend fun getLibraries(userId: String) = Result.success(listOf(library))
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(listOf(latestMovie))
+        }
+
+        val useCase = GetHomeFeedUseCase(mediaRepo)
+        val result = useCase("u1")
+
+        assertTrue(result.isSuccess)
+        val feed = result.getOrNull()!!
+        assertEquals("r1", feed.heroItem?.id)
+        assertEquals(listOf(resumeItem), feed.resumeItems)
+        assertEquals(listOf(library), feed.libraries)
+        assertEquals(listOf(latestMovie), feed.recentlyAddedByLibrary["Filmes"])
+    }
+
+    @Test
+    fun `SearchMediaUseCase trims query and returns empty list for blank`() = runTest {
+        var searchedTerm: String? = null
+        val searchRepo = object : SearchRepository {
+            override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
+            override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> {
+                searchedTerm = term
+                return Result.success(listOf(MediaItem(id = "m1", name = "Search Hit", type = MediaItemType.Movie)))
+            }
+        }
+        val useCase = SearchMediaUseCase(searchRepo)
+
+        val blankResult = useCase("u1", "   ")
+        assertTrue(blankResult.isSuccess)
+        assertTrue(blankResult.getOrNull()!!.isEmpty())
+
+        val validResult = useCase("u1", "  matrix  ")
+        assertTrue(validResult.isSuccess)
+        assertEquals("matrix", searchedTerm)
+        assertEquals(1, validResult.getOrNull()!!.size)
+    }
+
+    @Test
+    fun `ManageDownloadsUseCase enforces validation and delegates to repository`() = runTest {
+        var enqueuedId: String? = null
+        var paused = false
+        val downloadRepo = object : DownloadRepository {
+            override fun observeDownloads(): Flow<List<DownloadEntry>> = flowOf(emptyList())
+            override fun enqueue(id: String, title: String, uri: String): Result<Unit> {
+                enqueuedId = id
+                return Result.success(Unit)
+            }
+            override fun retry(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
+            override fun remove(id: String): Result<Unit> = Result.success(Unit)
+            override fun pauseAll(): Result<Unit> {
+                paused = true
+                return Result.success(Unit)
+            }
+            override fun resumeAll(): Result<Unit> = Result.success(Unit)
+        }
+        val useCase = ManageDownloadsUseCase(downloadRepo)
+
+        val enqueueResult = useCase.enqueue("d1", "Title", "https://example.com/video.mp4")
+        assertTrue(enqueueResult.isSuccess)
+        assertEquals("d1", enqueuedId)
+
+        val pauseResult = useCase.pauseAll()
+        assertTrue(pauseResult.isSuccess)
+        assertTrue(paused)
+    }
+
+    @Test
+    fun `GetLiveTvChannelsUseCase loads channels and recordings`() = runTest {
+        val channel = MediaItem(id = "ch1", name = "Canal 1", type = MediaItemType.LiveTvChannel)
+        val recording = MediaItem(id = "rec1", name = "Recording 1", type = MediaItemType.Movie)
+        val liveTvRepo = object : LiveTvRepository {
+            override suspend fun getChannels(userId: String) = Result.success(listOf(channel))
+            override suspend fun getPrograms(channelIds: List<String>, minStartDate: String?, maxEndDate: String?) = Result.success(emptyList<MediaItem>())
+            override suspend fun getRecordings(userId: String) = Result.success(listOf(recording))
+            override suspend fun scheduleRecording(program: MediaItem) = Result.success(Unit)
+        }
+        val useCase = GetLiveTvChannelsUseCase(liveTvRepo)
+        val result = useCase("u1")
+
+        assertTrue(result.isSuccess)
+        val guide = result.getOrNull()!!
+        assertEquals(listOf(channel), guide.channels)
+        assertEquals(listOf(recording), guide.recordings)
+    }
+
     private open class FakeAuthRepository : AuthRepository {
         override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.failure(NotImplementedError())
         override suspend fun register(username: String, password: String): Result<RegistrationResult> = Result.failure(NotImplementedError())

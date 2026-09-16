@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
-import org.mulletaflix.domain.repository.SearchRepository
+import org.mulletaflix.domain.usecase.SearchMediaUseCase
 import javax.inject.Inject
 
 data class SearchState(
@@ -23,7 +23,7 @@ data class SearchState(
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    private val searchRepository: SearchRepository,
+    private val searchMediaUseCase: SearchMediaUseCase,
     private val authRepository: AuthRepository,
 ) : ViewModel() {
 
@@ -114,12 +114,14 @@ class SearchViewModel @Inject constructor(
             null -> null
         }
 
-        searchRepository.searchItems(term = query, userId = userId, itemTypes = typeParam)
-            .onSuccess { items ->
-                _state.update { it.copy(results = items, isLoading = false, error = null) }
-            }
-            .onFailure {
-                _state.update { it.copy(results = emptyList(), isLoading = false, error = "Erro ao buscar conteúdo") }
-            }
+        searchMediaUseCase(
+            userId = userId,
+            query = query,
+            itemTypes = typeParam,
+        ).onSuccess { items ->
+            _state.update { it.copy(results = items, isLoading = false, error = null) }
+        }.onFailure {
+            _state.update { it.copy(results = emptyList(), isLoading = false, error = "Erro ao buscar conteúdo") }
+        }
     }
 }

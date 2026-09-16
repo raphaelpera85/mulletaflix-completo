@@ -24,6 +24,7 @@ import org.mulletaflix.domain.repository.SearchHintItem
 import org.mulletaflix.domain.repository.SearchRepository
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
+import org.mulletaflix.domain.usecase.SearchMediaUseCase
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -35,7 +36,7 @@ class SearchViewModelTest {
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         searchRepository = RecordingSearchRepository()
-        viewModel = SearchViewModel(searchRepository, FakeAuthRepository())
+        viewModel = SearchViewModel(SearchMediaUseCase(searchRepository), FakeAuthRepository())
     }
 
     @After

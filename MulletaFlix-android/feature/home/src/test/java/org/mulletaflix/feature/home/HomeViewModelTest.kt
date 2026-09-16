@@ -2,6 +2,7 @@ package org.mulletaflix.feature.home
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -11,12 +12,15 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.MediaRepository
+import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -27,7 +31,8 @@ class HomeViewModelTest {
 
     @Test fun `session expiry stops home loading without requesting content`() = runTest {
         val repository = FakeMediaRepository()
-        val viewModel = HomeViewModel(repository, FakeSessionRepository(userId = null))
+        val useCase = GetHomeFeedUseCase(repository)
+        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = null), FakeNetworkMonitor())
         advanceUntilIdle()
 
         assertEquals(0, repository.requestCount)
@@ -45,7 +50,8 @@ class HomeViewModelTest {
             override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(listOf(movie))
             override suspend fun getLiveTvChannels(userId: String) = Result.failure<List<MediaItem>>(Exception("Live TV disabled on server"))
         }
-        val viewModel = HomeViewModel(repository, FakeSessionRepository(userId = "u1"))
+        val useCase = GetHomeFeedUseCase(repository)
+        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = "u1"), FakeNetworkMonitor())
         advanceUntilIdle()
 
         assertEquals(null, viewModel.state.value.error)
@@ -53,6 +59,27 @@ class HomeViewModelTest {
         assertEquals(1, viewModel.state.value.resumeItems.size)
         assertEquals(1, viewModel.state.value.libraries.size)
         assertEquals(0, viewModel.state.value.liveTvChannels.size)
+    }
+
+    @Test fun `network monitor transitions update isOffline state`() = runTest {
+        val networkMonitor = FakeNetworkMonitor(initialOnline = true)
+        val repository = FakeMediaRepository()
+        val useCase = GetHomeFeedUseCase(repository)
+        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = null), networkMonitor)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isOffline)
+
+        networkMonitor.setOnline(false)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.isOffline)
+    }
+
+    private class FakeNetworkMonitor(initialOnline: Boolean = true) : NetworkMonitor {
+        private val _isOnline = MutableStateFlow(initialOnline)
+        override val isOnline: Flow<Boolean> = _isOnline
+        fun setOnline(online: Boolean) { _isOnline.value = online }
     }
 
     private class FakeSessionRepository(private val userId: String?) : SessionRepository {

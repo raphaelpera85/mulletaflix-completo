@@ -15,6 +15,7 @@ import org.junit.Test
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.LiveTvRepository
+import org.mulletaflix.domain.usecase.GetLiveTvChannelsUseCase
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 
@@ -28,14 +29,14 @@ class LiveTvViewModelTest {
     @Test fun `loads channels for active session`() = runTest {
         val channel = MediaItem(id = "channel-1", name = "Canal teste", type = org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
         repository.channels = listOf(channel)
-        val viewModel = LiveTvViewModel(repository, FakeSessionRepository())
+        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
         advanceUntilIdle()
         assertEquals(listOf(channel), viewModel.state.value.channels)
         assertTrue(viewModel.state.value.error == null)
     }
 
     @Test fun `does not request channels without a session`() = runTest {
-        val viewModel = LiveTvViewModel(repository, FakeSessionRepository(userId = null))
+        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository(userId = null))
         advanceUntilIdle()
         assertTrue(viewModel.state.value.error!!.contains("Sessão expirada"))
         assertEquals(0, repository.channelRequests)
@@ -44,7 +45,7 @@ class LiveTvViewModelTest {
     @Test fun `loads recordings for active session`() = runTest {
         val recording = MediaItem(id = "recording-1", name = "Jornal", type = org.mulletaflix.domain.model.MediaItemType.Recording)
         repository.recordings = listOf(recording)
-        val viewModel = LiveTvViewModel(repository, FakeSessionRepository())
+        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
         advanceUntilIdle()
         assertEquals(listOf(recording), viewModel.state.value.recordings)
         assertEquals(1, repository.recordingRequests)
@@ -59,7 +60,7 @@ class LiveTvViewModelTest {
             startDate = "2026-09-14T20:00:00Z",
             endDate = "2026-09-14T22:00:00Z",
         )
-        val viewModel = LiveTvViewModel(repository, FakeSessionRepository())
+        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
         advanceUntilIdle()
 
         viewModel.scheduleRecording(program)

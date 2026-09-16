@@ -10,9 +10,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
   - [x] AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.12.01, Media3 1.5.0, Hilt 2.53.1, Room 2.6.1, Retrofit 2.11.0, Moshi 1.15.2, Ktor Client
 - [x] **Divisão Modular**
   - [x] `:app` (Orquestração, Navigation, Services, Splash, Cast Options)
-  - [x] `:core:common` (Result, Dispatchers, Extensions, NetworkMonitor)
+  - [x] `:core:common` (Result/Resource, Coroutine Dispatchers Hilt Module, FormatUtils, NetworkMonitor)
   - [x] `:core:api` (Retrofit, Ktor, DTOs, Interceptors, WebSocket)
-  - [x] `:domain` (Modelos puros, Interfaces de Repositórios, UseCases)
+  - [x] `:domain` (Modelos puros, Interfaces de Repositórios, UseCases: `GetNextEpisodeUseCase`, `GetHomeFeedUseCase`, `SearchMediaUseCase`, `ManageDownloadsUseCase`, `GetLiveTvChannelsUseCase`)
   - [x] `:data` (Room DB, DataStore, Mappers, Implementação dos Repositórios)
   - [x] `:design-system` (Tokens, Cores, Temas, Tipografia Noto Sans, Componentes)
   - [x] `:feature:auth`
@@ -145,12 +145,6 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 ---
 
-## 📺 9. TV Ao Vivo & EPG (`:feature:live-tv`)
-
-- [x] Navegação integrada com botão de voltar na TopAppBar
-- [x] Guia EPG com programação de 24 horas e agendamento de gravações
-- [x] Reprodução direta de canais ao vivo e gravações realizadas
-
 ## 📺 9. Live TV & Guia de Programação (EPG) (`:feature:live-tv`)
 
 - [x] **Canais Ao Vivo**
@@ -160,6 +154,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
   - [x] Grade de horários por canal com navegação temporal
   - [x] Detalhes do programa ao vivo e sinopse
   - [x] Ação para agendar gravações (DVR) no servidor
+- [x] **Arquitetura & Navegação**
+  - [x] TopAppBar com navegação de retorno
+  - [x] `GetLiveTvChannelsUseCase` orquestrando canais e gravações com isolamento de camada de apresentação
 
 ---
 

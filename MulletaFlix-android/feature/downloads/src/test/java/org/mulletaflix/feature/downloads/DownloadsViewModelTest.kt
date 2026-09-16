@@ -7,12 +7,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadRepository
+import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 
 class DownloadsViewModelTest {
     @Test
     fun `pausing the queue updates state only after repository succeeds`() {
         val repository = FakeDownloadRepository()
-        val viewModel = DownloadsViewModel(repository)
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
 
         viewModel.pauseQueue()
 
@@ -23,7 +24,7 @@ class DownloadsViewModelTest {
     @Test
     fun `failed queue operation does not lie about paused state`() {
         val repository = FakeDownloadRepository(failPause = true)
-        val viewModel = DownloadsViewModel(repository)
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
 
         viewModel.pauseQueue()
 
@@ -33,7 +34,7 @@ class DownloadsViewModelTest {
     @Test
     fun `resuming the queue clears paused state after repository succeeds`() {
         val repository = FakeDownloadRepository()
-        val viewModel = DownloadsViewModel(repository)
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
         viewModel.pauseQueue()
 
         viewModel.resumeQueue()
@@ -45,7 +46,7 @@ class DownloadsViewModelTest {
     @Test
     fun `retry delegates the failed entry with its original metadata`() {
         val repository = FakeDownloadRepository()
-        val viewModel = DownloadsViewModel(repository)
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
         val entry = DownloadEntry("movie", "Filme", "https://server/media", org.mulletaflix.domain.repository.DownloadState.Failed, 42)
 
         viewModel.retry(entry)

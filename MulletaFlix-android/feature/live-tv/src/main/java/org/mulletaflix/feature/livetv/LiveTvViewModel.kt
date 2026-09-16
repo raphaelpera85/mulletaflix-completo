@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.LiveTvRepository
+import org.mulletaflix.domain.usecase.GetLiveTvChannelsUseCase
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -32,6 +33,7 @@ data class LiveTvUiState(
 
 @HiltViewModel
 class LiveTvViewModel @Inject constructor(
+    private val getLiveTvChannelsUseCase: GetLiveTvChannelsUseCase,
     private val repository: LiveTvRepository,
     private val sessionRepository: SessionRepository,
 ) : ViewModel() {
@@ -48,12 +50,26 @@ class LiveTvViewModel @Inject constructor(
                 return@launch
             }
             _state.update { it.copy(isLoading = true, error = null) }
-            repository.getChannels(userId)
-                .onSuccess { channels -> _state.update { it.copy(channels = channels, isLoading = false) } }
-                .onFailure { e -> _state.update { it.copy(isLoading = false, error = e.message ?: "Não foi possível carregar os canais.") } }
-            repository.getRecordings(userId)
-                .onSuccess { recordings -> _state.update { it.copy(recordings = recordings, recordingsError = null) } }
-                .onFailure { e -> _state.update { it.copy(recordingsError = e.message ?: "Não foi possível carregar as gravações.") } }
+            getLiveTvChannelsUseCase(userId)
+                .onSuccess { guide ->
+                    _state.update {
+                        it.copy(
+                            channels = guide.channels,
+                            recordings = guide.recordings,
+                            isLoading = false,
+                            error = null,
+                            recordingsError = null,
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = e.message ?: "Não foi possível carregar os canais.",
+                        )
+                    }
+                }
         }
     }
 
