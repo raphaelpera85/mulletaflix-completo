@@ -49,3 +49,14 @@ Cada card deve apresentar claramente:
 - Chips de status explícitos (ex: `Sessão ativa` em verde, `Sessão pendente` em amarelo).
 - Ações contextuais rápidas no próprio card (ex: botão de exclusão com confirmação).
 - Formulário de adição/rotação contextualizado e posicionado no topo da respectiva aba.
+
+---
+
+## 4. Ciclo de Lançamentos e Releases Obrigatórios
+
+### 4.1 Regra de Ouro: Modificação no MulletaFlix Exige Release no Git
+- Sempre que qualquer alteração, correção de bug ou nova funcionalidade for finalizada e aprovada na suíte de testes (Quality Bar), deve-se:
+  1. Gerar o pacote de atualização autônomo via `.\build-update-package.ps1 -Version <NovaVersao>`.
+  2. Publicar a Release correspondente no GitHub anexando o asset `dist/mulletaflix-update-win-x64.zip` (via `.\publish-release.ps1` ou tag do Git).
+  3. Isso garante que instâncias ativas do MulletaFlix detectem a nova versão em tempo real no **Centro de Atualizações (`/dashboard/updates`)** e possam atualizar com 1 clique.
+
