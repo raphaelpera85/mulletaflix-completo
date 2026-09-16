@@ -11,6 +11,7 @@ import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SettingsRepository
+import org.mulletaflix.domain.usecase.LogoutUseCase
 import javax.inject.Inject
 
 data class SettingsState(
@@ -31,9 +32,10 @@ data class SettingsState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
     private val authRepository: AuthRepository,
+    private val logoutUseCase: LogoutUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -169,7 +171,7 @@ class SettingsViewModel @Inject constructor(
 
     fun logout() {
         viewModelScope.launch {
-            authRepository.logout()
+            logoutUseCase()
         }
     }
 
@@ -186,7 +188,7 @@ class SettingsViewModel @Inject constructor(
                 ?.let { files -> cacheEntriesToRemove(files.map { it.name }).mapNotNull { name -> files.firstOrNull { it.name == name } } }
                 ?.forEach { it.deleteRecursively() }
             settingsRepository.clearLocalPreferences()
-            authRepository.logout()
+            logoutUseCase()
         }
     }
 

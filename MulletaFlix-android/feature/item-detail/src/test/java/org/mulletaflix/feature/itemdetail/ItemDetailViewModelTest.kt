@@ -16,6 +16,11 @@ import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.domain.model.*
 import org.mulletaflix.domain.repository.*
+import org.mulletaflix.domain.usecase.GetItemDetailUseCase
+import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
+import org.mulletaflix.domain.usecase.ManagePlaylistUseCase
+import org.mulletaflix.domain.usecase.ToggleFavoriteUseCase
+import org.mulletaflix.domain.usecase.TogglePlayedUseCase
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ItemDetailViewModelTest {
@@ -32,6 +37,25 @@ class ItemDetailViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private fun createViewModel(
+        mediaRepo: MediaRepository,
+        authRepo: AuthRepository = FakeAuthRepository(userId = "u1"),
+        playbackRepo: PlaybackRepository = FakePlaybackRepository(),
+        downloadRepo: DownloadRepository = FakeDownloadRepository(),
+        playlistRepo: PlaylistRepository = FakePlaylistRepository(),
+    ): ItemDetailViewModel {
+        return ItemDetailViewModel(
+            getItemDetailUseCase = GetItemDetailUseCase(mediaRepo),
+            toggleFavoriteUseCase = ToggleFavoriteUseCase(mediaRepo),
+            togglePlayedUseCase = TogglePlayedUseCase(mediaRepo),
+            manageDownloadsUseCase = ManageDownloadsUseCase(downloadRepo),
+            managePlaylistUseCase = ManagePlaylistUseCase(playlistRepo),
+            mediaRepository = mediaRepo,
+            authRepository = authRepo,
+            playbackRepository = playbackRepo,
+        )
+    }
+
     @Test
     fun `loadItem loads movie item details and similar items`() = runTest {
         val movie = MediaItem(id = "m1", name = "Test Movie", type = MediaItemType.Movie)
@@ -46,7 +70,7 @@ class ItemDetailViewModelTest {
         val downloadRepo = FakeDownloadRepository()
         val playlistRepo = FakePlaylistRepository()
 
-        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, playbackRepo, downloadRepo, playlistRepo)
+        val viewModel = createViewModel(mediaRepo, authRepo, playbackRepo, downloadRepo, playlistRepo)
         advanceUntilIdle()
 
         viewModel.loadItem("m1")
@@ -80,7 +104,7 @@ class ItemDetailViewModelTest {
             }
         }
         val authRepo = FakeAuthRepository(userId = "u1")
-        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, FakePlaybackRepository(), FakeDownloadRepository(), FakePlaylistRepository())
+        val viewModel = createViewModel(mediaRepo, authRepo)
         advanceUntilIdle()
 
         viewModel.loadItem("s1")
@@ -112,7 +136,7 @@ class ItemDetailViewModelTest {
             }
         }
         val authRepo = FakeAuthRepository(userId = "u1")
-        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, FakePlaybackRepository(), FakeDownloadRepository(), FakePlaylistRepository())
+        val viewModel = createViewModel(mediaRepo, authRepo)
         advanceUntilIdle()
 
         viewModel.loadItem("s1")
@@ -140,7 +164,7 @@ class ItemDetailViewModelTest {
             }
         }
         val authRepo = FakeAuthRepository(userId = "u1")
-        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, FakePlaybackRepository(), FakeDownloadRepository(), FakePlaylistRepository())
+        val viewModel = createViewModel(mediaRepo, authRepo)
         advanceUntilIdle()
 
         viewModel.loadItem("m1")
@@ -166,7 +190,7 @@ class ItemDetailViewModelTest {
             }
         }
         val authRepo = FakeAuthRepository(userId = "u1")
-        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, FakePlaybackRepository(), FakeDownloadRepository(), FakePlaylistRepository())
+        val viewModel = createViewModel(mediaRepo, authRepo)
         advanceUntilIdle()
 
         viewModel.loadItem("m1")
@@ -197,7 +221,7 @@ class ItemDetailViewModelTest {
         }
 
         val authRepo = FakeAuthRepository(userId = "u1")
-        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, FakePlaybackRepository(), FakeDownloadRepository(), playlistRepo)
+        val viewModel = createViewModel(mediaRepo, authRepo, playlistRepo = playlistRepo)
         advanceUntilIdle()
 
         viewModel.loadItem("m1")
@@ -225,7 +249,7 @@ class ItemDetailViewModelTest {
             }
         }
         val authRepo = FakeAuthRepository(userId = "u1")
-        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, FakePlaybackRepository(), FakeDownloadRepository(), FakePlaylistRepository())
+        val viewModel = createViewModel(mediaRepo, authRepo)
         advanceUntilIdle()
 
         viewModel.loadItem("invalid-id")
@@ -249,7 +273,7 @@ class ItemDetailViewModelTest {
             override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> = Result.success(episodesS1)
         }
         val authRepo = FakeAuthRepository(userId = "u1")
-        val viewModel = ItemDetailViewModel(mediaRepo, authRepo, FakePlaybackRepository(), FakeDownloadRepository(), FakePlaylistRepository())
+        val viewModel = createViewModel(mediaRepo, authRepo)
 
         viewModel.loadItem("s1")
         advanceUntilIdle()

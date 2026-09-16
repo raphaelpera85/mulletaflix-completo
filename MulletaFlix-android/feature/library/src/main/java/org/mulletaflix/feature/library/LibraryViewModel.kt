@@ -8,7 +8,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
-import org.mulletaflix.domain.repository.MediaRepository
+import org.mulletaflix.domain.usecase.GetItemDetailUseCase
+import org.mulletaflix.domain.usecase.GetLibraryItemsUseCase
 import javax.inject.Inject
 
 data class LibraryState(
@@ -26,7 +27,8 @@ data class LibraryState(
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
-    private val mediaRepository: MediaRepository,
+    private val getLibraryItemsUseCase: GetLibraryItemsUseCase,
+    private val getItemDetailUseCase: GetItemDetailUseCase,
     private val authRepository: AuthRepository,
 ) : ViewModel() {
 
@@ -66,12 +68,12 @@ class LibraryViewModel @Inject constructor(
             _state.update { it.copy(isLoading = true, error = null) }
 
             // Get library details
-            val libResult = mediaRepository.getItem(userId, libraryId)
+            val libResult = getItemDetailUseCase(userId, libraryId)
             val libName = libResult.getOrNull()?.name ?: "Biblioteca"
 
-            mediaRepository.getItems(
+            getLibraryItemsUseCase(
                 userId = userId,
-                parentId = libraryId,
+                libraryId = libraryId,
                 sortBy = _state.value.sortBy.apiValue,
                 startIndex = 0,
                 limit = pageSize,
@@ -102,9 +104,9 @@ class LibraryViewModel @Inject constructor(
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
             val requestedStartIndex = currentStartIndex + pageSize
             _state.update { it.copy(isLoading = true, error = null) }
-            mediaRepository.getItems(
+            getLibraryItemsUseCase(
                 userId = userId,
-                parentId = libId,
+                libraryId = libId,
                 sortBy = _state.value.sortBy.apiValue,
                 startIndex = requestedStartIndex,
                 limit = pageSize,

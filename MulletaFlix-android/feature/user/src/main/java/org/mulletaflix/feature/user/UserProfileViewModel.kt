@@ -13,6 +13,9 @@ import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.AvailableUser
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.SettingsRepository
+import org.mulletaflix.domain.usecase.GetUserProfileUseCase
+import org.mulletaflix.domain.usecase.LogoutUseCase
+import org.mulletaflix.domain.usecase.SwitchUserUseCase
 import java.io.File
 import javax.inject.Inject
 
@@ -39,7 +42,10 @@ data class UserProfileUiState(
 class UserProfileViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val sessionRepository: SessionRepository,
-    @ApplicationContext private val context: Context,
+    private val getUserProfileUseCase: GetUserProfileUseCase,
+    private val logoutUseCase: LogoutUseCase,
+    private val switchUserUseCase: SwitchUserUseCase,
+    @param:ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(UserProfileUiState())
@@ -88,7 +94,7 @@ class UserProfileViewModel @Inject constructor(
             }
 
             // 1. Fetch remote user profile
-            val profileResult = authRepository.getCurrentUserProfile()
+            val profileResult = getUserProfileUseCase()
             if (profileResult.isSuccess) {
                 val profile = profileResult.getOrNull()
                 _uiState.update { it.copy(userProfile = profile) }
@@ -149,7 +155,7 @@ class UserProfileViewModel @Inject constructor(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSwitchingUser = true, error = null) }
-            authRepository.login(targetUser.name, password)
+            switchUserUseCase(targetUser.name, password)
                 .onSuccess {
                     _uiState.update {
                         it.copy(
@@ -177,7 +183,7 @@ class UserProfileViewModel @Inject constructor(
     fun logout(onComplete: () -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoggingOut = true) }
-            authRepository.logout()
+            logoutUseCase()
             _uiState.update { it.copy(isLoggingOut = false) }
             onComplete()
         }

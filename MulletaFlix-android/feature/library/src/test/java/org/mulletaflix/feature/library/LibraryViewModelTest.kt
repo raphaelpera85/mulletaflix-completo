@@ -22,6 +22,9 @@ import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
 
+import org.mulletaflix.domain.usecase.GetItemDetailUseCase
+import org.mulletaflix.domain.usecase.GetLibraryItemsUseCase
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LibraryViewModelTest {
     private val dispatcher = StandardTestDispatcher()
@@ -34,11 +37,19 @@ class LibraryViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
+    private fun createViewModel(): LibraryViewModel {
+        return LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+        )
+    }
+
     @Test
     fun `pagination failure keeps current page and exposes retryable error`() = runTest {
         val first = MediaItem("first", "First", MediaItemType.Movie)
         media.pages[0] = Result.success(listOf(first) to 2)
-        val viewModel = LibraryViewModel(media, FakeAuthRepository())
+        val viewModel = createViewModel()
 
         viewModel.loadLibrary("library-1")
         advanceUntilIdle()
@@ -56,7 +67,7 @@ class LibraryViewModelTest {
     @Test
     fun `library filters are sent to the server`() = runTest {
         media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
-        val viewModel = LibraryViewModel(media, FakeAuthRepository())
+        val viewModel = createViewModel()
 
         viewModel.loadLibrary("library-1")
         advanceUntilIdle()

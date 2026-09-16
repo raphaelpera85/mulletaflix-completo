@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.usecase.LoginUseCase
+import org.mulletaflix.domain.usecase.RegisterUseCase
+import org.mulletaflix.domain.usecase.VerifyServerUseCase
 import javax.inject.Inject
 import retrofit2.HttpException
 
@@ -49,6 +52,9 @@ data class AuthState(
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val localServerDiscovery: LocalServerDiscovery,
+    private val loginUseCase: LoginUseCase,
+    private val registerUseCase: RegisterUseCase,
+    private val verifyServerUseCase: VerifyServerUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthState())
@@ -155,7 +161,7 @@ class AuthViewModel @Inject constructor(
                 onFailure()
                 return@launch
             }
-            authRepository.verifyServer(cleanUrl)
+            verifyServerUseCase(cleanUrl)
                 .onSuccess { verification ->
                 authRepository.setServerUrl(cleanUrl)
                 _state.update {
@@ -164,10 +170,10 @@ class AuthViewModel @Inject constructor(
                         serverUrl = cleanUrl,
                         discoveredServers = it.discoveredServers.filterNot { server -> server.url == cleanUrl },
                         savedServers = (it.savedServers + ServerInfo(
-                            name = verification.name,
-                            url = cleanUrl,
-                            latencyMs = verification.latencyMs,
-                            version = verification.version,
+                             name = verification.name,
+                             url = cleanUrl,
+                             latencyMs = verification.latencyMs,
+                             version = verification.version,
                         )).distinctBy { s -> s.url }
                     )
                 }
@@ -197,7 +203,7 @@ class AuthViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
-            authRepository.login(username, password)
+            loginUseCase(username, password)
                 .onSuccess {
                     _state.update {
                         it.copy(
@@ -232,7 +238,7 @@ class AuthViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.update { it.copy(isRegistering = true, error = null) }
-            authRepository.register(cleanUsername, password)
+            registerUseCase(cleanUsername, password)
                 .onSuccess { result ->
                     if (result.success) {
                         _state.update { it.copy(isRegistering = false, error = null) }

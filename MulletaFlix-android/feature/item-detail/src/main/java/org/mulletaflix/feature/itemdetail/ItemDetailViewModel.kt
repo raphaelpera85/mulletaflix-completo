@@ -7,12 +7,15 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.Playlist
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.MediaRepository
-import org.mulletaflix.domain.repository.DownloadRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
-import org.mulletaflix.domain.model.Playlist
-import org.mulletaflix.domain.repository.PlaylistRepository
+import org.mulletaflix.domain.usecase.GetItemDetailUseCase
+import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
+import org.mulletaflix.domain.usecase.ManagePlaylistUseCase
+import org.mulletaflix.domain.usecase.ToggleFavoriteUseCase
+import org.mulletaflix.domain.usecase.TogglePlayedUseCase
 import javax.inject.Inject
 
 data class ItemDetailState(
@@ -33,11 +36,14 @@ data class ItemDetailState(
 
 @HiltViewModel
 class ItemDetailViewModel @Inject constructor(
+    private val getItemDetailUseCase: GetItemDetailUseCase,
+    private val toggleFavoriteUseCase: ToggleFavoriteUseCase,
+    private val togglePlayedUseCase: TogglePlayedUseCase,
+    private val manageDownloadsUseCase: ManageDownloadsUseCase,
+    private val managePlaylistUseCase: ManagePlaylistUseCase,
     private val mediaRepository: MediaRepository,
     private val authRepository: AuthRepository,
     private val playbackRepository: PlaybackRepository,
-    private val downloadRepository: DownloadRepository,
-    private val playlistRepository: PlaylistRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ItemDetailState())
@@ -60,7 +66,7 @@ class ItemDetailViewModel @Inject constructor(
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
             _state.update { it.copy(isLoading = true, error = null) }
 
-            mediaRepository.getItem(userId, itemId)
+            getItemDetailUseCase(userId, itemId)
                 .onSuccess { mediaItem ->
                     _state.update { it.copy(item = mediaItem, isLoading = false) }
 
@@ -130,11 +136,13 @@ class ItemDetailViewModel @Inject constructor(
         _state.update { it.copy(item = current.copy(isFavorite = newFav)) }
 
         viewModelScope.launch {
-            if (newFav) {
-                mediaRepository.markAsFavorite(userId, current.id)
-            } else {
-                mediaRepository.unmarkAsFavorite(userId, current.id)
-            }
+            toggleFavoriteUseCase(userId, current.id, current.isFavorite)
+                .onSuccess { updatedFav ->
+                    _state.update { it.copy(item = current.copy(isFavorite = updatedFav)) }
+                }
+                .onFailure {
+                    _state.update { it.copy(item = current) }
+                }
         }
     }
 
@@ -146,11 +154,13 @@ class ItemDetailViewModel @Inject constructor(
         _state.update { it.copy(item = current.copy(isPlayed = newWatched)) }
 
         viewModelScope.launch {
-            if (newWatched) {
-                mediaRepository.markAsPlayed(userId, current.id)
-            } else {
-                mediaRepository.markAsUnplayed(userId, current.id)
-            }
+            togglePlayedUseCase(userId, current.id, current.isPlayed)
+                .onSuccess { updatedPlayed ->
+                    _state.update { it.copy(item = current.copy(isPlayed = updatedPlayed)) }
+                }
+                .onFailure {
+                    _state.update { it.copy(item = current) }
+                }
         }
     }
 
@@ -163,7 +173,7 @@ class ItemDetailViewModel @Inject constructor(
                 .mapCatching { it.mediaSources.firstOrNull()?.directStreamUrl ?: error("O servidor não forneceu uma fonte para download.") }
                 .fold(
                     onSuccess = { url ->
-                        downloadRepository.enqueue(item.id, item.name, url)
+                        manageDownloadsUseCase.enqueue(item.id, item.name, url)
                             .onSuccess { _state.update { it.copy(downloadMessage = "Download adicionado à fila.") } }
                             .onFailure { e -> _state.update { it.copy(downloadMessage = e.message ?: "Não foi possível iniciar o download.") } }
                     },
@@ -176,7 +186,7 @@ class ItemDetailViewModel @Inject constructor(
         val userId = currentUserId ?: return
         _state.update { it.copy(isPlaylistDialogVisible = true, isPlaylistLoading = true, playlistMessage = null) }
         viewModelScope.launch {
-            playlistRepository.getPlaylists(userId)
+            managePlaylistUseCase.getPlaylists(userId)
                 .onSuccess { lists -> _state.update { it.copy(playlists = lists, isPlaylistLoading = false) } }
                 .onFailure { error -> _state.update { it.copy(isPlaylistLoading = false, playlistMessage = error.message ?: "Não foi possível carregar as playlists.") } }
         }
@@ -190,7 +200,7 @@ class ItemDetailViewModel @Inject constructor(
         val userId = currentUserId ?: return
         val itemId = _state.value.item?.id ?: return
         viewModelScope.launch {
-            playlistRepository.addItem(userId, playlist.id, itemId)
+            managePlaylistUseCase.addToPlaylist(userId, playlist.id, itemId)
                 .onSuccess { _state.update { it.copy(isPlaylistDialogVisible = false, playlistMessage = "Adicionado à playlist ${playlist.name}.") } }
                 .onFailure { error -> _state.update { it.copy(playlistMessage = error.message ?: "Não foi possível adicionar à playlist.") } }
         }
@@ -200,7 +210,7 @@ class ItemDetailViewModel @Inject constructor(
         val userId = currentUserId ?: return
         val itemId = _state.value.item?.id ?: return
         viewModelScope.launch {
-            playlistRepository.createPlaylist(userId, name, itemId)
+            managePlaylistUseCase.createPlaylist(userId, name, itemId)
                 .onSuccess { playlist -> _state.update { it.copy(isPlaylistDialogVisible = false, playlistMessage = "Playlist ${playlist.name} criada.") } }
                 .onFailure { error -> _state.update { it.copy(playlistMessage = error.message ?: "Não foi possível criar a playlist.") } }
         }

@@ -13,6 +13,8 @@ import org.junit.Test
 import org.mulletaflix.domain.repository.SyncPlayGroup
 import org.mulletaflix.domain.repository.SyncPlayRepository
 
+import org.mulletaflix.domain.usecase.ManageSyncPlayUseCase
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SyncPlayViewModelTest {
     private val dispatcher = StandardTestDispatcher()
@@ -23,7 +25,8 @@ class SyncPlayViewModelTest {
     @Test fun `refresh exposes current groups`() = runTest {
         val groups = listOf(SyncPlayGroup("g1", "Filme", "Playing", listOf("Raphael"), "item-1", 0L))
         val repository = FakeRepository(groups)
-        val viewModel = SyncPlayViewModel(repository)
+        val useCase = ManageSyncPlayUseCase(repository)
+        val viewModel = SyncPlayViewModel(useCase)
 
         advanceUntilIdle()
 
@@ -33,7 +36,8 @@ class SyncPlayViewModelTest {
 
     @Test fun `joining a group marks it active`() = runTest {
         val group = SyncPlayGroup("g1", "Filme", "Paused", emptyList(), null, 0L)
-        val viewModel = SyncPlayViewModel(FakeRepository(listOf(group)))
+        val useCase = ManageSyncPlayUseCase(FakeRepository(listOf(group)))
+        val viewModel = SyncPlayViewModel(useCase)
         advanceUntilIdle()
 
         viewModel.joinGroup("g1")

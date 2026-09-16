@@ -315,6 +315,155 @@ class UseCaseTest {
         assertEquals(listOf(recording), guide.recordings)
     }
 
+    @Test
+    fun `GetLibraryItemsUseCase validates parameters and delegates`() = runTest {
+        val item = MediaItem(id = "m1", name = "Filme 1", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ): Result<Pair<List<MediaItem>, Int>> {
+                return Result.success(listOf(item) to 1)
+            }
+        }
+        val useCase = GetLibraryItemsUseCase(mediaRepo)
+        val blankUser = useCase("", "lib-1")
+        assertTrue(blankUser.isFailure)
+
+        val success = useCase("u1", "lib-1", startIndex = 0, limit = 20)
+        assertTrue(success.isSuccess)
+        assertEquals(1, success.getOrNull()!!.first.size)
+    }
+
+    @Test
+    fun `ManageSyncPlayUseCase coordinates groups correctly`() = runTest {
+        val group = SyncPlayGroup(
+            groupId = "g1",
+            groupName = "Mulleta Room",
+            state = "Playing",
+            participants = listOf("u1"),
+            playingItemId = "item1",
+            positionTicks = 0L,
+        )
+        val repo = object : SyncPlayRepository {
+            override suspend fun getGroups() = Result.success(listOf(group))
+            override suspend fun createGroup(name: String) = Result.success(Unit)
+            override suspend fun joinGroup(groupId: String) = Result.success(Unit)
+            override suspend fun leaveGroup() = Result.success(Unit)
+        }
+        val useCase = ManageSyncPlayUseCase(repo)
+
+        val groups = useCase.getGroups()
+        assertTrue(groups.isSuccess)
+        assertEquals(1, groups.getOrNull()!!.size)
+
+        val blankCreate = useCase.createGroup("  ")
+        assertTrue(blankCreate.isFailure)
+
+        val validCreate = useCase.createGroup("Room 1")
+        assertTrue(validCreate.isSuccess)
+    }
+
+    @Test
+    fun `ManagePlaylistUseCase validates name and delegates`() = runTest {
+        val playlist = Playlist(id = "p1", name = "Favoritos Rock")
+        val repo = object : PlaylistRepository {
+            override suspend fun getPlaylists(userId: String) = Result.success(listOf(playlist))
+            override suspend fun createPlaylist(userId: String, name: String, itemId: String?) = Result.success(playlist)
+            override suspend fun addItem(userId: String, playlistId: String, itemId: String) = Result.success(Unit)
+        }
+        val useCase = ManagePlaylistUseCase(repo)
+
+        val playlists = useCase.getPlaylists("u1")
+        assertTrue(playlists.isSuccess)
+        assertEquals(1, playlists.getOrNull()!!.size)
+
+        val blankCreate = useCase.createPlaylist("u1", "  ")
+        assertTrue(blankCreate.isFailure)
+
+        val validCreate = useCase.createPlaylist("u1", "Rock Clássico")
+        assertTrue(validCreate.isSuccess)
+    }
+
+    @Test
+    fun `SwitchUserUseCase logs into new account`() = runTest {
+        var loggedUser: String? = null
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun login(username: String, password: String): Result<UserSession> {
+                loggedUser = username
+                return Result.success(UserSession(userId = "u2", userName = username, token = "token", serverId = "srv-1"))
+            }
+        }
+        val useCase = SwitchUserUseCase(authRepo)
+
+        val blank = useCase("  ", "secret")
+        assertTrue(blank.isFailure)
+
+        val result = useCase("raphael", "secret")
+        assertTrue(result.isSuccess)
+        assertEquals("raphael", loggedUser)
+    }
+
+    @Test
+    fun `LoginUseCase validates non-blank username and executes login`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun login(username: String, password: String): Result<UserSession> {
+                return Result.success(UserSession(userId = "u1", userName = username, token = "token", serverId = "srv1"))
+            }
+        }
+        val useCase = LoginUseCase(authRepo)
+
+        assertTrue(useCase("  ", "pass").isFailure)
+
+        val success = useCase("user1", "pass")
+        assertTrue(success.isSuccess)
+        assertEquals("user1", success.getOrNull()?.userName)
+    }
+
+    @Test
+    fun `RegisterUseCase enforces validation rules and executes registration`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun register(username: String, password: String): Result<RegistrationResult> {
+                return Result.success(RegistrationResult(true, "Cadastrado"))
+            }
+        }
+        val useCase = RegisterUseCase(authRepo)
+
+        assertTrue(useCase("", "12345678").isFailure)
+        assertTrue(useCase("valid_user", "short").isFailure)
+
+        val success = useCase("valid_user", "12345678")
+        assertTrue(success.isSuccess)
+        assertTrue(success.getOrNull()!!.success)
+    }
+
+    @Test
+    fun `VerifyServerUseCase validates url and queries server`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun verifyServer(url: String): Result<ServerVerification> {
+                return Result.success(ServerVerification("Server 1", "10.9", 20L))
+            }
+        }
+        val useCase = VerifyServerUseCase(authRepo)
+
+        assertTrue(useCase("  ").isFailure)
+
+        val success = useCase("http://mulletaflix.local:8096")
+        assertTrue(success.isSuccess)
+        assertEquals("Server 1", success.getOrNull()?.name)
+    }
+
     private open class FakeAuthRepository : AuthRepository {
         override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.failure(NotImplementedError())
         override suspend fun register(username: String, password: String): Result<RegistrationResult> = Result.failure(NotImplementedError())

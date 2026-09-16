@@ -12,7 +12,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
   - [x] `:app` (Orquestração, Navigation, Services, Splash, Cast Options)
   - [x] `:core:common` (Result/Resource, Coroutine Dispatchers Hilt Module, FormatUtils, NetworkMonitor)
   - [x] `:core:api` (Retrofit, Ktor, DTOs, Interceptors, WebSocket)
-  - [x] `:domain` (Modelos puros, Interfaces de Repositórios, UseCases: `GetNextEpisodeUseCase`, `GetHomeFeedUseCase`, `SearchMediaUseCase`, `ManageDownloadsUseCase`, `GetLiveTvChannelsUseCase`)
+  - [x] `:domain` (Modelos puros, Interfaces de Repositórios, UseCases: `GetNextEpisodeUseCase`, `GetHomeFeedUseCase`, `SearchMediaUseCase`, `ManageDownloadsUseCase`, `GetLiveTvChannelsUseCase`, `GetLibraryItemsUseCase`, `GetItemDetailUseCase`, `ToggleFavoriteUseCase`, `TogglePlayedUseCase`, `ManagePlaylistUseCase`, `ManageSyncPlayUseCase`, `LoginUseCase`, `RegisterUseCase`, `VerifyServerUseCase`, `GetUserProfileUseCase`, `LogoutUseCase`, `SwitchUserUseCase`)
   - [x] `:data` (Room DB, DataStore, Mappers, Implementação dos Repositórios)
   - [x] `:design-system` (Tokens, Cores, Temas, Tipografia Noto Sans, Componentes)
   - [x] `:feature:auth`

@@ -20,6 +20,9 @@ import org.junit.Test
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.*
+import org.mulletaflix.domain.usecase.GetUserProfileUseCase
+import org.mulletaflix.domain.usecase.LogoutUseCase
+import org.mulletaflix.domain.usecase.SwitchUserUseCase
 import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -40,6 +43,20 @@ class UserProfileViewModelTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+    }
+
+    private fun createViewModel(
+        authRepo: AuthRepository,
+        sessionRepo: SessionRepository = FakeSessionRepository(),
+    ): UserProfileViewModel {
+        return UserProfileViewModel(
+            authRepository = authRepo,
+            sessionRepository = sessionRepo,
+            getUserProfileUseCase = GetUserProfileUseCase(authRepo),
+            logoutUseCase = LogoutUseCase(authRepo),
+            switchUserUseCase = SwitchUserUseCase(authRepo),
+            context = context,
+        )
     }
 
     @Test
@@ -66,7 +83,7 @@ class UserProfileViewModelTest {
 
         val sessionRepo = FakeSessionRepository(url = "http://192.168.1.100:8096", userId = "u1", userName = "Admin User")
 
-        val viewModel = UserProfileViewModel(authRepo, sessionRepo, context)
+        val viewModel = createViewModel(authRepo, sessionRepo)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -86,7 +103,7 @@ class UserProfileViewModelTest {
         }
         val sessionRepo = FakeSessionRepository(url = "http://192.168.1.100:8096", userId = "u-fallback", userName = "Offline User")
 
-        val viewModel = UserProfileViewModel(authRepo, sessionRepo, context)
+        val viewModel = createViewModel(authRepo, sessionRepo)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -109,7 +126,7 @@ class UserProfileViewModelTest {
         }
         val sessionRepo = FakeSessionRepository(url = "http://192.168.1.100:8096", userId = "u1", userName = "Admin")
 
-        val viewModel = UserProfileViewModel(authRepo, sessionRepo, context)
+        val viewModel = createViewModel(authRepo, sessionRepo)
         advanceUntilIdle()
 
         viewModel.selectUserToSwitch(target)
@@ -143,7 +160,7 @@ class UserProfileViewModelTest {
         }
         val sessionRepo = FakeSessionRepository()
 
-        val viewModel = UserProfileViewModel(authRepo, sessionRepo, context)
+        val viewModel = createViewModel(authRepo, sessionRepo)
         advanceUntilIdle()
 
         viewModel.logout {
@@ -160,7 +177,7 @@ class UserProfileViewModelTest {
         val authRepo = FakeAuthRepository()
         val sessionRepo = FakeSessionRepository()
 
-        val viewModel = UserProfileViewModel(authRepo, sessionRepo, context)
+        val viewModel = createViewModel(authRepo, sessionRepo)
         advanceUntilIdle()
 
         viewModel.clearCache()
