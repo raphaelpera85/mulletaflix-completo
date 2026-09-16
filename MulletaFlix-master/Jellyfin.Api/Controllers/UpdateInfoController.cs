@@ -221,7 +221,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     [HttpPost("Update/Apply")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public ActionResult ApplyUpdate()
+    public ActionResult<object> ApplyUpdate()
     {
         string? updateSource;
         lock (SyncLock)
@@ -242,10 +242,10 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
         // Ensure apply-update.ps1 script exists in the update directory or install directory
         var scriptPath = Path.Combine(installDir, "apply-update.ps1");
-        if (!File.Exists(scriptPath))
+        if (!System.IO.File.Exists(scriptPath))
         {
             scriptPath = Path.Combine(dataDir, "updates", "apply-update.ps1");
-            File.WriteAllText(scriptPath, EmbeddedUpdaterScript);
+            System.IO.File.WriteAllText(scriptPath, EmbeddedUpdaterScript);
         }
 
         _logger.LogInformation("Launching in-place updater: {ScriptPath} with source {Source} target {Target} PID {Pid}", scriptPath, updateSource, installDir, pid);
@@ -294,9 +294,9 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         var packageZip = Path.Combine(updatesDir, "package.zip");
         var extractDir = Path.Combine(updatesDir, "extracted");
 
-        if (File.Exists(packageZip))
+        if (System.IO.File.Exists(packageZip))
         {
-            File.Delete(packageZip);
+            System.IO.File.Delete(packageZip);
         }
 
         if (Directory.Exists(extractDir))

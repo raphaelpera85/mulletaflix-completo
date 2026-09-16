@@ -1,5 +1,5 @@
 import type { Api } from '@jellyfin/sdk';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useApi } from 'hooks/useApi';
 
 export interface UpdateInfoDto {
