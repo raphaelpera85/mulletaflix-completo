@@ -191,23 +191,25 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         }
 
         var token = _activeCts.Token;
-        _ = Task.Run(async () =>
-        {
-            try
+        _ = Task.Run(
+            async () =>
             {
-                await DownloadAndPrepareUpdateAsync(archiveUrl, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                lock (SyncLock)
+                try
                 {
-                    _installState = "Failed";
-                    _installError = ex.Message;
+                    await DownloadAndPrepareUpdateAsync(archiveUrl, token).ConfigureAwait(false);
                 }
+                catch (Exception ex)
+                {
+                    lock (SyncLock)
+                    {
+                        _installState = "Failed";
+                        _installError = ex.Message;
+                    }
 
-                _logger.LogError(ex, "Failed to download and extract update package.");
-            }
-        }, token);
+                    _logger.LogError(ex, "Failed to download and extract update package.");
+                }
+            },
+            token);
 
         return Accepted(new { Message = "Update download started.", State = _installState, Progress = _installProgress });
     }
