@@ -219,8 +219,16 @@ fun MulletaFlixNavHost(
             route = MulletaFlixRoute.OFFLINE_PLAYER,
             arguments = listOf(
                 navArgument("itemId") { type = NavType.StringType },
-                navArgument("uri") { type = NavType.StringType },
-                navArgument("title") { type = NavType.StringType },
+                navArgument("uri") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("title") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStack ->
             VideoPlayerScreen(
@@ -252,6 +260,10 @@ object MulletaFlixRoute {
     fun library(libId: String) = "main/library/$libId"
     fun itemDetail(itemId: String) = "detail/$itemId"
     fun videoPlayer(itemId: String) = "player/video/$itemId"
-    fun offlinePlayer(itemId: String, uri: String, title: String) =
-        "player/offline/${Uri.encode(itemId)}?uri=${Uri.encode(uri)}&title=${Uri.encode(title)}"
+    fun offlinePlayer(itemId: String, uri: String, title: String): String {
+        val encodedId = java.net.URLEncoder.encode(itemId, "UTF-8")
+        val encodedUri = java.net.URLEncoder.encode(uri, "UTF-8")
+        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+        return "player/offline/$encodedId?uri=$encodedUri&title=$encodedTitle"
+    }
 }

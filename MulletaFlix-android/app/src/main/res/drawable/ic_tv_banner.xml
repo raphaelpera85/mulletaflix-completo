@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Fundo cinematográfico escuro oficial MulletaFlix -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#101010" />
+        </shape>
+    </item>
+    <!-- Logo MulletaFlix centralizado com proporção para banner TV 16:9 -->
+    <item
+        android:width="120dp"
+        android:height="120dp"
+        android:gravity="center">
+        <bitmap
+            android:src="@drawable/ic_mulletaflix_logo"
+            android:gravity="center" />
+    </item>
+</layer-list>

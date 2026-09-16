@@ -28,11 +28,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
 import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.model.Chapter
 import org.mulletaflix.domain.model.MediaSegment
+import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
@@ -74,7 +74,7 @@ data class PlayerState(
 @UnstableApi
 class PlayerViewModel @Inject constructor(
     @ApplicationContext context: Context,
-    private val mediaRepository: MediaRepository,
+    private val getItemDetailUseCase: GetItemDetailUseCase,
     private val playbackRepository: PlaybackRepository,
     private val sessionRepository: SessionRepository,
     private val settingsRepository: SettingsRepository,
@@ -268,7 +268,7 @@ class PlayerViewModel @Inject constructor(
             }
 
             // Get playback info from server to determine best play method
-            val item = mediaRepository.getItem(userId, itemId).getOrElse {
+            val item = getItemDetailUseCase(userId, itemId).getOrElse {
                 showLoadError("Não foi possível carregar os dados desta mídia.")
                 return@launch
             }

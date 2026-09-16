@@ -202,3 +202,26 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
   - [x] Exibição de foto de perfil e permissões
   - [x] Alternância rápida entre usuários cadastrados no servidor
   - [x] Ação de logout seguro com limpeza de sessão
+
+---
+
+## 📺 13. Suporte a Android TV & Dispositivos de Sala
+
+- [x] **Compatibilidade com Leanback & Smart TVs**
+  - [x] Suporte a `android.software.leanback` com `required="false"` (híbrido TV + Mobile)
+  - [x] Suporte a dispositivos sem touchscreen (`android.hardware.touchscreen` required="false")
+  - [x] Banner oficial 16:9 (`@drawable/ic_tv_banner`) com proporções corretas para o Launcher da Android TV / Google TV
+  - [x] Categoria de inicialização `android.intent.category.LEANBACK_LAUNCHER` no manifesto
+
+---
+
+## 📦 14. Otimização de Release, Assinatura & CI/CD
+
+- [x] **Minificação & Otimização ProGuard / R8**
+  - [x] Regras personalizadas em `app/proguard-rules.pro` para Moshi, Retrofit, Room, Media3 ExoPlayer, Hilt e Cast SDK
+  - [x] Redução do tamanho final do APK de Release para **7.28 MB** com encolhimento agressivo de recursos
+- [x] **Assinatura Automatizada**
+  - [x] Bloco `signingConfigs` configurado com suporte a variáveis de ambiente (`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, etc.) e fallback transparente para debug, gerando APKs imediatamente instaláveis via sideload
+- [x] **Integração com GitHub Actions CI**
+  - [x] Job automatizado `android-build-test` configurado em `.github/workflows/ci.yml` com Java 17 Temurin, cache de dependências Gradle, execução de testes unitários e build de artefatos Debug e Release
+
