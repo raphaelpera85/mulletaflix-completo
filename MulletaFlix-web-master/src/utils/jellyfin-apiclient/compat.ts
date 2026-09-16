@@ -10,7 +10,7 @@ import { safeDecodeURIComponent } from 'utils/url';
  */
 export const toApi = (apiClient: ApiClient): Api => {
     const serverUrl = apiClient.serverAddress() || 'http://localhost';
-    return (new Jellyfin({
+    const api = (new Jellyfin({
         // The SDK encodes these values when creating the authorization header,
         // so we need to decode them here to avoid double encoding.
         clientInfo: {
@@ -25,5 +25,14 @@ export const toApi = (apiClient: ApiClient): Api => {
         serverUrl,
         apiClient.accessToken()
     );
+
+    api.axiosInstance.interceptors.request.use((config) => {
+        if (!config.headers['Authorization'] && api.authorizationHeader) {
+            config.headers['Authorization'] = api.authorizationHeader;
+        }
+        return config;
+    });
+
+    return api;
 };
 

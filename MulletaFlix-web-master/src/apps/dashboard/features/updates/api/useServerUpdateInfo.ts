@@ -15,13 +15,24 @@ export interface UpdateInfoDto {
     ErrorMessage?: string;
 }
 
+const getHeaders = (api: Api) => {
+    const auth = (api as unknown as { authorizationHeader?: string }).authorizationHeader;
+    return auth ? { Authorization: auth } : undefined;
+};
+
 const fetchUpdateInfo = async (api: Api, signal?: AbortSignal) => {
-    const response = await api.axiosInstance.get<UpdateInfoDto>('/System/UpdateInfo', { signal });
+    const response = await api.axiosInstance.get<UpdateInfoDto>('/System/UpdateInfo', {
+        signal,
+        headers: getHeaders(api)
+    });
     return response.data;
 };
 
 const fetchUpdateStatus = async (api: Api, signal?: AbortSignal) => {
-    const response = await api.axiosInstance.get<UpdateInfoDto>('/System/Update/Status', { signal });
+    const response = await api.axiosInstance.get<UpdateInfoDto>('/System/Update/Status', {
+        signal,
+        headers: getHeaders(api)
+    });
     return response.data;
 };
 
@@ -50,7 +61,9 @@ export const useInstallUpdate = () => {
     const { api } = useApi();
     return useMutation({
         mutationFn: async () => {
-            const response = await api!.axiosInstance.post<UpdateInfoDto>('/System/Update/Install');
+            const response = await api!.axiosInstance.post<UpdateInfoDto>('/System/Update/Install', undefined, {
+                headers: getHeaders(api!)
+            });
             return response.data;
         }
     });
@@ -60,7 +73,9 @@ export const useApplyUpdate = () => {
     const { api } = useApi();
     return useMutation({
         mutationFn: async () => {
-            const response = await api!.axiosInstance.post('/System/Update/Apply');
+            const response = await api!.axiosInstance.post('/System/Update/Apply', undefined, {
+                headers: getHeaders(api!)
+            });
             return response.data;
         }
     });

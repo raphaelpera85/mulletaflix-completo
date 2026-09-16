@@ -41,8 +41,9 @@ const Component = () => {
     const installMutation = useInstallUpdate();
     const applyMutation = useApplyUpdate();
 
-    // Poll status when downloading, extracting, or applying
-    const { data: statusInfo } = useUpdateStatus(true, 1500);
+    // Poll status only when downloading, extracting, or applying
+    const isProgressState = initialInfo?.InstallState === 'Downloading' || initialInfo?.InstallState === 'Extracting' || isApplying;
+    const { data: statusInfo } = useUpdateStatus(isProgressState, isProgressState ? 1500 : false);
 
     const updateInfo = statusInfo || initialInfo;
     const installState = isApplying ? 'Applying' : (updateInfo?.InstallState || 'Idle');
