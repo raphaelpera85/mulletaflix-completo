@@ -225,3 +225,19 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] **Integração com GitHub Actions CI**
   - [x] Job automatizado `android-build-test` configurado em `.github/workflows/ci.yml` com Java 17 Temurin, cache de dependências Gradle, execução de testes unitários e build de artefatos Debug e Release
 
+---
+
+## 🧪 15. Validação E2E em Dispositivo Real / Emulador (Gauntlet Loop)
+
+- [x] **Autenticação Real com Servidor Remoto**: Login executado com credenciais reais (`Raphael`), token persistido e recuperação de sessão.
+- [x] **Carregamento de Catálogo em Tempo Real**: Hero Banner dinâmico, carrosséis de Filmes e Séries alimentados pela API Jellyfin/MulletaFlix.
+- [x] **Navegação & Detalhes**: Backdrop, pôster, metadados, classificação, elenco/equipe técnica e títulos similares renderizados.
+- [x] **Player Media3 ExoPlayer**: Inicialização do player com controles de transporte, scrubbing, seletores de faixas de áudio, legendas e resolução.
+- [x] **Busca Global**: Query com debounce (`"dias"`), filtros categorizados e resultados divididos entre filmes e outras mídias.
+- [x] **TV Ao Vivo & EPG**: Listagem de canais remotos e guia de programação.
+- [x] **Downloads Offline**: Interface de mídias baixadas e navegação rápida para o catálogo.
+- [x] **Configurações & Temas**: Preferências de reprodução, legendas, tema escuro e informações de servidor.
+- [x] **SyncPlay**: Lobbies de reprodução em grupo sincronizados.
+- [x] **Perfil de Usuário & Limpeza de Cache**: Diagnóstico de latência (33 ms), limpeza de cache em tempo real (17.2 MB -> 0.0 MB) e encerramento de sessão com diálogo de confirmação.
+
+
