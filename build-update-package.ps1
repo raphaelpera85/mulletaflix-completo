@@ -11,12 +11,16 @@
 [CmdletBinding()]
 param(
     [string]$Version = "12.0.0",
-    [string]$OutputDir = "$PSScriptRoot\dist",
+    [string]$OutputDir,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
-$projectRoot = $PSScriptRoot
+$projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+if (-not $OutputDir) {
+    $OutputDir = Join-Path $projectRoot 'dist'
+}
+
 $stageDir = Join-Path $projectRoot 'stage'
 $packagingRoot = Join-Path $projectRoot 'MulletaFlix-packaging-master'
 $updaterScriptSource = Join-Path $packagingRoot 'MulletaFlix-ux-custom\nsis\apply-update.ps1'
@@ -94,7 +98,23 @@ try {
     }
 
     Write-Host "Compressing update package to $zipPath..." -ForegroundColor Cyan
-    Compress-Archive -Path "$tempPackageDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
+    
+    $tarCmd = Get-Command tar.exe -ErrorAction SilentlyContinue
+    if ($tarCmd) {
+        $prevPwd = Get-Location
+        try {
+            Set-Location $tempPackageDir
+            & $tarCmd.Source -a -c -f $zipPath *
+        } finally {
+            Set-Location $prevPwd
+        }
+    } else {
+        Compress-Archive -Path "$tempPackageDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
+    }
+
+    if (-not (Test-Path -LiteralPath $zipPath)) {
+        throw "Failed to create update zip at $zipPath"
+    }
 
     $zipItem = Get-Item -LiteralPath $zipPath
     $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
