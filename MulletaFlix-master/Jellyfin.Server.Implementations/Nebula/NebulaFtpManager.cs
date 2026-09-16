@@ -651,13 +651,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                         var freeGb = drive.AvailableFreeSpace / (1024.0 * 1024 * 1024);
                         var totalGb = drive.TotalSize / (1024.0 * 1024 * 1024);
                         var freePct = totalGb > 0 ? (freeGb / totalGb) * 100 : 0;
+                        var statusTag = freePct < NebulaDownloaderEngine.MinimumFreeSpacePercentThreshold ? " [CRÍTICO <10%]" : string.Empty;
                         diskList.Add(new NebulaStageDiskDto
                         {
                             Path = path,
                             FreeGb = Math.Round(freeGb, 1),
                             TotalGb = Math.Round(totalGb, 1),
                             FreePercent = Math.Round(freePct, 0),
-                            Formatted = $"{path}: {freeGb:F1} GB livres ({freePct:F0}%)"
+                            Formatted = $"{path}: {freeGb:F1} GB livres ({freePct:F0}%){statusTag}"
                         });
                     }
                 }

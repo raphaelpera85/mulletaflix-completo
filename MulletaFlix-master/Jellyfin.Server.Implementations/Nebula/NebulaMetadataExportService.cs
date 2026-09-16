@@ -380,29 +380,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     {
         var config = _configurationManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
         var roots = config?.StagePaths?.Where(p => !string.IsNullOrWhiteSpace(p)).ToArray() ?? Array.Empty<string>();
-        foreach (var root in roots)
-        {
-            try
-            {
-                // Keep automatic metadata export aligned with the downloader:
-                // select the first configured root whose volume is ready, even
-                // when the directory itself has not been created yet.
-                Directory.CreateDirectory(root);
-                var driveRoot = Path.GetPathRoot(Path.GetFullPath(root));
-                if (!string.IsNullOrWhiteSpace(driveRoot) && new DriveInfo(driveRoot).IsReady)
-                {
-                    return root;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[NEBULA-METADATA] Stage indisponível durante seleção automática: {Root}", root);
-            }
-        }
-
-        var fallback = roots.FirstOrDefault() ?? Path.Combine(AppContext.BaseDirectory, "NebulaStage");
-        Directory.CreateDirectory(fallback);
-        return fallback;
+        return NebulaDownloaderEngine.SelectBestStageDirectory(roots, logger: _logger);
     }
 
     private bool IsConfiguredStagePath(string path)

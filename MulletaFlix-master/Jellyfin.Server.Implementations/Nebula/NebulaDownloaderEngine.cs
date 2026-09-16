@@ -519,6 +519,31 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             }
         }
 
+        if (totalSize > 0)
+        {
+            var targetDriveRoot = Path.GetPathRoot(Path.GetFullPath(targetFilePath));
+            if (!string.IsNullOrWhiteSpace(targetDriveRoot))
+            {
+                try
+                {
+                    var drive = new DriveInfo(targetDriveRoot);
+                    if (drive.IsReady && drive.AvailableFreeSpace < (totalSize + 250L * 1024 * 1024))
+                    {
+                        throw new IOException(
+                            $"Espaço insuficiente no disco: '{targetDriveRoot}' possui apenas {FormatBytes(drive.AvailableFreeSpace)} livres, mas o arquivo requer {FormatBytes(totalSize)}.");
+                    }
+                }
+                catch (IOException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[NEBULA-DOWNLOADER] Não foi possível verificar espaço livre no drive {Drive}", targetDriveRoot);
+                }
+            }
+        }
+
         var status = new NebulaDownloadStatusDto
         {
             Name = fileName,
@@ -1331,27 +1356,106 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
     }
 
-    private static string SelectBestStageDirectory(List<string> stageRoots)
+    public const double MinimumFreeSpacePercentThreshold = 10.0;
+    public const long MinimumFreeBytesThreshold = 5L * 1024 * 1024 * 1024; // 5 GB
+
+    internal static string SelectBestStageDirectory(
+        IReadOnlyList<string> stageRoots,
+        Action<string>? logInfo = null,
+        Action<string>? logWarning = null,
+        ILogger? logger = null,
+        long requiredBytes = 0,
+        Func<string, (bool IsReady, long FreeBytes, long TotalBytes)>? driveInspector = null)
     {
+        if (stageRoots == null || stageRoots.Count == 0)
+        {
+            var defaultFallback = Path.Combine(AppContext.BaseDirectory, "NebulaStage");
+            try { Directory.CreateDirectory(defaultFallback); } catch { }
+            return defaultFallback;
+        }
+
+        driveInspector ??= root =>
+        {
+            var fullPath = Path.GetFullPath(root);
+            var driveRoot = Path.GetPathRoot(fullPath);
+            if (string.IsNullOrWhiteSpace(driveRoot))
+            {
+                return (false, 0, 0);
+            }
+
+            var drive = new DriveInfo(driveRoot);
+            return drive.IsReady ? (true, drive.AvailableFreeSpace, drive.TotalSize) : (false, 0, 0);
+        };
+
+        var candidates = new List<(string Root, string DriveRoot, long FreeBytes, long TotalBytes, double FreePercent)>();
+
         foreach (var root in stageRoots)
         {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
             try
             {
                 Directory.CreateDirectory(root);
-                var driveRoot = Path.GetPathRoot(Path.GetFullPath(root));
-                if (!string.IsNullOrWhiteSpace(driveRoot) && new DriveInfo(driveRoot).IsReady)
+                var fullPath = Path.GetFullPath(root);
+                var driveRoot = Path.GetPathRoot(fullPath) ?? string.Empty;
+                var (isReady, free, total) = driveInspector(root);
+                if (isReady && total > 0)
                 {
-                    return root;
+                    var pct = ((double)free / total) * 100.0;
+                    candidates.Add((root, driveRoot, free, total, pct));
+                }
+                else if (isReady)
+                {
+                    candidates.Add((root, driveRoot, free, total, 0.0));
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignora erros ao obter drive info
+                logger?.LogDebug(ex, "[NEBULA-STAGE] Erro ao obter informações de volume para o stage root {Root}", root);
             }
         }
 
-        return stageRoots[0];
+        if (candidates.Count == 0)
+        {
+            var fallback = stageRoots[0];
+            try { Directory.CreateDirectory(fallback); } catch { }
+            return fallback;
+        }
+
+        // Regra dos 10%: Um disco é elegível se tiver >= 10% de espaço livre E pelo menos 5 GB (ou requiredBytes se maior)
+        var minBytes = Math.Max(MinimumFreeBytesThreshold, requiredBytes);
+        var eligible = candidates
+            .Where(c => c.FreePercent >= MinimumFreeSpacePercentThreshold && c.FreeBytes >= minBytes)
+            .ToList();
+
+        if (eligible.Count > 0)
+        {
+            var chosen = eligible[0];
+            if (candidates[0].Root != chosen.Root)
+            {
+                var first = candidates[0];
+                var msg = $"Disco {first.DriveRoot} com espaço livre abaixo de 10% ({first.FreePercent:F1}% livre, {FormatBytes(first.FreeBytes)}). Alternando automaticamente para {chosen.DriveRoot} ({chosen.FreePercent:F1}% livre, {FormatBytes(chosen.FreeBytes)}).";
+                logInfo?.Invoke(msg);
+                logger?.LogInformation("[NEBULA-STAGE] {Message}", msg);
+            }
+
+            return chosen.Root;
+        }
+
+        // Se nenhum disco possui >= 10% e >= 5 GB livres, seleciona o que possui a maior quantidade de espaço disponível
+        var bestBySpace = candidates.OrderByDescending(c => c.FreeBytes).First();
+        var warnMsg = $"AVISO: Todos os discos de stage estão abaixo de 10% de espaço livre! Usando disco com maior espaço disponível: {bestBySpace.DriveRoot} ({bestBySpace.FreePercent:F1}% livre, {FormatBytes(bestBySpace.FreeBytes)}).";
+        logWarning?.Invoke(warnMsg);
+        logger?.LogWarning("[NEBULA-STAGE] {Message}", warnMsg);
+
+        return bestBySpace.Root;
     }
+
+    private string SelectBestStageDirectory(List<string> stageRoots, long requiredBytes = 0)
+        => SelectBestStageDirectory(stageRoots, LogInfo, LogWarning, _logger, requiredBytes);
 
     private static string FormatBytes(long bytes)
     {
