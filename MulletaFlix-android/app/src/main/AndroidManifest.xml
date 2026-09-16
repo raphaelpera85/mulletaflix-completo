@@ -111,7 +111,7 @@
         <!-- Cast (Chromecast) -->
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
-            android:value=".cast.MulletaFlixCastOptionsProvider" />
+            android:value="org.mulletaflix.android.cast.MulletaFlixCastOptionsProvider" />
 
     </application>
 </manifest>

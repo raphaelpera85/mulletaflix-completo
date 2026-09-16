@@ -27,7 +27,12 @@ class AuthInterceptor @Inject constructor(
         val deviceId = runBlocking { sessionRepository.getDeviceId().first() }
 
         val request = chain.request().newBuilder().apply {
-            token?.let { addHeader("Authorization", "MediaBrowser Token=\"$it\", Client=\"MulletaFlix Android\", Device=\"Android\", DeviceId=\"$deviceId\", Version=\"12.0.0\"") }
+            val authHeader = if (!token.isNullOrBlank()) {
+                "MediaBrowser Token=\"$token\", Client=\"MulletaFlix Android\", Device=\"Android\", DeviceId=\"$deviceId\", Version=\"12.0.0\""
+            } else {
+                "MediaBrowser Client=\"MulletaFlix Android\", Device=\"Android\", DeviceId=\"$deviceId\", Version=\"12.0.0\""
+            }
+            addHeader("Authorization", authHeader)
         }.build()
 
         return chain.proceed(request)
