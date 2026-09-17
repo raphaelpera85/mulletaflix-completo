@@ -3425,6 +3425,25 @@ idle_timeout = 1m
                         process.Dispose();
                     }
                 }
+
+                if (OperatingSystem.IsWindows())
+                {
+                    try
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "powershell.exe",
+                            Arguments = "-NoProfile -Command \"Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*.exe' -and $_.CommandLine -like '*mount_drive_n.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }\"",
+                            CreateNoWindow = true,
+                            UseShellExecute = false
+                        };
+                        using var p = Process.Start(psi);
+                        p?.WaitForExit(3000);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
             }
 
             var rcloneExe = FindRcloneExe();

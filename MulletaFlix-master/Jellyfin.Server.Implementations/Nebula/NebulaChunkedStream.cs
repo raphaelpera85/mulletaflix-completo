@@ -62,16 +62,19 @@ public sealed class NebulaStreamPart
 public sealed class NebulaChunkedStream : Stream
 {
     private const int ChunkSize = 1024 * 1024; // 1 MB por bloco (idêntico ao GETFILE_CHUNK_SIZE do Nebula Python)
-    private const int MaxCachedChunks = 16;     // 16 MB máximo de buffer LRU por stream ativo
+    private const int MaxCachedChunks = 64;    // 64 MB máximo de buffer LRU por stream ativo (suporta prefetch e seeking sem I/O errors)
+    private const int PrefetchAheadChunks = 2; // Número de chunks à frente para pré-carregar em segundo plano
 
     private readonly NebulaTelegramPool? _telegramPool;
     private readonly IReadOnlyList<NebulaStreamPart> _parts;
     private readonly long _totalLength;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly CancellationTokenSource _streamCts = new();
 
     private readonly Dictionary<string, byte[]> _chunkCache = new(StringComparer.Ordinal);
     private readonly LinkedList<string> _lruOrder = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<byte[]>> _inflightPrefetches = new(StringComparer.Ordinal);
 
     private long _position;
     private bool _disposed;
@@ -233,6 +236,9 @@ public sealed class NebulaChunkedStream : Stream
 
                 _position += bytesToCopy;
                 totalRead += bytesToCopy;
+
+                // Dispara pré-carregamento dos próximos chunks em background
+                TriggerPrefetchAhead(part, chunkIndex);
             }
 
             return totalRead;
@@ -267,6 +273,41 @@ public sealed class NebulaChunkedStream : Stream
         return null;
     }
 
+    private void TriggerPrefetchAhead(NebulaStreamPart currentPart, int currentChunkIndex)
+    {
+        if (_disposed || _telegramPool == null)
+        {
+            return;
+        }
+
+        for (int step = 1; step <= PrefetchAheadChunks; step++)
+        {
+            var targetChunkIndex = currentChunkIndex + step;
+            var targetOffset = (long)targetChunkIndex * ChunkSize;
+            if (targetOffset < currentPart.Size)
+            {
+                var targetKey = $"{currentPart.PartIndex}:{targetChunkIndex}";
+                if (!_chunkCache.ContainsKey(targetKey) && !_inflightPrefetches.ContainsKey(targetKey))
+                {
+                    var prefetchTask = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            return await FetchChunkDataAsync(currentPart, targetChunkIndex, _streamCts.Token).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "[NEBULA-STREAM-PREFETCH] Falha ao pré-carregar chunk {Key}.", targetKey);
+                            return Array.Empty<byte>();
+                        }
+                    });
+
+                    _inflightPrefetches.TryAdd(targetKey, prefetchTask);
+                }
+            }
+        }
+    }
+
     private async Task<byte[]> GetChunkAsync(NebulaStreamPart part, int chunkIndex, CancellationToken cancellationToken)
     {
         var cacheKey = $"{part.PartIndex}:{chunkIndex}";
@@ -277,6 +318,52 @@ public sealed class NebulaChunkedStream : Stream
             return cachedData;
         }
 
+        // Se houver um prefetch em andamento para este bloco, aguarda-o
+        if (_inflightPrefetches.TryRemove(cacheKey, out var inflightTask))
+        {
+            try
+            {
+                var prefetched = await inflightTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                if (prefetched != null && prefetched.Length > 0)
+                {
+                    InsertIntoCache(cacheKey, prefetched);
+                    return prefetched;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "[NEBULA-STREAM] Falha no prefetch de {Key}; prosseguindo com download direto.", cacheKey);
+            }
+        }
+
+        var chunkData = await FetchChunkDataAsync(part, chunkIndex, cancellationToken).ConfigureAwait(false);
+        if (chunkData == null || chunkData.Length == 0)
+        {
+            _logger.LogError("[NEBULA-STREAM] Falha ao obter chunk {Key} do Telegram após múltiplas tentativas.", cacheKey);
+            throw new IOException($"Falha ao baixar bloco {chunkIndex} da parte {part.PartIndex} do Telegram.");
+        }
+
+        InsertIntoCache(cacheKey, chunkData);
+        return chunkData;
+    }
+
+    private void InsertIntoCache(string cacheKey, byte[] chunkData)
+    {
+        _chunkCache[cacheKey] = chunkData;
+        _lruOrder.Remove(cacheKey);
+        _lruOrder.AddFirst(cacheKey);
+
+        while (_chunkCache.Count > MaxCachedChunks && _lruOrder.Last != null)
+        {
+            var oldestKey = _lruOrder.Last.Value;
+            _lruOrder.RemoveLast();
+            _chunkCache.Remove(oldestKey);
+        }
+    }
+
+    private async Task<byte[]> FetchChunkDataAsync(NebulaStreamPart part, int chunkIndex, CancellationToken cancellationToken)
+    {
+        var cacheKey = $"{part.PartIndex}:{chunkIndex}";
         var chunkOffsetInPart = (long)chunkIndex * ChunkSize;
         var chunkLimit = (int)Math.Min(ChunkSize, part.Size - chunkOffsetInPart);
         if (chunkLimit <= 0)
@@ -308,15 +395,16 @@ public sealed class NebulaChunkedStream : Stream
             }
         }
 
-        // 2. Download do chunk sob demanda via Telegram MTProto / Bot API Range
+        // 2. Download do chunk sob demanda via Telegram MTProto / Bot API Range com até 5 tentativas e backoff progressivo
         if ((chunkData == null || chunkData.Length == 0) && _telegramPool != null)
         {
-            for (var attempt = 1; attempt <= 3; attempt++)
+            const int maxAttempts = 5;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    _logger.LogDebug("[NEBULA-STREAM] Baixando chunk {Key} (offset: {Offset}, tamanho: {Size}, tentativa {Attempt}/3)...", cacheKey, chunkOffsetInPart, chunkLimit, attempt);
+                    _logger.LogDebug("[NEBULA-STREAM] Baixando chunk {Key} (offset: {Offset}, tamanho: {Size}, tentativa {Attempt}/{Max})...", cacheKey, chunkOffsetInPart, chunkLimit, attempt, maxAttempts);
                     chunkData = await _telegramPool.DownloadChunkAsync(
                         part.FileId,
                         part.BotIndex,
@@ -337,34 +425,24 @@ public sealed class NebulaChunkedStream : Stream
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[NEBULA-STREAM] Exceção ao tentar baixar chunk {Key} (tentativa {Attempt}/3).", cacheKey, attempt);
+                    _logger.LogWarning(ex, "[NEBULA-STREAM] Exceção ao tentar baixar chunk {Key} (tentativa {Attempt}/{Max}).", cacheKey, attempt, maxAttempts);
                 }
 
-                if (attempt < 3)
+                if (attempt < maxAttempts)
                 {
-                    await Task.Delay(attempt * 250, cancellationToken).ConfigureAwait(false);
+                    var delayMs = attempt switch
+                    {
+                        1 => 200,
+                        2 => 500,
+                        3 => 1000,
+                        _ => 2000
+                    };
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
 
-        if (chunkData == null || chunkData.Length == 0)
-        {
-            _logger.LogError("[NEBULA-STREAM] Falha ao baixar chunk {Key} do Telegram.", cacheKey);
-            throw new IOException($"Falha ao baixar bloco {chunkIndex} da parte {part.PartIndex} do Telegram.");
-        }
-
-        // 3. Insere no cache LRU delimitado
-        _chunkCache[cacheKey] = chunkData;
-        _lruOrder.AddFirst(cacheKey);
-
-        while (_chunkCache.Count > MaxCachedChunks && _lruOrder.Last != null)
-        {
-            var oldestKey = _lruOrder.Last.Value;
-            _lruOrder.RemoveLast();
-            _chunkCache.Remove(oldestKey);
-        }
-
-        return chunkData;
+        return chunkData ?? Array.Empty<byte>();
     }
 
     private void EnsureNotDisposed()
@@ -381,6 +459,16 @@ public sealed class NebulaChunkedStream : Stream
 
             if (disposing)
             {
+                try
+                {
+                    _streamCts.Cancel();
+                    _streamCts.Dispose();
+                }
+                catch
+                {
+                }
+
+                _inflightPrefetches.Clear();
                 _chunkCache.Clear();
                 _lruOrder.Clear();
                 try

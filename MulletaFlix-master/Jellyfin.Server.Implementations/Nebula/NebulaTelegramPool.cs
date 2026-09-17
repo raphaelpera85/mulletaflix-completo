@@ -569,12 +569,10 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         var location = doc.ToFileLocation();
-                        int requestedLimit = limit;
-                        int alignedLimit = Math.Max(4096, (limit + 4095) / 4096 * 4096);
-                        var uploadFile = await client.Upload_GetFile(location, offset, alignedLimit, precise: true).ConfigureAwait(false);
-                        if (uploadFile is Upload_File uf && uf.bytes != null && uf.bytes.Length > 0)
+                        var chunk = await DownloadFileBytesAsync(client, location, offset, limit, cancellationToken).ConfigureAwait(false);
+                        if (chunk != null && chunk.Length > 0)
                         {
-                            return uf.bytes.Length > requestedLimit ? uf.bytes[..requestedLimit] : uf.bytes;
+                            return chunk;
                         }
                     }
                     catch (RpcException rpcEx) when (rpcEx.Code == 400 && rpcEx.Message.Contains("FILE_REFERENCE_EXPIRED", StringComparison.OrdinalIgnoreCase))
@@ -611,7 +609,20 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         // 2. Fallback via Bot API com Range HTTP
         if (!string.IsNullOrWhiteSpace(fileId))
         {
+            var fallbackBots = new List<int>();
+            if (botIndex > 0 && availableBots.Contains(botIndex))
+            {
+                fallbackBots.Add(botIndex);
+            }
             foreach (var idx in orderedBots)
+            {
+                if (!fallbackBots.Contains(idx))
+                {
+                    fallbackBots.Add(idx);
+                }
+            }
+
+            foreach (var idx in fallbackBots)
             {
                 var selected = await AcquireStreamingBotAsync([idx], cancellationToken).ConfigureAwait(false);
                 await using var operation = selected.Lease;
@@ -626,6 +637,55 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         return null;
     }
 
+    private static async Task<byte[]?> DownloadFileBytesAsync(
+        Client client,
+        InputFileLocationBase location,
+        long offset,
+        int requestedLimit,
+        CancellationToken cancellationToken)
+    {
+        var accumulated = new byte[requestedLimit];
+        var totalRead = 0;
+
+        while (totalRead < requestedLimit)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var currentOffset = offset + totalRead;
+            var remaining = requestedLimit - totalRead;
+            var alignedLimit = Math.Max(4096, (remaining + 4095) / 4096 * 4096);
+            // MTProto Upload_GetFile limite máximo é 1MB (1048576 bytes)
+            alignedLimit = Math.Min(1024 * 1024, alignedLimit);
+
+            var uploadFile = await client.Upload_GetFile(location, currentOffset, alignedLimit, precise: true).ConfigureAwait(false);
+            if (uploadFile is not Upload_File uf || uf.bytes == null || uf.bytes.Length == 0)
+            {
+                break;
+            }
+
+            var toCopy = Math.Min(uf.bytes.Length, remaining);
+            Buffer.BlockCopy(uf.bytes, 0, accumulated, totalRead, toCopy);
+            totalRead += toCopy;
+
+            // Se o Telegram retornou menos bytes que o limite alinhado, chegamos ao final deste documento
+            if (uf.bytes.Length < alignedLimit)
+            {
+                break;
+            }
+        }
+
+        if (totalRead == 0)
+        {
+            return null;
+        }
+
+        if (totalRead < requestedLimit)
+        {
+            Array.Resize(ref accumulated, totalRead);
+        }
+
+        return accumulated;
+    }
+
     private async Task<byte[]?> TryDownloadChannelMessageChunkAsync(
         Client client,
         int botIndex,
@@ -636,8 +696,6 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         CancellationToken cancellationToken)
     {
         var cacheKey = $"{bareChannelId}:{messageId}";
-        int requestedLimit = limit;
-        int alignedLimit = Math.Max(4096, (limit + 4095) / 4096 * 4096);
 
         // 1. Tenta com Document cacheado com file_reference recente
         if (_documentCache.TryGetValue(cacheKey, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
@@ -646,10 +704,10 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var location = cached.Doc.ToFileLocation();
-                var uploadFile = await client.Upload_GetFile(location, offset, alignedLimit, precise: true).ConfigureAwait(false);
-                if (uploadFile is Upload_File uf && uf.bytes != null && uf.bytes.Length > 0)
+                var chunk = await DownloadFileBytesAsync(client, location, offset, limit, cancellationToken).ConfigureAwait(false);
+                if (chunk != null && chunk.Length > 0)
                 {
-                    return uf.bytes.Length > requestedLimit ? uf.bytes[..requestedLimit] : uf.bytes;
+                    return chunk;
                 }
             }
             catch (RpcException rpcEx) when (rpcEx.Code == 400 && rpcEx.Message.Contains("FILE_REFERENCE_EXPIRED", StringComparison.OrdinalIgnoreCase))
@@ -686,10 +744,24 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 
                     cancellationToken.ThrowIfCancellationRequested();
                     var location = freshDoc.ToFileLocation();
-                    var uploadFile = await client.Upload_GetFile(location, offset, alignedLimit, precise: true).ConfigureAwait(false);
-                    if (uploadFile is Upload_File uf && uf.bytes != null && uf.bytes.Length > 0)
+                    var chunk = await DownloadFileBytesAsync(client, location, offset, limit, cancellationToken).ConfigureAwait(false);
+                    if (chunk != null && chunk.Length > 0)
                     {
-                        return uf.bytes.Length > requestedLimit ? uf.bytes[..requestedLimit] : uf.bytes;
+                        return chunk;
+                    }
+                }
+                else if (message?.media is MessageMediaPhoto { photo: Photo photo })
+                {
+                    var largestSize = photo.sizes.OfType<PhotoSize>().OrderByDescending(s => s.size).FirstOrDefault();
+                    if (largestSize != null)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var location = photo.ToFileLocation(largestSize);
+                        var chunk = await DownloadFileBytesAsync(client, location, offset, limit, cancellationToken).ConfigureAwait(false);
+                        if (chunk != null && chunk.Length > 0)
+                        {
+                            return chunk;
+                        }
                     }
                 }
             }

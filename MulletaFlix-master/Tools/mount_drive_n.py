@@ -13,7 +13,26 @@ import contextlib
 import signal
 from pathlib import Path
 import shutil
+import sys
+import tempfile
 from typing import Sequence
+
+_lock_file = None
+
+
+def acquire_instance_lock() -> bool:
+    """Ensure only one mount_drive_n process runs at a time."""
+    global _lock_file
+    if sys.platform == "win32":
+        try:
+            import msvcrt
+            lock_path = Path(tempfile.gettempdir()) / "mulletaflix_mount_n.lock"
+            _lock_file = open(lock_path, "w")
+            msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            return True
+        except (OSError, ImportError):
+            return False
+    return True
 
 
 async def wait_for_ftp(host: str, port: int, timeout: float) -> bool:
@@ -78,19 +97,21 @@ async def run_rclone_mount(rclone: str, config: Path, drive: str, log_file: str,
             "--vfs-cache-mode",
             "writes",
             "--vfs-read-chunk-size",
-            "16M",
+            "1M",
             "--vfs-read-chunk-size-limit",
-            "512M",
+            "16M",
             "--vfs-cache-max-size",
             "20G",
             "--vfs-cache-max-age",
             "6h",
             "--dir-cache-time",
             "24h",
+            "--attr-timeout",
+            "10m",
             "--poll-interval",
             "0",
             "--buffer-size",
-            "32M",
+            "8M",
             "--no-checksum",
             "--vfs-fast-fingerprint",
             "--timeout",
@@ -98,7 +119,7 @@ async def run_rclone_mount(rclone: str, config: Path, drive: str, log_file: str,
             "--contimeout",
             "15s",
             "--retries",
-            "3",
+            "5",
             "--low-level-retries",
             "10",
             "--log-file",
@@ -145,6 +166,10 @@ async def run_rclone_mount(rclone: str, config: Path, drive: str, log_file: str,
 
 
 async def mount(args: argparse.Namespace) -> int:
+    if not acquire_instance_lock():
+        print("[NEBULA-MOUNT-PY] Outro processo de montagem de N: já está em execução.", flush=True)
+        return 0
+
     rclone = args.rclone if Path(args.rclone).is_file() else shutil.which(args.rclone)
     if not rclone:
         print("[NEBULA-MOUNT-PY-ERRO] rclone não foi encontrado.", flush=True)

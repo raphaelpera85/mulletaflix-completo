@@ -217,7 +217,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
 
             if (isStreamingRequest)
             {
-                if (!await _streamConcurrency.WaitAsync(0, requestToken).ConfigureAwait(false))
+                if (!await _streamConcurrency.WaitAsync(TimeSpan.FromSeconds(5), requestToken).ConfigureAwait(false))
                 {
                     SaturatedRequestCounter.WithLabels(route).Inc();
                     response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
@@ -477,7 +477,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         await using var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger);
         stream.Seek(start, SeekOrigin.Begin);
 
-        var buffer = new byte[64 * 1024];
+        var buffer = new byte[128 * 1024];
         long remaining = contentLength;
 
         while (remaining > 0 && !cancellationToken.IsCancellationRequested)
