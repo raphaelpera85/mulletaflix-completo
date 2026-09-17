@@ -203,15 +203,26 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         EmitServer("INFO", "Signal handlers unavailable on this platform; use Ctrl+C to stop.");
         EmitServer("INFO", $"Iniciando queued_mongo_scanner ordenado pelo arquivo mais antigo baixado (intervalo=1s, max_por_iteracao={workerCount})");
 
-        // 4. Loop periódico de varredura do Staging e enfileiramento (a cada 5 segundos)
+        // 4. Loop periódico de varredura do Staging e enfileiramento (resync completo a cada 10 min, queue check a cada 5s)
+        var lastFullSync = DateTime.MinValue;
+        var fullSyncInterval = TimeSpan.FromMinutes(10);
+
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
                 if (_mongoContext != null)
                 {
-                    await _mongoContext.SyncStagingDirectoryAsync(_stagingDirs, _uploadEngine.DeleteSourceAfterUpload, cancellationToken).ConfigureAwait(false);
-                    await RestorePendingUploadsFromMongoAsync(cancellationToken).ConfigureAwait(false);
+                    if (DateTime.UtcNow - lastFullSync >= fullSyncInterval)
+                    {
+                        lastFullSync = DateTime.UtcNow;
+                        await _mongoContext.SyncStagingDirectoryAsync(_stagingDirs, _uploadEngine.DeleteSourceAfterUpload, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    if (_pendingFiles.Count < workerCount * 2)
+                    {
+                        await RestorePendingUploadsFromMongoAsync(cancellationToken).ConfigureAwait(false);
+                    }
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

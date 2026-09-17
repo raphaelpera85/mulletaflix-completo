@@ -42,8 +42,12 @@ public sealed class NebulaMongoContext : IDisposable
         var dbName = string.IsNullOrWhiteSpace(databaseName) ? "ftp" : databaseName;
 
         var settings = MongoClientSettings.FromConnectionString(uri);
-        settings.ServerSelectionTimeout = TimeSpan.FromSeconds(5);
-        settings.ConnectTimeout = TimeSpan.FromSeconds(5);
+        settings.ServerSelectionTimeout = TimeSpan.FromSeconds(15);
+        settings.ConnectTimeout = TimeSpan.FromSeconds(10);
+        settings.SocketTimeout = TimeSpan.FromSeconds(30);
+        settings.MaxConnectionPoolSize = 250;
+        settings.RetryReads = true;
+        settings.RetryWrites = true;
 
         _client = new MongoClient(settings);
         _database = _client.GetDatabase(dbName);
