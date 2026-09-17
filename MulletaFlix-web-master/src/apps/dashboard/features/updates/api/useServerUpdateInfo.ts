@@ -33,7 +33,17 @@ const fetchUpdateStatus = async (api: Api, signal?: AbortSignal) => {
         signal,
         headers: getHeaders(api)
     });
-    return response.data;
+    const rawData = response.data as any;
+    const data = (rawData && rawData.Result) ? rawData.Result : rawData;
+    if (data) {
+        if (!data.InstallState && data.State) {
+            data.InstallState = data.State;
+        }
+        if (data.InstallProgress === undefined && data.Progress !== undefined) {
+            data.InstallProgress = data.Progress;
+        }
+    }
+    return data as UpdateInfoDto;
 };
 
 export const useServerUpdateInfo = () => {

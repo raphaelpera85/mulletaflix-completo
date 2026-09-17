@@ -38,6 +38,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     private static string? _installError = null;
     private static string? _extractedUpdatePath = null;
     private static CancellationTokenSource? _activeCts = null;
+    private static UpdateInfoDto? _cachedUpdateInfo;
 
     private readonly IServerApplicationHost _applicationHost;
     private readonly IApplicationPaths _applicationPaths;
@@ -127,6 +128,14 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             _logger.LogWarning(ex, "Failed to fetch server update info from {Url}.", targetUrl);
         }
 
+        lock (SyncLock)
+        {
+            info.InstallState = _installState;
+            info.InstallProgress = _installProgress;
+            info.ErrorMessage = _installError;
+            _cachedUpdateInfo = info;
+        }
+
         return info;
     }
 
@@ -137,17 +146,33 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     /// <returns>The installation state and progress.</returns>
     [HttpGet("Update/Status")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<object> GetUpdateStatus()
+    public ActionResult<UpdateInfoDto> GetUpdateStatus()
     {
         lock (SyncLock)
         {
-            return Ok(new
-            {
-                State = _installState,
-                Progress = _installProgress,
-                ErrorMessage = _installError,
-                ReadyToApply = string.Equals(_installState, "ReadyToApply", StringComparison.OrdinalIgnoreCase)
-            });
+            var info = _cachedUpdateInfo != null
+                ? new UpdateInfoDto
+                {
+                    CurrentVersion = _cachedUpdateInfo.CurrentVersion,
+                    AvailableVersion = _cachedUpdateInfo.AvailableVersion,
+                    UpdateAvailable = _cachedUpdateInfo.UpdateAvailable,
+                    Changelog = _cachedUpdateInfo.Changelog,
+                    ArchiveUrl = _cachedUpdateInfo.ArchiveUrl,
+                    PackageSize = _cachedUpdateInfo.PackageSize,
+                    LastCheckedAt = _cachedUpdateInfo.LastCheckedAt,
+                    InstallState = _installState,
+                    InstallProgress = _installProgress,
+                    ErrorMessage = _installError
+                }
+                : new UpdateInfoDto
+                {
+                    CurrentVersion = _applicationHost.ApplicationVersionString,
+                    InstallState = _installState,
+                    InstallProgress = _installProgress,
+                    ErrorMessage = _installError
+                };
+
+            return info;
         }
     }
 
@@ -223,7 +248,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     [HttpPost("Update/Apply")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public ActionResult<object> ApplyUpdate()
+    public ActionResult ApplyUpdate()
     {
         string? updateSource;
         lock (SyncLock)
@@ -257,7 +282,8 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             FileName = "powershell.exe",
             Arguments = $"-WindowStyle Hidden -ExecutionPolicy Bypass -File \"{scriptPath}\" -InstallDirectory \"{installDir}\" -UpdateSourceDirectory \"{updateSource}\" -ProcessId {pid} -DataDirectory \"{dataDir}\"",
             UseShellExecute = true,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            Verb = "runas"
         };
 
         Process.Start(startInfo);
@@ -270,7 +296,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             _systemManager.Shutdown();
         });
 
-        return Ok(new { Message = "Update application started. Server is shutting down to apply updates." });
+        return new OkObjectResult(new { Message = "Update application started. Server is shutting down to apply updates." });
     }
 
     private HttpClient CreateConfiguredClient()

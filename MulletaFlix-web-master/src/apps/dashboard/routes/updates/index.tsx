@@ -18,7 +18,8 @@ import {
     useServerUpdateInfo,
     useUpdateStatus,
     useInstallUpdate,
-    useApplyUpdate
+    useApplyUpdate,
+    type UpdateInfoDto
 } from 'apps/dashboard/features/updates/api/useServerUpdateInfo';
 import { useApi } from 'hooks/useApi';
 import { EmptyState } from 'components/EmptyState';
@@ -45,7 +46,24 @@ const Component = () => {
     const isProgressState = initialInfo?.InstallState === 'Downloading' || initialInfo?.InstallState === 'Extracting' || isApplying;
     const { data: statusInfo } = useUpdateStatus(isProgressState, isProgressState ? 1500 : false);
 
-    const updateInfo = statusInfo || initialInfo;
+    const updateInfo = React.useMemo(() => {
+        if (!initialInfo && !statusInfo) {
+            return undefined;
+        }
+        return {
+            ...initialInfo,
+            ...statusInfo,
+            CurrentVersion: statusInfo?.CurrentVersion || initialInfo?.CurrentVersion || '',
+            AvailableVersion: statusInfo?.AvailableVersion || initialInfo?.AvailableVersion,
+            UpdateAvailable: statusInfo?.UpdateAvailable ?? initialInfo?.UpdateAvailable ?? false,
+            Changelog: statusInfo?.Changelog || initialInfo?.Changelog,
+            PackageSize: statusInfo?.PackageSize ?? initialInfo?.PackageSize,
+            InstallState: statusInfo?.InstallState || (statusInfo as any)?.State || initialInfo?.InstallState || 'Idle',
+            InstallProgress: statusInfo?.InstallProgress ?? (statusInfo as any)?.Progress ?? initialInfo?.InstallProgress ?? 0,
+            ErrorMessage: statusInfo?.ErrorMessage || (statusInfo as any)?.ErrorMessage || initialInfo?.ErrorMessage
+        } as UpdateInfoDto;
+    }, [initialInfo, statusInfo]);
+
     const installState = isApplying ? 'Applying' : (updateInfo?.InstallState || 'Idle');
     const installProgress = updateInfo?.InstallProgress ?? 0;
 

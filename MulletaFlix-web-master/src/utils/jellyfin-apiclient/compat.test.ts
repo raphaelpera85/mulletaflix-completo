@@ -25,11 +25,9 @@ describe('toApi', () => {
         };
 
         // Execute handlers registered in axiosInstance interceptors
-        // @ts-expect-error accessing internal handlers for testing
-        const handlers = api.axiosInstance.interceptors.request.handlers || [];
+        const handlers = (api.axiosInstance.interceptors.request as any).handlers || [];
         for (const handler of handlers) {
             if (handler && typeof handler.fulfilled === 'function') {
-                // @ts-expect-error invoking handler
                 await handler.fulfilled(requestConfig);
             }
         }
