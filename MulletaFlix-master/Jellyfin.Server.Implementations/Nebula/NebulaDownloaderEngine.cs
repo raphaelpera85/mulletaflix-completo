@@ -26,7 +26,35 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 {
-    private static readonly string[] VideoExtensions = [".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".webm"];
+    internal static readonly HashSet<string> SupportedMediaExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // STRM
+        ".strm",
+        // Video
+        ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".webm",
+        ".flv", ".vob", ".m2ts", ".3gp", ".ogv", ".mpg", ".mpeg", ".iso",
+        ".rmvb", ".asf", ".divx", ".f4v",
+        // Audio
+        ".mp3", ".flac", ".aac", ".wav", ".m4a", ".ogg", ".wma", ".opus",
+        ".alac", ".aiff", ".ape", ".ac3", ".eac3", ".dts"
+    };
+
+    internal static readonly HashSet<string> SupportedSidecarExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Legendas
+        ".srt", ".sub", ".ass", ".ssa", ".vtt", ".smi", ".idx",
+        // Metadados e NFO
+        ".nfo", ".xml",
+        // Imagens / Arte
+        ".jpg", ".jpeg", ".png", ".webp", ".avif", ".tbn"
+    };
+
+    private static readonly string[] VideoExtensions =
+    [
+        ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".webm",
+        ".flv", ".vob", ".m2ts", ".3gp", ".ogv", ".mpg", ".mpeg", ".iso",
+        ".rmvb", ".asf", ".divx", ".f4v"
+    ];
     internal static readonly Regex EpisodeRegex = new(@"(?i)(?<prefix>.*?)(?:[.\s_-]+)?s(?<season>\d{1,2})[.\s_-]*e(?<episode>\d{1,3})", RegexOptions.Compiled);
     internal static readonly Regex YearRegex = new(@"(?<!\d)((?:19|20)\d{2})(?!\d)", RegexOptions.Compiled);
 
@@ -155,6 +183,15 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             .Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p))
             .ToList();
 
+        // Garante inclusão de D:\midias e D:\midias2 se existirem no sistema e não estiverem na lista
+        foreach (var defaultPath in new[] { @"D:\midias", @"D:\midias2" })
+        {
+            if (Directory.Exists(defaultPath) && !monitorSources.Any(s => string.Equals(Path.GetFullPath(s), Path.GetFullPath(defaultPath), StringComparison.OrdinalIgnoreCase)))
+            {
+                monitorSources.Add(defaultPath);
+            }
+        }
+
         if (monitorSources.Count == 0)
         {
             LogError("Nenhuma pasta de monitoramento válida configurada em MonitorPaths.");
@@ -171,9 +208,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             stageRoots.Add(Path.Combine(AppContext.BaseDirectory, "NebulaStage"));
         }
 
-        LogInfo("=== STRM Downloader & Feeder para NebulaFTP ===");
+        LogInfo("=== Downloader & Feeder de Mídias para NebulaFTP ===");
         LogInfo($"Pastas de Stage detectadas: [{string.Join(", ", stageRoots.Select(r => $"'{r.Replace(@"\", @"\\", StringComparison.Ordinal)}'"))}]");
-        LogInfo($"Fontes STRM: [{string.Join(", ", monitorSources.Select(s => $"'{s.Replace(@"\", @"\\", StringComparison.Ordinal)}'"))}]");
+        LogInfo($"Fontes de Mídias Monitoradas: [{string.Join(", ", monitorSources.Select(s => $"'{s.Replace(@"\", @"\\", StringComparison.Ordinal)}'"))}]");
 
         while (!cancellationToken.IsCancellationRequested && _isRunning)
         {
@@ -185,22 +222,46 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     CleanAllEmptySubdirectories(src);
                 }
 
-                LogInfo("Escaneando e priorizando arquivos .strm...");
+                LogInfo("Escaneando e priorizando mídias compatíveis (.strm, .mkv, .mp4, etc.)...");
                 OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
                 {
-                    Name = "Preparando fila do Downloader...",
-                    StageStep = "Escaneando arquivos .strm...",
+                    Name = "Preparando fila do Downloader & Feeder...",
+                    StageStep = "Escaneando mídias...",
                     DetailText = "Aguarde; a fila está sendo priorizada.",
                     Percentage = 0
                 });
 
-                var strmFiles = new List<string>();
+                var mediaFiles = new List<string>();
                 foreach (var src in monitorSources)
                 {
                     try
                     {
-                        var files = Directory.GetFiles(src, "*.strm", SearchOption.AllDirectories);
-                        strmFiles.AddRange(files);
+                        if (!Directory.Exists(src))
+                        {
+                            continue;
+                        }
+
+                        var files = Directory.EnumerateFiles(src, "*.*", SearchOption.AllDirectories)
+                            .Where(f =>
+                            {
+                                var name = Path.GetFileName(f);
+                                if (string.IsNullOrWhiteSpace(name) || name.StartsWith('.'))
+                                {
+                                    return false;
+                                }
+
+                                if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ||
+                                    name.EndsWith(".download", StringComparison.OrdinalIgnoreCase) ||
+                                    name.Contains(".part", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    return false;
+                                }
+
+                                var ext = Path.GetExtension(f);
+                                return SupportedMediaExtensions.Contains(ext);
+                            });
+
+                        mediaFiles.AddRange(files);
                     }
                     catch (Exception ex)
                     {
@@ -209,26 +270,27 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 }
 
                 // Ordenar arquivos por categoria (Filmes -> Porno -> Series -> Outros) e por ano decrescente (2026 -> 2025 -> ...)
-                var prioritizedList = strmFiles
+                var prioritizedList = mediaFiles
                     .Select(path => new
                     {
                         Path = path,
                         Category = GetCategoryPriority(path),
                         CategoryName = GetCategoryDisplayName(GetCategoryPriority(path)),
-                        Year = ExtractMediaYear(Path.GetFileName(path), Path.GetDirectoryName(path) ?? string.Empty)
+                        Year = ExtractMediaYear(Path.GetFileName(path), Path.GetDirectoryName(path) ?? string.Empty),
+                        IsStrm = string.Equals(Path.GetExtension(path), ".strm", StringComparison.OrdinalIgnoreCase)
                     })
                     .OrderBy(x => x.Category) // 1. Filmes -> 2. Porno -> 3. Series -> 4. Outros
                     .ThenByDescending(x => x.Year) // Ano decrescente (2026 -> 2025 -> ...)
                     .ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                LogInfo($"Total de arquivos .strm encontrados: {prioritizedList.Count}");
+                LogInfo($"Total de mídias encontradas: {prioritizedList.Count}");
                 if (prioritizedList.Count == 0)
                 {
                     OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
                     {
                         Name = "Nenhuma mídia pendente",
-                        StageStep = "Aguardando novos arquivos .strm...",
+                        StageStep = "Aguardando novas mídias...",
                         DetailText = "0.0%",
                         Percentage = 0
                     });
@@ -247,7 +309,14 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                         continue;
                     }
 
-                    await ProcessSingleStrmAsync(item.Path, item.CategoryName, item.Year, monitorSources, stageRoots, config, cancellationToken).ConfigureAwait(false);
+                    if (item.IsStrm)
+                    {
+                        await ProcessSingleStrmAsync(item.Path, item.CategoryName, item.Year, monitorSources, stageRoots, config, cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await ProcessSinglePhysicalMediaAsync(item.Path, item.CategoryName, item.Year, monitorSources, stageRoots, config, cancellationToken).ConfigureAwait(false);
+                    }
                 }
 
                 // 2. Limpeza final de subpastas que possam ter ficado vazias
@@ -438,6 +507,269 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
             CleanEmptyParentDirectoriesWithLog(Path.GetDirectoryName(strmPath), monitorSources);
             LogInfo($"[1 MÍDIA POR VEZ] Conclusão do processamento de: {strmFileName}. Pronto para a próxima mídia.");
+        }
+    }
+
+    private async Task ProcessSinglePhysicalMediaAsync(
+        string mediaPath,
+        string categoryName,
+        int year,
+        List<string> monitorSources,
+        List<string> stageRoots,
+        NebulaFtpConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(mediaPath))
+        {
+            return;
+        }
+
+        // 1. Verifica se o arquivo está pronto para leitura (não está sendo gravado/copiado)
+        if (!await IsFileReadyAsync(mediaPath, cancellationToken).ConfigureAwait(false))
+        {
+            _logger.LogDebug("[NEBULA-DOWNLOADER] Arquivo em uso ou ainda sendo copiado: {Path}. Aguardando próximo ciclo.", mediaPath);
+            return;
+        }
+
+        var mediaFileName = Path.GetFileName(mediaPath);
+        var yearPart = year > 0 ? $"/{year}" : string.Empty;
+        var rawRelPath = GetRelativePathFromSource(mediaPath, monitorSources);
+        var relPath = NebulaUploadEngine.RouteMediaRelativeDirectory(rawRelPath, mediaFileName);
+
+        // 2. Checa se o arquivo já está completado ou ativo no MongoDB
+        var (isDuplicate, isCompletedDuplicate, reason) = await CheckMediaDuplicateInMongoAsync(mediaPath, mediaFileName, url: string.Empty, cancellationToken).ConfigureAwait(false);
+        if (isDuplicate)
+        {
+            if (!isCompletedDuplicate)
+            {
+                LogInfo($"Mídia já está ativa no Nebula ({reason}). Preservando arquivo até a publicação ser concluída: {mediaFileName}");
+                return;
+            }
+
+            LogInfo($"Mídia já concluída no Nebula ({reason}). Removendo da pasta de origem: {mediaFileName}");
+            _failureTracker.RecordSuccess(mediaPath);
+
+            try
+            {
+                if (File.Exists(mediaPath))
+                {
+                    File.Delete(mediaPath);
+                    LogInfo($"Arquivo de origem duplicado removido: {mediaPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[NEBULA-DOWNLOADER] Erro ao deletar mídia duplicada {Path}", mediaPath);
+            }
+
+            CleanEmptyParentDirectoriesWithLog(Path.GetDirectoryName(mediaPath), monitorSources);
+            return;
+        }
+
+        // 3. Determina o destino no Stage
+        var fileInfo = new FileInfo(mediaPath);
+        var totalBytes = fileInfo.Length;
+        if (totalBytes <= 0)
+        {
+            LogError($"Arquivo de mídia vazio (0 bytes): {mediaFileName}");
+            return;
+        }
+
+        var isAlreadyInStage = stageRoots.Any(sr => IsPathWithinRoot(mediaPath, sr));
+        string targetMediaFilePath;
+        string targetStageDir;
+
+        if (isAlreadyInStage)
+        {
+            targetMediaFilePath = mediaPath;
+            targetStageDir = Path.GetDirectoryName(mediaPath) ?? string.Empty;
+        }
+        else
+        {
+            var bestStageDir = SelectBestStageDirectory(stageRoots, requiredBytes: totalBytes);
+            targetStageDir = string.IsNullOrEmpty(relPath) ? bestStageDir : Path.Combine(bestStageDir, relPath);
+            targetMediaFilePath = Path.Combine(targetStageDir, mediaFileName);
+
+            Directory.CreateDirectory(targetStageDir);
+
+            LogInfo($"[1 MÍDIA POR VEZ] Movendo mídia física para Stage: {mediaFileName} [{categoryName}{yearPart}] -> {targetStageDir}");
+            OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
+            {
+                Name = mediaFileName,
+                StageStep = "Movendo para pasta de envio (Stage)...",
+                DetailText = FormatBytes(totalBytes),
+                Percentage = 50,
+                TotalMb = Math.Round(totalBytes / (1024.0 * 1024.0), 2),
+                DoneMb = 0
+            });
+
+            try
+            {
+                await MoveOrCopyFileAsync(mediaPath, targetMediaFilePath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"Erro ao mover mídia física {mediaFileName} para o Stage: {ex.Message}");
+                _failureTracker.RecordFailure(mediaPath, ex.Message);
+                return;
+            }
+
+            // Move sidecars que estejam na mesma pasta da mídia de origem
+            var parentDir = Path.GetDirectoryName(mediaPath);
+            if (!string.IsNullOrWhiteSpace(parentDir) && Directory.Exists(parentDir) && !isAlreadyInStage)
+            {
+                try
+                {
+                    foreach (var sidecar in Directory.EnumerateFiles(parentDir))
+                    {
+                        var sidecarExt = Path.GetExtension(sidecar);
+                        if (SupportedSidecarExtensions.Contains(sidecarExt))
+                        {
+                            var destSidecar = Path.Combine(targetStageDir, Path.GetFileName(sidecar));
+                            try
+                            {
+                                if (!File.Exists(destSidecar))
+                                {
+                                    File.Move(sidecar, destSidecar, true);
+                                    LogInfo($"Sidecar movido para Stage: {Path.GetFileName(sidecar)}");
+                                }
+                            }
+                            catch (Exception scEx)
+                            {
+                                _logger.LogWarning(scEx, "[NEBULA-DOWNLOADER] Erro ao mover sidecar {Path}", sidecar);
+                            }
+                        }
+                    }
+                }
+                catch (Exception scDirEx)
+                {
+                    _logger.LogWarning(scDirEx, "[NEBULA-DOWNLOADER] Erro ao enumerar sidecars em {Dir}", parentDir);
+                }
+            }
+        }
+
+        // 4. Registra no MongoDB com status 'queued' e delete_source=true
+        if (File.Exists(targetMediaFilePath))
+        {
+            _failureTracker.RecordSuccess(mediaPath);
+            try
+            {
+                await EnqueueFileInMongoAsync(targetMediaFilePath, relPath, cancellationToken).ConfigureAwait(false);
+                LogInfo($"[NEBULA-FEEDER] Mídia física {mediaFileName} enfileirada no MongoDB com sucesso.");
+            }
+            catch (Exception ex)
+            {
+                LogError($"Erro ao enfileirar mídia física {mediaFileName}: {ex.Message}");
+                _failureTracker.RecordFailure(mediaPath, ex.Message);
+                return;
+            }
+
+            // Enfileira sidecars também no MongoDB para que subam juntos
+            if (Directory.Exists(targetStageDir))
+            {
+                try
+                {
+                    foreach (var sidecar in Directory.EnumerateFiles(targetStageDir))
+                    {
+                        var sidecarExt = Path.GetExtension(sidecar);
+                        if (SupportedSidecarExtensions.Contains(sidecarExt))
+                        {
+                            await EnqueueFileInMongoAsync(sidecar, relPath, cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[NEBULA-DOWNLOADER] Erro ao enfileirar sidecars do Stage: {Dir}", targetStageDir);
+                }
+            }
+
+            // Limpa pastas pai vazias na origem
+            CleanEmptyParentDirectoriesWithLog(Path.GetDirectoryName(mediaPath), monitorSources);
+            LogInfo($"[1 MÍDIA POR VEZ] Mídia {mediaFileName} pronta para envio ao Telegram pelo Watcher.");
+        }
+    }
+
+    private static async Task MoveOrCopyFileAsync(string sourcePath, string targetPath, CancellationToken cancellationToken)
+    {
+        if (string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(targetPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var targetDir = Path.GetDirectoryName(targetPath);
+        if (!string.IsNullOrEmpty(targetDir))
+        {
+            Directory.CreateDirectory(targetDir);
+        }
+
+        // 1. Tenta mover atomicamente primeiro (rápido no mesmo volume ou suportado pelo SO)
+        try
+        {
+            File.Move(sourcePath, targetPath, true);
+            return;
+        }
+        catch (IOException)
+        {
+            // Se falhar por restrição cross-volume, realiza cópia em stream assíncrono com buffer de 4MB e apaga origem
+        }
+
+        var buffer = new byte[4 * 1024 * 1024];
+        await using (var srcStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, buffer.Length, true))
+        await using (var dstStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer.Length, true))
+        {
+            int read;
+            while ((read = await srcStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                await dstStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        try
+        {
+            if (File.Exists(sourcePath))
+            {
+                File.Delete(sourcePath);
+            }
+        }
+        catch
+        {
+            // Ignora se não conseguir deletar imediatamente
+        }
+    }
+
+    private static async Task<bool> IsFileReadyAsync(string filename, CancellationToken cancellationToken)
+    {
+        try
+        {
+            long previousLength = -1;
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                using (var inputStream = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    if (inputStream.Length <= 0 || (inputStream.Length != previousLength && previousLength >= 0))
+                    {
+                        previousLength = inputStream.Length;
+                    }
+                    else
+                    {
+                        return true;
+                    }
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            }
+
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

@@ -29,12 +29,17 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     internal static readonly HashSet<string> MetadataSidecarExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".nfo", ".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".bmp",
-        ".tif", ".tiff", ".jpe", ".jif", ".jfif", ".jfi"
+        ".tif", ".tiff", ".jpe", ".jif", ".jfif", ".jfi", ".tbn", ".xml",
+        ".srt", ".sub", ".ass", ".ssa", ".vtt", ".smi", ".idx"
     };
 
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".webm", ".strm"
+        ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts", ".webm", ".strm",
+        ".flv", ".vob", ".m2ts", ".3gp", ".ogv", ".mpg", ".mpeg", ".iso",
+        ".rmvb", ".asf", ".divx", ".f4v",
+        ".mp3", ".flac", ".aac", ".wav", ".m4a", ".ogg", ".wma", ".opus",
+        ".alac", ".aiff", ".ape", ".ac3", ".eac3", ".dts"
     };
 
     private static readonly ImageType[] ExportedImageTypes =

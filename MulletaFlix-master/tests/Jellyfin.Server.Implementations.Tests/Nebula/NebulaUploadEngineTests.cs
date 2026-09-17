@@ -605,6 +605,11 @@ public class NebulaUploadEngineTests
 
     [Theory]
     [InlineData("movie.wmv", true)]
+    [InlineData("movie.mkv", true)]
+    [InlineData("movie.mp4", true)]
+    [InlineData("movie.avi", true)]
+    [InlineData("movie.ts", true)]
+    [InlineData("subtitle.srt", true)]
     [InlineData("poster.nfo", true)]
     [InlineData("poster.jpg", true)]
     [InlineData("movie.strm", false)]
@@ -612,6 +617,28 @@ public class NebulaUploadEngineTests
     public void MetadataExport_OnlyMediaAndSidecarsAreUploadable(string fileName, bool expected)
     {
         Assert.Equal(expected, NebulaMetadataExportService.IsUploadablePath(fileName));
+    }
+
+    [Fact]
+    public void NebulaDownloaderEngine_SupportsAllCompatibleMediaFormats()
+    {
+        Assert.Contains(".strm", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".mkv", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".mp4", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".avi", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".mov", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".wmv", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".m4v", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".ts", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".webm", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".flv", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".iso", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".mp3", NebulaDownloaderEngine.SupportedMediaExtensions);
+        Assert.Contains(".flac", NebulaDownloaderEngine.SupportedMediaExtensions);
+
+        Assert.Contains(".srt", NebulaDownloaderEngine.SupportedSidecarExtensions);
+        Assert.Contains(".nfo", NebulaDownloaderEngine.SupportedSidecarExtensions);
+        Assert.Contains(".jpg", NebulaDownloaderEngine.SupportedSidecarExtensions);
     }
 
     [Theory]
