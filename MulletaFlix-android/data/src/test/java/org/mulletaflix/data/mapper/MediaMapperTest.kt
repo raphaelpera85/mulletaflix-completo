@@ -50,4 +50,32 @@ class MediaMapperTest {
         assertEquals(entity.primaryImageTag, restored.primaryImageTag)
         assertEquals(entity.userId, restored.userId)
     }
+
+    @Test
+    fun `maps image fallback fields correctly`() {
+        val dto = BaseItemDto(
+            id = "ep-1",
+            name = "Ep 1",
+            type = "Episode",
+            primaryImageTag = "p-tag",
+            seriesPrimaryImageTag = "s-tag",
+            seriesThumbImageTag = "st-tag",
+            parentThumbItemId = "parent-id",
+            parentThumbImageTag = "pt-tag",
+            parentBackdropItemId = "p-b-id",
+            parentBackdropImageTags = listOf("pb-tag-1"),
+            backdropImageTags = listOf("b-tag-1"),
+        )
+
+        val domain = dto.toDomain()
+
+        assertEquals("p-tag", domain.primaryImageTag)
+        assertEquals("s-tag", domain.seriesPrimaryImageTag)
+        assertEquals("st-tag", domain.seriesThumbImageTag)
+        assertEquals("parent-id", domain.parentThumbItemId)
+        assertEquals("pt-tag", domain.parentThumbImageTag)
+        assertEquals("p-b-id", domain.parentBackdropItemId)
+        assertEquals(listOf("pb-tag-1"), domain.parentBackdropImageTags)
+        assertEquals(listOf("b-tag-1"), domain.backdropImageTags)
+    }
 }

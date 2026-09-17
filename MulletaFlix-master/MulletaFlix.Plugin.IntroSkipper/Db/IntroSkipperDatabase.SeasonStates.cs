@@ -173,7 +173,7 @@ internal sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var episodeIdArray = (Guid[])[.. episodeIds.Distinct()];
+        var episodeIdList = episodeIds.Distinct().ToList();
 
         var analyzerActions = await db.SeasonStates
             .AsNoTracking()
@@ -184,7 +184,7 @@ internal sealed partial class IntroSkipperDatabase
 
         var analyzed = await db.AnalyzedItems
             .AsNoTracking()
-            .Where(a => EF.Parameter(episodeIdArray).Contains(a.ItemId))
+            .Where(a => episodeIdList.Contains(a.ItemId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -195,7 +195,7 @@ internal sealed partial class IntroSkipperDatabase
         // payloads off this internal path (ticks stay internal).
         var segments = await db.Segments
             .AsNoTracking()
-            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId) && s.State == SegmentState.Active)
+            .Where(s => episodeIdList.Contains(s.ItemId) && s.State == SegmentState.Active)
             .Select(s => new { s.ItemId, s.Type, s.Source })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

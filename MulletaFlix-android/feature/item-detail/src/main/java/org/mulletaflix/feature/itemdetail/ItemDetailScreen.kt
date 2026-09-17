@@ -26,9 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
-import org.mulletaflix.domain.model.MediaItem
-import org.mulletaflix.domain.model.MediaItemType
-import org.mulletaflix.domain.model.Playlist
+import org.mulletaflix.domain.model.*
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
@@ -550,6 +548,4 @@ private fun Chip(text: String, outlined: Boolean = false, color: Color = Materia
     }
 }
 
-private val MediaItem.primaryImageUrl: String? get() = imageTags[org.mulletaflix.domain.model.ImageType.Primary]?.let { "Items/$id/Images/Primary?tag=$it" }
-private val MediaItem.backdropImageUrl: String? get() = backdropImageTags.firstOrNull()?.let { "Items/$id/Images/Backdrop?tag=$it" }
 private val MediaItem.runtimeMinutes: Int? get() = runtimeTicks?.div(600_000_000L)?.toInt()?.takeIf { it > 0 }

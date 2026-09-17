@@ -17,8 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
-import org.mulletaflix.domain.model.MediaItem
-import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.*
 
 /**
  * Library browser screen.
@@ -278,9 +277,6 @@ enum class SortOption(val label: String, val apiValue: String) {
     PlayCount("Mais Assistidos", "PlayCount"),
     LastPlayed("Assistido Recentemente", "DatePlayed"),
 }
-
-private val MediaItem.primaryImageUrl: String? get() =
-    imageTags[org.mulletaflix.domain.model.ImageType.Primary]?.let { "Items/$id/Images/Primary?tag=$it" }
 
 @Composable
 private fun EmptyLibraryState(

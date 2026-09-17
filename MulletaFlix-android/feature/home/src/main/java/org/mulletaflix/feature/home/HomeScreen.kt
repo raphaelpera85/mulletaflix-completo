@@ -27,8 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import org.mulletaflix.domain.model.MediaItem
-import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.*
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
@@ -440,17 +439,6 @@ private fun LibraryTiles(
             }
         }
     }
-}
-
-// Helper extension to build image URLs — real URLs come from data layer
-private val MediaItem.primaryImageUrl: String? get() {
-    val tag = imageTags[org.mulletaflix.domain.model.ImageType.Primary] ?: return null
-    return "Items/$id/Images/Primary?tag=$tag"
-}
-
-private val MediaItem.backdropImageUrl: String? get() {
-    val tag = backdropImageTags.firstOrNull() ?: return null
-    return "Items/$id/Images/Backdrop?tag=$tag"
 }
 
 private val MediaItem.runtimeMinutes: Int? get() =

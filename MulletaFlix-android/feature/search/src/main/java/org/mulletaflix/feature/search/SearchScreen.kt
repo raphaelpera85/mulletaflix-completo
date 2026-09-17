@@ -17,8 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
-import org.mulletaflix.domain.model.MediaItem
-import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.*
 
 /**
  * Universal search screen.
@@ -236,6 +235,3 @@ private fun MediaItemType.toGroupLabel() = when (this) {
     MediaItemType.Book -> "Livros"
     else -> "Outros"
 }
-
-private val MediaItem.primaryImageUrl: String? get() =
-    imageTags[org.mulletaflix.domain.model.ImageType.Primary]?.let { "Items/$id/Images/Primary?tag=$it" }

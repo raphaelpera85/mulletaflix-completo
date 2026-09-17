@@ -18,7 +18,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.Icon
+import androidx.compose.ui.text.style.TextAlign
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
 import org.mulletaflix.designsystem.theme.WatchedBadge
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
@@ -81,13 +90,70 @@ fun MediaCard(
             .clip(RoundedCornerShape(cornerRadius))
             .background(MaterialTheme.colorScheme.surfaceVariant)
       ) {
-        // Poster image
-        AsyncImage(
+        // Poster image with loading placeholder & error fallback
+        SubcomposeAsyncImage(
             model = resolvedImageUrl,
             contentDescription = title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
-        )
+        ) {
+            val state = painter.state
+            if (state is AsyncImagePainter.State.Loading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                )
+            } else if (state is AsyncImagePainter.State.Error || resolvedImageUrl.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFF282A36),
+                                    Color(0xFF14151C)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(6.dp)
+                    ) {
+                        val icon = if (isLive) {
+                            Icons.Default.LiveTv
+                        } else {
+                            when (shape) {
+                                MediaCardShape.Square -> Icons.Default.MusicNote
+                                MediaCardShape.Landscape -> Icons.Default.Movie
+                                MediaCardShape.Banner -> Icons.Default.Tv
+                                MediaCardShape.Portrait -> Icons.Default.Movie
+                            }
+                        }
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.35f),
+                            modifier = Modifier.size(if (shape == MediaCardShape.Banner) 20.dp else 32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.75f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                SubcomposeAsyncImageContent()
+            }
+        }
 
         // Gradient overlay (bottom → top, 40%)
         Box(

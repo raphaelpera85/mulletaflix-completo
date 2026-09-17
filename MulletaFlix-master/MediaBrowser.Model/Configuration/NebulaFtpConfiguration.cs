@@ -24,7 +24,7 @@ public class NebulaFtpConfiguration
 
     public string PassivePorts { get; set; } = "60000-60009";
 
-    public int MaxActiveConnections { get; set; } = 32;
+    public int MaxActiveConnections { get; set; } = 256;
 
     /// <summary>
     /// Gets or sets a value indicating whether plaintext FTP/HTTP may bind to a non-loopback host.

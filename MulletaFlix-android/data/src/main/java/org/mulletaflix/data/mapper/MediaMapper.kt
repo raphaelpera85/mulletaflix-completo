@@ -115,6 +115,13 @@ fun BaseItemDto.toDomain(): MediaItem {
         hasDolbyVision = hasDv,
         hasHdr = hasHdrVideo,
         hasAtmos = hasAtmosAudio,
+        primaryImageTag = primaryImageTag,
+        seriesPrimaryImageTag = seriesPrimaryImageTag,
+        seriesThumbImageTag = seriesThumbImageTag,
+        parentThumbItemId = parentThumbItemId,
+        parentThumbImageTag = parentThumbImageTag,
+        parentBackdropItemId = parentBackdropItemId,
+        parentBackdropImageTags = parentBackdropImageTags ?: emptyList(),
     )
 }
 

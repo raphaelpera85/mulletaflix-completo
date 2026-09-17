@@ -61,8 +61,13 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
             {
                 opt.ServerAddress = string.IsNullOrWhiteSpace(serverAddress) ? "127.0.0.1" : serverAddress;
                 opt.Port = ftpPort > 0 ? ftpPort : 2121;
-                opt.MaxActiveConnections = maxActiveConnections > 0 ? maxActiveConnections : 32;
-});
+                opt.MaxActiveConnections = Math.Max(256, maxActiveConnections);
+            });
+
+            services.Configure<FtpConnectionOptions>(opt =>
+            {
+                opt.InactivityTimeout = TimeSpan.FromHours(2);
+            });
 
 // Substitui pelo FileSystem e Membership customizados do Nebula
             services.AddSingleton<IFileSystemClassFactory, NebulaFileSystemProvider>();

@@ -1,4 +1,4 @@
-﻿#pragma warning disable CS1591
+#pragma warning disable CS1591
 
 using System;
 using System.Collections.Frozen;
@@ -167,7 +167,7 @@ namespace MediaBrowser.Model.Net
                 return result;
             }
 
-            if (Model.MimeTypes.TryGetMimeType(filename, out var mimeType))
+            if (global::MediaBrowser.Model.MimeTypes.TryGetMimeType(filename, out var mimeType))
             {
                 return mimeType;
             }
@@ -193,7 +193,7 @@ namespace MediaBrowser.Model.Net
                 return result;
             }
 
-            var extension = Model.MimeTypes.GetMimeTypeExtensions(mimeType).FirstOrDefault();
+            var extension = global::MediaBrowser.Model.MimeTypes.GetMimeTypeExtensions(mimeType).FirstOrDefault();
             return string.IsNullOrEmpty(extension) ? null : "." + extension;
         }
 

@@ -56,6 +56,13 @@ data class MediaItem(
     val hasDolbyVision: Boolean = false,
     val hasHdr: Boolean = false,
     val hasAtmos: Boolean = false,
+    val primaryImageTag: String? = null,
+    val seriesPrimaryImageTag: String? = null,
+    val seriesThumbImageTag: String? = null,
+    val parentThumbItemId: String? = null,
+    val parentThumbImageTag: String? = null,
+    val parentBackdropItemId: String? = null,
+    val parentBackdropImageTags: List<String> = emptyList(),
 )
 
 enum class MediaItemType {
@@ -136,3 +143,62 @@ data class Chapter(
     val name: String? = null,
     val imageTag: String? = null,
 )
+
+/**
+ * Standard primary image URL with full fallback cascade.
+ * Ensures older media without primary tags, episodes with series tags, or thumb-only items display properly.
+ */
+val MediaItem.primaryImageUrl: String? get() = bestImageUrl(preferBackdrop = false)
+
+/**
+ * Backdrop image URL falling back to primary/thumb if no backdrop is present.
+ */
+val MediaItem.backdropImageUrl: String? get() = bestImageUrl(preferBackdrop = true)
+
+/**
+ * Unified image resolution cascade matching MulletaFlix Web & Jellyfin client standards.
+ */
+fun MediaItem.bestImageUrl(preferBackdrop: Boolean = false): String? {
+    if (preferBackdrop) {
+        val backdrop = backdropImageTags.firstOrNull() ?: imageTags[ImageType.Backdrop]
+        if (backdrop != null) return "Items/$id/Images/Backdrop?tag=$backdrop"
+        if (parentBackdropImageTags.isNotEmpty() && !parentBackdropItemId.isNullOrBlank()) {
+            return "Items/$parentBackdropItemId/Images/Backdrop?tag=${parentBackdropImageTags.first()}"
+        }
+    }
+
+    // 1. Direct primary image tag
+    imageTags[ImageType.Primary]?.let { return "Items/$id/Images/Primary?tag=$it" }
+    primaryImageTag?.let { return "Items/$id/Images/Primary?tag=$it" }
+
+    // 2. Series primary image tag (crucial for episodes / seasons)
+    if (!seriesPrimaryImageTag.isNullOrBlank() && !seriesId.isNullOrBlank()) {
+        return "Items/$seriesId/Images/Primary?tag=$seriesPrimaryImageTag"
+    }
+
+    // 3. Thumb tag
+    imageTags[ImageType.Thumb]?.let { return "Items/$id/Images/Thumb?tag=$it" }
+
+    // 4. Backdrop fallback (vital for older media in Jellyfin where primary poster was never generated)
+    val backdrop = backdropImageTags.firstOrNull() ?: imageTags[ImageType.Backdrop]
+    if (backdrop != null) return "Items/$id/Images/Backdrop?tag=$backdrop"
+
+    // 5. Series thumb tag
+    if (!seriesThumbImageTag.isNullOrBlank() && !seriesId.isNullOrBlank()) {
+        return "Items/$seriesId/Images/Thumb?tag=$seriesThumbImageTag"
+    }
+
+    // 6. Parent thumb tag
+    if (!parentThumbImageTag.isNullOrBlank() && !parentThumbItemId.isNullOrBlank()) {
+        return "Items/$parentThumbItemId/Images/Thumb?tag=$parentThumbImageTag"
+    }
+
+    // 7. Parent backdrop tag
+    if (parentBackdropImageTags.isNotEmpty() && !parentBackdropItemId.isNullOrBlank()) {
+        return "Items/$parentBackdropItemId/Images/Backdrop?tag=${parentBackdropImageTags.first()}"
+    }
+
+    // 8. Fallback to direct Primary endpoint on Jellyfin server
+    return "Items/$id/Images/Primary"
+}
+
