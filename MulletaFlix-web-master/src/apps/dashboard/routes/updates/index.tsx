@@ -42,8 +42,12 @@ const Component = () => {
     const installMutation = useInstallUpdate();
     const applyMutation = useApplyUpdate();
 
-    // Poll status only when downloading, extracting, or applying
-    const isProgressState = initialInfo?.InstallState === 'Downloading' || initialInfo?.InstallState === 'Extracting' || isApplying;
+    // Poll status when downloading, extracting, applying or when an update is available and pending preparation
+    const isProgressState =
+        initialInfo?.InstallState === 'Downloading' ||
+        initialInfo?.InstallState === 'Extracting' ||
+        (initialInfo?.UpdateAvailable && initialInfo?.InstallState !== 'ReadyToApply' && initialInfo?.InstallState !== 'Failed') ||
+        isApplying;
     const { data: statusInfo } = useUpdateStatus(isProgressState, isProgressState ? 1500 : false);
 
     const updateInfo = React.useMemo(() => {
@@ -78,6 +82,13 @@ const Component = () => {
             }
         });
     }, [installMutation, refetch]);
+
+    // Automatically ensure background download is running if an update is available and state is Idle
+    React.useEffect(() => {
+        if (updateInfo?.UpdateAvailable && installState === 'Idle' && !installMutation.isPending) {
+            handleStartInstall();
+        }
+    }, [updateInfo?.UpdateAvailable, installState, installMutation.isPending, handleStartInstall]);
 
     const handleApplyUpdate = React.useCallback(() => {
         setIsApplying(true);
@@ -164,7 +175,7 @@ const Component = () => {
                                             {globalize.translate('LabelLatestVersion')}:
                                         </Typography>
                                         {updateInfo.AvailableVersion ? (
-                                            <Chip
+                                             <Chip
                                                 label={updateInfo.AvailableVersion}
                                                 color={updateInfo.UpdateAvailable ? 'success' : 'default'}
                                             />
@@ -220,20 +231,20 @@ const Component = () => {
                                         <Button
                                             color='success'
                                             variant='contained'
-                                            size='small'
+                                            size='medium'
                                             startIcon={<RestartAltIcon />}
                                             onClick={handleApplyUpdate}
                                             disabled={applyMutation.isPending || isApplying}
                                         >
-                                            Reiniciar e Aplicar
+                                            Aprovar e Instalar Atualização
                                         </Button>
                                     }
                                 >
                                     <Typography variant='subtitle1' sx={{ fontWeight: 'bold' }}>
-                                        Atualização pronta para aplicação!
+                                        Atualização baixada e pronta para instalação!
                                     </Typography>
                                     <Typography variant='body2'>
-                                        Os binários mais recentes foram baixados e verificados. Clique no botão ao lado para reiniciar o MulletaFlix e concluir o processo sem perda de dados.
+                                        A versão {updateInfo.AvailableVersion} foi baixada e preparada automaticamente em segundo plano. Basta aprovar para aplicar e reiniciar o MulletaFlix sem perda de dados.
                                     </Typography>
                                 </Alert>
                             )}
@@ -241,12 +252,15 @@ const Component = () => {
                             {(installState === 'Downloading' || installState === 'Extracting') && (
                                 <Paper variant='outlined' sx={{ p: 2.5, borderRadius: 3 }}>
                                     <Stack spacing={1.5}>
-                                        <Stack direction='row' justifyContent='space-between'>
-                                            <Typography variant='body1' sx={{ fontWeight: 'medium' }}>
-                                                {installState === 'Downloading'
-                                                    ? `Baixando atualização do GitHub (${installProgress}%)...`
-                                                    : 'Extraindo e validando integridade do pacote...'}
-                                            </Typography>
+                                        <Stack direction='row' justifyContent='space-between' alignItems='center'>
+                                            <Stack direction='row' spacing={1.5} alignItems='center'>
+                                                <CircularProgress size={20} />
+                                                <Typography variant='body1' sx={{ fontWeight: 'medium' }}>
+                                                    {installState === 'Downloading'
+                                                        ? `Baixando atualização automaticamente em segundo plano (${installProgress}%)...`
+                                                        : 'Preparando arquivos e validando integridade do pacote...'}
+                                                </Typography>
+                                            </Stack>
                                             <Typography variant='body2' color='text.secondary'>
                                                 {installProgress}%
                                             </Typography>
@@ -257,7 +271,7 @@ const Component = () => {
                                             sx={{ height: 10, borderRadius: 2 }}
                                         />
                                         <Typography variant='caption' color='text.secondary'>
-                                            O MulletaFlix continua funcionando normalmente durante o download em segundo plano.
+                                            O MulletaFlix continua funcionando normalmente. O sistema está aguardando apenas a conclusão do download para você aprovar a instalação.
                                         </Typography>
                                     </Stack>
                                 </Paper>
@@ -273,7 +287,7 @@ const Component = () => {
                                     }
                                 >
                                     <Typography variant='subtitle1' sx={{ fontWeight: 'bold' }}>
-                                        Falha na instalação da atualização
+                                        Falha no download da atualização
                                     </Typography>
                                     <Typography variant='body2'>
                                         {updateInfo.ErrorMessage || 'Ocorreu um erro ao baixar ou extrair os arquivos de atualização.'}
@@ -284,6 +298,7 @@ const Component = () => {
                             {installState === 'Idle' && updateInfo.UpdateAvailable && (
                                 <Alert
                                     severity='info'
+                                    icon={<CircularProgress size={20} />}
                                     action={
                                         <Button
                                             color='primary'
@@ -293,7 +308,7 @@ const Component = () => {
                                             onClick={handleStartInstall}
                                             disabled={installMutation.isPending}
                                         >
-                                            Instalar Atualização Diretamente
+                                            Iniciar Agora
                                         </Button>
                                     }
                                 >
@@ -301,7 +316,7 @@ const Component = () => {
                                         Nova versão disponível ({updateInfo.AvailableVersion})
                                     </Typography>
                                     <Typography variant='body2'>
-                                        Você pode atualizar diretamente a partir dos lançamentos no GitHub sem necessitar reinstalar o sistema ou perder suas configurações.
+                                        Iniciando download automático em segundo plano... Você só precisará aprovar a instalação quando o download for finalizado.
                                     </Typography>
                                 </Alert>
                             )}

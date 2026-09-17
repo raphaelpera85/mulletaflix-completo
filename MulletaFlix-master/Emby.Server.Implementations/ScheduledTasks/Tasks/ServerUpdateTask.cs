@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
@@ -47,7 +50,7 @@ public sealed class ServerUpdateTask : IScheduledTask
 
     public string Name => "Check Server Updates";
 
-    public string Description => "Checks for MulletaFlix server updates, downloads them, and hands off installation to a hidden updater helper.";
+    public string Description => "Checks for MulletaFlix server updates and pre-downloads them automatically in the background, awaiting user approval to apply.";
 
     public string Category => "System";
 
@@ -75,14 +78,6 @@ public sealed class ServerUpdateTask : IScheduledTask
 
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var manifestUrl = Environment.GetEnvironmentVariable(UpdateManifestUrlEnv);
-        if (string.IsNullOrWhiteSpace(manifestUrl))
-        {
-            _logger.LogDebug("Server update manifest URL is not configured.");
-            progress.Report(100);
-            return;
-        }
-
         if (!OperatingSystem.IsWindows())
         {
             _logger.LogDebug("Server update checks are currently implemented for Windows installs only.");
@@ -94,18 +89,45 @@ public sealed class ServerUpdateTask : IScheduledTask
         {
             progress.Report(5);
 
+            var manifestUrl = Environment.GetEnvironmentVariable(UpdateManifestUrlEnv);
+            var targetUrl = !string.IsNullOrWhiteSpace(manifestUrl) ? manifestUrl : "https://api.github.com/repos/raphaelpera85/mulletaflix-completo/releases/latest";
+
             var client = _httpClientFactory.CreateClient();
-            var manifest = await client.GetFromJsonAsync<ServerUpdateManifest>(manifestUrl, cancellationToken).ConfigureAwait(false);
-            if (manifest is null || string.IsNullOrWhiteSpace(manifest.Version) || string.IsNullOrWhiteSpace(manifest.ArchiveUrl))
+            client.DefaultRequestHeaders.UserAgent.Clear();
+            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MulletaFlix", _applicationHost.ApplicationVersionString));
+
+            var token = Environment.GetEnvironmentVariable("MulletaFlix_GITHUB_TOKEN");
+            if (!string.IsNullOrWhiteSpace(token))
             {
-                _logger.LogWarning("Server update manifest from {ManifestUrl} was empty or incomplete.", manifestUrl);
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
+
+            var response = await client.GetAsync(targetUrl, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Server update check returned HTTP {StatusCode} from {Url}", response.StatusCode, targetUrl);
                 progress.Report(100);
                 return;
             }
 
-            if (!Version.TryParse(manifest.Version, out var remoteVersion))
+            var contentString = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            Version? remoteVersion = null;
+            string? archiveUrl = null;
+
+            if (TryParseGitHubRelease(contentString, out var gitHubVersion, out var gitHubUrl))
             {
-                _logger.LogWarning("Server update manifest version {Version} is invalid.", manifest.Version);
+                remoteVersion = gitHubVersion;
+                archiveUrl = gitHubUrl;
+            }
+            else if (TryParseCustomManifest(contentString, out var customVersion, out var customUrl))
+            {
+                remoteVersion = customVersion;
+                archiveUrl = customUrl;
+            }
+
+            if (remoteVersion is null || string.IsNullOrWhiteSpace(archiveUrl))
+            {
+                _logger.LogWarning("Could not resolve update version or archive URL from {Url}", targetUrl);
                 progress.Report(100);
                 return;
             }
@@ -114,7 +136,7 @@ public sealed class ServerUpdateTask : IScheduledTask
             if (remoteVersion <= currentVersion)
             {
                 _logger.LogDebug(
-                    "Server update not required. Current version {CurrentVersion} is already at or above manifest version {RemoteVersion}.",
+                    "Server update not required. Current version {CurrentVersion} is already at or above remote version {RemoteVersion}.",
                     currentVersion,
                     remoteVersion);
                 progress.Report(100);
@@ -123,48 +145,66 @@ public sealed class ServerUpdateTask : IScheduledTask
 
             progress.Report(20);
 
-            var updateDirectory = Path.Combine(_applicationPaths.DataPath, "Updates");
-            Directory.CreateDirectory(updateDirectory);
+            var updatesDir = Path.Combine(_applicationPaths.ProgramDataPath, "updates");
+            Directory.CreateDirectory(updatesDir);
+            var extractDir = Path.Combine(updatesDir, "extracted");
+            var stateFile = Path.Combine(updatesDir, "update_state.json");
 
-            var archivePath = Path.Combine(updateDirectory, $"server-update-{remoteVersion.ToString(3)}.zip");
-            await DownloadArchiveAsync(client, manifest.ArchiveUrl, archivePath, cancellationToken).ConfigureAwait(false);
-
-            progress.Report(60);
-
-            if (!string.IsNullOrWhiteSpace(manifest.Checksum))
+            // Check if already extracted and matches remote version
+            if (File.Exists(stateFile) && Directory.Exists(extractDir) && Directory.EnumerateFileSystemEntries(extractDir).Any())
             {
-                var actualChecksum = await ComputeSha256Async(archivePath, cancellationToken).ConfigureAwait(false);
-                if (!string.Equals(manifest.Checksum, actualChecksum, StringComparison.OrdinalIgnoreCase))
+                try
                 {
-                    File.Delete(archivePath);
-                    throw new InvalidDataException(
-                        $"Checksum mismatch for server update archive. Expected {manifest.Checksum}, got {actualChecksum}.");
+                    var existingJson = await File.ReadAllTextAsync(stateFile, cancellationToken).ConfigureAwait(false);
+                    var existingState = JsonSerializer.Deserialize<UpdatePersistentState>(existingJson);
+                    if (existingState != null
+                        && string.Equals(existingState.DownloadedVersion, remoteVersion.ToString(3), StringComparison.OrdinalIgnoreCase)
+                        && existingState.InstallState == "ReadyToApply")
+                    {
+                        _logger.LogInformation("Update {RemoteVersion} is already downloaded and ready to apply upon user approval in Dashboard.", remoteVersion.ToString(3));
+                        progress.Report(100);
+                        return;
+                    }
+                }
+                catch
+                {
+                    // proceed to download
                 }
             }
 
-            var installRoot = Environment.GetEnvironmentVariable(UpdateInstallRootEnv);
-            if (string.IsNullOrWhiteSpace(installRoot))
+            var packageZip = Path.Combine(updatesDir, "package.zip");
+            if (File.Exists(packageZip))
             {
-                installRoot = AppContext.BaseDirectory;
+                File.Delete(packageZip);
             }
 
-            var serviceName = Environment.GetEnvironmentVariable(UpdateServiceNameEnv);
-            if (string.IsNullOrWhiteSpace(serviceName))
+            if (Directory.Exists(extractDir))
             {
-                serviceName = "MulletaFlix";
+                Directory.Delete(extractDir, true);
             }
 
-            var helperScript = Path.Combine(updateDirectory, "apply-server-update.ps1");
-            await File.WriteAllTextAsync(helperScript, BuildUpdaterScript(), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Auto-downloading server update {RemoteVersion} in background from {Url}...", remoteVersion.ToString(3), archiveUrl);
+            await DownloadArchiveAsync(client, archiveUrl, packageZip, cancellationToken).ConfigureAwait(false);
 
-            StartHiddenUpdater(helperScript, archivePath, installRoot, serviceName);
+            progress.Report(70);
+
+            _logger.LogInformation("Extracting update package to {ExtractDir}...", extractDir);
+            Directory.CreateDirectory(extractDir);
+            ZipFile.ExtractToDirectory(packageZip, extractDir, true);
+
+            var state = new UpdatePersistentState
+            {
+                DownloadedVersion = remoteVersion.ToString(3),
+                InstallState = "ReadyToApply",
+                ExtractedPath = extractDir,
+                CompletedAt = DateTime.UtcNow
+            };
+            await File.WriteAllTextAsync(stateFile, JsonSerializer.Serialize(state), cancellationToken).ConfigureAwait(false);
 
             _logger.LogInformation(
-                "Server update {RemoteVersion} downloaded. Update helper launched and server restart requested.",
+                "Server update {RemoteVersion} downloaded and extracted automatically in background. Awaiting user approval to apply in Dashboard.",
                 remoteVersion.ToString(3));
 
-            _applicationHost.ShouldRestart = true;
-            _hostApplicationLifetime.StopApplication();
             progress.Report(100);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -196,81 +236,92 @@ public sealed class ServerUpdateTask : IScheduledTask
         await responseStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<string> ComputeSha256Async(string filePath, CancellationToken cancellationToken)
+    private static bool TryParseGitHubRelease(string json, out Version? version, out string? archiveUrl)
     {
-        await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
-        return Convert.ToHexString(hash);
-    }
+        version = null;
+        archiveUrl = null;
 
-    private static void StartHiddenUpdater(string helperScript, string archivePath, string installRoot, string serviceName)
-    {
-        var psi = new ProcessStartInfo
+        try
         {
-            FileName = "powershell.exe",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-            Arguments = string.Join(
-                ' ',
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                Quote(helperScript),
-                Quote(Environment.ProcessId.ToString(CultureInfo.InvariantCulture)),
-                Quote(archivePath),
-                Quote(installRoot),
-                Quote(serviceName))
-        };
+            var release = JsonSerializer.Deserialize<GitHubReleasePayload>(json);
+            if (release is null || string.IsNullOrWhiteSpace(release.TagName))
+            {
+                return false;
+            }
 
-        Process.Start(psi);
+            var cleanTag = release.TagName.Trim().TrimStart('v', 'V');
+            if (!Version.TryParse(cleanTag, out var parsed))
+            {
+                return false;
+            }
+
+            version = parsed;
+            var zipAsset = release.Assets?.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+            if (zipAsset is not null)
+            {
+                archiveUrl = zipAsset.BrowserDownloadUrl;
+            }
+
+            return archiveUrl is not null;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
-    private static string Quote(string value) => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
-
-    private static string BuildUpdaterScript()
+    private static bool TryParseCustomManifest(string json, out Version? version, out string? archiveUrl)
     {
-        return """
-param(
-    [string]$ProcessId,
-    [string]$ArchivePath,
-    [string]$InstallRoot,
-    [string]$ServiceName
-)
+        version = null;
+        archiveUrl = null;
 
-$ErrorActionPreference = 'Stop'
+        try
+        {
+            var manifest = JsonSerializer.Deserialize<ServerUpdateManifest>(json);
+            if (manifest is not null
+                && !string.IsNullOrWhiteSpace(manifest.Version)
+                && Version.TryParse(manifest.Version, out var parsed))
+            {
+                version = parsed;
+                archiveUrl = manifest.ArchiveUrl;
+                return true;
+            }
 
-try {
-    $pidValue = [int]$ProcessId
-    try {
-        Wait-Process -Id $pidValue -ErrorAction SilentlyContinue
-    }
-    catch {
-        # ponytail: updater waits for the old process; if it is already gone, continue.
-    }
-
-    if (Test-Path -LiteralPath $ArchivePath) {
-        Expand-Archive -LiteralPath $ArchivePath -DestinationPath $InstallRoot -Force
-        Remove-Item -LiteralPath $ArchivePath -Force -ErrorAction SilentlyContinue
-    }
-
-    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if ($service) {
-        Restart-Service -Name $ServiceName -Force
-        exit 0
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
-    $exe = Join-Path $InstallRoot 'MulletaFlix.exe'
-    if (Test-Path -LiteralPath $exe) {
-        Start-Process -FilePath $exe -WorkingDirectory $InstallRoot -WindowStyle Hidden
+    private sealed class GitHubReleasePayload
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("tag_name")]
+        public string? TagName { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("assets")]
+        public GitHubReleaseAsset[]? Assets { get; set; }
     }
-}
-catch {
-    Write-Error $_
-    exit 1
-}
-""";
+
+    private sealed class GitHubReleaseAsset
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("browser_download_url")]
+        public string BrowserDownloadUrl { get; set; } = string.Empty;
+    }
+
+    private sealed class UpdatePersistentState
+    {
+        public string? DownloadedVersion { get; set; }
+
+        public string? InstallState { get; set; }
+
+        public string? ExtractedPath { get; set; }
+
+        public DateTime? CompletedAt { get; set; }
     }
 
     private sealed class ServerUpdateManifest

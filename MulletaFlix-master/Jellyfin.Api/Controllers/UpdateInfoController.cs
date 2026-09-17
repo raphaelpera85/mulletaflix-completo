@@ -6,7 +6,9 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Api;
@@ -37,6 +39,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     private static int _installProgress = 0;
     private static string? _installError = null;
     private static string? _extractedUpdatePath = null;
+    private static string? _downloadedVersion = null;
     private static CancellationTokenSource? _activeCts = null;
     private static UpdateInfoDto? _cachedUpdateInfo;
 
@@ -128,6 +131,32 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             _logger.LogWarning(ex, "Failed to fetch server update info from {Url}.", targetUrl);
         }
 
+        var updatesDir = Path.Combine(_applicationPaths.ProgramDataPath, "updates");
+        var extractDir = Path.Combine(updatesDir, "extracted");
+
+        if (info.UpdateAvailable && !string.IsNullOrWhiteSpace(info.ArchiveUrl))
+        {
+            // 1. Check if update was already downloaded and verified on disk
+            TryRestorePersistentState(updatesDir, extractDir, info.AvailableVersion);
+
+            lock (SyncLock)
+            {
+                // 2. If not yet downloaded and not currently in progress, auto-download in background!
+                if (_installState is "Idle")
+                {
+                    _logger.LogInformation("New server update {Version} detected. Starting automatic background download...", info.AvailableVersion);
+                    StartBackgroundDownload(info.ArchiveUrl, info.AvailableVersion);
+                }
+            }
+        }
+        else if (!info.UpdateAvailable && _applicationHost.ApplicationVersion > new Version(0, 0, 0))
+        {
+            if (_installState != "Applying")
+            {
+                CleanupObsoleteUpdates(updatesDir, extractDir);
+            }
+        }
+
         lock (SyncLock)
         {
             info.InstallState = _installState;
@@ -193,50 +222,28 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             {
                 return Accepted(new { Message = "Update is already in progress.", State = _installState, Progress = _installProgress });
             }
+
+            if (!force && _installState == "ReadyToApply" && !string.IsNullOrWhiteSpace(_extractedUpdatePath) && Directory.Exists(_extractedUpdatePath))
+            {
+                return Accepted(new { Message = "Update package is already downloaded and ready to apply upon user approval.", State = _installState, Progress = _installProgress });
+            }
         }
 
+        string? availableVersion = _cachedUpdateInfo?.AvailableVersion;
         if (string.IsNullOrWhiteSpace(archiveUrl))
         {
             // Resolve from latest release if not passed
             var updateInfo = (await GetUpdateInfo(CancellationToken.None).ConfigureAwait(false)).Value;
             archiveUrl = updateInfo?.ArchiveUrl;
+            availableVersion = updateInfo?.AvailableVersion;
             if (string.IsNullOrWhiteSpace(archiveUrl))
             {
                 return BadRequest(new { Message = "No update archive URL found for the latest release." });
             }
         }
 
-        lock (SyncLock)
-        {
-            _activeCts?.Cancel();
-            _activeCts = new CancellationTokenSource();
-            _installState = "Downloading";
-            _installProgress = 0;
-            _installError = null;
-        }
-
-        var token = _activeCts.Token;
-        _ = Task.Run(
-            async () =>
-            {
-                try
-                {
-                    await DownloadAndPrepareUpdateAsync(archiveUrl, token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    lock (SyncLock)
-                    {
-                        _installState = "Failed";
-                        _installError = ex.Message;
-                    }
-
-                    _logger.LogError(ex, "Failed to download and extract update package.");
-                }
-            },
-            token);
-
-        return Accepted(new { Message = "Update download started.", State = _installState, Progress = _installProgress });
+        StartBackgroundDownload(archiveUrl, availableVersion);
+        return Accepted(new { Message = "Update download started in background.", State = _installState, Progress = _installProgress });
     }
 
     /// <summary>
@@ -314,7 +321,158 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         return client;
     }
 
-    private async Task DownloadAndPrepareUpdateAsync(string archiveUrl, CancellationToken cancellationToken)
+    private void StartBackgroundDownload(string archiveUrl, string? availableVersion)
+    {
+        lock (SyncLock)
+        {
+            if (_installState is "Downloading" or "Extracting" or "Applying")
+            {
+                return;
+            }
+
+            _activeCts?.Cancel();
+            _activeCts = new CancellationTokenSource();
+            _installState = "Downloading";
+            _installProgress = 0;
+            _installError = null;
+            _downloadedVersion = availableVersion;
+        }
+
+        var token = _activeCts.Token;
+        _ = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await DownloadAndPrepareUpdateAsync(archiveUrl, availableVersion, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    lock (SyncLock)
+                    {
+                        _installState = "Failed";
+                        _installError = ex.Message;
+                    }
+
+                    _logger.LogError(ex, "Failed to automatically download and extract update package.");
+                }
+            },
+            token);
+    }
+
+    private void TryRestorePersistentState(string updatesDir, string extractDir, string? availableVersion)
+    {
+        var stateFile = Path.Combine(updatesDir, "update_state.json");
+        try
+        {
+            if (System.IO.File.Exists(stateFile))
+            {
+                var json = System.IO.File.ReadAllText(stateFile);
+                var state = JsonSerializer.Deserialize<UpdatePersistentState>(json);
+                if (state != null
+                    && !string.IsNullOrWhiteSpace(state.DownloadedVersion)
+                    && state.InstallState == "ReadyToApply"
+                    && (string.IsNullOrWhiteSpace(availableVersion) || string.Equals(state.DownloadedVersion, availableVersion, StringComparison.OrdinalIgnoreCase))
+                    && Directory.Exists(state.ExtractedPath ?? extractDir)
+                    && Directory.EnumerateFileSystemEntries(state.ExtractedPath ?? extractDir).Any())
+                {
+                    lock (SyncLock)
+                    {
+                        _installState = "ReadyToApply";
+                        _installProgress = 100;
+                        _installError = null;
+                        _extractedUpdatePath = state.ExtractedPath ?? extractDir;
+                        _downloadedVersion = state.DownloadedVersion;
+                    }
+
+                    return;
+                }
+            }
+
+            // Fallback check: If extractDir has files and package.zip exists with non-zero length
+            var packageZip = Path.Combine(updatesDir, "package.zip");
+            if (Directory.Exists(extractDir)
+                && Directory.EnumerateFileSystemEntries(extractDir).Any()
+                && System.IO.File.Exists(packageZip)
+                && new FileInfo(packageZip).Length > 1024 * 1024
+                && !string.IsNullOrWhiteSpace(availableVersion))
+            {
+                lock (SyncLock)
+                {
+                    _installState = "ReadyToApply";
+                    _installProgress = 100;
+                    _installError = null;
+                    _extractedUpdatePath = extractDir;
+                    _downloadedVersion = availableVersion;
+                }
+
+                SavePersistentState(updatesDir, extractDir, availableVersion, "ReadyToApply");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not restore update state from {StateFile}", stateFile);
+        }
+    }
+
+    private static void SavePersistentState(string updatesDir, string extractDir, string? version, string state)
+    {
+        try
+        {
+            Directory.CreateDirectory(updatesDir);
+            var stateFile = Path.Combine(updatesDir, "update_state.json");
+            var stateObj = new UpdatePersistentState
+            {
+                DownloadedVersion = version,
+                InstallState = state,
+                ExtractedPath = extractDir,
+                CompletedAt = DateTime.UtcNow
+            };
+            var json = JsonSerializer.Serialize(stateObj);
+            System.IO.File.WriteAllText(stateFile, json);
+        }
+        catch
+        {
+            // Best effort
+        }
+    }
+
+    private void CleanupObsoleteUpdates(string updatesDir, string extractDir)
+    {
+        try
+        {
+            var stateFile = Path.Combine(updatesDir, "update_state.json");
+            if (System.IO.File.Exists(stateFile))
+            {
+                System.IO.File.Delete(stateFile);
+            }
+
+            var packageZip = Path.Combine(updatesDir, "package.zip");
+            if (System.IO.File.Exists(packageZip))
+            {
+                System.IO.File.Delete(packageZip);
+            }
+
+            if (Directory.Exists(extractDir))
+            {
+                Directory.Delete(extractDir, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to clean up obsolete updates.");
+        }
+
+        lock (SyncLock)
+        {
+            _installState = "Idle";
+            _installProgress = 0;
+            _extractedUpdatePath = null;
+            _downloadedVersion = null;
+        }
+    }
+
+    private async Task DownloadAndPrepareUpdateAsync(string archiveUrl, string? availableVersion, CancellationToken cancellationToken)
     {
         var updatesDir = Path.Combine(_applicationPaths.ProgramDataPath, "updates");
         Directory.CreateDirectory(updatesDir);
@@ -381,9 +539,12 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             _extractedUpdatePath = extractDir;
             _installState = "ReadyToApply";
             _installProgress = 100;
+            _installError = null;
+            _downloadedVersion = availableVersion;
         }
 
-        _logger.LogInformation("Update package is ready to be applied from {ExtractDir}", extractDir);
+        SavePersistentState(updatesDir, extractDir, availableVersion, "ReadyToApply");
+        _logger.LogInformation("Update package is ready to be applied from {ExtractDir} upon user approval.", extractDir);
     }
 
     private static bool TryParseGitHubRelease(string json, out Version version, out string? changelog, out string? archiveUrl, out long? size)
@@ -508,5 +669,17 @@ if (Test-Path -LiteralPath $trayPath) { Start-Process -FilePath $trayPath }
 
         public string? Changelog { get; set; }
     }
+
+    private sealed class UpdatePersistentState
+    {
+        public string? DownloadedVersion { get; set; }
+
+        public string? InstallState { get; set; }
+
+        public string? ExtractedPath { get; set; }
+
+        public DateTime? CompletedAt { get; set; }
+    }
 }
+
 
