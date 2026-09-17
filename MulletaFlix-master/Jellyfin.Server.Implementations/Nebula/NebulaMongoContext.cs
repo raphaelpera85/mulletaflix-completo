@@ -99,7 +99,9 @@ public sealed class NebulaMongoContext : IDisposable
             (Builders<BsonDocument>.IndexKeys.Ascending("status"), "status_1"),
             (Builders<BsonDocument>.IndexKeys.Ascending("parent"), "parent_1"),
             (Builders<BsonDocument>.IndexKeys.Ascending("name"), "name_1"),
-            (Builders<BsonDocument>.IndexKeys.Ascending("parent").Ascending("name"), "parent_1_name_1")
+            (Builders<BsonDocument>.IndexKeys.Ascending("parent").Ascending("name"), "parent_1_name_1"),
+            (Builders<BsonDocument>.IndexKeys.Descending("modified_at"), "modified_at_-1"),
+            (Builders<BsonDocument>.IndexKeys.Descending("uploaded_at"), "uploaded_at_-1")
         };
 
         foreach (var (keys, name) in indexes)
@@ -606,7 +608,12 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     public async Task InsertFileDocAsync(BsonDocument doc, CancellationToken cancellationToken = default)
     {
-        await _filesCollection.InsertOneAsync(doc, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (doc != null && (!doc.Contains("modified_at") || doc["modified_at"].IsBsonNull))
+        {
+            doc["modified_at"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        }
+
+        await _filesCollection.InsertOneAsync(doc!, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -780,6 +787,83 @@ public sealed class NebulaMongoContext : IDisposable
     {
         using var cursor = await _filesCollection.FindAsync(Builders<BsonDocument>.Filter.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Obtém os documentos da coleção de arquivos criados ou modificados a partir de uma data UTC específica.
+    /// </summary>
+    public async Task<List<BsonDocument>> GetFilesModifiedSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken = default)
+    {
+        var sinceEpoch = new DateTimeOffset(sinceUtc.ToUniversalTime()).ToUnixTimeSeconds();
+        var minOid = ObjectId.GenerateNewId(sinceUtc.ToUniversalTime());
+
+        var filter = Builders<BsonDocument>.Filter.Or(
+            Builders<BsonDocument>.Filter.Gte("modified_at", sinceEpoch),
+            Builders<BsonDocument>.Filter.Gte("uploaded_at", sinceEpoch),
+            Builders<BsonDocument>.Filter.Gte("_id", minOid));
+
+        using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Obtém o timestamp UTC mais recente registrado na coleção local de arquivos.
+    /// </summary>
+    public async Task<DateTime?> GetLatestFileTimestampAsync(CancellationToken cancellationToken = default)
+    {
+        DateTime? latest = null;
+
+        try
+        {
+            var filterMod = Builders<BsonDocument>.Filter.Exists("modified_at");
+            var sortMod = Builders<BsonDocument>.Sort.Descending("modified_at");
+            var docMod = await _filesCollection.Find(filterMod).Sort(sortMod).Limit(1).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            if (docMod != null && docMod.Contains("modified_at") && docMod["modified_at"].IsNumeric)
+            {
+                var epoch = docMod["modified_at"].ToInt64();
+                if (epoch > 0)
+                {
+                    latest = DateTimeOffset.FromUnixTimeSeconds(epoch).UtcDateTime;
+                }
+            }
+
+            var filterUp = Builders<BsonDocument>.Filter.Exists("uploaded_at");
+            var sortUp = Builders<BsonDocument>.Sort.Descending("uploaded_at");
+            var docUp = await _filesCollection.Find(filterUp).Sort(sortUp).Limit(1).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            if (docUp != null && docUp.Contains("uploaded_at") && docUp["uploaded_at"].IsNumeric)
+            {
+                var epoch = docUp["uploaded_at"].ToInt64();
+                if (epoch > 0)
+                {
+                    var dt = DateTimeOffset.FromUnixTimeSeconds(epoch).UtcDateTime;
+                    if (latest == null || dt > latest.Value)
+                    {
+                        latest = dt;
+                    }
+                }
+            }
+
+            var sortId = Builders<BsonDocument>.Sort.Descending("_id");
+            var docId = await _filesCollection.Find(Builders<BsonDocument>.Filter.Empty).Sort(sortId).Limit(1).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            if (docId != null && docId.Contains("_id") && docId["_id"].IsObjectId)
+            {
+                var dt = docId["_id"].AsObjectId.CreationTime;
+                if (latest == null || dt > latest.Value)
+                {
+                    latest = dt;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-MONGO] Erro ao obter timestamp mais recente dos arquivos.");
+        }
+
+        return latest;
     }
 
     /// <summary>

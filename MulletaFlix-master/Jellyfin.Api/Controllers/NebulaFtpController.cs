@@ -293,29 +293,31 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
 
     [HttpPost("Supabase/Backup")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<NebulaSupabaseBackupResultDto> BackupSupabase()
+    public ActionResult<NebulaSupabaseBackupResultDto> BackupSupabase([FromQuery] bool forceFull = false)
     {
         // Backups can take several minutes. Do not bind their lifetime to the
         // browser request: a closed tab/WebSocket or an HTTP timeout must not
         // cancel the database synchronization.
         var idempotencyKey = GetIdempotencyKey();
         _ = Task.Run(
-            () => _nebulaManager.BackupMongoToSupabaseAsync(idempotencyKey, CancellationToken.None),
+            () => _nebulaManager.BackupMongoToSupabaseAsync(idempotencyKey, forceFull, CancellationToken.None),
             CancellationToken.None);
 
         return Ok(new NebulaSupabaseBackupResultDto
         {
             Success = true,
-            Message = "Backup iniciado em segundo plano. Acompanhe o progresso no status de manutenção.",
+            Message = forceFull
+                ? "Backup completo iniciado em segundo plano. Acompanhe o progresso no status de manutenção."
+                : "Backup delta iniciado em segundo plano. Acompanhe o progresso no status de manutenção.",
             Timestamp = DateTime.UtcNow
         });
     }
 
     [HttpPost("Supabase/Restore")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<NebulaSupabaseRestoreResultDto>> RestoreSupabase(CancellationToken cancellationToken)
+    public async Task<ActionResult<NebulaSupabaseRestoreResultDto>> RestoreSupabase([FromQuery] bool forceFull = false, CancellationToken cancellationToken = default)
     {
-        var result = await _nebulaManager.RestoreSupabaseToMongoAsync(GetIdempotencyKey(), cancellationToken).ConfigureAwait(false);
+        var result = await _nebulaManager.RestoreSupabaseToMongoAsync(GetIdempotencyKey(), forceFull, cancellationToken).ConfigureAwait(false);
         return Ok(result);
     }
 

@@ -2366,7 +2366,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         return dto;
     }
 
-    public async Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default)
+    public async Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(string? idempotencyKey = null, bool forceFull = false, CancellationToken cancellationToken = default)
     {
         if (await TryGetOperationReplayAsync<NebulaSupabaseBackupResultDto>("supabase-backup", idempotencyKey, cancellationToken).ConfigureAwait(false))
         {
@@ -2447,7 +2447,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 UpdateMaintenanceOperationProgress(message);
             }
 
-            var result = await syncService.PerformBackupAsync(config.SupabaseUrl, config.SupabaseKey, ReportBackupProgress, cancellationToken).ConfigureAwait(false);
+            var result = await syncService.PerformBackupAsync(config.SupabaseUrl, config.SupabaseKey, ReportBackupProgress, forceFull, cancellationToken).ConfigureAwait(false);
             if (result.Success)
             {
                 AddServerLog($"[SUPABASE] {result.Message}");
@@ -2502,7 +2502,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
     }
 
-    public async Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default)
+    public async Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(string? idempotencyKey = null, bool forceFull = false, CancellationToken cancellationToken = default)
     {
         if (await TryGetOperationReplayAsync<NebulaSupabaseRestoreResultDto>("supabase-restore", idempotencyKey, cancellationToken).ConfigureAwait(false))
         {
@@ -2583,7 +2583,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 UpdateMaintenanceOperationProgress(message);
             }
 
-            var result = await syncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, ReportRestoreProgress, cancellationToken).ConfigureAwait(false);
+            var result = await syncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, ReportRestoreProgress, forceFull, cancellationToken).ConfigureAwait(false);
             if (result.Success)
             {
                 AddServerLog($"[SUPABASE-RESTORE] {result.Message}");

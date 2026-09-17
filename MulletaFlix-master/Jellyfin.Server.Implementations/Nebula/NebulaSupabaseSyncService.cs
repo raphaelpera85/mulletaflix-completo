@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -41,7 +42,19 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     private readonly SemaphoreSlim _backupGate = new(1, 1);
     private CancellationTokenSource? _continuousSyncCts;
     private Task? _continuousSyncTask;
+    private DateTime? _lastSuccessfulBackupTime;
+    private DateTime? _lastSuccessfulRestoreTime;
     private bool _disposed;
+
+    /// <summary>
+    /// Obtém a data e hora UTC do último backup bem-sucedido realizado nesta sessão.
+    /// </summary>
+    public DateTime? LastSuccessfulBackupTime => _lastSuccessfulBackupTime;
+
+    /// <summary>
+    /// Obtém a data e hora UTC da última restauração bem-sucedida realizada nesta sessão.
+    /// </summary>
+    public DateTime? LastSuccessfulRestoreTime => _lastSuccessfulRestoreTime;
 
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaSupabaseSyncService"/>.
@@ -58,6 +71,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             Timeout = TimeSpan.FromMinutes(5)
         };
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", "MulletaFlix-Server/12.0");
     }
 
     /// <summary>
@@ -220,23 +234,125 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     }
 
     /// <summary>
-    /// Executa um backup/sincronização completa do MongoDB para o Supabase em lotes otimizados.
+    /// Obtém a quantidade total de arquivos registrados no Supabase.
+    /// </summary>
+    public async Task<long> GetSupabaseFileCountAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(supabaseKey))
+        {
+            return -1;
+        }
+
+        try
+        {
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=id&limit=1";
+            using var req = new HttpRequestMessage(HttpMethod.Head, uri);
+            req.Headers.Add("apikey", supabaseKey);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+            req.Headers.Add("Prefer", "count=exact");
+
+            using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return -1;
+            }
+
+            if (resp.Content.Headers.TryGetValues("Content-Range", out var ranges))
+            {
+                var rangeStr = ranges.FirstOrDefault();
+                if (!string.IsNullOrEmpty(rangeStr))
+                {
+                    var slashIdx = rangeStr.LastIndexOf('/');
+                    if (slashIdx >= 0 && long.TryParse(rangeStr[(slashIdx + 1)..], out var count))
+                    {
+                        return count;
+                    }
+                }
+            }
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[SUPABASE-COUNT] Falha ao consultar total de arquivos no Supabase.");
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// Obtém o timestamp UTC do último backup registrado com sucesso no Supabase.
+    /// </summary>
+    public async Task<DateTime?> GetLastRemoteBackupTimestampAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(supabaseKey))
+        {
+            return null;
+        }
+
+        try
+        {
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_backups?status=eq.success&order=id.desc&limit=1";
+            using var req = new HttpRequestMessage(HttpMethod.Get, uri);
+            req.Headers.Add("apikey", supabaseKey);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+
+            using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+            {
+                var first = doc.RootElement[0];
+                if (first.TryGetProperty("created_at", out var caProp) && caProp.TryGetDateTime(out var dt))
+                {
+                    return dt.ToUniversalTime();
+                }
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[SUPABASE-TIMESTAMP] Falha ao obter timestamp do último backup remoto.");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Executa um backup/sincronização do MongoDB para o Supabase (delta por padrão, ou completo).
     /// </summary>
     public Task<NebulaSupabaseBackupResultDto> PerformBackupAsync(
         string supabaseUrl,
         string supabaseKey,
         CancellationToken cancellationToken = default)
     {
-        return PerformBackupAsync(supabaseUrl, supabaseKey, progressAction: null, cancellationToken);
+        return PerformBackupAsync(supabaseUrl, supabaseKey, progressAction: null, forceFullSync: false, cancellationToken);
     }
 
     /// <summary>
-    /// Executa um backup/sincronização completa do MongoDB para o Supabase em lotes com relatório de progresso.
+    /// Executa um backup/sincronização do MongoDB para o Supabase (delta por padrão, ou completo) com relatório de progresso.
+    /// </summary>
+    public Task<NebulaSupabaseBackupResultDto> PerformBackupAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction,
+        CancellationToken cancellationToken = default)
+    {
+        return PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, forceFullSync: false, cancellationToken);
+    }
+
+    /// <summary>
+    /// Executa um backup/sincronização do MongoDB para o Supabase em lotes otimizados, enviando apenas o delta ou todos os arquivos.
     /// </summary>
     public async Task<NebulaSupabaseBackupResultDto> PerformBackupAsync(
         string supabaseUrl,
         string supabaseKey,
         Action<string>? progressAction,
+        bool forceFullSync,
         CancellationToken cancellationToken = default)
     {
         var result = new NebulaSupabaseBackupResultDto();
@@ -252,55 +368,98 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _logger.LogInformation("[SUPABASE-SYNC] Iniciando sincronização completa para o Supabase ({Url})...", supabaseUrl);
-            progressAction?.Invoke($"[SUPABASE-SYNC] Iniciando sincronização completa para {supabaseUrl}...");
+            List<BsonDocument> filesToSync;
+            var isDelta = false;
+            DateTime? deltaSince = null;
 
-            // 1. Envia lotes pequenos em paralelo limitado para evitar statement_timeout
-            // no Postgres quando doc_data contém metadados grandes.
-            var allFiles = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
-            var batchSize = SupabaseUploadBatchSize;
-            var totalFiles = allFiles.Count;
-            var totalBatches = (int)Math.Ceiling(totalFiles / (double)batchSize);
-            var syncedFiles = 0;
-            var completedBatches = 0;
-            var progressGate = new object();
-
-            progressAction?.Invoke($"[SUPABASE-SYNC] {totalFiles} arquivos encontrados no MongoDB local ({totalBatches} lotes de {batchSize}).");
-
-            var batches = Enumerable.Range(0, totalBatches)
-                .Select(index => allFiles.GetRange(
-                    index * batchSize,
-                    Math.Min(batchSize, totalFiles - index * batchSize)));
-
-            await Parallel.ForEachAsync(
-                batches,
-                new ParallelOptions
+            if (!forceFullSync)
+            {
+                var remoteFileCount = await GetSupabaseFileCountAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+                if (remoteFileCount > 0)
                 {
-                    MaxDegreeOfParallelism = SupabaseUploadConcurrency,
-                    CancellationToken = cancellationToken
-                },
-                async (chunk, ct) =>
-                {
-                    var records = chunk.Select(ConvertBsonDocToSupabaseRecord).ToList();
-                    await SendSupabaseBatchWithRetryAsync(
-                        supabaseUrl,
-                        supabaseKey,
-                        "nebula_files?on_conflict=id",
-                        records,
-                        ct).ConfigureAwait(false);
-
-                    var done = Interlocked.Add(ref syncedFiles, records.Count);
-                    var batch = Interlocked.Increment(ref completedBatches);
-                    if (batch % 4 == 0 || batch == totalBatches)
+                    deltaSince = _lastSuccessfulBackupTime ?? await GetLastRemoteBackupTimestampAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+                    if (deltaSince.HasValue)
                     {
-                        lock (progressGate)
-                        {
-                            progressAction?.Invoke($"[SUPABASE-SYNC] Progresso dos arquivos: {done}/{totalFiles} sincronizados (Lotes {batch}/{totalBatches}, concorrência {SupabaseUploadConcurrency}).");
-                        }
+                        // Subtrai 2 minutos de margem de tolerância para cobrir eventuais assincronias de relógio
+                        var sinceWithSkew = deltaSince.Value.AddMinutes(-2);
+                        filesToSync = await _mongoContext.GetFilesModifiedSinceAsync(sinceWithSkew, cancellationToken).ConfigureAwait(false);
+                        isDelta = true;
                     }
-                }).ConfigureAwait(false);
+                    else
+                    {
+                        filesToSync = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    filesToSync = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                filesToSync = await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+            }
 
-            // 2. Sincroniza usuários
+            var totalFilesToUpload = filesToSync.Count;
+            var syncedFiles = 0;
+
+            if (isDelta)
+            {
+                _logger.LogInformation(
+                    "[SUPABASE-SYNC] Sincronização delta iniciada (desde {Since:dd/MM/yyyy HH:mm:ss} UTC). {Count} arquivo(s) modificado(s)/novo(s) encontrado(s).",
+                    deltaSince,
+                    totalFilesToUpload);
+                progressAction?.Invoke(
+                    $"[SUPABASE-SYNC] Sincronização delta: {totalFilesToUpload} arquivo(s) modificado(s)/novo(s) desde {deltaSince:dd/MM/yyyy HH:mm:ss}.");
+            }
+            else
+            {
+                _logger.LogInformation("[SUPABASE-SYNC] Iniciando sincronização completa para o Supabase ({Url})...", supabaseUrl);
+                progressAction?.Invoke($"[SUPABASE-SYNC] Iniciando sincronização completa para {supabaseUrl} ({totalFilesToUpload} arquivos)...");
+            }
+
+            if (totalFilesToUpload > 0)
+            {
+                var batchSize = SupabaseUploadBatchSize;
+                var totalBatches = (int)Math.Ceiling(totalFilesToUpload / (double)batchSize);
+                var completedBatches = 0;
+                var progressGate = new object();
+
+                var batches = Enumerable.Range(0, totalBatches)
+                    .Select(index => filesToSync.GetRange(
+                        index * batchSize,
+                        Math.Min(batchSize, totalFilesToUpload - index * batchSize)));
+
+                await Parallel.ForEachAsync(
+                    batches,
+                    new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = SupabaseUploadConcurrency,
+                        CancellationToken = cancellationToken
+                    },
+                    async (chunk, ct) =>
+                    {
+                        var records = chunk.Select(ConvertBsonDocToSupabaseRecord).ToList();
+                        await SendSupabaseBatchWithRetryAsync(
+                            supabaseUrl,
+                            supabaseKey,
+                            "nebula_files?on_conflict=id",
+                            records,
+                            ct).ConfigureAwait(false);
+
+                        var done = Interlocked.Add(ref syncedFiles, records.Count);
+                        var batch = Interlocked.Increment(ref completedBatches);
+                        if (batch % 4 == 0 || batch == totalBatches)
+                        {
+                            lock (progressGate)
+                            {
+                                progressAction?.Invoke($"[SUPABASE-SYNC] Progresso dos arquivos: {done}/{totalFilesToUpload} sincronizados (Lotes {batch}/{totalBatches}).");
+                            }
+                        }
+                    }).ConfigureAwait(false);
+            }
+
+            // 2. Sincroniza usuários FTP
             var allUsers = await _mongoContext.GetAllUsersForSyncAsync(cancellationToken).ConfigureAwait(false);
             var syncedUsers = 0;
             if (allUsers.Count > 0)
@@ -328,16 +487,20 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 }
             }
 
+            // 3. Sincroniza usuários do aplicativo MulletaFlix
             var appUsersBackedUp = await BackupMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
 
-            // 3. Registra log na tabela nebula_backups
+            // 4. Registra log na tabela nebula_backups
+            var syncModeName = isDelta ? "delta_sync" : "full_sync";
             var backupLog = new
             {
-                backup_type = "continuous_sync",
+                backup_type = syncModeName,
                 status = "success",
                 total_files = syncedFiles,
                 total_users = syncedUsers + appUsersBackedUp,
-                details = $"Sincronização nativa C# finalizada com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix."
+                details = isDelta
+                    ? $"Sincronização delta C# concluída com {syncedFiles} arquivos atualizados (de {totalFilesToUpload} alterados), {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix."
+                    : $"Sincronização completa C# finalizada com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix."
             };
 
             try
@@ -359,11 +522,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 _logger.LogDebug(ex, "[SUPABASE-SYNC] Aviso ao registrar histórico de backup no Supabase.");
             }
 
+            _lastSuccessfulBackupTime = DateTime.UtcNow;
             result.Success = true;
             result.FilesBackedUp = syncedFiles;
             result.UsersBackedUp = syncedUsers + appUsersBackedUp;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Sincronização com Supabase concluída com sucesso! ({syncedFiles} arquivos, {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix em {result.ElapsedSeconds:F1}s)";
+            result.Message = isDelta
+                ? $"Sincronização delta com Supabase concluída! ({syncedFiles} arquivos enviados, {syncedUsers + appUsersBackedUp} usuários em {result.ElapsedSeconds:F1}s)"
+                : $"Sincronização completa com Supabase concluída! ({syncedFiles} arquivos, {syncedUsers + appUsersBackedUp} usuários em {result.ElapsedSeconds:F1}s)";
             _logger.LogInformation("[SUPABASE-SYNC] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE] {result.Message}");
             return result;
@@ -383,23 +549,36 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     }
 
     /// <summary>
-    /// Restaura a biblioteca, usuários e tokens do Supabase para o MongoDB caso a base local esteja vazia.
+    /// Restaura a biblioteca, usuários e tokens do Supabase para o MongoDB (delta por padrão, ou completo).
     /// </summary>
     public Task<NebulaSupabaseRestoreResultDto> PerformRestoreAsync(
         string supabaseUrl,
         string supabaseKey,
         CancellationToken cancellationToken = default)
     {
-        return PerformRestoreAsync(supabaseUrl, supabaseKey, progressAction: null, cancellationToken);
+        return PerformRestoreAsync(supabaseUrl, supabaseKey, progressAction: null, forceFullRestore: false, cancellationToken);
     }
 
     /// <summary>
-    /// Restaura a biblioteca, usuários e tokens do Supabase para o MongoDB caso a base local esteja vazia.
+    /// Restaura a biblioteca, usuários e tokens do Supabase para o MongoDB com relatório de progresso.
+    /// </summary>
+    public Task<NebulaSupabaseRestoreResultDto> PerformRestoreAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction,
+        CancellationToken cancellationToken = default)
+    {
+        return PerformRestoreAsync(supabaseUrl, supabaseKey, progressAction, forceFullRestore: false, cancellationToken);
+    }
+
+    /// <summary>
+    /// Restaura a biblioteca, usuários e tokens do Supabase para o MongoDB, baixando apenas o delta ou o acervo completo.
     /// </summary>
     public async Task<NebulaSupabaseRestoreResultDto> PerformRestoreAsync(
         string supabaseUrl,
         string supabaseKey,
         Action<string>? progressAction,
+        bool forceFullRestore,
         CancellationToken cancellationToken = default)
     {
         var result = new NebulaSupabaseRestoreResultDto();
@@ -415,18 +594,47 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _logger.LogInformation("[SUPABASE-RESTORE] Iniciando restauração do acervo a partir do Supabase...");
-            progressAction?.Invoke("[SUPABASE-RESTORE] Iniciando restauração do acervo a partir do Supabase...");
+            var isDelta = false;
+            DateTime? deltaFrom = null;
 
-            // 1. Restaura arquivos e diretórios em lotes
+            if (!forceFullRestore)
+            {
+                var localFileCount = await _mongoContext.CountFilesAsync(cancellationToken).ConfigureAwait(false);
+                if (localFileCount > 0)
+                {
+                    var latestLocalTimestamp = await _mongoContext.GetLatestFileTimestampAsync(cancellationToken).ConfigureAwait(false);
+                    if (latestLocalTimestamp.HasValue)
+                    {
+                        // Margem de tolerância de 5 minutos para cobrir divergências de fuso/relógio
+                        deltaFrom = latestLocalTimestamp.Value.AddMinutes(-5);
+                        isDelta = true;
+                    }
+                }
+            }
+
+            if (isDelta)
+            {
+                _logger.LogInformation("[SUPABASE-RESTORE] Iniciando restauração delta a partir do Supabase (alterações após {Since:dd/MM/yyyy HH:mm:ss} UTC)...", deltaFrom);
+                progressAction?.Invoke($"[SUPABASE-RESTORE] Iniciando restauração delta a partir do Supabase (após {deltaFrom:dd/MM/yyyy HH:mm:ss})...");
+            }
+            else
+            {
+                _logger.LogInformation("[SUPABASE-RESTORE] Iniciando restauração completa do acervo a partir do Supabase...");
+                progressAction?.Invoke("[SUPABASE-RESTORE] Iniciando restauração completa do acervo a partir do Supabase...");
+            }
+
+            // 1. Restaura arquivos e diretórios em lotes (delta ou completo)
             var offset = 0;
             var limit = SupabaseRestorePageSize;
             var restoredFiles = 0;
+            var filterQuery = isDelta && deltaFrom.HasValue
+                ? $"&updated_at=gt.{Uri.EscapeDataString(deltaFrom.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture))}&order=updated_at.asc"
+                : string.Empty;
 
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=*&limit={limit}&offset={offset}";
+                var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=*&limit={limit}&offset={offset}{filterQuery}";
                 using var req = new HttpRequestMessage(HttpMethod.Get, uri);
                 req.Headers.Add("apikey", supabaseKey);
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
@@ -550,7 +758,6 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     }
                 }
             }
-
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "[SUPABASE-RESTORE] Aviso ao restaurar tabela de usuários.");
@@ -600,11 +807,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 _logger.LogDebug(ex, "[SUPABASE-RESTORE] Aviso ao restaurar tokens de bot.");
             }
 
+            _lastSuccessfulRestoreTime = DateTime.UtcNow;
             result.Success = true;
             result.FilesRestored = restoredFiles;
             result.UsersRestored = restoredUsers + restoredAppUsers;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Restauração finalizada com sucesso! {restoredFiles} arquivos, {restoredUsers} usuários FTP e {restoredAppUsers} usuários do MulletaFlix recuperados do Supabase em {result.ElapsedSeconds:F1}s.";
+            result.Message = isDelta
+                ? $"Restauração delta finalizada com sucesso! {restoredFiles} arquivos atualizados, {restoredUsers} usuários FTP e {restoredAppUsers} usuários do MulletaFlix em {result.ElapsedSeconds:F1}s."
+                : $"Restauração completa finalizada com sucesso! {restoredFiles} arquivos, {restoredUsers} usuários FTP e {restoredAppUsers} usuários do MulletaFlix recuperados do Supabase em {result.ElapsedSeconds:F1}s.";
             _logger.LogInformation("[SUPABASE-RESTORE] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE-RESTORE] {result.Message}");
             return result;
