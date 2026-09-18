@@ -104,4 +104,25 @@ public class ItemPersistenceServiceTests
         Assert.Null(entity.Images);
         Assert.Null(entity.TrailerTypes);
     }
+
+    [Theory]
+    [InlineData(1062, true)]
+    [InlineData(1452, true)]
+    [InlineData(1213, true)]
+    [InlineData(1205, true)]
+    [InlineData(1048, false)]
+    public void IsTransientMetadataConflict_RecognizesTransientConstraintErrors(int errorCode, bool expected)
+    {
+        var ctor = typeof(MySqlConnector.MySqlException).GetConstructor(
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
+            null,
+            new[] { typeof(MySqlConnector.MySqlErrorCode), typeof(string) },
+            null);
+        var mySqlException = (MySqlConnector.MySqlException)ctor!.Invoke(new object[] { (MySqlConnector.MySqlErrorCode)errorCode, "Test error message" });
+        var ex = new Microsoft.EntityFrameworkCore.DbUpdateException("Test db update exception", mySqlException);
+
+        var result = ItemPersistenceService.IsTransientMetadataConflict(ex);
+
+        Assert.Equal(expected, result);
+    }
 }

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Tag = "v12.0.4",
-    [string]$Title = "MulletaFlix Server v12.0.4",
+    [string]$Tag = "v12.0.7",
+    [string]$Title = "MulletaFlix Server v12.0.7",
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip"
 )
 
@@ -43,13 +43,10 @@ try {
 $bodyContent = @"
 ### MulletaFlix $Tag
 
+- **Resiliência de Metadados e Concorrência MySQL**: Tratamento de conflitos transitórios (erros 1062, 1452, 1213 e 1205) com retry progressivo e lookup seguro em `ItemPersistenceService`, eliminando falhas durante tarefas em segundo plano (como `StrmProbeScheduledTask`).
+- **Validação Completa de Streaming e Transcodificação**: Testes reais executados ponta a ponta com Direct Play/Stream e transcodificação dinâmica HLS em mídias de rede e locais com aceleração por hardware (NVENC).
 - **Nebula Downloader & Upload**: Pipeline de upload nativo via Telegram bot pool, MongoDB context e regra de 10% de espaço livre em disco com alternância dinâmica entre unidades de stage.
-- **Limpeza Inteligente de Staging**: Remoção automática de diretórios vazios até a raiz de staging quando mídias/sidecars concluídos são removidos.
-- **Ingestão de Mídias Físicas**: Suporte aprimorado a mídias locais (.mkv, .mp4) e sidecars associados com proteção contra concorrência e throttle de CPU.
-- **Centro de Atualizações Resiliente**: Verificação inteligente de identidade de arquivos (se os arquivos instalados forem idênticos aos da atualização, nenhuma atualização desnecessária é exibida).
-- **Correção no Inicializador In-Place**: Execução do processo pós-atualização com WorkingDirectory configurado corretamente para evitar falhas de inicialização.
-- **Sync Delta Incremental**: Otimização no backup e restauração do Supabase para nós do Nebula.
-- **MulletaFlix Android App**: Aplicativo oficial para Android e Android TV / Box com ExoPlayer/Media3, Material 3 e descoberta automática na LAN.
+- **MulletaFlix Android App**: Aplicativo oficial para Android e Android TV / Box com ExoPlayer/Media3, fallback inteligente para transcodificação e reporte contínuo de progresso de reprodução.
 "@
 
 $releasePayloadJson = @{

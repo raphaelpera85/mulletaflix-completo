@@ -292,16 +292,17 @@ public class ItemPersistenceService : IItemPersistenceService
         updateLock.WaitAsync(cancellationToken).GetAwaiter().GetResult();
         try
         {
-            for (var attempt = 1; attempt <= 2; attempt++)
+            for (var attempt = 1; attempt <= 3; attempt++)
             {
                 try
                 {
                     UpdateOrInsertItemsCore(items);
                     return;
                 }
-                catch (DbUpdateException ex) when (attempt == 1 && IsDuplicateItemValueConflict(ex))
+                catch (DbUpdateException ex) when (attempt < 3 && IsTransientMetadataConflict(ex))
                 {
-                    _logger.LogWarning(ex, "Concurrent item value insert detected while saving metadata. Retrying once.");
+                    _logger.LogWarning(ex, "Transient metadata conflict detected on attempt {Attempt} while saving items. Retrying...", attempt);
+                    Thread.Sleep(attempt * 75);
                 }
             }
         }
@@ -365,11 +366,18 @@ public class ItemPersistenceService : IItemPersistenceService
         transaction.Commit();
     }
 
-    private static bool IsDuplicateItemValueConflict(DbUpdateException exception)
+    internal static bool IsTransientMetadataConflict(DbUpdateException exception)
     {
-        return exception.InnerException is MySqlException mySqlException
-               && mySqlException.Number == 1062
-               && mySqlException.Message.Contains("IX_ItemValues_Type_Value", StringComparison.OrdinalIgnoreCase);
+        if (exception.InnerException is MySqlException mySqlException)
+        {
+            // 1062 = Duplicate entry (IX_ItemValues_Type_Value)
+            // 1452 = Cannot add or update a child row: a foreign key constraint fails
+            // 1213 = Deadlock found when trying to get lock
+            // 1205 = Lock wait timeout exceeded
+            return mySqlException.Number is 1062 or 1452 or 1213 or 1205;
+        }
+
+        return false;
     }
 
     private static List<(ItemValueType MagicNumber, string Value)> GetItemValuesToSave(BaseItemDto item, List<string> inheritedTags)
@@ -598,7 +606,12 @@ public class ItemPersistenceService : IItemPersistenceService
         var itemValuesStore = existingValues;
         var itemValuesStoreLookup = CreateItemValueLookup(itemValuesStore);
         var valueMap = itemValueMaps
-            .Select(f => (f.Item, Values: f.Values.Select(e => itemValuesStoreLookup[NormalizeItemValueKey(e.MagicNumber, e.Value)]).DistinctBy(e => e.ItemValueId).ToArray()))
+            .Select(f => (f.Item, Values: f.Values
+                .Select(e => itemValuesStoreLookup.TryGetValue(NormalizeItemValueKey(e.MagicNumber, e.Value), out var val) ? val : null)
+                .Where(e => e is not null)
+                .Select(e => e!)
+                .DistinctBy(e => e.ItemValueId)
+                .ToArray()))
             .ToArray();
 
         var mappedValues = context.ItemValuesMap.Where(e => Enumerable.Contains(ids, e.ItemId)).ToList();
