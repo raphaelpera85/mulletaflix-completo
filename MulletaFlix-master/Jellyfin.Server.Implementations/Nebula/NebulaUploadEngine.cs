@@ -39,6 +39,12 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// </summary>
     public bool DeleteSourceAfterUpload => _deleteSourceAfterUpload;
 
+    internal static bool IsMetadataOrSidecar(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return !string.IsNullOrEmpty(ext) && NebulaMetadataExportService.MetadataSidecarExtensions.Contains(ext);
+    }
+
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaUploadEngine"/>.
     /// </summary>
@@ -272,7 +278,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                 try
                 {
-                    if (File.Exists(localFilePath))
+                    if (File.Exists(localFilePath) && !IsMetadataOrSidecar(localFilePath))
                     {
                         File.Delete(localFilePath);
                         _logger.LogInformation("[NEBULA-UPLOAD] Arquivo local de mídia já enviada removido: {Path}", localFilePath);
@@ -307,7 +313,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     IsCompletedUploadForFile(existingDoc, totalSize, totalParts))
                 {
                     _logger.LogInformation("[NEBULA-UPLOAD] Arquivo '{Name}' já está 100% concluído no Nebula.", targetFileName);
-                    if (_deleteSourceAfterUpload)
+                    if (_deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath))
                     {
                         try
                         {
@@ -323,7 +329,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     // retry discovered that the media was already complete.
                     // Release it so queued sidecars are not blocked forever.
                     NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
-                    if (_deleteSourceAfterUpload)
+                    if (_deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath))
                     {
                         CleanEmptyParentDirectories(localFilePath);
                     }
@@ -684,7 +690,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 await _logQueueState($"concluido:{targetFileName}").ConfigureAwait(false);
             }
 
-            if (_deleteSourceAfterUpload)
+            if (_deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath))
             {
                 try
                 {
@@ -702,7 +708,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             // sidecars antes da mídia correspondente.
             NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
 
-            if (_deleteSourceAfterUpload)
+            if (_deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath))
             {
                 CleanEmptyParentDirectories(localFilePath);
             }

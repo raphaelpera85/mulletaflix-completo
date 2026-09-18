@@ -1771,7 +1771,7 @@ public sealed class NebulaMongoContext : IDisposable
                         {
                             try
                             {
-                                if (File.Exists(fileInfo.FullName))
+                                if (File.Exists(fileInfo.FullName) && !NebulaUploadEngine.IsMetadataOrSidecar(fileInfo.FullName))
                                 {
                                     File.Delete(fileInfo.FullName);
                                     _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging já concluído no Telegram removido do disco: {Path}", fileInfo.FullName);
@@ -1824,7 +1824,7 @@ public sealed class NebulaMongoContext : IDisposable
 
                             try
                             {
-                                if (File.Exists(fileInfo.FullName))
+                                if (File.Exists(fileInfo.FullName) && !NebulaUploadEngine.IsMetadataOrSidecar(fileInfo.FullName))
                                 {
                                     File.Delete(fileInfo.FullName);
                                     _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging duplicado removido do disco: {Path}", fileInfo.FullName);

@@ -266,38 +266,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                             .ToList();
                         mediaFiles.AddRange(mediaList);
 
-                        // Limpeza de arquivos sidecar órfãos (.nfo, .xml, capas, etc.) cuja mídia já foi enviada e concluída no Telegram
-                        var orphanSidecars = allCandidateFiles
-                            .Where(f => SupportedSidecarExtensions.Contains(Path.GetExtension(f)))
-                            .ToList();
-                        foreach (var sidecar in orphanSidecars)
-                        {
-                            try
-                            {
-                                var sidecarDir = Path.GetDirectoryName(sidecar);
-                                var hasActiveMediaInDir = !string.IsNullOrEmpty(sidecarDir) &&
-                                    Directory.EnumerateFiles(sidecarDir).Any(f => SupportedMediaExtensions.Contains(Path.GetExtension(f)));
-
-                                if (!hasActiveMediaInDir && _mongoContext != null)
-                                {
-                                    var sidecarName = Path.GetFileName(sidecar);
-                                    var completedDoc = await _mongoContext.FindCompletedMediaAsync(sidecarName, sidecar, cancellationToken).ConfigureAwait(false);
-                                    if (completedDoc != null)
-                                    {
-                                        if (File.Exists(sidecar))
-                                        {
-                                            File.Delete(sidecar);
-                                            LogInfo($"Arquivo {sidecarName} (já concluído no Telegram) removido de {sidecarDir}");
-                                            CleanEmptyParentDirectoriesWithLog(sidecarDir, monitorSources);
-                                        }
-                                    }
-                                }
-                            }
-                            catch (Exception scEx)
-                            {
-                                _logger.LogDebug(scEx, "[NEBULA-DOWNLOADER] Erro ao verificar sidecar {Path}", sidecar);
-                            }
-                        }
+                        // Metadados e arquivos sidecars (.nfo, .xml, capas, posters, fanarts, legendas) são preservados
+                        // no servidor permanentemente como cópia de trabalho e cache para exibição instantânea.
+                        // O upload para o Telegram serve como backup. Nunca excluir sidecars locais.
                     }
                     catch (Exception ex)
                     {
@@ -1603,50 +1574,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     /// </summary>
     private void DeleteAssociatedSidecars(string mediaPath, string stem)
     {
-        var dir = Path.GetDirectoryName(mediaPath);
-        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
-        {
-            return;
-        }
-
-        try
-        {
-            var otherMediaFiles = Directory.EnumerateFiles(dir)
-                .Where(f => !string.Equals(f, mediaPath, StringComparison.OrdinalIgnoreCase) &&
-                            SupportedMediaExtensions.Contains(Path.GetExtension(f)))
-                .ToList();
-
-            foreach (var file in Directory.EnumerateFiles(dir))
-            {
-                var ext = Path.GetExtension(file);
-                if (!SupportedSidecarExtensions.Contains(ext) && !string.Equals(ext, ".strm", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                var sidecarStem = Path.GetFileNameWithoutExtension(file);
-                if (string.Equals(sidecarStem, stem, StringComparison.OrdinalIgnoreCase) || otherMediaFiles.Count == 0)
-                {
-                    try
-                    {
-                        if (File.Exists(file))
-                        {
-                            File.Delete(file);
-                            LogInfo($"Sidecar de mídia já concluída no Telegram removido: {Path.GetFileName(file)}");
-                            _logger.LogInformation("[NEBULA-DOWNLOADER] Sidecar de mídia já concluída removido: {File}", file);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[NEBULA-DOWNLOADER] Erro ao deletar sidecar de mídia concluída: {Path}", file);
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[NEBULA-DOWNLOADER] Erro ao limpar sidecars em {Dir}", dir);
-        }
+        // Metadados e sidecars locais (.nfo, .xml, capas, posters, fanarts, legendas) são preservados
+        // no servidor permanentemente para exibição instantânea e rápida navegação na biblioteca.
+        // O upload para o Telegram funciona estritamente como backup.
+        return;
     }
 
     private void DeleteTargetStageDirectoryIfCompleted(string targetStageDir)
