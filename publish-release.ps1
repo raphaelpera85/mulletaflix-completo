@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Tag = "v12.0.1",
-    [string]$Title = "MulletaFlix v12.0.1",
+    [string]$Tag = "v12.0.2",
+    [string]$Title = "MulletaFlix v12.0.2",
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip"
 )
 
@@ -56,9 +56,12 @@ try {
 $bodyContent = @"
 ### MulletaFlix $Tag
 
-- **Nebula Downloader**: Regra de 10% de espaço livre em disco implementada com alternância automática entre unidades de stage.
-- **Centro de Atualizações**: Visualização e instalação direta de pacotes pelo dashboard (`/dashboard/updates`).
-- **Resiliência de Disco**: Proteção contra estouro de disco antes do download de arquivos `.strm`.
+- **Nebula Downloader & Upload**: Pipeline de upload nativo via Telegram bot pool, MongoDB context e regra de 10% de espaço livre em disco com alternância dinâmica entre unidades de stage.
+- **Limpeza Inteligente de Staging**: Remoção automática de diretórios vazios até a raiz de staging quando mídias/sidecars concluídos são removidos.
+- **Ingestão de Mídias Físicas**: Suporte aprimorado a mídias locais (.mkv, .mp4) e sidecars associados com proteção contra concorrência e throttle de CPU.
+- **Centro de Atualizações Resiliente**: Verificação inteligente de identidade de arquivos (se os arquivos instalados forem idênticos aos da atualização, nenhuma atualização desnecessária é exibida).
+- **Correção no Inicializador In-Place**: Execução do processo pós-atualização com WorkingDirectory configurado corretamente para evitar falhas de inicialização.
+- **Sync Delta Incremental**: Otimização no backup e restauração do Supabase para nós do Nebula.
 "@
 
 $releasePayload = @{

@@ -10,7 +10,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Version = "12.0.0",
+    [string]$Version = "12.0.2",
     [string]$OutputDir,
     [switch]$SkipBuild
 )
@@ -29,16 +29,15 @@ Write-Host "==================================================" -ForegroundColor
 Write-Host "   MulletaFlix In-Place Update Package Builder    " -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
-# 1. Verify stage or build requirements
-if (-not (Test-Path -LiteralPath $stageDir) -or -not (Test-Path -LiteralPath (Join-Path $stageDir 'MulletaFlix.dll'))) {
-    if ($SkipBuild) {
-        throw "Stage directory does not contain MulletaFlix binaries. Run build without -SkipBuild."
-    }
-    Write-Host "Stage binaries not found. Building server first..." -ForegroundColor Yellow
+# 1. Build server binaries to stage
+if (-not $SkipBuild) {
+    Write-Host "Building and publishing latest server binaries to stage..." -ForegroundColor Yellow
     & dotnet publish (Join-Path $projectRoot 'MulletaFlix-master\Jellyfin.Server') -c Release -r win-x64 --self-contained false -o $stageDir
     if ($LASTEXITCODE -ne 0) {
         throw "Server publish failed with exit code $LASTEXITCODE"
     }
+} elseif (-not (Test-Path -LiteralPath $stageDir) -or -not (Test-Path -LiteralPath (Join-Path $stageDir 'MulletaFlix.dll'))) {
+    throw "Stage directory does not contain MulletaFlix binaries. Run build without -SkipBuild."
 }
 
 # 2. Ensure apply-update.ps1 is in stage
