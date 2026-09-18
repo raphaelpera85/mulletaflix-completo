@@ -58,9 +58,10 @@ try {
 $bodyContent = @"
 ### MulletaFlix $Tag
 
-- **Correção de Erro de E/S na Montagem N:**: Corrigido o travamento no driver WinFsp/rclone ajustando o cache para modo full e otimizando o fechamento de sockets FTP.
-- **Resolução de Pastas Duplicadas e Metadados Invisíveis**: Ajustada a hierarquia em `EnsureDirectoryStructureAsync` e `NebulaDownloaderEngine` para rastrear o caminho virtual canônico e evitar criação duplicada de diretórios para arquivos pequenos (.nfo, pôsteres, logos).
-- **Consolidação de Pastas e Limpeza de Arquivos Temporários**: Unificação das pastas no MongoDB, reconectando todos os arquivos de metadados às suas respectivas pastas de mídia.
+- **Correcao de Erro de E/S na Montagem N:**: Corrigido o travamento no driver WinFsp/rclone ajustando o cache para modo full e otimizando o fechamento de sockets FTP.
+- **Resolucao de Pastas Duplicadas e Metadados Invisiveis**: Ajustada a hierarquia em `EnsureDirectoryStructureAsync` e `NebulaDownloaderEngine` para rastrear o caminho virtual canonico e evitar criacao duplicada de diretorios para arquivos pequenos (.nfo, posteres, logos).
+- **Consolidacao de Pastas e Limpeza de Arquivos Temporarios**: Unificacao das pastas no MongoDB, reconectando todos os arquivos de metadados as suas respectivas pastas de midia.
+- **Sincronizacao Global de Versao**: Unificacao do controle de versao em `SharedVersion.cs` e `Directory.Build.props` para que o servidor reflita fielmente a versao lancada.
 "@
 
 $releasePayloadJson = @{

@@ -29,6 +29,31 @@ Write-Host "==================================================" -ForegroundColor
 Write-Host "   MulletaFlix In-Place Update Package Builder    " -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
+# 0. Sync version to SharedVersion.cs and Directory.Build.props
+$sharedVersionPath = Join-Path $projectRoot 'MulletaFlix-master\SharedVersion.cs'
+if (Test-Path -LiteralPath $sharedVersionPath) {
+    $sharedVersionContent = @"
+using System.Reflection;
+
+[assembly: AssemblyVersion("$Version")]
+[assembly: AssemblyFileVersion("$Version")]
+"@
+    [System.IO.File]::WriteAllText($sharedVersionPath, $sharedVersionContent, [System.Text.Encoding]::UTF8)
+    Write-Host "Synced SharedVersion.cs to $Version." -ForegroundColor Green
+}
+
+$buildPropsPath = Join-Path $projectRoot 'MulletaFlix-master\Directory.Build.props'
+if (Test-Path -LiteralPath $buildPropsPath) {
+    $propsContent = [System.IO.File]::ReadAllText($buildPropsPath, [System.Text.Encoding]::UTF8)
+    $newPropsContent = [System.Text.RegularExpressions.Regex]::Replace(
+        $propsContent,
+        '<VersionPrefix>[^<]+</VersionPrefix>',
+        "<VersionPrefix>$Version</VersionPrefix>"
+    )
+    [System.IO.File]::WriteAllText($buildPropsPath, $newPropsContent, [System.Text.Encoding]::UTF8)
+    Write-Host "Synced Directory.Build.props to $Version." -ForegroundColor Green
+}
+
 # 1. Build server binaries to stage
 if (-not $SkipBuild) {
     Write-Host "Building and publishing latest server binaries to stage..." -ForegroundColor Yellow
