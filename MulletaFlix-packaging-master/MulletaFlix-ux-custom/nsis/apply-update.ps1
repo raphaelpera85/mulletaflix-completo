@@ -73,7 +73,7 @@ if ($service) {
     if (Test-Path -LiteralPath $exePath) {
         Log "Starting MulletaFlix.exe..."
         $args = if ($DataDirectory) { "--datadir `"$DataDirectory`"" } else { "" }
-        Start-Process -FilePath $exePath -ArgumentList $args -WindowStyle Hidden
+        Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $InstallDirectory -WindowStyle Hidden
     }
 }
 
@@ -81,7 +81,7 @@ if ($service) {
 $trayPath = Join-Path $InstallDirectory "mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe"
 if (Test-Path -LiteralPath $trayPath) {
     Log "Starting MulletaFlix.Windows.Tray.exe..."
-    Start-Process -FilePath $trayPath
+    Start-Process -FilePath $trayPath -WorkingDirectory (Join-Path $InstallDirectory "mulletaflix-windows-tray")
 }
 
 Log "In-place update completed successfully."

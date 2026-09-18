@@ -133,19 +133,37 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
         var updatesDir = Path.Combine(_applicationPaths.ProgramDataPath, "updates");
         var extractDir = Path.Combine(updatesDir, "extracted");
+        var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         if (info.UpdateAvailable && !string.IsNullOrWhiteSpace(info.ArchiveUrl))
         {
             // 1. Check if update was already downloaded and verified on disk
             TryRestorePersistentState(updatesDir, extractDir, info.AvailableVersion);
 
-            lock (SyncLock)
+            // 2. Se os arquivos extraídos são idênticos aos instalados, não há atualização a ser feita
+            if (Directory.Exists(extractDir) && AreUpdateFilesIdentical(extractDir, installDir, _logger))
             {
-                // 2. If not yet downloaded and not currently in progress, auto-download in background!
-                if (_installState is "Idle")
+                _logger.LogInformation("Arquivos da atualização são idênticos aos instalados em {InstallDir}. Ocultando atualização.", installDir);
+                info.UpdateAvailable = false;
+                lock (SyncLock)
                 {
-                    _logger.LogInformation("New server update {Version} detected. Starting automatic background download...", info.AvailableVersion);
-                    StartBackgroundDownload(info.ArchiveUrl, info.AvailableVersion);
+                    _installState = "Idle";
+                    _installProgress = 0;
+                    _extractedUpdatePath = null;
+                }
+
+                CleanupObsoleteUpdates(updatesDir, extractDir);
+            }
+            else
+            {
+                lock (SyncLock)
+                {
+                    // 3. If not yet downloaded and not currently in progress, auto-download in background!
+                    if (_installState is "Idle")
+                    {
+                        _logger.LogInformation("New server update {Version} detected. Starting automatic background download...", info.AvailableVersion);
+                        StartBackgroundDownload(info.ArchiveUrl, info.AvailableVersion);
+                    }
                 }
             }
         }
@@ -365,6 +383,8 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         var stateFile = Path.Combine(updatesDir, "update_state.json");
         try
         {
+            var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
             if (System.IO.File.Exists(stateFile))
             {
                 var json = System.IO.File.ReadAllText(stateFile);
@@ -376,12 +396,20 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                     && Directory.Exists(state.ExtractedPath ?? extractDir)
                     && Directory.EnumerateFileSystemEntries(state.ExtractedPath ?? extractDir).Any())
                 {
+                    var targetExtract = state.ExtractedPath ?? extractDir;
+                    if (AreUpdateFilesIdentical(targetExtract, installDir, _logger))
+                    {
+                        _logger.LogInformation("Arquivos extraídos em {Dir} são idênticos aos instalados. Descartando atualização redundante.", targetExtract);
+                        CleanupObsoleteUpdates(updatesDir, targetExtract);
+                        return;
+                    }
+
                     lock (SyncLock)
                     {
                         _installState = "ReadyToApply";
                         _installProgress = 100;
                         _installError = null;
-                        _extractedUpdatePath = state.ExtractedPath ?? extractDir;
+                        _extractedUpdatePath = targetExtract;
                         _downloadedVersion = state.DownloadedVersion;
                     }
 
@@ -397,6 +425,13 @@ public class UpdateInfoController : BaseMulletaFlixApiController
                 && new FileInfo(packageZip).Length > 1024 * 1024
                 && !string.IsNullOrWhiteSpace(availableVersion))
             {
+                if (AreUpdateFilesIdentical(extractDir, installDir, _logger))
+                {
+                    _logger.LogInformation("Arquivos em {Dir} são idênticos aos instalados. Descartando atualização redundante.", extractDir);
+                    CleanupObsoleteUpdates(updatesDir, extractDir);
+                    return;
+                }
+
                 lock (SyncLock)
                 {
                     _installState = "ReadyToApply";
@@ -534,6 +569,21 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         Directory.CreateDirectory(extractDir);
         ZipFile.ExtractToDirectory(packageZip, extractDir, true);
 
+        var installDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (AreUpdateFilesIdentical(extractDir, installDir, _logger))
+        {
+            _logger.LogInformation("Arquivos extraídos da atualização são idênticos aos instalados. Atualização dispensada.");
+            lock (SyncLock)
+            {
+                _installState = "Idle";
+                _installProgress = 0;
+                _extractedUpdatePath = null;
+            }
+
+            CleanupObsoleteUpdates(updatesDir, extractDir);
+            return;
+        }
+
         lock (SyncLock)
         {
             _extractedUpdatePath = extractDir;
@@ -628,12 +678,109 @@ else {
     $exePath = Join-Path $InstallDirectory 'MulletaFlix.exe'
     if (Test-Path -LiteralPath $exePath) {
         $args = if ($DataDirectory) { ""--datadir `""$DataDirectory`"""" } else { """" }
-        Start-Process -FilePath $exePath -ArgumentList $args -WindowStyle Hidden
+        Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $InstallDirectory -WindowStyle Hidden
     }
 }
 $trayPath = Join-Path $InstallDirectory 'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
-if (Test-Path -LiteralPath $trayPath) { Start-Process -FilePath $trayPath }
+if (Test-Path -LiteralPath $trayPath) { Start-Process -FilePath $trayPath -WorkingDirectory (Join-Path $InstallDirectory 'mulletaflix-windows-tray') }
 ";
+
+    /// <summary>
+    /// Compara se todos os arquivos do pacote de atualização já estão presentes e são idênticos aos arquivos instalados.
+    /// Se forem idênticos, nenhuma atualização é necessária.
+    /// </summary>
+    internal static bool AreUpdateFilesIdentical(string updateDir, string installDir, ILogger? logger = null)
+    {
+        if (string.IsNullOrWhiteSpace(updateDir) || string.IsNullOrWhiteSpace(installDir)
+            || !Directory.Exists(updateDir) || !Directory.Exists(installDir))
+        {
+            return false;
+        }
+
+        try
+        {
+            var updateFiles = Directory.EnumerateFiles(updateDir, "*", SearchOption.AllDirectories).ToList();
+            if (updateFiles.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var updateFile in updateFiles)
+            {
+                var relPath = Path.GetRelativePath(updateDir, updateFile);
+
+                // Ignora scripts de atualização e arquivos temporários
+                if (string.Equals(relPath, "apply-update.ps1", StringComparison.OrdinalIgnoreCase)
+                    || relPath.EndsWith(".log", StringComparison.OrdinalIgnoreCase)
+                    || relPath.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+                    || relPath.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var installFile = Path.Combine(installDir, relPath);
+                if (!System.IO.File.Exists(installFile))
+                {
+                    logger?.LogDebug("Arquivo da atualização não encontrado na instalação: {File}", relPath);
+                    return false;
+                }
+
+                var updateInfo = new FileInfo(updateFile);
+                var installInfo = new FileInfo(installFile);
+
+                if (updateInfo.Length != installInfo.Length)
+                {
+                    logger?.LogDebug("Tamanho diferente para {File}: update={UpdateLen}, instalado={InstallLen}", relPath, updateInfo.Length, installInfo.Length);
+                    return false;
+                }
+
+                if (!AreFileContentsIdentical(updateFile, installFile))
+                {
+                    logger?.LogDebug("Conteúdo divergente em {File}", relPath);
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Erro ao comparar arquivos da atualização com arquivos instalados.");
+            return false;
+        }
+    }
+
+    private static bool AreFileContentsIdentical(string fileA, string fileB)
+    {
+        const int BufferSize = 64 * 1024;
+        var bufferA = new byte[BufferSize];
+        var bufferB = new byte[BufferSize];
+
+        using var streamA = new FileStream(fileA, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var streamB = new FileStream(fileB, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        if (streamA.Length != streamB.Length)
+        {
+            return false;
+        }
+
+        int bytesReadA;
+        while ((bytesReadA = streamA.Read(bufferA, 0, bufferA.Length)) > 0)
+        {
+            var bytesReadB = streamB.Read(bufferB, 0, bytesReadA);
+            if (bytesReadA != bytesReadB)
+            {
+                return false;
+            }
+
+            if (!bufferA.AsSpan(0, bytesReadA).SequenceEqual(bufferB.AsSpan(0, bytesReadB)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private sealed class GitHubReleasePayload
     {
