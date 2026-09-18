@@ -494,7 +494,21 @@ public sealed class NebulaMongoContext : IDisposable
 
         var filter = Builders<BsonDocument>.Filter.And(nameFilter, parentFilter);
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        var matches = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (matches.Count <= 1)
+        {
+            return matches.FirstOrDefault();
+        }
+
+        // Se houver mais de um documento com o mesmo nome sob o pai (ex.: duplicações históricas),
+        // prefira o documento que possui payload do Telegram ou é um diretório válido.
+        return matches
+            .OrderByDescending(d =>
+                (d.TryGetValue("parts", out var p) && p.IsBsonArray && p.AsBsonArray.Count > 0) ||
+                (d.TryGetValue("tg_file_id", out var t) && !string.IsNullOrEmpty(t.AsString)) ||
+                d.GetValue("is_directory", false).AsBoolean ||
+                d.GetValue("type", string.Empty).AsString == "dir")
+            .First();
     }
 
     /// <summary>

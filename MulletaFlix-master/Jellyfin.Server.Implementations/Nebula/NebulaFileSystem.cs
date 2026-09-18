@@ -137,7 +137,15 @@ public sealed class NebulaFileSystem : IUnixFileSystem
 
         var isRoot = dir.IsRoot || dir.FullVirtualPath == "/" || dir.FullVirtualPath.Equals(_userHomePath, StringComparison.OrdinalIgnoreCase);
 
-        foreach (var doc in docs)
+        // Deduplica entradas pelo nome para evitar registros duplicados retornados do MongoDB
+        var distinctDocs = docs
+            .GroupBy(d => d.GetValue("name", string.Empty).AsString, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderByDescending(d =>
+                HasTelegramPayload(d) ||
+                d.GetValue("is_directory", false).AsBoolean ||
+                d.GetValue("type", string.Empty).AsString == "dir").First());
+
+        foreach (var doc in distinctDocs)
         {
             var name = doc.GetValue("name", string.Empty).AsString;
             if (string.IsNullOrEmpty(name))

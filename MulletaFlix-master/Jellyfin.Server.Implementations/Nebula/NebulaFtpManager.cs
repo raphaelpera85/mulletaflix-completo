@@ -3345,8 +3345,7 @@ user = {username}
 pass = {obscuredPassword}
 explicit_tls = false
 no_check_certificate = true
-concurrency = 16
-idle_timeout = 1m
+idle_timeout = 15s
 ";
         Directory.CreateDirectory(Path.GetDirectoryName(confPath)!);
         File.WriteAllText(confPath, confContent);
