@@ -1319,8 +1319,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         foreach (var part in parts)
         {
-            currentPath = string.IsNullOrEmpty(currentPath) ? part : $"{currentPath}/{part}";
-            var existing = await _mongoContext.FindByNameAndParentAsync(part, currentParent, cancellationToken).ConfigureAwait(false);
+            var parentVirtualPath = string.IsNullOrEmpty(currentPath) ? "/" : $"/{currentPath}";
+            var existing = await _mongoContext.FindByNameAndParentAsync(part, currentParent, parentVirtualPath, cancellationToken).ConfigureAwait(false);
             if (existing != null)
             {
                 currentParent = existing.GetValue("_id").ToString();
@@ -1343,6 +1343,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 await _mongoContext.InsertFileDocAsync(dirDoc, cancellationToken).ConfigureAwait(false);
                 currentParent = dirId.ToString();
             }
+
+            currentPath = string.IsNullOrEmpty(currentPath) ? part : $"{currentPath}/{part}";
         }
 
         return (currentParent, currentPath);

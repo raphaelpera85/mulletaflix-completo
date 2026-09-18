@@ -1291,10 +1291,12 @@ public sealed class NebulaMongoContext : IDisposable
         }
 
         string? currentParent = null;
+        string currentVirtualPath = string.Empty;
 
         foreach (var segment in segments)
         {
-            var existing = await FindByNameAndParentAsync(segment, currentParent, cancellationToken).ConfigureAwait(false);
+            var parentVirtualPath = string.IsNullOrEmpty(currentVirtualPath) ? "/" : $"/{currentVirtualPath}";
+            var existing = await FindByNameAndParentAsync(segment, currentParent, parentVirtualPath, cancellationToken).ConfigureAwait(false);
             if (existing != null)
             {
                 currentParent = existing.GetValue("_id").ToString();
@@ -1330,6 +1332,8 @@ public sealed class NebulaMongoContext : IDisposable
 
                 currentParent = dirId.ToString();
             }
+
+            currentVirtualPath = string.IsNullOrEmpty(currentVirtualPath) ? segment : $"{currentVirtualPath}/{segment}";
         }
 
         return currentParent;

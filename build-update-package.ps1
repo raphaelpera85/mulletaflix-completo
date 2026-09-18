@@ -10,7 +10,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Version = "12.0.4",
+    [string]$Version = "12.0.8",
     [string]$OutputDir,
     [switch]$SkipBuild
 )
@@ -53,6 +53,17 @@ if (-not $SkipBuild) {
 if (Test-Path -LiteralPath $updaterScriptSource) {
     Copy-Item -LiteralPath $updaterScriptSource -Destination (Join-Path $stageDir 'apply-update.ps1') -Force
     Write-Host "Synced apply-update.ps1 to stage." -ForegroundColor Green
+}
+
+# 2.1 Ensure Tools are synced to stage
+$toolsSource = Join-Path $projectRoot 'MulletaFlix-master\Tools'
+if (Test-Path -LiteralPath $toolsSource) {
+    $toolsDest = Join-Path $stageDir 'Tools'
+    if (-not (Test-Path -LiteralPath $toolsDest)) {
+        New-Item -ItemType Directory -Path $toolsDest -Force | Out-Null
+    }
+    Copy-Item -LiteralPath (Join-Path $toolsSource 'mount_drive_n.py') -Destination $toolsDest -Force
+    Write-Host "Synced Tools to stage." -ForegroundColor Green
 }
 
 # 3. Create clean temp directory for update archive

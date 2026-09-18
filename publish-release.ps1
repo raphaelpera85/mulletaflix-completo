@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Tag = "v12.0.7",
-    [string]$Title = "MulletaFlix Server v12.0.7",
+    [string]$Tag = "v12.0.8",
+    [string]$Title = "MulletaFlix Server v12.0.8",
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip"
 )
 
@@ -43,10 +43,9 @@ try {
 $bodyContent = @"
 ### MulletaFlix $Tag
 
-- **Resiliência de Metadados e Concorrência MySQL**: Tratamento de conflitos transitórios (erros 1062, 1452, 1213 e 1205) com retry progressivo e lookup seguro em `ItemPersistenceService`, eliminando falhas durante tarefas em segundo plano (como `StrmProbeScheduledTask`).
-- **Validação Completa de Streaming e Transcodificação**: Testes reais executados ponta a ponta com Direct Play/Stream e transcodificação dinâmica HLS em mídias de rede e locais com aceleração por hardware (NVENC).
-- **Nebula Downloader & Upload**: Pipeline de upload nativo via Telegram bot pool, MongoDB context e regra de 10% de espaço livre em disco com alternância dinâmica entre unidades de stage.
-- **MulletaFlix Android App**: Aplicativo oficial para Android e Android TV / Box com ExoPlayer/Media3, fallback inteligente para transcodificação e reporte contínuo de progresso de reprodução.
+- **Correção de Erro de E/S na Montagem N:**: Corrigido o travamento no driver WinFsp/rclone ajustando o cache para modo full e otimizando o fechamento de sockets FTP.
+- **Resolução de Pastas Duplicadas e Metadados Invisíveis**: Ajustada a hierarquia em `EnsureDirectoryStructureAsync` e `NebulaDownloaderEngine` para rastrear o caminho virtual canônico e evitar criação duplicada de diretórios para arquivos pequenos (.nfo, pôsteres, logos).
+- **Consolidação de Pastas e Limpeza de Arquivos Temporários**: Unificação das pastas no MongoDB, reconectando todos os arquivos de metadados às suas respectivas pastas de mídia.
 "@
 
 $releasePayloadJson = @{
