@@ -441,6 +441,7 @@ internal sealed class NebulaBackgroundTransfer : IBackgroundTransfer
             if (File.Exists(stagingPath))
             {
                 File.Delete(stagingPath);
+                _uploadEngine?.CleanEmptyParentDirectories(stagingPath);
             }
         }
     }

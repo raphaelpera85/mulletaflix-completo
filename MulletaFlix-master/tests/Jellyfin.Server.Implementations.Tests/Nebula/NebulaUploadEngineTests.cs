@@ -1127,4 +1127,97 @@ public class NebulaUploadEngineTests
         libraryManagerMock.Verify(m => m.RemoveMediaPath(It.IsAny<string>(), @"D:\External\Movies"), Times.Never);
         libraryManagerMock.Verify(m => m.AddMediaPath(It.IsAny<string>(), It.IsAny<MediaPathInfo>()), Times.Never);
     }
+
+    [Fact]
+    public void CleanEmptyParentDirectories_RemovesEmptyFolders_UpToStageRoot()
+    {
+        var stageRoot = Path.Combine(Path.GetTempPath(), "nebula_stage_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stageRoot);
+        try
+        {
+            var nestedDir = Path.Combine(stageRoot, "Series", "ShowName", "Season 01");
+            Directory.CreateDirectory(nestedDir);
+            var file = Path.Combine(nestedDir, "episode1.mkv");
+            File.WriteAllText(file, "dummy content");
+
+            using var engine = new NebulaUploadEngine(
+                null!,
+                null!,
+                uploadConcurrency: 1,
+                chunkSizeMb: 16,
+                deleteSourceAfterUpload: true,
+                NullLogger<NebulaUploadEngine>.Instance,
+                getStagingRoots: () => new[] { stageRoot });
+
+            // Simula a remoção do arquivo de staging
+            File.Delete(file);
+            engine.CleanEmptyParentDirectories(file);
+
+            // As subpastas vazias devem ter sido removidas
+            Assert.False(Directory.Exists(nestedDir));
+            Assert.False(Directory.Exists(Path.Combine(stageRoot, "Series", "ShowName")));
+            Assert.False(Directory.Exists(Path.Combine(stageRoot, "Series")));
+
+            // A raiz de staging NÃO deve ser removida
+            Assert.True(Directory.Exists(stageRoot));
+        }
+        finally
+        {
+            if (Directory.Exists(stageRoot))
+            {
+                Directory.Delete(stageRoot, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void CleanEmptyParentDirectories_PreservesFolder_WhenOtherFilesRemain()
+    {
+        var stageRoot = Path.Combine(Path.GetTempPath(), "nebula_stage_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stageRoot);
+        try
+        {
+            var movieDir = Path.Combine(stageRoot, "Filmes", "Inception (2010)");
+            Directory.CreateDirectory(movieDir);
+            var mediaFile = Path.Combine(movieDir, "Inception.mkv");
+            var sidecarFile = Path.Combine(movieDir, "Inception.nfo");
+            File.WriteAllText(mediaFile, "media");
+            File.WriteAllText(sidecarFile, "nfo");
+
+            using var engine = new NebulaUploadEngine(
+                null!,
+                null!,
+                uploadConcurrency: 1,
+                chunkSizeMb: 16,
+                deleteSourceAfterUpload: true,
+                NullLogger<NebulaUploadEngine>.Instance,
+                getStagingRoots: () => new[] { stageRoot });
+
+            // Remove apenas o arquivo de mídia, mas o sidecar ainda permanece na pasta
+            File.Delete(mediaFile);
+            engine.CleanEmptyParentDirectories(mediaFile);
+
+            // A pasta NÃO deve ser excluída pois o sidecar ainda está nela
+            Assert.True(Directory.Exists(movieDir));
+            Assert.True(File.Exists(sidecarFile));
+
+            // Agora remove o sidecar também
+            File.Delete(sidecarFile);
+            engine.CleanEmptyParentDirectories(sidecarFile);
+
+            // Agora a pasta do filme e a pasta Filmes devem ser removidas
+            Assert.False(Directory.Exists(movieDir));
+            Assert.False(Directory.Exists(Path.Combine(stageRoot, "Filmes")));
+
+            // Raiz de staging mantida intacta
+            Assert.True(Directory.Exists(stageRoot));
+        }
+        finally
+        {
+            if (Directory.Exists(stageRoot))
+            {
+                Directory.Delete(stageRoot, true);
+            }
+        }
+    }
 }

@@ -1070,7 +1070,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                         }
                     },
                     emitServerLog: EmitServerLog,
-                    logQueueState: logQueueState);
+                    logQueueState: logQueueState,
+                    getStagingRoots: () => (config.StagePaths ?? Array.Empty<string>()).Where(p => !string.IsNullOrWhiteSpace(p)));
             }
             else
             {

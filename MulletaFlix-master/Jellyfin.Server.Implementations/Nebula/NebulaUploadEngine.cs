@@ -30,6 +30,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     private readonly Func<BsonDocument, Task>? _onNodeUpdated;
     private readonly Action<string, string>? _emitServerLog;
     private readonly Func<string, Task>? _logQueueState;
+    private readonly Func<IEnumerable<string>>? _getStagingRoots;
     private readonly CancellationTokenSource _cts = new();
     private bool _disposed;
 
@@ -51,6 +52,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// <param name="onNodeUpdated">Callback opcional acionado quando um nó é concluído para sincronização imediata com Supabase.</param>
     /// <param name="emitServerLog">Callback de emissão de logs formatados do servidor.</param>
     /// <param name="logQueueState">Callback de log de estado da fila.</param>
+    /// <param name="getStagingRoots">Callback opcional para obter as pastas raiz de staging.</param>
     public NebulaUploadEngine(
         NebulaMongoContext mongoContext,
         NebulaTelegramPool telegramPool,
@@ -61,7 +63,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         Action<string>? uiLog = null,
         Func<BsonDocument, Task>? onNodeUpdated = null,
         Action<string, string>? emitServerLog = null,
-        Func<string, Task>? logQueueState = null)
+        Func<string, Task>? logQueueState = null,
+        Func<IEnumerable<string>>? getStagingRoots = null)
     {
         _mongoContext = mongoContext;
         _telegramPool = telegramPool;
@@ -75,6 +78,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         _onNodeUpdated = onNodeUpdated;
         _emitServerLog = emitServerLog;
         _logQueueState = logQueueState;
+        _getStagingRoots = getStagingRoots;
         _concurrencySemaphore = new SemaphoreSlim(uploadConcurrency > 0 ? uploadConcurrency : 8);
     }
 
@@ -280,6 +284,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 }
 
                 NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
+                CleanEmptyParentDirectories(localFilePath);
                 return true;
             }
 
@@ -318,6 +323,10 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     // retry discovered that the media was already complete.
                     // Release it so queued sidecars are not blocked forever.
                     NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
+                    if (_deleteSourceAfterUpload)
+                    {
+                        CleanEmptyParentDirectories(localFilePath);
+                    }
 
                     return true;
                 }
@@ -693,6 +702,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             // sidecars antes da mídia correspondente.
             NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
 
+            if (_deleteSourceAfterUpload)
+            {
+                CleanEmptyParentDirectories(localFilePath);
+            }
+
             return true;
         }
         finally
@@ -783,6 +797,75 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         _cts.Dispose();
         _disposed = true;
         await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Limpa recursivamente diretórios pais vazios a partir do diretório do arquivo excluído,
+    /// até atingir uma das raízes de staging configuradas ou a raiz da unidade de disco.
+    /// </summary>
+    internal void CleanEmptyParentDirectories(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return;
+        }
+
+        try
+        {
+            var currentDir = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrWhiteSpace(currentDir) || !Directory.Exists(currentDir))
+            {
+                return;
+            }
+
+            var roots = _getStagingRoots?.Invoke()?.Where(p => !string.IsNullOrWhiteSpace(p)).Select(Path.GetFullPath).ToList() ?? new List<string>();
+            var isImmediateParent = true;
+
+            while (!string.IsNullOrWhiteSpace(currentDir) && Directory.Exists(currentDir))
+            {
+                var fullCurrentDir = Path.GetFullPath(currentDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                var isRoot = roots.Any(root => string.Equals(
+                    fullCurrentDir,
+                    root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase));
+
+                var pathRoot = Path.GetPathRoot(fullCurrentDir)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (isRoot || string.Equals(pathRoot, fullCurrentDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                if (roots.Count == 0 && !isImmediateParent)
+                {
+                    break;
+                }
+
+                isImmediateParent = false;
+
+                if (NebulaMetadataExportService.IsOrphanPendingMarkerDirectory(currentDir))
+                {
+                    NebulaMetadataExportService.RemovePendingMarker(currentDir);
+                }
+
+                var hasFiles = Directory.EnumerateFiles(currentDir, "*", SearchOption.AllDirectories).Any();
+                if (!hasFiles)
+                {
+                    Directory.Delete(currentDir, true);
+                    _logger.LogInformation("[NEBULA-UPLOAD] Diretório de staging vazio removido: {Dir}", currentDir);
+                    LogServer("INFO", $"[NEBULA-UPLOAD] Diretório de staging vazio removido: {currentDir}");
+                    currentDir = Path.GetDirectoryName(currentDir);
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-UPLOAD] Não foi possível verificar/remover diretórios vazios para {Path}", filePath);
+        }
     }
 
     /// <inheritdoc />

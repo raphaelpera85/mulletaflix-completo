@@ -1712,6 +1712,7 @@ public sealed class NebulaMongoContext : IDisposable
                                 {
                                     File.Delete(fileInfo.FullName);
                                     _logger.LogInformation("[NEBULA-MONGO] Arquivo .strm de mídia já concluída no Telegram removido do staging: {Path}", fileInfo.FullName);
+                                    CleanEmptyParentDirectories(fileInfo.FullName, stageRoot);
                                 }
                             }
                             catch (Exception ex)
@@ -1756,6 +1757,7 @@ public sealed class NebulaMongoContext : IDisposable
                                 {
                                     File.Delete(fileInfo.FullName);
                                     _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging já concluído no Telegram removido do disco: {Path}", fileInfo.FullName);
+                                    CleanEmptyParentDirectories(fileInfo.FullName, stageRoot);
                                 }
                             }
                             catch (Exception ex)
@@ -1808,6 +1810,7 @@ public sealed class NebulaMongoContext : IDisposable
                                 {
                                     File.Delete(fileInfo.FullName);
                                     _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging duplicado removido do disco: {Path}", fileInfo.FullName);
+                                    CleanEmptyParentDirectories(fileInfo.FullName, stageRoot);
                                 }
                             }
                             catch (Exception ex)
@@ -2058,6 +2061,76 @@ public sealed class NebulaMongoContext : IDisposable
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Limpa recursivamente diretórios pais vazios a partir do arquivo excluído até atingir a raiz de staging.
+    /// </summary>
+    internal void CleanEmptyParentDirectories(string? filePath, string? stageRoot)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return;
+        }
+
+        try
+        {
+            var currentDir = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrWhiteSpace(currentDir) || !Directory.Exists(currentDir))
+            {
+                return;
+            }
+
+            var fullStageRoot = !string.IsNullOrWhiteSpace(stageRoot)
+                ? Path.GetFullPath(stageRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                : null;
+
+            var isImmediateParent = true;
+
+            while (!string.IsNullOrWhiteSpace(currentDir) && Directory.Exists(currentDir))
+            {
+                var fullCurrentDir = Path.GetFullPath(currentDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                if (fullStageRoot != null && string.Equals(fullCurrentDir, fullStageRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                var pathRoot = Path.GetPathRoot(fullCurrentDir)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (string.Equals(pathRoot, fullCurrentDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                if (fullStageRoot == null && !isImmediateParent)
+                {
+                    break;
+                }
+
+                isImmediateParent = false;
+
+                if (NebulaMetadataExportService.IsOrphanPendingMarkerDirectory(currentDir))
+                {
+                    NebulaMetadataExportService.RemovePendingMarker(currentDir);
+                }
+
+                var hasFiles = Directory.EnumerateFiles(currentDir, "*", SearchOption.AllDirectories).Any();
+                if (!hasFiles)
+                {
+                    Directory.Delete(currentDir, true);
+                    _logger.LogInformation("[NEBULA-MONGO] Diretório de staging vazio removido: {Dir}", currentDir);
+                    currentDir = Path.GetDirectoryName(currentDir);
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-MONGO] Não foi possível verificar/remover diretórios vazios para {Path}", filePath);
+        }
     }
 
     /// <inheritdoc />
