@@ -23,24 +23,11 @@ if (-not $ApkPath) {
 }
 
 # 1. Get token from git credential helper
-$inputStr = "protocol=https`nhost=github.com`n`n"
-$process = New-Object System.Diagnostics.Process
-$process.StartInfo.FileName = "git.exe"
-$process.StartInfo.Arguments = "credential fill"
-$process.StartInfo.UseShellExecute = $false
-$process.StartInfo.RedirectStandardInput = $true
-$process.StartInfo.RedirectStandardOutput = $true
-$process.StartInfo.CreateNoWindow = $true
-$process.Start() | Out-Null
-$process.StandardInput.Write($inputStr)
-$process.StandardInput.Close()
-$output = $process.StandardOutput.ReadToEnd()
-$process.WaitForExit()
-
 $token = ""
-foreach ($line in ($output -split "`n")) {
-    if ($line -like "password=*") {
-        $token = $line.Substring(9).Trim()
+$credOutput = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
+foreach ($line in ($credOutput -split "`n")) {
+    if ($line.Trim() -like "password=*") {
+        $token = $line.Trim().Substring(9).Trim()
         break
     }
 }
