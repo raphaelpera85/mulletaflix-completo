@@ -61,3 +61,52 @@ Cada card deve apresentar claramente:
   3. Publicar/atualizar a Release no GitHub anexando o zip do servidor e o APK do aplicativo (via `.\publish-release.ps1`).
   4. Publicar/atualizar a Release dedicada do aplicativo via `.\publish-app-release.ps1` (tag `app-v<NovaVersao>`).
   5. Isso garante que instâncias ativas do MulletaFlix detectem a nova versão em tempo real no **Centro de Atualizações (`/dashboard/updates`)** e usuários do aplicativo tenham o APK disponível imediatamente.
+
+---
+
+## 5. Resiliência de Persistência no MySQL (.NET & Entity Framework)
+
+### 5.1 Tratamento Obrigatório de Conflitos e Deadlocks Transitórios
+Tarefas em segundo plano (como `StrmProbeScheduledTask`, varreduras de biblioteca e ingestão do Nebula) executam operações concorrentes com inserções e remoções de metadados (`ItemValues` e `ItemValuesMap`). Operações de salvamento no MySQL devem obrigatoriamente tratar erros transitórios via retry com backoff progressivo:
+- **1062**: Entrada duplicada em índices exclusivos (`IX_ItemValues_Type_Value`).
+- **1452**: Falha de chave estrangeira (`Cannot add or update a child row: a foreign key constraint fails`) decorrente de limpezas simultâneas de valores não referenciados.
+- **1213**: Deadlock detectado pelo motor InnoDB (`Deadlock found when trying to get lock`).
+- **1205**: Tempo limite de espera por lock excedido (`Lock wait timeout exceeded`).
+
+Padrão exigido:
+```csharp
+for (var attempt = 1; attempt <= 3; attempt++)
+{
+    try
+    {
+        UpdateOrInsertItemsCore(items);
+        return;
+    }
+    catch (DbUpdateException ex) when (attempt < 3 && IsTransientMetadataConflict(ex))
+    {
+        _logger.LogWarning(ex, "Transient metadata conflict on attempt {Attempt}. Retrying...", attempt);
+        Thread.Sleep(attempt * 75);
+    }
+}
+```
+
+### 5.2 Lookup Seguro em Caches de Persistência
+- Em mapeamentos e caches em memória de valores de itens (`ItemValuesMap`), **nunca** acessar o dicionário via indexador direto `lookup[key]`, pois itens excluídos ou alterados concorrentemente lançam `KeyNotFoundException`.
+- Utilizar sempre `lookup.TryGetValue(key, out var val)` filtrando valores nulos antes da geração da transação.
+
+---
+
+## 6. Execução de Mídia e FFmpeg/FFprobe no Windows
+
+### 6.1 Proibição do Prefixo `file:` para Caminhos Locais no Windows
+- Ao invocar `ffmpeg.exe` ou `ffprobe.exe` no Windows, **nunca** prefixar caminhos locais ou unidades mapeadas com `file:` (ex: `file:N:\Filmes\...` ou `file:C:\...`).
+- O runtime do FFmpeg no Windows falha ao interpretar letras de unidade acompanhadas de `file:`, abortando com `Invalid argument`. Caminhos do Windows devem ser fornecidos como caminhos literais normalizados (ex: `N:\Filmes\...`).
+
+### 6.2 Isolamento de Subtitles em Transcodificações Rápidas
+- Em operações de transcodificação de vídeo com busca rápida (`-ss`), containers como `.mkv` contendo faixas de legenda embutidas (ex: `subrip`) fazem o FFmpeg varrer todo o arquivo se legendas não forem explicitamente excluídas ou mapeadas em pipeline separado.
+- Para transcodificações de áudio/vídeo imediatas, incluir sempre `-sn` ou `-map -0:s` no comando.
+
+### 6.3 Elevação de Privilégios em Atualizações In-Place (Windows)
+- Modificações ou cópias de binários para `C:\Program Files\MulletaFlix\Server\` exigem privilégios elevados de Administrador (UAC).
+- O disparador de in-place update deve sempre invocar o PowerShell com `Verb = "runas"` para garantir que o Robocopy conclua a substituição sem erro 5 (`Acesso negado`).
+
