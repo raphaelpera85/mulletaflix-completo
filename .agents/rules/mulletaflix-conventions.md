@@ -56,7 +56,8 @@ Cada card deve apresentar claramente:
 
 ### 4.1 Regra de Ouro: Modificação no MulletaFlix Exige Release no Git
 - Sempre que qualquer alteração, correção de bug ou nova funcionalidade for finalizada e aprovada na suíte de testes (Quality Bar), deve-se:
-  1. Gerar o pacote de atualização autônomo via `.\build-update-package.ps1 -Version <NovaVersao>`.
-  2. Publicar a Release correspondente no GitHub anexando o asset `dist/mulletaflix-update-win-x64.zip` (via `.\publish-release.ps1` ou tag do Git).
-  3. Isso garante que instâncias ativas do MulletaFlix detectem a nova versão em tempo real no **Centro de Atualizações (`/dashboard/updates`)** e possam atualizar com 1 clique.
-
+  1. Gerar o pacote de atualização autônomo do servidor via `.\build-update-package.ps1 -Version <NovaVersao>`.
+  2. Gerar o pacote do aplicativo Android via `.\build-app-package.ps1 -Version <NovaVersao>`.
+  3. Publicar/atualizar a Release no GitHub anexando o zip do servidor e o APK do aplicativo (via `.\publish-release.ps1`).
+  4. Publicar/atualizar a Release dedicada do aplicativo via `.\publish-app-release.ps1` (tag `app-v<NovaVersao>`).
+  5. Isso garante que instâncias ativas do MulletaFlix detectem a nova versão em tempo real no **Centro de Atualizações (`/dashboard/updates`)** e usuários do aplicativo tenham o APK disponível imediatamente.

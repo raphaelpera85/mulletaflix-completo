@@ -177,7 +177,7 @@ fun SettingsScreen(
 
             // ── Sobre ────────────────────────────────────────────────────────
             SettingsGroup(title = "Sobre") {
-                SettingsItem(icon = Icons.Default.Info, title = "Versão", subtitle = "MulletaFlix Android 12.0.0") {}
+                SettingsItem(icon = Icons.Default.Info, title = "Versão", subtitle = "MulletaFlix Android 12.0.2") {}
                 SettingsItem(icon = Icons.Default.OpenInBrowser, title = "GitHub", subtitle = "github.com/raphaelpera85/MulletaFlix") {}
                 SettingsItem(icon = Icons.Default.Gavel, title = "Licenças", subtitle = "GPL-2.0 e licenças de terceiros") {}
             }

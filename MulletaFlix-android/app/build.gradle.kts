@@ -14,8 +14,8 @@ android {
         applicationId = "org.mulletaflix.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "12.0.0"
+        versionCode = 2
+        versionName = "12.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
