@@ -1,26 +1,12 @@
 [CmdletBinding()]
 param(
     [string]$Tag = "v12.0.3",
-    [string]$Title = "MulletaFlix v12.0.3",
-    [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip",
-    [string]$ApkPath = ""
+    [string]$Title = "MulletaFlix Server v12.0.3",
+    [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip"
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-
-if (-not $ApkPath) {
-    $versionClean = $Tag.TrimStart('v')
-    $candidateApk = Join-Path $projectRoot "dist\mulletaflix-app-v$versionClean.apk"
-    if (Test-Path -LiteralPath $candidateApk) {
-        $ApkPath = $candidateApk
-    } else {
-        $candidateLatest = Join-Path $projectRoot "dist\mulletaflix-app.apk"
-        if (Test-Path -LiteralPath $candidateLatest) {
-            $ApkPath = $candidateLatest
-        }
-    }
-}
 
 # 1. Get token from git credential helper
 $token = ""
@@ -115,33 +101,7 @@ if (Test-Path -LiteralPath $resolvedZipPath) {
     Write-Warning "Arquivo zip de atualização não encontrado em: $resolvedZipPath"
 }
 
-# 4. Upload APK asset (if available)
-if ($ApkPath -and (Test-Path -LiteralPath $ApkPath)) {
-    $apkItem = Get-Item -LiteralPath $ApkPath
-    $apkAssetName = $apkItem.Name
 
-    # Re-fetch release to get updated assets list
-    $currentRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/$($release.id)" -Method Get -Headers $headers
-    if ($currentRelease.assets) {
-        foreach ($asset in $currentRelease.assets) {
-            if ($asset.name -eq $apkAssetName) {
-                Write-Host "Removendo asset APK antigo $($asset.name) (ID: $($asset.id))..." -ForegroundColor Yellow
-                Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/assets/$($asset.id)" -Method Delete -Headers $headers | Out-Null
-            }
-        }
-    }
-
-    Write-Host "Enviando arquivo APK $apkAssetName ($([Math]::Round($apkItem.Length / 1MB, 2)) MB) para o GitHub Releases..." -ForegroundColor Cyan
-    $apkUploadUrl = $currentRelease.upload_url -replace '\{\?name,label\}', "?name=$apkAssetName"
-    $apkUploadHeaders = @{
-        "Authorization" = "Bearer $token"
-        "Content-Type" = "application/vnd.android.package-archive"
-        "User-Agent" = "MulletaFlix-Release-Script"
-    }
-
-    $apkUploadResult = Invoke-RestMethod -Uri $apkUploadUrl -Method Post -Headers $apkUploadHeaders -InFile $ApkPath
-    Write-Host "Asset APK enviado com sucesso! Download URL: $($apkUploadResult.browser_download_url)" -ForegroundColor Green
-}
 
 Write-Host "`n==================================================" -ForegroundColor Green
 Write-Host "Release $Tag publicada com sucesso!" -ForegroundColor Green

@@ -206,7 +206,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun checkForUpdates(currentVersion: String = "12.0.2") {
+    fun checkForUpdates(currentVersion: String = "1.0.0") {
         if (checkAppUpdateUseCase == null) return
         viewModelScope.launch {
             _state.update { it.copy(isCheckingUpdate = true, updateErrorMessage = null, updateStatusMessage = null) }

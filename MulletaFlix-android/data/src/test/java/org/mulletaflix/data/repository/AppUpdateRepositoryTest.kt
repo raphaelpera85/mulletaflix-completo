@@ -17,14 +17,13 @@ class AppUpdateRepositoryTest {
 
     @Test
     fun `isVersionNewer correctly compares semantic versions`() {
-        assertTrue(repository.isVersionNewer("12.0.3", "12.0.2"))
-        assertTrue(repository.isVersionNewer("12.1.0", "12.0.2"))
-        assertTrue(repository.isVersionNewer("13.0.0", "12.0.2"))
-        assertTrue(repository.isVersionNewer("12.0.2.1", "12.0.2"))
+        assertTrue(repository.isVersionNewer("1.0.1", "1.0.0"))
+        assertTrue(repository.isVersionNewer("1.1.0", "1.0.0"))
+        assertTrue(repository.isVersionNewer("2.0.0", "1.0.0"))
+        assertTrue(repository.isVersionNewer("1.0.0.1", "1.0.0"))
 
-        assertFalse(repository.isVersionNewer("12.0.2", "12.0.2"))
-        assertFalse(repository.isVersionNewer("12.0.1", "12.0.2"))
-        assertFalse(repository.isVersionNewer("11.9.9", "12.0.2"))
+        assertFalse(repository.isVersionNewer("1.0.0", "1.0.0"))
+        assertFalse(repository.isVersionNewer("0.9.9", "1.0.0"))
     }
 
     @Test
@@ -32,52 +31,88 @@ class AppUpdateRepositoryTest {
         val json = """
         [
             {
-                "tag_name": "app-v12.0.3",
+                "tag_name": "app-v1.0.1",
                 "body": "Novas correções e melhorias no player",
                 "published_at": "2026-09-18T05:00:00Z",
                 "assets": [
                     {
-                        "name": "mulletaflix-app-v12.0.3.apk",
+                        "name": "mulletaflix-app-v1.0.1.apk",
                         "size": 7500000,
-                        "browser_download_url": "https://github.com/releases/download/app-v12.0.3/mulletaflix-app-v12.0.3.apk"
+                        "browser_download_url": "https://github.com/releases/download/app-v1.0.1/mulletaflix-app-v1.0.1.apk"
                     }
                 ]
             },
             {
-                "tag_name": "app-v12.0.2",
-                "body": "Versão anterior",
+                "tag_name": "app-v1.0.0",
+                "body": "Versão inicial",
                 "published_at": "2026-09-18T03:00:00Z",
                 "assets": [
                     {
-                        "name": "mulletaflix-app-v12.0.2.apk",
+                        "name": "mulletaflix-app-v1.0.0.apk",
                         "size": 7300000,
-                        "browser_download_url": "https://github.com/releases/download/app-v12.0.2/mulletaflix-app-v12.0.2.apk"
+                        "browser_download_url": "https://github.com/releases/download/app-v1.0.0/mulletaflix-app-v1.0.0.apk"
                     }
                 ]
             }
         ]
         """.trimIndent()
 
-        val info = repository.parseReleases(json, "12.0.2")
+        val info = repository.parseReleases(json, "1.0.0")
 
         assertTrue(info.isUpdateAvailable)
-        assertEquals("12.0.3", info.latestVersion)
-        assertEquals("12.0.2", info.currentVersion)
+        assertEquals("1.0.1", info.latestVersion)
+        assertEquals("1.0.0", info.currentVersion)
         assertEquals("Novas correções e melhorias no player", info.releaseNotes)
-        assertEquals("https://github.com/releases/download/app-v12.0.3/mulletaflix-app-v12.0.3.apk", info.apkDownloadUrl)
+        assertEquals("https://github.com/releases/download/app-v1.0.1/mulletaflix-app-v1.0.1.apk", info.apkDownloadUrl)
         assertEquals(7500000L, info.apkSize)
     }
 
     @Test
-    fun `parseReleases returns no update when installed version is latest`() {
+    fun `parseReleases ignores server releases completely`() {
         val json = """
         [
             {
+                "tag_name": "v12.0.3",
+                "body": "Server release",
+                "assets": [
+                    {
+                        "name": "mulletaflix-update-win-x64.zip",
+                        "size": 350000000,
+                        "browser_download_url": "https://github.com/.../server.zip"
+                    }
+                ]
+            },
+            {
                 "tag_name": "v12.0.2",
+                "body": "Server release older",
+                "assets": [
+                    {
+                        "name": "mulletaflix-update-win-x64.zip",
+                        "size": 350000000,
+                        "browser_download_url": "https://github.com/.../server.zip"
+                    }
+                ]
+            }
+        ]
+        """.trimIndent()
+
+        val info = repository.parseReleases(json, "1.0.0")
+
+        assertFalse(info.isUpdateAvailable)
+        assertEquals("1.0.0", info.latestVersion)
+        assertEquals("1.0.0", info.currentVersion)
+    }
+
+    @Test
+    fun `parseReleases returns no update when installed app version is latest`() {
+        val json = """
+        [
+            {
+                "tag_name": "app-v1.0.0",
                 "body": "Versão estável",
                 "assets": [
                     {
-                        "name": "mulletaflix-app-v12.0.2.apk",
+                        "name": "mulletaflix-app-v1.0.0.apk",
                         "size": 7300000,
                         "browser_download_url": "https://github.com/.../app.apk"
                     }
@@ -86,34 +121,10 @@ class AppUpdateRepositoryTest {
         ]
         """.trimIndent()
 
-        val info = repository.parseReleases(json, "12.0.2")
+        val info = repository.parseReleases(json, "1.0.0")
 
         assertFalse(info.isUpdateAvailable)
-        assertEquals("12.0.2", info.latestVersion)
-        assertEquals("12.0.2", info.currentVersion)
-    }
-
-    @Test
-    fun `parseReleases ignores releases without APK asset`() {
-        val json = """
-        [
-            {
-                "tag_name": "v12.0.9",
-                "body": "Server only release",
-                "assets": [
-                    {
-                        "name": "server-update.zip",
-                        "size": 100000000,
-                        "browser_download_url": "https://github.com/.../server.zip"
-                    }
-                ]
-            }
-        ]
-        """.trimIndent()
-
-        val info = repository.parseReleases(json, "12.0.2")
-
-        assertFalse(info.isUpdateAvailable)
-        assertEquals("12.0.2", info.latestVersion)
+        assertEquals("1.0.0", info.latestVersion)
+        assertEquals("1.0.0", info.currentVersion)
     }
 }

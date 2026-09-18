@@ -178,7 +178,15 @@ fun SettingsScreen(
             // ── Sobre ────────────────────────────────────────────────────────
             SettingsGroup(title = "Sobre") {
                 val context = androidx.compose.ui.platform.LocalContext.current
-                SettingsItem(icon = Icons.Default.Info, title = "Versão", subtitle = "MulletaFlix Android 12.0.2") {}
+                val currentAppVersion = remember {
+                    try {
+                        val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                        pInfo.versionName ?: "1.0.0"
+                    } catch (_: Exception) {
+                        "1.0.0"
+                    }
+                }
+                SettingsItem(icon = Icons.Default.Info, title = "Versão", subtitle = "MulletaFlix Android $currentAppVersion") {}
                 SettingsItem(
                     icon = Icons.Default.SystemUpdate,
                     title = "Verificar Atualizações do Aplicativo",
@@ -189,7 +197,7 @@ fun SettingsScreen(
                         state.updateErrorMessage != null -> state.updateErrorMessage ?: ""
                         else -> "Tocar para verificar atualizações"
                     },
-                    onClick = { viewModel.checkForUpdates("12.0.2") }
+                    onClick = { viewModel.checkForUpdates(currentAppVersion) }
                 )
                 SettingsItem(icon = Icons.Default.OpenInBrowser, title = "GitHub", subtitle = "github.com/raphaelpera85/MulletaFlix") {}
                 SettingsItem(icon = Icons.Default.Gavel, title = "Licenças", subtitle = "GPL-2.0 e licenças de terceiros") {}

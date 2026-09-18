@@ -64,6 +64,12 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
             for (i in 0 until releasesArray.length()) {
                 val release = releasesArray.optJSONObject(i) ?: continue
                 val tagName = release.optString("tag_name", "").trim()
+
+                // Considerar exclusivamente releases dedicadas do aplicativo Android
+                if (!tagName.startsWith("app-", ignoreCase = true)) {
+                    continue
+                }
+
                 val body = release.optString("body", "").trim()
                 val publishedAt = release.optString("published_at", "").trim()
                 val assets = release.optJSONArray("assets") ?: continue
@@ -78,7 +84,7 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                     if (name.endsWith(".apk", ignoreCase = true)) {
                         releaseApkUrl = asset.optString("browser_download_url", "")
                         releaseApkSize = asset.optLong("size", 0L)
-                        // Extract version from asset name like mulletaflix-app-v12.0.2.apk
+                        // Extract version from asset name like mulletaflix-app-v1.0.0.apk
                         val match = Regex("""(?:mulletaflix-app-)?v?([0-9]+(?:\.[0-9]+)*)\.apk""", RegexOption.IGNORE_CASE)
                             .find(name)
                         if (match != null) {
@@ -96,7 +102,6 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                     !assetVersion.isNullOrBlank() -> assetVersion
                     tagName.startsWith("app-v", ignoreCase = true) -> tagName.substring(5)
                     tagName.startsWith("app-", ignoreCase = true) -> tagName.substring(4)
-                    tagName.startsWith("v", ignoreCase = true) -> tagName.substring(1)
                     else -> tagName
                 }
 
