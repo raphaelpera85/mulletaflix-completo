@@ -36,7 +36,19 @@ interface AuthRepository {
     fun getSavedUserId(): Flow<String?>
     fun getSavedUserName(): Flow<String?> = kotlinx.coroutines.flow.flowOf(null)
     fun getSavedToken(): Flow<String?>
+    fun getSavedServers(): Flow<List<SavedServer>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    suspend fun addSavedServer(server: SavedServer) {}
+    suspend fun removeSavedServer(url: String) {}
 }
+
+data class SavedServer(
+    val name: String,
+    val url: String,
+    val latencyMs: Long? = null,
+    val version: String? = null,
+    val serverId: String? = null,
+    val lastConnected: Long = System.currentTimeMillis(),
+)
 
 
 data class ServerVerification(

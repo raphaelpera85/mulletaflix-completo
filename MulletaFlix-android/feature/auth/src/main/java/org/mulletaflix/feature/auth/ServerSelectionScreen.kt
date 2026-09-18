@@ -154,6 +154,23 @@ fun ServerSelectionScreen(
                 Text(if (state.isDiscovering) "Procurando na rede…" else "Procurar na rede")
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = {
+                    viewModel.connectToServer(DEFAULT_MULLETAFLIX_SERVER_URL, onSuccess = { onServerSelected() })
+                },
+                enabled = !state.isLoading,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+            ) {
+                Icon(Icons.Default.Cloud, contentDescription = "Conectar ao Servidor Oficial")
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Conectar ao Servidor Oficial (Nuvem)")
+            }
+
             // Servers found automatically or saved from previous connections.
             if (state.discoveredServers.isNotEmpty() || state.savedServers.isNotEmpty()) {
                 LazyColumn(
@@ -179,7 +196,7 @@ fun ServerSelectionScreen(
                     }
                     if (state.savedServers.isNotEmpty()) {
                         item {
-                            Text("Servidores salvos", style = MaterialTheme.typography.titleSmall, color = Color.White.copy(0.7f), modifier = Modifier.padding(vertical = 8.dp))
+                            Text("Servidores salvos / disponíveis", style = MaterialTheme.typography.titleSmall, color = Color.White.copy(0.7f), modifier = Modifier.padding(vertical = 8.dp))
                         }
                         items(state.savedServers, key = { it.url }) { server ->
                             SavedServerCard(
@@ -189,6 +206,7 @@ fun ServerSelectionScreen(
                                 version = server.version,
                                 onClick = { viewModel.connectToServer(server.url, onSuccess = { onServerSelected() }) },
                                 onRemove = { viewModel.removeServer(server.url) },
+                                showRemove = server.url.trimEnd('/') != DEFAULT_MULLETAFLIX_SERVER_URL.trimEnd('/'),
                             )
                         }
                     }
@@ -208,6 +226,7 @@ private fun SavedServerCard(
     onRemove: () -> Unit,
     showRemove: Boolean = true,
 ) {
+    val isOfficial = url.trimEnd('/') == DEFAULT_MULLETAFLIX_SERVER_URL.trimEnd('/')
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -216,16 +235,36 @@ private fun SavedServerCard(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Storage, contentDescription = "Servidor salvo", tint = MaterialTheme.colorScheme.secondary)
+            Icon(
+                if (isOfficial) Icons.Default.Cloud else Icons.Default.Storage,
+                contentDescription = if (isOfficial) "Servidor oficial na nuvem" else "Servidor salvo",
+                tint = if (isOfficial) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+            )
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(name, style = MaterialTheme.typography.titleSmall, color = Color.White)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(name, style = MaterialTheme.typography.titleSmall, color = Color.White)
+                    if (isOfficial) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                        ) {
+                            Text(
+                                "OFICIAL",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
                 Text(url, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.5f))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     version?.let { Text("v$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
                     latencyMs?.let { Text("${it} ms", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
                 }
             }
-            if (showRemove) {
+            if (showRemove && !isOfficial) {
                 IconButton(onClick = onRemove) {
                     Icon(Icons.Default.Close, contentDescription = "Remover servidor", tint = Color.White.copy(0.5f))
                 }

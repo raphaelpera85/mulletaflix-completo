@@ -2,6 +2,7 @@ package org.mulletaflix.data.repository
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.dto.AuthenticateByNameDto
@@ -149,5 +150,36 @@ class AuthRepositoryImpl @Inject constructor(
     override fun getSavedUserName(): Flow<String?> = sessionRepository.getCurrentUserName()
 
     override fun getSavedToken(): Flow<String?> = sessionRepository.getAccessToken()
+
+    override fun getSavedServers(): Flow<List<org.mulletaflix.domain.repository.SavedServer>> =
+        sessionRepository.getSavedServers().map { list ->
+            list.map { s ->
+                org.mulletaflix.domain.repository.SavedServer(
+                    name = s.name,
+                    url = s.url,
+                    latencyMs = s.latencyMs,
+                    version = s.version,
+                    serverId = s.serverId,
+                    lastConnected = s.lastConnected,
+                )
+            }
+        }
+
+    override suspend fun addSavedServer(server: org.mulletaflix.domain.repository.SavedServer) {
+        sessionRepository.addSavedServer(
+            org.mulletaflix.core.api.SavedServerSession(
+                name = server.name,
+                url = server.url,
+                latencyMs = server.latencyMs,
+                version = server.version,
+                serverId = server.serverId,
+                lastConnected = server.lastConnected,
+            )
+        )
+    }
+
+    override suspend fun removeSavedServer(url: String) {
+        sessionRepository.removeSavedServer(url)
+    }
 }
 

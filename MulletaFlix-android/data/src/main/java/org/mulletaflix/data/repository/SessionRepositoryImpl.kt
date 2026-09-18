@@ -31,6 +31,11 @@ class SessionRepositoryImpl @Inject constructor(
         val USER_NAME = stringPreferencesKey("user_name")
         val DEVICE_ID = stringPreferencesKey("device_id")
         val SERVER_ID = stringPreferencesKey("server_id")
+        val SAVED_SERVERS = stringPreferencesKey("saved_servers")
+    }
+
+    companion object {
+        const val DEFAULT_MULLETAFLIX_SERVER_URL = "http://mulletaflix.duckdns.org:8096"
     }
 
     override fun getAccessToken(): Flow<String?> {
@@ -116,5 +121,88 @@ class SessionRepositoryImpl @Inject constructor(
             preferences.remove(PreferencesKeys.USER_NAME)
             preferences.remove(PreferencesKeys.SERVER_ID)
         }
+    }
+
+    override fun getSavedServers(): Flow<List<org.mulletaflix.core.api.SavedServerSession>> {
+        return context.dataStore.data.map { preferences ->
+            val raw = preferences[PreferencesKeys.SAVED_SERVERS]
+            deserializeSavedServers(raw)
+        }
+    }
+
+    override suspend fun addSavedServer(server: org.mulletaflix.core.api.SavedServerSession) {
+        val cleanUrl = server.url.trimEnd('/')
+        context.dataStore.edit { preferences ->
+            val currentList = deserializeSavedServers(preferences[PreferencesKeys.SAVED_SERVERS]).toMutableList()
+            // Remove existing entry for the same URL (ignoring trailing slash)
+            currentList.removeAll { it.url.trimEnd('/') == cleanUrl }
+            // Add new or updated entry at top with refreshed timestamp
+            currentList.add(0, server.copy(url = cleanUrl, lastConnected = System.currentTimeMillis()))
+            preferences[PreferencesKeys.SAVED_SERVERS] = serializeSavedServers(currentList)
+        }
+    }
+
+    override suspend fun removeSavedServer(url: String) {
+        val cleanUrl = url.trimEnd('/')
+        // Never remove the default official DuckDNS server
+        if (cleanUrl == DEFAULT_MULLETAFLIX_SERVER_URL.trimEnd('/')) {
+            return
+        }
+        context.dataStore.edit { preferences ->
+            val currentList = deserializeSavedServers(preferences[PreferencesKeys.SAVED_SERVERS]).toMutableList()
+            currentList.removeAll { it.url.trimEnd('/') == cleanUrl }
+            preferences[PreferencesKeys.SAVED_SERVERS] = serializeSavedServers(currentList)
+        }
+    }
+
+    private fun serializeSavedServers(servers: List<org.mulletaflix.core.api.SavedServerSession>): String {
+        val array = org.json.JSONArray()
+        servers.forEach { server ->
+            val obj = org.json.JSONObject().apply {
+                put("name", server.name)
+                put("url", server.url)
+                if (server.latencyMs != null) put("latencyMs", server.latencyMs)
+                if (server.version != null) put("version", server.version)
+                if (server.serverId != null) put("serverId", server.serverId)
+                put("lastConnected", server.lastConnected)
+            }
+            array.put(obj)
+        }
+        return array.toString()
+    }
+
+    private fun deserializeSavedServers(raw: String?): List<org.mulletaflix.core.api.SavedServerSession> {
+        val list = mutableListOf<org.mulletaflix.core.api.SavedServerSession>()
+        if (!raw.isNullOrBlank()) {
+            runCatching {
+                val array = org.json.JSONArray(raw)
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    list.add(
+                        org.mulletaflix.core.api.SavedServerSession(
+                            name = obj.optString("name", "MulletaFlix Server"),
+                            url = obj.getString("url"),
+                            latencyMs = if (obj.has("latencyMs")) obj.getLong("latencyMs") else null,
+                            version = if (obj.has("version")) obj.getString("version") else null,
+                            serverId = if (obj.has("serverId")) obj.getString("serverId") else null,
+                            lastConnected = obj.optLong("lastConnected", 0L),
+                        )
+                    )
+                }
+            }
+        }
+        // ALWAYS ensure DEFAULT_MULLETAFLIX_SERVER_URL is present in the list
+        val hasOfficial = list.any { it.url.trimEnd('/') == DEFAULT_MULLETAFLIX_SERVER_URL.trimEnd('/') }
+        if (!hasOfficial) {
+            list.add(
+                org.mulletaflix.core.api.SavedServerSession(
+                    name = "MulletaFlix Oficial (Nuvem)",
+                    url = DEFAULT_MULLETAFLIX_SERVER_URL,
+                    version = "12.0.2",
+                    lastConnected = 0L,
+                )
+            )
+        }
+        return list.sortedByDescending { it.lastConnected }
     }
 }

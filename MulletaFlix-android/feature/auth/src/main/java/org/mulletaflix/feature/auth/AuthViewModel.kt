@@ -38,7 +38,13 @@ data class AuthState(
     val isLoading: Boolean = false,
     val isAuthenticated: Boolean = false,
     val error: String? = null,
-    val savedServers: List<ServerInfo> = emptyList(),
+    val savedServers: List<ServerInfo> = listOf(
+        ServerInfo(
+            name = "MulletaFlix Oficial (Nuvem)",
+            url = DEFAULT_MULLETAFLIX_SERVER_URL,
+            version = "12.0.2",
+        )
+    ),
     val availableUsers: List<AuthUser> = emptyList(),
     val quickConnectPin: String? = null,
     val quickConnectSecret: String? = null,
@@ -73,10 +79,27 @@ class AuthViewModel @Inject constructor(
                         val hasLocalServer = it.discoveredServers.isNotEmpty()
                         it.copy(
                             serverUrl = if (hasLocalServer) it.serverUrl else url,
-                            savedServers = listOf(ServerInfo("MulletaFlix Server", url))
                         )
                     }
                     loadAvailableUsers(url)
+                }
+            }
+        }
+        viewModelScope.launch {
+            authRepository.getSavedServers().collect { servers ->
+                if (servers.isNotEmpty()) {
+                    _state.update { current ->
+                        val mapped = servers.map { s ->
+                            ServerInfo(
+                                name = s.name,
+                                url = s.url,
+                                latencyMs = s.latencyMs,
+                                version = s.version,
+                                serverId = s.serverId,
+                            )
+                        }
+                        current.copy(savedServers = mapped)
+                    }
                 }
             }
         }
@@ -163,21 +186,30 @@ class AuthViewModel @Inject constructor(
             }
             verifyServerUseCase(cleanUrl)
                 .onSuccess { verification ->
-                authRepository.setServerUrl(cleanUrl)
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        serverUrl = cleanUrl,
-                        discoveredServers = it.discoveredServers.filterNot { server -> server.url == cleanUrl },
-                        savedServers = (it.savedServers + ServerInfo(
-                             name = verification.name,
-                             url = cleanUrl,
-                             latencyMs = verification.latencyMs,
-                             version = verification.version,
-                        )).distinctBy { s -> s.url }
+                    authRepository.setServerUrl(cleanUrl)
+                    authRepository.addSavedServer(
+                        org.mulletaflix.domain.repository.SavedServer(
+                            name = verification.name,
+                            url = cleanUrl,
+                            latencyMs = verification.latencyMs,
+                            version = verification.version,
+                        )
                     )
-                }
-                onSuccess()
+                    _state.update {
+                        val newServer = ServerInfo(
+                            name = verification.name,
+                            url = cleanUrl,
+                            latencyMs = verification.latencyMs,
+                            version = verification.version,
+                        )
+                        it.copy(
+                            isLoading = false,
+                            serverUrl = cleanUrl,
+                            discoveredServers = it.discoveredServers.filterNot { server -> server.url == cleanUrl },
+                            savedServers = (listOf(newServer) + it.savedServers).distinctBy { s -> s.url }
+                        )
+                    }
+                    onSuccess()
                 }
                 .onFailure { err ->
                     _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Servidor não encontrado ou indisponível") }
@@ -187,8 +219,15 @@ class AuthViewModel @Inject constructor(
     }
 
     fun removeServer(url: String) {
+        viewModelScope.launch {
+            authRepository.removeSavedServer(url)
+        }
         _state.update { current ->
-            current.copy(savedServers = current.savedServers.filterNot { it.url == url })
+            current.copy(
+                savedServers = current.savedServers.filterNot {
+                    it.url == url && it.url != DEFAULT_MULLETAFLIX_SERVER_URL
+                }
+            )
         }
     }
 

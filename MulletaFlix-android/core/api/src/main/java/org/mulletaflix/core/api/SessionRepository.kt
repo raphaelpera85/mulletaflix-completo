@@ -21,5 +21,17 @@ interface SessionRepository {
     suspend fun setBaseUrl(url: String)
     suspend fun setServerId(serverId: String?) {}
     suspend fun clearSession()
+    fun getSavedServers(): Flow<List<SavedServerSession>> = flowOf(emptyList())
+    suspend fun addSavedServer(server: SavedServerSession) {}
+    suspend fun removeSavedServer(url: String) {}
 }
+
+data class SavedServerSession(
+    val name: String,
+    val url: String,
+    val latencyMs: Long? = null,
+    val version: String? = null,
+    val serverId: String? = null,
+    val lastConnected: Long = System.currentTimeMillis(),
+)
 
