@@ -56,7 +56,7 @@ public class BackupScheduledTask : IScheduledTask, IConfigurableScheduledTask
         var options = new BackupOptionsDto
         {
             Database = true,
-            Metadata = true,
+            Metadata = false,
             Subtitles = true,
             Trickplay = false
         };

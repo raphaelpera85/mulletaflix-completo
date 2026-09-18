@@ -442,6 +442,7 @@ public class BackupService : IBackupService
             }
 
             _logger.LogInformation("Backup created");
+            PruneOldBackups(backupFolder, maxToKeep: 2);
             return Map(manifest, backupPath);
         }
         catch (Exception ex)
@@ -666,6 +667,47 @@ public class BackupService : IBackupService
 
         // Only allow safe characters: alphanumeric, hyphens, underscores
         return new string(migrationId.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_').ToArray());
+    }
+
+    /// <summary>
+    /// Deletes older backups to prevent unbounded disk usage, keeping at most <paramref name="maxToKeep"/> archives.
+    /// </summary>
+    internal void PruneOldBackups(string backupFolder, int maxToKeep = 2)
+    {
+        try
+        {
+            if (!Directory.Exists(backupFolder))
+            {
+                return;
+            }
+
+            var backupFiles = Directory.EnumerateFiles(backupFolder, "MulletaFlix-backup-*.zip", SearchOption.TopDirectoryOnly)
+                .Select(p => new FileInfo(p))
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .ToList();
+
+            if (backupFiles.Count <= maxToKeep)
+            {
+                return;
+            }
+
+            foreach (var oldBackup in backupFiles.Skip(maxToKeep))
+            {
+                try
+                {
+                    _logger.LogInformation("Pruning old backup to reclaim storage: {FileName}", oldBackup.Name);
+                    oldBackup.Delete();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete old backup {FileName}", oldBackup.Name);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to prune old backups in {BackupFolder}", backupFolder);
+        }
     }
 }
 

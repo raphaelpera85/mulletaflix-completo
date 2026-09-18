@@ -194,4 +194,49 @@ public class BackupServiceTests
         // and just verify the service construction works
         Assert.NotNull(fullService);
     }
+
+    [Fact]
+    public void PruneOldBackups_RetainsConfiguredLimitAndDeletesOldest()
+    {
+        // Arrange
+        var service = CreateService();
+        var tempFolder = Path.Combine(Path.GetTempPath(), "MulletaFlixPruneTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempFolder);
+
+        try
+        {
+            var file1 = Path.Combine(tempFolder, "MulletaFlix-backup-20260910010000.zip");
+            var file2 = Path.Combine(tempFolder, "MulletaFlix-backup-20260911010000.zip");
+            var file3 = Path.Combine(tempFolder, "MulletaFlix-backup-20260912010000.zip");
+            var file4 = Path.Combine(tempFolder, "MulletaFlix-backup-20260913010000.zip");
+
+            File.WriteAllText(file1, "dummy1");
+            File.SetLastWriteTimeUtc(file1, new DateTime(2026, 9, 10, 1, 0, 0, DateTimeKind.Utc));
+
+            File.WriteAllText(file2, "dummy2");
+            File.SetLastWriteTimeUtc(file2, new DateTime(2026, 9, 11, 1, 0, 0, DateTimeKind.Utc));
+
+            File.WriteAllText(file3, "dummy3");
+            File.SetLastWriteTimeUtc(file3, new DateTime(2026, 9, 12, 1, 0, 0, DateTimeKind.Utc));
+
+            File.WriteAllText(file4, "dummy4");
+            File.SetLastWriteTimeUtc(file4, new DateTime(2026, 9, 13, 1, 0, 0, DateTimeKind.Utc));
+
+            // Act: retain 2
+            service.PruneOldBackups(tempFolder, maxToKeep: 2);
+
+            // Assert: only the 2 newest should remain
+            Assert.False(File.Exists(file1), "Oldest backup should have been pruned");
+            Assert.False(File.Exists(file2), "Second oldest backup should have been pruned");
+            Assert.True(File.Exists(file3), "Second newest backup should be retained");
+            Assert.True(File.Exists(file4), "Newest backup should be retained");
+        }
+        finally
+        {
+            if (Directory.Exists(tempFolder))
+            {
+                Directory.Delete(tempFolder, recursive: true);
+            }
+        }
+    }
 }
