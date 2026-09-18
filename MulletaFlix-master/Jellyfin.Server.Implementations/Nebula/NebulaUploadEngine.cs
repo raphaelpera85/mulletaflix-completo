@@ -260,26 +260,23 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 var compName = alreadyCompleted.GetValue("name", targetFileName).AsString;
                 var compId = alreadyCompleted.GetValue("_id").ToString();
                 _logger.LogInformation(
-                    "[NEBULA-UPLOAD] Mídia '{Target}' já foi enviada para o Telegram anteriormente (Registro '{Comp}', ID: {Id}). Ignorando envio para evitar duplicata.",
+                    "[NEBULA-UPLOAD] Mídia '{Target}' já foi enviada para o Telegram anteriormente (Registro '{Comp}', ID: {Id}). Excluindo arquivo local para evitar duplicata.",
                     targetFileName,
                     compName,
                     compId);
-                LogServer("INFO", $"[NEBULA-UPLOAD] Mídia '{targetFileName}' já enviada ao Telegram anteriormente. Upload ignorado.");
+                LogServer("INFO", $"[NEBULA-UPLOAD] Mídia '{targetFileName}' já enviada ao Telegram anteriormente. Arquivo local excluído.");
 
-                if (_deleteSourceAfterUpload)
+                try
                 {
-                    try
+                    if (File.Exists(localFilePath))
                     {
-                        if (File.Exists(localFilePath))
-                        {
-                            File.Delete(localFilePath);
-                            _logger.LogInformation("[NEBULA-UPLOAD] Arquivo local de mídia já enviada removido: {Path}", localFilePath);
-                        }
+                        File.Delete(localFilePath);
+                        _logger.LogInformation("[NEBULA-UPLOAD] Arquivo local de mídia já enviada removido: {Path}", localFilePath);
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível remover arquivo local já enviado: {Path}", localFilePath);
-                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível remover arquivo local já enviado: {Path}", localFilePath);
                 }
 
                 NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);

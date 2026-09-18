@@ -767,6 +767,84 @@ public class NebulaUploadEngineTests
     }
 
     [Fact]
+    public void Downloader_DeleteAssociatedSidecars_DeletesNfoAndSidecarsOfCompletedMedia()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nebula-sidecar-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var mediaFile = Path.Combine(root, "Filme (2022).strm");
+        var nfoFile = Path.Combine(root, "Filme (2022).nfo");
+        var srtFile = Path.Combine(root, "Filme (2022).srt");
+        var posterFile = Path.Combine(root, "poster.jpg");
+
+        File.WriteAllText(mediaFile, "http://example.com");
+        File.WriteAllText(nfoFile, "<movie />");
+        File.WriteAllText(srtFile, "1\n00:00:01 --> 00:00:02\nTeste");
+        File.WriteAllText(posterFile, "fake image");
+
+        try
+        {
+            using var engine = new NebulaDownloaderEngine(
+                null!,
+                null!,
+                NullLogger<NebulaDownloaderEngine>.Instance);
+            var deleteSidecarsMethod = typeof(NebulaDownloaderEngine).GetMethod(
+                "DeleteAssociatedSidecars",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(deleteSidecarsMethod);
+            deleteSidecarsMethod.Invoke(engine, [mediaFile, "Filme (2022)"]);
+
+            // Sidecars com mesmo stem e sidecars genéricos (quando não há outras mídias) devem ser excluídos
+            Assert.False(File.Exists(nfoFile));
+            Assert.False(File.Exists(srtFile));
+            Assert.False(File.Exists(posterFile));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Downloader_DeleteTargetStageDirectoryIfCompleted_RemovesStageSidecarsAndDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nebula-stage-clean-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var nfoFile = Path.Combine(root, "Filme.nfo");
+        var jpgFile = Path.Combine(root, "cover.jpg");
+        File.WriteAllText(nfoFile, "<movie />");
+        File.WriteAllText(jpgFile, "image");
+
+        try
+        {
+            using var engine = new NebulaDownloaderEngine(
+                null!,
+                null!,
+                NullLogger<NebulaDownloaderEngine>.Instance);
+            var cleanStageMethod = typeof(NebulaDownloaderEngine).GetMethod(
+                "DeleteTargetStageDirectoryIfCompleted",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(cleanStageMethod);
+            cleanStageMethod.Invoke(engine, [root]);
+
+            Assert.False(File.Exists(nfoFile));
+            Assert.False(File.Exists(jpgFile));
+            Assert.False(Directory.Exists(root));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
     public void MetadataExport_PendingMarkerIsRemovedOnlyByExplicitRelease()
     {
         var directory = Path.Combine(Path.GetTempPath(), "nebula-metadata-marker-" + Guid.NewGuid().ToString("N"));

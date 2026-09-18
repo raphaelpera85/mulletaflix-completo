@@ -241,7 +241,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                             continue;
                         }
 
-                        var files = Directory.EnumerateFiles(src, "*.*", SearchOption.AllDirectories)
+                        var allCandidateFiles = Directory.EnumerateFiles(src, "*.*", SearchOption.AllDirectories)
                             .Where(f =>
                             {
                                 var name = Path.GetFileName(f);
@@ -257,11 +257,47 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                                     return false;
                                 }
 
-                                var ext = Path.GetExtension(f);
-                                return SupportedMediaExtensions.Contains(ext);
-                            });
+                                return true;
+                            })
+                            .ToList();
 
-                        mediaFiles.AddRange(files);
+                        var mediaList = allCandidateFiles
+                            .Where(f => SupportedMediaExtensions.Contains(Path.GetExtension(f)))
+                            .ToList();
+                        mediaFiles.AddRange(mediaList);
+
+                        // Limpeza de arquivos sidecar órfãos (.nfo, .xml, capas, etc.) cuja mídia já foi enviada e concluída no Telegram
+                        var orphanSidecars = allCandidateFiles
+                            .Where(f => SupportedSidecarExtensions.Contains(Path.GetExtension(f)))
+                            .ToList();
+                        foreach (var sidecar in orphanSidecars)
+                        {
+                            try
+                            {
+                                var sidecarDir = Path.GetDirectoryName(sidecar);
+                                var hasActiveMediaInDir = !string.IsNullOrEmpty(sidecarDir) &&
+                                    Directory.EnumerateFiles(sidecarDir).Any(f => SupportedMediaExtensions.Contains(Path.GetExtension(f)));
+
+                                if (!hasActiveMediaInDir && _mongoContext != null)
+                                {
+                                    var sidecarName = Path.GetFileName(sidecar);
+                                    var completedDoc = await _mongoContext.FindCompletedMediaAsync(sidecarName, sidecar, cancellationToken).ConfigureAwait(false);
+                                    if (completedDoc != null)
+                                    {
+                                        if (File.Exists(sidecar))
+                                        {
+                                            File.Delete(sidecar);
+                                            LogInfo($"Arquivo {sidecarName} (já concluído no Telegram) removido de {sidecarDir}");
+                                            CleanEmptyParentDirectoriesWithLog(sidecarDir, monitorSources);
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception scEx)
+                            {
+                                _logger.LogDebug(scEx, "[NEBULA-DOWNLOADER] Erro ao verificar sidecar {Path}", sidecar);
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -396,7 +432,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 return;
             }
 
-            LogInfo($"Mídia já concluída no Nebula ({reason}). Removendo .strm: {strmFileName}");
+            LogInfo($"Mídia já concluída no Nebula ({reason}). Removendo .strm e sidecars: {strmFileName}");
             _failureTracker.RecordSuccess(strmPath);
 
             // Recognition may have created a pending marker before the
@@ -419,6 +455,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             {
                 _logger.LogWarning(ex, "[NEBULA-DOWNLOADER] Erro ao deletar STRM duplicado {Path}", strmPath);
             }
+
+            // Exclui arquivos sidecars (.nfo, .xml, .srt, imagens, etc.) associados na pasta de origem e no stage
+            DeleteAssociatedSidecars(strmPath, fileNameWithoutExt);
+            DeleteTargetStageDirectoryIfCompleted(targetStageDir);
 
             CleanEmptyParentDirectoriesWithLog(Path.GetDirectoryName(strmPath), monitorSources);
             return;
@@ -561,6 +601,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             {
                 _logger.LogWarning(ex, "[NEBULA-DOWNLOADER] Erro ao deletar mídia duplicada {Path}", mediaPath);
             }
+
+            // Exclui arquivos sidecars (.nfo, .xml, .srt, imagens, etc.) associados na pasta de origem
+            var mediaStem = Path.GetFileNameWithoutExtension(mediaPath);
+            DeleteAssociatedSidecars(mediaPath, mediaStem);
 
             CleanEmptyParentDirectoriesWithLog(Path.GetDirectoryName(mediaPath), monitorSources);
             return;
@@ -1551,6 +1595,98 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         3 => "SERIES",
         _ => "OUTROS"
     };
+
+    /// <summary>
+    /// Exclui arquivos sidecars (.nfo, .xml, .srt, imagens, etc.) associados a uma mídia que já foi concluída no Telegram.
+    /// </summary>
+    private void DeleteAssociatedSidecars(string mediaPath, string stem)
+    {
+        var dir = Path.GetDirectoryName(mediaPath);
+        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+        {
+            return;
+        }
+
+        try
+        {
+            var otherMediaFiles = Directory.EnumerateFiles(dir)
+                .Where(f => !string.Equals(f, mediaPath, StringComparison.OrdinalIgnoreCase) &&
+                            SupportedMediaExtensions.Contains(Path.GetExtension(f)))
+                .ToList();
+
+            foreach (var file in Directory.EnumerateFiles(dir))
+            {
+                var ext = Path.GetExtension(file);
+                if (!SupportedSidecarExtensions.Contains(ext) && !string.Equals(ext, ".strm", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var sidecarStem = Path.GetFileNameWithoutExtension(file);
+                if (string.Equals(sidecarStem, stem, StringComparison.OrdinalIgnoreCase) || otherMediaFiles.Count == 0)
+                {
+                    try
+                    {
+                        if (File.Exists(file))
+                        {
+                            File.Delete(file);
+                            LogInfo($"Sidecar de mídia já concluída no Telegram removido: {Path.GetFileName(file)}");
+                            _logger.LogInformation("[NEBULA-DOWNLOADER] Sidecar de mídia já concluída removido: {File}", file);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[NEBULA-DOWNLOADER] Erro ao deletar sidecar de mídia concluída: {Path}", file);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-DOWNLOADER] Erro ao limpar sidecars em {Dir}", dir);
+        }
+    }
+
+    private void DeleteTargetStageDirectoryIfCompleted(string targetStageDir)
+    {
+        if (string.IsNullOrWhiteSpace(targetStageDir) || !Directory.Exists(targetStageDir))
+        {
+            return;
+        }
+
+        try
+        {
+            var stageFiles = Directory.EnumerateFiles(targetStageDir, "*", SearchOption.AllDirectories).ToList();
+            var hasActiveMedia = stageFiles.Any(f => SupportedMediaExtensions.Contains(Path.GetExtension(f)));
+            if (!hasActiveMedia)
+            {
+                foreach (var file in stageFiles)
+                {
+                    try
+                    {
+                        if (File.Exists(file))
+                        {
+                            File.Delete(file);
+                            _logger.LogInformation("[NEBULA-DOWNLOADER] Arquivo em staging de mídia já concluída removido: {File}", file);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[NEBULA-DOWNLOADER] Não foi possível remover arquivo do stage {File}", file);
+                    }
+                }
+
+                if (!Directory.EnumerateFileSystemEntries(targetStageDir).Any())
+                {
+                    Directory.Delete(targetStageDir, true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-DOWNLOADER] Erro ao verificar diretório de stage {Dir}", targetStageDir);
+        }
+    }
 
     /// <summary>
     /// Limpa recursivamente diretórios pais vazios a partir de uma pasta até atingir a raiz monitorada.

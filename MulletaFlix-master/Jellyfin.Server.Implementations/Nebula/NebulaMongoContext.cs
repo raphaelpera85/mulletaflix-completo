@@ -1190,6 +1190,40 @@ public sealed class NebulaMongoContext : IDisposable
             }
         }
 
+        // 4. Busca por sidecar genérico de Série (tvshow.nfo, season.nfo, poster, etc. em pasta de série)
+        if (!string.IsNullOrWhiteSpace(dirName))
+        {
+            var isGenericSeriesSidecar = string.Equals(stem, "tvshow", StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(stem, "season", StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(stem, "poster", StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(stem, "fanart", StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(stem, "banner", StringComparison.OrdinalIgnoreCase);
+
+            if (isGenericSeriesSidecar)
+            {
+                var seriesName = dirName.StartsWith("Season", StringComparison.OrdinalIgnoreCase) ||
+                                 dirName.StartsWith("Temporada", StringComparison.OrdinalIgnoreCase) ||
+                                 dirName.StartsWith("Specials", StringComparison.OrdinalIgnoreCase)
+                    ? Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(localFilePath) ?? string.Empty) ?? string.Empty)
+                    : dirName;
+
+                if (!string.IsNullOrWhiteSpace(seriesName))
+                {
+                    var seriesFilter = Builders<BsonDocument>.Filter.And(
+                        Builders<BsonDocument>.Filter.Ne("type", "dir"),
+                        Builders<BsonDocument>.Filter.Eq("status", "completed"),
+                        Builders<BsonDocument>.Filter.Regex("name", new BsonRegularExpression($"^{Regex.Escape(seriesName)}[\\. _-]", "i")));
+
+                    using var cursor = await _filesCollection.FindAsync(seriesFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    var match = await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                    if (match != null && HasTelegramParts(match))
+                    {
+                        return match;
+                    }
+                }
+            }
+        }
+
         return null;
     }
 
@@ -1653,11 +1687,6 @@ public sealed class NebulaMongoContext : IDisposable
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    if (!NebulaMetadataExportService.IsUploadablePath(file))
-                    {
-                        continue;
-                    }
-
                     var fileName = Path.GetFileName(file);
                     if (fileName.StartsWith('.') || fileName.Contains(".part", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".download", StringComparison.OrdinalIgnoreCase) || fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
                     {
@@ -1666,6 +1695,35 @@ public sealed class NebulaMongoContext : IDisposable
 
                     var fileInfo = new FileInfo(file);
                     if (fileInfo.Length <= 0)
+                    {
+                        continue;
+                    }
+
+                    var isStrm = string.Equals(Path.GetExtension(file), ".strm", StringComparison.OrdinalIgnoreCase);
+                    if (isStrm)
+                    {
+                        // Arquivos .strm no staging não são payloads de upload; se a mídia correspondente já foi concluída no Telegram, exclui o .strm do disco
+                        var completedStrm = await FindCompletedMediaAsync(fileName, fileInfo.FullName, cancellationToken).ConfigureAwait(false);
+                        if (completedStrm != null)
+                        {
+                            try
+                            {
+                                if (File.Exists(fileInfo.FullName))
+                                {
+                                    File.Delete(fileInfo.FullName);
+                                    _logger.LogInformation("[NEBULA-MONGO] Arquivo .strm de mídia já concluída no Telegram removido do staging: {Path}", fileInfo.FullName);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover .strm já concluído no staging: {Path}", fileInfo.FullName);
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    if (!NebulaMetadataExportService.IsUploadablePath(file))
                     {
                         continue;
                     }
@@ -1692,20 +1750,17 @@ public sealed class NebulaMongoContext : IDisposable
                         var st = existing.TryGetValue("status", out var stVal) && stVal.IsString ? stVal.AsString : "unknown";
                         if (string.Equals(st, "completed", StringComparison.OrdinalIgnoreCase))
                         {
-                            if (deleteCompletedFromStaging)
+                            try
                             {
-                                try
+                                if (File.Exists(fileInfo.FullName))
                                 {
-                                    if (File.Exists(fileInfo.FullName))
-                                    {
-                                        File.Delete(fileInfo.FullName);
-                                        _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging já concluído removido do disco: {Path}", fileInfo.FullName);
-                                    }
+                                    File.Delete(fileInfo.FullName);
+                                    _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging já concluído no Telegram removido do disco: {Path}", fileInfo.FullName);
                                 }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover staging file já concluído (arquivo em uso): {Path}", fileInfo.FullName);
-                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover staging file já concluído (arquivo em uso): {Path}", fileInfo.FullName);
                             }
 
                             continue;
@@ -1745,22 +1800,19 @@ public sealed class NebulaMongoContext : IDisposable
                         if (alreadyCompleted != null)
                         {
                             var compName = alreadyCompleted.GetValue("name", fileName).AsString;
-                            _logger.LogInformation("[NEBULA-MONGO] Mídia '{File}' já foi enviada e concluída no Telegram anteriormente ('{Comp}'). Ignorando enfileiramento para evitar envio duplicado.", fileName, compName);
+                            _logger.LogInformation("[NEBULA-MONGO] Mídia '{File}' já foi enviada e concluída no Telegram anteriormente ('{Comp}'). Excluindo arquivo do disco para evitar duplicata.", fileName, compName);
 
-                            if (deleteCompletedFromStaging)
+                            try
                             {
-                                try
+                                if (File.Exists(fileInfo.FullName))
                                 {
-                                    if (File.Exists(fileInfo.FullName))
-                                    {
-                                        File.Delete(fileInfo.FullName);
-                                        _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging duplicado removido do disco: {Path}", fileInfo.FullName);
-                                    }
+                                    File.Delete(fileInfo.FullName);
+                                    _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging duplicado removido do disco: {Path}", fileInfo.FullName);
                                 }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover staging file duplicado: {Path}", fileInfo.FullName);
-                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover staging file duplicado: {Path}", fileInfo.FullName);
                             }
 
                             continue;
