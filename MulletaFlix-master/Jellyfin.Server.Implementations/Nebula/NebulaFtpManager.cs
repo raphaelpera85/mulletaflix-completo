@@ -3312,9 +3312,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     {
         var candidates = new[]
         {
-            Path.Combine(_configManager.CommonApplicationPaths.DataPath, "mount_drive_n.py"),
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Tools", "mount_drive_n.py"),
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "mount_drive_n.py")
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "mount_drive_n.py"),
+            Path.Combine(_configManager.CommonApplicationPaths.DataPath, "mount_drive_n.py")
         };
         return candidates.FirstOrDefault(File.Exists);
     }

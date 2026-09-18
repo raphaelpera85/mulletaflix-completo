@@ -67,6 +67,13 @@ namespace MediaBrowser.MediaEncoding.Encoder
             // Quotes are valid path characters in linux and they need to be escaped here with a leading \
             path = NormalizePath(path);
 
+            // On Windows or when the prefix is "file", passing file:"C:\..." fails FFmpeg input parsing with "Invalid argument".
+            // Direct quoted file path is universally supported by FFmpeg/FFprobe across all platforms.
+            if (OperatingSystem.IsWindows() || string.Equals(inputPrefix, "file", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Format(CultureInfo.InvariantCulture, "\"{0}\"", path);
+            }
+
             return string.Format(CultureInfo.InvariantCulture, "{1}:\"{0}\"", path, inputPrefix);
         }
 
