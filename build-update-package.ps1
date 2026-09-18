@@ -32,7 +32,16 @@ Write-Host "==================================================" -ForegroundColor
 # 1. Build server binaries to stage
 if (-not $SkipBuild) {
     Write-Host "Building and publishing latest server binaries to stage..." -ForegroundColor Yellow
-    & dotnet publish (Join-Path $projectRoot 'MulletaFlix-master\Jellyfin.Server') -c Release -r win-x64 --self-contained false -o $stageDir
+    & dotnet publish (Join-Path $projectRoot 'MulletaFlix-master\Jellyfin.Server') `
+        -c Release `
+        -r win-x64 `
+        --self-contained true `
+        -o $stageDir `
+        -p:DebugSymbols=false `
+        -p:DebugType=none `
+        -p:GenerateDocumentationFile=false `
+        -p:RunAnalyzersDuringBuild=false `
+        -p:RunAnalyzers=false
     if ($LASTEXITCODE -ne 0) {
         throw "Server publish failed with exit code $LASTEXITCODE"
     }

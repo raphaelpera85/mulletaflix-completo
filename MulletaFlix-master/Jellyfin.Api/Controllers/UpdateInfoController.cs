@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -32,7 +33,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
     private const string UpdateManifestUrlEnv = "MulletaFlix_UPDATE_MANIFEST_URL";
     private const string GitHubTokenEnv = "MulletaFlix_GITHUB_TOKEN";
     private const string DefaultGitHubRepo = "raphaelpera85/mulletaflix-completo";
-    private const string DefaultGitHubApiUrl = $"https://api.github.com/repos/{DefaultGitHubRepo}/releases/latest";
+    private const string DefaultGitHubApiUrl = $"https://api.github.com/repos/{DefaultGitHubRepo}/releases";
 
     private static readonly object SyncLock = new();
     private static string _installState = "Idle"; // Idle, Downloading, Extracting, ReadyToApply, Applying, Failed
@@ -292,11 +293,18 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         var dataDir = _applicationPaths.ProgramDataPath;
         var pid = Environment.ProcessId;
 
-        // Ensure apply-update.ps1 script exists in the update directory or install directory
-        var scriptPath = Path.Combine(installDir, "apply-update.ps1");
-        if (!System.IO.File.Exists(scriptPath))
+        // Always execute updater script from updatesDir (outside installDir) to prevent file locks on installDir
+        var updatesDir = Path.Combine(dataDir, "updates");
+        Directory.CreateDirectory(updatesDir);
+        var scriptPath = Path.Combine(updatesDir, "apply-update.ps1");
+
+        var installScriptPath = Path.Combine(installDir, "apply-update.ps1");
+        if (System.IO.File.Exists(installScriptPath))
         {
-            scriptPath = Path.Combine(dataDir, "updates", "apply-update.ps1");
+            System.IO.File.Copy(installScriptPath, scriptPath, true);
+        }
+        else
+        {
             System.IO.File.WriteAllText(scriptPath, EmbeddedUpdaterScript);
         }
 
@@ -597,7 +605,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         _logger.LogInformation("Update package is ready to be applied from {ExtractDir} upon user approval.", extractDir);
     }
 
-    private static bool TryParseGitHubRelease(string json, out Version version, out string? changelog, out string? archiveUrl, out long? size)
+    internal static bool TryParseGitHubRelease(string json, out Version version, out string? changelog, out string? archiveUrl, out long? size)
     {
         version = new Version(0, 0, 0);
         changelog = null;
@@ -606,29 +614,73 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
         try
         {
-            var release = System.Text.Json.JsonSerializer.Deserialize<GitHubReleasePayload>(json);
-            if (release is null || string.IsNullOrWhiteSpace(release.TagName))
+            var trimmed = json.TrimStart();
+            var candidates = new List<GitHubReleasePayload>();
+
+            if (trimmed.StartsWith('['))
             {
-                return false;
+                var list = JsonSerializer.Deserialize<List<GitHubReleasePayload>>(json);
+                if (list != null)
+                {
+                    candidates.AddRange(list);
+                }
+            }
+            else if (trimmed.StartsWith('{'))
+            {
+                var single = JsonSerializer.Deserialize<GitHubReleasePayload>(json);
+                if (single != null)
+                {
+                    candidates.Add(single);
+                }
             }
 
-            var cleanTag = release.TagName.Trim().TrimStart('v', 'V');
-            if (!Version.TryParse(cleanTag, out var parsed))
+            GitHubReleasePayload? bestRelease = null;
+            var bestVersion = new Version(0, 0, 0);
+
+            foreach (var release in candidates)
             {
-                return false;
+                if (string.IsNullOrWhiteSpace(release.TagName))
+                {
+                    continue;
+                }
+
+                // Filter out mobile app releases
+                if (release.TagName.StartsWith("app-", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var cleanTag = release.TagName.Trim().TrimStart('v', 'V');
+                if (!Version.TryParse(cleanTag, out var parsed))
+                {
+                    continue;
+                }
+
+                // Server release must include a .zip package
+                var zipAsset = release.Assets?.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+                if (zipAsset == null)
+                {
+                    continue;
+                }
+
+                if (parsed > bestVersion)
+                {
+                    bestVersion = parsed;
+                    bestRelease = release;
+                }
             }
 
-            version = parsed;
-            changelog = release.Body;
-
-            var zipAsset = release.Assets?.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
-            if (zipAsset is not null)
+            if (bestRelease != null && bestVersion > new Version(0, 0, 0))
             {
+                version = bestVersion;
+                changelog = bestRelease.Body;
+                var zipAsset = bestRelease.Assets!.First(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
                 archiveUrl = zipAsset.BrowserDownloadUrl;
                 size = zipAsset.Size;
+                return true;
             }
 
-            return true;
+            return false;
         }
         catch
         {
@@ -665,24 +717,66 @@ public class UpdateInfoController : BaseMulletaFlixApiController
 
     private const string EmbeddedUpdaterScript = @"param([string]$InstallDirectory, [string]$UpdateSourceDirectory, [int]$ProcessId, [string]$DataDirectory)
 $ErrorActionPreference = 'Continue'
+$logFile1 = Join-Path $InstallDirectory 'update.log'
+$logFile2 = Join-Path $env:TEMP 'mulletaflix-update.log'
+
+function Log([string]$Message) {
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $line = ""$ts [UPDATE] $Message""
+    try { $line | Out-File -FilePath $logFile1 -Append -Encoding utf8 } catch {}
+    try { $line | Out-File -FilePath $logFile2 -Append -Encoding utf8 } catch {}
+}
+
+Log ""Starting in-place update for MulletaFlix.""
+Log ""InstallDirectory: $InstallDirectory""
+Log ""UpdateSourceDirectory: $UpdateSourceDirectory""
+Log ""Target ProcessId: $ProcessId""
+
 $waited = 0
 while ((Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) -and ($waited -lt 30)) { Start-Sleep -Seconds 1; $waited++ }
-if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) { Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue }
-Get-Process | Where-Object { $_.ProcessName -like '*MulletaFlix.Windows.Tray*' } | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-try { Copy-Item -Path ""$UpdateSourceDirectory\*"" -Destination $InstallDirectory -Recurse -Force -ErrorAction Stop } catch {}
-try { Remove-Item -LiteralPath $UpdateSourceDirectory -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+
+$targetProcesses = @('MulletaFlix', 'MulletaFlix.Windows.Tray', 'jellyfin')
+foreach ($procName in $targetProcesses) {
+    Get-Process -Name $procName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Seconds 3
+
+Log ""Copying update files using robocopy...""
+$p = Start-Process -FilePath ""robocopy.exe"" -ArgumentList ""`""$UpdateSourceDirectory`"" `""$InstallDirectory`"" /E /R:5 /W:2 /NP /NFL /NDL /XF apply-update.ps1 *.log *.tmp"" -Wait -PassThru -NoNewWindow
+$exitCode = $p.ExitCode
+Log ""Robocopy finished with exit code: $exitCode""
+
+if ($exitCode -lt 8) {
+    Log ""Files copied successfully.""
+    try { Remove-Item -LiteralPath $UpdateSourceDirectory -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+    if ($DataDirectory) {
+        $stateFile = Join-Path $DataDirectory 'updates\update_state.json'
+        $pkgZip = Join-Path $DataDirectory 'updates\package.zip'
+        if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $pkgZip) { Remove-Item -LiteralPath $pkgZip -Force -ErrorAction SilentlyContinue }
+    }
+} else {
+    Log ""ERROR: Robocopy failed with exit code $exitCode.""
+}
+
 $service = Get-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue
-if ($service) { Start-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue }
-else {
+if ($service) {
+    Log ""Starting MulletaFlixServer service...""
+    Start-Service -Name 'MulletaFlixServer' -ErrorAction SilentlyContinue
+} else {
     $exePath = Join-Path $InstallDirectory 'MulletaFlix.exe'
     if (Test-Path -LiteralPath $exePath) {
+        Log ""Starting MulletaFlix.exe...""
         $args = if ($DataDirectory) { ""--datadir `""$DataDirectory`"""" } else { """" }
         Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $InstallDirectory -WindowStyle Hidden
     }
 }
 $trayPath = Join-Path $InstallDirectory 'mulletaflix-windows-tray\MulletaFlix.Windows.Tray.exe'
-if (Test-Path -LiteralPath $trayPath) { Start-Process -FilePath $trayPath -WorkingDirectory (Join-Path $InstallDirectory 'mulletaflix-windows-tray') }
+if (Test-Path -LiteralPath $trayPath) {
+    Log ""Starting MulletaFlix.Windows.Tray.exe...""
+    Start-Process -FilePath $trayPath -WorkingDirectory (Join-Path $InstallDirectory 'mulletaflix-windows-tray')
+}
+Log ""In-place update finished.""
 ";
 
     /// <summary>

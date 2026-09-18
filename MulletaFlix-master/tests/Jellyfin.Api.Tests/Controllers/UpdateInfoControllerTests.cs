@@ -101,4 +101,89 @@ public class UpdateInfoControllerTests
             }
         }
     }
+
+    [Fact]
+    public void TryParseGitHubRelease_SelectsServerReleaseAndIgnoresAppRelease_WhenGivenReleaseList()
+    {
+        var json = @"[
+            {
+                ""tag_name"": ""app-v12.0.2"",
+                ""body"": ""Android app release notes"",
+                ""assets"": [
+                    {
+                        ""name"": ""mulletaflix-app-v12.0.2.apk"",
+                        ""size"": 7000000,
+                        ""browser_download_url"": ""https://github.com/.../app.apk""
+                    }
+                ]
+            },
+            {
+                ""tag_name"": ""v12.0.2"",
+                ""body"": ""Server release notes"",
+                ""assets"": [
+                    {
+                        ""name"": ""mulletaflix-update-win-x64.zip"",
+                        ""size"": 105000000,
+                        ""browser_download_url"": ""https://github.com/.../mulletaflix-update-win-x64.zip""
+                    },
+                    {
+                        ""name"": ""mulletaflix-app-v12.0.2.apk"",
+                        ""size"": 7000000,
+                        ""browser_download_url"": ""https://github.com/.../app.apk""
+                    }
+                ]
+            }
+        ]";
+
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size);
+
+        Assert.True(success);
+        Assert.Equal(new Version(12, 0, 2), version);
+        Assert.Equal("Server release notes", changelog);
+        Assert.Equal("https://github.com/.../mulletaflix-update-win-x64.zip", archiveUrl);
+        Assert.Equal(105000000, size);
+    }
+
+    [Fact]
+    public void TryParseGitHubRelease_ParsesSingleReleaseObject_WhenValid()
+    {
+        var json = @"{
+            ""tag_name"": ""v12.0.3"",
+            ""body"": ""Single release notes"",
+            ""assets"": [
+                {
+                    ""name"": ""update.zip"",
+                    ""size"": 5000,
+                    ""browser_download_url"": ""https://example.com/update.zip""
+                }
+            ]
+        }";
+
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size);
+
+        Assert.True(success);
+        Assert.Equal(new Version(12, 0, 3), version);
+        Assert.Equal("https://example.com/update.zip", archiveUrl);
+    }
+
+    [Fact]
+    public void TryParseGitHubRelease_ReturnsFalse_WhenNoZipAssetPresent()
+    {
+        var json = @"{
+            ""tag_name"": ""v12.0.3"",
+            ""body"": ""Release without zip"",
+            ""assets"": [
+                {
+                    ""name"": ""update.exe"",
+                    ""size"": 5000,
+                    ""browser_download_url"": ""https://example.com/update.exe""
+                }
+            ]
+        }";
+
+        var success = UpdateInfoController.TryParseGitHubRelease(json, out var version, out var changelog, out var archiveUrl, out var size);
+
+        Assert.False(success);
+    }
 }
+

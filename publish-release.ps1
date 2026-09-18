@@ -86,6 +86,7 @@ $releasePayloadJson = @{
     body = $bodyContent
     draft = $false
     prerelease = $false
+    make_latest = "true"
 } | ConvertTo-Json
 
 $payloadBytes = [System.Text.Encoding]::UTF8.GetBytes($releasePayloadJson)
