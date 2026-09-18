@@ -8,13 +8,28 @@
 
 [CmdletBinding()]
 param(
-    [string]$Version = "12.0.2",
+    [string]$Version,
     [string]$OutputDir,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$androidDir = Join-Path $projectRoot 'MulletaFlix-android'
+
+if (-not $Version) {
+    $gradleFile = Join-Path $androidDir 'app\build.gradle.kts'
+    if (Test-Path -LiteralPath $gradleFile) {
+        $content = Get-Content -LiteralPath $gradleFile -Raw
+        if ($content -match 'versionName\s*=\s*"([^"]+)"') {
+            $Version = $Matches[1]
+        }
+    }
+    if (-not $Version) {
+        $Version = "12.0.3"
+    }
+}
+
 if (-not $OutputDir) {
     $OutputDir = Join-Path $projectRoot 'dist'
 }
@@ -23,7 +38,6 @@ if (-not (Test-Path -LiteralPath $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
 
-$androidDir = Join-Path $projectRoot 'MulletaFlix-android'
 $apkSource = Join-Path $androidDir 'app\build\outputs\apk\release\app-release.apk'
 
 Write-Host "==================================================" -ForegroundColor Cyan

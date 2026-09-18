@@ -7,10 +7,15 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import org.mulletaflix.core.common.update.AppUpdateDownloader
+import org.mulletaflix.core.common.update.AppUpdateInstaller
+import org.mulletaflix.core.common.update.DownloadState
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
+import org.mulletaflix.domain.model.AppUpdateInfo
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SettingsRepository
+import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
 import org.mulletaflix.domain.usecase.LogoutUseCase
 import javax.inject.Inject
 
@@ -28,6 +33,13 @@ data class SettingsState(
     val downloadPath: String = "Armazenamento Interno",
     val downloadStorageGb: Int = 10,
     val downloadQuality: String = "1080p (Original)",
+    val isCheckingUpdate: Boolean = false,
+    val updateInfo: AppUpdateInfo? = null,
+    val isDownloadingUpdate: Boolean = false,
+    val updateDownloadProgress: Float = 0f,
+    val updateStatusMessage: String? = null,
+    val updateErrorMessage: String? = null,
+    val showUpdateDialog: Boolean = false,
 )
 
 @HiltViewModel
@@ -36,6 +48,8 @@ class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val authRepository: AuthRepository,
     private val logoutUseCase: LogoutUseCase,
+    private val checkAppUpdateUseCase: CheckAppUpdateUseCase? = null,
+    private val appUpdateDownloader: AppUpdateDownloader? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -189,6 +203,78 @@ class SettingsViewModel @Inject constructor(
                 ?.forEach { it.deleteRecursively() }
             settingsRepository.clearLocalPreferences()
             logoutUseCase()
+        }
+    }
+
+    fun checkForUpdates(currentVersion: String = "12.0.2") {
+        if (checkAppUpdateUseCase == null) return
+        viewModelScope.launch {
+            _state.update { it.copy(isCheckingUpdate = true, updateErrorMessage = null, updateStatusMessage = null) }
+            checkAppUpdateUseCase(currentVersion)
+                .onSuccess { info ->
+                    _state.update {
+                        it.copy(
+                            isCheckingUpdate = false,
+                            updateInfo = info,
+                            showUpdateDialog = info.isUpdateAvailable,
+                            updateStatusMessage = if (!info.isUpdateAvailable) {
+                                "Você já está na versão mais recente (${info.currentVersion})."
+                            } else null,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isCheckingUpdate = false,
+                            updateErrorMessage = error.message ?: "Erro ao verificar atualizações.",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _state.update { it.copy(showUpdateDialog = false) }
+    }
+
+    fun clearUpdateMessages() {
+        _state.update { it.copy(updateStatusMessage = null, updateErrorMessage = null) }
+    }
+
+    fun downloadAndInstallUpdate(context: Context) {
+        val downloadUrl = _state.value.updateInfo?.apkDownloadUrl ?: return
+        val versionName = _state.value.updateInfo?.latestVersion ?: "update"
+        val downloader = appUpdateDownloader ?: return
+
+        viewModelScope.launch {
+            _state.update { it.copy(isDownloadingUpdate = true, updateDownloadProgress = 0f, updateErrorMessage = null) }
+            downloader.downloadApk(downloadUrl, versionName).collect { downloadState ->
+                when (downloadState) {
+                    is DownloadState.Downloading -> {
+                        _state.update { it.copy(updateDownloadProgress = downloadState.progress) }
+                    }
+                    is DownloadState.Completed -> {
+                        _state.update {
+                            it.copy(
+                                isDownloadingUpdate = false,
+                                showUpdateDialog = false,
+                                updateStatusMessage = "Download concluído. Iniciando instalação..."
+                            )
+                        }
+                        AppUpdateInstaller.installApk(context, downloadState.file)
+                    }
+                    is DownloadState.Error -> {
+                        _state.update {
+                            it.copy(
+                                isDownloadingUpdate = false,
+                                updateErrorMessage = downloadState.message
+                            )
+                        }
+                    }
+                    DownloadState.Idle -> Unit
+                }
+            }
         }
     }
 

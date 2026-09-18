@@ -8,13 +8,37 @@
 
 [CmdletBinding()]
 param(
-    [string]$Tag = "app-v12.0.2",
-    [string]$Title = "MulletaFlix Android v12.0.2",
-    [string]$ApkPath = "dist\mulletaflix-app-v12.0.2.apk"
+    [string]$Version,
+    [string]$Tag,
+    [string]$Title,
+    [string]$ApkPath
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+
+if (-not $Version) {
+    $gradleFile = Join-Path $projectRoot 'MulletaFlix-android\app\build.gradle.kts'
+    if (Test-Path -LiteralPath $gradleFile) {
+        $content = Get-Content -LiteralPath $gradleFile -Raw
+        if ($content -match 'versionName\s*=\s*"([^"]+)"') {
+            $Version = $Matches[1]
+        }
+    }
+    if (-not $Version) {
+        $Version = "12.0.3"
+    }
+}
+
+if (-not $Tag) {
+    $Tag = "app-v$Version"
+}
+if (-not $Title) {
+    $Title = "MulletaFlix Android v$Version"
+}
+if (-not $ApkPath) {
+    $ApkPath = Join-Path $projectRoot "dist\mulletaflix-app-v$Version.apk"
+}
 
 # 1. Get token from git credential helper
 $inputStr = "protocol=https`nhost=github.com`n`n"

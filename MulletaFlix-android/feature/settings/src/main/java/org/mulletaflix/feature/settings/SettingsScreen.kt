@@ -177,9 +177,94 @@ fun SettingsScreen(
 
             // ── Sobre ────────────────────────────────────────────────────────
             SettingsGroup(title = "Sobre") {
+                val context = androidx.compose.ui.platform.LocalContext.current
                 SettingsItem(icon = Icons.Default.Info, title = "Versão", subtitle = "MulletaFlix Android 12.0.2") {}
+                SettingsItem(
+                    icon = Icons.Default.SystemUpdate,
+                    title = "Verificar Atualizações do Aplicativo",
+                    subtitle = when {
+                        state.isCheckingUpdate -> "Buscando novas versões no GitHub..."
+                        state.isDownloadingUpdate -> "Baixando atualização (${(state.updateDownloadProgress * 100).toInt()}%)..."
+                        state.updateStatusMessage != null -> state.updateStatusMessage ?: ""
+                        state.updateErrorMessage != null -> state.updateErrorMessage ?: ""
+                        else -> "Tocar para verificar atualizações"
+                    },
+                    onClick = { viewModel.checkForUpdates("12.0.2") }
+                )
                 SettingsItem(icon = Icons.Default.OpenInBrowser, title = "GitHub", subtitle = "github.com/raphaelpera85/MulletaFlix") {}
                 SettingsItem(icon = Icons.Default.Gavel, title = "Licenças", subtitle = "GPL-2.0 e licenças de terceiros") {}
+            }
+
+            if (state.showUpdateDialog && state.updateInfo != null) {
+                val update = state.updateInfo!!
+                val context = androidx.compose.ui.platform.LocalContext.current
+                AlertDialog(
+                    onDismissRequest = { if (!state.isDownloadingUpdate) viewModel.dismissUpdateDialog() },
+                    icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                    title = { Text("Nova Versão Disponível: v${update.latestVersion}") },
+                    text = {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "Uma nova versão do MulletaFlix Android está disponível para instalação!",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (update.apkSize > 0) {
+                                Text(
+                                    text = "Tamanho: ${String.format(java.util.Locale.US, "%.1f", update.apkSize / (1024f * 1024f))} MB",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                            val notes = update.releaseNotes
+                            if (!notes.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Novidades:",
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = notes,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 8,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                            if (state.isDownloadingUpdate) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                LinearProgressIndicator(
+                                    progress = { state.updateDownloadProgress },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(
+                                    text = "Baixando: ${(state.updateDownloadProgress * 100).toInt()}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { viewModel.downloadAndInstallUpdate(context) },
+                            enabled = !state.isDownloadingUpdate && !update.apkDownloadUrl.isNullOrBlank()
+                        ) {
+                            Text(if (state.isDownloadingUpdate) "Baixando..." else "Atualizar Agora")
+                        }
+                    },
+                    dismissButton = {
+                        if (!state.isDownloadingUpdate) {
+                            TextButton(onClick = viewModel::dismissUpdateDialog) {
+                                Text("Depois")
+                            }
+                        }
+                    }
+                )
             }
         }
     }
