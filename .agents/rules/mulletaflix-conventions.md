@@ -21,6 +21,13 @@ A verificação deve sempre considerar:
 - **No Upload Engine**: Antes de abrir sockets com a API do Telegram, revalidar se a mídia já foi completada. Se sim, abortar imediatamente o upload, liberar o lock da fila e marcar como limpo.
 - **No Downloader de .strm**: Antes de iniciar downloads HTTP/multipart, verificar se a mídia já existe no Telegram para não desperdiçar tráfego nem CPU.
 
+### 1.4 Hierarquia de Pastas e Resolução de `parent` no MongoDB (`ftp.files`)
+- **Convivência de Formatos**: O banco de dados do Nebula armazena tanto nós legados (cujo campo `parent` é uma string POSIX canônica, ex: `"/raphael/Filmes"` ou `"/Filmes"`) quanto nós novos (cujo campo `parent` é o `ObjectId` do diretório pai).
+- **Resolução Obrigatória por Caminho Virtual**: Qualquer função que resolva ou crie pastas em cascata (como `EnsureDirectoryStructureAsync` ou `EnsureDirectoryStructureInMongoAsync`) deve obrigatoriamente:
+  1. Rastrear o caminho virtual canônico acumulado a cada nível (`parentVirtualPath`).
+  2. Passar esse caminho para `FindByNameAndParentAsync(segment, currentParent, parentVirtualPath)`.
+- **Prevenção de Duplicação e Orfanato de Metadados**: Consultar apenas por `parentId` (ObjectId) falha em localizar diretórios canônicos legados, criando pastas duplicadas com o mesmo nome. Como o `NebulaFileSystem` agrupa pastas pelo nome e seleciona a primeira (`.First()`), arquivos pequenos de metadados (`.nfo`, `.jpg`, `.png`) salvos na nova pasta tornam-se invisíveis aos clientes.
+
 ---
 
 ## 2. Resiliência de Sockets, Streams e Buffers (.NET Backend)
@@ -61,6 +68,13 @@ Cada card deve apresentar claramente:
   3. Publicar/atualizar a Release no GitHub anexando o zip do servidor e o APK do aplicativo (via `.\publish-release.ps1`).
   4. Publicar/atualizar a Release dedicada do aplicativo via `.\publish-app-release.ps1` (tag `app-v<NovaVersao>`).
   5. Isso garante que instâncias ativas do MulletaFlix detectem a nova versão em tempo real no **Centro de Atualizações (`/dashboard/updates`)** e usuários do aplicativo tenham o APK disponível imediatamente.
+
+### 4.2 Autenticação Resiliente nos Scripts de Publicação (`publish-release.ps1` / `publish-app-release.ps1`)
+- No Windows PowerShell, o envio de strings multiline via pipe para `git credential fill` pode falhar com `refusing to work with credential missing protocol field`.
+- Os scripts de automação de release devem implementar a cadeia resiliente de obtenção do token:
+  1. Variável de ambiente `$env:GITHUB_TOKEN` (caso definida em CI/CD).
+  2. Execução direta de `& 'C:\Program Files\Git\mingw64\bin\git-credential-manager.exe' get` passando os pares `protocol=https` e `host=github.com`.
+  3. Fallback para `git credential fill`.
 
 ---
 
