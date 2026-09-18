@@ -848,8 +848,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     NebulaMetadataExportService.RemovePendingMarker(currentDir);
                 }
 
-                var hasFiles = Directory.EnumerateFiles(currentDir, "*", SearchOption.AllDirectories).Any();
-                if (!hasFiles)
+                var allFiles = Directory.EnumerateFiles(currentDir, "*", SearchOption.AllDirectories).ToList();
+                if (allFiles.All(f => string.Equals(Path.GetFileName(f), NebulaMetadataExportService.PendingMarkerFileName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    NebulaMetadataExportService.RemovePendingMarker(currentDir);
+                    allFiles.Clear();
+                }
+
+                if (allFiles.Count == 0 && !Directory.EnumerateDirectories(currentDir).Any())
                 {
                     Directory.Delete(currentDir, true);
                     _logger.LogInformation("[NEBULA-UPLOAD] Diretório de staging vazio removido: {Dir}", currentDir);

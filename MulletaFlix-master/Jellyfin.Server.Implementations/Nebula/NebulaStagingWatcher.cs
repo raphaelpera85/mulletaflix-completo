@@ -191,6 +191,9 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         // 2. Restauração imediata de uploads pendentes do MongoDB
         await RestorePendingUploadsFromMongoAsync(cancellationToken).ConfigureAwait(false);
 
+        // Limpeza preventiva de pastas e marcadores órfãos legados
+        CleanOrphanStagingDirectories();
+
         // 3. Inicialização dos workers paralelos de upload
         _workerTasks.Clear();
         for (int i = 1; i <= workerCount; i++)
@@ -217,6 +220,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                     {
                         lastFullSync = DateTime.UtcNow;
                         await _mongoContext.SyncStagingDirectoryAsync(_stagingDirs, _uploadEngine.DeleteSourceAfterUpload, cancellationToken).ConfigureAwait(false);
+                        CleanOrphanStagingDirectories();
                     }
 
                     if (_pendingFiles.Count < workerCount * 2)
@@ -499,6 +503,60 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         }
 
         _isRunning = false;
+    }
+
+    private void CleanOrphanStagingDirectories()
+    {
+        foreach (var stageRoot in _stagingDirs)
+        {
+            if (string.IsNullOrWhiteSpace(stageRoot) || !Directory.Exists(stageRoot))
+            {
+                continue;
+            }
+
+            try
+            {
+                var directories = Directory.GetDirectories(stageRoot, "*", SearchOption.AllDirectories);
+                foreach (var dir in directories.OrderByDescending(d => d.Length))
+                {
+                    if (!Directory.Exists(dir))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+                        var hasMedia = files.Any(NebulaMetadataExportService.IsMediaPayloadPath);
+                        var hasActiveDownloads = files.Any(f => f.EndsWith(".part", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".download", StringComparison.OrdinalIgnoreCase));
+
+                        if (!hasMedia && !hasActiveDownloads)
+                        {
+                            NebulaMetadataExportService.RemovePendingMarker(dir);
+                        }
+
+                        files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+                        if (files.Length == 0 || files.All(f => string.Equals(Path.GetFileName(f), NebulaMetadataExportService.PendingMarkerFileName, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            NebulaMetadataExportService.RemovePendingMarker(dir);
+                            if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                            {
+                                Directory.Delete(dir, true);
+                                _logger.LogInformation("[NEBULA-WATCHER] Diretório órfão de staging removido: {Dir}", dir);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[NEBULA-WATCHER] Não foi possível remover diretório órfão: {Dir}", dir);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[NEBULA-WATCHER] Erro ao varrer diretórios em {Root}", stageRoot);
+            }
+        }
     }
 
     /// <inheritdoc />

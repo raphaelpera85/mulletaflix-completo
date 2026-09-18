@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Tag = "v12.0.3",
-    [string]$Title = "MulletaFlix Server v12.0.3",
+    [string]$Tag = "v12.0.4",
+    [string]$Title = "MulletaFlix Server v12.0.4",
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip"
 )
 

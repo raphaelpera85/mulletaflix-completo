@@ -183,9 +183,10 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 
     internal static void ReleasePendingMarkerForMedia(string mediaPath)
     {
-        if (IsMediaPayloadPath(mediaPath))
+        var dir = Path.GetDirectoryName(mediaPath) ?? string.Empty;
+        if (IsMediaPayloadPath(mediaPath) || IsOrphanPendingMarkerDirectory(dir))
         {
-            RemovePendingMarker(Path.GetDirectoryName(mediaPath) ?? string.Empty);
+            RemovePendingMarker(dir);
         }
     }
 
@@ -213,7 +214,10 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         // Recognition can happen before the downloader reaches this item. Keep
         // sidecars in staging until the actual media payload is present, so the
         // watcher cannot upload metadata without its corresponding video.
-        if (automaticExport)
+        // It must NOT set a pending marker if the item is already on the Nebula remote drive (N:),
+        // because its media is already on Telegram and won't be downloaded to stage.
+        var isAlreadyOnNebulaDrive = IsPathWithinRoot(item.Path ?? string.Empty, GetNebulaDriveRoot());
+        if (automaticExport && !isAlreadyOnNebulaDrive)
         {
             EnsurePendingMarkerWhenMediaIsMissing(stageDirectory);
         }
@@ -233,6 +237,29 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 
                 index++;
             }
+        }
+
+        // Se nenhum arquivo real de metadados foi exportado (ou o diretório só contém o marcador pendente ou está vazio),
+        // remove o marcador e remove o diretório para nunca deixar uma pasta vazia residual no stage!
+        var hasRealFiles = Directory.Exists(stageDirectory) && Directory.EnumerateFiles(stageDirectory, "*", SearchOption.AllDirectories)
+            .Any(f => !string.Equals(Path.GetFileName(f), PendingMarkerFileName, StringComparison.OrdinalIgnoreCase));
+
+        if (!hasRealFiles)
+        {
+            RemovePendingMarker(stageDirectory);
+            try
+            {
+                if (Directory.Exists(stageDirectory) && !Directory.EnumerateFileSystemEntries(stageDirectory).Any())
+                {
+                    Directory.Delete(stageDirectory, true);
+                    _logger.LogDebug("[NEBULA-METADATA] Diretório vazio de staging sem metadados removido: {Directory}", stageDirectory);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[NEBULA-METADATA] Falha ao remover diretório vazio de staging: {Directory}", stageDirectory);
+            }
+            return;
         }
 
         _logger.LogInformation("[NEBULA-METADATA] Sidecars exportados para {Directory}", stageDirectory);

@@ -10,7 +10,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Version = "12.0.3",
+    [string]$Version = "12.0.4",
     [string]$OutputDir,
     [switch]$SkipBuild
 )
