@@ -41,11 +41,26 @@ if (-not $ApkPath) {
 }
 
 # 1. Get token from git credential helper
-$credOutput = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
-foreach ($line in $credOutput) {
-    if ($line.Trim() -like "password=*") {
-        $token = $line.Trim().Substring(9).Trim()
-        break
+$token = $env:GITHUB_TOKEN
+if (-not $token) {
+    $gcm = "C:\Program Files\Git\mingw64\bin\git-credential-manager.exe"
+    if (Test-Path -LiteralPath $gcm) {
+        $credOutput = @('protocol=https', 'host=github.com', '') | & $gcm get 2>$null
+        foreach ($line in $credOutput) {
+            if ($line.Trim() -like "password=*") {
+                $token = $line.Trim().Substring(9).Trim()
+                break
+            }
+        }
+    }
+}
+if (-not $token) {
+    $credOutput = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
+    foreach ($line in $credOutput) {
+        if ($line.Trim() -like "password=*") {
+            $token = $line.Trim().Substring(9).Trim()
+            break
+        }
     }
 }
 
