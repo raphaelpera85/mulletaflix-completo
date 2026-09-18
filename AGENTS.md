@@ -12,3 +12,6 @@ Este projeto e todas as suas sessões de desenvolvimento são governados estrita
 2. **Regras e Convenções do Repositório**:
    - Siga sempre as regras descritas em `.agents/rules/mulletaflix-conventions.md` e `.agents/rules/gauntlet-loop.md`.
    - Mantenha a integridade da arquitetura, sem quebra de convenções estabelecidas.
+
+3. **Atualização Mandatória de Release**:
+   - Sempre que qualquer alteração, correção ou funcionalidade for concluída e testada, gere o pacote de atualização via `.\build-update-package.ps1` e atualize a release oficial no GitHub Releases via `.\publish-release.ps1` antes de finalizar a tarefa.
