@@ -37,4 +37,11 @@ class PlayerOptionsTest {
             qualityMenuOptions(listOf("Auto", "1080p", "1080p", "", "720p")),
         )
     }
+
+    @Test
+    fun `video aspect ratio modes provide valid titles and resize modes`() {
+        assertEquals("Ajustar (Original)", VideoAspectRatio.FIT.title)
+        assertEquals("Preencher / Zoom", VideoAspectRatio.ZOOM.title)
+        assertEquals("Esticar", VideoAspectRatio.FILL.title)
+    }
 }

@@ -133,6 +133,7 @@ fun VideoPlayerScreen(
                 var axisLocked = false
                 detectDragGestures(
                     onDragStart = {
+                        if (state.isControlsLocked) return@detectDragGestures
                         startX = it.x
                         startPosition = latestPosition
                         previewPosition = latestPosition
@@ -142,9 +143,11 @@ fun VideoPlayerScreen(
                     },
                     onDragCancel = {},
                     onDragEnd = {
+                        if (state.isControlsLocked) return@detectDragGestures
                         if (horizontalDrag) viewModel.seekTo(previewPosition)
                     },
                     onDrag = { _, dragAmount ->
+                        if (state.isControlsLocked) return@detectDragGestures
                         totalDrag += dragAmount
                         if (!axisLocked && totalDrag.getDistance() >= 12f) {
                             axisLocked = true
@@ -193,8 +196,13 @@ fun VideoPlayerScreen(
             }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { osdVisible = !osdVisible },
+                    onTap = {
+                        if (!state.isControlsLocked) {
+                            osdVisible = !osdVisible
+                        }
+                    },
                     onDoubleTap = { offset ->
+                        if (state.isControlsLocked) return@detectTapGestures
                         val seekDelta = if (offset.x < size.width / 2f) -10_000L else 10_000L
                         val target = (latestPosition + seekDelta).coerceIn(
                             0L,
@@ -216,12 +224,35 @@ fun VideoPlayerScreen(
                 }
             },
             update = { playerView ->
+                playerView.resizeMode = state.aspectRatio.resizeMode
                 playerView.subtitleView?.setFractionalTextSize(
                     0.0533f * state.subtitleFontSize.coerceIn(50, 200) / 100f,
                 )
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // ── Floating Unlock Button when Screen is Locked ─────────────────────
+        AnimatedVisibility(
+            visible = state.isControlsLocked,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopStart).padding(24.dp)
+        ) {
+            IconButton(
+                onClick = { viewModel.setControlsLocked(false) },
+                modifier = Modifier
+                    .size(56.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), shape = androidx.compose.foundation.shape.CircleShape)
+            ) {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = "Desbloquear controles",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
 
         // ── Loading indicator ────────────────────────────────────────────────
         AnimatedVisibility(visible = state.isBuffering) {
@@ -358,7 +389,7 @@ fun VideoPlayerScreen(
 
         // ── OSD (On-Screen Display) ──────────────────────────────────────────
         AnimatedVisibility(
-            visible = osdVisible,
+            visible = osdVisible && !state.isControlsLocked,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(300))
         ) {
@@ -370,10 +401,14 @@ fun VideoPlayerScreen(
                 onSeekFinished = { position -> viewModel.seekTo(position) },
                 onPrevious = { viewModel.skipPrevious() },
                 onNext = { viewModel.skipNext() },
+                onPreviousChapter = { viewModel.skipToPreviousChapter() },
+                onNextChapter = { viewModel.skipToNextChapter() },
                 onSubtitleSelect = { index -> viewModel.selectSubtitle(index) },
                 onAudioSelect = { index -> viewModel.selectAudio(index) },
                 onQualitySelect = { quality -> viewModel.selectQuality(quality) },
                 onSpeedSelect = { speed -> viewModel.setPlaybackSpeed(speed) },
+                onAspectRatioSelect = { ratio -> viewModel.setAspectRatio(ratio) },
+                onLockClick = { viewModel.setControlsLocked(true) },
                 onCastClick = { viewModel.startCast() }
             )
         }
@@ -390,16 +425,22 @@ private fun PlayerOsd(
     onSeekFinished: (Long) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onPreviousChapter: () -> Unit,
+    onNextChapter: () -> Unit,
     onSubtitleSelect: (Int) -> Unit,
     onAudioSelect: (Int) -> Unit,
     onQualitySelect: (String) -> Unit,
     onSpeedSelect: (Float) -> Unit,
+    onAspectRatioSelect: (VideoAspectRatio) -> Unit,
+    onLockClick: () -> Unit,
     onCastClick: () -> Unit,
 ) {
     var showSubtitleMenu by remember { mutableStateOf(false) }
     var showAudioMenu by remember { mutableStateOf(false) }
     var showQualityMenu by remember { mutableStateOf(false) }
     var showSpeedMenu by remember { mutableStateOf(false) }
+    var showAspectRatioMenu by remember { mutableStateOf(false) }
+    var showStatsDialog by remember { mutableStateOf(false) }
     var isSeeking by remember { mutableStateOf(false) }
     var seekFraction by remember(state.duration) {
         mutableFloatStateOf(
@@ -417,7 +458,7 @@ private fun PlayerOsd(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
                 .align(Alignment.TopCenter),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -425,17 +466,34 @@ private fun PlayerOsd(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = Color.White)
             }
-            Text(
-                text = state.title ?: "",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White
-            )
-            Row {
-                // Official Media3 Cast button: opens the system device chooser
-                // and lets CastPlayer transfer the current media item.
-                MediaRouteButton(
-                    modifier = Modifier.size(48.dp),
+            Column(
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = state.title ?: "",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    maxLines = 1,
                 )
+                state.currentChapterName?.let { chapterName ->
+                    Text(
+                        text = chapterName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Official Media3 Cast button
+                MediaRouteButton(
+                    modifier = Modifier.size(40.dp),
+                )
+                // Aspect ratio
+                IconButton(onClick = { showAspectRatioMenu = true }) {
+                    Icon(Icons.Default.AspectRatio, contentDescription = "Proporção", tint = Color.White)
+                }
                 // Audio tracks
                 IconButton(onClick = { showAudioMenu = true }) {
                     Icon(Icons.Default.Audiotrack, contentDescription = "Áudio", tint = Color.White)
@@ -452,15 +510,28 @@ private fun PlayerOsd(
                 IconButton(onClick = { showSpeedMenu = true }) {
                     Icon(Icons.Default.Speed, contentDescription = "Velocidade", tint = Color.White)
                 }
+                // Playback stats
+                IconButton(onClick = { showStatsDialog = true }) {
+                    Icon(Icons.Default.Info, contentDescription = "Estatísticas", tint = Color.White)
+                }
+                // Lock screen
+                IconButton(onClick = onLockClick) {
+                    Icon(Icons.Default.LockOpen, contentDescription = "Bloquear controles", tint = Color.White)
+                }
             }
         }
 
         // ── Center controls ──────────────────────────────────────────────────
         Row(
             modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(32.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (state.chapters.isNotEmpty()) {
+                IconButton(onClick = onPreviousChapter, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Default.FastRewind, contentDescription = "Capítulo Anterior", tint = Color.White, modifier = Modifier.size(30.dp))
+                }
+            }
             IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.SkipPrevious, contentDescription = "Anterior", tint = Color.White, modifier = Modifier.size(36.dp))
             }
@@ -481,6 +552,11 @@ private fun PlayerOsd(
             IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.SkipNext, contentDescription = "Próximo", tint = Color.White, modifier = Modifier.size(36.dp))
             }
+            if (state.chapters.isNotEmpty()) {
+                IconButton(onClick = onNextChapter, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Default.FastForward, contentDescription = "Próximo Capítulo", tint = Color.White, modifier = Modifier.size(30.dp))
+                }
+            }
         }
 
         // ── Bottom seek bar + time ────────────────────────────────────────────
@@ -493,9 +569,13 @@ private fun PlayerOsd(
             // Time labels
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(state.currentPosition.toTimeString(), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                state.estimatedEndTime?.let { endTime ->
+                    Text(endTime, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelMedium)
+                }
                 Text(state.duration.toTimeString(), color = Color.White.copy(0.7f), style = MaterialTheme.typography.labelMedium)
             }
             // Seek bar
@@ -560,6 +640,23 @@ private fun PlayerOsd(
                 currentSpeed = state.playbackSpeed,
                 onSelect = { onSpeedSelect(it); showSpeedMenu = false },
                 onDismiss = { showSpeedMenu = false }
+            )
+        }
+
+        // ── Aspect Ratio dropdown ─────────────────────────────────────────────
+        if (showAspectRatioMenu) {
+            AspectRatioMenu(
+                currentRatio = state.aspectRatio,
+                onSelect = { onAspectRatioSelect(it); showAspectRatioMenu = false },
+                onDismiss = { showAspectRatioMenu = false }
+            )
+        }
+
+        // ── Playback Stats Dialog ─────────────────────────────────────────────
+        if (showStatsDialog) {
+            PlaybackStatsDialog(
+                stats = state.playbackStats,
+                onDismiss = { showStatsDialog = false }
             )
         }
     }
@@ -658,7 +755,60 @@ private fun SpeedMenu(
     )
 }
 
+@Composable
+private fun AspectRatioMenu(
+    currentRatio: VideoAspectRatio,
+    onSelect: (VideoAspectRatio) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Proporção da Tela (Zoom)") },
+        text = {
+            Column {
+                VideoAspectRatio.values().forEach { ratio ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onSelect(ratio) }.fillMaxWidth().padding(vertical = 8.dp)
+                    ) {
+                        RadioButton(selected = currentRatio == ratio, onClick = { onSelect(ratio) })
+                        Text(ratio.title, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {}
+    )
+}
+
+@Composable
+private fun PlaybackStatsDialog(
+    stats: PlaybackStats?,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Dados Técnicos da Mídia") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Método de Reprodução: ${stats?.playMethod ?: "Direct Play"}", style = MaterialTheme.typography.bodyMedium)
+                stats?.resolution?.let { Text("Resolução: $it", style = MaterialTheme.typography.bodyMedium) }
+                stats?.videoCodec?.let { Text("Codec de Vídeo: $it", style = MaterialTheme.typography.bodyMedium) }
+                stats?.audioCodec?.let { Text("Codec de Áudio: $it", style = MaterialTheme.typography.bodyMedium) }
+                stats?.bitrate?.let { Text("Taxa de Bits: $it", style = MaterialTheme.typography.bodyMedium) }
+                stats?.framerate?.let { Text("Taxa de Quadros: ${it} fps", style = MaterialTheme.typography.bodyMedium) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Fechar")
+            }
+        }
+    )
+}
+
 // Extension: millis to time string
 private fun Long.toTimeString(): String =
     org.mulletaflix.core.common.util.FormatUtils.formatDuration(this)
+
 

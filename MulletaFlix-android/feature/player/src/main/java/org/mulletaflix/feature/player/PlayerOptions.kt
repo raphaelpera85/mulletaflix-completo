@@ -1,7 +1,29 @@
 package org.mulletaflix.feature.player
 
+import androidx.media3.ui.AspectRatioFrameLayout
 import org.mulletaflix.domain.model.MediaStream
 import org.mulletaflix.domain.model.MediaStreamType
+
+/**
+ * Aspect ratio display mode for the video player.
+ */
+enum class VideoAspectRatio(val title: String, val resizeMode: Int) {
+    FIT("Ajustar (Original)", AspectRatioFrameLayout.RESIZE_MODE_FIT),
+    ZOOM("Preencher / Zoom", AspectRatioFrameLayout.RESIZE_MODE_ZOOM),
+    FILL("Esticar", AspectRatioFrameLayout.RESIZE_MODE_FILL),
+}
+
+/**
+ * Technical playback statistics ("Stats for nerds") for media inspection.
+ */
+data class PlaybackStats(
+    val videoCodec: String? = null,
+    val audioCodec: String? = null,
+    val resolution: String? = null,
+    val bitrate: String? = null,
+    val playMethod: String = "Direct Play",
+    val framerate: Float? = null,
+)
 
 /** Returns stable, user-facing quality choices from the actual video tracks. */
 internal fun qualityOptions(mediaStreams: List<MediaStream>): List<String> =

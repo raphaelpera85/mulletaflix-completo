@@ -68,6 +68,12 @@ data class PlayerState(
     val nextEpisode: NextEpisodeInfo? = null,
     val nextEpisodeCountdown: Int? = null,
     val error: String? = null,
+    val aspectRatio: VideoAspectRatio = VideoAspectRatio.FIT,
+    val isControlsLocked: Boolean = false,
+    val estimatedEndTime: String? = null,
+    val currentChapterName: String? = null,
+    val chapters: List<Chapter> = emptyList(),
+    val playbackStats: PlaybackStats? = null,
 )
 
 @HiltViewModel
@@ -274,7 +280,7 @@ class PlayerViewModel @Inject constructor(
             }
             if (currentItemId != itemId) return@launch
             currentItemChapters = item.chapters
-            _state.update { it.copy(title = item.name, error = null) }
+            _state.update { it.copy(title = item.name, chapters = item.chapters, error = null) }
 
             // Fetch Intro Skipper / native media segments
             viewModelScope.launch {
@@ -369,6 +375,17 @@ class PlayerViewModel @Inject constructor(
                 fallback = -1,
             )
 
+            val videoStream = mediaStreams.firstOrNull { it.type == org.mulletaflix.domain.model.MediaStreamType.Video }
+            val audioStream = mediaStreams.firstOrNull { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
+            val stats = PlaybackStats(
+                videoCodec = videoStream?.codec?.uppercase(),
+                audioCodec = audioStream?.codec?.uppercase(),
+                resolution = if ((videoStream?.width ?: 0) > 0 && (videoStream?.height ?: 0) > 0) "${videoStream?.width}x${videoStream?.height}" else null,
+                bitrate = videoStream?.bitRate?.let { "${it / 1000} kbps" },
+                playMethod = if (mediaSource.transcodeUrl != null && streamUrl == mediaSource.transcodeUrl) "Transcode" else "Direct Play",
+                framerate = videoStream?.averageFrameRate,
+            )
+
             _state.update {
                 it.copy(
                     subtitleTracks = subtitleTracks,
@@ -380,6 +397,7 @@ class PlayerViewModel @Inject constructor(
                     showSkipIntro = false,
                     showSkipCredits = false,
                     skipTargetPosition = null,
+                    playbackStats = stats,
                 )
             }
 
@@ -516,6 +534,26 @@ class PlayerViewModel @Inject constructor(
         _state.update { it.copy(playbackSpeed = speed) }
     }
 
+    fun setAspectRatio(ratio: VideoAspectRatio) {
+        _state.update { it.copy(aspectRatio = ratio) }
+    }
+
+    fun toggleControlsLock() {
+        _state.update { it.copy(isControlsLocked = !it.isControlsLocked) }
+    }
+
+    fun setControlsLocked(locked: Boolean) {
+        _state.update { it.copy(isControlsLocked = locked) }
+    }
+
+    fun skipToNextChapter() {
+        findNextChapterPosition(currentItemChapters, player.currentPosition)?.let(::seekTo)
+    }
+
+    fun skipToPreviousChapter() {
+        findPreviousChapterPosition(currentItemChapters, player.currentPosition)?.let(::seekTo)
+    }
+
     private fun applyDefaultPlaybackPreferences() {
         selectQuality(defaultQuality)
         setPlaybackSpeed(defaultPlaybackSpeed.coerceIn(0.5f, 2f))
@@ -565,6 +603,9 @@ class PlayerViewModel @Inject constructor(
         progressJob = viewModelScope.launch {
             while (isActive) {
                 val position = player.currentPosition.coerceAtLeast(0L)
+                val duration = player.duration.coerceAtLeast(0L)
+                val currentChapter = findCurrentChapter(currentItemChapters, position)
+                val endTime = calculateEstimatedEndTime(position, duration, _state.value.playbackSpeed)
                 _state.update {
                     val skip = if (skipIntroEnabled) {
                         skipAction(currentItemSegments, currentItemChapters, position)
@@ -573,10 +614,12 @@ class PlayerViewModel @Inject constructor(
                     }
                     it.copy(
                         currentPosition = position,
-                        duration = player.duration.coerceAtLeast(0L),
+                        duration = duration,
                         showSkipIntro = skip?.kind == ChapterSkipKind.INTRO,
                         showSkipCredits = skip?.kind == ChapterSkipKind.CREDITS,
                         skipTargetPosition = skip?.targetPositionMs,
+                        estimatedEndTime = endTime,
+                        currentChapterName = currentChapter?.name,
                     )
                 }
                 delay(250)
