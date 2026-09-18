@@ -9,8 +9,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
 # 1. Get token from git credential helper
-$token = ""
-$credOutput = @("protocol=https", "host=github.com", "") | git credential fill 2>$null
+$credOutput = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
 foreach ($line in $credOutput) {
     if ($line.Trim() -like "password=*") {
         $token = $line.Trim().Substring(9).Trim()
