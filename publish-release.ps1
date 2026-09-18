@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Tag = "v12.0.2",
-    [string]$Title = "MulletaFlix v12.0.2",
+    [string]$Tag = "v12.0.3",
+    [string]$Title = "MulletaFlix v12.0.3",
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip",
     [string]$ApkPath = ""
 )
