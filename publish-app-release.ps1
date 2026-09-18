@@ -42,8 +42,8 @@ if (-not $ApkPath) {
 
 # 1. Get token from git credential helper
 $token = ""
-$credOutput = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
-foreach ($line in ($credOutput -split "`n")) {
+$credOutput = @("protocol=https", "host=github.com", "") | git credential fill 2>$null
+foreach ($line in $credOutput) {
     if ($line.Trim() -like "password=*") {
         $token = $line.Trim().Substring(9).Trim()
         break
