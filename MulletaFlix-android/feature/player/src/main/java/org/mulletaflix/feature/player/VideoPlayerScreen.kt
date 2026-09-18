@@ -796,7 +796,6 @@ private fun PlaybackStatsDialog(
                 stats?.videoCodec?.let { Text("Codec de Vídeo: $it", style = MaterialTheme.typography.bodyMedium) }
                 stats?.audioCodec?.let { Text("Codec de Áudio: $it", style = MaterialTheme.typography.bodyMedium) }
                 stats?.bitrate?.let { Text("Taxa de Bits: $it", style = MaterialTheme.typography.bodyMedium) }
-                stats?.framerate?.let { Text("Taxa de Quadros: ${it} fps", style = MaterialTheme.typography.bodyMedium) }
             }
         },
         confirmButton = {

@@ -22,7 +22,6 @@ data class PlaybackStats(
     val resolution: String? = null,
     val bitrate: String? = null,
     val playMethod: String = "Direct Play",
-    val framerate: Float? = null,
 )
 
 /** Returns stable, user-facing quality choices from the actual video tracks. */

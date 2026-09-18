@@ -383,7 +383,6 @@ class PlayerViewModel @Inject constructor(
                 resolution = if ((videoStream?.width ?: 0) > 0 && (videoStream?.height ?: 0) > 0) "${videoStream?.width}x${videoStream?.height}" else null,
                 bitrate = videoStream?.bitRate?.let { "${it / 1000} kbps" },
                 playMethod = if (mediaSource.transcodeUrl != null && streamUrl == mediaSource.transcodeUrl) "Transcode" else "Direct Play",
-                framerate = videoStream?.averageFrameRate,
             )
 
             _state.update {
