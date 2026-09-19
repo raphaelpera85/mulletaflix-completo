@@ -65,9 +65,10 @@ jobs:
           body: |
             ### MulletaFlix ${{ github.ref_name }}
             
-            - **Correção no Nebula Downloader**: Regra de 10% de espaço livre em disco com alternância automática entre as unidades de staging configuradas.
-            - **Centro de Atualizações**: Suporte a atualização direta no painel web (`/dashboard/updates`).
-            - **Proteção Prévia de Disco**: Verificação de espaço suficiente antes do início de downloads de chunks `.strm`.
+            - **Roteamento único no Nebula**: toda mídia descoberta para envio ao Telegram termina sob uma única raiz de categoria — filmes em `Filmes`, séries em `Series` e conteúdo adulto em `Porno` — independente da árvore de pastas de origem.
+            - **Fim das raízes duplicadas**: caminhos como `Series\Series\...` não são mais criados; a raiz de categoria repetida no início do caminho é descartada tanto no catálogo quanto na geração dos arquivos `.strm`.
+            - **Classificação corrigida**: título de filme com "Show", "Temporada" ou "4x100" no nome não é mais tratado como série (ano entre parênteses indica filme), e a pasta-raiz declarada prevalece sobre palavras do título (ex.: "How to Have Sex (2023)" permanece em `Filmes`).
+            - **Cobertura de testes**: novos casos de teste para roteamento de filmes guardados em `Series\Filmes`, raízes duplicadas e classificação por pasta declarada.
           files: |
             dist/mulletaflix-update-win-x64.zip
           draft: false
