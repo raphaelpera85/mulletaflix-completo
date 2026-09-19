@@ -248,7 +248,7 @@ fun VideoPlayerScreen(
                 Icon(
                     Icons.Default.Lock,
                     contentDescription = "Desbloquear controles",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.size(32.dp)
                 )
             }
@@ -288,7 +288,7 @@ fun VideoPlayerScreen(
         ) {
             Button(
                 onClick = { viewModel.skipSegment() },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
                 Text("Pular Introdução")
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
@@ -314,7 +314,7 @@ fun VideoPlayerScreen(
         ) {
             Button(
                 onClick = { viewModel.skipSegment() },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
                 Text("Pular Créditos")
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
@@ -342,12 +342,12 @@ fun VideoPlayerScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 "Próximo Episódio",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.secondary,
                             )
                         }
                         Text(
@@ -820,4 +820,3 @@ private fun PlaybackStatsDialog(
 // Extension: millis to time string
 private fun Long.toTimeString(): String =
     org.mulletaflix.core.common.util.FormatUtils.formatDuration(this)
-

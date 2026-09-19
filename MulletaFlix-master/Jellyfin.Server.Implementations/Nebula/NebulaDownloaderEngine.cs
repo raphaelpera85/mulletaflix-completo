@@ -106,6 +106,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             Timeout = TimeSpan.FromMinutes(10)
         };
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "VLC/3.0.21 LibVLC/3.0.21");
+        // Alguns hosts de mídia recusam clientes que não enviam Accept, mesmo
+        // quando o conteúdo é um arquivo binário comum.
+        _httpClient.DefaultRequestHeaders.Accept.ParseAdd("*/*");
     }
 
     /// <summary>
@@ -913,7 +916,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 using var resp = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode)
                 {
-                    throw new HttpRequestException($"HTTP Error {(int)resp.StatusCode}: {resp.StatusCode}", null, resp.StatusCode);
+                    throw CreateHttpFailure(resp, url, "GET sequencial");
                 }
 
                 using var contentStream = await resp.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -1199,6 +1202,26 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
     }
 
+    private static HttpRequestException CreateHttpFailure(HttpResponseMessage response, string url, string operation)
+    {
+        var host = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : "URL inválida";
+        var diagnostics = new List<string>();
+
+        foreach (var headerName in new[] { "Server", "X-Debug-Allowed", "X-Debug-ASNAllowed", "X-Debug-IPAllowed", "X-Debug-CountryAllowed", "X-XC" })
+        {
+            if (response.Headers.TryGetValues(headerName, out var values) || response.Content.Headers.TryGetValues(headerName, out values))
+            {
+                diagnostics.Add($"{headerName}={string.Join(",", values)}");
+            }
+        }
+
+        var suffix = diagnostics.Count > 0
+            ? $" ({string.Join("; ", diagnostics)})"
+            : string.Empty;
+        var message = $"HTTP Error {(int)response.StatusCode}: {response.StatusCode} durante {operation} em {host}{suffix}.";
+        return new HttpRequestException(message, null, response.StatusCode);
+    }
+
     internal static bool TryGetRangeProbeLength(HttpResponseMessage response, out long totalSize)
     {
         totalSize = 0;
@@ -1382,7 +1405,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             {
                 if (status is "staging" or "queued" or "uploading")
                 {
-                    return (true, false, $"Mídia '{fileNameWithoutExt}' já está ativa/em fila no Nebula");
+                    return (true, false, $"Mídia '{fileNameWithoutExt}' já está no Nebula (status: {status})");
                 }
 
                 return (true, true, $"Mídia '{name}' com título idêntico já concluída/enviada");
@@ -1398,7 +1421,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 {
                     if (status is "staging" or "queued" or "uploading")
                     {
-                        return (true, false, $"Mídia '{fileNameWithoutExt}' já está ativa/em fila no Nebula");
+                        return (true, false, $"Mídia '{fileNameWithoutExt}' já está no Nebula (status: {status})");
                     }
 
                     return (true, true, $"Filme '{name}' ({movieIdent.Value.Year}) já concluído no Nebula");
@@ -1414,8 +1437,15 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     epIdent.Value.Season == docEpIdent.Value.Season &&
                     epIdent.Value.Episode == docEpIdent.Value.Episode)
                 {
-                    var isCompleted = string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase);
-                    return (true, isCompleted, $"Episódio '{epIdent.Value.Series} S{epIdent.Value.Season:02d}E{epIdent.Value.Episode:02d}' já encontrado no Nebula");
+                    if (status is "staging" or "queued" or "uploading")
+                    {
+                        return (true, false, $"Episódio '{epIdent.Value.Series} S{epIdent.Value.Season:02d}E{epIdent.Value.Episode:02d}' já está no Nebula (status: {status})");
+                    }
+
+                    if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return (true, true, $"Episódio '{epIdent.Value.Series} S{epIdent.Value.Season:02d}E{epIdent.Value.Episode:02d}' já concluído no Nebula");
+                    }
                 }
             }
         }

@@ -163,8 +163,8 @@ fun ServerSelectionScreen(
                 enabled = !state.isLoading,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
             ) {
                 Icon(Icons.Default.Cloud, contentDescription = "Conectar ao Servidor Oficial")
                 Spacer(modifier = Modifier.width(8.dp))
@@ -238,7 +238,7 @@ private fun SavedServerCard(
             Icon(
                 if (isOfficial) Icons.Default.Cloud else Icons.Default.Storage,
                 contentDescription = if (isOfficial) "Servidor oficial na nuvem" else "Servidor salvo",
-                tint = if (isOfficial) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                tint = MaterialTheme.colorScheme.secondary
             )
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -246,13 +246,13 @@ private fun SavedServerCard(
                     if (isOfficial) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f))
                         ) {
                             Text(
                                 "OFICIAL",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }

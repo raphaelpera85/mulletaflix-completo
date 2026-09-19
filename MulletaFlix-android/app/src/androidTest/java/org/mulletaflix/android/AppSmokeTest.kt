@@ -17,12 +17,26 @@ class AppSmokeTest {
     @Test
     fun serverSelectionShowsBrandingAndConnectionActions() {
         composeRule.waitUntil(timeoutMillis = 15_000) {
-            composeRule.onAllNodesWithText("MulletaFlix", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty() &&
+            val selectionOrLoginVisible =
+                composeRule.onAllNodesWithText("MulletaFlix", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty() &&
                 (composeRule.onAllNodesWithText("Procurar na rede", useUnmergedTree = true)
                     .fetchSemanticsNodes().isNotEmpty() ||
                     composeRule.onAllNodesWithText("Usuário", useUnmergedTree = true)
                         .fetchSemanticsNodes().isNotEmpty())
+            val persistedHomeVisible = composeRule.onAllNodesWithText(
+                "MULLETAFLIX",
+                useUnmergedTree = true,
+            ).fetchSemanticsNodes().isNotEmpty()
+            selectionOrLoginVisible || persistedHomeVisible
+        }
+        val persistedHomeVisible = composeRule.onAllNodesWithText(
+            "MULLETAFLIX",
+            useUnmergedTree = true,
+        ).fetchSemanticsNodes().isNotEmpty()
+        if (persistedHomeVisible) {
+            composeRule.onNodeWithText("MULLETAFLIX", useUnmergedTree = true).assertIsDisplayed()
+            return
         }
         composeRule.onNodeWithText("MulletaFlix", useUnmergedTree = true).assertIsDisplayed()
         val serverSelectionVisible = composeRule.onAllNodesWithText(

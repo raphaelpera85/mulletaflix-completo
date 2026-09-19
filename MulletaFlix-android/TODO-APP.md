@@ -272,7 +272,8 @@ e abrir uma série fechava o aplicativo. Verificado no emulador (API 35) contra 
 
 Pendências registradas nesta correção:
 
-- [ ] Avatar do usuário na barra superior da Home (requer carregar o perfil no `HomeViewModel`).
+- [x] Avatar do usuário na barra superior da Home: o `HomeViewModel` carrega o perfil em paralelo ao feed,
+      e a barra usa a imagem autenticada com fallback acessível.
 - [ ] Avatares na tela de login para usuários públicos: o endpoint de imagem exige token, portanto só é
       possível exibir após autenticar.
 - [ ] Biblioteca "TV ao Vivo" aberta pelo cartão de biblioteca retorna 0 itens em `Items?ParentId=` — o
@@ -297,12 +298,10 @@ Pendências registradas nesta correção:
 
 Pendências relacionadas:
 
-- [ ] Revisar o tema escuro padrão: `primary` é o preto da marca, então todo componente que usa
-      `colorScheme.primary` como acento (botões preenchidos, chips, abas selecionadas) fica sem contraste.
-      Trocar a cor primária muda a aparência de várias telas e deve ser decidido com o cliente.
+- [x] Revisar o tema escuro padrão: o preto permanece como `primary` da marca, enquanto ações, ícones e
+      seleções usam `secondary` vermelho para manter contraste e acessibilidade.
 - [ ] Badges de episódios não assistidos e faixa de anos (ex.: "2022 - Presente") que o cliente web mostra
       nos cards: exigem mapear `RecursiveUnplayedItemCount` / `PremiereDate`+`EndDate` no DTO.
-
 
 
 

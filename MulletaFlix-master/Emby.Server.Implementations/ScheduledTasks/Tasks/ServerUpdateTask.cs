@@ -23,6 +23,7 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks;
 
 public sealed class ServerUpdateTask : IScheduledTask
 {
+    private static readonly TimeSpan ArchiveReadIdleTimeout = TimeSpan.FromSeconds(45);
     private const string UpdateManifestUrlEnv = "MulletaFlix_UPDATE_MANIFEST_URL";
     private const string UpdateServiceNameEnv = "MulletaFlix_UPDATE_SERVICE_NAME";
     private const string UpdateInstallRootEnv = "MulletaFlix_UPDATE_INSTALL_ROOT";
@@ -233,7 +234,15 @@ public sealed class ServerUpdateTask : IScheduledTask
 
         await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         await using var fileStream = new FileStream(archivePath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await responseStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var buffer = new byte[128 * 1024];
+        int read;
+        readCts.CancelAfter(ArchiveReadIdleTimeout);
+        while ((read = await responseStream.ReadAsync(buffer.AsMemory(), readCts.Token).ConfigureAwait(false)) > 0)
+        {
+            readCts.CancelAfter(ArchiveReadIdleTimeout);
+            await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static bool TryParseGitHubRelease(string json, out Version? version, out string? archiveUrl)

@@ -84,7 +84,7 @@ fun ProfileScreen(
                         modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(state.message ?: "", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
@@ -126,7 +126,7 @@ fun ProfileScreen(
                     .background(
                         Brush.linearGradient(
                             listOf(
-                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.secondary,
                                 MaterialTheme.colorScheme.secondary,
                             )
                         )
@@ -179,7 +179,7 @@ fun ProfileScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.width(10.dp))
                         Text("Servidor Conectado", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
@@ -338,7 +338,7 @@ fun ProfileScreen(
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                     ProfileOptionItem(
-                        icon = Icons.Default.Logout,
+                        icon = Icons.AutoMirrored.Filled.Logout,
                         title = "Sair da Conta",
                         subtitle = "Finaliza a sessão neste dispositivo",
                         tint = MaterialTheme.colorScheme.error,

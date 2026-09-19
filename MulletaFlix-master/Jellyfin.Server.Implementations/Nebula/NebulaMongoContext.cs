@@ -969,6 +969,18 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Obtém todos os uploads que ainda não estão concluídos e aguardam processamento.
+    /// O estado staging também é pendente: ele pode ser criado pelo feeder antes de
+    /// o worker conseguir promovê-lo para queued.
+    /// </summary>
+    public async Task<List<BsonDocument>> GetPendingUploadsAsync(CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<BsonDocument>.Filter.In("status", new[] { "staging", "queued" });
+        using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Faz upsert de um documento bruto restaurado do Supabase para o MongoDB.
     /// </summary>
     /// <param name="doc">Documento BSON a ser inserido ou atualizado.</param>

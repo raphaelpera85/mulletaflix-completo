@@ -695,7 +695,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         // Query active uploads (in-memory real-time first, fallback to Mongo)
         if (status.IsEnvioRunning)
         {
-            status.QueuedUploads = await QueryMongoQueuedUploadsAsync(config, cancellationToken).ConfigureAwait(false);
+            status.QueuedUploads = await QueryMongoPendingUploadsAsync(config, cancellationToken).ConfigureAwait(false);
             status.UploadQueueCount = status.QueuedUploads.Count;
             var mongoActive = await QueryMongoActiveUploadsAsync(config, cancellationToken).ConfigureAwait(false);
             if (mongoActive.Count > 0)
@@ -854,7 +854,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         return results;
     }
 
-    private async Task<List<NebulaWorkerItemDto>> QueryMongoQueuedUploadsAsync(
+    private async Task<List<NebulaWorkerItemDto>> QueryMongoPendingUploadsAsync(
         NebulaFtpConfiguration config,
         CancellationToken cancellationToken)
     {
@@ -876,18 +876,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             try
             {
-                var docs = await mongo.GetQueuedUploadsAsync(cancellationToken).ConfigureAwait(false);
+                var docs = await mongo.GetPendingUploadsAsync(cancellationToken).ConfigureAwait(false);
                 foreach (var d in docs)
                 {
                     var name = d.Contains("name") ? d["name"].AsString : string.Empty;
+                    var state = d.Contains("status") ? d["status"].AsString : "queued";
                     var size = d.Contains("size") && d["size"].IsNumeric ? d["size"].ToInt64() : 0L;
                     results.Add(new NebulaWorkerItemDto
                     {
                         Name = name,
                         DisplayName = name,
-                        Status = "queued",
+                        Status = state,
                         WorkerId = "fila",
-                        InfoText = $"Na fila para envio | {name}",
+                        InfoText = state.Equals("staging", StringComparison.OrdinalIgnoreCase)
+                            ? $"Preparando para envio | {name}"
+                            : $"Na fila para envio | {name}",
                         Size = size
                     });
                 }

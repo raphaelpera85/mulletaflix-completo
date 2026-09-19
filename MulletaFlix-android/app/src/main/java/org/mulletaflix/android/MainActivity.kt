@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
                                     Icon(
                                         Icons.Default.CloudDownload,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = MaterialTheme.colorScheme.secondary,
                                     )
                                 },
                                 title = { Text("Nova Versão Disponível: v${update.latestVersion}") },

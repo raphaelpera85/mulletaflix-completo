@@ -27,6 +27,7 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 {
+    private static readonly TimeSpan BotDownloadReadIdleTimeout = TimeSpan.FromSeconds(45);
     private readonly ILogger<NebulaTelegramPool> _logger;
     private readonly int _apiId;
     private readonly string _apiHash;
@@ -1069,7 +1070,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     return false;
                 }
 
-                await downloadResp.Content.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                await CopyWithIdleTimeoutAsync(downloadResp.Content, output, cancellationToken).ConfigureAwait(false);
                 return true;
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && attempt < 3 && !cancellationToken.IsCancellationRequested)
@@ -1099,6 +1100,21 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         }
 
         return false;
+    }
+
+    private static async Task CopyWithIdleTimeoutAsync(HttpContent content, Stream output, CancellationToken cancellationToken)
+    {
+        await using var input = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var buffer = new byte[128 * 1024];
+
+        int read;
+        readCts.CancelAfter(BotDownloadReadIdleTimeout);
+        while ((read = await input.ReadAsync(buffer.AsMemory(), readCts.Token).ConfigureAwait(false)) > 0)
+        {
+            readCts.CancelAfter(BotDownloadReadIdleTimeout);
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task<byte[]?> DownloadChunkViaBotApiAsync(int botIndex, string fileId, long offset, int limit, CancellationToken cancellationToken)

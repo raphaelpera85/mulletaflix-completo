@@ -67,7 +67,7 @@ fun SettingsScreen(
                 SettingsItem(icon = Icons.Default.Dns, title = "Servidor", subtitle = state.serverUrl ?: "Não configurado") {}
                 SettingsItem(icon = Icons.Default.Person, title = "Meu Perfil", subtitle = state.username ?: "Ver perfil, permissões e alternar usuário", onClick = onProfile)
                 SettingsItem(icon = Icons.Default.Group, title = "Salas SyncPlay", subtitle = "Assistir sincronizado com amigos", onClick = onSyncPlay)
-                SettingsItem(icon = Icons.Default.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
+                SettingsItem(icon = Icons.AutoMirrored.Filled.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
                     viewModel.logout()
                     onLogout()
                 })
@@ -208,7 +208,7 @@ fun SettingsScreen(
                 val context = androidx.compose.ui.platform.LocalContext.current
                 AlertDialog(
                     onDismissRequest = { if (!state.isDownloadingUpdate) viewModel.dismissUpdateDialog() },
-                    icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                    icon = { Icon(Icons.Default.CloudDownload, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
                     title = { Text("Nova Versão Disponível: v${update.latestVersion}") },
                     text = {
                         Column(

@@ -19,7 +19,11 @@ namespace Emby.Server.Implementations.MediaEncoding;
 public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
 {
     private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+    private static readonly TimeSpan ReadIdleTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan SessionTtl = TimeSpan.FromMinutes(30);
+    private readonly CancellationTokenSource _disposeCts = new();
     private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
+    private readonly Timer _cleanupTimer;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IServerConfigurationManager _configurationManager;
     private readonly IServerApplicationHost _applicationHost;
@@ -35,10 +39,12 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
         _configurationManager = configurationManager;
         _applicationHost = applicationHost;
         _logger = logger;
+        _cleanupTimer = new Timer(_ => CleanupExpiredSessions(), null, SessionTtl, SessionTtl);
     }
 
     public async Task PrepareAsync(BaseItem item)
     {
+        CleanupExpiredSessions();
         var options = _configurationManager.GetConfiguration<BrandingOptions>("branding");
         var prebufferActive = options.PrebufferEnabled || options.IntroEnabled || !string.IsNullOrWhiteSpace(options.IntroPath);
         if (!prebufferActive || item.Path is null)
@@ -106,6 +112,11 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
     {
         if (_sessions.ContainsKey(itemId))
         {
+            if (_sessions.TryGetValue(itemId, out var session))
+            {
+                session.Touch();
+            }
+
             url = $"{_applicationHost.GetSmartApiUrl("localhost")}/Videos/{itemId:N}/Prebuffer";
             if (!string.IsNullOrWhiteSpace(apiKey))
             {
@@ -126,6 +137,7 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
 
     public async Task<(string ContentType, long? ContentLength)> CopyToAsync(Guid itemId, Stream output, CancellationToken cancellationToken)
     {
+        CleanupExpiredSessions();
         if (!_sessions.TryGetValue(itemId, out var session))
         {
             throw new FileNotFoundException("STRM prebuffer session not found.");
@@ -133,6 +145,7 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
 
         try
         {
+            session.Touch();
             await session.Ready.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             await using (var prefix = new FileStream(session.BufferPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
@@ -165,24 +178,29 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
 
     private async Task FillAsync(Guid itemId, Session session)
     {
+        var completed = false;
         try
         {
             using var request = CreateUpstreamRequest(session.Uri);
-            using var response = await _httpClientFactory.CreateClient().SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+            using var response = await _httpClientFactory.CreateClient().SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _disposeCts.Token).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
             session.ContentType = response.Content.Headers.ContentType?.ToString();
-            await using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            await using var input = await response.Content.ReadAsStreamAsync(_disposeCts.Token).ConfigureAwait(false);
             await using var output = new FileStream(session.BufferPath, FileMode.Create, FileAccess.Write, FileShare.Read, 81920, true);
             var buffer = new byte[81920];
             while (session.BufferedBytes < session.MaxBytes)
             {
-                var read = await input.ReadAsync(buffer).ConfigureAwait(false);
+                var read = await ReadWithIdleTimeoutAsync(input, buffer, _disposeCts.Token).ConfigureAwait(false);
                 if (read == 0) break;
                 var count = (int)Math.Min(read, session.MaxBytes - session.BufferedBytes);
-                await output.WriteAsync(buffer.AsMemory(0, count)).ConfigureAwait(false);
+                await output.WriteAsync(buffer.AsMemory(0, count), _disposeCts.Token).ConfigureAwait(false);
                 session.BufferedBytes += count;
                 if (count != read) break;
             }
+            completed = true;
+        }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+        {
         }
         catch (Exception ex)
         {
@@ -191,6 +209,29 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
         finally
         {
             session.Ready.TrySetResult(true);
+            if (!completed && _sessions.TryRemove(itemId, out var removedSession))
+            {
+                removedSession.Dispose();
+            }
+        }
+    }
+
+    private static async Task<int> ReadWithIdleTimeoutAsync(Stream input, byte[] buffer, CancellationToken cancellationToken)
+    {
+        using var idleCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        idleCancellation.CancelAfter(ReadIdleTimeout);
+        return await input.ReadAsync(buffer.AsMemory(), idleCancellation.Token).ConfigureAwait(false);
+    }
+
+    private void CleanupExpiredSessions()
+    {
+        var cutoff = DateTime.UtcNow - SessionTtl;
+        foreach (var pair in _sessions)
+        {
+            if (pair.Value.LastAccessUtc < cutoff && _sessions.TryRemove(pair))
+            {
+                pair.Value.Dispose();
+            }
         }
     }
 
@@ -220,8 +261,11 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
 
     public void Dispose()
     {
+        _disposeCts.Cancel();
+        _cleanupTimer.Dispose();
         foreach (var session in _sessions.Values) session.Dispose();
         _sessions.Clear();
+        _disposeCts.Dispose();
     }
 
     private sealed class Session : IDisposable
@@ -240,6 +284,12 @@ public sealed class StrmPrebufferManager : IStrmPrebufferManager, IDisposable
         public long BufferedBytes { get; set; }
         public string? ContentType { get; set; }
         public TaskCompletionSource<bool> Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public DateTime LastAccessUtc { get; private set; } = DateTime.UtcNow;
+
+        public void Touch()
+        {
+            LastAccessUtc = DateTime.UtcNow;
+        }
 
         public void Dispose()
         {
