@@ -38,6 +38,8 @@ public interface INebulaFtpManager
 
     Task<NebulaSupabaseTestResponseDto> TestSupabaseConnectionAsync(NebulaSupabaseTestRequest? request, CancellationToken cancellationToken = default);
 
+    Task<NebulaSupabaseProvisionResultDto> ProvisionSupabaseSchemaAsync(NebulaSupabaseProvisionRequest? request, CancellationToken cancellationToken = default);
+
     Task<NebulaSupabaseStatusDto> GetSupabaseStatusAsync(CancellationToken cancellationToken = default);
 
     Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(string? idempotencyKey = null, bool forceFull = false, CancellationToken cancellationToken = default);

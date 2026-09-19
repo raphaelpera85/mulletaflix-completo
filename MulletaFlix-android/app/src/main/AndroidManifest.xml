@@ -60,6 +60,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:label="@string/app_name"
             android:banner="@drawable/ic_tv_banner"
             android:theme="@style/Theme.MulletaFlix.SplashScreen"

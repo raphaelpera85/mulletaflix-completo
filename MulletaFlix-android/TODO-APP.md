@@ -395,3 +395,10 @@ Pendências relacionadas:
 - [x] Aceitar links oficiais `http(s)://mulletaflix.duckdns.org:8096/web/#/details?id=...`.
 - [x] Preservar o destino durante a seleção do servidor e concluir a navegação após o login.
 - [x] Cobrir parsing, validação de host e rejeição de links externos com testes unitários.
+
+## 31. Deep links com o APK em execução (v1.0.20)
+
+- [x] Entregar novos links à `MainActivity` existente com `singleTop` e `onNewIntent`.
+- [x] Navegar para outro detalhe sem reiniciar o processo nem duplicar a atividade.
+- [x] Não ultrapassar autenticação quando o link chega antes do login.
+- [x] Cobrir a política de navegação com testes unitários e validar a entrega real no AVD.

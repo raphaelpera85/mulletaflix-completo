@@ -7,6 +7,7 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import React, { useCallback, useState } from 'react';
@@ -30,12 +31,19 @@ type SupabaseStatus = {
     Message?: string;
 };
 
+type SupabaseConfig = {
+    SupabaseUrl?: string;
+    SupabaseKey?: string;
+    SupabaseProjectRef?: string;
+};
+
 type OperationResult = {
     Success?: boolean;
     Message?: string;
 };
 
 const STATUS_QUERY_KEY = [ 'SupabaseBackupStatus' ];
+const CONFIG_QUERY_KEY = [ 'NebulaFtpConfig' ];
 
 const getApiClient = (): ApiClient => {
     const apiClient = ServerConnections.currentApiClient();
@@ -69,10 +77,42 @@ const formatDate = (value?: string): string => {
 
 const BackupRestorePage = () => {
     const [ isRestoreDialogOpen, setIsRestoreDialogOpen ] = useState(false);
+    const [ projectRef, setProjectRef ] = useState('');
+    const [ managementToken, setManagementToken ] = useState('');
     const statusQuery = useQuery({
         queryKey: STATUS_QUERY_KEY,
         queryFn: () => getApiClient().getJSON(getApiClient().getUrl('NebulaFtp/Supabase/Status')) as Promise<SupabaseStatus>,
         refetchInterval: 10000
+    });
+    const configQuery = useQuery({
+        queryKey: CONFIG_QUERY_KEY,
+        queryFn: () => getApiClient().getJSON(getApiClient().getUrl('NebulaFtp/Config')) as Promise<SupabaseConfig>
+    });
+    React.useEffect(() => {
+        if (configQuery.data?.SupabaseProjectRef && !projectRef) setProjectRef(configQuery.data.SupabaseProjectRef);
+    }, [ configQuery.data?.SupabaseProjectRef, projectRef ]);
+    const provisionMutation = useMutation({
+        mutationFn: async () => {
+            const apiClient = getApiClient();
+            return apiClient.ajax({
+                type: 'POST',
+                url: apiClient.getUrl('NebulaFtp/Supabase/Provision'),
+                data: JSON.stringify({
+                    Url: configQuery.data?.SupabaseUrl,
+                    Key: configQuery.data?.SupabaseKey,
+                    ProjectRef: projectRef,
+                    ManagementToken: managementToken
+                }),
+                contentType: 'application/json'
+            }) as Promise<OperationResult>;
+        },
+        onSuccess: result => {
+            toast(result.Message || 'Estrutura do Supabase criada/validada.');
+            setManagementToken('');
+            void queryClient.invalidateQueries({ queryKey: CONFIG_QUERY_KEY });
+            void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+        },
+        onError: error => toast(`Erro ao provisionar Supabase: ${getErrorMessage(error)}`)
     });
     const backupMutation = useMutation({
         mutationFn: () => postAction('NebulaFtp/Supabase/Backup'),
@@ -110,6 +150,19 @@ const BackupRestorePage = () => {
 
                 {statusQuery.isError && <Alert severity='error'>Não foi possível consultar o status: {getErrorMessage(statusQuery.error)}</Alert>}
                 {!status?.IsConfigured && <Alert severity='warning'>Configure a URL e a chave do Supabase na configuração do Nebula antes de executar o backup ou o restore.</Alert>}
+
+                <Paper variant='outlined' sx={{ p: 2.5 }}>
+                    <Stack spacing={2}>
+                        <Typography variant='h2' component='h2' sx={{ fontSize: '1.25rem' }}>Provisionamento automático do Supabase</Typography>
+                        <Typography variant='body2' color='text.secondary'>Na primeira instalação, informe o Project ID e um token escopado da Management API com permissão de banco. O servidor executará o schema completo de forma idempotente e removerá o token da configuração após o sucesso.</Typography>
+                        <TextField label='Project ID' value={projectRef} onChange={event => setProjectRef(event.target.value)} placeholder='ex.: abcdefghijklmnopqrst' fullWidth size='small' />
+                        <TextField label='Token da Management API' value={managementToken} onChange={event => setManagementToken(event.target.value)} placeholder='sbp_fc_...' type='password' fullWidth size='small' autoComplete='new-password' />
+                        <Alert severity='info'>Use um token escopado somente para este projeto, com Database write. Ele não será usado nos backups diários.</Alert>
+                        <Button variant='outlined' disabled={provisionMutation.isPending || !projectRef.trim() || !managementToken.trim() || !status?.IsConfigured} onClick={() => provisionMutation.mutate()}>
+                            {provisionMutation.isPending ? 'Criando estrutura...' : 'Testar e criar estrutura'}
+                        </Button>
+                    </Stack>
+                </Paper>
 
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
                     <Stack spacing={2}>

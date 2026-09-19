@@ -206,6 +206,26 @@ public class NebulaSupabaseTestRequest
     public string? Key { get; set; }
 }
 
+public class NebulaSupabaseProvisionRequest
+{
+    public string? Url { get; set; }
+
+    public string? Key { get; set; }
+
+    public string? ProjectRef { get; set; }
+
+    public string? ManagementToken { get; set; }
+}
+
+public class NebulaSupabaseProvisionResultDto
+{
+    public bool Success { get; set; }
+
+    public string Message { get; set; } = string.Empty;
+
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+}
+
 public class NebulaSupabaseTestResponseDto
 {
     public bool Success { get; set; }

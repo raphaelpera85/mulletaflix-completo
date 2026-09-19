@@ -291,6 +291,15 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         return Ok(result);
     }
 
+    [HttpPost("Supabase/Provision")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<NebulaSupabaseProvisionResultDto>> ProvisionSupabase([FromBody] NebulaSupabaseProvisionRequest? request, CancellationToken cancellationToken)
+    {
+        var result = await _nebulaManager.ProvisionSupabaseSchemaAsync(request, cancellationToken).ConfigureAwait(false);
+        return result.Success ? Ok(result) : BadRequest(result);
+    }
+
     [HttpPost("Supabase/Backup")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<NebulaSupabaseBackupResultDto> BackupSupabase([FromQuery] bool forceFull = false)
@@ -388,6 +397,8 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             DownloadParts = config.DownloadParts,
             SupabaseUrl = config.SupabaseUrl,
             SupabaseKey = string.Empty,
+            SupabaseProjectRef = config.SupabaseProjectRef,
+            SupabaseManagementToken = string.Empty,
             SupabaseAutoBackup = config.SupabaseAutoBackup,
             SupabaseAutoBackupIntervalHours = config.SupabaseAutoBackupIntervalHours,
             SupabaseLastBackupTime = config.SupabaseLastBackupTime,
@@ -426,6 +437,16 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         if (string.IsNullOrWhiteSpace(config.SupabaseKey))
         {
             config.SupabaseKey = existing.SupabaseKey;
+        }
+
+        if (string.IsNullOrWhiteSpace(config.SupabaseManagementToken))
+        {
+            config.SupabaseManagementToken = existing.SupabaseManagementToken;
+        }
+
+        if (string.IsNullOrWhiteSpace(config.SupabaseProjectRef))
+        {
+            config.SupabaseProjectRef = existing.SupabaseProjectRef;
         }
     }
 

@@ -3,6 +3,7 @@ package org.mulletaflix.android.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -51,6 +52,19 @@ fun MulletaFlixNavHost(
     startDestination: String = MulletaFlixRoute.SERVER_SELECTION,
     deepLinkItemId: String? = null,
 ) {
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.destination?.route
+    val currentItemId = currentBackStackEntry?.arguments?.getString("itemId")
+
+    LaunchedEffect(deepLinkItemId, currentRoute, currentItemId) {
+        val targetRoute = deepLinkItemId?.let(MulletaFlixRoute::itemDetail)
+        if (targetRoute != null && shouldNavigateToMediaDeepLink(currentRoute, currentItemId, deepLinkItemId)) {
+            navController.navigate(targetRoute) {
+                launchSingleTop = true
+            }
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = startDestination,

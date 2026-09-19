@@ -1,6 +1,7 @@
 package org.mulletaflix.android
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -246,6 +247,14 @@ class MainActivity : ComponentActivity() {
         // refresh the LAN endpoint before the next playback request.
         if (::lanServerRecovery.isInitialized) {
             lanServerRecovery.refresh()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extractMediaItemId(intent.data)?.let { itemId ->
+            incomingDeepLinkItemId = itemId
         }
     }
 

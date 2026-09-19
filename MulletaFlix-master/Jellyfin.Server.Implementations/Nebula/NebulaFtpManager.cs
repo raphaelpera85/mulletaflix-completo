@@ -9,6 +9,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
@@ -1014,6 +1016,23 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                     _mongoContext,
                     _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(),
                     _usersDbProvider);
+
+                if (!string.IsNullOrWhiteSpace(config.SupabaseProjectRef)
+                    && !string.IsNullOrWhiteSpace(config.SupabaseManagementToken))
+                {
+                    var provisioning = await ProvisionSupabaseSchemaAsync(
+                        new NebulaSupabaseProvisionRequest
+                        {
+                            Url = config.SupabaseUrl,
+                            Key = config.SupabaseKey,
+                            ProjectRef = config.SupabaseProjectRef,
+                            ManagementToken = config.SupabaseManagementToken
+                        },
+                        cancellationToken).ConfigureAwait(false);
+                    AddServerLog(provisioning.Success
+                        ? $"[SUPABASE] {provisioning.Message}"
+                        : $"[SUPABASE-PROVISIONAMENTO-AVISO] {provisioning.Message}");
+                }
             }
 
             await EnsureDatabaseRestoredIfEmptyAsync(config, AddServerLog, cancellationToken).ConfigureAwait(false);
@@ -2312,6 +2331,62 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 Message = $"Erro de conexão: {ex.Message}",
                 StatusCode = 500
             };
+        }
+    }
+
+    public async Task<NebulaSupabaseProvisionResultDto> ProvisionSupabaseSchemaAsync(NebulaSupabaseProvisionRequest? request, CancellationToken cancellationToken = default)
+    {
+        var config = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
+        var url = string.IsNullOrWhiteSpace(request?.Url) ? config.SupabaseUrl.Trim() : request.Url.Trim();
+        var key = string.IsNullOrWhiteSpace(request?.Key) ? config.SupabaseKey.Trim() : request.Key.Trim();
+        var projectRef = string.IsNullOrWhiteSpace(request?.ProjectRef) ? config.SupabaseProjectRef.Trim() : request.ProjectRef.Trim();
+        var managementToken = string.IsNullOrWhiteSpace(request?.ManagementToken) ? config.SupabaseManagementToken.Trim() : request.ManagementToken.Trim();
+
+        if (!IsSafeSupabaseUrl(url, out var safeUrl) || string.IsNullOrWhiteSpace(key))
+        {
+            return new NebulaSupabaseProvisionResultDto { Success = false, Message = "Informe uma URL HTTPS válida e a Secret key do Supabase." };
+        }
+
+        if (!Regex.IsMatch(projectRef, "^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$", RegexOptions.CultureInvariant))
+        {
+            return new NebulaSupabaseProvisionResultDto { Success = false, Message = "Informe um Project ID válido do Supabase." };
+        }
+
+        if (string.IsNullOrWhiteSpace(managementToken))
+        {
+            return new NebulaSupabaseProvisionResultDto { Success = false, Message = "Informe o token da Management API para criar a estrutura automaticamente." };
+        }
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, $"https://api.supabase.com/v1/projects/{Uri.EscapeDataString(projectRef)}/database/query")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new { query = GetSupabaseSqlScript(), read_only = false }), Encoding.UTF8, "application/json")
+            };
+            requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", managementToken);
+            requestMessage.Headers.Add("User-Agent", "MulletaFlix-Server/12.0");
+
+            using var response = await client.SendAsync(requestMessage, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                if (body.Length > 512) body = body[..512] + "…";
+                return new NebulaSupabaseProvisionResultDto { Success = false, Message = $"A Management API recusou o provisionamento (HTTP {(int)response.StatusCode}): {body}" };
+            }
+
+            config.SupabaseUrl = safeUrl;
+            config.SupabaseKey = key;
+            config.SupabaseProjectRef = projectRef;
+            config.SupabaseManagementToken = string.Empty;
+            _configManager.SaveConfiguration("nebulaftp", config);
+            AddServerLog("[SUPABASE] Estrutura inicial criada/validada pela Management API. Token administrativo removido da configuração.");
+            return new NebulaSupabaseProvisionResultDto { Success = true, Message = "Estrutura do Supabase criada/validada com sucesso. O token administrativo foi removido da configuração." };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _logger.LogWarning(ex, "Falha ao provisionar schema do Supabase pela Management API.");
+            return new NebulaSupabaseProvisionResultDto { Success = false, Message = $"Não foi possível provisionar o Supabase: {ex.Message}" };
         }
     }
 

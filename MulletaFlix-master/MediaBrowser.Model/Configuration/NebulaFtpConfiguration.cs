@@ -105,6 +105,12 @@ public class NebulaFtpConfiguration
 
     public string SupabaseKey { get; set; } = string.Empty;
 
+    /// <summary>Identificador do projeto usado pela Management API durante o provisionamento inicial.</summary>
+    public string SupabaseProjectRef { get; set; } = string.Empty;
+
+    /// <summary>Token temporário da Management API; é removido após o schema ser provisionado.</summary>
+    public string SupabaseManagementToken { get; set; } = string.Empty;
+
     public bool SupabaseAutoBackup { get; set; } = true;
 
     public int SupabaseAutoBackupIntervalHours { get; set; } = 24;
