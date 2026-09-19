@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -36,6 +37,7 @@ import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
+import org.mulletaflix.core.common.network.NetworkMonitor
 import javax.inject.Inject
 
 data class TrackInfo(val index: Int, val displayName: String)
@@ -74,6 +76,7 @@ data class PlayerState(
     val currentChapterName: String? = null,
     val chapters: List<Chapter> = emptyList(),
     val playbackStats: PlaybackStats? = null,
+    val isNetworkOffline: Boolean = false,
 )
 
 @HiltViewModel
@@ -85,6 +88,7 @@ class PlayerViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val settingsRepository: SettingsRepository,
     private val getNextEpisodeUseCase: GetNextEpisodeUseCase,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlayerState())
@@ -140,6 +144,7 @@ class PlayerViewModel @Inject constructor(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                lastPlaybackErrorCode = error.errorCode
                 val transcodeUrl = currentTranscodeUrl
                 if (shouldFallbackToTranscode(
                         currentUri = localPlayer.currentMediaItem?.localConfiguration?.uri?.toString(),
@@ -200,6 +205,8 @@ class PlayerViewModel @Inject constructor(
     private var currentTranscodeUrl: String? = null
     private var triedTranscodeFallback = false
     private var playbackRetryCount = 0
+    private var networkWasOffline = false
+    private var lastPlaybackErrorCode: Int? = null
     private var stoppedReported = false
     private var autoPlayEnabled = true
     private var skipIntroEnabled = true
@@ -214,6 +221,22 @@ class PlayerViewModel @Inject constructor(
     private var currentSubtitleStreamIndex: Int? = null
 
     init {
+        viewModelScope.launch {
+            networkMonitor.isOnline.distinctUntilChanged().collect { isOnline ->
+                val wasOffline = networkWasOffline
+                networkWasOffline = !isOnline
+                _state.update { it.copy(isNetworkOffline = !isOnline) }
+                if (shouldRetryAfterNetworkRestored(
+                        wasOffline = wasOffline,
+                        isOnline = isOnline,
+                        hasRemoteMedia = currentItemId != null,
+                        errorCode = lastPlaybackErrorCode,
+                    )
+                ) {
+                    retryCurrentPlaybackAfterNetworkRestored()
+                }
+            }
+        }
         viewModelScope.launch {
             settingsRepository.isAutoPlayEnabled().collect { autoPlayEnabled = it }
         }
@@ -250,6 +273,7 @@ class PlayerViewModel @Inject constructor(
         currentItemSegments = emptyList()
         stoppedReported = false
         currentTranscodeUrl = null
+        lastPlaybackErrorCode = null
         currentAudioStreamIndex = null
         currentSubtitleStreamIndex = null
         triedTranscodeFallback = false
@@ -264,6 +288,7 @@ class PlayerViewModel @Inject constructor(
                 nextEpisode = null,
                 nextEpisodeCountdown = null,
                 error = null,
+                isNetworkOffline = false,
             )
         }
         loadJob = viewModelScope.launch {
@@ -442,11 +467,12 @@ class PlayerViewModel @Inject constructor(
         currentPlaySessionId = null
         currentMediaSourceId = null
         currentTranscodeUrl = null
+        lastPlaybackErrorCode = null
         currentAudioStreamIndex = null
         currentSubtitleStreamIndex = null
         triedTranscodeFallback = true
         playbackRetryCount = 0
-        _state.value = PlayerState(title = title, isBuffering = true, error = null)
+        _state.value = PlayerState(title = title, isBuffering = true, error = null, isNetworkOffline = false)
         player.setMediaItem(Media3Item.Builder().setUri(uri).build())
         player.prepare()
         applyDefaultPlaybackPreferences()
@@ -727,6 +753,22 @@ class PlayerViewModel @Inject constructor(
     private fun showLoadError(message: String) {
         if (currentItemId != null) {
             _state.update { it.copy(isBuffering = false, isPlaying = false, error = message) }
+        }
+    }
+
+    private fun retryCurrentPlaybackAfterNetworkRestored() {
+        val itemId = currentItemId ?: return
+        if (retryJob?.isActive == true) return
+        val positionAtError = localPlayer.currentPosition
+        retryJob = viewModelScope.launch {
+            _state.update { it.copy(isBuffering = true, error = null) }
+            delay(350)
+            if (currentItemId == itemId) {
+                playbackRetryCount = 0
+                player.prepare()
+                player.seekTo(positionAtError)
+                player.play()
+            }
         }
     }
 

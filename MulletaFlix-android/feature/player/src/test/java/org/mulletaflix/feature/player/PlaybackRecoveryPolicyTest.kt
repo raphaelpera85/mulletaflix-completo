@@ -18,4 +18,36 @@ class PlaybackRecoveryPolicyTest {
         assertFalse(shouldRetryPlayback(PlaybackException.ERROR_CODE_DECODING_FAILED, 0))
         assertFalse(shouldRetryPlayback(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 0))
     }
+
+    @Test
+    fun `retries a remote stream when connectivity is restored`() {
+        assertTrue(
+            shouldRetryAfterNetworkRestored(
+                wasOffline = true,
+                isOnline = true,
+                hasRemoteMedia = true,
+                errorCode = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+            )
+        )
+    }
+
+    @Test
+    fun `does not retry local media or permanent errors on reconnect`() {
+        assertFalse(
+            shouldRetryAfterNetworkRestored(
+                wasOffline = true,
+                isOnline = true,
+                hasRemoteMedia = false,
+                errorCode = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            )
+        )
+        assertFalse(
+            shouldRetryAfterNetworkRestored(
+                wasOffline = true,
+                isOnline = true,
+                hasRemoteMedia = true,
+                errorCode = PlaybackException.ERROR_CODE_DECODING_FAILED,
+            )
+        )
+    }
 }

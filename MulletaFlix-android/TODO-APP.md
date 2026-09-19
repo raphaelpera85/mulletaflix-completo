@@ -310,3 +310,13 @@ Pendências relacionadas:
       seleções usam `secondary` vermelho para manter contraste e acessibilidade.
 - [x] Badges de episódios não assistidos e faixa de anos (ex.: "2022 - Presente") que o cliente web mostra
       nos cards: exigem mapear `RecursiveUnplayedItemCount` / `PremiereDate`+`EndDate` no DTO.
+
+---
+
+## 🛡️ 18. Resiliência de reprodução (v1.0.7)
+
+- [x] **Reconexão automática do player**: falhas transitórias de rede são repetidas quando a conectividade
+      volta, preservando a posição atual; mídias offline e falhas permanentes não entram nesse ciclo.
+- [x] **Estado visível de conectividade**: o player exibe um aviso acessível enquanto está sem rede e tenta
+      recuperar o stream automaticamente.
+- [x] **Política coberta por testes**: cenários de restauração de rede, reprodução offline e erro permanente.

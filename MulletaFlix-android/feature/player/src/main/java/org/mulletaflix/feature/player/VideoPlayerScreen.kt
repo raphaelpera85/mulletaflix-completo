@@ -23,6 +23,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -258,6 +260,27 @@ fun VideoPlayerScreen(
         AnimatedVisibility(visible = state.isBuffering) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
+            }
+        }
+
+        AnimatedVisibility(
+            visible = state.isNetworkOffline,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                tonalElevation = 4.dp,
+                modifier = Modifier.semantics { contentDescription = "Sem conexão. Tentando reconectar." },
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Default.WifiOff, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                    Text("Sem conexão — tentando reconectar…", color = MaterialTheme.colorScheme.onSurface)
+                }
             }
         }
 
