@@ -53,11 +53,11 @@ const PluginDrawerSection = () => {
                 <ListItemText primary='Mídia Storage Online' />
             </ListItemLink>
 
-            <ListItemLink to='/dashboard/plugins/telegram-notifications'>
+            <ListItemLink to='/dashboard/plugins/notifications'>
                 <ListItemIcon>
                     <Folder />
                 </ListItemIcon>
-                <ListItemText primary='Telegram Notifications' />
+                <ListItemText primary='Notifications' />
             </ListItemLink>
 
             {pagesInfo?.map(pageInfo => (

@@ -1372,16 +1372,23 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 if (matchingDoc != null)
                 {
                     var matchedName = matchingDoc.GetValue("name", string.Empty).AsString;
-                    var isCompleted = string.Equals(matchingDoc.GetValue("status", string.Empty).AsString, "completed", StringComparison.OrdinalIgnoreCase);
-                    return (true, isCompleted, $"Mídia '{matchedName}' com ID ({idStr}) já encontrada");
+                    var status = matchingDoc.GetValue("status", string.Empty).AsString;
+                    var isCompleted = string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
+                        && NebulaMongoContext.HasTelegramParts(matchingDoc);
+                    if (isCompleted || status is "staging" or "queued" or "uploading")
+                    {
+                        return (true, isCompleted, $"Mídia '{matchedName}' com ID ({idStr}) já encontrada");
+                    }
                 }
             }
         }
 
         // 2. Checa por Nome, Título ou URL idêntica em mídias no acervo
         var normFileName = NormalizeMediaTitle(fileNameWithoutExt);
-        var movieIdent = MovieIdentity(fileNameWithoutExt) ?? MovieIdentity(Path.GetFileName(Path.GetDirectoryName(strmPath) ?? string.Empty));
         var epIdent = EpisodeIdentity(Path.GetFileName(Path.GetDirectoryName(strmPath) ?? string.Empty), strmPath);
+        var movieIdent = !epIdent.HasValue
+            ? MovieIdentity(fileNameWithoutExt) ?? MovieIdentity(Path.GetFileName(Path.GetDirectoryName(strmPath) ?? string.Empty))
+            : null;
 
         foreach (var doc in files)
         {
@@ -1396,8 +1403,12 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             if (!string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(docUrl) &&
                 string.Equals(url.Trim(), docUrl.Trim(), StringComparison.OrdinalIgnoreCase))
             {
-                var isCompleted = string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase);
-                return (true, isCompleted, $"Mídia '{name}' possui link idêntico já encontrado");
+                var isCompleted = string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
+                    && NebulaMongoContext.HasTelegramParts(doc);
+                if (isCompleted || status is "staging" or "queued" or "uploading")
+                {
+                    return (true, isCompleted, $"Mídia '{name}' possui link idêntico já encontrado");
+                }
             }
 
             if (string.Equals(name, finalMediaFileName, StringComparison.OrdinalIgnoreCase) ||
@@ -1408,7 +1419,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     return (true, false, $"Mídia '{fileNameWithoutExt}' já está no Nebula (status: {status})");
                 }
 
-                return (true, true, $"Mídia '{name}' com título idêntico já concluída/enviada");
+                if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
+                    && NebulaMongoContext.HasTelegramParts(doc))
+                {
+                    return (true, true, $"Mídia '{name}' com título idêntico já concluída/enviada");
+                }
             }
 
             // Identidade de Filme
@@ -1424,7 +1439,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                         return (true, false, $"Mídia '{fileNameWithoutExt}' já está no Nebula (status: {status})");
                     }
 
-                    return (true, true, $"Filme '{name}' ({movieIdent.Value.Year}) já concluído no Nebula");
+                    if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
+                        && NebulaMongoContext.HasTelegramParts(doc))
+                    {
+                        return (true, true, $"Filme '{name}' ({movieIdent.Value.Year}) já concluído no Nebula");
+                    }
                 }
             }
 
@@ -1442,7 +1461,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                         return (true, false, $"Episódio '{epIdent.Value.Series} S{epIdent.Value.Season:02d}E{epIdent.Value.Episode:02d}' já está no Nebula (status: {status})");
                     }
 
-                    if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
+                        && NebulaMongoContext.HasTelegramParts(doc))
                     {
                         return (true, true, $"Episódio '{epIdent.Value.Series} S{epIdent.Value.Season:02d}E{epIdent.Value.Episode:02d}' já concluído no Nebula");
                     }

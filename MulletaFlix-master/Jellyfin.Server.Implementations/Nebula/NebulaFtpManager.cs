@@ -2778,6 +2778,42 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         return await pool.SendMessageAsync(messageHtml, targetChatId, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<bool> SendNotificationAsync(string messageHtml, string? imagePath = null, string? targetChannelId = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(messageHtml))
+        {
+            return false;
+        }
+
+        var pool = _telegramPool;
+        if (pool == null)
+        {
+            var config = Config;
+            var botTokens = await LoadBotTokensAsync(config, cancellationToken).ConfigureAwait(false);
+            if (botTokens.Length == 0)
+            {
+                return false;
+            }
+
+            _ = int.TryParse(config.ApiId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var apiId);
+            _ = long.TryParse(config.ChatId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var chatId);
+            await using var tempPool = new NebulaTelegramPool(apiId, config.ApiHash, botTokens, chatId, GetSessionsDirectory(), _loggerFactory.CreateLogger<NebulaTelegramPool>());
+            if (!string.IsNullOrWhiteSpace(imagePath) && await tempPool.SendPhotoAsync(imagePath, messageHtml, targetChannelId, cancellationToken).ConfigureAwait(false))
+            {
+                return true;
+            }
+
+            return await tempPool.SendMessageAsync(messageHtml, targetChannelId, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!string.IsNullOrWhiteSpace(imagePath) && await pool.SendPhotoAsync(imagePath, messageHtml, targetChannelId, cancellationToken).ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        return await pool.SendMessageAsync(messageHtml, targetChannelId, cancellationToken).ConfigureAwait(false);
+    }
+
     public NebulaTelegramNotificationSettingsDto GetTelegramNotificationSettings()
     {
         var config = Config;
@@ -2808,6 +2844,56 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         config.ChatId = chatIds[0];
         _configManager.SaveConfiguration("nebulaftp", config);
         return true;
+    }
+
+    public NebulaNotificationsSettingsDto GetNotificationsSettings()
+    {
+        var config = Config;
+        var rawChannelIds = string.IsNullOrWhiteSpace(config.NotificationsChannelIds)
+            ? (string.IsNullOrWhiteSpace(config.TelegramNotificationChatIds) ? config.ChatId : config.TelegramNotificationChatIds)
+            : config.NotificationsChannelIds;
+
+        return new NebulaNotificationsSettingsDto
+        {
+            Enabled = config.NotificationsEnabled,
+            IntervalSeconds = Math.Clamp(config.NotificationsIntervalSeconds > 0 ? config.NotificationsIntervalSeconds : config.TelegramNotificationIntervalSeconds, 1, 60),
+            ChannelIds = ParseTelegramChatIds(rawChannelIds),
+            PublicServerUrl = NormalizePublicServerUrl(config.PublicServerUrl)
+        };
+    }
+
+    public bool SaveNotificationsSettings(NebulaNotificationsSettingsRequest request)
+    {
+        var channelIds = ParseTelegramChatIds(request.ChannelIds);
+        if (channelIds.Count == 0)
+        {
+            return false;
+        }
+
+        var interval = Math.Clamp(request.IntervalSeconds, 1, 60);
+        var config = Config;
+        config.NotificationsEnabled = request.Enabled;
+        config.NotificationsIntervalSeconds = interval;
+        config.NotificationsChannelIds = string.Join(",", channelIds);
+        config.PublicServerUrl = NormalizePublicServerUrl(request.PublicServerUrl ?? config.PublicServerUrl);
+
+        _configManager.SaveConfiguration("nebulaftp", config);
+        return true;
+    }
+
+    private static string NormalizePublicServerUrl(string? value)
+    {
+        var url = string.IsNullOrWhiteSpace(value) ? "http://mulletaflix.duckdns.org:8096" : value.Trim();
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+            || parsed.Scheme is not ("http" or "https")
+            || parsed.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || parsed.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+            || parsed.Host.Equals("::1", StringComparison.OrdinalIgnoreCase))
+        {
+            return "http://mulletaflix.duckdns.org:8096";
+        }
+
+        return parsed.GetLeftPart(UriPartial.Authority).TrimEnd('/');
     }
 
     internal static List<string> ParseTelegramChatIds(string? rawChatIds)

@@ -1196,6 +1196,7 @@ public sealed class NebulaMongoContext : IDisposable
         var dirName = !string.IsNullOrWhiteSpace(localFilePath)
             ? Path.GetFileName(Path.GetDirectoryName(localFilePath) ?? string.Empty)
             : string.Empty;
+        var episodeIdent = NebulaDownloaderEngine.EpisodeIdentity(dirName, fileName);
 
         // 1. Busca direta por nome exato ou stem em arquivos concluídos
         var filterByName = Builders<BsonDocument>.Filter.And(
@@ -1208,15 +1209,20 @@ public sealed class NebulaMongoContext : IDisposable
 
         using (var cursor = await _filesCollection.FindAsync(filterByName, cancellationToken: cancellationToken).ConfigureAwait(false))
         {
-            var match = await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            if (match != null && HasTelegramParts(match))
+            var matches = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var match in matches)
             {
-                return match;
+                if (HasTelegramParts(match))
+                {
+                    return match;
+                }
             }
         }
 
         // 2. Busca por Identidade de Filme (Título normalizado + Ano)
-        var movieIdent = NebulaDownloaderEngine.MovieIdentity(stem) ?? NebulaDownloaderEngine.MovieIdentity(dirName);
+        var movieIdent = !episodeIdent.HasValue
+            ? NebulaDownloaderEngine.MovieIdentity(stem) ?? NebulaDownloaderEngine.MovieIdentity(dirName)
+            : null;
         if (movieIdent.HasValue)
         {
             var yearFilter = Builders<BsonDocument>.Filter.And(
@@ -1295,10 +1301,13 @@ public sealed class NebulaMongoContext : IDisposable
                         Builders<BsonDocument>.Filter.Regex("name", new BsonRegularExpression($"^{Regex.Escape(seriesName)}[\\. _-]", "i")));
 
                     using var cursor = await _filesCollection.FindAsync(seriesFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    var match = await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-                    if (match != null && HasTelegramParts(match))
+                    var matches = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+                    foreach (var match in matches)
                     {
-                        return match;
+                        if (HasTelegramParts(match))
+                        {
+                            return match;
+                        }
                     }
                 }
             }
@@ -1307,7 +1316,7 @@ public sealed class NebulaMongoContext : IDisposable
         return null;
     }
 
-    private static bool HasTelegramParts(BsonDocument doc)
+    internal static bool HasTelegramParts(BsonDocument doc)
     {
         if (doc.TryGetValue("parts", out var partsVal) && partsVal.IsBsonArray && partsVal.AsBsonArray.Count > 0)
         {
@@ -2026,7 +2035,11 @@ public sealed class NebulaMongoContext : IDisposable
             var projection = Builders<BsonDocument>.Projection
                 .Include("status")
                 .Include("local_path")
-                .Include("size");
+                .Include("size")
+                .Include("parts")
+                .Include("tg_file_id")
+                .Include("file_id")
+                .Include("tg_file");
 
             using var cursor = await _filesCollection.FindAsync(
                 filter,
@@ -2052,7 +2065,7 @@ public sealed class NebulaMongoContext : IDisposable
                 }
 
                 var status = doc.TryGetValue("status", out var statusValue) && statusValue.IsString ? statusValue.AsString : string.Empty;
-                if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase) && HasTelegramParts(doc))
                 {
                     completedPaths.Add(fullPath);
                     continue;
@@ -2234,13 +2247,22 @@ public sealed class NebulaMongoContext : IDisposable
 
             var projection = Builders<BsonDocument>.Projection
                 .Include("name")
-                .Include("parent");
+                .Include("parent")
+                .Include("parts")
+                .Include("tg_file_id")
+                .Include("file_id")
+                .Include("tg_file");
 
             using var cursor = await _filesCollection.FindAsync(filter, new FindOptions<BsonDocument> { Projection = projection }, cancellationToken).ConfigureAwait(false);
             var docs = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
 
             foreach (var doc in docs)
             {
+                if (!HasTelegramParts(doc))
+                {
+                    continue;
+                }
+
                 if (doc.TryGetValue("parent", out var parentVal) && !parentVal.IsBsonNull)
                 {
                     var pStr = parentVal.ToString()?.TrimEnd('/', '\\');
@@ -2295,7 +2317,12 @@ public sealed class NebulaMongoContext : IDisposable
                 Builders<BsonDocument>.Filter.Eq("status", "completed"),
                 Builders<BsonDocument>.Filter.Exists("local_path", true));
 
-            var projection = Builders<BsonDocument>.Projection.Include("local_path");
+            var projection = Builders<BsonDocument>.Projection
+                .Include("local_path")
+                .Include("parts")
+                .Include("tg_file_id")
+                .Include("file_id")
+                .Include("tg_file");
             using var cursor = await _filesCollection.FindAsync(
                 filter,
                 new FindOptions<BsonDocument> { Projection = projection },
@@ -2304,6 +2331,11 @@ public sealed class NebulaMongoContext : IDisposable
 
             foreach (var doc in docs)
             {
+                if (!HasTelegramParts(doc))
+                {
+                    continue;
+                }
+
                 if (!doc.TryGetValue("local_path", out var localPathValue) || !localPathValue.IsString)
                 {
                     continue;

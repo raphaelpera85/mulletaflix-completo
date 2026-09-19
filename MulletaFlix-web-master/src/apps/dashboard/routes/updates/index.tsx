@@ -13,6 +13,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import Page from 'components/Page';
+import MarkdownBox from 'components/MarkdownBox';
 import globalize from 'lib/globalize';
 import {
     useServerUpdateInfo,
@@ -339,19 +340,7 @@ const Component = () => {
                                     <Typography variant='h2' sx={{ mb: 1.5 }}>
                                         Notas de Lançamento / Novidades
                                     </Typography>
-                                    <Typography
-                                        variant='body2'
-                                        color='text.secondary'
-                                        component='pre'
-                                        sx={{
-                                            whiteSpace: 'pre-wrap',
-                                            fontFamily: 'inherit',
-                                            margin: 0,
-                                            lineHeight: 1.6
-                                        }}
-                                    >
-                                        {updateInfo.Changelog}
-                                    </Typography>
+                                    <MarkdownBox markdown={updateInfo.Changelog} />
                                 </Paper>
                             )}
                         </>
@@ -365,4 +354,3 @@ const Component = () => {
 Component.displayName = 'UpdateCenterPage';
 
 export default Component;
-

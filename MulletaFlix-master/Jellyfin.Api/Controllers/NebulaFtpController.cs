@@ -362,6 +362,10 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             TelegramNotificationsEnabled = config.TelegramNotificationsEnabled,
             TelegramNotificationChatIds = config.TelegramNotificationChatIds,
             TelegramNotificationIntervalSeconds = config.TelegramNotificationIntervalSeconds,
+            NotificationsEnabled = config.NotificationsEnabled,
+            NotificationsChannelIds = config.NotificationsChannelIds,
+            NotificationsIntervalSeconds = config.NotificationsIntervalSeconds,
+            PublicServerUrl = config.PublicServerUrl,
             BotTokens = string.Empty,
             BotTokensCollection = config.BotTokensCollection,
             BotTokensTable = config.BotTokensTable,
@@ -465,6 +469,31 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         if (!_nebulaManager.SaveTelegramNotificationSettings(request))
         {
             return BadRequest("Informe ao menos um canal ou chat do Telegram.");
+        }
+
+        return NoContent();
+    }
+
+    [HttpGet("Notifications")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<NebulaNotificationsSettingsDto> GetNotificationsSettings()
+    {
+        return Ok(_nebulaManager.GetNotificationsSettings());
+    }
+
+    [HttpPost("Notifications")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult SaveNotificationsSettings([FromBody] NebulaNotificationsSettingsRequest? request)
+    {
+        if (request is null || request.IntervalSeconds is < 1 or > 60)
+        {
+            return BadRequest("O intervalo deve estar entre 1 e 60 segundos.");
+        }
+
+        if (!_nebulaManager.SaveNotificationsSettings(request))
+        {
+            return BadRequest("Informe ao menos um canal ou chat para Notifications.");
         }
 
         return NoContent();

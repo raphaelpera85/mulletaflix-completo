@@ -46,6 +46,17 @@ public class NebulaFtpConfiguration
 
     public int TelegramNotificationIntervalSeconds { get; set; } = 3;
 
+    /// <summary>Configuração genérica da camada Notifications; Telegram é o transporte atual.</summary>
+    public bool NotificationsEnabled { get; set; } = true;
+
+    /// <summary>IDs de canais/chats separados por vírgula para a camada Notifications.</summary>
+    public string NotificationsChannelIds { get; set; } = string.Empty;
+
+    public int NotificationsIntervalSeconds { get; set; } = 3;
+
+    /// <summary>URL pública usada nos links enviados nas notificações.</summary>
+    public string PublicServerUrl { get; set; } = "http://mulletaflix.duckdns.org:8096";
+
     public string BotTokens { get; set; } = string.Empty;
 
     public string BotTokensCollection { get; set; } = "bot_tokens";

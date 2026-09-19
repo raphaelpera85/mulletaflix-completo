@@ -696,8 +696,8 @@ class PlayerViewModel @Inject constructor(
                         itemId = id,
                         playSessionId = currentPlaySessionId,
                         mediaSourceId = currentMediaSourceId,
-                        audioIndex = null,
-                        subtitleIndex = null,
+                        audioIndex = currentAudioStreamIndex,
+                        subtitleIndex = currentSubtitleStreamIndex,
                         positionTicks = position * 10_000L,
                         isPaused = false,
                     )

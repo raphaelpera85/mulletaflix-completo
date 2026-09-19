@@ -269,3 +269,26 @@ public class NebulaTelegramNotificationSettingsRequest
 
     public string ChatIds { get; set; } = string.Empty;
 }
+
+/// <summary>Configuração agnóstica de transporte da camada Notifications.</summary>
+public class NebulaNotificationsSettingsDto
+{
+    public bool Enabled { get; set; }
+
+    public int IntervalSeconds { get; set; }
+
+    public List<string> ChannelIds { get; set; } = new();
+
+    public string PublicServerUrl { get; set; } = string.Empty;
+}
+
+public class NebulaNotificationsSettingsRequest
+{
+    public bool Enabled { get; set; }
+
+    public int IntervalSeconds { get; set; }
+
+    public string ChannelIds { get; set; } = string.Empty;
+
+    public string? PublicServerUrl { get; set; }
+}

@@ -1550,6 +1550,63 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         return new NebulaTelegramUploadResult(botIndex, response.Result.MessageId, response.Result.Chat.Id, response.Result.Document.FileId);
     }
 
+    /// <summary>Envia uma capa com legenda HTML usando sendPhoto.</summary>
+    public async Task<bool> SendPhotoAsync(
+        string imagePath,
+        string caption,
+        string? targetChatId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_botTokens.Count == 0 || string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath) || string.IsNullOrWhiteSpace(caption))
+        {
+            return false;
+        }
+
+        var fileInfo = new FileInfo(imagePath);
+        if (fileInfo.Length <= 0 || fileInfo.Length > 10 * 1024 * 1024)
+        {
+            return false;
+        }
+
+        var effectiveChatId = !string.IsNullOrWhiteSpace(targetChatId)
+            ? targetChatId
+            : _chatId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (string.IsNullOrWhiteSpace(effectiveChatId) || effectiveChatId == "0")
+        {
+            return false;
+        }
+
+        foreach (var token in _botTokens)
+        {
+            try
+            {
+                using var form = new MultipartFormDataContent();
+                form.Add(new StringContent(effectiveChatId), "chat_id");
+                form.Add(new StringContent(caption), "caption");
+                form.Add(new StringContent("HTML"), "parse_mode");
+                await using var stream = File.OpenRead(imagePath);
+                using var photo = new StreamContent(stream);
+                photo.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+                form.Add(photo, "photo", Path.GetFileName(imagePath));
+
+                var endpoint = $"https://api.telegram.org/bot{token}/sendPhoto";
+                using var response = await _httpClient.PostAsync(endpoint, form, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+
+                _logger.LogWarning("[NEBULA-TG] Falha ao enviar capa via Bot API: {Status}", response.StatusCode);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "[NEBULA-TG] Exceção ao enviar capa da notificação.");
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Envia uma mensagem em formato HTML usando a Bot API do Telegram via pool de bots com fallback automático.
     /// </summary>

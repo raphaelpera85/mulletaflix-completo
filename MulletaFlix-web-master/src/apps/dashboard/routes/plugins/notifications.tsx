@@ -17,13 +17,17 @@ import type { ApiClient } from 'jellyfin-apiclient';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { queryClient } from 'utils/query/queryClient';
 
-type TelegramNotificationSettings = {
+type NotificationsSettings = {
     Enabled: boolean;
     IntervalSeconds: number;
-    ChatIds: string[];
+    ChannelIds: string[];
+    PublicServerUrl: string;
 };
 
-const QUERY_KEY = [ 'NebulaTelegramNotifications' ];
+// The server is intentionally exposed over HTTP on the configured DuckDNS port.
+// eslint-disable-next-line sonarjs/no-clear-text-protocols
+const DEFAULT_PUBLIC_SERVER_URL = 'http://mulletaflix.duckdns.org:8096';
+const QUERY_KEY = [ 'NotificationsSettings' ];
 
 const getApiClient = (): ApiClient => {
     const apiClient = ServerConnections.currentApiClient();
@@ -40,11 +44,11 @@ const getErrorMessage = (error: unknown): string => {
         || 'erro desconhecido';
 };
 
-const postSettings = async (settings: { Enabled: boolean; ChatIds: string; IntervalSeconds: number }) => {
+const postSettings = async (settings: { Enabled: boolean; ChannelIds: string; IntervalSeconds: number; PublicServerUrl: string }) => {
     const apiClient = getApiClient();
     return apiClient.ajax({
         type: 'POST',
-        url: apiClient.getUrl('NebulaFtp/Telegram/Notifications'),
+        url: apiClient.getUrl('NebulaFtp/Notifications'),
         data: JSON.stringify(settings),
         contentType: 'application/json'
     });
@@ -56,23 +60,25 @@ const getActionLabel = (isPending: boolean, enabled: boolean): string => {
     return 'Iniciar envio';
 };
 
-const TelegramNotificationsPage = () => {
+const NotificationsPage = () => {
     const settingsQuery = useQuery({
         queryKey: QUERY_KEY,
         queryFn: () => {
             const apiClient = getApiClient();
-            return apiClient.getJSON(apiClient.getUrl('NebulaFtp/Telegram/Notifications')) as Promise<TelegramNotificationSettings>;
+            return apiClient.getJSON(apiClient.getUrl('NebulaFtp/Notifications')) as Promise<NotificationsSettings>;
         }
     });
     const [ enabled, setEnabled ] = useState(true);
-    const [ chatIds, setChatIds ] = useState('');
+    const [ channelIds, setChannelIds ] = useState('');
     const [ interval, setInterval ] = useState('3');
+    const [ publicServerUrl, setPublicServerUrl ] = useState(DEFAULT_PUBLIC_SERVER_URL);
 
     useEffect(() => {
         if (!settingsQuery.data) return;
         setEnabled(settingsQuery.data.Enabled);
-        setChatIds(settingsQuery.data.ChatIds.join(', '));
+        setChannelIds(settingsQuery.data.ChannelIds.join(', '));
         setInterval(String(settingsQuery.data.IntervalSeconds));
+        setPublicServerUrl(settingsQuery.data.PublicServerUrl || DEFAULT_PUBLIC_SERVER_URL);
     }, [ settingsQuery.data ]);
 
     const mutation = useMutation({
@@ -86,57 +92,65 @@ const TelegramNotificationsPage = () => {
 
     const validate = useCallback(() => {
         const intervalSeconds = Number(interval);
-        if (!chatIds.trim()) {
-            toast('Informe ao menos um canal ou chat do Telegram.');
+        if (!channelIds.trim()) {
+            toast('Informe ao menos um canal de notificação.');
             return null;
         }
         if (!Number.isInteger(intervalSeconds) || intervalSeconds < 1 || intervalSeconds > 60) {
             toast('O intervalo deve estar entre 1 e 60 segundos.');
             return null;
         }
+        if (!publicServerUrl.trim() || /localhost|127\.0\.0\.1|\[::1\]/i.test(publicServerUrl)) {
+            toast('Informe uma URL pública, sem localhost.');
+            return null;
+        }
         return intervalSeconds;
-    }, [ chatIds, interval ]);
+    }, [ channelIds, interval, publicServerUrl ]);
     const saveSettings = useCallback((event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         const intervalSeconds = validate();
         if (intervalSeconds === null) return;
-        mutation.mutate({ Enabled: enabled, ChatIds: chatIds, IntervalSeconds: intervalSeconds });
-    }, [ chatIds, enabled, mutation, validate ]);
+        mutation.mutate({ Enabled: enabled, ChannelIds: channelIds, IntervalSeconds: intervalSeconds, PublicServerUrl: publicServerUrl });
+    }, [ channelIds, enabled, mutation, publicServerUrl, validate ]);
     const toggleSettings = useCallback(() => {
         const intervalSeconds = validate();
         if (intervalSeconds === null) return;
         const nextEnabled = !enabled;
         setEnabled(nextEnabled);
-        mutation.mutate({ Enabled: nextEnabled, ChatIds: chatIds, IntervalSeconds: intervalSeconds });
-    }, [ chatIds, enabled, mutation, validate ]);
-    const handleChatIdsChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-        setChatIds(event.target.value);
+        mutation.mutate({ Enabled: nextEnabled, ChannelIds: channelIds, IntervalSeconds: intervalSeconds, PublicServerUrl: publicServerUrl });
+    }, [ channelIds, enabled, mutation, publicServerUrl, validate ]);
+    const handleChannelIdsChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        setChannelIds(event.target.value);
     }, []);
     const handleIntervalChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
         setInterval(event.target.value);
     }, []);
+    const handlePublicServerUrlChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        setPublicServerUrl(event.target.value);
+    }, []);
     const actionLabel = getActionLabel(mutation.isPending, enabled);
 
     return (
-        <Page id='telegramNotificationsPage' title='Telegram Notifications' className='mainAnimatedPage type-interior'>
+        <Page id='notificationsPage' title='Notifications' className='mainAnimatedPage type-interior'>
             <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, maxWidth: 1100, mx: 'auto' }}>
                 <Box>
-                    <Typography variant='h1'>Telegram Notifications</Typography>
-                    <Typography color='text.secondary'>Configure a fila de mensagens para novas mídias sem misturar com as operações do Nebula.</Typography>
+                    <Typography variant='h1'>Notifications</Typography>
+                    <Typography color='text.secondary'>Gerencie notificações de novas mídias. Telegram é o primeiro transporte; outros canais poderão ser adicionados futuramente.</Typography>
                 </Box>
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
                     <Stack spacing={2}>
                         <Box>
                             <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>Fila de novas mídias</Typography>
-                            <Typography variant='body2' color='text.secondary'>As mensagens são enviadas uma por vez, fora do upload, para evitar Too Many Requests do Telegram.</Typography>
+                            <Typography variant='body2' color='text.secondary'>As mensagens só entram na fila depois que o servidor conclui metadados, capa e NFO da mídia.</Typography>
                         </Box>
                         {settingsQuery.isError && <Alert severity='warning'>Não foi possível carregar a configuração: {getErrorMessage(settingsQuery.error)}</Alert>}
                         <Box component='form' onSubmit={saveSettings}>
                             <Stack spacing={1.5}>
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                                    <TextField label='Canais ou chats do Telegram' helperText='Separe vários IDs por vírgula. Ex.: -100123, -100456' value={chatIds} onChange={handleChatIdsChange} size='small' fullWidth />
+                                    <TextField label='Canais de notificação' helperText='Separe vários IDs por vírgula. Este canal é independente do canal de upload.' value={channelIds} onChange={handleChannelIdsChange} size='small' fullWidth />
                                     <TextField label='Intervalo entre mensagens (segundos)' type='number' value={interval} onChange={handleIntervalChange} size='small' slotProps={{ htmlInput: { min: 1, max: 60 } }} sx={{ minWidth: { sm: 250 } }} />
                                 </Stack>
+                                <TextField label='URL pública do servidor' helperText='Usada no link direto da mídia. Ex.: http://mulletaflix.duckdns.org:8096' value={publicServerUrl} onChange={handlePublicServerUrlChange} size='small' fullWidth />
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
                                     <Button type='button' variant='contained' color={enabled ? 'warning' : 'success'} startIcon={enabled ? <Stop /> : <PlayArrow />} disabled={mutation.isPending} onClick={toggleSettings}>{actionLabel}</Button>
                                     <Button type='submit' variant='outlined' disabled={mutation.isPending}>Salvar canais e intervalo</Button>
@@ -151,4 +165,4 @@ const TelegramNotificationsPage = () => {
     );
 };
 
-export default TelegramNotificationsPage;
+export default NotificationsPage;

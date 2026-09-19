@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
+import org.mulletaflix.designsystem.components.ReleaseNotesText
 
 /**
  * Settings screen with categorized preferences.
@@ -272,12 +273,9 @@ fun SettingsScreen(
                                     text = "Novidades:",
                                     style = MaterialTheme.typography.titleSmall
                                 )
-                                Text(
-                                    text = notes,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 8,
-                                    modifier = Modifier.padding(top = 4.dp)
+                                ReleaseNotesText(
+                                    markdown = notes,
+                                    modifier = Modifier.padding(top = 4.dp),
                                 )
                             }
                             if (state.isDownloadingUpdate) {

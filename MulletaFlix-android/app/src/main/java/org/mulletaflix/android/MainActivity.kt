@@ -25,6 +25,7 @@ import org.mulletaflix.android.navigation.MulletaFlixNavHost
 import org.mulletaflix.designsystem.theme.MulletaFlixTheme
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
+import org.mulletaflix.designsystem.components.ReleaseNotesText
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.android.network.LanServerRecovery
 import org.mulletaflix.feature.player.PlayerPictureInPictureController
@@ -171,11 +172,8 @@ class MainActivity : ComponentActivity() {
                                                 text = "Novidades:",
                                                 style = MaterialTheme.typography.titleSmall,
                                             )
-                                            Text(
-                                                text = notes,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 6,
+                                            ReleaseNotesText(
+                                                markdown = notes,
                                                 modifier = Modifier.padding(top = 4.dp),
                                             )
                                         }

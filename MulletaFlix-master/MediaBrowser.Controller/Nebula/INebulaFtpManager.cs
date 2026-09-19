@@ -58,4 +58,10 @@ public interface INebulaFtpManager
     NebulaTelegramNotificationSettingsDto GetTelegramNotificationSettings();
 
     bool SaveTelegramNotificationSettings(NebulaTelegramNotificationSettingsRequest request);
+
+    Task<bool> SendNotificationAsync(string messageHtml, string? imagePath = null, string? targetChannelId = null, CancellationToken cancellationToken = default);
+
+    NebulaNotificationsSettingsDto GetNotificationsSettings();
+
+    bool SaveNotificationsSettings(NebulaNotificationsSettingsRequest request);
 }

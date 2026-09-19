@@ -377,3 +377,14 @@ Pendências relacionadas:
 - [x] Atualizar Media3 para a versão estável mais recente disponível no ciclo atual.
 - [x] Atualizar Core KTX e DataStore para as versões estáveis atuais.
 - [x] Preparar o APK para Android 16 (targetSdk 36) mantendo minSdk 24.
+
+## 28. Progresso de reprodução completo (v1.0.17)
+
+- [x] Enviar os índices atuais de áudio e legenda também nos relatórios periódicos de progresso.
+- [x] Evitar que o servidor perca a preferência de faixa durante uma sessão longa de reprodução.
+
+## 29. Notas de atualização legíveis (v1.0.18)
+
+- [x] Renderizar títulos, listas e negrito das notas de release no APK.
+- [x] Tornar o bloco de novidades rolável em diálogos pequenos.
+- [x] Cobrir o parser e a formatação de negrito com testes unitários.
