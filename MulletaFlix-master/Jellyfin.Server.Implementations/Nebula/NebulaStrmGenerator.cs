@@ -56,20 +56,12 @@ public sealed class NebulaStrmGenerator
             return Path.Combine("Nebula", "Porno");
         }
 
-        var rawParts = (relativeDir ?? string.Empty)
-            .Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
-            .Where(p => !string.Equals(p, "strm", StringComparison.OrdinalIgnoreCase)
-                     && !string.Equals(p, "nebula", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        // A normalização remove artefatos de montagem e as raízes de categoria do início
+        // do caminho, garantindo uma única raiz por mídia (Filmes, Series ou Porno).
+        var rawParts = NebulaUploadEngine.NormalizeMediaPathSegments(relativeDir);
 
         if (mediaType == "SERIE")
         {
-            if (rawParts.Count > 0 && (string.Equals(rawParts[0], "series", StringComparison.OrdinalIgnoreCase) ||
-                                       string.Equals(rawParts[0], "serie", StringComparison.OrdinalIgnoreCase)))
-            {
-                rawParts.RemoveAt(0);
-            }
-
             string seriesName;
             string seasonFolder;
 
@@ -134,15 +126,7 @@ public sealed class NebulaStrmGenerator
             return Path.Combine("Nebula", "Series", seriesName, seasonFolder);
         }
 
-        // Caso FILME:
-        if (rawParts.Count > 0 && (string.Equals(rawParts[0], "filmes", StringComparison.OrdinalIgnoreCase) ||
-                                   string.Equals(rawParts[0], "filme", StringComparison.OrdinalIgnoreCase) ||
-                                   string.Equals(rawParts[0], "movies", StringComparison.OrdinalIgnoreCase) ||
-                                   string.Equals(rawParts[0], "movie", StringComparison.OrdinalIgnoreCase)))
-        {
-            rawParts.RemoveAt(0);
-        }
-
+        // Caso FILME: a raiz 'Filmes' já foi removida pela normalização dos segmentos.
         string movieFolder;
         if (rawParts.Count > 0)
         {

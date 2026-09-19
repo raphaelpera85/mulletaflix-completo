@@ -180,6 +180,21 @@ public class NebulaUploadEngineTests
     [InlineData("Filmes", "Essex.mkv", "FILME")]
     [InlineData(null, "Sex Education S01E01.mkv", "SERIE")]
     [InlineData("Filmes", "The Matrix.mkv", "FILME")]
+    // Títulos de filme que contêm palavras de série não podem virar série
+    [InlineData(@"Series\Filmes\O Show dos Muppets (2026)", "O Show dos Muppets (2026).mkv", "FILME")]
+    [InlineData(@"Series\Filmes\10x10 - O Cativeiro (2018)", "10x10 - O Cativeiro (2018).mkv", "FILME")]
+    [InlineData(@"Series\Filmes\4x100 - Correndo por um Sonho (2021)", "4x100 - Correndo por um Sonho (2021).mkv", "FILME")]
+    [InlineData("Temporada de Sangue (2025)", "Temporada de Sangue (2025).mkv", "FILME")]
+    [InlineData("Show Bar (2000)", "Show Bar (2000).mkv", "FILME")]
+    [InlineData("Casteel Series - Os Sonhos de Heaven (2019)", "Casteel Series - Os Sonhos de Heaven (2019).mkv", "FILME")]
+    // Palavra de conteúdo adulto no título não desloca mídia que está numa raiz declarada
+    [InlineData(@"Filmes\How to Have Sex (2023)", "How to Have Sex (2023).mkv", "FILME")]
+    [InlineData(@"Filmes\Adult Swim_'s The Elephant (2025)", "Adult Swim_'s The Elephant (2025).mkv", "FILME")]
+    [InlineData(@"Series\Temporada de Sangue (2025)", "Temporada de Sangue (2025).mkv", "FILME")]
+    [InlineData(@"Porno\Studio", "cena.mp4", "PORNO")]
+    // Séries continuam sendo séries por marcador de episódio ou pasta de temporada
+    [InlineData(@"Series\Series\BoJack Horseman\Season 03", "BoJack Horseman - S03E11.mkv", "SERIE")]
+    [InlineData("Fuzuê/Temporada 1", "Fuzuê - Ep 12.mkv", "SERIE")]
     public void UploadEngine_ClassifyMediaType_ClassifiesProperly(string? parent, string filename, string expectedType)
     {
         var actual = NebulaUploadEngine.ClassifyMediaType(parent, filename);
@@ -973,6 +988,13 @@ public class NebulaUploadEngineTests
     [InlineData("Adulto", "video.mp4", "Porno")]
     [InlineData("strm/Porno/Hentai Studio", "ep1.mkv", "Porno")]
     [InlineData(null, "Hentai Episode 1.mkv", "Porno")]
+    // Filmes guardados dentro de 'Series\Filmes' continuam indo para a raiz Filmes
+    [InlineData(@"Series\Filmes\O Show dos Muppets (2026)", "O Show dos Muppets (2026).mkv", "Filmes/O Show dos Muppets (2026)")]
+    [InlineData(@"Series\Filmes\10x10 - O Cativeiro (2018)", "10x10 - O Cativeiro (2018).mkv", "Filmes/10x10 - O Cativeiro (2018)")]
+    [InlineData(@"Nebula\Filmes\Matrix (1999)", "Matrix.mp4", "Filmes/Matrix (1999)")]
+    // Raiz de categoria duplicada nunca é preservada
+    [InlineData(@"Series\Series\BoJack Horseman\Season 03", "BoJack Horseman - S03E11.mkv", "Series/BoJack Horseman/Season 03")]
+    [InlineData(@"strm\Series\Dark\Season 1", "Dark.S01E01.mkv", "Series/Dark/Season 1")]
     public void NebulaUploadEngine_RouteMediaRelativeDirectory_FollowsCategoryRules(string? relDir, string filename, string expected)
     {
         var result = NebulaUploadEngine.RouteMediaRelativeDirectory(relDir, filename);
@@ -992,6 +1014,10 @@ public class NebulaUploadEngineTests
     // Porno sob Nebula/Porno
     [InlineData("Porno/Cena", "video_xxx.mp4", "Nebula", "Porno", null, null)]
     [InlineData("Adulto", "video.mp4", "Nebula", "Porno", null, null)]
+    // Mesma árvore de destino para a mesma mídia, qualquer que seja a origem
+    [InlineData(@"Series\Filmes\O Show dos Muppets (2026)", "O Show dos Muppets (2026).mkv", "Nebula", "Filmes", "O Show dos Muppets (2026)")]
+    [InlineData(@"Series\Series\BoJack Horseman\Season 03", "BoJack Horseman - S03E11.mkv", "Nebula", "Series", "BoJack Horseman", "Season 03")]
+    [InlineData(@"strm\Series\Dark\Season 1", "Dark.S01E01.mkv", "Nebula", "Series", "Dark", "Season 01")]
     public void NebulaStrmGenerator_RouteStrmRelativeDirectory_FollowsStandardHierarchy(
         string? relDir,
         string filename,

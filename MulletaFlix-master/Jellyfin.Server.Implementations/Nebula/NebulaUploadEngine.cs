@@ -109,24 +109,174 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         @"(?i)(?:^|[\\/\s._()+-])(porno|porn|xxx|hentai|adulto|adult)(?=$|[\\/\s._()+-])",
         System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private static readonly System.Text.RegularExpressions.Regex SeriesPattern = new(
-        @"(?i)\bS\d{1,2}[ ._-]*E\d{1,3}\b|\b\d{1,2}x\d{1,3}\b|(?:^|[\\/\s._-])(series?|season|temporada|anime|novela|dorama|show)(?=$|[\\/\s._-])",
+    /// <summary>
+    /// Marcador explícito de episódio no nome do arquivo (S01E02, S1.E2, S01_E02, S01-E02).
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex SeasonEpisodePattern = new(
+        @"(?i)\bS\d{1,2}[ ._-]*E\d{1,3}\b",
         System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>
+    /// Marcador compacto de episódio no nome do arquivo (2x01), típico de séries e novelas.
+    /// Só vale quando o nome não carrega um ano de lançamento entre parênteses.
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex CompactEpisodePattern = new(
+        @"(?i)\b\d{1,2}x\d{1,3}\b",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Ano entre parênteses: assinatura de título de filme ("O Rei do Show (2017)").
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex MovieYearPattern = new(
+        @"\((?:19|20)\d{2}\)",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Segmentos de pasta que declaram mídia de filme.
+    /// </summary>
+    private static readonly HashSet<string> MovieRootSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "filmes", "filme", "movies", "movie"
+    };
+
+    /// <summary>
+    /// Segmentos de pasta que declaram mídia de série.
+    /// </summary>
+    private static readonly HashSet<string> SeriesRootSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "series", "serie", "série"
+    };
+
+    /// <summary>
+    /// Segmentos de pasta que declaram conteúdo adulto.
+    /// </summary>
+    private static readonly HashSet<string> PornRootSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "porno", "porn", "xxx", "hentai", "adulto", "adult", "erotico", "erótico"
+    };
+
+    /// <summary>
+    /// Segmentos que são pastas-raiz de categoria ou artefatos de montagem, nunca nomes de mídia.
+    /// </summary>
+    private static readonly HashSet<string> CategoryRootSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "filmes", "filme", "movies", "movie",
+        "series", "serie", "série",
+        "porno", "porn", "adulto", "hentai", "erotico", "erótico", "xxx",
+        "strm", "nebula"
+    };
+
+    /// <summary>
+    /// Segmentos de diretório que indicam série (Season 03, Temporada 2, Anime, Novela, Dorama).
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex SeriesFolderSegmentPattern = new(
+        @"(?i)^(season|temporada|anime|novela|dorama|series?|série)\s*\d{0,2}$",
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Divide um caminho relativo em segmentos, aceitando separadores Windows e POSIX.
+    /// </summary>
+    internal static string[] SplitPathSegments(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? []
+            : value.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>
+    /// Normaliza os segmentos de um diretório relativo: remove artefatos de montagem
+    /// ('strm', 'nebula') e as pastas-raiz de categoria do início do caminho.
+    /// Assim a mídia nunca é roteada para uma raiz dentro da própria raiz
+    /// (ex.: 'Series\Series\BoJack Horseman' vira 'BoJack Horseman').
+    /// </summary>
+    /// <param name="relativeDir">Diretório relativo original.</param>
+    /// <returns>Segmentos de diretório já normalizados.</returns>
+    internal static List<string> NormalizeMediaPathSegments(string? relativeDir)
+        => SplitPathSegments(relativeDir)
+            .Where(segment => !string.Equals(segment, "strm", StringComparison.OrdinalIgnoreCase)
+                           && !string.Equals(segment, "nebula", StringComparison.OrdinalIgnoreCase))
+            .SkipWhile(segment => CategoryRootSegments.Contains(segment))
+            .ToList();
+
+    /// <summary>
+    /// Resolve a categoria declarada pela própria árvore de pastas. O segmento de categoria
+    /// mais próximo da mídia vence (ex.: 'Series\Filmes\X' declara filme para o que está em X).
+    /// </summary>
+    /// <param name="segments">Segmentos do diretório relativo.</param>
+    /// <returns>'FILME', 'SERIE', 'PORNO' ou null quando a pasta não declara categoria.</returns>
+    internal static string? DeclaredCategoryFromPath(IEnumerable<string> segments)
+    {
+        string? declared = null;
+        foreach (var segment in segments)
+        {
+            if (MovieRootSegments.Contains(segment))
+            {
+                declared = "FILME";
+            }
+            else if (SeriesRootSegments.Contains(segment))
+            {
+                declared = "SERIE";
+            }
+            else if (PornRootSegments.Contains(segment))
+            {
+                declared = "PORNO";
+            }
+        }
+
+        return declared;
+    }
+
+    /// <summary>
     /// Classifica deterministicamente o tipo da mídia: 'SERIE', 'PORNO' ou 'FILME'.
+    /// A árvore de pastas declarada manda mais que as palavras do título: um filme guardado
+    /// em 'Series\Filmes\O Show dos Muppets (2026)' é FILME, um filme com ano no nome
+    /// ('Temporada de Sangue (2025)') não vira série, e um título com 'Sex' ou 'Adult' no
+    /// nome não vira Porno só por causa da palavra. Sem pasta declarada, valem os marcadores
+    /// de episódio (S01E02, 2x01) e as palavras-chave de conteúdo adulto.
     /// </summary>
     public static string ClassifyMediaType(string? parent, string filename)
     {
         var parentValue = parent ?? string.Empty;
         var filenameValue = filename ?? string.Empty;
+        var segments = SplitPathSegments(parentValue);
+        var stem = Path.GetFileNameWithoutExtension(filenameValue);
+        var immediateFolder = segments.Length > 0 ? segments[^1] : string.Empty;
+        var hasMovieYear = MovieYearPattern.IsMatch(stem) || MovieYearPattern.IsMatch(immediateFolder);
 
+        // 1. Marcador explícito de episódio no nome do arquivo vence qualquer pasta.
+        if (SeasonEpisodePattern.IsMatch(stem))
+        {
+            return "SERIE";
+        }
+
+        // 2. Categoria declarada pela própria árvore de pastas.
+        var declared = DeclaredCategoryFromPath(segments);
+        if (declared == "SERIE" && hasMovieYear)
+        {
+            // Título com ano de lançamento dentro de uma raiz de séries é filme.
+            declared = "FILME";
+        }
+
+        if (declared != null)
+        {
+            return declared;
+        }
+
+        // 3. Sem categoria declarada, valem as palavras-chave.
         if (AdultPathPattern.IsMatch(parentValue) || AdultFilenamePattern.IsMatch(filenameValue))
         {
             return "PORNO";
         }
 
-        if (SeriesPattern.IsMatch(parentValue) || SeriesPattern.IsMatch(filenameValue))
+        if (hasMovieYear)
+        {
+            return "FILME";
+        }
+
+        if (CompactEpisodePattern.IsMatch(stem))
+        {
+            return "SERIE";
+        }
+
+        if (segments.Any(segment => SeriesFolderSegmentPattern.IsMatch(segment)))
         {
             return "SERIE";
         }
@@ -139,6 +289,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// - FILMES: ficam sob a pasta raiz 'Filmes'
     /// - SERIES: ficam sob a pasta raiz 'Series', preservando todas as suas subpastas (ex: Temporada, Série)
     /// - PORNO: ficam diretamente na pasta raiz 'Porno', sem subpastas.
+    /// Toda mídia termina sob exatamente uma raiz de categoria, independente da árvore
+    /// de origem ter vindo de outra raiz (ex.: filmes guardados dentro de 'Series\Filmes').
     /// </summary>
     public static string RouteMediaRelativeDirectory(string? relativeDir, string filename)
     {
@@ -150,48 +302,10 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             return "Porno";
         }
 
-        var rawParts = (relativeDir ?? string.Empty)
-            .Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
-            .Where(p => !string.Equals(p, "strm", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var root = mediaType == "SERIE" ? "Series" : "Filmes";
+        var segments = NormalizeMediaPathSegments(relativeDir);
 
-        if (mediaType == "SERIE")
-        {
-            if (rawParts.Count == 0)
-            {
-                return "Series";
-            }
-
-            var firstPartLower = rawParts[0].ToLowerInvariant();
-            if (firstPartLower is "series" or "serie" or "temporada" or "season" or "anime" or "novela" or "dorama" or "show")
-            {
-                rawParts[0] = "Series";
-            }
-            else
-            {
-                rawParts.Insert(0, "Series");
-            }
-
-            return string.Join('/', rawParts);
-        }
-
-        // Caso FILME
-        if (rawParts.Count == 0)
-        {
-            return "Filmes";
-        }
-
-        var first = rawParts[0].ToLowerInvariant();
-        if (first is "filmes" or "filme" or "movies" or "movie")
-        {
-            rawParts[0] = "Filmes";
-        }
-        else
-        {
-            rawParts.Insert(0, "Filmes");
-        }
-
-        return string.Join('/', rawParts);
+        return segments.Count == 0 ? root : $"{root}/{string.Join('/', segments)}";
     }
 
     /// <summary>
