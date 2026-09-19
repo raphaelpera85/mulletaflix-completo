@@ -107,7 +107,7 @@ public class NebulaFtpConfiguration
 
     public bool SupabaseAutoBackup { get; set; } = true;
 
-    public int SupabaseAutoBackupIntervalHours { get; set; } = 6;
+    public int SupabaseAutoBackupIntervalHours { get; set; } = 24;
 
     public DateTime? SupabaseLastBackupTime { get; set; }
 

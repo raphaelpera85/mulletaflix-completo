@@ -48,7 +48,8 @@ import org.mulletaflix.feature.syncplay.SyncPlayScreen
 @UnstableApi
 fun MulletaFlixNavHost(
     navController: NavHostController = rememberNavController(),
-    startDestination: String = MulletaFlixRoute.SERVER_SELECTION
+    startDestination: String = MulletaFlixRoute.SERVER_SELECTION,
+    deepLinkItemId: String? = null,
 ) {
     NavHost(
         navController = navController,
@@ -88,7 +89,9 @@ fun MulletaFlixNavHost(
         composable(MulletaFlixRoute.LOGIN) {
             LoginScreen(
                 onLoginSuccess = {
-                    navController.navigate(MulletaFlixRoute.HOME) {
+                    val destination = deepLinkItemId?.let(MulletaFlixRoute::itemDetail)
+                        ?: MulletaFlixRoute.HOME
+                    navController.navigate(destination) {
                         popUpTo(MulletaFlixRoute.SERVER_SELECTION) { inclusive = true }
                     }
                 }

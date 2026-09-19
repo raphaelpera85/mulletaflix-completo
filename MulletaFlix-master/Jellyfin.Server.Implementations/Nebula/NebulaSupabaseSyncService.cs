@@ -542,7 +542,12 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             // 3. Sincroniza usuários do aplicativo MulletaFlix
             var appUsersBackedUp = await BackupMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
 
-            // 4. Registra log na tabela nebula_backups
+            // 4. O backup é espelho dos usuários atuais: contas removidas pelo
+            // administrador local também devem deixar de existir no Supabase.
+            var deletedFtpUsers = await RemoveDeletedNebulaUsersAsync(supabaseUrl, supabaseKey, allUsers, cancellationToken).ConfigureAwait(false);
+            var deletedAppUsers = await RemoveDeletedMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+
+            // 5. Registra log na tabela nebula_backups
             var syncModeName = isDelta ? "delta_sync" : "full_sync";
             var backupLog = new
             {
@@ -551,8 +556,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 total_files = syncedFiles,
                 total_users = syncedUsers + appUsersBackedUp,
                 details = isDelta
-                    ? $"Sincronização delta C# concluída com {syncedFiles} arquivos atualizados (de {totalFilesToUpload} alterados), {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix."
-                    : $"Sincronização completa C# finalizada com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix."
+                    ? $"Sincronização delta C# concluída com {syncedFiles} arquivos atualizados (de {totalFilesToUpload} alterados), {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix; {deletedFtpUsers + deletedAppUsers} usuários removidos do backup."
+                    : $"Sincronização completa C# finalizada com {syncedFiles} arquivos, {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix; {deletedFtpUsers + deletedAppUsers} usuários removidos do backup."
             };
 
             try
@@ -1085,6 +1090,138 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         }
 
         return records.Count;
+    }
+
+    private async Task<int> RemoveDeletedNebulaUsersAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        IReadOnlyCollection<BsonDocument> localUsers,
+        CancellationToken cancellationToken)
+    {
+        if (localUsers.Count == 0)
+        {
+            _logger.LogWarning("[SUPABASE-SYNC] Nenhum usuário FTP local encontrado; remoção remota foi ignorada por segurança.");
+            return 0;
+        }
+
+        var localLogins = localUsers
+            .Select(doc => doc.GetValue("_id", string.Empty).ToString())
+            .Where(static login => !string.IsNullOrWhiteSpace(login))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_users?select=login";
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.Add("apikey", supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("[SUPABASE-SYNC] Não foi possível listar usuários FTP remotos; nenhuma remoção será feita.");
+            return 0;
+        }
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+        if (json.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            return 0;
+        }
+
+        var deleted = 0;
+        foreach (var item in json.RootElement.EnumerateArray())
+        {
+            if (!item.TryGetProperty("login", out var loginProperty) || loginProperty.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var login = loginProperty.GetString();
+            if (string.IsNullOrWhiteSpace(login) || localLogins.Contains(login))
+            {
+                continue;
+            }
+
+            if (await DeleteSupabaseRowAsync(supabaseUrl, supabaseKey, "nebula_users", "login", login, cancellationToken).ConfigureAwait(false))
+            {
+                deleted++;
+            }
+        }
+
+        return deleted;
+    }
+
+    private async Task<int> RemoveDeletedMulletaFlixUsersAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        CancellationToken cancellationToken)
+    {
+        if (_usersDbProvider == null)
+        {
+            return 0;
+        }
+
+        await using var db = await _usersDbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var localIds = (await db.Users.Select(user => user.Id).ToListAsync(cancellationToken).ConfigureAwait(false))
+            .ToHashSet();
+        if (localIds.Count == 0)
+        {
+            _logger.LogWarning("[SUPABASE-SYNC] Nenhum usuário MulletaFlix local encontrado; remoção remota foi ignorada por segurança.");
+            return 0;
+        }
+
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?select=id";
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.Add("apikey", supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("[SUPABASE-SYNC] Não foi possível listar usuários MulletaFlix remotos; nenhuma remoção será feita.");
+            return 0;
+        }
+
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+        if (json.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            return 0;
+        }
+
+        var deleted = 0;
+        foreach (var item in json.RootElement.EnumerateArray())
+        {
+            if (!item.TryGetProperty("id", out var idProperty) || idProperty.ValueKind != JsonValueKind.String || !Guid.TryParse(idProperty.GetString(), out var id) || localIds.Contains(id))
+            {
+                continue;
+            }
+
+            if (await DeleteSupabaseRowAsync(supabaseUrl, supabaseKey, "mulletaflix_users", "id", id.ToString(), cancellationToken).ConfigureAwait(false))
+            {
+                deleted++;
+            }
+        }
+
+        return deleted;
+    }
+
+    private async Task<bool> DeleteSupabaseRowAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        string table,
+        string column,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/{table}?{column}=eq.{Uri.EscapeDataString(value)}";
+        using var request = new HttpRequestMessage(HttpMethod.Delete, uri);
+        request.Headers.Add("apikey", supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+        request.Headers.Add("Prefer", "return=minimal");
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("[SUPABASE-SYNC] Não foi possível remover registro antigo de {Table}: HTTP {StatusCode}.", table, response.StatusCode);
+            return false;
+        }
+
+        return true;
     }
 
     private async Task<int> RestoreMulletaFlixUsersAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken)

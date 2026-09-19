@@ -58,6 +58,8 @@ import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
 @UnstableApi
 class MainActivity : ComponentActivity() {
 
+    private var incomingDeepLinkItemId by mutableStateOf<String?>(null)
+
     @Inject lateinit var sessionRepository: SessionRepository
     @Inject lateinit var lanServerRecovery: LanServerRecovery
     @Inject lateinit var checkAppUpdateUseCase: CheckAppUpdateUseCase
@@ -66,6 +68,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        incomingDeepLinkItemId = extractMediaItemId(intent?.data)
         enableEdgeToEdge()
         lanServerRecovery.start()
 
@@ -125,10 +128,12 @@ class MainActivity : ComponentActivity() {
                     } else {
                         MulletaFlixNavHost(
                             startDestination = if (hasValidSession) {
-                                org.mulletaflix.android.navigation.MulletaFlixRoute.HOME
+                                incomingDeepLinkItemId?.let(org.mulletaflix.android.navigation.MulletaFlixRoute::itemDetail)
+                                    ?: org.mulletaflix.android.navigation.MulletaFlixRoute.HOME
                             } else {
                                 org.mulletaflix.android.navigation.MulletaFlixRoute.SERVER_SELECTION
                             },
+                            deepLinkItemId = incomingDeepLinkItemId,
                         )
 
                         if (showUpdateDialog && availableUpdate != null) {

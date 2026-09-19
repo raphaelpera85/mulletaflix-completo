@@ -1,4 +1,5 @@
 import AssignmentInd from '@mui/icons-material/AssignmentInd';
+import Backup from '@mui/icons-material/Backup';
 import Dashboard from '@mui/icons-material/Dashboard';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -46,6 +47,13 @@ const TOOLS_PATHS = [
     '/dashboard/updates'
 ];
 
+const USERS_PATHS = [
+    '/dashboard/users',
+    '/dashboard/users/add',
+    '/dashboard/users/licenses',
+    '/dashboard/users/backup'
+];
+
 const PLAYBACK_REPORTS_PATH = '/dashboard/playback-reports';
 const SYNCPLAY_PATH = '/dashboard/syncplay';
 const UPDATES_PATH = '/dashboard/updates';
@@ -56,6 +64,7 @@ const ServerDrawerSection = () => {
     const hasUpdate = !!updateInfo?.UpdateAvailable;
 
     const [ isLibrarySectionOpen, setIsLibrarySectionOpen ] = useState(LIBRARY_PATHS.includes(location.pathname));
+    const [ isUsersSectionOpen, setIsUsersSectionOpen ] = useState(USERS_PATHS.includes(location.pathname));
     const [ isPlaybackSectionOpen, setIsPlaybackSectionOpen ] = useState(PLAYBACK_PATHS.includes(location.pathname));
     const [ isToolsSectionOpen, setIsToolsSectionOpen ] = useState(TOOLS_PATHS.includes(location.pathname));
 
@@ -63,6 +72,12 @@ const ServerDrawerSection = () => {
         e.preventDefault();
         e.stopPropagation();
         setIsLibrarySectionOpen(isOpen => !isOpen);
+    }, []);
+
+    const onUsersSectionClick = useCallback((e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsUsersSectionOpen(isOpen => !isOpen);
     }, []);
 
     const onPlaybackSectionClick = useCallback((e: MouseEvent) => {
@@ -117,19 +132,36 @@ const ServerDrawerSection = () => {
                 <ListItemText primary={globalize.translate('HeaderBranding')} />
             </ListItemLink>
             <ListItem disablePadding>
-                <ListItemLink to='/dashboard/users'>
+                <ListItemButton onClick={onUsersSectionClick}>
                     <ListItemIcon>
                         <People />
                     </ListItemIcon>
                     <ListItemText primary={globalize.translate('HeaderUsers')} />
-                </ListItemLink>
+                    {isUsersSectionOpen ? <ExpandLess /> : <ExpandMore />}
+                </ListItemButton>
             </ListItem>
-            <ListItemLink to='/dashboard/users/licenses' sx={{ pl: 4 }}>
-                <ListItemIcon>
-                    <AssignmentInd />
-                </ListItemIcon>
-                <ListItemText primary='Licenças' />
-            </ListItemLink>
+            <Collapse in={isUsersSectionOpen} timeout='auto' unmountOnExit>
+                <List component='div' disablePadding>
+                    <ListItemLink to='/dashboard/users' sx={{ pl: 4 }}>
+                        <ListItemIcon>
+                            <People />
+                        </ListItemIcon>
+                        <ListItemText primary='Usuários' />
+                    </ListItemLink>
+                    <ListItemLink to='/dashboard/users/licenses' sx={{ pl: 4 }}>
+                        <ListItemIcon>
+                            <AssignmentInd />
+                        </ListItemIcon>
+                        <ListItemText primary='Licenças' />
+                    </ListItemLink>
+                    <ListItemLink to='/dashboard/users/backup' sx={{ pl: 4 }}>
+                        <ListItemIcon>
+                            <Backup />
+                        </ListItemIcon>
+                        <ListItemText primary='Backup & Restore' />
+                    </ListItemLink>
+                </List>
+            </Collapse>
             <ListItem disablePadding>
                 <ListItemButton onClick={onLibrarySectionClick}>
                     <ListItemIcon>

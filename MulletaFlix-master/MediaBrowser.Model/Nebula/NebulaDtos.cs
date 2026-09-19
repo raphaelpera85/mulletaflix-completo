@@ -186,7 +186,7 @@ public class NebulaSupabaseStatusDto
 
     public bool AutoBackupEnabled { get; set; } = true;
 
-    public int AutoBackupIntervalHours { get; set; } = 6;
+    public int AutoBackupIntervalHours { get; set; } = 24;
 
     public DateTime? LastBackupTime { get; set; }
 

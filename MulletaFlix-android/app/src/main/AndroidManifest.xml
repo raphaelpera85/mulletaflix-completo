@@ -78,6 +78,21 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="mulletaflix" />
             </intent-filter>
+            <!-- Official server links shared by Notifications/Telegram. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="http"
+                    android:host="mulletaflix.duckdns.org"
+                    android:port="8096"
+                    android:pathPrefix="/web" />
+                <data
+                    android:scheme="https"
+                    android:host="mulletaflix.duckdns.org"
+                    android:pathPrefix="/web" />
+            </intent-filter>
         </activity>
 
         <!-- Serviço de reprodução em background -->

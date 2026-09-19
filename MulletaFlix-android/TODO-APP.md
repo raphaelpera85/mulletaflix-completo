@@ -388,3 +388,10 @@ Pendências relacionadas:
 - [x] Renderizar títulos, listas e negrito das notas de release no APK.
 - [x] Tornar o bloco de novidades rolável em diálogos pequenos.
 - [x] Cobrir o parser e a formatação de negrito com testes unitários.
+
+## 30. Deep links de mídia (v1.0.19)
+
+- [x] Abrir links `mulletaflix://details?id=...` diretamente no detalhe da mídia.
+- [x] Aceitar links oficiais `http(s)://mulletaflix.duckdns.org:8096/web/#/details?id=...`.
+- [x] Preservar o destino durante a seleção do servidor e concluir a navegação após o login.
+- [x] Cobrir parsing, validação de host e rejeição de links externos com testes unitários.

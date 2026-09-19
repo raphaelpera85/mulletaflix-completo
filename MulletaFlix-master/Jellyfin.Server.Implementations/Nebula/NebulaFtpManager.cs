@@ -1136,9 +1136,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             {
                 if (config.SupabaseAutoBackup)
                 {
-                    var intervalMinutes = Math.Max(15, config.SupabaseAutoBackupIntervalHours * 60);
+                    const int intervalMinutes = 24 * 60;
                     _supabaseSyncService.StartContinuousSync(config.SupabaseUrl, config.SupabaseKey, intervalMinutes: intervalMinutes, progressAction: AddServerLog);
-                    AddServerLog($"[SUPABASE] Serviço de sincronização contínua e backup automático ativado (Intervalo: {config.SupabaseAutoBackupIntervalHours} horas).");
+                    config.SupabaseAutoBackupIntervalHours = 24;
+                    AddServerLog("[SUPABASE] Serviço de sincronização contínua e backup automático ativado (Intervalo: 24 horas).");
                 }
                 else
                 {
@@ -2983,7 +2984,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         config.MaxWorkers = Math.Clamp(config.MaxWorkers, 1, 64);
         config.ChunkSizeMb = Math.Clamp(config.ChunkSizeMb, 1, 512);
         config.DownloadParts = Math.Clamp(config.DownloadParts, 1, 32);
-        config.SupabaseAutoBackupIntervalHours = Math.Clamp(config.SupabaseAutoBackupIntervalHours, 1, 168);
+        config.SupabaseAutoBackupIntervalHours = 24;
         return config;
     }
 
