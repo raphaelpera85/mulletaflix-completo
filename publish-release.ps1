@@ -62,7 +62,7 @@ $bodyContent = @"
 - **Staging e fila transitoria**: tudo que ja foi enviado ao Telegram sai da pasta de staging, inclusive capas e NFO, e pastas que ficam vazias sao removidas automaticamente.
 - **Ja enviado nao volta ao staging**: o exportador de metadados nao recria sidecars de uma midia que ja esta no Telegram, acabando com as capas e ``.nfo`` duplicados na pasta de envio.
 - **Sincronizacao por delta**: a varredura do staging passa a processar somente arquivos novos ou alterados (diario de tamanho+data mais indice em uma unica consulta por passada), e a sincronizacao com o Supabase envia apenas o delta: o que mudou desde o ultimo backup mais o que ainda nao foi enviado (fila, staging, envio ou falha).
-- **Restauracao nao sobrescreve o cache**: a restauracao do Supabase mescla campo a campo (``$set``) em vez de substituir o documento, entao um registro remoto mais pobre nunca apaga partes do Telegram, caminho local ou metadados locais.
+- **Restauracao nao sobrescreve o cache**: a restauracao do Supabase mescla campo a campo (`$set) em vez de substituir o documento, entao um registro remoto mais pobre nunca apaga partes do Telegram, caminho local ou metadados locais.
 - **Cobertura de testes**: novos testes para a regra de conteudo protegido e para a limpeza do staging (833 testes aprovados no projeto de implementacoes).
 "@
 
