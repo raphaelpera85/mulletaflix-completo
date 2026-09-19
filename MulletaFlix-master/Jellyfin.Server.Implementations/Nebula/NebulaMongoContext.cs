@@ -2041,7 +2041,9 @@ public sealed class NebulaMongoContext : IDisposable
             return;
         }
 
-        var reference = string.IsNullOrEmpty(completedReference) ? string.Empty : $" ('{completedReference}')";
+        var detail = string.IsNullOrEmpty(completedReference)
+            ? fileInfo.FullName
+            : $"{fileInfo.FullName} ('{completedReference}')";
 
         try
         {
@@ -2050,16 +2052,14 @@ public sealed class NebulaMongoContext : IDisposable
             if (NebulaProtectedContent.IsProtectedPath(fileInfo.Name))
             {
                 _logger.LogInformation(
-                    "[NEBULA-MONGO] Capa/metadado já enviado removido do stage: {Path}{Reference}",
-                    fileInfo.FullName,
-                    reference);
+                    "[NEBULA-MONGO] Capa/metadado já enviado removido do stage: {Detail}",
+                    detail);
             }
             else
             {
                 _logger.LogInformation(
-                    "[NEBULA-MONGO] Arquivo de staging já concluído no Telegram removido do disco: {Path}{Reference}",
-                    fileInfo.FullName,
-                    reference);
+                    "[NEBULA-MONGO] Arquivo de staging já concluído no Telegram removido do disco: {Detail}",
+                    detail);
             }
 
             CleanEmptyParentDirectories(fileInfo.FullName, stageRoot);
