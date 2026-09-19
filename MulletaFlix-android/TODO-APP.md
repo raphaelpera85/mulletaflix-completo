@@ -52,6 +52,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] **Fileiras de Mídia (Horizontal Rows)**
   - [x] Continue Assistindo (com barra de progresso e porcentagem precisa)
   - [x] Próximos Episódios (Next Up para séries em andamento)
+  - [x] Minha Lista com favoritos sincronizados ao servidor
   - [x] Adicionados Recentemente (Filmes, Séries, Álbuns)
   - [x] Recomendações personalizadas baseadas no histórico
   - [x] Bibliotecas Principais (Atalhos rápidos para Filmes, Séries, Músicas, Live TV)
@@ -300,8 +301,7 @@ Pendências relacionadas:
 
 - [x] Revisar o tema escuro padrão: o preto permanece como `primary` da marca, enquanto ações, ícones e
       seleções usam `secondary` vermelho para manter contraste e acessibilidade.
-- [ ] Badges de episódios não assistidos e faixa de anos (ex.: "2022 - Presente") que o cliente web mostra
+- [x] Badges de episódios não assistidos e faixa de anos (ex.: "2022 - Presente") que o cliente web mostra
       nos cards: exigem mapear `RecursiveUnplayedItemCount` / `PremiereDate`+`EndDate` no DTO.
-
 
 

@@ -186,6 +186,19 @@ fun HomeScreen(
                 }
             }
 
+            // ── My List / Favorites ─────────────────────────────────────────
+            if (state.favoriteItems.isNotEmpty()) {
+                item {
+                    MediaSection(
+                        title = "Minha Lista",
+                        items = state.favoriteItems,
+                        cardShape = MediaCardShape.Portrait,
+                        cardWidth = 130.dp,
+                        onItemClick = onItemClick,
+                    )
+                }
+            }
+
             // ── Recently Added (per library) ─────────────────────────────────
             state.recentlyAddedByLibrary.forEach { (libraryName, items) ->
                 item {

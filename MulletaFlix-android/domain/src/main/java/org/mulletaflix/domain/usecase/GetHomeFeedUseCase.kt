@@ -20,11 +20,23 @@ class GetHomeFeedUseCase @Inject constructor(
             val nextUpDeferred = async { mediaRepository.getNextUp(userId) }
             val librariesDeferred = async { mediaRepository.getLibraries(userId) }
             val liveTvDeferred = async { mediaRepository.getLiveTvChannels(userId) }
+            val favoritesDeferred = async {
+                runCatching {
+                    mediaRepository.getItems(
+                        userId = userId,
+                        filters = "IsFavorite",
+                        sortBy = "SortName",
+                        sortOrder = "Ascending",
+                        limit = 12,
+                    )
+                }.getOrElse { Result.failure(it) }
+            }
 
             val resumeResult = resumeDeferred.await()
             val nextUpResult = nextUpDeferred.await()
             val librariesResult = librariesDeferred.await()
             val liveTvResult = liveTvDeferred.await()
+            val favoritesResult = favoritesDeferred.await()
 
             val libraries = librariesResult.getOrDefault(emptyList())
 
@@ -39,6 +51,7 @@ class GetHomeFeedUseCase @Inject constructor(
             val resumeItems = resumeResult.getOrDefault(emptyList())
             val nextUpItems = nextUpResult.getOrDefault(emptyList())
             val liveTvChannels = liveTvResult.getOrDefault(emptyList())
+            val favoriteItems = favoritesResult.getOrNull()?.first.orEmpty()
 
             if (libraries.isEmpty() && resumeItems.isEmpty() && nextUpItems.isEmpty() && librariesResult.isFailure) {
                 throw librariesResult.exceptionOrNull() ?: Exception("Não foi possível carregar o catálogo.")
@@ -51,6 +64,7 @@ class GetHomeFeedUseCase @Inject constructor(
                 heroItem = hero,
                 resumeItems = resumeItems,
                 nextUpItems = nextUpItems,
+                favoriteItems = favoriteItems,
                 recentlyAddedByLibrary = recentlyAdded,
                 liveTvChannels = liveTvChannels,
                 libraries = libraries,

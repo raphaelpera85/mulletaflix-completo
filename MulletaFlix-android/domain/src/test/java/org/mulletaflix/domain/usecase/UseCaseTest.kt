@@ -246,6 +246,37 @@ class UseCaseTest {
     }
 
     @Test
+    fun `GetHomeFeedUseCase loads favorites independently`() = runTest {
+        val favorite = MediaItem(id = "fav1", name = "Favorito", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ): Result<Pair<List<MediaItem>, Int>> {
+                assertEquals("IsFavorite", filters)
+                assertEquals("SortName", sortBy)
+                assertEquals(12, limit)
+                return Result.success(listOf(favorite) to 1)
+            }
+        }
+
+        val result = GetHomeFeedUseCase(mediaRepo)("u1")
+
+        assertEquals(listOf(favorite), result.getOrThrow().favoriteItems)
+    }
+
+    @Test
     fun `SearchMediaUseCase trims query and returns empty list for blank`() = runTest {
         var searchedTerm: String? = null
         val searchRepo = object : SearchRepository {

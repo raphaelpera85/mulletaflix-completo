@@ -7,6 +7,7 @@ data class HomeFeed(
     val heroItem: MediaItem? = null,
     val resumeItems: List<MediaItem> = emptyList(),
     val nextUpItems: List<MediaItem> = emptyList(),
+    val favoriteItems: List<MediaItem> = emptyList(),
     val recentlyAddedByLibrary: Map<String, List<MediaItem>> = emptyMap(),
     val liveTvChannels: List<MediaItem> = emptyList(),
     val libraries: List<MediaItem> = emptyList(),
