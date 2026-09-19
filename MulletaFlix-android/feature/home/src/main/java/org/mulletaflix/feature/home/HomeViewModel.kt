@@ -3,6 +3,8 @@ package org.mulletaflix.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,6 +13,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.UserProfile
+import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.NetworkMonitor
@@ -26,6 +30,7 @@ data class HomeState(
     val recentlyAddedByLibrary: Map<String, List<MediaItem>> = emptyMap(),
     val liveTvChannels: List<MediaItem> = emptyList(),
     val libraries: List<MediaItem> = emptyList(),
+    val userProfile: UserProfile? = null,
     val error: String? = null,
 )
 
@@ -34,6 +39,7 @@ class HomeViewModel @Inject constructor(
     private val getHomeFeedUseCase: GetHomeFeedUseCase,
     private val sessionRepository: SessionRepository,
     private val networkMonitor: NetworkMonitor,
+    private val authRepository: AuthRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeState())
@@ -70,29 +76,35 @@ class HomeViewModel @Inject constructor(
             }
             _state.update { it.copy(isLoading = !refresh, error = null) }
 
-            val result = getHomeFeedUseCase(userId)
+            coroutineScope {
+                val profileDeferred = async { authRepository.getCurrentUserProfile().getOrNull() }
+                val result = getHomeFeedUseCase(userId)
+                val profile = profileDeferred.await()
 
-            result.onFailure { error ->
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        error = error.userMessage(),
-                    )
-                }
-            }.onSuccess { feed ->
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        heroItem = feed.heroItem,
-                        resumeItems = feed.resumeItems,
-                        nextUpItems = feed.nextUpItems,
-                        recentlyAddedByLibrary = feed.recentlyAddedByLibrary,
-                        liveTvChannels = feed.liveTvChannels,
-                        libraries = feed.libraries,
-                        error = null,
-                    )
+                result.onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            userProfile = profile,
+                            error = error.userMessage(),
+                        )
+                    }
+                }.onSuccess { feed ->
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            heroItem = feed.heroItem,
+                            resumeItems = feed.resumeItems,
+                            nextUpItems = feed.nextUpItems,
+                            recentlyAddedByLibrary = feed.recentlyAddedByLibrary,
+                            liveTvChannels = feed.liveTvChannels,
+                            libraries = feed.libraries,
+                            userProfile = profile,
+                            error = null,
+                        )
+                    }
                 }
             }
         }

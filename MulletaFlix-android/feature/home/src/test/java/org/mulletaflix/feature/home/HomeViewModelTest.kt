@@ -19,7 +19,15 @@ import org.junit.Test
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.UserProfile
+import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.AvailableUser
+import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.MediaRepository
+import org.mulletaflix.domain.repository.RegistrationResult
+import org.mulletaflix.domain.repository.SavedServer
+import org.mulletaflix.domain.repository.ServerVerification
+import org.mulletaflix.domain.repository.UserSession
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -32,7 +40,7 @@ class HomeViewModelTest {
     @Test fun `session expiry stops home loading without requesting content`() = runTest {
         val repository = FakeMediaRepository()
         val useCase = GetHomeFeedUseCase(repository)
-        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = null), FakeNetworkMonitor())
+        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = null), FakeNetworkMonitor(), FakeAuthRepository())
         advanceUntilIdle()
 
         assertEquals(0, repository.requestCount)
@@ -51,7 +59,8 @@ class HomeViewModelTest {
             override suspend fun getLiveTvChannels(userId: String) = Result.failure<List<MediaItem>>(Exception("Live TV disabled on server"))
         }
         val useCase = GetHomeFeedUseCase(repository)
-        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = "u1"), FakeNetworkMonitor())
+        val profile = UserProfile(id = "u1", name = "Raphael", primaryImageTag = "avatar-tag")
+        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = "u1"), FakeNetworkMonitor(), FakeAuthRepository(profile))
         advanceUntilIdle()
 
         assertEquals(null, viewModel.state.value.error)
@@ -59,13 +68,14 @@ class HomeViewModelTest {
         assertEquals(1, viewModel.state.value.resumeItems.size)
         assertEquals(1, viewModel.state.value.libraries.size)
         assertEquals(0, viewModel.state.value.liveTvChannels.size)
+        assertEquals(profile, viewModel.state.value.userProfile)
     }
 
     @Test fun `network monitor transitions update isOffline state`() = runTest {
         val networkMonitor = FakeNetworkMonitor(initialOnline = true)
         val repository = FakeMediaRepository()
         val useCase = GetHomeFeedUseCase(repository)
-        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = null), networkMonitor)
+        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = null), networkMonitor, FakeAuthRepository())
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.isOffline)
@@ -90,6 +100,24 @@ class HomeViewModelTest {
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
         override suspend fun setBaseUrl(url: String) = Unit
         override suspend fun clearSession() = Unit
+    }
+
+    private class FakeAuthRepository(
+        private val profile: UserProfile? = null,
+    ) : AuthRepository {
+        override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.success(ServerVerification("Test", "1"))
+        override suspend fun register(username: String, password: String): Result<RegistrationResult> = Result.success(RegistrationResult(true))
+        override suspend fun login(username: String, password: String): Result<UserSession> = Result.success(UserSession("u1", username, "token", null))
+        override suspend fun getAvailableUsers(): Result<List<AvailableUser>> = Result.success(emptyList())
+        override suspend fun initiateQuickConnect(): Result<QuickConnectState> = Result.success(QuickConnectState("123456", "secret", false))
+        override suspend fun checkQuickConnect(secret: String): Result<UserSession?> = Result.success(null)
+        override suspend fun logout(): Result<Unit> = Result.success(Unit)
+        override suspend fun getCurrentUserProfile(): Result<UserProfile> = profile?.let { Result.success(it) } ?: Result.failure(UnsupportedOperationException())
+        override fun getSavedServerUrl() = flowOf("http://localhost:8096")
+        override suspend fun setServerUrl(url: String) = Unit
+        override fun getSavedUserId() = flowOf<String?>("u1")
+        override fun getSavedToken() = flowOf<String?>("token")
+        override fun getSavedServers() = flowOf<List<SavedServer>>(emptyList())
     }
 
     private open class FakeMediaRepository : MediaRepository {

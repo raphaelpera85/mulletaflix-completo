@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -18,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -27,12 +29,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import org.mulletaflix.domain.model.*
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
+import org.mulletaflix.designsystem.media.userAvatarPath
 
 /**
  * Home screen — the first screen users see after login.
@@ -68,6 +72,7 @@ fun HomeScreen(
         ) {
             item {
                 HomeTopBar(
+                    profile = state.userProfile,
                     onSearch = { navController.navigate("main/search") },
                     onLiveTv = { navController.navigate("main/live-tv") },
                     onDownloads = { navController.navigate("main/downloads") },
@@ -446,12 +451,22 @@ private val MediaItem.runtimeMinutes: Int? get() =
 
 @Composable
 private fun HomeTopBar(
+    profile: UserProfile?,
     onSearch: () -> Unit,
     onLiveTv: () -> Unit,
     onDownloads: () -> Unit,
     onSettings: () -> Unit,
     onProfile: () -> Unit,
 ) {
+    val serverUrl = LocalMulletaFlixServerUrl.current
+    val accessToken = LocalMulletaFlixAccessToken.current
+    val avatarUrl = resolveMediaUrl(
+        serverUrl,
+        userAvatarPath(profile?.id, profile?.primaryImageTag),
+        accessToken,
+    )
+    val profileDescription = profile?.name?.let { "Perfil de $it" } ?: "Meu Perfil"
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -464,7 +479,7 @@ private fun HomeTopBar(
             text = "MULLETAFLIX",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Black,
-            color = MaterialTheme.colorScheme.primary,
+            color = MaterialTheme.colorScheme.secondary,
         )
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -483,9 +498,27 @@ private fun HomeTopBar(
                 Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = MaterialTheme.colorScheme.onBackground)
             }
             IconButton(onClick = onProfile) {
-                Icon(Icons.Default.AccountCircle, contentDescription = "Meu Perfil", tint = MaterialTheme.colorScheme.secondary)
+                if (avatarUrl == null) {
+                    Icon(
+                        Icons.Default.AccountCircle,
+                        contentDescription = profileDescription,
+                        tint = MaterialTheme.colorScheme.secondary,
+                    )
+                } else {
+                    SubcomposeAsyncImage(
+                        model = avatarUrl,
+                        contentDescription = profileDescription,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(32.dp).clip(CircleShape),
+                        loading = {
+                            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                        },
+                        error = {
+                            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                        },
+                    )
+                }
             }
         }
     }
 }
-

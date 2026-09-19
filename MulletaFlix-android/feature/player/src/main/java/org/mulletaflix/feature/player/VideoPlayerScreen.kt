@@ -486,10 +486,21 @@ private fun PlayerOsd(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Official Media3 Cast button
-                MediaRouteButton(
-                    modifier = Modifier.size(40.dp),
-                )
+                // Official Media3 Cast button. Keep a text label beside it so
+                // the action remains discoverable on mobile and TV layouts.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(end = 4.dp),
+                ) {
+                    MediaRouteButton(
+                        modifier = Modifier.size(40.dp),
+                    )
+                    Text(
+                        text = "Transmitir",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
                 // Aspect ratio
                 IconButton(onClick = { showAspectRatioMenu = true }) {
                     Icon(Icons.Default.AspectRatio, contentDescription = "Proporção", tint = Color.White)
@@ -809,5 +820,4 @@ private fun PlaybackStatsDialog(
 // Extension: millis to time string
 private fun Long.toTimeString(): String =
     org.mulletaflix.core.common.util.FormatUtils.formatDuration(this)
-
 
