@@ -143,6 +143,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         }
 
         var start = Math.Abs(Interlocked.Increment(ref _uploadRoundRobinCursor));
+        var lastWaitLogTicks = Environment.TickCount64;
         while (true)
         {
             var ordered = candidates
@@ -151,7 +152,10 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 
             foreach (var candidate in ordered)
             {
-                if (Volatile.Read(ref _streamWaiterCount) > 0)
+                // Cede o bot que um stream está de fato esperando. O contador global
+                // (_streamWaiterCount) bloqueava TODOS os uploads enquanto qualquer
+                // leitura/stream estivesse ativo, congelando a fila sem log algum.
+                if (_streamWaiters.TryGetValue(candidate, out var streamWaiters) && streamWaiters > 0)
                 {
                     continue;
                 }
@@ -161,6 +165,19 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 {
                     return (candidate, new BotOperationLease(this, candidate, streaming: false, gate));
                 }
+            }
+
+            // Espera visível: um pool saturado precisa aparecer no log em vez de
+            // deixar os workers parados em silêncio.
+            var nowTicks = Environment.TickCount64;
+            if (nowTicks - lastWaitLogTicks >= 30000)
+            {
+                lastWaitLogTicks = nowTicks;
+                _logger.LogWarning(
+                    "[NEBULA-TG] Nenhum bot livre para upload; aguardando (streams ativos/aguardando={StreamCount}, bots com stream aguardando={StreamBots}, bots disponíveis={Bots}).",
+                    Volatile.Read(ref _streamWaiterCount),
+                    _streamWaiters.Count,
+                    candidates.Count);
             }
 
             await Task.Delay(50, cancellationToken).ConfigureAwait(false);
