@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Tag = "v12.0.8",
-    [string]$Title = "MulletaFlix Server v12.0.8",
+    [string]$Tag = "v12.0.9",
+    [string]$Title = "MulletaFlix Server v12.0.9",
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip"
 )
 
@@ -58,10 +58,10 @@ try {
 $bodyContent = @"
 ### MulletaFlix $Tag
 
-- **Correcao de Erro de E/S na Montagem N:**: Corrigido o travamento no driver WinFsp/rclone ajustando o cache para modo full e otimizando o fechamento de sockets FTP.
-- **Resolucao de Pastas Duplicadas e Metadados Invisiveis**: Ajustada a hierarquia em `EnsureDirectoryStructureAsync` e `NebulaDownloaderEngine` para rastrear o caminho virtual canonico e evitar criacao duplicada de diretorios para arquivos pequenos (.nfo, posteres, logos).
-- **Consolidacao de Pastas e Limpeza de Arquivos Temporarios**: Unificacao das pastas no MongoDB, reconectando todos os arquivos de metadados as suas respectivas pastas de midia.
-- **Sincronizacao Global de Versao**: Unificacao do controle de versao em `SharedVersion.cs` e `Directory.Build.props` para que o servidor reflita fielmente a versao lancada.
+- **Roteamento unico no Nebula**: toda midia descoberta para envio ao Telegram passa a terminar sob uma unica raiz de categoria - filmes em ``Filmes``, series em ``Series`` e conteudo adulto em ``Porno`` - independente da arvore de pastas de origem.
+- **Fim das raizes duplicadas**: caminhos como ``Series\Series\...`` nao sao mais criados; a raiz de categoria repetida no inicio do caminho e descartada tanto no catalogo (MongoDB) quanto na geracao dos arquivos ``.strm``.
+- **Classificacao corrigida**: titulo de filme com "Show", "Temporada" ou "4x100" no nome nao e mais tratado como serie (ano entre parenteses indica filme), e a pasta-raiz declarada prevalece sobre palavras do titulo (ex.: "How to Have Sex (2023)" permanece em ``Filmes``).
+- **Cobertura de testes**: novos casos cobrindo filmes guardados em ``Series\Filmes``, raizes duplicadas e classificacao por pasta declarada (191 de 192 testes do Nebula aprovados; a unica falha e anterior a esta versao).
 "@
 
 $releasePayloadJson = @{
