@@ -15,6 +15,8 @@ enum class DownloadState { Queued, Downloading, Completed, Failed, Removing }
 
 interface DownloadRepository {
     fun observeDownloads(): Flow<List<DownloadEntry>>
+    fun observeWifiOnly(): Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false)
+    fun setWifiOnly(enabled: Boolean): Result<Unit> = Result.success(Unit)
     fun enqueue(id: String, title: String, uri: String): Result<Unit>
     fun retry(id: String, title: String, uri: String): Result<Unit>
     fun remove(id: String): Result<Unit>

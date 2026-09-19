@@ -20,6 +20,8 @@ class DownloadsViewModel @Inject constructor(
 
     private val _queuePaused = MutableStateFlow(false)
     val queuePaused: StateFlow<Boolean> = _queuePaused
+    val wifiOnly: StateFlow<Boolean> = manageDownloadsUseCase.observeWifiOnly()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     fun remove(id: String) {
         manageDownloadsUseCase.remove(id)
@@ -35,5 +37,9 @@ class DownloadsViewModel @Inject constructor(
 
     fun resumeQueue() {
         manageDownloadsUseCase.resumeAll().onSuccess { _queuePaused.value = false }
+    }
+
+    fun setWifiOnly(enabled: Boolean) {
+        manageDownloadsUseCase.setWifiOnly(enabled)
     }
 }

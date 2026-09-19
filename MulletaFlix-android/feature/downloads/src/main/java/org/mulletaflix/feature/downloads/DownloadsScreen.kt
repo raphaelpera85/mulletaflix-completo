@@ -27,6 +27,7 @@ fun DownloadsScreen(
 ) {
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val queuePaused by viewModel.queuePaused.collectAsStateWithLifecycle()
+    val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
     var itemPendingDeletion by remember { mutableStateOf<DownloadEntry?>(null) }
 
     Scaffold(
@@ -67,7 +68,9 @@ fun DownloadsScreen(
                             downloads = downloads,
                             queuePaused = queuePaused,
                             onPause = viewModel::pauseQueue,
-                            onResume = viewModel::resumeQueue
+                            onResume = viewModel::resumeQueue,
+                            wifiOnly = wifiOnly,
+                            onWifiOnlyChange = viewModel::setWifiOnly,
                         )
                     }
                     items(downloads, key = { it.id }) { entry ->
@@ -114,29 +117,39 @@ private fun OfflineSummary(
     queuePaused: Boolean,
     onPause: () -> Unit,
     onResume: () -> Unit,
+    wifiOnly: Boolean,
+    onWifiOnlyChange: (Boolean) -> Unit,
 ) {
     val hasActiveDownloads = downloads.any { it.state == DownloadState.Queued || it.state == DownloadState.Downloading }
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.CloudDone, null, tint = MaterialTheme.colorScheme.secondary)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Modo offline", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "${downloads.count { it.state == DownloadState.Completed }} concluído(s) • ${downloads.size} na fila",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (hasActiveDownloads) {
-                IconButton(onClick = if (queuePaused) onResume else onPause) {
-                    Icon(
-                        if (queuePaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = if (queuePaused) "Retomar downloads" else "Pausar downloads",
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CloudDone, null, tint = MaterialTheme.colorScheme.secondary)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Modo offline", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "${downloads.count { it.state == DownloadState.Completed }} concluído(s) • ${downloads.size} na fila",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
+                if (hasActiveDownloads) {
+                    IconButton(onClick = if (queuePaused) onResume else onPause) {
+                        Icon(
+                            if (queuePaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                            contentDescription = if (queuePaused) "Retomar downloads" else "Pausar downloads",
+                        )
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Wifi, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(12.dp))
+                Text("Somente Wi‑Fi", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = wifiOnly, onCheckedChange = onWifiOnlyChange)
             }
         }
     }

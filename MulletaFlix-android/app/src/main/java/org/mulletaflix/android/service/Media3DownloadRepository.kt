@@ -6,9 +6,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.scheduler.Requirements
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadRepository
@@ -23,6 +25,19 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
     private val manager = DownloadManagerSingleton.get(context)
     private val metadata = context.getSharedPreferences("offline_downloads", Context.MODE_PRIVATE)
     private val titles = ConcurrentHashMap<String, String>()
+    private val wifiOnly = MutableStateFlow(metadata.getBoolean(KEY_WIFI_ONLY, false))
+
+    init {
+        manager.requirements = requirementsFor(wifiOnly.value)
+    }
+
+    override fun observeWifiOnly(): Flow<Boolean> = wifiOnly
+
+    override fun setWifiOnly(enabled: Boolean): Result<Unit> = runCatching {
+        manager.requirements = requirementsFor(enabled)
+        metadata.edit().putBoolean(KEY_WIFI_ONLY, enabled).apply()
+        wifiOnly.value = enabled
+    }
 
     override fun observeDownloads(): Flow<List<DownloadEntry>> = callbackFlow {
         fun emitSnapshot() { trySend(snapshot()) }
@@ -90,4 +105,11 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
         percent = percentDownloaded.coerceIn(0f, 100f).toInt(),
         error = failureReason.takeIf { it != Download.FAILURE_REASON_NONE }?.toString()
     )
+
+    private fun requirementsFor(enabled: Boolean): Requirements =
+        if (enabled) Requirements(Requirements.NETWORK_UNMETERED) else Requirements(0)
+
+    private companion object {
+        const val KEY_WIFI_ONLY = "wifi_only"
+    }
 }

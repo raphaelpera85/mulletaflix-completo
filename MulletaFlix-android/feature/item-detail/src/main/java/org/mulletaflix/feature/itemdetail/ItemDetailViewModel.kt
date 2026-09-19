@@ -220,7 +220,10 @@ class ItemDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(downloadMessage = "Preparando download…") }
             playbackRepository.getPlaybackInfo(item.id, userId)
-                .mapCatching { it.mediaSources.firstOrNull()?.directStreamUrl ?: error("O servidor não forneceu uma fonte para download.") }
+                .mapCatching { playbackInfo ->
+                    preferredDownloadUrl(playbackInfo.mediaSources)
+                        ?: error("O servidor não forneceu uma fonte para download.")
+                }
                 .fold(
                     onSuccess = { url ->
                         manageDownloadsUseCase.enqueue(item.id, item.name, url)

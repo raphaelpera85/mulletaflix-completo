@@ -14,6 +14,10 @@ class ManageDownloadsUseCase @Inject constructor(
     fun observeDownloads(): Flow<List<DownloadEntry>> =
         downloadRepository.observeDownloads()
 
+    fun observeWifiOnly(): Flow<Boolean> = downloadRepository.observeWifiOnly()
+
+    fun setWifiOnly(enabled: Boolean): Result<Unit> = downloadRepository.setWifiOnly(enabled)
+
     fun enqueue(id: String, title: String, uri: String): Result<Unit> {
         require(id.isNotBlank()) { "O identificador da mídia é obrigatório." }
         require(uri.startsWith("http://") || uri.startsWith("https://")) { "A URL da mídia é inválida." }

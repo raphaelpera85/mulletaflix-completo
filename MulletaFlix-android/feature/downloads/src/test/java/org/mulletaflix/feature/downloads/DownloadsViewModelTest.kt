@@ -44,6 +44,16 @@ class DownloadsViewModelTest {
     }
 
     @Test
+    fun `wifi only preference delegates to repository`() {
+        val repository = FakeDownloadRepository()
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+
+        viewModel.setWifiOnly(true)
+
+        assertTrue(repository.wifiOnly)
+    }
+
+    @Test
     fun `retry delegates the failed entry with its original metadata`() {
         val repository = FakeDownloadRepository()
         val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
@@ -62,8 +72,14 @@ class DownloadsViewModelTest {
         var resumed = false
         var retried = false
         var retryArguments = emptyArray<String>()
+        var wifiOnly = false
 
         override fun observeDownloads(): Flow<List<DownloadEntry>> = flowOf(emptyList())
+        override fun observeWifiOnly(): Flow<Boolean> = flowOf(wifiOnly)
+        override fun setWifiOnly(enabled: Boolean): Result<Unit> {
+            wifiOnly = enabled
+            return Result.success(Unit)
+        }
         override fun enqueue(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
         override fun retry(id: String, title: String, uri: String): Result<Unit> {
             retried = true
