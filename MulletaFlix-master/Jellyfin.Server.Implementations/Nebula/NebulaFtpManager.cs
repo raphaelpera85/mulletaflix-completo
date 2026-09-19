@@ -2778,6 +2778,47 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         return await pool.SendMessageAsync(messageHtml, targetChatId, cancellationToken).ConfigureAwait(false);
     }
 
+    public NebulaTelegramNotificationSettingsDto GetTelegramNotificationSettings()
+    {
+        var config = Config;
+        var rawChatIds = string.IsNullOrWhiteSpace(config.TelegramNotificationChatIds)
+            ? config.ChatId
+            : config.TelegramNotificationChatIds;
+
+        return new NebulaTelegramNotificationSettingsDto
+        {
+            Enabled = config.TelegramNotificationsEnabled,
+            IntervalSeconds = Math.Clamp(config.TelegramNotificationIntervalSeconds, 1, 60),
+            ChatIds = ParseTelegramChatIds(rawChatIds)
+        };
+    }
+
+    public bool SaveTelegramNotificationSettings(NebulaTelegramNotificationSettingsRequest request)
+    {
+        var chatIds = ParseTelegramChatIds(request.ChatIds);
+        if (chatIds.Count == 0)
+        {
+            return false;
+        }
+
+        var config = Config;
+        config.TelegramNotificationsEnabled = request.Enabled;
+        config.TelegramNotificationIntervalSeconds = Math.Clamp(request.IntervalSeconds, 1, 60);
+        config.TelegramNotificationChatIds = string.Join(",", chatIds);
+        config.ChatId = chatIds[0];
+        _configManager.SaveConfiguration("nebulaftp", config);
+        return true;
+    }
+
+    internal static List<string> ParseTelegramChatIds(string? rawChatIds)
+    {
+        return (rawChatIds ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(value => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
     public void Dispose()
     {
         try

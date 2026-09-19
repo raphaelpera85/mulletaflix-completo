@@ -40,6 +40,12 @@ public class NebulaFtpConfiguration
 
     public string ChatId { get; set; } = "-1004391811380";
 
+    public bool TelegramNotificationsEnabled { get; set; } = true;
+
+    public string TelegramNotificationChatIds { get; set; } = string.Empty;
+
+    public int TelegramNotificationIntervalSeconds { get; set; } = 3;
+
     public string BotTokens { get; set; } = string.Empty;
 
     public string BotTokensCollection { get; set; } = "bot_tokens";

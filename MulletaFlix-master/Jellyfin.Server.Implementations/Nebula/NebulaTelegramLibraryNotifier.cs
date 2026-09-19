@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Channels;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -25,6 +26,8 @@ public sealed class NebulaTelegramLibraryNotifier : IHostedService, IDisposable
     private readonly ILogger<NebulaTelegramLibraryNotifier> _logger;
     private readonly ConcurrentDictionary<Guid, byte> _recentlyNotified = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly Channel<string> _notificationQueue = Channel.CreateUnbounded<string>();
+    private Task? _workerTask;
 
     public NebulaTelegramLibraryNotifier(
         ILibraryManager libraryManager,
@@ -40,15 +43,19 @@ public sealed class NebulaTelegramLibraryNotifier : IHostedService, IDisposable
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded += OnItemAdded;
+        _workerTask = Task.Run(ProcessQueueAsync, CancellationToken.None);
         return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
         _libraryManager.ItemAdded -= OnItemAdded;
         _cts.Cancel();
-        return Task.CompletedTask;
+        if (_workerTask is not null)
+        {
+            await _workerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private void OnItemAdded(object? sender, ItemChangeEventArgs args)
@@ -127,7 +134,7 @@ public sealed class NebulaTelegramLibraryNotifier : IHostedService, IDisposable
                 var message = sb.ToString().TrimEnd();
                 if (!string.IsNullOrWhiteSpace(message))
                 {
-                    await _nebulaManager.SendTelegramNotificationAsync(message, null, _cts.Token).ConfigureAwait(false);
+                    _notificationQueue.Writer.TryWrite(message);
                 }
             }
             catch (OperationCanceledException)
@@ -141,11 +148,50 @@ public sealed class NebulaTelegramLibraryNotifier : IHostedService, IDisposable
         });
     }
 
+    private async Task ProcessQueueAsync()
+    {
+        try
+        {
+            while (await _notificationQueue.Reader.WaitToReadAsync(_cts.Token).ConfigureAwait(false))
+            {
+                while (_notificationQueue.Reader.TryRead(out var message))
+                {
+                    var settings = _nebulaManager.GetTelegramNotificationSettings();
+                    if (!settings.Enabled)
+                    {
+                        _notificationQueue.Writer.TryWrite(message);
+                        await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token).ConfigureAwait(false);
+                        break;
+                    }
+
+                    foreach (var chatId in settings.ChatIds)
+                    {
+                        var delivered = await _nebulaManager.SendTelegramNotificationAsync(message, chatId, _cts.Token).ConfigureAwait(false);
+                        if (!delivered)
+                        {
+                            _logger.LogWarning("[NEBULA-NOTIFIER] Falha ao enviar notificação para o chat {ChatId}.", chatId);
+                        }
+                    }
+
+                    await Task.Delay(TimeSpan.FromSeconds(settings.IntervalSeconds), _cts.Token).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[NEBULA-NOTIFIER] Worker da fila de notificações encerrou com erro.");
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
         _libraryManager.ItemAdded -= OnItemAdded;
         _cts.Cancel();
+        _notificationQueue.Writer.TryComplete();
         _cts.Dispose();
     }
 }

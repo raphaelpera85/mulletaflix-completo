@@ -251,3 +251,21 @@ public class NebulaTelegramNotificationRequest
 
     public string? TargetChatId { get; set; }
 }
+
+public class NebulaTelegramNotificationSettingsDto
+{
+    public bool Enabled { get; set; }
+
+    public int IntervalSeconds { get; set; }
+
+    public List<string> ChatIds { get; set; } = new();
+}
+
+public class NebulaTelegramNotificationSettingsRequest
+{
+    public bool Enabled { get; set; }
+
+    public int IntervalSeconds { get; set; }
+
+    public string ChatIds { get; set; } = string.Empty;
+}

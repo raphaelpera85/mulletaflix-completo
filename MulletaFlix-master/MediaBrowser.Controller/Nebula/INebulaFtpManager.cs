@@ -54,4 +54,8 @@ public interface INebulaFtpManager
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <returns>Verdadeiro se entregue com sucesso.</returns>
     Task<bool> SendTelegramNotificationAsync(string messageHtml, string? targetChatId = null, CancellationToken cancellationToken = default);
+
+    NebulaTelegramNotificationSettingsDto GetTelegramNotificationSettings();
+
+    bool SaveTelegramNotificationSettings(NebulaTelegramNotificationSettingsRequest request);
 }

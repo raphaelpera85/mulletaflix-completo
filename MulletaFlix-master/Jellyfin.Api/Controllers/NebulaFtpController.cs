@@ -359,6 +359,9 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             ApiId = config.ApiId,
             ApiHash = string.Empty,
             ChatId = config.ChatId,
+            TelegramNotificationsEnabled = config.TelegramNotificationsEnabled,
+            TelegramNotificationChatIds = config.TelegramNotificationChatIds,
+            TelegramNotificationIntervalSeconds = config.TelegramNotificationIntervalSeconds,
             BotTokens = string.Empty,
             BotTokensCollection = config.BotTokensCollection,
             BotTokensTable = config.BotTokensTable,
@@ -440,5 +443,30 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         }
 
         return StatusCode(StatusCodes.Status502BadGateway, new { success = false, message = "Falha ao entregar notificação via bot do Telegram." });
+    }
+
+    [HttpGet("Telegram/Notifications")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<NebulaTelegramNotificationSettingsDto> GetTelegramNotificationSettings()
+    {
+        return Ok(_nebulaManager.GetTelegramNotificationSettings());
+    }
+
+    [HttpPost("Telegram/Notifications")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult SaveTelegramNotificationSettings([FromBody] NebulaTelegramNotificationSettingsRequest? request)
+    {
+        if (request is null || request.IntervalSeconds is < 1 or > 60)
+        {
+            return BadRequest("O intervalo deve estar entre 1 e 60 segundos.");
+        }
+
+        if (!_nebulaManager.SaveTelegramNotificationSettings(request))
+        {
+            return BadRequest("Informe ao menos um canal ou chat do Telegram.");
+        }
+
+        return NoContent();
     }
 }
