@@ -40,7 +40,11 @@ import org.mulletaflix.core.api.OfflineDownloadCache
 import org.mulletaflix.core.common.network.NetworkMonitor
 import javax.inject.Inject
 
-data class TrackInfo(val index: Int, val displayName: String)
+data class TrackInfo(
+    val index: Int,
+    val displayName: String,
+    val language: String? = null,
+)
 
 data class NextEpisodeInfo(
     val id: String,
@@ -385,10 +389,22 @@ class PlayerViewModel @Inject constructor(
                 preferredSubtitleLanguage.equals("none", ignoreCase = true)
 
             val subtitleTracks = subtitleStreams
-                .mapIndexed { i, stream -> TrackInfo(stream.index, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Legenda ${i + 1}") }
+                .mapIndexed { i, stream ->
+                    TrackInfo(
+                        index = stream.index,
+                        displayName = stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Legenda ${i + 1}",
+                        language = stream.language ?: stream.displayLanguage,
+                    )
+                }
 
             val audioTracks = audioStreams
-                .mapIndexed { i, stream -> TrackInfo(stream.index, stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}") }
+                .mapIndexed { i, stream ->
+                    TrackInfo(
+                        index = stream.index,
+                        displayName = stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}",
+                        language = stream.language ?: stream.displayLanguage,
+                    )
+                }
 
             val selectedAudioIndex = uiTrackIndex(
                 tracks = audioTracks,
@@ -531,21 +547,40 @@ class PlayerViewModel @Inject constructor(
         if (index < 0) {
             currentSubtitleStreamIndex = null
             selectTrackByServerIndex(-1, C.TRACK_TYPE_TEXT)
+            viewModelScope.launch {
+                settingsRepository.setPreferredSubtitleLanguage("off")
+            }
             return
         }
-        val serverIndex = serverTrackIndexAt(_state.value.subtitleTracks, index) ?: return
+        val track = _state.value.subtitleTracks.getOrNull(index) ?: return
+        val serverIndex = track.index
         currentSubtitleStreamIndex = serverIndex
         selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_TEXT)
+        viewModelScope.launch {
+            settingsRepository.setPreferredSubtitleLanguage(track.language)
+        }
     }
 
     fun selectAudio(index: Int) {
         _state.update { it.copy(selectedAudioIndex = index) }
-        val serverIndex = serverTrackIndexAt(_state.value.audioTracks, index) ?: return
+        val track = _state.value.audioTracks.getOrNull(index) ?: return
+        val serverIndex = track.index
         currentAudioStreamIndex = serverIndex
         selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_AUDIO)
+        viewModelScope.launch {
+            settingsRepository.setPreferredAudioLanguage(track.language)
+        }
     }
 
     fun selectQuality(quality: String) {
+        val normalizedQuality = normalizeQualityPreference(quality)
+        applyQuality(normalizedQuality)
+        viewModelScope.launch {
+            settingsRepository.setDefaultQuality(normalizedQuality)
+        }
+    }
+
+    private fun applyQuality(quality: String) {
         _state.update { it.copy(selectedQuality = quality) }
         val constraint = videoQualityConstraint(quality)
         localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
@@ -581,7 +616,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun applyDefaultPlaybackPreferences() {
-        selectQuality(defaultQuality)
+        applyQuality(defaultQuality)
         setPlaybackSpeed(defaultPlaybackSpeed.coerceIn(0.5f, 2f))
     }
 

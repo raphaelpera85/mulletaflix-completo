@@ -50,6 +50,10 @@ internal fun qualityOptions(mediaStreams: List<MediaStream>): List<String> =
 internal fun qualityMenuOptions(qualities: List<String>): List<String> =
     (listOf("Auto") + qualities).filter(String::isNotBlank).distinct()
 
+/** Keeps the persisted quality preference valid when it comes from UI or old storage. */
+internal fun normalizeQualityPreference(value: String?): String =
+    value?.trim()?.takeIf(String::isNotBlank) ?: "Auto"
+
 internal data class VideoQualityConstraint(
     val maxWidth: Int,
     val maxHeight: Int,

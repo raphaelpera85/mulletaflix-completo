@@ -39,6 +39,13 @@ class PlayerOptionsTest {
     }
 
     @Test
+    fun `quality preference normalizes blank values to auto`() {
+        assertEquals("Auto", normalizeQualityPreference(null))
+        assertEquals("Auto", normalizeQualityPreference("   "))
+        assertEquals("1080p", normalizeQualityPreference(" 1080p "))
+    }
+
+    @Test
     fun `video aspect ratio modes provide valid titles and resize modes`() {
         assertEquals("Ajustar (Original)", VideoAspectRatio.FIT.title)
         assertEquals("Preencher / Zoom", VideoAspectRatio.ZOOM.title)

@@ -7,6 +7,18 @@ import okhttp3.Response
 import javax.inject.Inject
 import javax.inject.Singleton
 
+internal fun buildMediaBrowserAuthorizationHeader(
+    accessToken: String?,
+    deviceId: String,
+): String {
+    val clientVersion = BuildConfig.CLIENT_VERSION
+    return if (!accessToken.isNullOrBlank()) {
+        "MediaBrowser Token=\"$accessToken\", Client=\"MulletaFlix Android\", Device=\"Android\", DeviceId=\"$deviceId\", Version=\"$clientVersion\""
+    } else {
+        "MediaBrowser Client=\"MulletaFlix Android\", Device=\"Android\", DeviceId=\"$deviceId\", Version=\"$clientVersion\""
+    }
+}
+
 /**
  * OkHttp interceptor that adds Authorization: Bearer <token> to every request.
  *
@@ -27,12 +39,7 @@ class AuthInterceptor @Inject constructor(
         val deviceId = runBlocking { sessionRepository.getDeviceId().first() }
 
         val request = chain.request().newBuilder().apply {
-            val authHeader = if (!token.isNullOrBlank()) {
-                "MediaBrowser Token=\"$token\", Client=\"MulletaFlix Android\", Device=\"Android\", DeviceId=\"$deviceId\", Version=\"12.0.2\""
-            } else {
-                "MediaBrowser Client=\"MulletaFlix Android\", Device=\"Android\", DeviceId=\"$deviceId\", Version=\"12.0.2\""
-            }
-            addHeader("Authorization", authHeader)
+            addHeader("Authorization", buildMediaBrowserAuthorizationHeader(token, deviceId))
         }.build()
 
         return chain.proceed(request)

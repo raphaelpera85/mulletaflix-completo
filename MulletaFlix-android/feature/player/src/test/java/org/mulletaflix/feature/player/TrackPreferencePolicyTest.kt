@@ -33,4 +33,12 @@ class TrackPreferencePolicyTest {
     fun `off disables subtitle selection`() {
         assertNull(preferredStreamIndex(streams, "off", serverDefaultIndex = 5))
     }
+
+    @Test
+    fun `track info keeps technical language separate from display label`() {
+        val track = TrackInfo(index = 5, displayName = "Português (Brasil)", language = "pt-BR")
+
+        assertEquals("pt-BR", track.language)
+        assertEquals("Português (Brasil)", track.displayName)
+    }
 }

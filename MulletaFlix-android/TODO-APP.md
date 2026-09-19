@@ -359,3 +359,21 @@ Pendências relacionadas:
 
 - [x] Garantir no teste instrumentado que o fluxo de login exibe a ação `Cadastrar`.
 - [x] Manter a verificação do branding, URL padrão e ação `Entrar` no mesmo smoke test.
+
+## 25. Versão do cliente no cabeçalho de autenticação (v1.0.14)
+
+- [x] Centralizar a versão do APK no Version Catalog do Gradle.
+- [x] Remover a versão fixa `12.0.2` do cabeçalho `MediaBrowser`.
+- [x] Cobrir os cabeçalhos anônimo e autenticado em `AuthHeaderTest`.
+
+## 26. Preferências manuais de idioma no player (v1.0.15)
+- [x] Persistir o idioma técnico da faixa quando o usuário troca o áudio.
+- [x] Persistir o idioma técnico da legenda quando o usuário troca a legenda.
+- [x] Persistir a opção de legendas desativadas para as próximas reproduções.
+- [x] Manter o rótulo visual separado do idioma usado pela seleção automática.
+
+## 27. Qualidade persistente e plataforma atualizada (v1.0.16)
+- [x] Persistir a qualidade escolhida manualmente no player para as próximas reproduções.
+- [x] Atualizar Media3 para a versão estável mais recente disponível no ciclo atual.
+- [x] Atualizar Core KTX e DataStore para as versões estáveis atuais.
+- [x] Preparar o APK para Android 16 (targetSdk 36) mantendo minSdk 24.

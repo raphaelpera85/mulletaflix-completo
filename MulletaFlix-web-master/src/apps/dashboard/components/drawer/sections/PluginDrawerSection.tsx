@@ -46,14 +46,14 @@ const PluginDrawerSection = () => {
                 <ListItemText primary={globalize.translate('TabPlugins')} />
             </ListItemLink>
 
-            <ListItemLink to={MIDIA_STORAGE_ONLINE_DASHBOARD_PATH} sx={{ pl: 4 }}>
+            <ListItemLink to={MIDIA_STORAGE_ONLINE_DASHBOARD_PATH}>
                 <ListItemIcon>
                     <Folder />
                 </ListItemIcon>
-                <ListItemText primary='Midia Storage Online' />
+                <ListItemText primary='Mídia Storage Online' />
             </ListItemLink>
 
-            <ListItemLink to='/dashboard/plugins/telegram-notifications' sx={{ pl: 4 }}>
+            <ListItemLink to='/dashboard/plugins/telegram-notifications'>
                 <ListItemIcon>
                     <Folder />
                 </ListItemIcon>

@@ -17,6 +17,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { buildConfig = true }
+    buildTypes.configureEach {
+        buildConfigField("String", "CLIENT_VERSION", "\"${libs.versions.appVersion.get()}\"")
+    }
 }
 
 dependencies {
