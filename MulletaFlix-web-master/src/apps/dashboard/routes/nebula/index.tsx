@@ -452,7 +452,6 @@ const NebulaPage = () => {
     const [ httpStreamToken, setHttpStreamToken ] = useState('');
     const [ supabaseKey, setSupabaseKey ] = useState('');
     const [ apiHash, setApiHash ] = useState('');
-
     const {
         actionMutation,
         backupMutation,
@@ -543,6 +542,9 @@ const NebulaPage = () => {
     }, []);
     const handleApiHashChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
         setApiHash(event.target.value);
+    }, []);
+    const handleTabChange = useCallback((_event: React.SyntheticEvent, value: number) => {
+        setActiveTab(value);
     }, []);
     const handleBotDeleteClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
         const index = Number(event.currentTarget.dataset.botIndex);
@@ -660,7 +662,7 @@ const NebulaPage = () => {
 
                 <Tabs
                     value={activeTab}
-                    onChange={(_event, val) => setActiveTab(val)}
+                    onChange={handleTabChange}
                     sx={{
                         borderBottom: 1,
                         borderColor: '#3a3a3a',
@@ -864,7 +866,7 @@ const NebulaPage = () => {
                                         {restoreMutation.isPending ? 'Restaurando...' : 'Restore Supabase'}
                                     </Button>
                                 </Stack>
-                                      </Stack>
+                            </Stack>
                         </Paper>
 
                         <Paper variant='outlined' sx={{ p: 2 }}>
@@ -1106,6 +1108,7 @@ const NebulaPage = () => {
                         </Box>
                     </Stack>
                 )}
+
             </Stack>
             <ConfirmDialog
                 open={isRestoreDialogOpen}

@@ -348,3 +348,14 @@ Pendências relacionadas:
 - [x] Manter a conexão automática quando somente um servidor responde na LAN.
 - [x] Evitar selecionar silenciosamente o primeiro servidor quando múltiplos servidores respondem sem `serverId` persistido.
 - [x] Cobrir seleção única e ambiguidade de múltiplos servidores em `LanServerRecoveryPolicyTest`.
+
+## 23. Atualizador Android somente com releases estáveis (v1.0.12)
+
+- [x] Ignorar releases GitHub marcadas como `draft` ou `prerelease`.
+- [x] Evitar oferecer APKs de teste pelo atualizador integrado.
+- [x] Cobrir o filtro no `AppUpdateRepositoryTest`.
+
+## 24. Regressão do cadastro na tela de login (v1.0.13)
+
+- [x] Garantir no teste instrumentado que o fluxo de login exibe a ação `Cadastrar`.
+- [x] Manter a verificação do branding, URL padrão e ação `Entrar` no mesmo smoke test.

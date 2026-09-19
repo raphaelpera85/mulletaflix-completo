@@ -69,6 +69,11 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                 if (!tagName.startsWith("app-", ignoreCase = true)) {
                     continue
                 }
+                // Do not offer preview or draft artifacts through the in-app updater.
+                // The APK must come from an official, published stable release.
+                if (release.optBoolean("draft", false) || release.optBoolean("prerelease", false)) {
+                    continue
+                }
 
                 val body = release.optString("body", "").trim()
                 val publishedAt = release.optString("published_at", "").trim()

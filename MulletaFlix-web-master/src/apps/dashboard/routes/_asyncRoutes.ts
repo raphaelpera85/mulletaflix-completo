@@ -13,6 +13,7 @@ export const ASYNC_ADMIN_ROUTES: AsyncRoute[] = [
     { path: 'devices', type: AppType.Dashboard },
     { path: 'jobs', type: AppType.Dashboard },
     { path: 'nebula', type: AppType.Dashboard },
+    { path: 'plugins/telegram-notifications', page: 'plugins/telegram-notifications', type: AppType.Dashboard },
     { path: 'settings', type: AppType.Dashboard },
     { path: 'keys', type: AppType.Dashboard },
     { path: 'libraries', type: AppType.Dashboard },

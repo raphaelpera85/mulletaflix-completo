@@ -53,6 +53,13 @@ const PluginDrawerSection = () => {
                 <ListItemText primary='Midia Storage Online' />
             </ListItemLink>
 
+            <ListItemLink to='/dashboard/plugins/telegram-notifications' sx={{ pl: 4 }}>
+                <ListItemIcon>
+                    <Folder />
+                </ListItemIcon>
+                <ListItemText primary='Telegram Notifications' />
+            </ListItemLink>
+
             {pagesInfo?.map(pageInfo => (
                 <ListItemLink
                     key={pageInfo.PluginId}

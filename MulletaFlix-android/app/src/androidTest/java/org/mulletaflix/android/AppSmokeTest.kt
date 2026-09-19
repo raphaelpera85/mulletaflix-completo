@@ -54,6 +54,7 @@ class AppSmokeTest {
                 composeRule.onAllNodesWithText("Entrar", useUnmergedTree = true)
                     .fetchSemanticsNodes().isNotEmpty()
             ) { "O fluxo de login não exibiu a ação Entrar" }
+            composeRule.onNodeWithText("Cadastrar", useUnmergedTree = true).assertIsDisplayed()
         }
     }
 

@@ -127,4 +127,38 @@ class AppUpdateRepositoryTest {
         assertEquals("1.0.0", info.latestVersion)
         assertEquals("1.0.0", info.currentVersion)
     }
+
+    @Test
+    fun `parseReleases ignores draft and prerelease APKs`() {
+        val json = """
+        [
+            {
+                "tag_name": "app-v9.0.0-preview",
+                "prerelease": true,
+                "assets": [
+                    {
+                        "name": "mulletaflix-app-v9.0.0.apk",
+                        "browser_download_url": "https://github.com/releases/download/app-v9.0.0-preview/mulletaflix-app-v9.0.0.apk"
+                    }
+                ]
+            },
+            {
+                "tag_name": "app-v8.0.0-draft",
+                "draft": true,
+                "assets": [
+                    {
+                        "name": "mulletaflix-app-v8.0.0.apk",
+                        "browser_download_url": "https://github.com/releases/download/app-v8.0.0-draft/mulletaflix-app-v8.0.0.apk"
+                    }
+                ]
+            }
+        ]
+        """.trimIndent()
+
+        val info = repository.parseReleases(json, "1.0.0")
+
+        assertFalse(info.isUpdateAvailable)
+        assertEquals("1.0.0", info.latestVersion)
+        assertEquals(null, info.apkDownloadUrl)
+    }
 }
