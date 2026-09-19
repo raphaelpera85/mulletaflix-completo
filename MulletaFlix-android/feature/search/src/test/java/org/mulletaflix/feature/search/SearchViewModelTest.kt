@@ -21,6 +21,7 @@ import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.SearchHintItem
+import org.mulletaflix.domain.repository.SearchHistoryRepository
 import org.mulletaflix.domain.repository.SearchRepository
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
@@ -31,12 +32,14 @@ class SearchViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private lateinit var searchRepository: RecordingSearchRepository
     private lateinit var viewModel: SearchViewModel
+    private lateinit var historyRepository: FakeSearchHistoryRepository
 
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         searchRepository = RecordingSearchRepository()
-        viewModel = SearchViewModel(SearchMediaUseCase(searchRepository), FakeAuthRepository())
+        historyRepository = FakeSearchHistoryRepository()
+        viewModel = SearchViewModel(SearchMediaUseCase(searchRepository), FakeAuthRepository(), historyRepository)
     }
 
     @After
@@ -58,11 +61,13 @@ class SearchViewModelTest {
 
     @Test
     fun `manual search keeps ten distinct history entries`() = runTest {
+        advanceUntilIdle()
         repeat(12) { viewModel.search("term-$it") }
         advanceUntilIdle()
 
         assertEquals(10, viewModel.state.value.history.size)
         assertEquals("term-11", viewModel.state.value.history.first())
+        assertEquals(10, historyRepository.entries.size)
     }
 
     @Test
@@ -93,6 +98,7 @@ class SearchViewModelTest {
 
     @Test
     fun `removeHistoryItem removes single entry from search history`() = runTest {
+        advanceUntilIdle()
         viewModel.search("batman")
         viewModel.search("superman")
         advanceUntilIdle()
@@ -100,6 +106,17 @@ class SearchViewModelTest {
         assertEquals(listOf("superman", "batman"), viewModel.state.value.history)
 
         viewModel.removeHistoryItem("superman")
+        assertEquals(listOf("batman"), viewModel.state.value.history)
+        advanceUntilIdle()
+        assertEquals(listOf("batman"), historyRepository.entries)
+    }
+
+    @Test
+    fun `history loaded for one user does not leak to another user`() = runTest {
+        historyRepository.seed("user-1", listOf("batman"))
+        viewModel = SearchViewModel(SearchMediaUseCase(searchRepository), SwitchingAuthRepository(), historyRepository)
+        advanceUntilIdle()
+
         assertEquals(listOf("batman"), viewModel.state.value.history)
     }
 
@@ -120,7 +137,36 @@ class SearchViewModelTest {
         }
     }
 
-    private class FakeAuthRepository : AuthRepository {
+    private class FakeSearchHistoryRepository : SearchHistoryRepository {
+        val entries = mutableListOf<String>()
+        private val byUser = mutableMapOf<String?, MutableList<String>>()
+
+        override fun observeHistory(userId: String?): Flow<List<String>> =
+            MutableStateFlow(byUser[userId]?.toList().orEmpty())
+
+        override suspend fun add(userId: String?, query: String) {
+            val list = byUser.getOrPut(userId) { mutableListOf() }
+            list.remove(query)
+            list.add(0, query)
+            while (list.size > 10) list.removeAt(list.lastIndex)
+            entries.clear(); entries.addAll(list)
+        }
+
+        override suspend fun remove(userId: String?, query: String) {
+            byUser[userId]?.remove(query)
+            entries.clear(); entries.addAll(byUser[userId].orEmpty())
+        }
+
+        override suspend fun clear(userId: String?) { byUser.remove(userId); entries.clear() }
+
+        fun seed(userId: String?, values: List<String>) { byUser[userId] = values.toMutableList() }
+    }
+
+    private class SwitchingAuthRepository : FakeAuthRepository() {
+        override fun getSavedUserId(): Flow<String?> = MutableStateFlow("user-1")
+    }
+
+    private open class FakeAuthRepository : AuthRepository {
         override fun getSavedUserId(): Flow<String?> = MutableStateFlow("user-1")
         override fun getSavedToken(): Flow<String?> = MutableStateFlow("token")
         override fun getSavedServerUrl(): Flow<String> = MutableStateFlow("http://localhost")

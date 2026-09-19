@@ -55,6 +55,7 @@ import org.mulletaflix.designsystem.media.userAvatarPath
 fun HomeScreen(
     onItemClick: (String) -> Unit,
     onLibraryClick: (String) -> Unit,
+    onLiveTvClick: () -> Unit,
     navController: NavController,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
@@ -231,7 +232,9 @@ fun HomeScreen(
                 item {
                     LibraryTiles(
                         libraries = state.libraries,
-                        onLibraryClick = onLibraryClick
+                        onLibraryClick = { library ->
+                            if (shouldOpenLiveTv(library)) onLiveTvClick() else onLibraryClick(library.id)
+                        },
                     )
                 }
             }
@@ -414,6 +417,7 @@ private fun MediaSection(
                     shape = cardShape,
                     progress = item.playedPercentage?.toFloat()?.div(100f) ?: 0f,
                     isWatched = item.isPlayed,
+                    isFavorite = item.isFavorite,
                     unplayedCount = item.unplayedItemCount ?: 0,
                     isLive = isLive,
                     qualityBadge = when {
@@ -434,7 +438,7 @@ private fun MediaSection(
 @Composable
 private fun LibraryTiles(
     libraries: List<MediaItem>,
-    onLibraryClick: (String) -> Unit,
+    onLibraryClick: (MediaItem) -> Unit,
 ) {
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
         Text(
@@ -452,13 +456,16 @@ private fun LibraryTiles(
                     title = lib.name,
                     imageUrl = lib.primaryImageUrl,
                     shape = MediaCardShape.Landscape,
-                    onClick = { onLibraryClick(lib.id) },
+                    onClick = { onLibraryClick(lib) },
                     modifier = Modifier.width(180.dp)
                 )
             }
         }
     }
 }
+
+internal fun shouldOpenLiveTv(library: MediaItem): Boolean =
+    library.collectionType.equals("livetv", ignoreCase = true)
 
 private val MediaItem.runtimeMinutes: Int? get() =
     runtimeTicks?.div(600_000_000L)?.toInt()?.takeIf { it > 0 }

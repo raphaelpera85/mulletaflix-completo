@@ -20,11 +20,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
@@ -215,20 +218,39 @@ fun MediaCard(
             qualityBadge?.let { MediaBadge(text = it, color = Color(0xFF2196F3)) }
         }
 
-        // Unplayed episode count badge (top-end)
-        if (unplayedCount > 0) {
-            Box(
+        // User state badges share one touch-free, readable overlay.
+        if (isFavorite || unplayedCount > 0) {
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp)
-                    .background(MulletaFlixRed, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = unplayedCount.toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White
-                )
+                if (isFavorite) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = "Favorito",
+                        tint = MulletaFlixRed,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .semantics { contentDescription = "Adicionado à Minha Lista" },
+                    )
+                }
+                if (unplayedCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .semantics { contentDescription = "$unplayedCount episódios não assistidos" }
+                            .background(MulletaFlixRed, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = unplayedCount.toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White
+                        )
+                    }
+                }
             }
         }
 

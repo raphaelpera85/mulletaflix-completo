@@ -33,11 +33,26 @@ fun SyncPlayScreen(onJoinGroup: (String?) -> Unit = {}, onBack: () -> Unit = {},
             state.error?.let { message -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); TextButton(onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }
             if (state.isLoading && state.groups.isEmpty()) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (!state.isLoading && state.groups.isEmpty() && state.error == null) item { EmptyGroupsState { showCreateDialog = true } }
-            items(state.groups, key = { it.groupId }) { group -> Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.padding(16.dp)) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(group.groupName, style = MaterialTheme.typography.titleMedium); AssistChip(onClick = {}, label = { Text(group.state ?: "Pronto") }) }; Text("Participantes: ${group.participants.joinToString(", ").ifBlank { "Ninguém ainda" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(12.dp)); Button(onClick = { viewModel.joinGroup(group.groupId) { joined -> onJoinGroup(joined?.playingItemId) } }, enabled = !state.isSubmitting, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Entrar na sessão") } } } }
+            items(state.groups, key = { it.groupId }) { group -> Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.padding(16.dp)) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(group.groupName, style = MaterialTheme.typography.titleMedium); StatusPill(group.state ?: "Pronto") }; Text("Participantes: ${group.participants.joinToString(", ").ifBlank { "Ninguém ainda" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(12.dp)); Button(onClick = { viewModel.joinGroup(group.groupId) { joined -> onJoinGroup(joined?.playingItemId) } }, enabled = !state.isSubmitting, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Entrar na sessão") } } } }
             if (state.activeGroupId != null) item { OutlinedButton(onClick = viewModel::leaveGroup, enabled = !state.isSubmitting, modifier = Modifier.fillMaxWidth()) { Text("Sair da sala atual") } }
         }
     }
     if (showCreateDialog) { var name by remember { mutableStateOf("") }; AlertDialog(onDismissRequest = { if (!state.isSubmitting) showCreateDialog = false }, title = { Text("Criar sala SyncPlay") }, text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Nome da sala") }, modifier = Modifier.fillMaxWidth()) }, dismissButton = { TextButton(onClick = { showCreateDialog = false }, enabled = !state.isSubmitting) { Text("Cancelar") } }, confirmButton = { Button(onClick = { viewModel.createGroup(name) { showCreateDialog = false } }, enabled = name.isNotBlank() && !state.isSubmitting) { Text("Criar") } }) }
+}
+
+@Composable
+private fun StatusPill(text: String) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+    }
 }
 
 @Composable

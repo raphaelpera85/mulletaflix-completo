@@ -39,6 +39,10 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindSearchHistoryRepository(impl: SearchHistoryRepositoryImpl): SearchHistoryRepository
+
+    @Binds
+    @Singleton
     abstract fun bindLiveTvRepository(impl: LiveTvRepositoryImpl): LiveTvRepository
 
     @Binds

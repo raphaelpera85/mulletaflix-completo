@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.SearchHistoryRepository
 import org.mulletaflix.domain.usecase.SearchMediaUseCase
 import javax.inject.Inject
 
@@ -25,18 +26,26 @@ data class SearchState(
 class SearchViewModel @Inject constructor(
     private val searchMediaUseCase: SearchMediaUseCase,
     private val authRepository: AuthRepository,
+    private val searchHistoryRepository: SearchHistoryRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SearchState())
     val state: StateFlow<SearchState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+    private var historyJob: Job? = null
     private var currentUserId: String? = null
 
     init {
         viewModelScope.launch {
-            authRepository.getSavedUserId().collect { userId ->
+            authRepository.getSavedUserId().distinctUntilChanged().collect { userId ->
                 currentUserId = userId
+                historyJob?.cancel()
+                historyJob = launch {
+                    searchHistoryRepository.observeHistory(userId).collect { history ->
+                        _state.update { it.copy(history = history) }
+                    }
+                }
             }
         }
     }
@@ -59,10 +68,14 @@ class SearchViewModel @Inject constructor(
         searchJob?.cancel()
         if (query.isBlank()) return
         _state.update {
-            val newHistory = (listOf(query) + it.history).distinct().take(10)
-            it.copy(query = query, history = newHistory, error = null)
+            it.copy(
+                query = query,
+                history = (listOf(query) + it.history).distinct().take(10),
+                error = null,
+            )
         }
         viewModelScope.launch {
+            searchHistoryRepository.add(currentUserId, query)
             performSearch(query, _state.value.activeFilter)
         }
     }
@@ -90,10 +103,12 @@ class SearchViewModel @Inject constructor(
 
     fun removeHistoryItem(term: String) {
         _state.update { it.copy(history = it.history.filterNot { item -> item == term }) }
+        viewModelScope.launch { searchHistoryRepository.remove(currentUserId, term) }
     }
 
     fun clearHistory() {
         _state.update { it.copy(history = emptyList()) }
+        viewModelScope.launch { searchHistoryRepository.clear(currentUserId) }
     }
 
     private suspend fun performSearch(query: String, filter: SearchFilter?) {

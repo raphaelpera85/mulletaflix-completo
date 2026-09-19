@@ -130,6 +130,7 @@ fun LibraryScreen(
                                 shape = if (item.type == MediaItemType.Movie || item.type == MediaItemType.MusicAlbum || item.type == MediaItemType.Book) MediaCardShape.Portrait else MediaCardShape.Landscape,
                                 progress = item.playedPercentage?.toFloat()?.div(100f) ?: 0f,
                                 isWatched = item.isPlayed,
+                                isFavorite = item.isFavorite,
                                 unplayedCount = item.unplayedItemCount ?: 0,
                                 qualityBadge = when { item.has4K -> "4K"; item.hasHD -> "HD"; else -> null },
                                 onClick = { onItemClick(item.id) },
@@ -225,6 +226,7 @@ private fun LibraryListRow(item: MediaItem, onClick: () -> Unit) {
             imageUrl = item.primaryImageUrl,
             shape = MediaCardShape.Portrait,
             isWatched = item.isPlayed,
+            isFavorite = item.isFavorite,
             unplayedCount = item.unplayedItemCount ?: 0,
             onClick = onClick,
             modifier = Modifier.width(60.dp)

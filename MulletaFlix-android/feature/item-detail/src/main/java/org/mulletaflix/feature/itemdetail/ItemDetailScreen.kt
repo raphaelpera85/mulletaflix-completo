@@ -1,5 +1,6 @@
 package org.mulletaflix.feature.itemdetail
 
+import android.content.Intent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import org.mulletaflix.domain.model.*
@@ -50,6 +52,8 @@ fun ItemDetailScreen(
     viewModel: ItemDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val serverUrl = LocalMulletaFlixServerUrl.current
 
     LaunchedEffect(itemId) { viewModel.loadItem(itemId) }
 
@@ -73,6 +77,15 @@ fun ItemDetailScreen(
                     onMarkWatched = { viewModel.toggleWatched() },
                     onDownload = { viewModel.downloadItem() },
                     onPlaylist = { viewModel.openPlaylistPicker() },
+                    onShare = {
+                        val text = buildItemShareText(item.name, item.id, serverUrl)
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                            putExtra(Intent.EXTRA_TITLE, item.name)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Compartilhar título"))
+                    },
                     isLoading = state.isLoading
                 )
 
@@ -183,6 +196,7 @@ private fun DetailHero(
     onMarkWatched: () -> Unit,
     onDownload: () -> Unit,
     onPlaylist: () -> Unit,
+    onShare: () -> Unit,
     isLoading: Boolean,
 ) {
     val serverUrl = LocalMulletaFlixServerUrl.current
@@ -234,7 +248,10 @@ private fun DetailHero(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Action buttons row
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 // Play
                 Button(
                     onClick = onPlay,
@@ -283,6 +300,13 @@ private fun DetailHero(
                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = "Adicionar à playlist", tint = Color.White)
+                }
+
+                IconButton(
+                    onClick = onShare,
+                    modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = "Compartilhar título", tint = Color.White)
                 }
             }
         }
@@ -355,7 +379,7 @@ private fun MetadataPills(item: MediaItem) {
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(item.genres) { genre ->
-                AssistChip(onClick = {}, label = { Text(genre, style = MaterialTheme.typography.labelSmall) })
+                Chip(text = genre)
             }
         }
     }

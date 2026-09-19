@@ -32,7 +32,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import android.widget.Toast
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
@@ -396,7 +398,7 @@ private fun UserAvatarRow(
                     val imagePath = user.primaryImageTag?.let { tag ->
                         "Users/${user.id}/Images/Primary?tag=$tag"
                     }
-                    AsyncImage(
+                    SubcomposeAsyncImage(
                         model = resolveMediaUrl(serverUrl, imagePath, accessToken),
                         contentDescription = "Selecionar ${user.name}",
                         modifier = Modifier
@@ -404,7 +406,22 @@ private fun UserAvatarRow(
                             .clip(RoundedCornerShape(18.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                    )
+                    ) {
+                        when (painter.state) {
+                            is AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
+                            else -> Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = userInitial(user.name),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
                     Text(
                         user.name,
                         color = Color.White,
@@ -418,5 +435,8 @@ private fun UserAvatarRow(
         }
     }
 }
+
+internal fun userInitial(name: String): String =
+    name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
 
 private val Int.sp get() = androidx.compose.ui.unit.TextUnit(this.toFloat(), androidx.compose.ui.unit.TextUnitType.Sp)

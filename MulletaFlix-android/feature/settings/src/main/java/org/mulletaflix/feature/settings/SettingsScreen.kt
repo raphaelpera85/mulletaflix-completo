@@ -1,5 +1,8 @@
 package org.mulletaflix.feature.settings
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -40,6 +43,8 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var showLicensesDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         topBar = {
@@ -64,7 +69,13 @@ fun SettingsScreen(
 
             // ── Servidor ─────────────────────────────────────────────────────
             SettingsGroup(title = "Servidor") {
-                SettingsItem(icon = Icons.Default.Dns, title = "Servidor", subtitle = state.serverUrl ?: "Não configurado") {}
+                SettingsItem(
+                    icon = Icons.Default.Dns,
+                    title = if (state.isCheckingConnection) "Testando servidor…" else "Testar conexão",
+                    subtitle = state.connectionStatus ?: state.serverUrl ?: "Não configurado",
+                    onClick = viewModel::checkServerConnection,
+                    enabled = !state.isCheckingConnection,
+                )
                 SettingsItem(icon = Icons.Default.Person, title = "Meu Perfil", subtitle = state.username ?: "Ver perfil, permissões e alternar usuário", onClick = onProfile)
                 SettingsItem(icon = Icons.Default.Group, title = "Salas SyncPlay", subtitle = "Assistir sincronizado com amigos", onClick = onSyncPlay)
                 SettingsItem(icon = Icons.Default.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
@@ -164,9 +175,9 @@ fun SettingsScreen(
 
             // ── Downloads ────────────────────────────────────────────────────
             SettingsGroup(title = "Downloads") {
-                SettingsItem(icon = Icons.Default.Folder, title = "Pasta de Downloads", subtitle = state.downloadPath) {}
-                SettingsItem(icon = Icons.Default.Storage, title = "Limite de Armazenamento", subtitle = "${state.downloadStorageGb} GB") {}
-                SettingsItem(icon = Icons.Default.Hd, title = "Qualidade de Download", subtitle = state.downloadQuality) {}
+                SettingsItem(icon = Icons.Default.Folder, title = "Pasta de Downloads", subtitle = state.downloadPath, enabled = false)
+                SettingsItem(icon = Icons.Default.Storage, title = "Limite de Armazenamento", subtitle = "${state.downloadStorageGb} GB", enabled = false)
+                SettingsItem(icon = Icons.Default.Hd, title = "Qualidade de Download", subtitle = state.downloadQuality, enabled = false)
             }
 
             // ── Cache ────────────────────────────────────────────────────────
@@ -177,7 +188,6 @@ fun SettingsScreen(
 
             // ── Sobre ────────────────────────────────────────────────────────
             SettingsGroup(title = "Sobre") {
-                val context = androidx.compose.ui.platform.LocalContext.current
                 val currentAppVersion = remember {
                     try {
                         val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -186,7 +196,7 @@ fun SettingsScreen(
                         "1.0.0"
                     }
                 }
-                SettingsItem(icon = Icons.Default.Info, title = "Versão", subtitle = "MulletaFlix Android $currentAppVersion") {}
+                SettingsItem(icon = Icons.Default.Info, title = "Versão", subtitle = "MulletaFlix Android $currentAppVersion", enabled = false)
                 SettingsItem(
                     icon = Icons.Default.SystemUpdate,
                     title = "Verificar Atualizações do Aplicativo",
@@ -199,8 +209,35 @@ fun SettingsScreen(
                     },
                     onClick = { viewModel.checkForUpdates(currentAppVersion) }
                 )
-                SettingsItem(icon = Icons.Default.OpenInBrowser, title = "GitHub", subtitle = "github.com/raphaelpera85/MulletaFlix") {}
-                SettingsItem(icon = Icons.Default.Gavel, title = "Licenças", subtitle = "GPL-2.0 e licenças de terceiros") {}
+                SettingsItem(
+                    icon = Icons.Default.OpenInBrowser,
+                    title = "GitHub",
+                    subtitle = "github.com/raphaelpera85/MulletaFlix",
+                    onClick = { openExternalUrl(context, "https://github.com/raphaelpera85/MulletaFlix") },
+                )
+                SettingsItem(
+                    icon = Icons.Default.Gavel,
+                    title = "Licenças",
+                    subtitle = "GPL-2.0 e licenças de terceiros",
+                    onClick = { showLicensesDialog = true },
+                )
+            }
+
+            if (showLicensesDialog) {
+                AlertDialog(
+                    onDismissRequest = { showLicensesDialog = false },
+                    icon = { Icon(Icons.Default.Gavel, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
+                    title = { Text("Licenças") },
+                    text = {
+                        Text(
+                            "MulletaFlix Android é distribuído sob GPL-2.0. " +
+                                "O aplicativo utiliza AndroidX, Jetpack Compose, Media3, Coil, Retrofit, OkHttp, Hilt e Room.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showLicensesDialog = false }) { Text("Fechar") }
+                    },
+                )
             }
 
             if (state.showUpdateDialog && state.updateInfo != null) {
@@ -278,6 +315,12 @@ fun SettingsScreen(
     }
 }
 
+internal fun openExternalUrl(context: Context, url: String) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+}
+
 @Composable
 private fun ChoiceDialog(
     title: String,
@@ -326,17 +369,24 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
 }
 
 @Composable
-private fun SettingsItem(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit = {}) {
+private fun SettingsItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit = {},
+    enabled: Boolean = true,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        val contentAlpha = if (enabled) 1f else 0.55f
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha))
         Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium)
-            if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha))
+            if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha))
         }
-        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha))
     }
     HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
 }

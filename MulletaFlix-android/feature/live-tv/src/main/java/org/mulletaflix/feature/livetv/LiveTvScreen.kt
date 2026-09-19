@@ -12,10 +12,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
+import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
+import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
+import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.primaryImageUrl
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,7 +82,61 @@ fun LiveTvScreen(
 }
 
 @Composable
-private fun ChannelRow(channel: MediaItem, onPlay: () -> Unit) { Card(Modifier.fillMaxWidth().clickable(onClick = onPlay), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Surface(Modifier.size(48.dp), shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.primaryContainer) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.LiveTv, null, tint = MaterialTheme.colorScheme.onPrimaryContainer) } }; Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Text(channel.name, style = MaterialTheme.typography.titleSmall); Text(channel.overview ?: "Sem informações de guia", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; IconButton(onClick = onPlay) { Icon(Icons.Default.PlayCircleOutline, "Assistir", tint = MaterialTheme.colorScheme.secondary) } } } }
+private fun ChannelRow(channel: MediaItem, onPlay: () -> Unit) {
+    val imageUrl = resolveMediaUrl(
+        LocalMulletaFlixServerUrl.current,
+        channel.primaryImageUrl,
+        LocalMulletaFlixAccessToken.current,
+    )
+    Card(
+        Modifier.fillMaxWidth().clickable(onClick = onPlay),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            ChannelLogo(channel.name, imageUrl)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(channel.name, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    channel.overview ?: "Sem informações de guia",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+            IconButton(onClick = onPlay) {
+                Icon(Icons.Default.PlayCircleOutline, "Assistir ${channel.name}", tint = MaterialTheme.colorScheme.secondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelLogo(channelName: String, imageUrl: String?) {
+    Surface(
+        Modifier.size(56.dp),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        SubcomposeAsyncImage(
+            model = imageUrl,
+            contentDescription = "Logo do canal $channelName",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            when (painter.state) {
+                is AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
+                else -> Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.LiveTv,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun RecordingRow(recording: MediaItem, onPlay: () -> Unit) {

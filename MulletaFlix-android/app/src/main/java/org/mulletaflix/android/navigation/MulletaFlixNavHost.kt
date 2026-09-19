@@ -103,6 +103,7 @@ fun MulletaFlixNavHost(
                 onLibraryClick = { libId ->
                     navController.navigate(MulletaFlixRoute.library(libId))
                 },
+                onLiveTvClick = { navController.navigate(MulletaFlixRoute.LIVE_TV) },
                 navController = navController
             )
         }

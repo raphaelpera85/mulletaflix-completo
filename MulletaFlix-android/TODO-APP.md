@@ -275,11 +275,18 @@ Pendências registradas nesta correção:
 
 - [x] Avatar do usuário na barra superior da Home: o `HomeViewModel` carrega o perfil em paralelo ao feed,
       e a barra usa a imagem autenticada com fallback acessível.
-- [ ] Avatares na tela de login para usuários públicos: o endpoint de imagem exige token, portanto só é
-      possível exibir após autenticar.
-- [ ] Biblioteca "TV ao Vivo" aberta pelo cartão de biblioteca retorna 0 itens em `Items?ParentId=` — o
-      servidor não enumera os canais por esse endpoint (mesmo resultado antes desta correção); o caminho
-      correto é a tela de TV Ao Vivo.
+- [x] Avatares na tela de login para usuários públicos: o endpoint de imagem pode exigir token; a tela agora
+      tenta a imagem autenticada e exibe a inicial do usuário como fallback acessível quando a imagem não está
+      disponível (`UserAvatarFallbackTest`).
+- [x] Diagnóstico de conexão nas configurações: a ação "Testar conexão" consulta o servidor configurado e
+      exibe estado, latência e versão, com cobertura para sucesso e falha no `SettingsViewModelTest`.
+- [x] Proteção contra downloads duplicados: títulos já enfileirados, em andamento ou concluídos não são
+      reenviados ao `DownloadManager`; itens com falha ou em remoção continuam podendo ser solicitados
+      novamente (`DownloadRequestPolicyTest`).
+- [x] Histórico de buscas persistente e isolado por usuário: os 10 termos mais recentes são salvos no
+      DataStore local e continuam disponíveis após reabrir o aplicativo, sem misturar contas.
+- [x] Biblioteca "TV ao Vivo" abre diretamente a tela dedicada de TV ao Vivo, evitando `Items?ParentId=`;
+      o servidor não enumera os canais por esse endpoint e a tela dedicada usa `LiveTv/Channels`.
 
 ---
 
@@ -303,5 +310,3 @@ Pendências relacionadas:
       seleções usam `secondary` vermelho para manter contraste e acessibilidade.
 - [x] Badges de episódios não assistidos e faixa de anos (ex.: "2022 - Presente") que o cliente web mostra
       nos cards: exigem mapear `RecursiveUnplayedItemCount` / `PremiereDate`+`EndDate` no DTO.
-
-

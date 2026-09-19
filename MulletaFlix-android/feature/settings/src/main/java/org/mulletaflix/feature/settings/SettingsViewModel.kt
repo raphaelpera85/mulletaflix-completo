@@ -17,6 +17,7 @@ import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
 import org.mulletaflix.domain.usecase.LogoutUseCase
+import org.mulletaflix.domain.usecase.VerifyServerUseCase
 import javax.inject.Inject
 
 data class SettingsState(
@@ -40,6 +41,8 @@ data class SettingsState(
     val updateStatusMessage: String? = null,
     val updateErrorMessage: String? = null,
     val showUpdateDialog: Boolean = false,
+    val isCheckingConnection: Boolean = false,
+    val connectionStatus: String? = null,
 )
 
 @HiltViewModel
@@ -50,6 +53,7 @@ class SettingsViewModel @Inject constructor(
     private val logoutUseCase: LogoutUseCase,
     private val checkAppUpdateUseCase: CheckAppUpdateUseCase? = null,
     private val appUpdateDownloader: AppUpdateDownloader? = null,
+    private val verifyServerUseCase: VerifyServerUseCase? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -186,6 +190,39 @@ class SettingsViewModel @Inject constructor(
     fun logout() {
         viewModelScope.launch {
             logoutUseCase()
+        }
+    }
+
+    fun checkServerConnection() {
+        val url = _state.value.serverUrl?.trim().orEmpty()
+        val verifier = verifyServerUseCase
+        if (url.isBlank() || verifier == null) {
+            _state.update { it.copy(connectionStatus = "Servidor não configurado.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isCheckingConnection = true, connectionStatus = null) }
+            verifier(url)
+                .onSuccess { verification ->
+                    val latency = verification.latencyMs?.let { " • ${it} ms" }.orEmpty()
+                    val version = verification.version?.let { " • v$it" }.orEmpty()
+                    _state.update {
+                        it.copy(
+                            isCheckingConnection = false,
+                            connectionStatus = "Conectado$latency$version",
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isCheckingConnection = false,
+                            connectionStatus = error.localizedMessage
+                                ?.takeIf(String::isNotBlank)
+                                ?: "Não foi possível conectar ao servidor.",
+                        )
+                    }
+                }
         }
     }
 

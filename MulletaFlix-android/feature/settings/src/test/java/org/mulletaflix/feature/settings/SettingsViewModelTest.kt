@@ -22,6 +22,7 @@ import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.*
 import org.mulletaflix.domain.usecase.LogoutUseCase
+import org.mulletaflix.domain.usecase.VerifyServerUseCase
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
@@ -115,6 +116,51 @@ class SettingsViewModelTest {
         assertTrue(loggedOut)
     }
 
+    @Test
+    fun `server connection check exposes latency and version`() = runTest {
+        val settingsRepo = FakeSettingsRepository()
+        val authRepo = FakeAuthRepository(
+            url = "http://mulletaflix.duckdns.org:8096",
+            verification = Result.success(ServerVerification("MulletaFlix", "12.0.11", 42L)),
+        )
+        val viewModel = SettingsViewModel(
+            context,
+            settingsRepo,
+            authRepo,
+            LogoutUseCase(authRepo),
+            verifyServerUseCase = VerifyServerUseCase(authRepo),
+        )
+        advanceUntilIdle()
+
+        viewModel.checkServerConnection()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isCheckingConnection)
+        assertEquals("Conectado • 42 ms • v12.0.11", viewModel.state.value.connectionStatus)
+    }
+
+    @Test
+    fun `server connection check exposes a friendly failure`() = runTest {
+        val settingsRepo = FakeSettingsRepository()
+        val authRepo = FakeAuthRepository(
+            verification = Result.failure(IllegalStateException("Servidor indisponível")),
+        )
+        val viewModel = SettingsViewModel(
+            context,
+            settingsRepo,
+            authRepo,
+            LogoutUseCase(authRepo),
+            verifyServerUseCase = VerifyServerUseCase(authRepo),
+        )
+        advanceUntilIdle()
+
+        viewModel.checkServerConnection()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isCheckingConnection)
+        assertEquals("Servidor indisponível", viewModel.state.value.connectionStatus)
+    }
+
     private class FakeSettingsRepository : SettingsRepository {
         var currentTheme: AppThemeSetting = AppThemeSetting.Dark
         var autoPlay: Boolean = true
@@ -160,8 +206,9 @@ class SettingsViewModelTest {
     private open class FakeAuthRepository(
         private val url: String = "http://localhost:8096",
         private val name: String = "User",
+        private val verification: Result<ServerVerification> = Result.failure(NotImplementedError()),
     ) : AuthRepository {
-        override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.failure(NotImplementedError())
+        override suspend fun verifyServer(url: String): Result<ServerVerification> = verification
         override suspend fun register(username: String, password: String): Result<RegistrationResult> = Result.failure(NotImplementedError())
         override suspend fun login(username: String, password: String): Result<UserSession> = Result.failure(NotImplementedError())
         override suspend fun getAvailableUsers(): Result<List<AvailableUser>> = Result.success(emptyList())

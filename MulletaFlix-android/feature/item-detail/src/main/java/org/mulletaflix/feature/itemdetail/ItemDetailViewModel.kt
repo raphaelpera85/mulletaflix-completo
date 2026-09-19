@@ -9,6 +9,7 @@ import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.domain.model.Playlist
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
@@ -52,11 +53,17 @@ class ItemDetailViewModel @Inject constructor(
 
     private var currentUserId: String? = null
     private var currentSeriesId: String? = null
+    private var downloads: List<DownloadEntry> = emptyList()
 
     init {
         viewModelScope.launch {
             authRepository.getSavedUserId().collect { userId ->
                 currentUserId = userId
+            }
+        }
+        viewModelScope.launch {
+            manageDownloadsUseCase.observeDownloads().collect { entries ->
+                downloads = entries
             }
         }
     }
@@ -206,6 +213,10 @@ class ItemDetailViewModel @Inject constructor(
     fun downloadItem() {
         val userId = currentUserId ?: return
         val item = _state.value.item ?: return
+        if (hasActiveDownload(downloads, item.id)) {
+            _state.update { it.copy(downloadMessage = "Este título já está na fila ou disponível offline.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(downloadMessage = "Preparando download…") }
             playbackRepository.getPlaybackInfo(item.id, userId)
