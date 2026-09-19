@@ -18,6 +18,7 @@ import org.mulletaflix.feature.auth.LoginScreen
 import org.mulletaflix.feature.auth.ServerSelectionScreen
 import org.mulletaflix.feature.home.HomeScreen
 import org.mulletaflix.feature.library.LibraryScreen
+import org.mulletaflix.feature.library.FavoritesScreen
 import org.mulletaflix.feature.itemdetail.ItemDetailScreen
 import org.mulletaflix.feature.player.VideoPlayerScreen
 import org.mulletaflix.feature.search.SearchScreen
@@ -105,6 +106,13 @@ fun MulletaFlixNavHost(
                 },
                 onLiveTvClick = { navController.navigate(MulletaFlixRoute.LIVE_TV) },
                 navController = navController
+            )
+        }
+
+        composable(MulletaFlixRoute.FAVORITES) {
+            FavoritesScreen(
+                onItemClick = { itemId -> navController.navigate(MulletaFlixRoute.itemDetail(itemId)) },
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -246,6 +254,7 @@ object MulletaFlixRoute {
     const val SERVER_SELECTION = "auth/server-selection"
     const val LOGIN = "auth/login"
     const val HOME = "main/home"
+    const val FAVORITES = "main/favorites"
     const val SEARCH = "main/search"
     const val DOWNLOADS = "main/downloads"
     const val LIVE_TV = "main/live-tv"

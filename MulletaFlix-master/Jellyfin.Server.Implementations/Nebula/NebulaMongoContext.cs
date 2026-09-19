@@ -1494,6 +1494,45 @@ public sealed class NebulaMongoContext : IDisposable
         return result.MatchedCount > 0;
     }
 
+    /// <summary>
+    /// Finaliza um registro reivindicado quando a mídia equivalente já existe
+    /// concluída em outro registro canônico.
+    /// </summary>
+    public async Task<bool> CompleteDuplicateUploadAsync(
+        ObjectId id,
+        BsonDocument completedMedia,
+        long uploadedBytes,
+        CancellationToken cancellationToken = default)
+    {
+        var update = Builders<BsonDocument>.Update
+            .Set("status", "completed")
+            .Set("uploaded_bytes", uploadedBytes)
+            .Set("completed_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .Unset("worker_id")
+            .Unset("started_at")
+            .Unset("retry_after");
+
+        if (completedMedia.TryGetValue("parts", out var parts))
+        {
+            update = update.Set("parts", parts);
+        }
+
+        if (completedMedia.TryGetValue("tg_file_id", out var telegramFileId))
+        {
+            update = update.Set("tg_file_id", telegramFileId);
+        }
+
+        var result = await _filesCollection.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("_id", id),
+                Builders<BsonDocument>.Filter.Ne("status", "completed")),
+            update,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        return result.ModifiedCount > 0;
+    }
+
     private static FilterDefinition<BsonDocument> BuildWorkerOwnershipFilter(string? workerId)
     {
         if (string.IsNullOrWhiteSpace(workerId))

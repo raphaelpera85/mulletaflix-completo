@@ -320,3 +320,31 @@ Pendências relacionadas:
 - [x] **Estado visível de conectividade**: o player exibe um aviso acessível enquanto está sem rede e tenta
       recuperar o stream automaticamente.
 - [x] **Política coberta por testes**: cenários de restauração de rede, reprodução offline e erro permanente.
+
+---
+
+## 🎨 19. Ícone do aplicativo (v1.0.7)
+
+- [x] Launcher usa o logo oficial com transparência e a silhueta externa original.
+- [x] Fundo do adaptive icon é transparente; o APK não desenha disco ou círculo ao redor do logo.
+
+---
+
+## 📡 20. Identidade do servidor na descoberta LAN (v1.0.8)
+
+- [x] A verificação do endpoint persiste o `serverId` retornado pelo servidor.
+- [x] Servidores salvos mantêm a identidade para que a recuperação LAN não selecione outro servidor da rede.
+- [x] Teste de autenticação cobre a persistência do identificador verificado.
+## 21. Minha Lista dedicada (v1.0.10)
+
+- [x] Criar rota dedicada `main/favorites` para favoritos completos do usuário.
+- [x] Carregar favoritos usando `IsFavorite`, ordenação alfabética e paginação do servidor.
+- [x] Adicionar estados de carregamento, vazio, erro recuperável e atualização manual.
+- [x] Adicionar atalho com ícone de favorito na barra superior da Home.
+- [x] Cobrir carregamento, filtro, paginação e falha de página no `FavoritesViewModelTest`.
+
+## 22. Descoberta LAN segura em sessões legadas (v1.0.11)
+
+- [x] Manter a conexão automática quando somente um servidor responde na LAN.
+- [x] Evitar selecionar silenciosamente o primeiro servidor quando múltiplos servidores respondem sem `serverId` persistido.
+- [x] Cobrir seleção única e ambiguidade de múltiplos servidores em `LanServerRecoveryPolicyTest`.

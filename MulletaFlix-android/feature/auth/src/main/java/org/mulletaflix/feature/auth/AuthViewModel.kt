@@ -193,6 +193,7 @@ class AuthViewModel @Inject constructor(
                             url = cleanUrl,
                             latencyMs = verification.latencyMs,
                             version = verification.version,
+                            serverId = verification.serverId,
                         )
                     )
                     _state.update {
@@ -201,6 +202,7 @@ class AuthViewModel @Inject constructor(
                             url = cleanUrl,
                             latencyMs = verification.latencyMs,
                             version = verification.version,
+                            serverId = verification.serverId,
                         )
                         it.copy(
                             isLoading = false,

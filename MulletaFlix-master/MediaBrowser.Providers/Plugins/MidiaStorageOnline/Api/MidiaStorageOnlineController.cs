@@ -927,6 +927,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
             try
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
+                var outputMode = NormalizeOutputMode(config.OutputMode);
                 Log(config.UseWorldStorage && string.IsNullOrWhiteSpace(config.M3uUrl)
                     ? "Iniciando sync: baixando M3U do storage mundial"
                     : $"Iniciando sync: baixando M3U de {config.M3uUrl}");
@@ -1087,26 +1088,6 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                 SaveConfig(config);
                 Log($"Sintonizador M3U registrado no Live TV imediatamente: {tunerUrl} (ID: {saved.Id})");
 
-                await RemoveManagedStrmLibrariesAsync(config).ConfigureAwait(false);
-                config.SyncedFileCount = 0;
-                config.LastSyncDurationSeconds = sw.Elapsed.TotalSeconds;
-                config.LastSyncError = null;
-                config.LastSyncTime = DateTime.UtcNow;
-                SaveConfig(config);
-                Log("Storage Online configurado somente para canais de TV; sincronização de filmes/séries STRM desativada.");
-                return Ok(new
-                {
-                    fileCount = 0,
-                    movieCount = 0,
-                    seriesCount = 0,
-                    skippedCount = 0,
-                    deletedCount = 0,
-                    canaisKb = canaisContent.Length / 1024,
-                    message = "Somente canais enviados ao Live TV. A criação de bibliotecas e arquivos STRM foi desativada."
-                });
-
-                // O Storage Online permanece dedicado ao Live TV. O antigo fluxo STRM foi desativado.
-#if false
                 // 2. Criar pastas e preparar bibliotecas para filmes e series
                 var strmPath = GetStrmOutputPath(config);
                 var moviesPath = Path.Combine(strmPath, "Filmes");
@@ -1193,14 +1174,14 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                             var name = TruncatePathSegment(SanitizeName(entry.Name), MaxMovieFolderNameLength);
                             // ponytail: hash only the .strm name to keep folder names readable and still avoid collisions.
                             var fileName = TrimPathSegment(SanitizeName(entry.Name), MaxMovieFileStemLength);
-                            var relPath = Path.Combine("Filmes", name, fileName + ".strm");
+                            var relPath = Path.Combine("Filmes", name, fileName + GetOutputFileExtension(outputMode, entry.Url));
                             var filePath = Path.Combine(strmPath, relPath);
                             var newUrl = entry.Url.Trim();
 
                             newManifest.TryAdd(relPath, newUrl);
 
                             var fileExists = System.IO.File.Exists(filePath);
-                            if (fileExists)
+                            if (fileExists && string.Equals(outputMode, "strm", StringComparison.OrdinalIgnoreCase))
                             {
                                 try
                                 {
@@ -1228,7 +1209,14 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                             {
                                 Directory.CreateDirectory(dir);
                             }
-                            await System.IO.File.WriteAllTextAsync(filePath, newUrl, ct).ConfigureAwait(false);
+                            if (string.Equals(outputMode, "download", StringComparison.OrdinalIgnoreCase))
+                            {
+                                await DownloadMediaFileAsync(entry.Url, filePath, ct).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                await System.IO.File.WriteAllTextAsync(filePath, newUrl, ct).ConfigureAwait(false);
+                            }
                             Interlocked.Increment(ref totalSynced);
                             Interlocked.Increment(ref movieCount);
                         }
@@ -1238,14 +1226,14 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                             var seasonFolder = TruncatePathSegment(SanitizeName(entry.Season), MaxSeasonFolderNameLength);
                             // ponytail: hash only the .strm name to keep folder names readable and still avoid collisions.
                             var fileName = TrimPathSegment(SanitizeName(entry.Name), MaxEpisodeFileStemLength);
-                            var relPath = Path.Combine("Series", showName, seasonFolder, fileName + ".strm");
+                            var relPath = Path.Combine("Series", showName, seasonFolder, fileName + GetOutputFileExtension(outputMode, entry.Url));
                             var filePath = Path.Combine(strmPath, relPath);
                             var newUrl = entry.Url.Trim();
 
                             newManifest.TryAdd(relPath, newUrl);
 
                             var fileExists = System.IO.File.Exists(filePath);
-                            if (fileExists)
+                            if (fileExists && string.Equals(outputMode, "strm", StringComparison.OrdinalIgnoreCase))
                             {
                                 try
                                 {
@@ -1273,7 +1261,14 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                             {
                                 Directory.CreateDirectory(dir);
                             }
-                            await System.IO.File.WriteAllTextAsync(filePath, newUrl, ct).ConfigureAwait(false);
+                            if (string.Equals(outputMode, "download", StringComparison.OrdinalIgnoreCase))
+                            {
+                                await DownloadMediaFileAsync(entry.Url, filePath, ct).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                await System.IO.File.WriteAllTextAsync(filePath, newUrl, ct).ConfigureAwait(false);
+                            }
                             Interlocked.Increment(ref totalSynced);
                             Interlocked.Increment(ref seriesCount);
                         }
@@ -1353,7 +1348,6 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                         Log($"Falha ao atualizar canais Live TV após o sync: {refreshEx.Message}");
                     }
                 }
-#endif
             }
             catch (Exception ex)
             {
@@ -1366,6 +1360,67 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
         }
 
 
+
+        private static string NormalizeOutputMode(string? outputMode)
+        {
+            return string.Equals(outputMode, "download", StringComparison.OrdinalIgnoreCase) ? "download" : "strm";
+        }
+
+        private static string GetOutputFileExtension(string outputMode, string sourceUrl)
+        {
+            if (!string.Equals(outputMode, "download", StringComparison.OrdinalIgnoreCase))
+            {
+                return ".strm";
+            }
+
+            if (Uri.TryCreate(sourceUrl, UriKind.Absolute, out var uri))
+            {
+                var extension = Path.GetExtension(uri.AbsolutePath);
+                if (!string.IsNullOrWhiteSpace(extension) && !string.Equals(extension, ".m3u8", StringComparison.OrdinalIgnoreCase))
+                {
+                    return extension;
+                }
+            }
+
+            return ".ts";
+        }
+
+        private async Task DownloadMediaFileAsync(string url, string filePath, CancellationToken cancellationToken)
+        {
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromMinutes(30);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", "VLC/3.0.21 LibVLC/3.0.21");
+            request.Headers.TryAddWithoutValidation("Accept", "*/*");
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var temporaryPath = filePath + ".download";
+            try
+            {
+                await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+                await using (var output = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true))
+                {
+                    await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                }
+
+                System.IO.File.Move(temporaryPath, filePath, true);
+            }
+            finally
+            {
+                if (System.IO.File.Exists(temporaryPath))
+                {
+                    System.IO.File.Delete(temporaryPath);
+                }
+            }
+        }
 
         private string GetDefaultStrmPath() =>
             Path.Combine(GetDataDir(), "strm");

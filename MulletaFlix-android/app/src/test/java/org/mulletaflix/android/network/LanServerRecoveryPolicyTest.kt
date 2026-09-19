@@ -68,4 +68,19 @@ class LanServerRecoveryPolicyTest {
 
         assertTrue(selectAuthenticatedLanServer(listOf(other), "mulletaflix") == null)
     }
+
+    @Test
+    fun `legacy session auto selects the only discovered server`() {
+        val only = ServerInfo("MulletaFlix", "http://192.168.1.20:8096")
+
+        assertTrue(selectAuthenticatedLanServer(listOf(only), null) == only)
+    }
+
+    @Test
+    fun `legacy session does not guess between multiple discovered servers`() {
+        val first = ServerInfo("Primeiro", "http://192.168.1.10:8096")
+        val second = ServerInfo("Segundo", "http://192.168.1.20:8096")
+
+        assertTrue(selectAuthenticatedLanServer(listOf(first, second), null) == null)
+    }
 }

@@ -55,6 +55,7 @@ data class ServerVerification(
     val name: String,
     val version: String?,
     val latencyMs: Long? = null,
+    val serverId: String? = null,
 )
 
 data class RegistrationResult(

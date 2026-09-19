@@ -13,16 +13,19 @@ internal fun shouldScanAfterAuthentication(userId: String?): Boolean =
     !userId.isNullOrBlank()
 
 /**
- * Chooses only the advertised endpoint belonging to the authenticated server.
- * Once authentication supplied a stable id, silently switching to another
- * server on a shared LAN would be both surprising and potentially unsafe.
+ * Chooses only an endpoint that can be associated with the authenticated
+ * server. A legacy session without a server id may still switch automatically
+ * when exactly one server answers; multiple answers are ambiguous and must not
+ * silently select the first server on a shared LAN.
  */
 internal fun selectAuthenticatedLanServer(
     discovered: List<ServerInfo>,
     authenticatedServerId: String?,
 ): ServerInfo? {
     if (discovered.isEmpty()) return null
-    if (authenticatedServerId.isNullOrBlank()) return discovered.first()
+    if (authenticatedServerId.isNullOrBlank()) {
+        return discovered.singleOrNull()
+    }
     return discovered.firstOrNull { server ->
         server.serverId?.equals(authenticatedServerId, ignoreCase = true) == true
     }

@@ -26,6 +26,7 @@ class PlaybackRecoveryPolicyTest {
                 wasOffline = true,
                 isOnline = true,
                 hasRemoteMedia = true,
+                hasPlaybackError = true,
                 errorCode = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
             )
         )
@@ -38,6 +39,7 @@ class PlaybackRecoveryPolicyTest {
                 wasOffline = true,
                 isOnline = true,
                 hasRemoteMedia = false,
+                hasPlaybackError = true,
                 errorCode = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
             )
         )
@@ -46,7 +48,17 @@ class PlaybackRecoveryPolicyTest {
                 wasOffline = true,
                 isOnline = true,
                 hasRemoteMedia = true,
+                hasPlaybackError = true,
                 errorCode = PlaybackException.ERROR_CODE_DECODING_FAILED,
+            )
+        )
+        assertFalse(
+            shouldRetryAfterNetworkRestored(
+                wasOffline = true,
+                isOnline = true,
+                hasRemoteMedia = true,
+                hasPlaybackError = false,
+                errorCode = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
             )
         )
     }

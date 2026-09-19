@@ -230,6 +230,7 @@ class PlayerViewModel @Inject constructor(
                         wasOffline = wasOffline,
                         isOnline = isOnline,
                         hasRemoteMedia = currentItemId != null,
+                        hasPlaybackError = _state.value.error != null,
                         errorCode = lastPlaybackErrorCode,
                     )
                 ) {

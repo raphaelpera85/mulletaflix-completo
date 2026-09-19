@@ -376,6 +376,12 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     ? parentObjectId
                     : parentId;
 
+            // O worker pode ter acabado de marcar este registro como uploading.
+            // Resolva-o antes da deduplicação para não deixá-lo preso nesse estado.
+            var existingDoc = _mongoContext != null
+                ? await _mongoContext.FindFileForUploadAsync(targetFileName, parentId, localFilePath, cancellationToken).ConfigureAwait(false)
+                : null;
+
             // 0. Verifica se esta mídia já foi enviada e concluída no Telegram (evita duplicata universal)
             var alreadyCompleted = _mongoContext != null
                 ? await _mongoContext.FindCompletedMediaAsync(targetFileName, localFilePath, cancellationToken).ConfigureAwait(false)
@@ -405,6 +411,15 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     LogServer("INFO", $"[NEBULA-UPLOAD] Mídia '{targetFileName}' já enviada ao Telegram anteriormente. Arquivo local excluído.");
                 }
 
+                if (existingDoc != null && existingDoc.TryGetValue("_id", out var existingId) && existingId.IsObjectId)
+                {
+                    await _mongoContext!.CompleteDuplicateUploadAsync(
+                        existingId.AsObjectId,
+                        alreadyCompleted,
+                        totalSize,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 try
                 {
                     if (File.Exists(localFilePath))
@@ -422,11 +437,6 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 CleanEmptyParentDirectories(localFilePath);
                 return true;
             }
-
-            // 1. Busca documento existente no MongoDB para verificar se já há partes enviadas
-            var existingDoc = _mongoContext != null
-                ? await _mongoContext.FindFileForUploadAsync(targetFileName, parentId, localFilePath, cancellationToken).ConfigureAwait(false)
-                : null;
 
             var existingPartsMap = new Dictionary<int, NebulaFilePart>();
             string fileUuid;

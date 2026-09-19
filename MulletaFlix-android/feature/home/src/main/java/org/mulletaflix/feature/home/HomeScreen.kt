@@ -77,6 +77,7 @@ fun HomeScreen(
                     onSearch = { navController.navigate("main/search") },
                     onLiveTv = { navController.navigate("main/live-tv") },
                     onDownloads = { navController.navigate("main/downloads") },
+                    onFavorites = { navController.navigate("main/favorites") },
                     onSettings = { navController.navigate("main/settings") },
                     onProfile = { navController.navigate("main/profile") },
                 )
@@ -476,6 +477,7 @@ private fun HomeTopBar(
     onSearch: () -> Unit,
     onLiveTv: () -> Unit,
     onDownloads: () -> Unit,
+    onFavorites: () -> Unit,
     onSettings: () -> Unit,
     onProfile: () -> Unit,
 ) {
@@ -514,6 +516,9 @@ private fun HomeTopBar(
             }
             IconButton(onClick = onDownloads) {
                 Icon(Icons.Default.FileDownload, contentDescription = "Downloads", tint = MaterialTheme.colorScheme.onBackground)
+            }
+            IconButton(onClick = onFavorites) {
+                Icon(Icons.Default.Favorite, contentDescription = "Minha Lista", tint = MaterialTheme.colorScheme.secondary)
             }
             IconButton(onClick = onSettings) {
                 Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = MaterialTheme.colorScheme.onBackground)

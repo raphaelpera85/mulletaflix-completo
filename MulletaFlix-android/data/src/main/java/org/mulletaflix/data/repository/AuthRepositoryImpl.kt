@@ -33,6 +33,7 @@ class AuthRepositoryImpl @Inject constructor(
                 name = info.serverName ?: info.productName ?: "MulletaFlix Server",
                 version = info.version,
                 latencyMs = ((System.nanoTime() - startedAt) / 1_000_000L).coerceAtLeast(0L),
+                serverId = info.id,
             )
         } catch (error: Throwable) {
             sessionRepository.setBaseUrl(previousUrl)
@@ -182,4 +183,3 @@ class AuthRepositoryImpl @Inject constructor(
         sessionRepository.removeSavedServer(url)
     }
 }
-

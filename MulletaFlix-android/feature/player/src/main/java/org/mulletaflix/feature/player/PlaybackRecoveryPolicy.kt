@@ -20,9 +20,11 @@ internal fun shouldRetryAfterNetworkRestored(
     wasOffline: Boolean,
     isOnline: Boolean,
     hasRemoteMedia: Boolean,
+    hasPlaybackError: Boolean,
     errorCode: Int?,
 ): Boolean = wasOffline &&
     isOnline &&
     hasRemoteMedia &&
+    hasPlaybackError &&
     errorCode != null &&
     isTransientNetworkPlaybackError(errorCode)

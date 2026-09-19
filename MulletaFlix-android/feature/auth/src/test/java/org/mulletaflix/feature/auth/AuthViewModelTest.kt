@@ -99,12 +99,16 @@ class AuthViewModelTest {
     @Test
     fun `connectToServer verifies and saves server`() = runTest {
         var serverSet: String? = null
+        var savedServer: SavedServer? = null
         val authRepo = object : FakeAuthRepository() {
             override suspend fun verifyServer(url: String): Result<ServerVerification> {
-                return Result.success(ServerVerification(name = "Mulleta Primary", version = "10.9.0", latencyMs = 12L))
+                return Result.success(ServerVerification(name = "Mulleta Primary", version = "10.9.0", latencyMs = 12L, serverId = "srv-1"))
             }
             override suspend fun setServerUrl(url: String) {
                 serverSet = url
+            }
+            override suspend fun addSavedServer(server: SavedServer) {
+                savedServer = server
             }
         }
         val viewModel = createViewModel(authRepo = authRepo)
@@ -117,6 +121,7 @@ class AuthViewModelTest {
         assertTrue(successCalled)
         assertEquals("http://192.168.1.50:8096", serverSet)
         assertEquals("http://192.168.1.50:8096", viewModel.state.value.serverUrl)
+        assertEquals("srv-1", savedServer?.serverId)
     }
 
     @Test

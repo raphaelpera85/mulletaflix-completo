@@ -315,17 +315,6 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                     config.EpgLastError = null;
                 }
 
-                await RemoveManagedStrmLibrariesAsync(config).ConfigureAwait(false);
-                config.SyncedFileCount = 0;
-                config.LastSyncDurationSeconds = sw.Elapsed.TotalSeconds;
-                config.LastSyncError = null;
-                config.LastSyncTime = DateTime.UtcNow;
-                SaveConfig(config);
-                Log("Storage Online configurado somente para canais de TV; sincronização de filmes/séries STRM desativada.");
-                return;
-
-                // O Storage Online permanece dedicado ao Live TV. O antigo fluxo STRM foi desativado.
-#if false
                 // 2. Criar pastas e preparar bibliotecas para filmes e series
                 var strmPath = GetStrmOutputPath(config);
                 var moviesPath = Path.Combine(strmPath, "Filmes");
@@ -592,7 +581,6 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                         Log($"Falha ao atualizar canais Live TV após o sync: {refreshEx.Message}");
                     }
                 }
-#endif
             }
             catch (Exception ex)
             {
