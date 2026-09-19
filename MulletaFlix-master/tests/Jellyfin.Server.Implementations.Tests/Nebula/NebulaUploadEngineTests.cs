@@ -782,7 +782,7 @@ public class NebulaUploadEngineTests
     }
 
     [Fact]
-    public void Downloader_DeleteAssociatedSidecars_DeletesNfoAndSidecarsOfCompletedMedia()
+    public void Downloader_DeleteAssociatedSidecars_PreservesNfoAndSidecarsOfCompletedMedia()
     {
         var root = Path.Combine(Path.GetTempPath(), "nebula-sidecar-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -809,10 +809,11 @@ public class NebulaUploadEngineTests
             Assert.NotNull(deleteSidecarsMethod);
             deleteSidecarsMethod.Invoke(engine, [mediaFile, "Filme (2022)"]);
 
-            // Sidecars com mesmo stem e sidecars genéricos (quando não há outras mídias) devem ser excluídos
-            Assert.False(File.Exists(nfoFile));
-            Assert.False(File.Exists(srtFile));
-            Assert.False(File.Exists(posterFile));
+            // Metadados e sidecars ficam no servidor como cache de exibição: o
+            // carregamento do web e do aplicativo depende deles.
+            Assert.True(File.Exists(nfoFile));
+            Assert.True(File.Exists(srtFile));
+            Assert.True(File.Exists(posterFile));
         }
         finally
         {
@@ -830,8 +831,10 @@ public class NebulaUploadEngineTests
         Directory.CreateDirectory(root);
         var nfoFile = Path.Combine(root, "Filme.nfo");
         var jpgFile = Path.Combine(root, "cover.jpg");
+        var leftoverFile = Path.Combine(root, "trace.log");
         File.WriteAllText(nfoFile, "<movie />");
         File.WriteAllText(jpgFile, "image");
+        File.WriteAllText(leftoverFile, "log");
 
         try
         {
@@ -846,6 +849,9 @@ public class NebulaUploadEngineTests
             Assert.NotNull(cleanStageMethod);
             cleanStageMethod.Invoke(engine, [root]);
 
+            // O stage é fila transitória: o que já foi enviado ao Telegram sai dele,
+            // inclusive capas/NFO, e a pasta vazia é removida.
+            Assert.False(File.Exists(leftoverFile));
             Assert.False(File.Exists(nfoFile));
             Assert.False(File.Exists(jpgFile));
             Assert.False(Directory.Exists(root));

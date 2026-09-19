@@ -16,6 +16,7 @@ using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Jellyfin.Server.Implementations.Nebula;
 
@@ -54,6 +55,9 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     private readonly ILogger<NebulaMetadataExportService> _logger;
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _scheduled = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly object _lookupSync = new();
+    private NebulaMongoContext? _uploadLookup;
+    private string? _uploadLookupConnectionString;
     private int _disposed;
     private int _rootCancellationDisposed;
 
@@ -192,6 +196,17 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 
     private async Task ExportAsync(BaseItem item, string? stageDirectory, CancellationToken cancellationToken)
     {
+        // O conteúdo enviado acompanha a mídia. Se a mídia já está no Telegram, suas
+        // capas, imagens e NFO também já foram enviados: eles permanecem no cache
+        // local do servidor e nunca voltam ao staging para serem enviados de novo.
+        if (await IsMediaAlreadyUploadedAsync(item, cancellationToken).ConfigureAwait(false))
+        {
+            _logger.LogInformation(
+                "[NEBULA-METADATA] Mídia '{Media}' já enviada ao Telegram; capas/NFO preservados somente no cache local (sem novo staging).",
+                Path.GetFileName(item.Path));
+            return;
+        }
+
         var automaticExport = string.IsNullOrWhiteSpace(stageDirectory);
         if (string.IsNullOrWhiteSpace(stageDirectory))
         {
@@ -401,6 +416,77 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
             || relativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
             || relativePath.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
 
+    /// <summary>
+    /// Indica se a mídia do item já foi enviada ao Telegram, consultando o catálogo.
+    /// Nesse caso as capas, imagens e NFO do item já foram enviados junto com a mídia
+    /// e não devem voltar ao staging.
+    /// </summary>
+    /// <param name="item">Item reconhecido pela biblioteca.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns><see langword="true"/> quando a mídia já está no Telegram.</returns>
+    private async Task<bool> IsMediaAlreadyUploadedAsync(BaseItem item, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(item.Path))
+        {
+            return false;
+        }
+
+        var lookup = GetUploadLookupContext();
+        if (lookup == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var completed = await lookup
+                .FindCompletedMediaAsync(Path.GetFileName(item.Path), item.Path, cancellationToken)
+                .ConfigureAwait(false);
+            return completed != null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-METADATA] Não foi possível verificar se {Path} já está no Telegram.", item.Path);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Obtém o contexto MongoDB usado nas consultas de catálogo deste serviço,
+    /// criado sob demanda a partir da configuração do Nebula.
+    /// </summary>
+    /// <returns>Contexto MongoDB ou <see langword="null"/> quando não configurado.</returns>
+    private NebulaMongoContext? GetUploadLookupContext()
+    {
+        try
+        {
+            var connectionString = _configurationManager
+                .GetConfiguration<NebulaFtpConfiguration>("nebulaftp")?.MongoDbConnectionString;
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                return null;
+            }
+
+            lock (_lookupSync)
+            {
+                if (_uploadLookup != null && string.Equals(_uploadLookupConnectionString, connectionString, StringComparison.Ordinal))
+                {
+                    return _uploadLookup;
+                }
+
+                _uploadLookup?.Dispose();
+                _uploadLookup = new NebulaMongoContext(connectionString, "ftp", NullLogger<NebulaMongoContext>.Instance);
+                _uploadLookupConnectionString = connectionString;
+                return _uploadLookup;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-METADATA] Não foi possível abrir o catálogo para consulta de envio.");
+            return null;
+        }
+    }
+
     private string GetNebulaDriveRoot()
     {
         var config = _configurationManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
@@ -513,6 +599,13 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         }
 
         DisposeRootCancellationSourceIfIdle();
+
+        lock (_lookupSync)
+        {
+            _uploadLookup?.Dispose();
+            _uploadLookup = null;
+            _uploadLookupConnectionString = null;
+        }
     }
 
     private void DisposeRootCancellationSourceIfIdle()

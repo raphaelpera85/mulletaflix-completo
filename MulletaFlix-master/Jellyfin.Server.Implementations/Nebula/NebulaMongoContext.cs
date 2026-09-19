@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -20,6 +21,19 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaMongoContext : IDisposable
 {
+    /// <summary>
+    /// Estados de um arquivo que ainda não foi enviado ao Telegram. Eles entram
+    /// sempre no delta de sincronização, para que o cache remoto reflita tanto o
+    /// que já foi enviado quanto o que ainda falta enviar.
+    /// </summary>
+    private static readonly string[] NotUploadedStatuses = ["queued", "staging", "uploading", "failed"];
+
+    /// <summary>
+    /// Estados de um arquivo que está na fila ou em envio: o worker de upload é o
+    /// dono desses arquivos e a varredura de staging não precisa reavaliá-los.
+    /// </summary>
+    private static readonly string[] InFlightStatuses = ["queued", "staging", "uploading"];
+
     private readonly ILogger<NebulaMongoContext> _logger;
     private readonly MongoClient _client;
     private readonly IMongoDatabase _database;
@@ -27,6 +41,14 @@ public sealed class NebulaMongoContext : IDisposable
     private readonly IMongoCollection<BsonDocument> _usersCollection;
     private readonly IMongoCollection<BsonDocument> _botTokensCollection;
     private readonly IMongoCollection<BsonDocument> _operationReplaysCollection;
+
+    /// <summary>
+    /// Diário da última varredura de staging: cada arquivo já tratado é lembrado
+    /// com tamanho e data de modificação, para que a varredura seguinte processe
+    /// apenas o delta (arquivos novos ou alterados).
+    /// </summary>
+    private readonly ConcurrentDictionary<string, StagingScanEntry> _stagingScanJournal = new(StringComparer.OrdinalIgnoreCase);
+
     private bool _disposed;
 
     /// <summary>
@@ -786,10 +808,16 @@ public sealed class NebulaMongoContext : IDisposable
 
     /// <summary>
     /// Limpa ou marca nós inconsistentes no banco de dados.
+    /// Capas, imagens, NFO/XML e legendas (conteúdo protegido) nunca são removidos,
+    /// nem quando o registro ficou em erro, para não perder informação do cache local.
     /// </summary>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns>Quantidade de registros removidos.</returns>
     public async Task<long> PruneCompletedAsync(CancellationToken cancellationToken = default)
     {
-        var filter = Builders<BsonDocument>.Filter.Eq("status", "error");
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("status", "error"),
+            NebulaProtectedContent.NotProtected());
         var result = await _filesCollection.DeleteManyAsync(filter, cancellationToken).ConfigureAwait(false);
         return result.DeletedCount;
     }
@@ -804,9 +832,14 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
-    /// Obtém os documentos da coleção de arquivos criados ou modificados a partir de uma data UTC específica.
+    /// Obtém o delta de sincronização do catálogo: documentos criados ou modificados
+    /// a partir de uma data UTC, mais os arquivos que ainda não foram enviados
+    /// (fila, staging, envio em andamento ou falha). A coleção inteira nunca é devolvida.
     /// </summary>
-    public async Task<List<BsonDocument>> GetFilesModifiedSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken = default)
+    /// <param name="sinceUtc">Data UTC de corte.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns>Documentos alterados e pendentes.</returns>
+    public async Task<List<BsonDocument>> GetSyncDeltaAsync(DateTime sinceUtc, CancellationToken cancellationToken = default)
     {
         var sinceEpoch = new DateTimeOffset(sinceUtc.ToUniversalTime()).ToUnixTimeSeconds();
         var minOid = ObjectId.GenerateNewId(sinceUtc.ToUniversalTime());
@@ -814,7 +847,8 @@ public sealed class NebulaMongoContext : IDisposable
         var filter = Builders<BsonDocument>.Filter.Or(
             Builders<BsonDocument>.Filter.Gte("modified_at", sinceEpoch),
             Builders<BsonDocument>.Filter.Gte("uploaded_at", sinceEpoch),
-            Builders<BsonDocument>.Filter.Gte("_id", minOid));
+            Builders<BsonDocument>.Filter.Gte("_id", minOid),
+            Builders<BsonDocument>.Filter.In("status", NotUploadedStatuses));
 
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -965,8 +999,14 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
-    /// Faz upsert de vários documentos restaurados em uma única operação MongoDB.
+    /// Mescla documentos de arquivo vindos do Supabase no MongoDB (restauração).
+    /// A operação é um <c>$set</c> campo a campo: o que existe apenas no cache local
+    /// (capas, imagens, metadados, partes do Telegram, caminho local) é preservado,
+    /// nunca substituído por um documento remoto mais pobre.
     /// </summary>
+    /// <param name="docs">Documentos BSON recuperados do Supabase.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns>Quantidade de documentos mesclados.</returns>
     public async Task<int> BulkUpsertRawDocsAsync(IReadOnlyCollection<BsonDocument> docs, CancellationToken cancellationToken = default)
     {
         if (docs == null || docs.Count == 0)
@@ -992,9 +1032,23 @@ public sealed class NebulaMongoContext : IDisposable
                 doc["parent"] = parentOid;
             }
 
-            writes.Add(new ReplaceOneModel<BsonDocument>(
+            var fields = new BsonDocument();
+            foreach (var element in doc.Elements)
+            {
+                if (!string.Equals(element.Name, "_id", StringComparison.Ordinal))
+                {
+                    fields[element.Name] = element.Value;
+                }
+            }
+
+            if (fields.ElementCount == 0)
+            {
+                continue;
+            }
+
+            writes.Add(new UpdateOneModel<BsonDocument>(
                 Builders<BsonDocument>.Filter.Eq("_id", doc["_id"]),
-                doc)
+                new BsonDocument("$set", fields))
             {
                 IsUpsert = true
             });
@@ -1683,7 +1737,10 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
-    /// Varridura de diretórios de staging para sincronizar e registrar arquivos novos/pendentes no MongoDB (replicação de staging_scanner).
+    /// Varredura delta dos diretórios de staging: registra no MongoDB apenas os
+    /// arquivos novos ou alterados desde a última passagem, tanto os que já foram
+    /// enviados quanto os que ainda não foram. Arquivos já tratados e inalterados
+    /// não voltam a consultar o catálogo.
     /// </summary>
     /// <param name="stagingDirs">Diretórios de staging.</param>
     /// <param name="deleteCompletedFromStaging">Se verdadeiro, tenta remover arquivos que já foram concluídos no Telegram mas permaneceram no stage.</param>
@@ -1691,13 +1748,22 @@ public sealed class NebulaMongoContext : IDisposable
     /// <returns>Uma tarefa assíncrona.</returns>
     public async Task SyncStagingDirectoryAsync(IEnumerable<string> stagingDirs, bool deleteCompletedFromStaging = false, CancellationToken cancellationToken = default)
     {
-        foreach (var stageRoot in stagingDirs)
-        {
-            if (string.IsNullOrWhiteSpace(stageRoot) || !Directory.Exists(stageRoot))
-            {
-                continue;
-            }
+        var roots = stagingDirs
+            .Where(static dir => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+            .ToList();
 
+        if (roots.Count == 0)
+        {
+            return;
+        }
+
+        // Índice do delta: uma única consulta por varredura alimenta o atalho de
+        // arquivos já concluídos e dos que estão na fila de envio.
+        var index = await GetStagingSyncIndexAsync(roots, cancellationToken).ConfigureAwait(false);
+        PruneStagingScanJournal();
+
+        foreach (var stageRoot in roots)
+        {
             try
             {
                 var files = Directory.EnumerateFiles(stageRoot, "*.*", SearchOption.AllDirectories);
@@ -1714,6 +1780,14 @@ public sealed class NebulaMongoContext : IDisposable
                     var fileInfo = new FileInfo(file);
                     if (fileInfo.Length <= 0)
                     {
+                        continue;
+                    }
+
+                    var fullPath = fileInfo.FullName;
+                    var scanStamp = new StagingScanStamp(fileInfo.Length, fileInfo.LastWriteTimeUtc.Ticks);
+                    if (_stagingScanJournal.TryGetValue(fullPath, out var scanned) && scanned.Handled && scanned.Stamp == scanStamp)
+                    {
+                        // Delta: esta exata versão do arquivo já foi tratada.
                         continue;
                     }
 
@@ -1747,6 +1821,23 @@ public sealed class NebulaMongoContext : IDisposable
                         continue;
                     }
 
+                    // Delta: arquivo cujo caminho já está concluído no catálogo já foi
+                    // enviado e sai do stage; pastas vazias são removidas em seguida.
+                    if (index.CompletedPaths.Contains(fullPath))
+                    {
+                        RemoveCompletedStagingFile(fileInfo, stageRoot, completedReference: null);
+                        _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
+                        continue;
+                    }
+
+                    // Delta: arquivo que já está na fila ou em envio (mesmo tamanho)
+                    // pertence ao worker de upload, não à varredura.
+                    if (index.PendingSizes.TryGetValue(fullPath, out var pendingSize) && pendingSize == fileInfo.Length)
+                    {
+                        _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
+                        continue;
+                    }
+
                     var rawRel = Path.GetRelativePath(stageRoot, Path.GetDirectoryName(file) ?? stageRoot);
                     var routedRel = NebulaUploadEngine.RouteMediaRelativeDirectory(rawRel, fileName);
                     var parentId = await EnsureDirectoryStructureAsync(routedRel, cancellationToken).ConfigureAwait(false);
@@ -1769,20 +1860,8 @@ public sealed class NebulaMongoContext : IDisposable
                         var st = existing.TryGetValue("status", out var stVal) && stVal.IsString ? stVal.AsString : "unknown";
                         if (string.Equals(st, "completed", StringComparison.OrdinalIgnoreCase))
                         {
-                            try
-                            {
-                                if (File.Exists(fileInfo.FullName) && !NebulaUploadEngine.IsMetadataOrSidecar(fileInfo.FullName))
-                                {
-                                    File.Delete(fileInfo.FullName);
-                                    _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging já concluído no Telegram removido do disco: {Path}", fileInfo.FullName);
-                                    CleanEmptyParentDirectories(fileInfo.FullName, stageRoot);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover staging file já concluído (arquivo em uso): {Path}", fileInfo.FullName);
-                            }
-
+                            RemoveCompletedStagingFile(fileInfo, stageRoot, existing.GetValue("name", fileName).AsString);
+                            _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
                             continue;
                         }
 
@@ -1798,6 +1877,7 @@ public sealed class NebulaMongoContext : IDisposable
                                 await _filesCollection.UpdateOneAsync(Builders<BsonDocument>.Filter.Eq("_id", existing["_id"]), updatePath, cancellationToken: cancellationToken).ConfigureAwait(false);
                             }
 
+                            _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
                             continue;
                         }
 
@@ -1812,6 +1892,7 @@ public sealed class NebulaMongoContext : IDisposable
 
                         await _filesCollection.UpdateOneAsync(Builders<BsonDocument>.Filter.Eq("_id", existing["_id"]), reactivate, cancellationToken: cancellationToken).ConfigureAwait(false);
                         _logger.LogInformation("[NEBULA-MONGO] Arquivo reativado na fila: {File}", fileName);
+                        _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
                     }
                     else
                     {
@@ -1820,22 +1901,8 @@ public sealed class NebulaMongoContext : IDisposable
                         if (alreadyCompleted != null)
                         {
                             var compName = alreadyCompleted.GetValue("name", fileName).AsString;
-                            _logger.LogInformation("[NEBULA-MONGO] Mídia '{File}' já foi enviada e concluída no Telegram anteriormente ('{Comp}'). Excluindo arquivo do disco para evitar duplicata.", fileName, compName);
-
-                            try
-                            {
-                                if (File.Exists(fileInfo.FullName) && !NebulaUploadEngine.IsMetadataOrSidecar(fileInfo.FullName))
-                                {
-                                    File.Delete(fileInfo.FullName);
-                                    _logger.LogInformation("[NEBULA-MONGO] Arquivo de staging duplicado removido do disco: {Path}", fileInfo.FullName);
-                                    CleanEmptyParentDirectories(fileInfo.FullName, stageRoot);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover staging file duplicado: {Path}", fileInfo.FullName);
-                            }
-
+                            RemoveCompletedStagingFile(fileInfo, stageRoot, compName);
+                            _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
                             continue;
                         }
 
@@ -1861,6 +1928,7 @@ public sealed class NebulaMongoContext : IDisposable
 
                         await _filesCollection.InsertOneAsync(newDoc, cancellationToken: cancellationToken).ConfigureAwait(false);
                         _logger.LogInformation("[NEBULA-MONGO] Novo arquivo detectado no stage e enfileirado: {File}", fileName);
+                        _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
                     }
                 }
             }
@@ -1870,6 +1938,166 @@ public sealed class NebulaMongoContext : IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// Carrega, em uma única consulta, o índice de staging usado pelo delta: os
+    /// caminhos já concluídos no Telegram e os que estão na fila/envio (com o
+    /// tamanho registrado, para detectar arquivos trocados no disco).
+    /// </summary>
+    /// <param name="stagingRoots">Raízes de staging monitoradas.</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns>Índice de sincronização do staging.</returns>
+    internal async Task<StagingSyncIndex> GetStagingSyncIndexAsync(IReadOnlyCollection<string> stagingRoots, CancellationToken cancellationToken = default)
+    {
+        var completedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pendingSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var rootFilters = stagingRoots
+                .Where(static root => !string.IsNullOrWhiteSpace(root))
+                .Select(static root => new BsonRegularExpression(
+                    $"^{Regex.Escape(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}[\\\\/]",
+                    "i"))
+                .Select(static regex => Builders<BsonDocument>.Filter.Regex("local_path", regex))
+                .ToList();
+
+            if (rootFilters.Count == 0)
+            {
+                return new StagingSyncIndex(completedPaths, pendingSizes);
+            }
+
+            var filter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("type", "file"),
+                Builders<BsonDocument>.Filter.Exists("local_path", true),
+                Builders<BsonDocument>.Filter.Or(rootFilters));
+
+            var projection = Builders<BsonDocument>.Projection
+                .Include("status")
+                .Include("local_path")
+                .Include("size");
+
+            using var cursor = await _filesCollection.FindAsync(
+                filter,
+                new FindOptions<BsonDocument> { Projection = projection },
+                cancellationToken).ConfigureAwait(false);
+            var docs = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+
+            foreach (var doc in docs)
+            {
+                if (!doc.TryGetValue("local_path", out var localPathValue) || !localPathValue.IsString)
+                {
+                    continue;
+                }
+
+                string fullPath;
+                try
+                {
+                    fullPath = Path.GetFullPath(localPathValue.AsString);
+                }
+                catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+                {
+                    continue;
+                }
+
+                var status = doc.TryGetValue("status", out var statusValue) && statusValue.IsString ? statusValue.AsString : string.Empty;
+                if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    completedPaths.Add(fullPath);
+                    continue;
+                }
+
+                if (InFlightStatuses.Contains(status, StringComparer.OrdinalIgnoreCase))
+                {
+                    pendingSizes[fullPath] = doc.TryGetValue("size", out var sizeValue) && sizeValue.IsNumeric ? sizeValue.ToInt64() : -1L;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-MONGO] Erro ao montar o índice de staging do delta.");
+        }
+
+        return new StagingSyncIndex(completedPaths, pendingSizes);
+    }
+
+    /// <summary>
+    /// Tira do staging um arquivo cujo conteúdo já foi enviado ao Telegram. O stage é
+    /// uma fila transitória: o que já subiu sai dele (inclusive capas, imagens e NFO,
+    /// que continuam disponíveis no cache local do servidor), e as pastas que ficarem
+    /// vazias são removidas.
+    /// </summary>
+    /// <param name="fileInfo">Arquivo de staging.</param>
+    /// <param name="stageRoot">Raiz de staging (limite da limpeza de pastas vazias).</param>
+    /// <param name="completedReference">Nome do registro já concluído que casou com este arquivo.</param>
+    private void RemoveCompletedStagingFile(FileInfo fileInfo, string? stageRoot, string? completedReference)
+    {
+        if (!File.Exists(fileInfo.FullName))
+        {
+            return;
+        }
+
+        var reference = string.IsNullOrEmpty(completedReference) ? string.Empty : $" ('{completedReference}')";
+
+        try
+        {
+            File.Delete(fileInfo.FullName);
+
+            if (NebulaProtectedContent.IsProtectedPath(fileInfo.Name))
+            {
+                _logger.LogInformation(
+                    "[NEBULA-MONGO] Capa/metadado já enviado removido do stage: {Path}{Reference}",
+                    fileInfo.FullName,
+                    reference);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "[NEBULA-MONGO] Arquivo de staging já concluído no Telegram removido do disco: {Path}{Reference}",
+                    fileInfo.FullName,
+                    reference);
+            }
+
+            CleanEmptyParentDirectories(fileInfo.FullName, stageRoot);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-MONGO] Não foi possível remover staging file já concluído (arquivo em uso): {Path}", fileInfo.FullName);
+        }
+    }
+
+    /// <summary>
+    /// Descarta do diário de varredura os arquivos que já não existem no disco.
+    /// </summary>
+    private void PruneStagingScanJournal()
+    {
+        foreach (var key in _stagingScanJournal.Keys)
+        {
+            if (!File.Exists(key))
+            {
+                _stagingScanJournal.TryRemove(key, out _);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Assinatura de uma versão do arquivo no disco (tamanho + data de modificação).
+    /// </summary>
+    private readonly record struct StagingScanStamp(long Length, long LastWriteUtcTicks);
+
+    /// <summary>
+    /// Entrada do diário de varredura de staging.
+    /// </summary>
+    private readonly record struct StagingScanEntry(StagingScanStamp Stamp, bool Handled);
+
+    /// <summary>
+    /// Índice de delta do staging: caminhos concluídos e tamanhos dos pendentes.
+    /// </summary>
+    internal readonly record struct StagingSyncIndex(HashSet<string> CompletedPaths, Dictionary<string, long> PendingSizes);
 
     /// <summary>
     /// Computa estatísticas detalhadas da fila de envio do MongoDB e do alimentador de disco.

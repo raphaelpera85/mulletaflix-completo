@@ -323,6 +323,48 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     }
 
     /// <summary>
+    /// Obtém o timestamp de atualização mais recente já gravado na tabela de arquivos do Supabase.
+    /// Serve de marcador quando não há registro de backup, evitando reenviar o acervo inteiro.
+    /// </summary>
+    public async Task<DateTime?> GetLastRemoteFileTimestampAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(supabaseKey))
+        {
+            return null;
+        }
+
+        try
+        {
+            var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_files?select=updated_at&order=updated_at.desc&limit=1";
+            using var req = new HttpRequestMessage(HttpMethod.Get, uri);
+            req.Headers.Add("apikey", supabaseKey);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+
+            using var resp = await _httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0 &&
+                doc.RootElement[0].TryGetProperty("updated_at", out var updatedProp) &&
+                updatedProp.TryGetDateTime(out var updatedAt))
+            {
+                return updatedAt.ToUniversalTime();
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[SUPABASE-TIMESTAMP] Falha ao obter o updated_at mais recente do Supabase.");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Executa um backup/sincronização do MongoDB para o Supabase (delta por padrão, ou completo).
     /// </summary>
     public Task<NebulaSupabaseBackupResultDto> PerformBackupAsync(
@@ -377,12 +419,16 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 var remoteFileCount = await GetSupabaseFileCountAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
                 if (remoteFileCount > 0)
                 {
-                    deltaSince = _lastSuccessfulBackupTime ?? await GetLastRemoteBackupTimestampAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+                    deltaSince = _lastSuccessfulBackupTime
+                        ?? await GetLastRemoteBackupTimestampAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false)
+                        ?? await GetLastRemoteFileTimestampAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
                     if (deltaSince.HasValue)
                     {
-                        // Subtrai 2 minutos de margem de tolerância para cobrir eventuais assincronias de relógio
+                        // Subtrai 2 minutos de margem de tolerância para cobrir eventuais assincronias de relógio.
+                        // O delta traz os arquivos alterados desde o último backup e também o que ainda
+                        // não foi enviado ao Telegram (fila/staging/envio/falha), sem reler o acervo inteiro.
                         var sinceWithSkew = deltaSince.Value.AddMinutes(-2);
-                        filesToSync = await _mongoContext.GetFilesModifiedSinceAsync(sinceWithSkew, cancellationToken).ConfigureAwait(false);
+                        filesToSync = await _mongoContext.GetSyncDeltaAsync(sinceWithSkew, cancellationToken).ConfigureAwait(false);
                         isDelta = true;
                     }
                     else
@@ -405,12 +451,18 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
             if (isDelta)
             {
+                var pendingInDelta = filesToSync.Count(static doc =>
+                    !(doc.TryGetValue("status", out var statusValue) && statusValue.IsString &&
+                      string.Equals(statusValue.AsString, "completed", StringComparison.OrdinalIgnoreCase)));
+
                 _logger.LogInformation(
-                    "[SUPABASE-SYNC] Sincronização delta iniciada (desde {Since:dd/MM/yyyy HH:mm:ss} UTC). {Count} arquivo(s) modificado(s)/novo(s) encontrado(s).",
+                    "[SUPABASE-SYNC] Sincronização delta iniciada (desde {Since:dd/MM/yyyy HH:mm:ss} UTC). {Count} arquivo(s) no delta: {Pending} ainda não enviados e {Sent} já enviados/alterados.",
                     deltaSince,
-                    totalFilesToUpload);
+                    totalFilesToUpload,
+                    pendingInDelta,
+                    totalFilesToUpload - pendingInDelta);
                 progressAction?.Invoke(
-                    $"[SUPABASE-SYNC] Sincronização delta: {totalFilesToUpload} arquivo(s) modificado(s)/novo(s) desde {deltaSince:dd/MM/yyyy HH:mm:ss}.");
+                    $"[SUPABASE-SYNC] Sincronização delta: {totalFilesToUpload} arquivo(s) desde {deltaSince:dd/MM/yyyy HH:mm:ss} ({pendingInDelta} não enviados).");
             }
             else
             {

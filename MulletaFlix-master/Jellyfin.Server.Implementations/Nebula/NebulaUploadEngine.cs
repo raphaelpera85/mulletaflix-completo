@@ -39,11 +39,13 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// </summary>
     public bool DeleteSourceAfterUpload => _deleteSourceAfterUpload;
 
-    internal static bool IsMetadataOrSidecar(string path)
-    {
-        var ext = Path.GetExtension(path);
-        return !string.IsNullOrEmpty(ext) && NebulaMetadataExportService.MetadataSidecarExtensions.Contains(ext);
-    }
+    /// <summary>
+    /// Indica se o arquivo é conteúdo protegido do cache local (capa, imagem,
+    /// NFO/XML de metadados ou legenda), que nunca é excluído do disco.
+    /// </summary>
+    /// <param name="path">Caminho do arquivo.</param>
+    /// <returns><see langword="true"/> para conteúdo protegido.</returns>
+    internal static bool IsMetadataOrSidecar(string path) => NebulaProtectedContent.IsProtectedPath(path);
 
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaUploadEngine"/>.
@@ -383,16 +385,29 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             {
                 var compName = alreadyCompleted.GetValue("name", targetFileName).AsString;
                 var compId = alreadyCompleted.GetValue("_id").ToString();
-                _logger.LogInformation(
-                    "[NEBULA-UPLOAD] Mídia '{Target}' já foi enviada para o Telegram anteriormente (Registro '{Comp}', ID: {Id}). Excluindo arquivo local para evitar duplicata.",
-                    targetFileName,
-                    compName,
-                    compId);
-                LogServer("INFO", $"[NEBULA-UPLOAD] Mídia '{targetFileName}' já enviada ao Telegram anteriormente. Arquivo local excluído.");
+                var protectedFile = IsMetadataOrSidecar(localFilePath);
+                if (protectedFile)
+                {
+                    _logger.LogInformation(
+                        "[NEBULA-UPLOAD] Capa/metadado '{Target}' já enviado com a mídia '{Comp}' (ID: {Id}); arquivo retirado do staging.",
+                        targetFileName,
+                        compName,
+                        compId);
+                    LogServer("INFO", $"[NEBULA-UPLOAD] '{targetFileName}' já enviado com a mídia. Arquivo retirado do staging.");
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "[NEBULA-UPLOAD] Mídia '{Target}' já foi enviada para o Telegram anteriormente (Registro '{Comp}', ID: {Id}). Excluindo arquivo local para evitar duplicata.",
+                        targetFileName,
+                        compName,
+                        compId);
+                    LogServer("INFO", $"[NEBULA-UPLOAD] Mídia '{targetFileName}' já enviada ao Telegram anteriormente. Arquivo local excluído.");
+                }
 
                 try
                 {
-                    if (File.Exists(localFilePath) && !IsMetadataOrSidecar(localFilePath))
+                    if (File.Exists(localFilePath))
                     {
                         File.Delete(localFilePath);
                         _logger.LogInformation("[NEBULA-UPLOAD] Arquivo local de mídia já enviada removido: {Path}", localFilePath);
@@ -427,7 +442,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     IsCompletedUploadForFile(existingDoc, totalSize, totalParts))
                 {
                     _logger.LogInformation("[NEBULA-UPLOAD] Arquivo '{Name}' já está 100% concluído no Nebula.", targetFileName);
-                    if (_deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath))
+                    if (_deleteSourceAfterUpload)
                     {
                         try
                         {
@@ -443,7 +458,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     // retry discovered that the media was already complete.
                     // Release it so queued sidecars are not blocked forever.
                     NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
-                    if (_deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath))
+                    if (_deleteSourceAfterUpload)
                     {
                         CleanEmptyParentDirectories(localFilePath);
                     }
@@ -804,7 +819,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 await _logQueueState($"concluido:{targetFileName}").ConfigureAwait(false);
             }
 
-            if (_deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath))
+            if (_deleteSourceAfterUpload)
             {
                 try
                 {
@@ -822,7 +837,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             // sidecars antes da mídia correspondente.
             NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
 
-            if (_deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath))
+            if (_deleteSourceAfterUpload)
             {
                 CleanEmptyParentDirectories(localFilePath);
             }
