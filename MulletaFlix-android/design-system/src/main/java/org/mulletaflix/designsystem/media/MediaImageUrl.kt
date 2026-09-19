@@ -20,3 +20,15 @@ fun resolveMediaUrl(baseUrl: String, path: String?, accessToken: String? = null)
         url + if (url.contains('?')) "&api_key=$encodedToken" else "?api_key=$encodedToken"
     } ?: url
 }
+
+/**
+ * Path of a server-side user profile image (avatar), or null when the server
+ * has no image for that user.
+ *
+ * The `Tag` parameter is required: without it the image endpoint answers 200
+ * with an empty body. The tag comes from `PrimaryImageTag` on the user payload.
+ */
+fun userAvatarPath(userId: String?, primaryImageTag: String?): String? {
+    if (userId.isNullOrBlank() || primaryImageTag.isNullOrBlank()) return null
+    return "Users/$userId/Images/Primary?tag=$primaryImageTag"
+}

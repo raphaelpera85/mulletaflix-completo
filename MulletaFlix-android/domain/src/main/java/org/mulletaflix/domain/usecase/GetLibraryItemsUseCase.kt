@@ -13,6 +13,7 @@ class GetLibraryItemsUseCase @Inject constructor(
     suspend operator fun invoke(
         userId: String,
         libraryId: String,
+        includeItemTypes: String? = null,
         sortBy: String? = null,
         startIndex: Int = 0,
         limit: Int = 40,
@@ -27,6 +28,7 @@ class GetLibraryItemsUseCase @Inject constructor(
         mediaRepository.getItems(
             userId = userId,
             parentId = libraryId,
+            includeItemTypes = includeItemTypes,
             sortBy = sortBy,
             startIndex = startIndex,
             limit = limit,

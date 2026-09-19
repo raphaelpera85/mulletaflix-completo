@@ -240,4 +240,44 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] **SyncPlay**: Lobbies de reprodução em grupo sincronizados.
 - [x] **Perfil de Usuário & Limpeza de Cache**: Diagnóstico de latência (33 ms), limpeza de cache em tempo real (17.2 MB -> 0.0 MB) e encerramento de sessão com diálogo de confirmação.
 
+---
+
+## 🩹 16. Correções v1.0.5 (app Android)
+
+Relatado em uso real: a biblioteca de Séries listava temporadas e episódios como cartões soltos
+e abrir uma série fechava o aplicativo. Verificado no emulador (API 35) contra o servidor MulletaFlix real.
+
+- [x] **Fechamento do app ao abrir série**: o seletor de temporadas (`PrimaryScrollableTabRow`) era medido
+      com zero abas enquanto a consulta de temporadas ainda estava em andamento, lançando
+      `IndexOutOfBoundsException: Index 0 out of bounds for length 0` (`TabRow.kt`) e derrubando o processo.
+      O seletor agora só é desenhado quando existem temporadas; antes disso aparece indicador de carga e,
+      sem temporadas, uma mensagem. Regressão coberta por teste instrumentado (`SeriesSectionTest`).
+- [x] **Temporadas separadas da série**: a listagem de biblioteca consultava
+      `Users/{userId}/Items?Recursive=true` sem `IncludeItemTypes`, devolvendo séries, temporadas e episódios
+      no mesmo nível (270 itens na biblioteca de Séries do servidor, contra 10 séries reais). A consulta agora
+      declara os tipos de navegação da biblioteca (`LibraryBrowseTypes`), seguindo a mesma regra do cliente web
+      (`src/controllers/list.ts`).
+- [x] **Temporada ou episódio abrem dentro da série**: entrar em uma temporada/episódio carrega a série pai,
+      seleciona a temporada correspondente e exibe a lista de episódios.
+- [x] **Botão Reproduzir em série**: tocava a série (item não reproduzível) e exibia
+      "O servidor não conseguiu preparar esta média". Agora reproduz o primeiro episódio carregado e fica
+      desabilitado quando não há episódio disponível.
+- [x] **Faixas de álbum de música**: `Shows/{albumId}/Episodes` responde 404 para álbuns; as faixas agora são
+      obtidas de `Items?ParentId={albumId}&IncludeItemTypes=Audio`.
+- [x] **Avatar do usuário criado no servidor**: a imagem (`Users/{userId}/Images/Primary?tag=...`) passou a ser
+      exibida no perfil e na troca rápida de usuários, com a letra inicial como fallback.
+- [x] **Rótulo de episódio**: episódios sem numeração (extras) exibiam `nullx00`; agora mostram apenas o nome.
+- [x] **Paginação da biblioteca**: `loadMore` usa a quantidade de itens já carregados como cursor, em vez de
+      assumir que cada página veio cheia.
+
+Pendências registradas nesta correção:
+
+- [ ] Avatar do usuário na barra superior da Home (requer carregar o perfil no `HomeViewModel`).
+- [ ] Avatares na tela de login para usuários públicos: o endpoint de imagem exige token, portanto só é
+      possível exibir após autenticar.
+- [ ] Biblioteca "TV ao Vivo" aberta pelo cartão de biblioteca retorna 0 itens em `Items?ParentId=` — o
+      servidor não enumera os canais por esse endpoint (mesmo resultado antes desta correção); o caminho
+      correto é a tela de TV Ao Vivo.
+
+
 

@@ -26,4 +26,23 @@ class MediaImageUrlTest {
         assertEquals("https://cdn.example/image.jpg", resolveMediaUrl("http://server", "https://cdn.example/image.jpg", "token"))
         assertNull(resolveMediaUrl("http://server", "", "token"))
     }
+
+    @Test
+    fun `builds user avatar path from the server primary image tag`() {
+        assertEquals(
+            "Users/user-1/Images/Primary?tag=tag-1",
+            userAvatarPath("user-1", "tag-1"),
+        )
+        assertEquals(
+            "http://server/Users/user-1/Images/Primary?tag=tag-1&api_key=token",
+            resolveMediaUrl("http://server", userAvatarPath("user-1", "tag-1"), "token"),
+        )
+    }
+
+    @Test
+    fun `has no avatar path without a user id or image tag`() {
+        assertNull(userAvatarPath(null, "tag-1"))
+        assertNull(userAvatarPath("user-1", null))
+        assertNull(userAvatarPath("user-1", "  "))
+    }
 }

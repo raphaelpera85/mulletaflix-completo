@@ -55,7 +55,8 @@ class LibraryViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf(first), viewModel.state.value.items)
 
-        media.pages[40] = Result.failure(IllegalStateException("network"))
+        // The next page starts at the number of items already loaded (1).
+        media.pages[1] = Result.failure(IllegalStateException("network"))
         viewModel.loadMore()
         advanceUntilIdle()
 
@@ -83,16 +84,49 @@ class LibraryViewModelTest {
         assertEquals(true, media.lastIsPlayed)
     }
 
+    @Test
+    fun `library browse request is restricted to the library item types`() = runTest {
+        media.libraryCollectionType = "tvshows"
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+        val viewModel = createViewModel()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals("Series", media.lastIncludeItemTypes)
+    }
+
+    @Test
+    fun `loadMore pages from the items actually loaded`() = runTest {
+        val first = MediaItem("first", "First", MediaItemType.Series)
+        media.pages[0] = Result.success(listOf(first) to 10)
+        val viewModel = createViewModel()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        media.pages[1] = Result.success(emptyList<MediaItem>() to 10)
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(1, media.lastStartIndex)
+    }
+
     private class FakeMediaRepository : MediaRepository {
         val pages = mutableMapOf<Int, Result<Pair<List<MediaItem>, Int>>>()
         var lastIsPlayed: Boolean? = null
         var lastIsFavorite: Boolean? = null
+        var lastIncludeItemTypes: String? = null
+        var lastStartIndex: Int = -1
+        var libraryCollectionType: String? = null
         override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> =
             pages[startIndex].also {
                 lastIsPlayed = isPlayed
                 lastIsFavorite = isFavorite
+                lastIncludeItemTypes = includeItemTypes
+                lastStartIndex = startIndex
             } ?: Result.success(emptyList<MediaItem>() to 0)
-        override suspend fun getItem(userId: String, itemId: String) = Result.success(MediaItem(itemId, "Biblioteca", MediaItemType.CollectionFolder))
+        override suspend fun getItem(userId: String, itemId: String) = Result.success(MediaItem(itemId, "Biblioteca", MediaItemType.CollectionFolder, collectionType = libraryCollectionType))
         override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
         override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
         override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())

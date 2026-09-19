@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.mulletaflix.domain.model.LibraryBrowseTypes
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
@@ -38,6 +39,7 @@ class LibraryViewModel @Inject constructor(
     private var currentLibraryId: String? = null
     private var currentUserId: String? = null
     private var currentStartIndex: Int = 0
+    private var currentIncludeItemTypes: String = LibraryBrowseTypes.DEFAULT
     private val pageSize = 40
     private var totalItems = 0
     private var loadJob: Job? = null
@@ -67,13 +69,16 @@ class LibraryViewModel @Inject constructor(
             }
             _state.update { it.copy(isLoading = true, error = null) }
 
-            // Get library details
+            // Get library details (name + collection type drive the browse query)
             val libResult = getItemDetailUseCase(userId, libraryId)
-            val libName = libResult.getOrNull()?.name ?: "Biblioteca"
+            val library = libResult.getOrNull()
+            val libName = library?.name ?: "Biblioteca"
+            currentIncludeItemTypes = LibraryBrowseTypes.forCollectionType(library?.collectionType)
 
             getLibraryItemsUseCase(
                 userId = userId,
                 libraryId = libraryId,
+                includeItemTypes = currentIncludeItemTypes,
                 sortBy = _state.value.sortBy.apiValue,
                 startIndex = 0,
                 limit = pageSize,
@@ -102,11 +107,14 @@ class LibraryViewModel @Inject constructor(
 
         loadJob = viewModelScope.launch {
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
-            val requestedStartIndex = currentStartIndex + pageSize
+            // Page from the number of items actually loaded: the server may cap
+            // a page below the requested size, which would otherwise skip items.
+            val requestedStartIndex = _state.value.items.size
             _state.update { it.copy(isLoading = true, error = null) }
             getLibraryItemsUseCase(
                 userId = userId,
                 libraryId = libId,
+                includeItemTypes = currentIncludeItemTypes,
                 sortBy = _state.value.sortBy.apiValue,
                 startIndex = requestedStartIndex,
                 limit = pageSize,

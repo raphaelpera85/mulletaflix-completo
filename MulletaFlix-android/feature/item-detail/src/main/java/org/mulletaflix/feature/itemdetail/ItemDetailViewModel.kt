@@ -26,6 +26,7 @@ data class ItemDetailState(
     val similarItems: List<MediaItem> = emptyList(),
     val specialFeatures: List<MediaItem> = emptyList(),
     val isLoading: Boolean = false,
+    val isLoadingSeasons: Boolean = false,
     val error: String? = null,
     val downloadMessage: String? = null,
     val playlists: List<Playlist> = emptyList(),
@@ -50,7 +51,7 @@ class ItemDetailViewModel @Inject constructor(
     val state: StateFlow<ItemDetailState> = _state.asStateFlow()
 
     private var currentUserId: String? = null
-    private var currentItemId: String? = null
+    private var currentSeriesId: String? = null
 
     init {
         viewModelScope.launch {
@@ -61,7 +62,6 @@ class ItemDetailViewModel @Inject constructor(
     }
 
     fun loadItem(itemId: String) {
-        currentItemId = itemId
         viewModelScope.launch {
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
             _state.update { it.copy(isLoading = true, error = null) }
@@ -76,26 +76,31 @@ class ItemDetailViewModel @Inject constructor(
                             .onSuccess { similar -> _state.update { it.copy(similarItems = similar) } }
                     }
 
-                    // If series, load seasons and episodes
-                    if (mediaItem.type == MediaItemType.Series) {
-                        launch {
-                            mediaRepository.getSeasons(userId, itemId)
-                                .onSuccess { seasonsList ->
-                                    _state.update { it.copy(seasons = seasonsList) }
-                                    if (seasonsList.isNotEmpty()) {
-                                        selectSeason(0)
-                                    }
-                                }
+                    // Series context: season tabs + episodes. Seasons and episodes
+                    // open inside their series instead of as standalone items.
+                    when (mediaItem.type) {
+                        MediaItemType.Series -> loadSeriesContext(userId, itemId, null)
+                        MediaItemType.Season -> mediaItem.seriesId?.let { seriesId ->
+                            loadSeriesContext(userId, seriesId, mediaItem.id)
                         }
+                        MediaItemType.Episode -> mediaItem.seriesId?.let { seriesId ->
+                            loadSeriesContext(userId, seriesId, mediaItem.seasonId)
+                        }
+                        else -> Unit
                     }
 
-                    // If music album, load tracks
+                    // If music album, load tracks (albums are not series: a
+                    // Shows/{id}/Episodes query would answer 404 for an album).
                     if (mediaItem.type == MediaItemType.MusicAlbum) {
                         launch {
-                            mediaRepository.getEpisodes(userId, itemId)
-                                .onSuccess { tracks ->
-                                    _state.update { it.copy(episodes = tracks) }
-                                }
+                            mediaRepository.getItems(
+                                userId = userId,
+                                parentId = itemId,
+                                includeItemTypes = "Audio",
+                                sortBy = "ParentIndexNumber,IndexNumber,SortName",
+                            ).onSuccess { (tracks, _) ->
+                                _state.update { it.copy(episodes = tracks) }
+                            }
                         }
                     }
 
@@ -111,19 +116,53 @@ class ItemDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Loads the season selector and the episode list of [seriesId].
+     *
+     * When the screen was opened from a season or an episode, [initialSeasonId]
+     * selects the tab that contains it. A series whose episodes are not grouped
+     * into seasons still shows all of its episodes (no tab row).
+     */
+    private fun loadSeriesContext(userId: String, seriesId: String, initialSeasonId: String?) {
+        currentSeriesId = seriesId
+        viewModelScope.launch {
+            _state.update { it.copy(isLoadingSeasons = true) }
+            mediaRepository.getSeasons(userId, seriesId)
+                .onSuccess { seasonsList ->
+                    val selectedIndex = seasonsList.indexOfFirst { it.id == initialSeasonId }.coerceAtLeast(0)
+                    _state.update {
+                        it.copy(
+                            seasons = seasonsList,
+                            selectedSeasonIndex = selectedIndex,
+                            isLoadingSeasons = false,
+                        )
+                    }
+                    val seasonId = seasonsList.getOrNull(selectedIndex)?.id
+                    mediaRepository.getEpisodes(userId, seriesId, seasonId)
+                        .onSuccess { eps -> _state.update { it.copy(episodes = eps) } }
+                }
+                .onFailure {
+                    _state.update { it.copy(isLoadingSeasons = false) }
+                }
+        }
+    }
+
     fun selectSeason(index: Int) {
         val userId = currentUserId ?: return
         val seasons = _state.value.seasons
         if (index !in seasons.indices) return
+        val seriesId = currentSeriesId ?: return
 
-        _state.update { it.copy(selectedSeasonIndex = index) }
+        _state.update { it.copy(selectedSeasonIndex = index, isLoadingSeasons = true) }
         val season = seasons[index]
-        val seriesId = currentItemId ?: return
 
         viewModelScope.launch {
             mediaRepository.getEpisodes(userId, seriesId, season.id)
                 .onSuccess { eps ->
-                    _state.update { it.copy(episodes = eps) }
+                    _state.update { it.copy(episodes = eps, isLoadingSeasons = false) }
+                }
+                .onFailure {
+                    _state.update { it.copy(isLoadingSeasons = false) }
                 }
         }
     }

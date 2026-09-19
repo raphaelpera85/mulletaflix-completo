@@ -67,7 +67,8 @@ fun ItemDetailScreen(
                 DetailHero(
                     item = item,
                     onBack = onBack,
-                    onPlay = { onPlay(item.id) },
+                    onPlay = { onPlay(playbackTargetId(item, state.episodes)) },
+                    playEnabled = canPlayItem(item, state.episodes),
                     onFavorite = { viewModel.toggleFavorite() },
                     onMarkWatched = { viewModel.toggleWatched() },
                     onDownload = { viewModel.downloadItem() },
@@ -91,14 +92,18 @@ fun ItemDetailScreen(
                 }
 
                 // ── Series-specific: Season selector + Episodes ───────────────
-                if (item.type == MediaItemType.Series) {
+                // Also rendered for Season/Episode items: the ViewModel resolves
+                // the parent series and its seasons so the episode stays inside
+                // the series context instead of living as a loose item.
+                if (item.type == MediaItemType.Series || state.seasons.isNotEmpty()) {
                     SeriesSection(
                         seasons = state.seasons,
                         episodes = state.episodes,
                         selectedSeasonIndex = state.selectedSeasonIndex,
                         onSeasonSelect = viewModel::selectSeason,
                         onEpisodePlay = onPlay,
-                        onEpisodeClick = onItemClick
+                        onEpisodeClick = onItemClick,
+                        isLoading = state.isLoadingSeasons
                     )
                 }
 
@@ -173,6 +178,7 @@ private fun DetailHero(
     item: MediaItem,
     onBack: () -> Unit,
     onPlay: () -> Unit,
+    playEnabled: Boolean,
     onFavorite: () -> Unit,
     onMarkWatched: () -> Unit,
     onDownload: () -> Unit,
@@ -232,6 +238,7 @@ private fun DetailHero(
                 // Play
                 Button(
                     onClick = onPlay,
+                    enabled = playEnabled,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -376,65 +383,6 @@ private fun ExpandableOverview(text: String) {
             color = MaterialTheme.colorScheme.secondary,
             modifier = Modifier.padding(top = 4.dp)
         )
-    }
-}
-
-@Composable
-private fun SeriesSection(
-    seasons: List<MediaItem>,
-    episodes: List<MediaItem>,
-    selectedSeasonIndex: Int,
-    onSeasonSelect: (Int) -> Unit,
-    onEpisodePlay: (String) -> Unit,
-    onEpisodeClick: (String) -> Unit,
-) {
-    Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        // Season tabs
-        PrimaryScrollableTabRow(
-            selectedTabIndex = selectedSeasonIndex,
-            containerColor = MaterialTheme.colorScheme.background,
-            edgePadding = 16.dp
-        ) {
-            seasons.forEachIndexed { index, season ->
-                Tab(
-                    selected = index == selectedSeasonIndex,
-                    onClick = { onSeasonSelect(index) },
-                    text = { Text(season.name) }
-                )
-            }
-        }
-        // Episodes list
-        episodes.forEach { ep ->
-            EpisodeRow(episode = ep, onPlay = { onEpisodePlay(ep.id) }, onClick = { onEpisodeClick(ep.id) })
-        }
-    }
-}
-
-@Composable
-private fun EpisodeRow(episode: MediaItem, onPlay: () -> Unit, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(modifier = Modifier.width(160.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            AsyncImage(model = resolveMediaUrl(LocalMulletaFlixServerUrl.current, episode.primaryImageUrl, LocalMulletaFlixAccessToken.current), contentDescription = episode.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            episode.playedPercentage?.takeIf { it > 0.0 }?.let { playedPercentage ->
-                Box(modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.BottomCenter).background(MaterialTheme.colorScheme.surface)) {
-                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth((playedPercentage / 100.0).toFloat()).background(MaterialTheme.colorScheme.secondary))
-                }
-            }
-            IconButton(onClick = onPlay, modifier = Modifier.align(Alignment.Center).size(40.dp).background(Color.Black.copy(0.5f), CircleShape)) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Reproduzir", tint = Color.White)
-            }
-        }
-        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-            Text("${episode.parentIndexNumber}x${String.format("%02d", episode.indexNumber ?: 0)} ${episode.name}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            episode.runtimeMinutes?.let { Text("$it min", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            episode.overview?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp)) }
-        }
     }
 }
 

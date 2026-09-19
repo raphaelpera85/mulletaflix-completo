@@ -152,6 +152,111 @@ class ItemDetailViewModelTest {
     }
 
     @Test
+    fun `loadItem for a season loads the parent series episodes and selects that season`() = runTest {
+        val season2 = MediaItem(
+            id = "sea-2", name = "Temporada 2", type = MediaItemType.Season,
+            seriesId = "s1", seriesName = "Test Series",
+        )
+        val seasons = listOf(
+            MediaItem(id = "sea-1", name = "Season 1", type = MediaItemType.Season),
+            season2,
+        )
+        val episodesS2 = listOf(MediaItem(id = "ep-201", name = "S2 Episode 1", type = MediaItemType.Episode))
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(season2)
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(seasons)
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> =
+                if (seasonId == "sea-2") Result.success(episodesS2) else Result.success(emptyList())
+        }
+        val viewModel = createViewModel(mediaRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem("sea-2")
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(2, state.seasons.size)
+        assertEquals(1, state.selectedSeasonIndex)
+        assertEquals("S2 Episode 1", state.episodes.firstOrNull()?.name)
+    }
+
+    @Test
+    fun `loadItem for an episode selects the season that contains it`() = runTest {
+        val episode = MediaItem(
+            id = "ep-202", name = "S2 Episode 2", type = MediaItemType.Episode,
+            seriesId = "s1", seasonId = "sea-2", seasonName = "Temporada 2",
+        )
+        val seasons = listOf(
+            MediaItem(id = "sea-1", name = "Season 1", type = MediaItemType.Season),
+            MediaItem(id = "sea-2", name = "Temporada 2", type = MediaItemType.Season),
+        )
+        var requestedSeasonId: String? = "unset"
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(episode)
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(seasons)
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> {
+                requestedSeasonId = seasonId
+                return Result.success(listOf(episode))
+            }
+        }
+        val viewModel = createViewModel(mediaRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem("ep-202")
+        advanceUntilIdle()
+
+        assertEquals("sea-2", requestedSeasonId)
+        assertEquals(1, viewModel.state.value.selectedSeasonIndex)
+    }
+
+    @Test
+    fun `loadItem for a series without seasons still loads all episodes`() = runTest {
+        val series = MediaItem(id = "s1", name = "Test Series", type = MediaItemType.Series)
+        val allEpisodes = listOf(MediaItem(id = "ep-1", name = "Episode 1", type = MediaItemType.Episode))
+        var requestedSeasonId: String? = "unset"
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(series)
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(emptyList())
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> {
+                requestedSeasonId = seasonId
+                return Result.success(allEpisodes)
+            }
+        }
+        val viewModel = createViewModel(mediaRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem("s1")
+        advanceUntilIdle()
+
+        assertNull(requestedSeasonId)
+        assertTrue(viewModel.state.value.seasons.isEmpty())
+        assertEquals(1, viewModel.state.value.episodes.size)
+    }
+
+    @Test
+    fun `loadItem for a music album loads its tracks through an album parent query`() = runTest {
+        val album = MediaItem(id = "al-1", name = "Album", type = MediaItemType.MusicAlbum)
+        val tracks = listOf(MediaItem(id = "tr-1", name = "Track", type = MediaItemType.Audio))
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(album)
+            override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> {
+                lastItemsParentId = parentId
+                lastItemsIncludeItemTypes = includeItemTypes
+                return Result.success(Pair(tracks, tracks.size))
+            }
+        }
+        val viewModel = createViewModel(mediaRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem("al-1")
+        advanceUntilIdle()
+
+        assertEquals("al-1", mediaRepo.lastItemsParentId)
+        assertEquals("Audio", mediaRepo.lastItemsIncludeItemTypes)
+        assertEquals(1, viewModel.state.value.episodes.size)
+    }
+
+    @Test
     fun `toggleFavorite toggles favorite state and calls repository`() = runTest {
         val movie = MediaItem(id = "m1", name = "Movie", type = MediaItemType.Movie, isFavorite = false)
         var markedFavorite = false
@@ -302,6 +407,8 @@ class ItemDetailViewModelTest {
     }
 
     private open class FakeMediaRepository : MediaRepository {
+        var lastItemsParentId: String? = null
+        var lastItemsIncludeItemTypes: String? = null
         override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
         override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
         override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())

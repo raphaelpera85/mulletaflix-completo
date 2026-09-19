@@ -30,7 +30,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
+import org.mulletaflix.designsystem.media.resolveMediaUrl
+import org.mulletaflix.designsystem.media.userAvatarPath
 import org.mulletaflix.domain.repository.AvailableUser
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,6 +111,13 @@ fun ProfileScreen(
             val userName = state.userProfile?.name ?: state.fallbackUserName ?: "Usuário MulletaFlix"
             val isAdmin = state.userProfile?.isAdministrator ?: false
             val initial = userName.firstOrNull()?.uppercase() ?: "M"
+            // Avatar uploaded/created on the server (PrimaryImageTag). The initial
+            // letter stays behind the image so it doubles as the placeholder.
+            val avatarUrl = resolveMediaUrl(
+                serverBaseUrl,
+                userAvatarPath(state.userProfile?.id, state.userProfile?.primaryImageTag),
+                LocalMulletaFlixAccessToken.current,
+            )
 
             Box(
                 modifier = Modifier
@@ -129,6 +139,14 @@ fun ProfileScreen(
                     color = Color.White,
                     fontWeight = FontWeight.Black,
                 )
+                if (avatarUrl != null) {
+                    AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = userName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -242,6 +260,11 @@ fun ProfileScreen(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             items(state.availableUsers) { user ->
+                                val userAvatarUrl = resolveMediaUrl(
+                                    serverBaseUrl,
+                                    userAvatarPath(user.id, user.primaryImageTag),
+                                    LocalMulletaFlixAccessToken.current,
+                                )
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier
@@ -260,6 +283,14 @@ fun ProfileScreen(
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.Bold,
                                             )
+                                            if (userAvatarUrl != null) {
+                                                AsyncImage(
+                                                    model = userAvatarUrl,
+                                                    contentDescription = user.name,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                )
+                                            }
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(6.dp))
