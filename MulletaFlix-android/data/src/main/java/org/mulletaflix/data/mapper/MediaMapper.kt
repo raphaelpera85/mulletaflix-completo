@@ -68,6 +68,7 @@ fun BaseItemDto.toDomain(): MediaItem {
         overview = overview,
         tagline = taglines?.firstOrNull(),
         year = productionYear,
+        premiereDate = premiereDate,
         runtimeTicks = runTimeTicks,
         genres = genres ?: emptyList(),
         officialRating = officialRating,
@@ -100,6 +101,7 @@ fun BaseItemDto.toDomain(): MediaItem {
             )
         } ?: emptyList(),
         mediaSources = mediaSources?.map { it.toDomain() } ?: emptyList(),
+        unplayedItemCount = recursiveUnplayedItemCount,
         collectionType = collectionType,
         channelId = channelId,
         startDate = startDate,

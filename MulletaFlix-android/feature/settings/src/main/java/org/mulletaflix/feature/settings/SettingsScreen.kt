@@ -67,7 +67,7 @@ fun SettingsScreen(
                 SettingsItem(icon = Icons.Default.Dns, title = "Servidor", subtitle = state.serverUrl ?: "Não configurado") {}
                 SettingsItem(icon = Icons.Default.Person, title = "Meu Perfil", subtitle = state.username ?: "Ver perfil, permissões e alternar usuário", onClick = onProfile)
                 SettingsItem(icon = Icons.Default.Group, title = "Salas SyncPlay", subtitle = "Assistir sincronizado com amigos", onClick = onSyncPlay)
-                SettingsItem(icon = Icons.AutoMirrored.Filled.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
+                SettingsItem(icon = Icons.Default.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
                     viewModel.logout()
                     onLogout()
                 })

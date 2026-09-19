@@ -60,7 +60,7 @@ interface MulletaFlixApiService {
         @Query("SortOrder") sortOrder: String? = null,
         @Query("Filters") filters: String? = null,
         @Query("Recursive") recursive: Boolean = true,
-        @Query("Fields") fields: String? = null,
+        @Query("Fields") fields: String? = "ItemCounts",
         @Query("StartIndex") startIndex: Int? = null,
         @Query("Limit") limit: Int? = null,
         @Query("SearchTerm") searchTerm: String? = null,
@@ -77,7 +77,7 @@ interface MulletaFlixApiService {
     suspend fun getResumeItems(
         @Path("userId") userId: String,
         @Query("Limit") limit: Int = 12,
-        @Query("Fields") fields: String = "Overview,MediaSources",
+        @Query("Fields") fields: String = "Overview,MediaSources,ItemCounts",
         @Query("EnableImageTypes") enableImageTypes: String = "Primary,Backdrop,Thumb",
         @Query("ImageTypeLimit") imageTypeLimit: Int = 1,
     ): BaseItemDtoQueryResultDto
@@ -87,7 +87,7 @@ interface MulletaFlixApiService {
         @Path("userId") userId: String,
         @Query("ParentId") parentId: String? = null,
         @Query("Limit") limit: Int = 16,
-        @Query("Fields") fields: String = "PrimaryImageAspectRatio,Overview",
+        @Query("Fields") fields: String = "PrimaryImageAspectRatio,Overview,ItemCounts",
         @Query("EnableImageTypes") enableImageTypes: String = "Primary,Backdrop",
         @Query("ImageTypeLimit") imageTypeLimit: Int = 1,
     ): List<BaseItemDto>
@@ -96,7 +96,7 @@ interface MulletaFlixApiService {
     suspend fun getNextUp(
         @Query("UserId") userId: String,
         @Query("Limit") limit: Int = 12,
-        @Query("Fields") fields: String = "Overview,MediaSources",
+        @Query("Fields") fields: String = "Overview,MediaSources,ItemCounts",
         @Query("EnableImageTypes") enableImageTypes: String = "Primary,Thumb",
         @Query("ImageTypeLimit") imageTypeLimit: Int = 1,
     ): BaseItemDtoQueryResultDto

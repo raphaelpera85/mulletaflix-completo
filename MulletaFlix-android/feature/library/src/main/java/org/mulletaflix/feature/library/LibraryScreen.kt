@@ -130,6 +130,7 @@ fun LibraryScreen(
                                 shape = if (item.type == MediaItemType.Movie || item.type == MediaItemType.MusicAlbum || item.type == MediaItemType.Book) MediaCardShape.Portrait else MediaCardShape.Landscape,
                                 progress = item.playedPercentage?.toFloat()?.div(100f) ?: 0f,
                                 isWatched = item.isPlayed,
+                                unplayedCount = item.unplayedItemCount ?: 0,
                                 qualityBadge = when { item.has4K -> "4K"; item.hasHD -> "HD"; else -> null },
                                 onClick = { onItemClick(item.id) },
                                 modifier = Modifier.fillMaxWidth()
@@ -224,12 +225,13 @@ private fun LibraryListRow(item: MediaItem, onClick: () -> Unit) {
             imageUrl = item.primaryImageUrl,
             shape = MediaCardShape.Portrait,
             isWatched = item.isPlayed,
+            unplayedCount = item.unplayedItemCount ?: 0,
             onClick = onClick,
             modifier = Modifier.width(60.dp)
         )
         Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(item.name, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-            item.year?.let { Text("$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item.displayYearRange()?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             item.overview?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
         }
         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)

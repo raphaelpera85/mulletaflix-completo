@@ -14,6 +14,7 @@ data class MediaItem(
     val overview: String? = null,
     val tagline: String? = null,
     val year: Int? = null,
+    val premiereDate: String? = null,
     val runtimeTicks: Long? = null,   // 1 tick = 100 nanoseconds
     val genres: List<String> = emptyList(),
     val officialRating: String? = null,
@@ -64,6 +65,20 @@ data class MediaItem(
     val parentBackdropItemId: String? = null,
     val parentBackdropImageTags: List<String> = emptyList(),
 )
+
+/** Year label used by cards and detail metadata. */
+fun MediaItem.displayYearRange(): String? {
+    val startYear = year ?: premiereDate?.take(4)?.toIntOrNull()
+    if (startYear == null) return null
+    if (type != MediaItemType.Series) return startYear.toString()
+
+    val endYear = endDate?.take(4)?.toIntOrNull()
+    return when {
+        endYear != null && endYear != startYear -> "$startYear - $endYear"
+        endYear == null -> "$startYear - Presente"
+        else -> startYear.toString()
+    }
+}
 
 enum class MediaItemType {
     Movie, Series, Season, Episode,
@@ -201,4 +216,3 @@ fun MediaItem.bestImageUrl(preferBackdrop: Boolean = false): String? {
     // 8. Fallback to direct Primary endpoint on Jellyfin server
     return "Items/$id/Images/Primary"
 }
-

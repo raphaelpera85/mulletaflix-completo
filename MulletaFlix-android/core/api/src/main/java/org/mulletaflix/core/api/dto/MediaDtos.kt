@@ -30,6 +30,7 @@ data class BaseItemDto(
     @Json(name = "RunTimeTicks") val runTimeTicks: Long? = null,
     @Json(name = "ProductionYear") val productionYear: Int? = null,
     @Json(name = "PremiereDate") val premiereDate: String? = null,
+    @Json(name = "RecursiveUnplayedItemCount") val recursiveUnplayedItemCount: Int? = null,
     @Json(name = "UserData") val userData: UserItemDataDto? = null,
     @Json(name = "SeriesName") val seriesName: String? = null,
     @Json(name = "SeriesId") val seriesId: String? = null,

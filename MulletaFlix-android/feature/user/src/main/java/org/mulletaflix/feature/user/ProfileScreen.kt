@@ -338,7 +338,7 @@ fun ProfileScreen(
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                     ProfileOptionItem(
-                        icon = Icons.AutoMirrored.Filled.Logout,
+                        icon = Icons.Default.Logout,
                         title = "Sair da Conta",
                         subtitle = "Finaliza a sessão neste dispositivo",
                         tint = MaterialTheme.colorScheme.error,

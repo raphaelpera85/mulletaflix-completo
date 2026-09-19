@@ -327,7 +327,7 @@ private fun HeroBanner(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 4.dp)
             ) {
-                item.year?.let { Text("$it", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.8f)) }
+                item.displayYearRange()?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.8f)) }
                 item.officialRating?.let {
                     Surface(
                         shape = MaterialTheme.shapes.extraSmall,
@@ -401,6 +401,7 @@ private fun MediaSection(
                     shape = cardShape,
                     progress = item.playedPercentage?.toFloat()?.div(100f) ?: 0f,
                     isWatched = item.isPlayed,
+                    unplayedCount = item.unplayedItemCount ?: 0,
                     isLive = isLive,
                     qualityBadge = when {
                         item.has4K -> "4K"
