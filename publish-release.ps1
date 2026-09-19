@@ -58,10 +58,12 @@ try {
 $bodyContent = @"
 ### MulletaFlix $Tag
 
-- **Roteamento unico no Nebula**: toda midia descoberta para envio ao Telegram passa a terminar sob uma unica raiz de categoria - filmes em ``Filmes``, series em ``Series`` e conteudo adulto em ``Porno`` - independente da arvore de pastas de origem.
-- **Fim das raizes duplicadas**: caminhos como ``Series\Series\...`` nao sao mais criados; a raiz de categoria repetida no inicio do caminho e descartada tanto no catalogo (MongoDB) quanto na geracao dos arquivos ``.strm``.
-- **Classificacao corrigida**: titulo de filme com "Show", "Temporada" ou "4x100" no nome nao e mais tratado como serie (ano entre parenteses indica filme), e a pasta-raiz declarada prevalece sobre palavras do titulo (ex.: "How to Have Sex (2023)" permanece em ``Filmes``).
-- **Cobertura de testes**: novos casos cobrindo filmes guardados em ``Series\Filmes``, raizes duplicadas e classificacao por pasta declarada (191 de 192 testes do Nebula aprovados; a unica falha e anterior a esta versao).
+- **Capas, imagens e NFO preservados no cache**: poster, fanart, logo, thumb, ``.nfo``/``.xml`` e legendas nunca sao removidos do catalogo - nem quando o registro entra em erro - porque sao eles que mantem a biblioteca instantanea no web e no aplicativo.
+- **Staging e fila transitoria**: tudo que ja foi enviado ao Telegram sai da pasta de staging, inclusive capas e NFO, e pastas que ficam vazias sao removidas automaticamente.
+- **Ja enviado nao volta ao staging**: o exportador de metadados nao recria sidecars de uma midia que ja esta no Telegram, acabando com as capas e ``.nfo`` duplicados na pasta de envio.
+- **Sincronizacao por delta**: a varredura do staging passa a processar somente arquivos novos ou alterados (diario de tamanho+data mais indice em uma unica consulta por passada), e a sincronizacao com o Supabase envia apenas o delta: o que mudou desde o ultimo backup mais o que ainda nao foi enviado (fila, staging, envio ou falha).
+- **Restauracao nao sobrescreve o cache**: a restauracao do Supabase mescla campo a campo (``$set``) em vez de substituir o documento, entao um registro remoto mais pobre nunca apaga partes do Telegram, caminho local ou metadados locais.
+- **Cobertura de testes**: novos testes para a regra de conteudo protegido e para a limpeza do staging (833 testes aprovados no projeto de implementacoes).
 "@
 
 $releasePayloadJson = @{

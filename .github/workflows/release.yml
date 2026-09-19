@@ -65,10 +65,12 @@ jobs:
           body: |
             ### MulletaFlix ${{ github.ref_name }}
             
-            - **Roteamento único no Nebula**: toda mídia descoberta para envio ao Telegram termina sob uma única raiz de categoria — filmes em `Filmes`, séries em `Series` e conteúdo adulto em `Porno` — independente da árvore de pastas de origem.
-            - **Fim das raízes duplicadas**: caminhos como `Series\Series\...` não são mais criados; a raiz de categoria repetida no início do caminho é descartada tanto no catálogo quanto na geração dos arquivos `.strm`.
-            - **Classificação corrigida**: título de filme com "Show", "Temporada" ou "4x100" no nome não é mais tratado como série (ano entre parênteses indica filme), e a pasta-raiz declarada prevalece sobre palavras do título (ex.: "How to Have Sex (2023)" permanece em `Filmes`).
-            - **Cobertura de testes**: novos casos de teste para roteamento de filmes guardados em `Series\Filmes`, raízes duplicadas e classificação por pasta declarada.
+            - **Capas, imagens e NFO preservados no cache**: poster, fanart, logo, thumb, `.nfo`/`.xml` e legendas nunca são removidos do catálogo — nem quando o registro entra em erro — porque são eles que mantêm a biblioteca instantânea no web e no aplicativo.
+            - **Staging é fila transitória**: tudo que já foi enviado ao Telegram sai da pasta de staging, inclusive capas e NFO, e pastas que ficam vazias são removidas automaticamente.
+            - **Já enviado não volta ao staging**: o exportador de metadados não recria sidecars de uma mídia que já está no Telegram, acabando com as capas e `.nfo` duplicados na pasta de envio.
+            - **Sincronização por delta**: a varredura do staging passa a processar somente arquivos novos ou alterados (diário de tamanho+data mais índice em uma única consulta por passada), e a sincronização com o Supabase envia apenas o delta: o que mudou desde o último backup mais o que ainda não foi enviado (fila, staging, envio ou falha).
+            - **Restauração não sobrescreve o cache**: a restauração do Supabase mescla campo a campo (`$set`) em vez de substituir o documento, então um registro remoto mais pobre nunca apaga partes do Telegram, caminho local ou metadados locais.
+            - **Cobertura de testes**: novos testes para a regra de conteúdo protegido e para a limpeza do staging.
           files: |
             dist/mulletaflix-update-win-x64.zip
           draft: false
