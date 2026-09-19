@@ -8,6 +8,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -49,8 +50,12 @@ class HomeViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            networkMonitor.isOnline.collect { online ->
+            var previousOnline: Boolean? = null
+            networkMonitor.isOnline.distinctUntilChanged().collect { online ->
+                val recovered = shouldRefreshHomeOnNetworkReturn(previousOnline, online)
+                previousOnline = online
                 _state.update { it.copy(isOffline = !online) }
+                if (recovered) refresh()
             }
         }
         loadHome()

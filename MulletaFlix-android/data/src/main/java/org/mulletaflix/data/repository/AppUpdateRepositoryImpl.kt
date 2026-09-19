@@ -21,7 +21,7 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
 
     companion object {
         private const val GITHUB_RELEASES_URL =
-            "https://api.github.com/repos/raphaelpera85/mulletaflix-completo/releases"
+            "https://api.github.com/repos/raphaelpera85/mulletaflix-completo/releases?per_page=100"
         private const val USER_AGENT = "MulletaFlix-Android-App"
     }
 

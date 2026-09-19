@@ -15,6 +15,14 @@ enum class VideoAspectRatio(val title: String, val resizeMode: Int) {
     FILL("Esticar", AspectRatioFrameLayout.RESIZE_MODE_FILL),
 }
 
+/** Keeps persisted aspect-ratio values compatible with old or corrupted preferences. */
+internal fun normalizeAspectRatioPreference(value: String?): VideoAspectRatio =
+    when (value?.trim()?.uppercase()) {
+        "ZOOM" -> VideoAspectRatio.ZOOM
+        "FILL" -> VideoAspectRatio.FILL
+        else -> VideoAspectRatio.FIT
+    }
+
 /**
  * Technical playback statistics ("Stats for nerds") for media inspection.
  */
@@ -25,6 +33,16 @@ data class PlaybackStats(
     val bitrate: String? = null,
     val playMethod: String = "Direct Play",
 )
+
+/** Stable, user-facing text for sharing playback diagnostics with support. */
+internal fun formatPlaybackStats(stats: PlaybackStats?): String = buildString {
+    appendLine("Dados técnicos da mídia")
+    appendLine("Método de Reprodução: ${stats?.playMethod ?: "Direct Play"}")
+    stats?.resolution?.let { appendLine("Resolução: $it") }
+    stats?.videoCodec?.let { appendLine("Codec de Vídeo: $it") }
+    stats?.audioCodec?.let { appendLine("Codec de Áudio: $it") }
+    stats?.bitrate?.let { appendLine("Taxa de Bits: $it") }
+}.trimEnd()
 
 /** Returns stable, user-facing quality choices from the actual video tracks. */
 internal fun qualityOptions(mediaStreams: List<MediaStream>): List<String> =

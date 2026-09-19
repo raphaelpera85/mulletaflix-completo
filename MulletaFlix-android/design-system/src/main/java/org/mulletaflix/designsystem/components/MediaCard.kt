@@ -26,7 +26,9 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
@@ -85,7 +87,20 @@ fun MediaCard(
     }
 
     val resolvedImageUrl = resolveMediaUrl(LocalMulletaFlixServerUrl.current, imageUrl, LocalMulletaFlixAccessToken.current)
-    Column(modifier = modifier.clickable(onClick = onClick)) {
+    val accessibilityLabel = if (isLive) {
+        "Abrir $title, ao vivo"
+    } else {
+        "Abrir $title"
+    }
+
+    Column(
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = accessibilityLabel
+            },
+    ) {
       Box(
         modifier = Modifier
             .fillMaxWidth()

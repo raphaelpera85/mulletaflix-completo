@@ -1,11 +1,29 @@
 package org.mulletaflix.feature.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.domain.model.MediaStream
 import org.mulletaflix.domain.model.MediaStreamType
 
 class PlayerOptionsTest {
+
+    @Test
+    fun `formats playback stats for support sharing`() {
+        val text = formatPlaybackStats(
+            PlaybackStats(
+                videoCodec = "H.265",
+                audioCodec = "AAC",
+                resolution = "1920x1080",
+                bitrate = "8 Mbps",
+                playMethod = "Transcode",
+            ),
+        )
+
+        assertTrue(text.contains("Método de Reprodução: Transcode"))
+        assertTrue(text.contains("Codec de Vídeo: H.265"))
+        assertTrue(text.contains("Taxa de Bits: 8 Mbps"))
+    }
     @Test
     fun `quality options are derived from video heights and deduplicated`() {
         val streams = listOf(
@@ -50,5 +68,13 @@ class PlayerOptionsTest {
         assertEquals("Ajustar (Original)", VideoAspectRatio.FIT.title)
         assertEquals("Preencher / Zoom", VideoAspectRatio.ZOOM.title)
         assertEquals("Esticar", VideoAspectRatio.FILL.title)
+    }
+
+    @Test
+    fun `aspect ratio preference accepts known values and safely falls back to fit`() {
+        assertEquals(VideoAspectRatio.ZOOM, normalizeAspectRatioPreference(" zoom "))
+        assertEquals(VideoAspectRatio.FILL, normalizeAspectRatioPreference("FILL"))
+        assertEquals(VideoAspectRatio.FIT, normalizeAspectRatioPreference(null))
+        assertEquals(VideoAspectRatio.FIT, normalizeAspectRatioPreference("unknown"))
     }
 }

@@ -103,7 +103,9 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
             else -> DownloadState.Failed
         },
         percent = percentDownloaded.coerceIn(0f, 100f).toInt(),
-        error = failureReason.takeIf { it != Download.FAILURE_REASON_NONE }?.toString()
+        error = failureReason.takeIf { it != Download.FAILURE_REASON_NONE }?.toString(),
+        bytesDownloaded = getBytesDownloaded().coerceAtLeast(0L),
+        contentLength = contentLength.takeIf { it > 0L } ?: 0L,
     )
 
     private fun requirementsFor(enabled: Boolean): Requirements =

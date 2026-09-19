@@ -45,4 +45,7 @@ interface SettingsRepository {
 
     fun getSubtitleFontSize(): Flow<Int>
     suspend fun setSubtitleFontSize(size: Int)
+
+    fun getDefaultAspectRatio(): Flow<String>
+    suspend fun setDefaultAspectRatio(aspectRatio: String)
 }

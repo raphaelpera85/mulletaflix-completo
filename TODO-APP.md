@@ -178,7 +178,21 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] **Componentes Reutilizáveis**
   - [x] `MediaCard` (Modos Portrait, Landscape, Square e Banner com badges 4K/HDR e progresso)
   - [x] `MulletaFlixTopAppBar` e `MulletaFlixNavigationBar`
-  - [x] Estados de Loading com Shimmer Effect e Tratamento de Erros amigável
+- [x] Estados de Loading com Shimmer Effect e Tratamento de Erros amigável
+
+## 54. Filtros de downloads offline (v1.0.43)
+- [x] Filtrar a fila por todos, downloads em andamento, concluídos e falhos.
+- [x] Combinar o filtro de status com a busca por título sem alterar a ordem original.
+- [x] Cobrir a seleção do filtro na UI e a combinação de status com busca nos testes.
+
+## 55. Resumo do armazenamento offline (v1.0.44)
+- [x] Exibir no APK os bytes baixados e o tamanho total conhecido pelo Media3.
+- [x] Informar claramente quando o servidor ainda não forneceu o tamanho total.
+- [x] Cobrir a agregação dos dados de armazenamento em teste unitário.
+
+## 56. Menus de faixas roláveis (v1.0.45)
+- [x] Permitir rolagem vertical em listas longas de áudio e legendas.
+- [x] Cobrir uma lista longa no teste instrumentado do player.
 
 ---
 

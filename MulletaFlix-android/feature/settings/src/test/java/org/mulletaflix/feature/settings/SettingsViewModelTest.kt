@@ -201,6 +201,8 @@ class SettingsViewModelTest {
 
         override fun getSubtitleFontSize(): Flow<Int> = MutableStateFlow(subtitleSize)
         override suspend fun setSubtitleFontSize(size: Int) { subtitleSize = size }
+        override fun getDefaultAspectRatio(): Flow<String> = MutableStateFlow("FIT")
+        override suspend fun setDefaultAspectRatio(aspectRatio: String) = Unit
     }
 
     private open class FakeAuthRepository(

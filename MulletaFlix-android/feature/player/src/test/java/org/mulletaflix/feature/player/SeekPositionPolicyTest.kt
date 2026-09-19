@@ -15,4 +15,11 @@ class SeekPositionPolicyTest {
     fun `returns zero when duration is unavailable`() {
         assertEquals(0L, seekPositionFromFraction(0.5f, 0L))
     }
+
+    @Test
+    fun `bounds explicit ten second seek controls`() {
+        assertEquals(0L, seekPositionByDelta(5_000L, -10_000L, 60_000L))
+        assertEquals(15_000L, seekPositionByDelta(5_000L, 10_000L, 60_000L))
+        assertEquals(60_000L, seekPositionByDelta(55_000L, 10_000L, 60_000L))
+    }
 }

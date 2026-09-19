@@ -34,11 +34,19 @@ fun preferredStreamIndex(
     return streams.firstOrNull { it.isDefault }?.index ?: streams.firstOrNull()?.index
 }
 
-private fun canonicalLanguage(value: String): String = when (value.lowercase().replace('_', '-')) {
+private fun canonicalLanguage(value: String): String {
+    val normalized = value
+        .lowercase()
+        .replace('_', '-')
+        .substringBefore('(')
+        .trim()
+
+    return when (normalized) {
     "por", "pt", "pt-br", "pt-pt", "portuguese", "português" -> "pt"
     "eng", "en", "en-us", "en-gb", "english", "inglês" -> "en"
     "spa", "es", "es-es", "spanish", "espanhol" -> "es"
     "fra", "fr", "french", "francês" -> "fr"
     "deu", "de", "german", "alemão" -> "de"
-    else -> value.lowercase().replace('_', '-')
+    else -> normalized
+    }
 }

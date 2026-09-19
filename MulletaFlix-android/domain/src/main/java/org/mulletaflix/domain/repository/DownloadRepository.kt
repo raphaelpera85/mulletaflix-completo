@@ -9,6 +9,8 @@ data class DownloadEntry(
     val state: DownloadState,
     val percent: Int,
     val error: String? = null,
+    val bytesDownloaded: Long = 0L,
+    val contentLength: Long = 0L,
 )
 
 enum class DownloadState { Queued, Downloading, Completed, Failed, Removing }

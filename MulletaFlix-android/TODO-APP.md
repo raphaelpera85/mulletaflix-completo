@@ -402,3 +402,176 @@ Pendências relacionadas:
 - [x] Navegar para outro detalhe sem reiniciar o processo nem duplicar a atividade.
 - [x] Não ultrapassar autenticação quando o link chega antes do login.
 - [x] Cobrir a política de navegação com testes unitários e validar a entrega real no AVD.
+
+## 32. Controles de mídia externos (v1.0.21)
+
+- [x] Encaminhar eventos `MEDIA_BUTTON` para o `MediaSessionService` via receiver oficial do Media3.
+- [x] Remover o receiver inerte que recebia comandos Bluetooth/fone sem despachá-los para a sessão.
+- [x] Validar a resolução do receiver no APK instalado no AVD.
+
+## 33. Metadados de reprodução externos (v1.0.22)
+
+- [x] Exibir título contextual de série/temporada/episódio nos controles Media3.
+- [x] Propagar descrição e capa autenticada para a sessão de mídia e destinos Cast.
+- [x] Manter título correto também na reprodução offline.
+- [x] Cobrir a formatação de filmes e episódios com testes unitários.
+
+## 34. Metadados preservados no fallback de transcodificação (v1.0.23)
+
+- [x] Manter título, descrição e capa quando o player troca do Direct Play para transcodificação após uma falha.
+- [x] Limpar o estado de metadados ao alternar entre mídia remota e download offline.
+
+## 35. Foco de áudio e desconexão de fones (v1.0.24)
+
+- [x] Solicitar foco de áudio automaticamente para reprodução de mídia.
+- [x] Pausar o player quando fones ou dispositivos Bluetooth forem desconectados.
+- [x] Aplicar a mesma política ao player de fallback do serviço em segundo plano.
+
+## 36. Retomada de downloads offline (v1.0.25)
+
+- [x] Persistir a posição local de mídias baixadas entre sessões do aplicativo.
+- [x] Retomar a reprodução offline a partir da última posição salva.
+- [x] Remover a posição persistida quando a mídia chega ao fim.
+- [x] Evitar que a chave local exponha URL ou token de acesso.
+
+## 37. Player widescreen responsivo (v1.0.26)
+
+- [x] Entrar no player em orientação paisagem sensorizada para mídias widescreen.
+- [x] Restaurar a orientação anterior ao sair do player, sem alterar a navegação do restante do aplicativo.
+- [x] Cobrir a política de orientação para entradas retrato, indefinida e paisagem.
+
+## 38. Retomada remota resiliente (v1.0.27)
+
+- [x] Persistir localmente a última posição remota por usuário e mídia enquanto o servidor sincroniza.
+- [x] Priorizar o progresso oficial do servidor quando ele estiver disponível.
+- [x] Usar o fallback local somente quando o progresso do servidor estiver ausente ou zerado.
+- [x] Remover a posição local ao concluir a mídia e manter chaves sem URL, token ou identificador em texto.
+- [x] Cobrir prioridade, fallback, isolamento por usuário/mídia e valores inválidos com testes unitários.
+
+## 39. Velocidade de reprodução persistente (v1.0.28)
+
+- [x] Persistir a velocidade escolhida no OSD para as próximas reproduções.
+- [x] Normalizar valores finitos entre 0,5x e 2x, com fallback seguro para 1x.
+- [x] Cobrir limites, valores inválidos e o valor padrão com testes unitários.
+
+## 40. Backoff de reconexão do player (v1.0.29)
+
+- [x] Repetir falhas transitórias de rede até três vezes, sem repetir erros permanentes.
+- [x] Aplicar backoff limitado de 750 ms, 1,5 s e 3 s preservando a posição atual.
+- [x] Cobrir limite de tentativas e atrasos com testes unitários.
+
+## 41. MIME explícito para reprodução e Cast (v1.0.30)
+
+- [x] Informar o MIME type conhecido no `MediaItem` para HLS, MP4, WebM e Matroska.
+- [x] Permitir que Media3 faça sniffing quando o container não for reconhecido.
+- [x] Cobrir URL HLS, container informado e fallback de formatos desconhecidos.
+
+## 42. Cards de mídia acessíveis (v1.0.31)
+
+- [x] Agrupar imagem, badges e título do `MediaCard` em um único alvo semântico.
+- [x] Anunciar o card como botão com a ação "Abrir <título>".
+- [x] Informar explicitamente quando o conteúdo estiver ao vivo.
+- [x] Cobrir o anúncio e a ação de toque com teste instrumentado no AVD.
+
+## 43. Preferência de idioma por rótulo regional (v1.0.32)
+
+- [x] Normalizar rótulos humanizados como `Português (Brasil)` e `English (US)`.
+- [x] Preservar a compatibilidade com códigos ISO e nomes simples.
+- [x] Cobrir áudio/legenda com nomes regionais no teste unitário do player.
+
+## 44. Menu de faixas selecionável e acessível (v1.0.33)
+
+- [x] Transformar cada linha de áudio/legenda em uma opção de rádio semântica.
+- [x] Tornar a linha inteira acionável e remover o clique duplicado do `RadioButton`.
+- [x] Cobrir a seleção de faixa com teste instrumentado no AVD.
+
+## 45. Temporizador de suspensão do player (v1.0.34)
+
+- [x] Oferecer pausas automáticas de 15, 30, 45, 60 e 90 minutos.
+- [x] Exibir a contagem regressiva no conteúdo do menu e no estado semântico do ícone.
+- [x] Cancelar o temporizador com segurança ao trocar de mídia ou sair do player.
+- [x] Cobrir limites e formatação do temporizador com testes unitários.
+
+## 46. Busca acessível de 10 segundos no player (v1.0.35)
+
+- [x] Expor botões explícitos para voltar e avançar 10 segundos.
+- [x] Limitar o alvo de busca ao intervalo válido da mídia.
+- [x] Manter os gestos existentes e cobrir os novos limites com teste unitário.
+
+## 47. Visibilidade de senha no cadastro (v1.0.36)
+
+- [x] Permitir revelar/ocultar a senha do cadastro sem alterar o valor digitado.
+- [x] Permitir revelar/ocultar a confirmação de forma independente.
+- [x] Cobrir os dois controles de visibilidade com teste instrumentado.
+
+## 48. Estado de pausa no progresso remoto (v1.0.37)
+
+- [x] Reportar ao servidor quando a mídia estiver pausada durante a sincronização periódica.
+- [x] Manter o estado ativo quando o player estiver reproduzindo.
+- [x] Cobrir os dois estados com teste unitário.
+
+## 49. Atualizador Android resiliente a releases do servidor (v1.0.38)
+
+- [x] Consultar até 100 releases do GitHub para não perder releases do APK atrás das releases do servidor.
+- [x] Manter o filtro exclusivo de tags `app-*`, sem oferecer pacotes do servidor no APK.
+- [x] Cobrir a separação entre canais Android e servidor com teste unitário.
+
+## 50. Recuperação automática do Home após conexão (v1.0.39)
+
+- [x] Detectar a transição de offline para online sem repetir atualizações em estados estáveis.
+- [x] Recarregar o feed do Home automaticamente quando a rede voltar.
+- [x] Cobrir a transição com teste unitário.
+
+## 51. Ação Cast acessível no player (v1.0.40)
+
+- [x] Agrupar ícone e rótulo de transmissão em um único alvo semântico.
+- [x] Informar que a ação transmite para um dispositivo compatível.
+- [x] Cobrir a descrição unificada com teste instrumentado.
+
+## 52. Proporção do player persistente (v1.0.41)
+
+- [x] Persistir a proporção escolhida no player entre mídias e sessões.
+- [x] Restaurar a preferência com fallback seguro para Ajustar (Original).
+- [x] Cobrir valores válidos, antigos e inválidos com teste unitário.
+
+## 53. Busca de downloads offline (v1.0.42)
+
+- [x] Filtrar downloads localmente por título sem alterar a fila original.
+- [x] Exibir estado vazio específico para buscas sem resultado.
+- [x] Cobrir busca sem distinção de maiúsculas/minúsculas e consulta vazia.
+
+## 54. Menus do player roláveis e sem clique duplicado (v1.0.46)
+
+- [x] Permitir rolagem vertical nos menus de qualidade, velocidade, temporizador e proporção.
+- [x] Usar uma única ação semântica de rádio por opção, incluindo o alvo de toque da linha inteira.
+- [x] Cobrir uma lista longa de qualidades no teste instrumentado do player.
+
+## 55. Barra de ações do player responsiva (v1.0.47)
+
+- [x] Permitir rolagem horizontal das ações superiores em telas estreitas e fontes ampliadas.
+- [x] Manter o título e o botão de voltar fora da área rolável.
+- [x] Cobrir a navegação horizontal da faixa de ações no teste instrumentado.
+
+## 56. Cadastro rolável em telas pequenas (v1.0.48)
+
+- [x] Limitar e permitir rolagem vertical do conteúdo do diálogo de cadastro.
+- [x] Manter mensagens de erro extensas alcançáveis com o teclado e fontes ampliadas.
+- [x] Cobrir a rolagem do diálogo com teste instrumentado.
+
+## 57. Dados técnicos do player roláveis (v1.0.49)
+
+- [x] Limitar o diálogo de informações técnicas para não ultrapassar telas pequenas.
+- [x] Permitir rolagem vertical para codecs, resolução, bitrate e método de reprodução.
+- [x] Cobrir informações extensas com teste instrumentado.
+
+## 58. Compartilhamento de diagnóstico do player (v1.0.50)
+
+- [x] Formatar método, codecs, resolução e bitrate em texto estável.
+- [x] Permitir copiar os dados técnicos para a área de transferência.
+- [x] Cobrir a ação de copiar no teste instrumentado e o formato no teste unitário.
+
+## 59. Confirmação de diagnóstico copiado (v1.0.51)
+
+- [x] Confirmar visualmente a cópia dos dados técnicos com o estado “Copiado”.
+- [x] Evitar que a ação pareça não executada em telas com feedback transitório.
+- [x] Cobrir a confirmação com teste instrumentado.

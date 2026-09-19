@@ -112,8 +112,8 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- Receiver para controles de mídia (Bluetooth, fone de ouvido) -->
-        <receiver android:name=".receiver.MediaButtonReceiver"
+        <!-- Receiver Media3 para controles de mídia (Bluetooth, fone de ouvido) -->
+        <receiver android:name="androidx.media3.session.MediaButtonReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />

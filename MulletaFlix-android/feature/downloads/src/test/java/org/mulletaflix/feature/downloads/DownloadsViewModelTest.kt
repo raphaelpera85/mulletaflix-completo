@@ -3,6 +3,7 @@ package org.mulletaflix.feature.downloads
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.domain.repository.DownloadEntry
@@ -10,6 +11,64 @@ import org.mulletaflix.domain.repository.DownloadRepository
 import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 
 class DownloadsViewModelTest {
+    @Test
+    fun `download search is case insensitive and keeps repository order`() {
+        val downloads = listOf(
+            DownloadEntry("1", "A Viagem", "uri-1", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+            DownloadEntry("2", "O Retorno", "uri-2", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+            DownloadEntry("3", "Viagem ao Centro", "uri-3", org.mulletaflix.domain.repository.DownloadState.Queued, 10),
+        )
+
+        assertEquals(listOf("1", "3"), filterDownloads(downloads, "viagem").map { it.id })
+    }
+
+    @Test
+    fun `blank download search returns the complete queue`() {
+        val downloads = listOf(
+            DownloadEntry("1", "A Viagem", "uri-1", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+        )
+
+        assertEquals(downloads, filterDownloads(downloads, "   "))
+    }
+
+    @Test
+    fun `status filter keeps only matching downloads and preserves order`() {
+        val downloads = listOf(
+            DownloadEntry("1", "Baixando", "uri-1", org.mulletaflix.domain.repository.DownloadState.Downloading, 50),
+            DownloadEntry("2", "Pronto", "uri-2", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+            DownloadEntry("3", "Na fila", "uri-3", org.mulletaflix.domain.repository.DownloadState.Queued, 0),
+            DownloadEntry("4", "Falhou", "uri-4", org.mulletaflix.domain.repository.DownloadState.Failed, 20),
+        )
+
+        assertEquals(listOf("1", "3"), filterDownloads(downloads, "", DownloadStatusFilter.InProgress).map { it.id })
+        assertEquals(listOf("4"), filterDownloads(downloads, "", DownloadStatusFilter.Failed).map { it.id })
+    }
+
+    @Test
+    fun `status filter combines with title search`() {
+        val downloads = listOf(
+            DownloadEntry("1", "Viagem pronta", "uri-1", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+            DownloadEntry("2", "Viagem falhou", "uri-2", org.mulletaflix.domain.repository.DownloadState.Failed, 20),
+        )
+
+        assertEquals(
+            listOf("1"),
+            filterDownloads(downloads, "viagem", DownloadStatusFilter.Completed).map { it.id },
+        )
+    }
+
+    @Test
+    fun `storage summary aggregates downloaded and known content bytes`() {
+        val downloads = listOf(
+            DownloadEntry("1", "Filme", "uri-1", org.mulletaflix.domain.repository.DownloadState.Completed, 100, bytesDownloaded = 2_000_000, contentLength = 2_500_000),
+            DownloadEntry("2", "Série", "uri-2", org.mulletaflix.domain.repository.DownloadState.Downloading, 50, bytesDownloaded = 500_000),
+        )
+
+        assertEquals(2_500_000L, summarizeDownloadStorage(downloads).downloadedBytes)
+        assertEquals(2_500_000L, summarizeDownloadStorage(downloads).knownContentBytes)
+        assertEquals(2, summarizeDownloadStorage(downloads).itemCount)
+    }
+
     @Test
     fun `pausing the queue updates state only after repository succeeds`() {
         val repository = FakeDownloadRepository()

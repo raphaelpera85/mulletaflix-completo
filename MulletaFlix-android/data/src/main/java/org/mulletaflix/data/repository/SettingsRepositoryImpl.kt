@@ -30,6 +30,7 @@ class SettingsRepositoryImpl @Inject constructor(
         val DEFAULT_QUALITY = stringPreferencesKey("default_quality")
         val DEFAULT_PLAYBACK_SPEED = floatPreferencesKey("default_playback_speed")
         val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size")
+        val DEFAULT_ASPECT_RATIO = stringPreferencesKey("default_aspect_ratio")
     }
 
     override fun getTheme(): Flow<AppThemeSetting> {
@@ -116,5 +117,12 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setSubtitleFontSize(size: Int) {
         context.settingsDataStore.edit { it[Keys.SUBTITLE_FONT_SIZE] = size.coerceIn(50, 200) }
+    }
+
+    override fun getDefaultAspectRatio(): Flow<String> =
+        context.settingsDataStore.data.map { it[Keys.DEFAULT_ASPECT_RATIO] ?: "FIT" }
+
+    override suspend fun setDefaultAspectRatio(aspectRatio: String) {
+        context.settingsDataStore.edit { it[Keys.DEFAULT_ASPECT_RATIO] = aspectRatio.trim().uppercase() }
     }
 }

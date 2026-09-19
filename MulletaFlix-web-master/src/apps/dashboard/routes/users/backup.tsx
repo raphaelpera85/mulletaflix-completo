@@ -137,6 +137,9 @@ const BackupRestorePage = () => {
         restoreMutation.mutate();
     }, [ restoreMutation ]);
     const startBackup = useCallback(() => backupMutation.mutate(), [ backupMutation ]);
+    const updateProjectRef = useCallback((event: React.ChangeEvent<HTMLInputElement>) => setProjectRef(event.target.value), []);
+    const updateManagementToken = useCallback((event: React.ChangeEvent<HTMLInputElement>) => setManagementToken(event.target.value), []);
+    const provisionSchema = useCallback(() => provisionMutation.mutate(), [ provisionMutation ]);
     const isBusy = backupMutation.isPending || restoreMutation.isPending;
     const status = statusQuery.data;
 
@@ -155,10 +158,10 @@ const BackupRestorePage = () => {
                     <Stack spacing={2}>
                         <Typography variant='h2' component='h2' sx={{ fontSize: '1.25rem' }}>Provisionamento automático do Supabase</Typography>
                         <Typography variant='body2' color='text.secondary'>Na primeira instalação, informe o Project ID e um token escopado da Management API com permissão de banco. O servidor executará o schema completo de forma idempotente e removerá o token da configuração após o sucesso.</Typography>
-                        <TextField label='Project ID' value={projectRef} onChange={event => setProjectRef(event.target.value)} placeholder='ex.: abcdefghijklmnopqrst' fullWidth size='small' />
-                        <TextField label='Token da Management API' value={managementToken} onChange={event => setManagementToken(event.target.value)} placeholder='sbp_fc_...' type='password' fullWidth size='small' autoComplete='new-password' />
+                        <TextField label='Project ID' value={projectRef} onChange={updateProjectRef} placeholder='ex.: abcdefghijklmnopqrst' fullWidth size='small' />
+                        <TextField label='Token da Management API' value={managementToken} onChange={updateManagementToken} placeholder='sbp_fc_...' type='password' fullWidth size='small' autoComplete='new-password' />
                         <Alert severity='info'>Use um token escopado somente para este projeto, com Database write. Ele não será usado nos backups diários.</Alert>
-                        <Button variant='outlined' disabled={provisionMutation.isPending || !projectRef.trim() || !managementToken.trim() || !status?.IsConfigured} onClick={() => provisionMutation.mutate()}>
+                        <Button variant='outlined' disabled={provisionMutation.isPending || !projectRef.trim() || !managementToken.trim() || !status?.IsConfigured} onClick={provisionSchema}>
                             {provisionMutation.isPending ? 'Criando estrutura...' : 'Testar e criar estrutura'}
                         </Button>
                     </Stack>

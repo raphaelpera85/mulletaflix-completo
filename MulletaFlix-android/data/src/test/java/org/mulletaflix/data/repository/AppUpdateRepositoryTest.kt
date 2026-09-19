@@ -161,4 +161,38 @@ class AppUpdateRepositoryTest {
         assertEquals("1.0.0", info.latestVersion)
         assertEquals(null, info.apkDownloadUrl)
     }
+
+    @Test
+    fun `parseReleases keeps the Android channel isolated from server releases`() {
+        val serverReleases = (1..35).joinToString(",") { index ->
+            """
+            {
+                "tag_name": "v12.0.$index",
+                "assets": [{
+                    "name": "mulletaflix-update-win-x64.zip",
+                    "browser_download_url": "https://github.com/releases/download/v12.0.$index/server.zip"
+                }]
+            }
+            """.trimIndent()
+        }
+        val json = """
+            [$serverReleases,
+              {
+                "tag_name": "app-v1.0.38",
+                "assets": [{
+                    "name": "mulletaflix-app-v1.0.38.apk",
+                    "browser_download_url": "https://github.com/releases/download/app-v1.0.38/mulletaflix-app-v1.0.38.apk"
+                }]
+              }]
+        """.trimIndent()
+
+        val info = repository.parseReleases(json, "1.0.37")
+
+        assertTrue(info.isUpdateAvailable)
+        assertEquals("1.0.38", info.latestVersion)
+        assertEquals(
+            "https://github.com/releases/download/app-v1.0.38/mulletaflix-app-v1.0.38.apk",
+            info.apkDownloadUrl,
+        )
+    }
 }

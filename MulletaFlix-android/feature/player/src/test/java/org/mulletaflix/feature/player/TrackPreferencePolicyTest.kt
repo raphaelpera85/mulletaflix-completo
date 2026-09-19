@@ -25,6 +25,25 @@ class TrackPreferencePolicyTest {
     }
 
     @Test
+    fun `matches localized display language with region suffix`() {
+        val localizedStreams = listOf(
+            MediaStream(
+                index = 12,
+                type = MediaStreamType.Audio,
+                displayLanguage = "Português (Brasil)",
+            ),
+            MediaStream(
+                index = 14,
+                type = MediaStreamType.Audio,
+                displayLanguage = "English (US)",
+            ),
+        )
+
+        assertEquals(12, preferredStreamIndex(localizedStreams, "pt-BR", serverDefaultIndex = null))
+        assertEquals(14, preferredStreamIndex(localizedStreams, "en", serverDefaultIndex = null))
+    }
+
+    @Test
     fun `uses default stream when server default is missing`() {
         assertEquals(8, preferredStreamIndex(streams, "original", serverDefaultIndex = 99))
     }

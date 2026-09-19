@@ -24,6 +24,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -38,6 +40,8 @@ import coil.compose.SubcomposeAsyncImageContent
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
+
+internal const val REGISTER_DIALOG_CONTENT_DESCRIPTION = "Conteúdo do cadastro; deslize verticalmente para ver mais"
 
 /**
  * Login screen — first authentication step after server is selected.
@@ -279,7 +283,7 @@ private fun PasswordLoginForm(
 }
 
 @Composable
-private fun RegisterDialog(
+internal fun RegisterDialog(
     isLoading: Boolean,
     error: String?,
     onDismiss: () -> Unit,
@@ -288,12 +292,22 @@ private fun RegisterDialog(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var confirmationVisible by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Criar Conta") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState())
+                    .semantics {
+                        contentDescription = REGISTER_DIALOG_CONTENT_DESCRIPTION
+                    },
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text("Crie sua conta para acessar o Mulletaflix.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = username,
@@ -310,7 +324,15 @@ private fun RegisterDialog(
                     label = { Text("Senha") },
                     singleLine = true,
                     enabled = !isLoading,
-                    visualTransformation = PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                if (passwordVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                                contentDescription = if (passwordVisible) "Ocultar senha" else "Mostrar senha",
+                            )
+                        }
+                    },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -320,7 +342,15 @@ private fun RegisterDialog(
                     label = { Text("Confirmar senha") },
                     singleLine = true,
                     enabled = !isLoading,
-                    visualTransformation = PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { confirmationVisible = !confirmationVisible }) {
+                            Icon(
+                                if (confirmationVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                                contentDescription = if (confirmationVisible) "Ocultar confirmação" else "Mostrar confirmação",
+                            )
+                        }
+                    },
+                    visualTransformation = if (confirmationVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )

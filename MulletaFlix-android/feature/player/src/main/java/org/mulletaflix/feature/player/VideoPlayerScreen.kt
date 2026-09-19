@@ -1,6 +1,10 @@
 package org.mulletaflix.feature.player
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.os.Build
 import android.view.WindowManager
@@ -11,6 +15,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -24,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -35,6 +44,10 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+internal const val CAST_ACTION_CONTENT_DESCRIPTION = "Transmitir para dispositivo compatível"
+internal const val PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION = "Ações do player; deslize horizontalmente para ver mais"
+internal const val PLAYBACK_STATS_CONTENT_DESCRIPTION = "Dados técnicos da mídia; deslize verticalmente para ver mais"
 
 /**
  * Full-screen video player screen using Media3 / ExoPlayer.
@@ -78,8 +91,12 @@ fun VideoPlayerScreen(
 
     // Keep screen on while playing
     val activity = context as? Activity
-    DisposableEffect(Unit) {
+    val previousOrientation = remember(activity) {
+        activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
+    DisposableEffect(activity) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        activity?.requestedOrientation = playerOrientationForEntry(previousOrientation)
         PlayerPictureInPictureController.register {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 shouldEnterPictureInPicture(latestPipEnabled, latestPlaying, Build.VERSION.SDK_INT)
@@ -91,6 +108,7 @@ fun VideoPlayerScreen(
         }
         onDispose {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            activity?.requestedOrientation = previousOrientation
             PlayerPictureInPictureController.unregister()
         }
     }
@@ -422,6 +440,7 @@ fun VideoPlayerScreen(
                 onPlayPause = { viewModel.togglePlayPause() },
                 onSeekPreview = { position -> viewModel.previewSeekTo(position) },
                 onSeekFinished = { position -> viewModel.seekTo(position) },
+                onSeekBy = { delta -> viewModel.seekBy(delta) },
                 onPrevious = { viewModel.skipPrevious() },
                 onNext = { viewModel.skipNext() },
                 onPreviousChapter = { viewModel.skipToPreviousChapter() },
@@ -430,9 +449,11 @@ fun VideoPlayerScreen(
                 onAudioSelect = { index -> viewModel.selectAudio(index) },
                 onQualitySelect = { quality -> viewModel.selectQuality(quality) },
                 onSpeedSelect = { speed -> viewModel.setPlaybackSpeed(speed) },
+                onSleepTimerSelect = { minutes -> viewModel.setSleepTimer(minutes) },
                 onAspectRatioSelect = { ratio -> viewModel.setAspectRatio(ratio) },
                 onLockClick = { viewModel.setControlsLocked(true) },
-                onCastClick = { viewModel.startCast() }
+                onCastClick = { viewModel.startCast() },
+                onCopyStats = { copyPlaybackStats(context, state.playbackStats) },
             )
         }
     }
@@ -446,6 +467,7 @@ private fun PlayerOsd(
     onPlayPause: () -> Unit,
     onSeekPreview: (Long) -> Unit,
     onSeekFinished: (Long) -> Unit,
+    onSeekBy: (Long) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onPreviousChapter: () -> Unit,
@@ -454,14 +476,17 @@ private fun PlayerOsd(
     onAudioSelect: (Int) -> Unit,
     onQualitySelect: (String) -> Unit,
     onSpeedSelect: (Float) -> Unit,
+    onSleepTimerSelect: (Int?) -> Unit,
     onAspectRatioSelect: (VideoAspectRatio) -> Unit,
     onLockClick: () -> Unit,
     onCastClick: () -> Unit,
+    onCopyStats: () -> Unit,
 ) {
     var showSubtitleMenu by remember { mutableStateOf(false) }
     var showAudioMenu by remember { mutableStateOf(false) }
     var showQualityMenu by remember { mutableStateOf(false) }
     var showSpeedMenu by remember { mutableStateOf(false) }
+    var showSleepTimerMenu by remember { mutableStateOf(false) }
     var showAspectRatioMenu by remember { mutableStateOf(false) }
     var showStatsDialog by remember { mutableStateOf(false) }
     var isSeeking by remember { mutableStateOf(false) }
@@ -508,12 +533,18 @@ private fun PlayerOsd(
                     )
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            PlayerTopBarActionsRow(
+                modifier = Modifier.weight(1f),
+            ) {
                 // Official Media3 Cast button. Keep a text label beside it so
                 // the action remains discoverable on mobile and TV layouts.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(end = 4.dp),
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = CAST_ACTION_CONTENT_DESCRIPTION
+                        },
                 ) {
                     MediaRouteButton(
                         modifier = Modifier.size(40.dp),
@@ -544,6 +575,19 @@ private fun PlayerOsd(
                 IconButton(onClick = { showSpeedMenu = true }) {
                     Icon(Icons.Default.Speed, contentDescription = "Velocidade", tint = Color.White)
                 }
+                // Sleep timer
+                IconButton(onClick = { showSleepTimerMenu = true }) {
+                    Icon(
+                        Icons.Default.Bedtime,
+                        contentDescription = sleepTimerLabel(state.sleepTimerRemainingMs)
+                            ?: "Temporizador de suspensão",
+                        tint = if (state.sleepTimerRemainingMs != null) {
+                            MaterialTheme.colorScheme.secondary
+                        } else {
+                            Color.White
+                        },
+                    )
+                }
                 // Playback stats
                 IconButton(onClick = { showStatsDialog = true }) {
                     Icon(Icons.Default.Info, contentDescription = "Estatísticas", tint = Color.White)
@@ -561,6 +605,14 @@ private fun PlayerOsd(
             horizontalArrangement = Arrangement.spacedBy(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(onClick = { onSeekBy(-10_000L) }, modifier = Modifier.size(44.dp)) {
+                Icon(
+                    Icons.Default.Replay10,
+                    contentDescription = "Voltar 10 segundos",
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp),
+                )
+            }
             if (state.chapters.isNotEmpty()) {
                 IconButton(onClick = onPreviousChapter, modifier = Modifier.size(44.dp)) {
                     Icon(Icons.Default.FastRewind, contentDescription = "Capítulo Anterior", tint = Color.White, modifier = Modifier.size(30.dp))
@@ -590,6 +642,14 @@ private fun PlayerOsd(
                 IconButton(onClick = onNextChapter, modifier = Modifier.size(44.dp)) {
                     Icon(Icons.Default.FastForward, contentDescription = "Próximo Capítulo", tint = Color.White, modifier = Modifier.size(30.dp))
                 }
+            }
+            IconButton(onClick = { onSeekBy(10_000L) }, modifier = Modifier.size(44.dp)) {
+                Icon(
+                    Icons.Default.Forward10,
+                    contentDescription = "Avançar 10 segundos",
+                    tint = Color.White,
+                    modifier = Modifier.size(34.dp),
+                )
             }
         }
 
@@ -677,6 +737,17 @@ private fun PlayerOsd(
             )
         }
 
+        if (showSleepTimerMenu) {
+            SleepTimerMenu(
+                remainingMs = state.sleepTimerRemainingMs,
+                onSelect = { minutes ->
+                    onSleepTimerSelect(minutes)
+                    showSleepTimerMenu = false
+                },
+                onDismiss = { showSleepTimerMenu = false },
+            )
+        }
+
         // ── Aspect Ratio dropdown ─────────────────────────────────────────────
         if (showAspectRatioMenu) {
             AspectRatioMenu(
@@ -690,15 +761,38 @@ private fun PlayerOsd(
         if (showStatsDialog) {
             PlaybackStatsDialog(
                 stats = state.playbackStats,
+                onCopy = onCopyStats,
                 onDismiss = { showStatsDialog = false }
             )
         }
     }
 }
 
+/**
+ * Keeps the player actions reachable on narrow portrait windows and on devices
+ * with large font scales. The title remains fixed while this action strip can
+ * be explored horizontally.
+ */
+@Composable
+internal fun PlayerTopBarActionsRow(
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .horizontalScroll(rememberScrollState())
+            .semantics {
+                contentDescription = PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION
+            },
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
 // Helpers
 @Composable
-private fun PlayerTrackMenu(
+internal fun PlayerTrackMenu(
     title: String,
     tracks: List<TrackInfo>,
     selectedIndex: Int,
@@ -710,22 +804,40 @@ private fun PlayerTrackMenu(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 if (allowNone) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onSelect(-1) }.fillMaxWidth().padding(vertical = 8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = selectedIndex == -1,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(-1) },
+                            )
+                            .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = selectedIndex == -1, onClick = { onSelect(-1) })
+                        RadioButton(selected = selectedIndex == -1, onClick = null)
                         Text("Nenhuma", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
                 tracks.forEachIndexed { index, track ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onSelect(index) }.fillMaxWidth().padding(vertical = 8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = selectedIndex == index,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(index) },
+                            )
+                            .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = selectedIndex == index, onClick = { onSelect(index) })
+                        RadioButton(selected = selectedIndex == index, onClick = null)
                         Text(track.displayName, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -736,7 +848,7 @@ private fun PlayerTrackMenu(
 }
 
 @Composable
-private fun QualityMenu(
+internal fun QualityMenu(
     qualities: List<String>,
     selectedQuality: String?,
     onSelect: (String) -> Unit,
@@ -746,13 +858,24 @@ private fun QualityMenu(
         onDismissRequest = onDismiss,
         title = { Text("Qualidade") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 qualityMenuOptions(qualities).forEach { q ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onSelect(q) }.fillMaxWidth().padding(vertical = 8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = selectedQuality == q,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(q) },
+                            )
+                            .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = selectedQuality == q, onClick = { onSelect(q) })
+                        RadioButton(selected = selectedQuality == q, onClick = null)
                         Text(q, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -773,19 +896,87 @@ private fun SpeedMenu(
         onDismissRequest = onDismiss,
         title = { Text("Velocidade de Reprodução") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 speeds.forEach { speed ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onSelect(speed) }.fillMaxWidth().padding(vertical = 8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = currentSpeed == speed,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(speed) },
+                            )
+                            .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = currentSpeed == speed, onClick = { onSelect(speed) })
+                        RadioButton(selected = currentSpeed == speed, onClick = null)
                         Text("${speed}x", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
         },
         confirmButton = {}
+    )
+}
+
+@Composable
+internal fun SleepTimerMenu(
+    remainingMs: Long?,
+    onSelect: (Int?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf(15, 30, 45, 60, 90)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Temporizador de suspensão") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    text = sleepTimerLabel(remainingMs) ?: "O player pausará automaticamente.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = remainingMs == null,
+                            role = Role.RadioButton,
+                            onClick = { onSelect(null) },
+                        )
+                        .padding(vertical = 8.dp),
+                ) {
+                    RadioButton(selected = remainingMs == null, onClick = null)
+                    Text("Desativado", modifier = Modifier.padding(start = 8.dp))
+                }
+                options.forEach { minutes ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = false,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(minutes) },
+                            )
+                            .padding(vertical = 8.dp),
+                    ) {
+                        RadioButton(selected = false, onClick = null)
+                        Text("${minutes} minutos", modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {},
     )
 }
 
@@ -799,13 +990,24 @@ private fun AspectRatioMenu(
         onDismissRequest = onDismiss,
         title = { Text("Proporção da Tela (Zoom)") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 VideoAspectRatio.values().forEach { ratio ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onSelect(ratio) }.fillMaxWidth().padding(vertical = 8.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = currentRatio == ratio,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(ratio) },
+                            )
+                            .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = currentRatio == ratio, onClick = { onSelect(ratio) })
+                        RadioButton(selected = currentRatio == ratio, onClick = null)
                         Text(ratio.title, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -816,15 +1018,26 @@ private fun AspectRatioMenu(
 }
 
 @Composable
-private fun PlaybackStatsDialog(
+internal fun PlaybackStatsDialog(
     stats: PlaybackStats?,
+    onCopy: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var copied by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Dados Técnicos da Mídia") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState())
+                    .semantics {
+                        contentDescription = PLAYBACK_STATS_CONTENT_DESCRIPTION
+                    },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text("Método de Reprodução: ${stats?.playMethod ?: "Direct Play"}", style = MaterialTheme.typography.bodyMedium)
                 stats?.resolution?.let { Text("Resolução: $it", style = MaterialTheme.typography.bodyMedium) }
                 stats?.videoCodec?.let { Text("Codec de Vídeo: $it", style = MaterialTheme.typography.bodyMedium) }
@@ -833,11 +1046,24 @@ private fun PlaybackStatsDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Fechar")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = {
+                    onCopy()
+                    copied = true
+                }) {
+                    Text(if (copied) "Copiado" else "Copiar")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Fechar")
+                }
             }
         }
     )
+}
+
+private fun copyPlaybackStats(context: Context, stats: PlaybackStats?) {
+    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
+    clipboard.setPrimaryClip(ClipData.newPlainText("Dados técnicos da mídia", formatPlaybackStats(stats)))
 }
 
 // Extension: millis to time string

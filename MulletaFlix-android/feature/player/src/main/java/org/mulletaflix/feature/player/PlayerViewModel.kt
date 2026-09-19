@@ -2,7 +2,10 @@ package org.mulletaflix.feature.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.net.Uri
 import androidx.media3.common.MediaItem as Media3Item
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.Player
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
@@ -38,6 +41,8 @@ import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
 import org.mulletaflix.core.common.network.NetworkMonitor
+import org.mulletaflix.designsystem.media.resolveMediaUrl
+import org.mulletaflix.domain.model.primaryImageUrl
 import javax.inject.Inject
 
 data class TrackInfo(
@@ -81,6 +86,7 @@ data class PlayerState(
     val chapters: List<Chapter> = emptyList(),
     val playbackStats: PlaybackStats? = null,
     val isNetworkOffline: Boolean = false,
+    val sleepTimerRemainingMs: Long? = null,
 )
 
 @HiltViewModel
@@ -95,12 +101,25 @@ class PlayerViewModel @Inject constructor(
     private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
+    private val offlinePlaybackPositions = context.getSharedPreferences(
+        "offline_playback_positions",
+        Context.MODE_PRIVATE,
+    )
+
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
     private val trackSelector = DefaultTrackSelector(context)
     private val localPlayer: ExoPlayer = ExoPlayer.Builder(context)
         .setTrackSelector(trackSelector)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            true,
+        )
+        .setHandleAudioBecomingNoisy(true)
         .setMediaSourceFactory(
             DefaultMediaSourceFactory(
                 CacheDataSource.Factory()
@@ -126,6 +145,9 @@ class PlayerViewModel @Inject constructor(
                     it.copy(isBuffering = playbackState == Player.STATE_BUFFERING)
                 }
                 if (playbackState == Player.STATE_ENDED) {
+                    localPlaybackKey?.let { key ->
+                        offlinePlaybackPositions.edit().remove(key).apply()
+                    }
                     reportPlaybackStopped()
                     handlePlaybackEnded()
                 }
@@ -159,7 +181,12 @@ class PlayerViewModel @Inject constructor(
                     triedTranscodeFallback = true
                     val positionAtError = fallbackPosition(localPlayer.currentPosition)
                     _state.update { it.copy(isBuffering = true, error = null) }
-                    player.setMediaItem(Media3Item.Builder().setUri(transcodeUrl!!).build())
+                    player.setMediaItem(
+                        Media3Item.Builder()
+                            .setUri(transcodeUrl!!)
+                            .setMediaMetadata(currentMediaMetadata ?: MediaMetadata.EMPTY)
+                            .build(),
+                    )
                     player.prepare()
                     player.seekTo(positionAtError)
                     player.play()
@@ -168,12 +195,13 @@ class PlayerViewModel @Inject constructor(
                 val itemIdAtError = currentItemId
                 val uriAtError = localPlayer.currentMediaItem?.localConfiguration?.uri
                 if (itemIdAtError != null && shouldRetryPlayback(error.errorCode, playbackRetryCount)) {
+                    val retryAttempt = playbackRetryCount
                     playbackRetryCount += 1
                     val positionAtError = localPlayer.currentPosition
                     retryJob?.cancel()
                     _state.update { it.copy(isBuffering = true, error = null) }
                     retryJob = viewModelScope.launch {
-                        delay(750)
+                        delay(playbackRetryDelayMs(retryAttempt))
                         if (currentItemId == itemIdAtError &&
                             localPlayer.currentMediaItem?.localConfiguration?.uri == uriAtError
                         ) {
@@ -207,6 +235,7 @@ class PlayerViewModel @Inject constructor(
     private var currentPlaySessionId: String? = null
     private var currentMediaSourceId: String? = null
     private var currentTranscodeUrl: String? = null
+    private var currentMediaMetadata: MediaMetadata? = null
     private var triedTranscodeFallback = false
     private var playbackRetryCount = 0
     private var networkWasOffline = false
@@ -216,6 +245,7 @@ class PlayerViewModel @Inject constructor(
     private var skipIntroEnabled = true
     private var defaultQuality = "Auto"
     private var defaultPlaybackSpeed = 1f
+    private var defaultAspectRatio = VideoAspectRatio.FIT
     private var subtitleFontSize = 100
     private var pendingAudioStreamIndex: Int? = null
     private var pendingSubtitleStreamIndex: Int? = null
@@ -223,6 +253,8 @@ class PlayerViewModel @Inject constructor(
     /** Global stream indexes required by the server's playback reporting API. */
     private var currentAudioStreamIndex: Int? = null
     private var currentSubtitleStreamIndex: Int? = null
+    private var localPlaybackKey: String? = null
+    private var lastLocalPositionPersistedAt = 0L
 
     init {
         viewModelScope.launch {
@@ -255,6 +287,12 @@ class PlayerViewModel @Inject constructor(
             settingsRepository.getDefaultPlaybackSpeed().collect { defaultPlaybackSpeed = it }
         }
         viewModelScope.launch {
+            settingsRepository.getDefaultAspectRatio().collect { value ->
+                defaultAspectRatio = normalizeAspectRatioPreference(value)
+                _state.update { it.copy(aspectRatio = defaultAspectRatio) }
+            }
+        }
+        viewModelScope.launch {
             settingsRepository.getSubtitleFontSize().collect { size ->
                 subtitleFontSize = size
                 _state.update { it.copy(subtitleFontSize = size) }
@@ -272,12 +310,17 @@ class PlayerViewModel @Inject constructor(
         retryJob?.cancel()
         serverProgressJob?.cancel()
         nextEpisodeCountdownJob?.cancel()
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
         player.stop()
         currentItemId = itemId
+        localPlaybackKey = null
+        lastLocalPositionPersistedAt = 0L
         currentItemChapters = emptyList()
         currentItemSegments = emptyList()
         stoppedReported = false
         currentTranscodeUrl = null
+        currentMediaMetadata = null
         lastPlaybackErrorCode = null
         currentAudioStreamIndex = null
         currentSubtitleStreamIndex = null
@@ -294,6 +337,7 @@ class PlayerViewModel @Inject constructor(
                 nextEpisodeCountdown = null,
                 error = null,
                 isNetworkOffline = false,
+                aspectRatio = defaultAspectRatio,
             )
         }
         loadJob = viewModelScope.launch {
@@ -302,6 +346,7 @@ class PlayerViewModel @Inject constructor(
                 showLoadError("Faça login para reproduzir esta mídia.")
                 return@launch
             }
+            localPlaybackKey = remotePlaybackPositionKey(userId, itemId)
 
             // Get playback info from server to determine best play method
             val item = getItemDetailUseCase(userId, itemId).getOrElse {
@@ -444,19 +489,37 @@ class PlayerViewModel @Inject constructor(
 
             // Prepare Media3. CastPlayer automatically transfers this item when a
             // compatible Cast route is selected by the user.
+            val artworkUri = resolveMediaUrl(
+                baseUrl = sessionRepository.getBaseUrl().first(),
+                path = item.primaryImageUrl,
+                accessToken = sessionRepository.getAccessToken().first(),
+            )?.let(Uri::parse)
+            val mediaMetadata = MediaMetadata.Builder()
+                .setTitle(mediaNotificationTitle(item))
+                .setArtist(item.seriesName)
+                .setDescription(item.overview)
+                .setArtworkUri(artworkUri)
+                .build()
+            currentMediaMetadata = mediaMetadata
             val mediaItem = Media3Item.Builder()
                 .setUri(streamUrl)
+                .setMimeType(playbackMimeType(mediaSource.container, streamUrl))
+                .setMediaMetadata(mediaMetadata)
                 .build()
 
             player.setMediaItem(mediaItem)
             player.prepare()
             applyDefaultPlaybackPreferences()
 
-            // Resume from last position
-            item.userProgress?.playbackPositionTicks?.let { ticks ->
-                val positionMs = ticks / 10_000L
-                if (positionMs > 0) player.seekTo(positionMs)
+            // Server progress is authoritative; local progress covers a temporary
+            // sync delay after an interrupted remote session.
+            val serverPositionMs = item.userProgress?.playbackPositionTicks?.div(10_000L)
+            val localPositionMs = localPlaybackKey?.let { key ->
+                offlinePlaybackPositions.getLong(key, 0L)
             }
+            chooseResumePositionMs(serverPositionMs, localPositionMs)
+                .takeIf { it > 0L }
+                ?.let(player::seekTo)
 
             if (autoPlayEnabled) player.play()
 
@@ -479,20 +542,43 @@ class PlayerViewModel @Inject constructor(
         progressJob?.cancel()
         serverProgressJob?.cancel()
         nextEpisodeCountdownJob?.cancel()
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
         player.stop()
         currentItemId = null
+        localPlaybackKey = offlinePlaybackPositionKey(uri)
+        lastLocalPositionPersistedAt = 0L
         currentPlaySessionId = null
         currentMediaSourceId = null
         currentTranscodeUrl = null
+        currentMediaMetadata = null
         lastPlaybackErrorCode = null
         currentAudioStreamIndex = null
         currentSubtitleStreamIndex = null
         triedTranscodeFallback = true
         playbackRetryCount = 0
-        _state.value = PlayerState(title = title, isBuffering = true, error = null, isNetworkOffline = false)
-        player.setMediaItem(Media3Item.Builder().setUri(uri).build())
+        _state.value = PlayerState(
+            title = title,
+            isBuffering = true,
+            error = null,
+            isNetworkOffline = false,
+            aspectRatio = defaultAspectRatio,
+        )
+        player.setMediaItem(
+            Media3Item.Builder()
+                .setUri(uri)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(title)
+                        .build(),
+                )
+                .build(),
+        )
         player.prepare()
         applyDefaultPlaybackPreferences()
+        offlinePlaybackPositions.getLong(localPlaybackKey, 0L)
+            .takeIf { it > 0L }
+            ?.let(player::seekTo)
         player.play()
     }
 
@@ -502,6 +588,7 @@ class PlayerViewModel @Inject constructor(
 
     fun seekTo(positionMs: Long) {
         player.seekTo(positionMs)
+        persistLocalPlaybackPosition(force = true)
         viewModelScope.launch {
             val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
             currentItemId?.let { id ->
@@ -516,6 +603,10 @@ class PlayerViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun seekBy(deltaMs: Long) {
+        seekTo(seekPositionByDelta(player.currentPosition, deltaMs, player.duration))
     }
 
     /** Updates the local player while the seek bar is being dragged.
@@ -591,12 +682,19 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        player.setPlaybackSpeed(speed)
-        _state.update { it.copy(playbackSpeed = speed) }
+        val normalizedSpeed = normalizePlaybackSpeed(speed)
+        player.setPlaybackSpeed(normalizedSpeed)
+        _state.update { it.copy(playbackSpeed = normalizedSpeed) }
+        viewModelScope.launch {
+            settingsRepository.setDefaultPlaybackSpeed(normalizedSpeed)
+        }
     }
 
     fun setAspectRatio(ratio: VideoAspectRatio) {
         _state.update { it.copy(aspectRatio = ratio) }
+        viewModelScope.launch {
+            settingsRepository.setDefaultAspectRatio(ratio.name)
+        }
     }
 
     fun toggleControlsLock() {
@@ -617,7 +715,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun applyDefaultPlaybackPreferences() {
         applyQuality(defaultQuality)
-        setPlaybackSpeed(defaultPlaybackSpeed.coerceIn(0.5f, 2f))
+        setPlaybackSpeed(normalizePlaybackSpeed(defaultPlaybackSpeed))
     }
 
     fun startCast() {
@@ -683,6 +781,7 @@ class PlayerViewModel @Inject constructor(
                         currentChapterName = currentChapter?.name,
                     )
                 }
+                persistLocalPlaybackPosition()
                 delay(250)
             }
         }
@@ -699,7 +798,7 @@ class PlayerViewModel @Inject constructor(
                         audioIndex = currentAudioStreamIndex,
                         subtitleIndex = currentSubtitleStreamIndex,
                         positionTicks = position * 10_000L,
-                        isPaused = false,
+                        isPaused = isPlaybackPausedForReport(player.isPlaying),
                     )
                 }
             }
@@ -714,6 +813,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun reportPlaybackProgress(isPaused: Boolean) {
+        persistLocalPlaybackPosition(force = isPaused)
         viewModelScope.launch {
             val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
             currentItemId?.let { id ->
@@ -747,6 +847,34 @@ class PlayerViewModel @Inject constructor(
     }
 
     private var nextEpisodeCountdownJob: Job? = null
+    private var sleepTimerJob: Job? = null
+
+    fun setSleepTimer(minutes: Int?) {
+        sleepTimerJob?.cancel()
+        val normalizedMinutes = minutes?.let(::normalizeSleepTimerMinutes)
+        if (normalizedMinutes == null) {
+            _state.update { it.copy(sleepTimerRemainingMs = null) }
+            return
+        }
+        val durationMs = normalizedMinutes * 60_000L
+        _state.update { it.copy(sleepTimerRemainingMs = durationMs) }
+        sleepTimerJob = viewModelScope.launch {
+            var remainingMs = durationMs
+            while (remainingMs > 0L && isActive) {
+                delay(1_000L)
+                remainingMs = (remainingMs - 1_000L).coerceAtLeast(0L)
+                _state.update { it.copy(sleepTimerRemainingMs = remainingMs) }
+            }
+            if (isActive) {
+                player.pause()
+                _state.update { it.copy(sleepTimerRemainingMs = null) }
+            }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        setSleepTimer(null)
+    }
 
     private fun handlePlaybackEnded() {
         val next = _state.value.nextEpisode ?: return
@@ -780,10 +908,21 @@ class PlayerViewModel @Inject constructor(
         progressJob?.cancel()
         serverProgressJob?.cancel()
         nextEpisodeCountdownJob?.cancel()
+        sleepTimerJob?.cancel()
+        persistLocalPlaybackPosition(force = true)
         reportPlaybackStopped()
         PlayerMediaSessionBridge.detach(mediaSession)
         player.release()
         localPlayer.release()
+    }
+
+    private fun persistLocalPlaybackPosition(force: Boolean = false) {
+        val key = localPlaybackKey ?: return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!force && now - lastLocalPositionPersistedAt < 5_000L) return
+        val position = player.currentPosition.coerceAtLeast(0L)
+        offlinePlaybackPositions.edit().putLong(key, position).apply()
+        lastLocalPositionPersistedAt = now
     }
 
     private fun showLoadError(message: String) {
@@ -798,7 +937,7 @@ class PlayerViewModel @Inject constructor(
         val positionAtError = localPlayer.currentPosition
         retryJob = viewModelScope.launch {
             _state.update { it.copy(isBuffering = true, error = null) }
-            delay(350)
+            delay(playbackRetryDelayMs(playbackRetryCount))
             if (currentItemId == itemId) {
                 playbackRetryCount = 0
                 player.prepare()

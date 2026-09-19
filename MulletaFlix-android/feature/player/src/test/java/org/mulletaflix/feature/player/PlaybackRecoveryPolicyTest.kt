@@ -1,16 +1,26 @@
 package org.mulletaflix.feature.player
 
 import androidx.media3.common.PlaybackException
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackRecoveryPolicyTest {
     @Test
-    fun `retries transient network failures once`() {
+    fun `retries transient network failures with a bounded attempt count`() {
         assertTrue(shouldRetryPlayback(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, 0))
         assertTrue(shouldRetryPlayback(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT, 0))
-        assertFalse(shouldRetryPlayback(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, 1))
+        assertTrue(shouldRetryPlayback(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, 2))
+        assertFalse(shouldRetryPlayback(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, 3))
+    }
+
+    @Test
+    fun `uses bounded exponential backoff for network retries`() {
+        assertEquals(750L, playbackRetryDelayMs(0))
+        assertEquals(1_500L, playbackRetryDelayMs(1))
+        assertEquals(3_000L, playbackRetryDelayMs(2))
+        assertEquals(3_000L, playbackRetryDelayMs(10))
     }
 
     @Test
