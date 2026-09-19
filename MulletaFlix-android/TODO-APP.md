@@ -279,5 +279,30 @@ Pendências registradas nesta correção:
       servidor não enumera os canais por esse endpoint (mesmo resultado antes desta correção); o caminho
       correto é a tela de TV Ao Vivo.
 
+---
+
+## 🖼️ 17. Capas das mídias iguais ao acesso web (v1.0.6)
+
+- [x] **Capas das temporadas na série**: o seletor de temporadas era apenas texto. Agora cada temporada é um
+      card com a capa vinda do servidor (`Items/{seasonId}/Images/Primary?tag=...`, com fallback para a capa
+      da série via `SeriesPrimaryImageTag`), igual ao cliente web. Coberto por teste instrumentado
+      (`SeriesSectionTest`, incluindo o estado "selecionada").
+- [x] **Destaque da temporada selecionada**: contorno e nome na cor de acento (`secondary`). O destaque
+      anterior usava `colorScheme.primary`, que no tema escuro padrão é o preto da marca
+      (`DarkColorScheme.primary = MulletaFlixBlack`) e ficava invisível sobre superfícies escuras.
+- [x] **Conferência das capas**: grades de Filmes/Séries, cartões de biblioteca da Home e lista de episódios
+      carregam a capa de todo item que possui imagem no servidor — conferido item a item contra a API
+      (`ImageTags`). Itens sem nenhuma imagem cadastrada (ex.: `BoJack Horseman`, `Series`) exibem o mesmo
+      espaço reservado do cliente web.
+
+Pendências relacionadas:
+
+- [ ] Revisar o tema escuro padrão: `primary` é o preto da marca, então todo componente que usa
+      `colorScheme.primary` como acento (botões preenchidos, chips, abas selecionadas) fica sem contraste.
+      Trocar a cor primária muda a aparência de várias telas e deve ser decidido com o cliente.
+- [ ] Badges de episódios não assistidos e faixa de anos (ex.: "2022 - Presente") que o cliente web mostra
+      nos cards: exigem mapear `RecursiveUnplayedItemCount` / `PremiereDate`+`EndDate` no DTO.
+
+
 
 

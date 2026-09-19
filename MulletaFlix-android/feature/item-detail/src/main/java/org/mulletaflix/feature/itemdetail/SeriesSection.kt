@@ -1,10 +1,12 @@
 package org.mulletaflix.feature.itemdetail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -22,8 +26,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,6 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -57,24 +62,17 @@ fun SeriesSection(
     isLoading: Boolean = false,
 ) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
-        // `PrimaryScrollableTabRow` indexes its tab positions, so measuring it
-        // with zero tabs throws `IndexOutOfBoundsException: Index 0 out of
-        // bounds for length 0` and kills the app (the seasons request is always
-        // in flight on the first frame of a series). Only draw it with tabs.
+        // Season covers, like the web client's season row. The previous tab row
+        // indexed its tab positions, so measuring it with zero tabs threw
+        // `IndexOutOfBoundsException: Index 0 out of bounds for length 0` and
+        // killed the app (the seasons request is always in flight on the first
+        // frame of a series). It is only drawn when seasons exist.
         if (seasons.isNotEmpty()) {
-            PrimaryScrollableTabRow(
-                selectedTabIndex = selectedSeasonIndex.coerceIn(0, seasons.lastIndex),
-                containerColor = MaterialTheme.colorScheme.background,
-                edgePadding = 16.dp
-            ) {
-                seasons.forEachIndexed { index, season ->
-                    Tab(
-                        selected = index == selectedSeasonIndex,
-                        onClick = { onSeasonSelect(index) },
-                        text = { Text(season.name) }
-                    )
-                }
-            }
+            SeasonCoverRow(
+                seasons = seasons,
+                selectedSeasonIndex = selectedSeasonIndex.coerceIn(0, seasons.lastIndex),
+                onSeasonSelect = onSeasonSelect,
+            )
         }
 
         // Episodes list
@@ -90,6 +88,74 @@ fun SeriesSection(
                 )
                 seasons.isEmpty() -> SeriesSectionMessage("Nenhuma temporada disponível")
                 else -> SeriesSectionMessage("Nenhum episódio disponível")
+            }
+        }
+    }
+}
+
+/**
+ * Horizontally scrollable season posters (the media cover the server has for the
+ * season, falling back to the series poster) with the selected season outlined.
+ */
+@Composable
+private fun SeasonCoverRow(
+    seasons: List<MediaItem>,
+    selectedSeasonIndex: Int,
+    onSeasonSelect: (Int) -> Unit,
+) {
+    val serverUrl = LocalMulletaFlixServerUrl.current
+    val accessToken = LocalMulletaFlixAccessToken.current
+
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        itemsIndexed(seasons, key = { _, season -> season.id }) { index, season ->
+            val selected = index == selectedSeasonIndex
+            val shape = RoundedCornerShape(8.dp)
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .width(110.dp)
+                    .clip(shape)
+                    .clickable { onSeasonSelect(index) }
+                    .semantics { this.selected = selected }
+                    .padding(bottom = 4.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(2f / 3f)
+                        .clip(shape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .then(
+                            if (selected) {
+                                // `colorScheme.primary` is the brand black in the default
+                                // dark scheme (invisible on dark surfaces), so the accent
+                                // of this app — secondary/red — marks the selection.
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.secondary, shape)
+                            } else {
+                                Modifier
+                            }
+                        ),
+                ) {
+                    AsyncImage(
+                        model = resolveMediaUrl(serverUrl, season.primaryImageUrl, accessToken),
+                        contentDescription = season.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Text(
+                    text = season.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
         }
     }

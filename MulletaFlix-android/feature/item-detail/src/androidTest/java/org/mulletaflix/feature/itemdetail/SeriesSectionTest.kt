@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -40,7 +41,7 @@ class SeriesSectionTest {
     }
 
     @Test
-    fun rendersSeasonTabsAndEpisodesWhenSeasonsAreAvailable() {
+    fun rendersSeasonCoversAndEpisodesWhenSeasonsAreAvailable() {
         val seasons = listOf(
             org.mulletaflix.domain.model.MediaItem("sea-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season),
             org.mulletaflix.domain.model.MediaItem("sea-2", "Temporada 2", org.mulletaflix.domain.model.MediaItemType.Season),
@@ -57,7 +58,7 @@ class SeriesSectionTest {
                 SeriesSection(
                     seasons = seasons,
                     episodes = episodes,
-                    selectedSeasonIndex = 0,
+                    selectedSeasonIndex = 1,
                     onSeasonSelect = {},
                     onEpisodePlay = {},
                     onEpisodeClick = {},
@@ -65,8 +66,10 @@ class SeriesSectionTest {
             }
         }
 
+        // Season covers carry the season name; the selected one is exposed as
+        // selected for accessibility.
         composeRule.onNodeWithText("Temporada 1").assertIsDisplayed()
-        composeRule.onNodeWithText("Temporada 2").assertIsDisplayed()
+        composeRule.onNodeWithText("Temporada 2").assertIsDisplayed().assertIsSelected()
         composeRule.onNodeWithText("1x01 Piloto").assertIsDisplayed()
     }
 }
