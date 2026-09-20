@@ -28,6 +28,20 @@ class OfflinePlaybackPositionTest {
     }
 
     @Test
+    fun `offline position is isolated by user`() {
+        val uri = "https://server/Videos/movie/stream"
+
+        assertNotEquals(
+            offlinePlaybackPositionKey("raphael", uri),
+            offlinePlaybackPositionKey("other-user", uri),
+        )
+        assertNotEquals(
+            offlinePlaybackPositionKey("raphael", uri),
+            offlinePlaybackPositionKey(uri),
+        )
+    }
+
+    @Test
     fun `remote position is scoped by user and item without exposing either`() {
         val key = remotePlaybackPositionKey("raphael", "movie-1")
 

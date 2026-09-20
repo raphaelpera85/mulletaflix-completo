@@ -72,4 +72,35 @@ class PlaybackRecoveryPolicyTest {
             )
         )
     }
+
+    @Test
+    fun `invalidates a retry when the same title starts a newer load`() {
+        assertFalse(isCurrentPlaybackLoad(4L, 5L, "movie", "movie"))
+        assertFalse(isCurrentPlaybackLoad(4L, 4L, "movie", "episode"))
+        assertTrue(isCurrentPlaybackLoad(4L, 4L, "movie", "movie"))
+    }
+
+    @Test
+    fun `invalidates a load when the playback session changes`() {
+        assertFalse(
+            isCurrentPlaybackLoad(
+                expectedGeneration = 4L,
+                currentGeneration = 4L,
+                expectedItemId = "movie",
+                currentItemId = "movie",
+                expectedSessionGeneration = 1L,
+                currentSessionGeneration = 2L,
+            ),
+        )
+        assertTrue(
+            isCurrentPlaybackLoad(
+                expectedGeneration = 4L,
+                currentGeneration = 4L,
+                expectedItemId = "movie",
+                currentItemId = "movie",
+                expectedSessionGeneration = 2L,
+                currentSessionGeneration = 2L,
+            ),
+        )
+    }
 }

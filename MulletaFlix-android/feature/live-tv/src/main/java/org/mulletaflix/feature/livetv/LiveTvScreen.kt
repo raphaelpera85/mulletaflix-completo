@@ -187,8 +187,9 @@ private fun GuideContent(state: LiveTvUiState, onSchedule: (MediaItem) -> Unit) 
                         val canSchedule = !program.channelId.isNullOrBlank() && !program.startDate.isNullOrBlank() && !program.endDate.isNullOrBlank()
                         if (canSchedule) {
                             val scheduled = program.id in state.scheduledProgramIds
-                            TextButton(onClick = { onSchedule(program) }, enabled = !scheduled && state.schedulingProgramId != program.id) {
-                                Text(if (scheduled) "Agendado" else if (state.schedulingProgramId == program.id) "Agendando…" else "Gravar")
+                            val scheduling = program.id in state.schedulingProgramIds
+                            TextButton(onClick = { onSchedule(program) }, enabled = !scheduled && !scheduling) {
+                                Text(if (scheduled) "Agendado" else if (scheduling) "Agendando…" else "Gravar")
                 }
             }
         }

@@ -73,9 +73,12 @@ fun ItemDetailScreen(
                     onBack = onBack,
                     onPlay = { onPlay(playbackTargetId(item, state.episodes)) },
                     playEnabled = canPlayItem(item, state.episodes),
-                    onFavorite = { viewModel.toggleFavorite() },
-                    onMarkWatched = { viewModel.toggleWatched() },
-                    onDownload = { viewModel.downloadItem() },
+                     onFavorite = { viewModel.toggleFavorite() },
+                     onMarkWatched = { viewModel.toggleWatched() },
+                     onDownload = { viewModel.downloadItem() },
+                     isDownloadPreparing = state.isPreparingDownload,
+                     isFavoriteUpdating = state.isFavoriteUpdating,
+                     isWatchedUpdating = state.isWatchedUpdating,
                     onPlaylist = { viewModel.openPlaylistPicker() },
                     onShare = {
                         val text = buildItemShareText(item.name, item.id, serverUrl)
@@ -195,6 +198,9 @@ private fun DetailHero(
     onFavorite: () -> Unit,
     onMarkWatched: () -> Unit,
     onDownload: () -> Unit,
+    isDownloadPreparing: Boolean,
+    isFavoriteUpdating: Boolean,
+    isWatchedUpdating: Boolean,
     onPlaylist: () -> Unit,
     onShare: () -> Unit,
     isLoading: Boolean,
@@ -228,30 +234,46 @@ private fun DetailHero(
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = Color.White)
         }
 
-        // Bottom content
-        Column(
-            modifier = Modifier.align(Alignment.BottomStart).padding(20.dp)
+        // Bottom content: keep the complete poster visible beside the metadata.
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
-            // Title
-            Text(
-                text = item.name,
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
+            AsyncImage(
+                model = resolveMediaUrl(serverUrl, item.primaryImageUrl, accessToken),
+                contentDescription = "${item.name} — capa",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .width(112.dp)
+                    .aspectRatio(2f / 3f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.45f)),
             )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                // Title
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
 
-            // Series name for episodes
-            item.seriesName?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.7f))
-            }
+                // Series name for episodes
+                item.seriesName?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.7f))
+                }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-            // Action buttons row
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+                // Action buttons row
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                 // Play
                 Button(
                     onClick = onPlay,
@@ -264,35 +286,54 @@ private fun DetailHero(
                 }
 
                 // Favorite
-                IconButton(
-                    onClick = onFavorite,
-                    modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
-                ) {
-                    Icon(
-                        if (item.isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = "Favorito",
-                        tint = if (item.isFavorite) Color(0xFFE53935) else Color.White
-                    )
-                }
+                 IconButton(
+                     onClick = onFavorite,
+                     enabled = !isFavoriteUpdating,
+                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+                 ) {
+                     if (isFavoriteUpdating) {
+                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                     } else {
+                         Icon(
+                             if (item.isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                             contentDescription = if (item.isFavorite) "Remover dos favoritos" else "Adicionar aos favoritos",
+                             tint = if (item.isFavorite) Color(0xFFE53935) else Color.White
+                         )
+                     }
+                 }
 
                 // Mark watched
-                IconButton(
-                    onClick = onMarkWatched,
-                    modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
-                ) {
-                    Icon(
-                        if (item.isPlayed) Icons.Default.CheckCircle else Icons.Outlined.CheckCircleOutline,
-                        contentDescription = "Marcar como assistido",
-                        tint = if (item.isPlayed) Color(0xFF4CAF50) else Color.White
-                    )
-                }
+                 IconButton(
+                     onClick = onMarkWatched,
+                     enabled = !isWatchedUpdating,
+                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+                 ) {
+                     if (isWatchedUpdating) {
+                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                     } else {
+                         Icon(
+                             if (item.isPlayed) Icons.Default.CheckCircle else Icons.Outlined.CheckCircleOutline,
+                             contentDescription = if (item.isPlayed) "Marcar como não assistido" else "Marcar como assistido",
+                             tint = if (item.isPlayed) Color(0xFF4CAF50) else Color.White
+                         )
+                     }
+                 }
 
                 // Download for offline playback
                 IconButton(
                     onClick = onDownload,
+                    enabled = !isDownloadPreparing,
                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Download, contentDescription = "Baixar para assistir offline", tint = Color.White)
+                    if (isDownloadPreparing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White,
+                        )
+                    } else {
+                        Icon(Icons.Default.Download, contentDescription = "Baixar para assistir offline", tint = Color.White)
+                    }
                 }
 
                 IconButton(
@@ -307,6 +348,7 @@ private fun DetailHero(
                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
                 ) {
                     Icon(Icons.Default.Share, contentDescription = "Compartilhar título", tint = Color.White)
+                }
                 }
             }
         }
@@ -358,9 +400,12 @@ private fun PlaylistPickerDialog(
 }
 
 @Composable
-private fun MetadataPills(item: MediaItem) {
+internal fun MetadataPills(item: MediaItem) {
     Row(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

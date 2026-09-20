@@ -4,8 +4,10 @@ import android.content.Context
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -56,6 +58,7 @@ class UserProfileViewModelTest {
             logoutUseCase = LogoutUseCase(authRepo),
             switchUserUseCase = SwitchUserUseCase(authRepo),
             context = context,
+            ioDispatcher = dispatcher,
         )
     }
 
@@ -110,6 +113,49 @@ class UserProfileViewModelTest {
         assertEquals("Offline User", state.userProfile?.name)
         assertEquals("u-fallback", state.userProfile?.id)
         assertFalse(state.userProfile?.isAdministrator ?: true)
+    }
+
+    @Test
+    fun `late profile from a previous user cannot replace the current session`() = runTest {
+        val staleProfile = CompletableDeferred<Result<UserProfile>>()
+        val userId = MutableStateFlow<String?>("u1")
+        val currentProfile = UserProfile(
+            id = "u2",
+            name = "Current User",
+            isAdministrator = false,
+            canDownload = true,
+            canAccessLiveTv = true,
+            canPlayMedia = true,
+        )
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun getCurrentUserProfile(): Result<UserProfile> =
+                if (userId.value == "u1") staleProfile.await() else Result.success(currentProfile)
+        }
+        val sessionRepo = FakeSessionRepository(userIdFlow = userId, userNameFlow = MutableStateFlow("User 1"))
+        val viewModel = createViewModel(authRepo, sessionRepo)
+        advanceUntilIdle()
+
+        userId.value = "u2"
+        sessionRepo.userNameFlow.value = "Current User"
+        advanceUntilIdle()
+
+        assertEquals("Current User", viewModel.uiState.value.userProfile?.name)
+
+        staleProfile.complete(
+            Result.success(
+                UserProfile(
+                    id = "u1",
+                    name = "Old User",
+                    isAdministrator = true,
+                    canDownload = true,
+                    canAccessLiveTv = true,
+                    canPlayMedia = true,
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("Current User", viewModel.uiState.value.userProfile?.name)
     }
 
     @Test
@@ -208,15 +254,16 @@ class UserProfileViewModelTest {
         private val url: String = "http://localhost:8096",
         private val userId: String? = "u1",
         private val userName: String? = "Admin User",
+        val userIdFlow: MutableStateFlow<String?> = MutableStateFlow(userId),
+        val userNameFlow: MutableStateFlow<String?> = MutableStateFlow(userName),
     ) : SessionRepository {
         override fun getAccessToken(): Flow<String?> = flowOf("token")
         override fun getDeviceId(): Flow<String> = flowOf("dev-1")
         override fun getBaseUrl(): Flow<String> = flowOf(url)
-        override fun getCurrentUserId(): Flow<String?> = flowOf(userId)
-        override fun getCurrentUserName(): Flow<String?> = flowOf(userName)
+        override fun getCurrentUserId(): Flow<String?> = userIdFlow
+        override fun getCurrentUserName(): Flow<String?> = userNameFlow
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
         override suspend fun setBaseUrl(url: String) = Unit
         override suspend fun clearSession() = Unit
     }
 }
-

@@ -24,9 +24,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -40,6 +37,7 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.userAvatarPath
+import org.mulletaflix.designsystem.components.MulletaFlixWordmark
 
 /**
  * Home screen — the first screen users see after login.
@@ -513,15 +511,7 @@ private fun HomeTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = buildAnnotatedString {
-                withStyle(SpanStyle(color = MaterialTheme.colorScheme.secondary)) {
-                    append("MULLETA")
-                }
-                withStyle(SpanStyle(color = Color.White)) {
-                    append("FLIX")
-                }
-            },
+        MulletaFlixWordmark(
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Black,
         )

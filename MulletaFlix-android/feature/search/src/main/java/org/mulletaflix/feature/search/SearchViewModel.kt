@@ -37,15 +37,32 @@ class SearchViewModel @Inject constructor(
     private var historyJob: Job? = null
     private var currentUserId: String? = null
     private var searchGeneration = 0L
+    private var historyGeneration = 0L
 
     init {
         viewModelScope.launch {
             authRepository.getSavedUserId().distinctUntilChanged().collect { userId ->
+                val userChanged = currentUserId != userId
                 currentUserId = userId
+                if (userChanged) {
+                    searchJob?.cancel()
+                    ++searchGeneration
+                    _state.update {
+                        it.copy(
+                            results = emptyList(),
+                            isLoading = false,
+                            isRefreshing = false,
+                            error = null,
+                        )
+                    }
+                }
+                val generation = ++historyGeneration
                 historyJob?.cancel()
                 historyJob = launch {
                     searchHistoryRepository.observeHistory(userId).collect { history ->
-                        _state.update { it.copy(history = history) }
+                        if (generation == historyGeneration && currentUserId == userId) {
+                            _state.update { it.copy(history = history) }
+                        }
                     }
                 }
             }
@@ -68,21 +85,21 @@ class SearchViewModel @Inject constructor(
     }
 
     fun search(query: String) {
-        if (query.isBlank()) return
+        val normalizedQuery = normalizeSearchQuery(query) ?: return
         _state.update {
             it.copy(
-                query = query,
-                history = (listOf(query) + it.history).distinct().take(10),
+                query = normalizedQuery,
+                history = (listOf(normalizedQuery) + it.history).distinct().take(10),
                 error = null,
             )
         }
         viewModelScope.launch {
-            searchHistoryRepository.add(currentUserId, query)
+            searchHistoryRepository.add(currentUserId, normalizedQuery)
         }
         searchJob?.cancel()
         val generation = ++searchGeneration
         searchJob = viewModelScope.launch {
-            performSearch(query, _state.value.activeFilter, generation)
+            performSearch(normalizedQuery, _state.value.activeFilter, generation)
         }
     }
 
@@ -136,12 +153,16 @@ class SearchViewModel @Inject constructor(
         isRefresh: Boolean = false,
     ) {
         val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
-            if (isCurrentSearch(query, filter, generation)) {
+            if (generation == searchGeneration &&
+                _state.value.query == query &&
+                _state.value.activeFilter == filter &&
+                currentUserId == null
+            ) {
                 _state.update { it.copy(isLoading = false, isRefreshing = false, error = "Usuário não autenticado") }
             }
             return
         }
-        if (!isCurrentSearch(query, filter, generation)) return
+        if (!isCurrentSearch(query, filter, generation, userId)) return
         _state.update {
             it.copy(
                 isLoading = !isRefresh,
@@ -166,11 +187,11 @@ class SearchViewModel @Inject constructor(
             query = query,
             itemTypes = typeParam,
         ).onSuccess { items ->
-            if (isCurrentSearch(query, filter, generation)) {
+            if (isCurrentSearch(query, filter, generation, userId)) {
                 _state.update { it.copy(results = items, isLoading = false, isRefreshing = false, error = null) }
             }
         }.onFailure {
-            if (isCurrentSearch(query, filter, generation)) {
+            if (isCurrentSearch(query, filter, generation, userId)) {
                 _state.update {
                     it.copy(
                         results = emptyList(),
@@ -183,8 +204,14 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    private fun isCurrentSearch(query: String, filter: SearchFilter?, generation: Long): Boolean =
+    private fun isCurrentSearch(
+        query: String,
+        filter: SearchFilter?,
+        generation: Long,
+        userId: String,
+    ): Boolean =
         generation == searchGeneration &&
             _state.value.query == query &&
-            _state.value.activeFilter == filter
+            _state.value.activeFilter == filter &&
+            currentUserId == userId
 }

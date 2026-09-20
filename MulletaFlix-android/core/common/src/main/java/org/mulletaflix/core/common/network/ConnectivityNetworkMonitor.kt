@@ -45,8 +45,14 @@ class ConnectivityNetworkMonitor @Inject constructor(
                 network: Network,
                 networkCapabilities: NetworkCapabilities,
             ) {
-                val hasInternet = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                // A MulletaFlix server can be reachable only inside the local LAN.
+                // Requiring VALIDATED here incorrectly marks a Wi-Fi network without
+                // internet access as offline and prevents LAN playback/recovery.
+                val hasInternet = isUsableForServerAccess(
+                    hasInternetCapability = networkCapabilities.hasCapability(
+                        NetworkCapabilities.NET_CAPABILITY_INTERNET,
+                    ),
+                )
                 if (hasInternet) {
                     networks += network
                 } else {
@@ -65,7 +71,11 @@ class ConnectivityNetworkMonitor @Inject constructor(
         // Initial state check
         val currentNetwork = connectivityManager.activeNetwork
         val capabilities = connectivityManager.getNetworkCapabilities(currentNetwork)
-        val isCurrentlyConnected = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        val isCurrentlyConnected = capabilities?.let {
+            isUsableForServerAccess(
+                hasInternetCapability = it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+            )
+        } == true
         trySend(isCurrentlyConnected)
 
         awaitClose {
@@ -73,3 +83,10 @@ class ConnectivityNetworkMonitor @Inject constructor(
         }
     }.conflate()
 }
+
+/**
+ * `VALIDATED` means internet connectivity, not reachability of a local server.
+ * The INTERNET capability is the Android signal that the link can carry IP traffic;
+ * the actual MulletaFlix endpoint remains the source of truth for server reachability.
+ */
+internal fun isUsableForServerAccess(hasInternetCapability: Boolean): Boolean = hasInternetCapability

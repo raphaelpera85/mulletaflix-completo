@@ -27,6 +27,10 @@ interface DownloadRepository {
         enqueue(id, title, uri)
     fun retry(id: String, title: String, uri: String): Result<Unit>
     fun remove(id: String): Result<Unit>
+    /** Removes only completed downloads, preserving queued, active, and failed items. */
+    fun removeCompleted(): Result<Unit> = Result.success(Unit)
+    /** Removes only failed downloads, preserving queued, active, and completed items. */
+    fun removeFailed(): Result<Unit> = Result.success(Unit)
     fun pauseAll(): Result<Unit>
     fun resumeAll(): Result<Unit>
 }

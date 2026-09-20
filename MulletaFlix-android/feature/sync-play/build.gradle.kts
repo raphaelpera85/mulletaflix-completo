@@ -15,6 +15,7 @@ android {
     buildFeatures { compose = true }
 }
 dependencies {
+    implementation(project(":core:api"))
     implementation(project(":domain"))
     implementation(project(":design-system"))
     implementation(platform(libs.androidx.compose.bom))

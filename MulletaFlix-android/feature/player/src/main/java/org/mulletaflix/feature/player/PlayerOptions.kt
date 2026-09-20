@@ -71,7 +71,28 @@ internal fun qualityMenuOptions(qualities: List<String>): List<String> =
 
 /** Keeps the persisted quality preference valid when it comes from UI or old storage. */
 internal fun normalizeQualityPreference(value: String?): String =
-    value?.trim()?.takeIf(String::isNotBlank) ?: "Auto"
+    when (value?.trim()?.uppercase()) {
+        "AUTO", "AUTOMÁTICO", "AUTOMATICO" -> "Auto"
+        "4K", "2160P", "2160" -> "4K"
+        "1440P", "1440" -> "1440p"
+        "1080P", "1080", "FULL HD" -> "1080p"
+        "720P", "720", "HD" -> "720p"
+        "480P", "480", "SD" -> "480p"
+        else -> "Auto"
+    }
+
+/** Keeps the quality radio selection truthful when a title lacks the saved resolution. */
+internal fun effectiveQualitySelection(
+    preference: String?,
+    availableQualities: List<String>,
+): String {
+    val normalized = normalizeQualityPreference(preference)
+    return if (normalized == "Auto" || availableQualities.any { it.equals(normalized, ignoreCase = true) }) {
+        normalized
+    } else {
+        "Auto"
+    }
+}
 
 internal data class VideoQualityConstraint(
     val maxWidth: Int,

@@ -93,4 +93,11 @@ class LanServerRecoveryPolicyTest {
 
         assertTrue(selectAuthenticatedLanServer(listOf(first, second), null) == null)
     }
+
+    @Test
+    fun `only the latest active scan can apply its endpoint`() {
+        assertTrue(isCurrentLanScan(scanGeneration = 4, latestGeneration = 4, isStarted = true))
+        assertFalse(isCurrentLanScan(scanGeneration = 3, latestGeneration = 4, isStarted = true))
+        assertFalse(isCurrentLanScan(scanGeneration = 4, latestGeneration = 4, isStarted = false))
+    }
 }

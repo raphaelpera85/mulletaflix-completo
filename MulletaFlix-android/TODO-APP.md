@@ -774,3 +774,541 @@ Pendências relacionadas:
 - [x] Adicionar chaves estáveis aos cards de mídia nas fileiras horizontais.
 - [x] Adicionar chaves estáveis aos cards de bibliotecas.
 - [x] Evitar que atualizações do servidor troquem a identidade visual dos itens e desloquem a rolagem.
+
+## 92. Rolagem estável na biblioteca (v1.0.84)
+
+- [x] Adicionar chaves estáveis aos itens da grade/lista da biblioteca.
+- [x] Preservar a identidade visual durante paginação, filtros e atualização.
+- [x] Alinhar o comportamento da biblioteca com Home, Favoritos e Live TV.
+
+## 93. Preferência persistente de visualização da biblioteca (v1.0.85)
+
+- [x] Persistir a escolha entre grade e lista no DataStore local.
+- [x] Restaurar a preferência ao abrir qualquer biblioteca.
+- [x] Cobrir restauração e gravação da preferência com teste unitário.
+
+## 94. Ordenação persistente da biblioteca (v1.0.86)
+
+- [x] Persistir a ordenação escolhida no DataStore local.
+- [x] Restaurar a ordenação ao abrir a biblioteca.
+- [x] Cobrir restauração e gravação da ordenação com teste unitário.
+
+## 95. Filtros persistentes da biblioteca (v1.0.87)
+
+- [x] Persistir Favoritos, Assistidos e Não assistidos no DataStore local.
+- [x] Restaurar os filtros ao reabrir a biblioteca.
+- [x] Cobrir restauração, gravação e limpeza dos filtros com teste unitário.
+
+## 96. Ordem determinística dos filtros (v1.0.88)
+
+- [x] Normalizar filtros restaurados para a ordem visual estável.
+- [x] Ignorar valores desconhecidos persistidos.
+- [x] Cobrir a normalização com teste unitário.
+
+## 97. Formato de capa por tipo na biblioteca (v1.0.89)
+
+- [x] Manter filmes e séries com capa vertical completa.
+- [x] Exibir episódios e canais com arte horizontal completa também na lista.
+- [x] Cobrir o mapeamento de formato com testes de apresentação.
+
+## 98. Wordmark oficial nas telas do aplicativo (v1.0.90)
+
+- [x] Centralizar a composição `MULLETA` vermelho + `FLIX` branco no design system.
+- [x] Aplicar o wordmark na tela de login e na Home.
+- [x] Cobrir as cores e os limites dos dois trechos com teste unitário.
+
+## 99. Preservação integral das artes nos cartões (v1.0.91)
+
+- [x] Preservar pôsteres e artes horizontais completas no componente compartilhado `MediaCard`.
+- [x] Manter o preenchimento intencional em cartões quadrados e banners.
+- [x] Cobrir as políticas de escala com testes unitários.
+
+## 100. Wordmark oficial no fluxo inicial (v1.0.92)
+
+- [x] Aplicar o wordmark oficial na seleção do servidor.
+- [x] Manter o mesmo branding na seleção, login e Home.
+- [x] Atualizar o smoke test instrumentado para validar `MULLETAFLIX`.
+
+## 101. Conectividade LAN sem internet externa (v1.0.93)
+
+- [x] Não exigir `NET_CAPABILITY_VALIDATED` para considerar uma rede local utilizável.
+- [x] Preservar a recuperação automática do servidor quando o Wi-Fi não possui internet externa.
+- [x] Cobrir a política de conectividade local com testes unitários.
+
+## 102. Latência real no perfil (v1.0.94)
+
+- [x] Remover o valor de latência fictício exibido antes da verificação do servidor.
+- [x] Exibir `Conectado` enquanto ainda não houver uma medição real.
+- [x] Cobrir latência válida, ausente e inválida com testes unitários.
+
+## 103. Imagens absolutas autenticadas (v1.0.95)
+
+- [x] Anexar o token somente às imagens absolutas do mesmo servidor selecionado.
+- [x] Preservar imagens externas/CDN sem expor o token da sessão.
+- [x] Evitar duplicação de `api_key` quando a URL já estiver autenticada.
+- [x] Cobrir os cenários de servidor local, CDN externo e token existente.
+
+## 104. Preferência de idioma do áudio (v1.0.96)
+
+- [x] Adicionar a seleção persistente de Português, Inglês ou idioma original nas configurações.
+- [x] Conectar a preferência ao mesmo fluxo usado pelo player para escolher a faixa de áudio.
+- [x] Restaurar a escolha ao reabrir as configurações.
+- [x] Cobrir restauração e gravação da preferência com teste unitário.
+
+## 105. Qualidades avançadas na configuração (v1.0.97)
+
+- [x] Expor 4K e 1440p na preferência de qualidade padrão.
+- [x] Manter as restrições de qualidade alinhadas ao player Media3.
+- [x] Normalizar valores persistidos e substituir preferências inválidas por Automático.
+- [x] Cobrir as opções e a normalização com testes unitários.
+
+## 106. Preferências de qualidade canônicas no player (v1.0.98)
+
+- [x] Normalizar aliases persistidos como `2160p`, `1440`, `FULL HD`, `HD` e `SD`.
+- [x] Aplicar rótulos canônicos antes de criar as restrições de vídeo do Media3.
+- [x] Evitar divergência entre a preferência restaurada e a opção selecionada na interface do player.
+- [x] Cobrir aliases válidos e valores inválidos com testes unitários.
+
+## 107. Qualidade disponível refletida no player (v1.0.99)
+
+- [x] Evitar que uma preferência salva sem faixa correspondente fique sem seleção visual.
+- [x] Exibir Automático quando a mídia atual não possui a resolução preferida.
+- [x] Preservar o limite máximo configurado sem inventar opções de qualidade inexistentes.
+- [x] Cobrir a seleção efetiva com testes unitários.
+
+## 108. Mensagens de erro de reprodução acionáveis (v1.1.0)
+
+- [x] Traduzir falhas de rede, decodificação, arquivo ausente e DRM para mensagens orientadas ao usuário.
+- [x] Preservar o retry automático para falhas transitórias de rede.
+- [x] Usar uma mensagem segura quando o Media3 não fornecer detalhes úteis.
+- [x] Cobrir os grupos de erro e os fallbacks com testes unitários.
+
+## 109. Proporção global da imagem (v1.1.1)
+
+- [x] Expor Ajustar, Preencher/Zoom e Esticar nas configurações.
+- [x] Persistir a proporção selecionada no DataStore existente.
+- [x] Restaurar e normalizar valores antigos ou inválidos com segurança.
+- [x] Cobrir restauração e persistência no teste do SettingsViewModel.
+
+## 110. Feedback de limpeza de cache (v1.1.2)
+
+- [x] Informar visualmente quando o cache de imagens terminar de ser removido.
+- [x] Manter a limpeza restrita ao cache local do aplicativo.
+- [x] Cobrir a mensagem de conclusão no teste do SettingsViewModel.
+
+## 111. Confirmação para limpeza total (v1.1.3)
+
+- [x] Exigir confirmação explícita antes de remover dados locais e encerrar a sessão.
+- [x] Informar claramente o impacto e a irreversibilidade da ação.
+- [x] Manter Cancelar como saída segura sem alterar preferências ou sessão.
+
+## 112. Temporizador de suspensão consistente no player (v1.1.4)
+
+- [x] Marcar no diálogo a duração atualmente selecionada.
+- [x] Limpar o temporizador visual ao trocar de mídia ou cancelar a contagem.
+- [x] Manter o estado da contagem regressiva e da duração sincronizados.
+- [x] Cobrir a seleção da duração com teste unitário.
+
+## 113. Pausa ao fim da mídia (v1.1.5)
+
+- [x] Oferecer a opção de pausar ao fim do filme ou episódio atual.
+- [x] Impedir o avanço automático para o próximo episódio quando essa opção estiver ativa.
+- [x] Exibir o modo ativo no acessível do botão do temporizador.
+- [x] Cobrir o rótulo do novo modo com teste unitário.
+
+## 114. Capa completa no detalhe do título (v1.1.6)
+
+- [x] Exibir a capa vertical completa de filmes e séries no detalhe.
+- [x] Preservar a imagem inteira com `ContentScale.Fit`, sem recorte da arte.
+- [x] Manter ações, título e metadados acessíveis em telas estreitas com rolagem horizontal.
+
+## 115. Rolagem de metadados no detalhe (v1.1.7)
+
+- [x] Permitir rolagem horizontal dos badges de ano, qualidade, HDR e áudio.
+- [x] Evitar que metadados sejam cortados em telas estreitas.
+- [x] Cobrir a ação de rolagem com teste Compose.
+
+## 116. Cor configurável das legendas (v1.1.8)
+
+- [x] Persistir a preferência de cor Branco, Amarelo ou Ciano.
+- [x] Aplicar a cor selecionada no SubtitleView do Media3.
+- [x] Manter contorno preto para legibilidade em cenas claras e escuras.
+- [x] Cobrir normalização e mapeamento de cores com testes unitários.
+
+## 117. Grade adaptativa da biblioteca (v1.1.9)
+
+- [x] Adaptar a quantidade de colunas à largura real do dispositivo.
+- [x] Preservar capas verticais inteiras em telas pequenas, tablets e orientação horizontal.
+- [x] Oferecer densidades Confortável e Compacta nas configurações.
+- [x] Persistir e normalizar a preferência da grade.
+- [x] Cobrir a política de densidade com testes unitários.
+
+## 118. Seletor de faixas multimídia informativo (v1.1.10)
+
+- [x] Exibir codec e configuração de canais nas faixas de áudio.
+- [x] Identificar faixa padrão e legenda forçada no seletor do player.
+- [x] Preservar a seleção efetiva e os índices enviados ao servidor.
+- [x] Cobrir a formatação dos rótulos com testes unitários.
+
+## 119. Busca por voz no Android (v1.1.11)
+
+- [x] Adicionar microfone opcional à busca, solicitando permissão somente ao tocar no botão.
+- [x] Preencher e executar a busca com o primeiro resultado reconhecido.
+- [x] Tratar indisponibilidade, permissão negada e falhas do reconhecimento com mensagens acionáveis.
+- [x] Liberar o reconhecedor ao sair da tela.
+- [x] Cobrir normalização do resultado e mensagens de erro com testes unitários.
+
+## 120. Capas completas nos Downloads Offline (v1.1.12)
+
+- [x] Preservar a capa inteira de filmes e séries na lista de downloads.
+- [x] Evitar recorte da arte vertical no card compacto offline.
+- [x] Cobrir a política de escala com teste unitário.
+
+## 121. Paginação protegida na biblioteca (v1.1.13)
+
+- [x] Fechar a janela de corrida entre o sentinel do Scroll e o início da requisição.
+- [x] Impedir páginas duplicadas durante recomposição ou rolagem rápida.
+- [x] Cobrir o bloqueio de nova página enquanto uma requisição está em andamento ou após o fim.
+
+## 122. Recuperação de sessão durante paginação (v1.1.14)
+
+- [x] Encerrar o carregamento quando a sessão expira durante a rolagem.
+- [x] Exibir uma mensagem acionável em vez de deixar o Scroll em estado infinito.
+- [x] Cobrir o caminho de sessão ausente com teste de regressão.
+
+## 123. Repetir falhas da fila offline (v1.1.15)
+
+- [x] Adicionar ação única para repetir todos os downloads que falharam.
+- [x] Preservar a ordem e os metadados originais de cada item reenfileirado.
+- [x] Exibir a quantidade de falhas no botão e cobrir a seleção com teste unitário.
+
+## 124. Verificação visual da recuperação offline (v1.1.16)
+
+- [x] Cobrir o botão de repetição em teste Compose instrumentado.
+- [x] Confirmar que a ação fica oculta quando não há falhas.
+- [x] Confirmar que o toque dispara exatamente o callback de recuperação.
+
+## 125. Reenvio determinístico da fila offline (v1.1.17)
+
+- [x] Repetir falhas a partir do snapshot renderizado, sem depender de coleta tardia do Flow.
+- [x] Preservar a ordem dos IDs reenfileirados.
+- [x] Cobrir a operação completa do ViewModel com teste unitário.
+
+## 126. Agendamento protegido do EPG (v1.1.18)
+
+- [x] Impedir gravações duplicadas causadas por toques rápidos no mesmo programa.
+- [x] Cancelar requisições anteriores de atualização e guia quando uma nova é iniciada.
+- [x] Cobrir o bloqueio de agendamento duplicado com teste unitário.
+
+## 127. Agendamentos concorrentes do EPG (v1.1.19)
+
+- [x] Permitir agendar programas diferentes simultaneamente sem cancelar requisições independentes.
+- [x] Manter o bloqueio apenas para toques repetidos no mesmo programa.
+- [x] Cobrir a preservação de dois agendamentos concorrentes com teste unitário.
+
+## 128. Limpeza segura de downloads concluídos (v1.1.20)
+
+- [x] Adicionar ação para remover todos os downloads concluídos em uma única operação.
+- [x] Exigir confirmação explícita antes da limpeza em lote.
+- [x] Preservar downloads em andamento, enfileirados e com falha.
+- [x] Cobrir a seleção de concluídos e o encaminhamento ao repositório.
+
+## 129. Descoberta LAN sem respostas obsoletas (v1.1.21)
+
+- [x] Cancelar uma busca LAN anterior quando uma nova busca começa.
+- [x] Impedir que uma resposta atrasada substitua o resultado da busca mais recente.
+- [x] Cobrir a corrida entre buscas com teste unitário.
+
+## 130. Consultas de busca normalizadas (v1.1.22)
+
+- [x] Aparar espaços nas buscas manuais antes de atualizar estado e histórico.
+- [x] Não criar histórico nem requisição para consultas vazias.
+- [x] Cobrir normalização e rejeição de entradas somente com espaços.
+
+## 131. Confirmação do histórico de buscas (v1.1.23)
+
+- [x] Exigir confirmação antes de apagar todo o histórico do usuário.
+- [x] Manter Cancelar como saída segura sem modificar o histórico.
+- [x] Cobrir o diálogo e a ação de confirmação em teste Compose.
+
+## 132. Limpeza de downloads com falha (v1.1.24)
+
+- [x] Expor limpeza exclusiva de downloads falhos, sem afetar ativos ou concluídos.
+- [x] Exigir confirmação antes de remover falhas da fila offline.
+- [x] Cobrir a política de filtragem e delegação no ViewModel.
+
+## 133. Regressão instrumentada da limpeza de falhas (v1.1.25)
+
+- [x] Atualizar o teste Compose de `OfflineSummary` para os callbacks de limpeza.
+- [x] Validar que “Limpar falhas” aparece somente quando há falhas.
+- [x] Executar a suíte instrumentada do módulo no emulador API 35.
+
+## 134. Proteção contra respostas obsoletas da biblioteca (v1.1.26)
+
+- [x] Associar cada carregamento de biblioteca a uma geração de requisição.
+- [x] Ignorar sucesso ou falha de respostas que já não pertencem à tela atual.
+- [x] Cobrir resposta atrasada que ignora cancelamento com teste unitário.
+
+## 135. Confirmação para limpar cache de imagens (v1.1.27)
+
+- [x] Exigir confirmação antes de remover o cache visual local.
+- [x] Manter Cancelar como saída segura sem chamar a limpeza.
+- [x] Cobrir confirmação e cancelamento em teste Compose instrumentado.
+
+## 136. Limpeza de cache fora da thread principal (v1.1.28)
+
+- [x] Executar remoção e cálculo de diretórios de cache no dispatcher de I/O.
+- [x] Reutilizar o qualifier `@IoDispatcher` nas ViewModels de Settings e Perfil.
+- [x] Manter testes determinísticos com dispatcher controlado e preservar o cache de downloads offline.
+
+## 137. Proteção contra consultas duplicadas de atualização (v1.1.29)
+
+- [x] Bloquear uma nova verificação enquanto a consulta atual ou a instalação estiver em andamento.
+- [x] Desabilitar a ação de atualização na tela durante esses estados.
+- [x] Cobrir dois acionamentos consecutivos com teste unitário, garantindo uma única requisição.
+
+## 138. Verificação de atualização resiliente (v1.1.30)
+
+- [x] Exigir a versão instalada explicitamente, sem fallback silencioso para `1.0.0`.
+- [x] Normalizar espaços da versão antes de consultar o canal de releases do APK.
+- [x] Informar indisponibilidade ou versão ausente sem iniciar uma requisição inválida.
+- [x] Garantir que exceções inesperadas do repositório liberem o estado de verificação.
+- [x] Cobrir normalização, entrada vazia e exceção de rede com testes unitários.
+
+## 139. Ordenação padrão da biblioteca nas configurações (v1.1.31)
+
+- [x] Expor a ordenação persistida da biblioteca na tela de Configurações.
+- [x] Oferecer nome, data de adição, data de lançamento, duração e avaliação.
+- [x] Reutilizar os valores de ordenação compatíveis com a API do servidor.
+- [x] Restaurar a preferência salva e cobrir sua persistência com teste unitário.
+
+## 140. Proteção contra episódios obsoletos ao trocar de temporada (v1.1.32)
+
+- [x] Cancelar o carregamento anterior de episódios quando uma nova temporada é selecionada.
+- [x] Ignorar respostas atrasadas de temporadas que já não estão selecionadas.
+- [x] Cobrir a corrida entre temporadas com teste unitário usando resposta suspensa.
+
+## 141. Proteção contra detalhes obsoletos ao trocar de título (v1.1.33)
+
+- [x] Cancelar o carregamento anterior ao abrir outro filme, série ou episódio.
+- [x] Limpar os dados dependentes do título anterior enquanto o novo detalhe carrega.
+- [x] Ignorar respostas atrasadas de detalhes, capas, extras e faixas do título anterior.
+- [x] Cobrir a troca rápida de títulos com teste unitário concorrente.
+
+## 142. Proteção contra downloads duplicados por toque repetido (v1.1.34)
+
+- [x] Bloquear nova preparação enquanto o servidor ainda resolve a fonte do download.
+- [x] Mostrar progresso no botão de download durante a preparação.
+- [x] Ignorar atualizações de uma preparação antiga quando o título muda.
+- [x] Cobrir dois toques consecutivos com teste unitário concorrente.
+
+## 143. Proteção contra respostas obsoletas da Home (v1.1.35)
+
+- [x] Associar cada carregamento ou atualização da Home a uma geração monotônica.
+- [x] Ignorar respostas antigas mesmo quando a requisição não respeita cancelamento.
+- [x] Preservar o conteúdo mais recente durante atualizações concorrentes.
+- [x] Cobrir a corrida entre uma resposta antiga e uma atualização nova com teste unitário.
+
+## 144. Mutação protegida de favoritos e status assistido (v1.1.36)
+
+- [x] Bloquear toques repetidos enquanto o servidor atualiza favorito ou status assistido.
+- [x] Mostrar progresso visual nas ações de detalhe durante a mutação.
+- [x] Cancelar e invalidar mutações antigas ao abrir outro título.
+- [x] Cobrir a proteção contra duas solicitações de favorito com teste unitário concorrente.
+
+## 145. Paginação protegida de Minha Lista (v1.1.37)
+
+- [x] Bloquear duas solicitações da mesma página causadas por toques rápidos.
+- [x] Associar cada carga e refresh a uma geração monotônica.
+- [x] Ignorar respostas atrasadas de refresh que já não representam a lista atual.
+- [x] Cobrir paginação duplicada e refresh obsoleto com testes unitários concorrentes.
+
+## 146. Guia da TV ao vivo protegido contra respostas obsoletas (v1.1.38)
+
+- [x] Associar cada atualização de canais e guia a uma geração monotônica.
+- [x] Invalidar o guia anterior quando uma nova lista de canais é carregada.
+- [x] Ignorar respostas atrasadas do guia mesmo quando o transporte não respeita cancelamento.
+- [x] Cobrir duas solicitações concorrentes do guia com teste unitário.
+
+## 147. Retry offline sem IDs duplicados (v1.1.39)
+
+- [x] Deduplicar entradas com o mesmo ID antes de reenfileirar downloads com falha.
+- [x] Preservar a primeira ocorrência e a ordem apresentada na fila.
+- [x] Cobrir entradas duplicadas com teste unitário.
+
+## 148. Histórico de busca isolado por sessão (v1.1.40)
+
+- [x] Associar cada observador de histórico a uma geração monotônica.
+- [x] Confirmar também o usuário atual antes de atualizar a UI.
+- [x] Ignorar emissões atrasadas de uma sessão anterior.
+- [x] Cobrir troca de usuário com emissão tardia em teste concorrente.
+
+## 149. Recuperação do player protegida por geração (v1.1.41)
+
+- [x] Associar cada carga remota ou offline a uma geração de reprodução.
+- [x] Impedir que erros de uma carga antiga apareçam na mídia atual.
+- [x] Invalidar retries atrasados ao recarregar o mesmo título ou trocar de mídia.
+- [x] Cobrir geração obsoleta e título divergente com teste unitário.
+
+## 150. Relatórios de reprodução protegidos contra sessões obsoletas (v1.1.42)
+
+- [x] Capturar item, sessão, fonte e posição antes de iniciar relatórios assíncronos.
+- [x] Ignorar progresso e parada atrasados quando a mídia ou a sessão atuais mudarem.
+- [x] Evitar que uma troca rápida de mídia envie o progresso para o título errado.
+- [x] Cobrir geração, sessão e fonte divergentes com teste unitário.
+
+## 151. Relatório de seek protegido contra sessão obsoleta (v1.1.43)
+
+- [x] Aplicar a mesma captura de geração, item, sessão e fonte ao seek manual.
+- [x] Impedir que um seek antigo atualize o título aberto depois da troca de mídia.
+- [x] Revalidar o APK v1.1.42 antes de publicar a correção residual.
+
+## 152. Descoberta LAN vinculada à identidade do servidor (v1.1.44)
+
+- [x] Priorizar na LAN o servidor cujo `serverId` coincide com um servidor salvo.
+- [x] Manter o primeiro anúncio como fallback para a primeira configuração.
+- [x] Passar os servidores salvos à seleção automática durante a inicialização.
+- [x] Cobrir servidor correto, servidor desconhecido e primeiro uso com testes unitários.
+
+## 153. Snapshot consistente de faixas no relatório periódico (v1.1.45)
+
+- [x] Capturar áudio, legenda, posição e estado no mesmo evento periódico.
+- [x] Evitar misturar uma faixa escolhida depois da captura com a posição anterior.
+- [x] Cobrir a imutabilidade dos dados do snapshot com teste unitário.
+
+## 154. Usuários disponíveis sincronizados com o endpoint conectado (v1.1.46)
+
+- [x] Recarregar a lista de usuários após verificar uma URL LAN ou pública.
+- [x] Evitar que o login mostre usuários do servidor anterior após trocar de endpoint.
+- [x] Cobrir conexão sem URL salva e atualização do seletor de usuários.
+
+## 155. Seletor de usuários resiliente à troca e falha de endpoint (v1.1.47)
+
+- [x] Limpar usuários do servidor anterior assim que uma nova URL válida começa a ser verificada.
+- [x] Ignorar respostas tardias de carregamentos cancelados ou de endpoints que já não estão ativos.
+- [x] Permitir nova tentativa quando o carregamento de usuários falhar temporariamente.
+- [x] Cobrir retry no mesmo endpoint com teste unitário.
+
+## 156. Seleção de servidor protegida contra verificações atrasadas (v1.1.48)
+
+- [x] Cancelar a verificação anterior quando o usuário escolhe outro servidor.
+- [x] Associar cada verificação à geração da última seleção.
+- [x] Ignorar sucesso ou falha atrasados de uma conexão que já não é a escolhida.
+- [x] Cobrir resposta antiga não cooperativa com teste concorrente.
+
+## 157. Recuperação LAN protegida contra varredura obsoleta (v1.1.49)
+
+- [x] Associar cada descoberta LAN a uma geração monotônica.
+- [x] Ignorar o resultado de uma varredura cancelada após uma nova tentativa.
+- [x] Invalidar varreduras pendentes ao parar a recuperação de rede.
+- [x] Cobrir geração antiga e recuperação parada com teste unitário.
+
+## 158. Home não bloqueada por perfil lento (v1.1.50)
+
+- [x] Renderizar o catálogo assim que o feed de mídia terminar.
+- [x] Carregar avatar e perfil em paralelo sem bloquear a Home.
+- [x] Atualizar o perfil depois sem substituir um carregamento mais recente.
+- [x] Cobrir resposta de perfil suspensa com teste unitário.
+
+## 159. Busca isolada por sessão de usuário (v1.1.51)
+
+- [x] Invalidar buscas pendentes quando a conta ativa mudar.
+- [x] Limpar resultados da sessão anterior ao trocar de usuário.
+- [x] Ignorar respostas tardias de uma busca iniciada por outra conta.
+- [x] Cobrir transporte não cooperativo com teste unitário concorrente.
+
+## 160. Biblioteca isolada por sessão de usuário (v1.1.52)
+
+- [x] Invalidar carregamentos e paginações quando a conta ativa mudar.
+- [x] Limpar itens da biblioteca anterior antes de exibir a nova sessão.
+- [x] Validar geração, usuário e biblioteca antes de aplicar respostas.
+- [x] Cobrir resposta tardia de biblioteca com teste unitário concorrente.
+
+## 161. Minha Lista isolada por sessão de usuário (v1.1.53)
+
+- [x] Observar troca de conta enquanto Minha Lista está aberta.
+- [x] Limpar favoritos da conta anterior e recarregar a nova sessão.
+- [x] Validar usuário e geração antes de aplicar respostas de favoritos.
+- [x] Cobrir resposta tardia não cooperativa com teste unitário concorrente.
+
+## 162. Home sincronizada com a sessão ativa (v1.1.54)
+
+- [x] Observar troca de usuário enquanto a Home permanece aberta.
+- [x] Limpar conteúdo e perfil da conta anterior antes do novo carregamento.
+- [x] Recarregar automaticamente o feed da nova sessão.
+- [x] Ignorar resposta tardia não cooperativa da conta anterior.
+
+## 163. TV ao vivo isolada por sessão de usuário (v1.1.55)
+
+- [x] Invalidar canais, gravações e guia ao trocar de conta.
+- [x] Recarregar a programação da nova sessão automaticamente.
+- [x] Impedir callbacks atrasados de agendamentos de alterar a conta atual.
+- [x] Cobrir resposta tardia do guia com teste unitário concorrente.
+
+## 164. Estado da transmissão Cast refletido no player (v1.1.56)
+
+- [x] Observar a disponibilidade da sessão Cast pelo `CastPlayer` do Media3.
+- [x] Atualizar o rótulo e a descrição de acessibilidade para “Transmitindo” durante o espelhamento.
+- [x] Limpar o observador ao destruir o `PlayerViewModel`.
+- [x] Cobrir os rótulos de conexão e desconexão com teste unitário.
+
+## 165. SyncPlay isolado por sessão de usuário (v1.1.57)
+
+- [x] Invalidar salas e sala ativa ao trocar de conta.
+- [x] Recarregar as salas da nova sessão automaticamente.
+- [x] Impedir callbacks atrasados de criação, entrada, saída e listagem de alterar a conta atual.
+- [x] Cobrir resposta tardia de salas com teste unitário concorrente.
+
+## 166. Detalhes de mídia isolados por sessão de usuário (v1.1.58)
+
+- [x] Invalidar detalhes, temporadas, favoritos, estado assistido e downloads ao trocar de conta.
+- [x] Ignorar respostas atrasadas de detalhes, temporadas, playlists e preparação de download da conta anterior.
+- [x] Recomeçar a tela de detalhes limpa para a nova sessão ativa.
+- [x] Cobrir resposta tardia de detalhes com teste unitário concorrente.
+
+## 167. Perfil do usuário isolado por sessão (v1.1.59)
+
+- [x] Invalidar carregamentos de perfil, usuários disponíveis e verificação do servidor ao trocar de conta.
+- [x] Limpar o perfil anterior enquanto a nova sessão é carregada.
+- [x] Recarregar automaticamente o perfil após a troca de usuário.
+- [x] Cobrir resposta tardia do perfil com teste unitário concorrente.
+
+## 168. Player invalidado ao trocar de sessão (v1.1.60)
+
+- [x] Observar a sessão ativa enquanto o player está aberto.
+- [x] Interromper a reprodução e limpar a mídia da conta anterior ao trocar de usuário.
+- [x] Invalidar carregamentos, retries e relatórios de progresso atrasados.
+- [x] Cobrir a invalidação por geração de sessão com teste unitário.
+
+## 169. Downloads offline isolados por conta (v1.1.61)
+
+- [x] Escopar IDs de requisição do Media3 pelo usuário ativo.
+- [x] Armazenar proprietário e ID público da mídia nos metadados locais.
+- [x] Exibir, remover e limpar somente downloads da conta atual.
+- [x] Cobrir identidade e filtragem por usuário com testes unitários.
+
+## 170. Feedback de falhas nas ações offline (v1.1.62)
+
+- [x] Expor falhas de retry, remoção, limpeza, pausa, retomada e Wi-Fi somente.
+- [x] Exibir a mensagem de erro em Snackbar sem interromper a tela de downloads.
+- [x] Permitir limpar o aviso após a apresentação e cobrir erros em testes de ViewModel.
+
+## 171. Mensagens de falha dos downloads (v1.1.63)
+
+- [x] Converter códigos de falha do Media3 em mensagens de retry amigáveis.
+- [x] Preservar o código técnico apenas como diagnóstico complementar.
+- [x] Cobrir ausência de falha, falha desconhecida e códigos inesperados em testes unitários.
+
+## 172. Feedback da limpeza total local (v1.1.64)
+
+- [x] Informar sucesso ou falha da limpeza total de dados locais.
+- [x] Preservar downloads offline durante a limpeza geral.
+- [x] Só concluir a ação após limpar preferências e encerrar a sessão.
+- [x] Cobrir o fluxo completo em teste de ViewModel.
+
+## 173. Posições offline isoladas por conta (v1.1.65)
+
+- [x] Escopar a retomada de downloads pela conta ativa.
+- [x] Migrar uma posição legada sem expor a posição entre usuários.
+- [x] Limpar chaves escopadas e legadas ao concluir a reprodução.
+- [x] Cobrir a separação entre usuários em teste unitário.

@@ -16,6 +16,7 @@ android {
 }
 dependencies {
     implementation(project(":core:api"))
+    implementation(project(":core:common"))
     implementation(project(":domain"))
     implementation(project(":design-system"))
     implementation(platform(libs.androidx.compose.bom))
@@ -36,5 +37,4 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)
 }
-
 

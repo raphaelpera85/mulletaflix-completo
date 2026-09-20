@@ -2,8 +2,21 @@ package org.mulletaflix.designsystem.components
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import androidx.compose.ui.layout.ContentScale
 
 class MediaCardPresentationTest {
+
+    @Test
+    fun `poster and landscape cards preserve the complete artwork`() {
+        assertEquals(ContentScale.Fit, mediaCardContentScale(MediaCardShape.Portrait))
+        assertEquals(ContentScale.Fit, mediaCardContentScale(MediaCardShape.Landscape))
+    }
+
+    @Test
+    fun `square and banner cards keep fill behavior`() {
+        assertEquals(ContentScale.Crop, mediaCardContentScale(MediaCardShape.Square))
+        assertEquals(ContentScale.Crop, mediaCardContentScale(MediaCardShape.Banner))
+    }
     @Test
     fun `progress remains inside compose fraction bounds`() {
         assertEquals(0f, normalizedCardProgress(-0.25f))

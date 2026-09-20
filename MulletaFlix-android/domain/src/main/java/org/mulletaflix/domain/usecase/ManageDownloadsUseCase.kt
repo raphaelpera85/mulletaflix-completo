@@ -40,6 +40,10 @@ class ManageDownloadsUseCase @Inject constructor(
         return downloadRepository.remove(id)
     }
 
+    fun removeCompleted(): Result<Unit> = downloadRepository.removeCompleted()
+
+    fun removeFailed(): Result<Unit> = downloadRepository.removeFailed()
+
     fun pauseAll(): Result<Unit> = downloadRepository.pauseAll()
 
     fun resumeAll(): Result<Unit> = downloadRepository.resumeAll()

@@ -1,7 +1,9 @@
 package org.mulletaflix.feature.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SleepTimerPolicyTest {
@@ -24,5 +26,21 @@ class SleepTimerPolicyTest {
         assertEquals("Pausa em 14min 59s", sleepTimerLabel(899_000L))
         assertEquals("Pausa em 9s", sleepTimerLabel(8_100L))
         assertNull(sleepTimerLabel(null))
+    }
+
+    @Test
+    fun `marks only the active duration option`() {
+        assertTrue(isSleepTimerOptionSelected(30, 30))
+        assertFalse(isSleepTimerOptionSelected(30, 15))
+        assertFalse(isSleepTimerOptionSelected(null, 30))
+    }
+
+    @Test
+    fun `describes the pause at media end mode`() {
+        assertEquals(
+            "Pausa ao fim da mídia",
+            sleepTimerDisplayLabel(SleepTimerMode.AT_MEDIA_END, null),
+        )
+        assertNull(sleepTimerDisplayLabel(SleepTimerMode.OFF, null))
     }
 }

@@ -1,12 +1,15 @@
 package org.mulletaflix.feature.itemdetail
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -85,6 +88,57 @@ class ItemDetailViewModelTest {
     }
 
     @Test
+    fun `late details from a previous item do not replace the current item`() = runTest {
+        val staleResponse = CompletableDeferred<Result<MediaItem>>()
+        val currentMovie = MediaItem(id = "new", name = "Current Movie", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> =
+                if (itemId == "old") staleResponse.await() else Result.success(currentMovie)
+        }
+        val viewModel = createViewModel(mediaRepo)
+
+        viewModel.loadItem("old")
+        runCurrent()
+        viewModel.loadItem("new")
+        advanceUntilIdle()
+
+        assertEquals("Current Movie", viewModel.state.value.item?.name)
+
+        staleResponse.complete(Result.success(MediaItem(id = "old", name = "Stale Movie", type = MediaItemType.Movie)))
+        advanceUntilIdle()
+
+        assertEquals("Current Movie", viewModel.state.value.item?.name)
+    }
+
+    @Test
+    fun `late details from a previous user do not replace the new session`() = runTest {
+        val staleResponse = CompletableDeferred<Result<MediaItem>>()
+        val userId = MutableStateFlow<String?>("u1")
+        val currentMovie = MediaItem(id = "new", name = "Current Account Movie", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> =
+                if (userId == "u1") staleResponse.await() else Result.success(currentMovie)
+        }
+        val authRepo = FakeAuthRepository(userId = "u1", userIdFlow = userId)
+        val viewModel = createViewModel(mediaRepo, authRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem("same-item")
+        runCurrent()
+        userId.value = "u2"
+        runCurrent()
+        viewModel.loadItem("same-item")
+        advanceUntilIdle()
+
+        assertEquals("Current Account Movie", viewModel.state.value.item?.name)
+
+        staleResponse.complete(Result.success(MediaItem(id = "old", name = "Old Account Movie", type = MediaItemType.Movie)))
+        advanceUntilIdle()
+
+        assertEquals("Current Account Movie", viewModel.state.value.item?.name)
+    }
+
+    @Test
     fun `downloadItem preserves the canonical cover reference`() = runTest {
         val movie = MediaItem(
             id = "m1",
@@ -119,6 +173,54 @@ class ItemDetailViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Items/m1/Images/Primary?tag=cover-1", downloadRepo.lastImageUrl)
+    }
+
+    @Test
+    fun `repeated download taps share one preparation request`() = runTest {
+        val movie = MediaItem(id = "m1", name = "Test Movie", type = MediaItemType.Movie)
+        val preparation = CompletableDeferred<Result<PlaybackInfo>>()
+        var requestCount = 0
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(movie)
+        }
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ): Result<PlaybackInfo> {
+                requestCount++
+                return preparation.await()
+            }
+        }
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo)
+        advanceUntilIdle()
+        viewModel.loadItem("m1")
+        advanceUntilIdle()
+
+        viewModel.downloadItem()
+        runCurrent()
+        assertTrue(viewModel.state.value.isPreparingDownload)
+
+        viewModel.downloadItem()
+        runCurrent()
+        assertEquals(1, requestCount)
+        assertTrue(viewModel.state.value.downloadMessage!!.contains("já está sendo preparado"))
+
+        preparation.complete(
+            Result.success(
+                PlaybackInfo(
+                    playSessionId = "session-1",
+                    mediaSources = listOf(MediaSource(id = "source-1", directStreamUrl = "https://server/media.mkv")),
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isPreparingDownload)
+        assertEquals("Download adicionado à fila.", viewModel.state.value.downloadMessage)
     }
 
     @Test
@@ -186,6 +288,37 @@ class ItemDetailViewModelTest {
         assertEquals(1, state.selectedSeasonIndex)
         assertEquals(1, state.episodes.size)
         assertEquals("S2 Episode 1", state.episodes.first().name)
+    }
+
+    @Test
+    fun `late episodes from a previous season do not replace the selected season`() = runTest {
+        val series = MediaItem(id = "s1", name = "Test Series", type = MediaItemType.Series)
+        val seasons = listOf(
+            MediaItem(id = "sea-1", name = "Season 1", type = MediaItemType.Season),
+            MediaItem(id = "sea-2", name = "Season 2", type = MediaItemType.Season),
+        )
+        val staleSeasonOneResponse = CompletableDeferred<Result<List<MediaItem>>>()
+        val episodesS2 = listOf(MediaItem(id = "ep-201", name = "S2 Episode 1", type = MediaItemType.Episode))
+
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(series)
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(seasons)
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> =
+                if (seasonId == "sea-1") staleSeasonOneResponse.await() else Result.success(episodesS2)
+        }
+        val viewModel = createViewModel(mediaRepo)
+
+        viewModel.loadItem("s1")
+        runCurrent()
+        viewModel.selectSeason(1)
+        advanceUntilIdle()
+
+        assertEquals("S2 Episode 1", viewModel.state.value.episodes.first().name)
+
+        staleSeasonOneResponse.complete(Result.success(listOf(MediaItem(id = "ep-101", name = "Stale S1 Episode", type = MediaItemType.Episode))))
+        advanceUntilIdle()
+
+        assertEquals("S2 Episode 1", viewModel.state.value.episodes.first().name)
     }
 
     @Test
@@ -320,6 +453,39 @@ class ItemDetailViewModelTest {
     }
 
     @Test
+    fun `repeated favorite taps share one server mutation and expose progress`() = runTest {
+        val movie = MediaItem(id = "m1", name = "Movie", type = MediaItemType.Movie, isFavorite = false)
+        val mutation = CompletableDeferred<Result<Unit>>()
+        var requestCount = 0
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(movie)
+            override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> {
+                requestCount++
+                return mutation.await()
+            }
+        }
+        val viewModel = createViewModel(mediaRepo)
+        advanceUntilIdle()
+        viewModel.loadItem("m1")
+        advanceUntilIdle()
+
+        viewModel.toggleFavorite()
+        runCurrent()
+        assertTrue(viewModel.state.value.isFavoriteUpdating)
+
+        viewModel.toggleFavorite()
+        runCurrent()
+        assertEquals(1, requestCount)
+        assertTrue(viewModel.state.value.isFavoriteUpdating)
+
+        mutation.complete(Result.success(Unit))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isFavoriteUpdating)
+        assertTrue(viewModel.state.value.item?.isFavorite == true)
+    }
+
+    @Test
     fun `toggleWatched toggles played state and calls repository`() = runTest {
         val movie = MediaItem(id = "m1", name = "Movie", type = MediaItemType.Movie, isPlayed = false)
         var markedPlayed = false
@@ -427,7 +593,10 @@ class ItemDetailViewModelTest {
     }
 
     // ── Fakes ────────────────────────────────────────────────────────────────
-    private open class FakeAuthRepository(private val userId: String?) : AuthRepository {
+    private open class FakeAuthRepository(
+        private val userId: String?,
+        private val userIdFlow: Flow<String?> = flowOf(userId),
+    ) : AuthRepository {
         override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.failure(NotImplementedError())
         override suspend fun register(username: String, password: String): Result<RegistrationResult> = Result.failure(NotImplementedError())
         override suspend fun login(username: String, password: String): Result<UserSession> = Result.failure(NotImplementedError())
@@ -438,7 +607,7 @@ class ItemDetailViewModelTest {
         override suspend fun getCurrentUserProfile(): Result<UserProfile> = Result.failure(NotImplementedError())
         override fun getSavedServerUrl(): Flow<String> = flowOf("http://localhost:8096")
         override suspend fun setServerUrl(url: String) = Unit
-        override fun getSavedUserId(): Flow<String?> = flowOf(userId)
+        override fun getSavedUserId(): Flow<String?> = userIdFlow
         override fun getSavedUserName(): Flow<String?> = flowOf("User")
         override fun getSavedToken(): Flow<String?> = flowOf("token")
     }

@@ -34,6 +34,7 @@ fun DownloadsScreen(
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val queuePaused by viewModel.queuePaused.collectAsStateWithLifecycle()
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
+    val actionMessage by viewModel.actionMessage.collectAsStateWithLifecycle()
     val serverUrl = LocalMulletaFlixServerUrl.current
     val accessToken = LocalMulletaFlixAccessToken.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -42,9 +43,20 @@ fun DownloadsScreen(
         filterDownloads(downloads, searchQuery, statusFilter)
     }
     var itemPendingDeletion by remember { mutableStateOf<DownloadEntry?>(null) }
+    var showClearCompletedConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showClearFailedConfirmation by rememberSaveable { mutableStateOf(false) }
     var showStorageSummary by rememberSaveable { mutableStateOf(false) }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(actionMessage) {
+        actionMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearActionMessage()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Downloads Offline") },
@@ -94,6 +106,9 @@ fun DownloadsScreen(
                             queuePaused = queuePaused,
                             onPause = viewModel::pauseQueue,
                             onResume = viewModel::resumeQueue,
+                            onRetryFailed = { viewModel.retryFailed(downloads) },
+                            onClearCompleted = { showClearCompletedConfirmation = true },
+                            onClearFailed = { showClearFailedConfirmation = true },
                             wifiOnly = wifiOnly,
                             onWifiOnlyChange = viewModel::setWifiOnly,
                         )
@@ -145,6 +160,58 @@ fun DownloadsScreen(
                     Text("Cancelar")
                 }
             }
+        )
+    }
+
+    if (showClearCompletedConfirmation) {
+        val completedCount = downloads.count { it.state == DownloadState.Completed }
+        AlertDialog(
+            onDismissRequest = { showClearCompletedConfirmation = false },
+            title = { Text("Limpar concluídos?") },
+            text = {
+                Text(
+                    "Remover $completedCount download(s) concluído(s) do armazenamento offline? " +
+                        "Downloads em andamento e falhas serão preservados."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.removeCompleted()
+                        showClearCompletedConfirmation = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Limpar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCompletedConfirmation = false }) { Text("Cancelar") }
+            },
+        )
+    }
+
+    if (showClearFailedConfirmation) {
+        val failedCount = downloads.count { it.state == DownloadState.Failed }
+        AlertDialog(
+            onDismissRequest = { showClearFailedConfirmation = false },
+            title = { Text("Limpar falhas?") },
+            text = {
+                Text(
+                    "Remover $failedCount download(s) com falha da fila offline? " +
+                        "Downloads em andamento e concluídos serão preservados."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.removeFailed()
+                        showClearFailedConfirmation = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Limpar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearFailedConfirmation = false }) { Text("Cancelar") }
+            },
         )
     }
 
@@ -259,15 +326,20 @@ internal fun DownloadSearchField(
 }
 
 @Composable
-private fun OfflineSummary(
+internal fun OfflineSummary(
     downloads: List<DownloadEntry>,
     queuePaused: Boolean,
     onPause: () -> Unit,
     onResume: () -> Unit,
+    onRetryFailed: () -> Unit,
+    onClearCompleted: () -> Unit,
+    onClearFailed: () -> Unit,
     wifiOnly: Boolean,
     onWifiOnlyChange: (Boolean) -> Unit,
 ) {
     val hasActiveDownloads = downloads.any { it.state == DownloadState.Queued || it.state == DownloadState.Downloading }
+    val failedCount = failedDownloads(downloads).size
+    val completedCount = completedDownloads(downloads).size
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -298,6 +370,38 @@ private fun OfflineSummary(
                 Text("Somente Wi‑Fi", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 Switch(checked = wifiOnly, onCheckedChange = onWifiOnlyChange)
             }
+            if (failedCount > 0) {
+                OutlinedButton(
+                    onClick = onRetryFailed,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Tentar novamente ($failedCount falha(s))")
+                }
+            }
+            if (completedCount > 0) {
+                TextButton(
+                    onClick = onClearCompleted,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Limpar concluídos ($completedCount)")
+                }
+            }
+            if (failedCount > 0) {
+                TextButton(
+                    onClick = onClearFailed,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Limpar falhas ($failedCount)")
+                }
+            }
         }
     }
 }
@@ -319,7 +423,7 @@ private fun DownloadRow(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = entry.title,
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    contentScale = offlineArtworkContentScale(),
                     modifier = Modifier.size(width = 56.dp, height = 80.dp),
                 )
             } else {

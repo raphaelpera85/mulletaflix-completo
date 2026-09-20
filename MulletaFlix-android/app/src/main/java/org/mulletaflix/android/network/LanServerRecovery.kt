@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.feature.auth.LocalServerDiscovery
 import org.mulletaflix.feature.auth.DEFAULT_MULLETAFLIX_SERVER_URL
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,8 +36,9 @@ class LanServerRecovery @Inject constructor(
     private val scanMutex = Mutex()
     private var scanJob: Job? = null
     private var sessionJob: Job? = null
-    private var started = false
+    @Volatile private var started = false
     private var registered = false
+    private val scanGeneration = AtomicLong(0L)
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -79,6 +81,7 @@ class LanServerRecovery @Inject constructor(
     fun stop() {
         if (!started) return
         started = false
+        scanGeneration.incrementAndGet()
         if (registered) {
             registered = false
             runCatching { connectivityManager.unregisterNetworkCallback(callback) }
@@ -90,6 +93,8 @@ class LanServerRecovery @Inject constructor(
     }
 
     private fun scheduleScan() {
+        if (!started) return
+        val generation = scanGeneration.incrementAndGet()
         scanJob?.cancel()
         scanJob = scope.launch {
             scanMutex.withLock {
@@ -100,6 +105,7 @@ class LanServerRecovery @Inject constructor(
                     discovered = discovery.discover(timeoutMs = 2_500),
                     authenticatedServerId = authenticatedServerId,
                 )
+                if (!isCurrentLanScan(generation, scanGeneration.get(), started)) return@withLock
                 if (localServer != null) {
                     if (shouldSwitchToLan(currentUrl, localServer.url)) {
                         sessionRepository.setBaseUrl(localServer.url)

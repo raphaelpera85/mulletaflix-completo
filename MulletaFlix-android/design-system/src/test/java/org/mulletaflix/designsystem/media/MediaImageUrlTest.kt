@@ -28,6 +28,34 @@ class MediaImageUrlTest {
     }
 
     @Test
+    fun `authenticates absolute image URLs from the selected server`() {
+        assertEquals(
+            "http://server:8096/Items/item-1/Images/Primary?tag=abc&api_key=token",
+            resolveMediaUrl(
+                "http://server:8096",
+                "http://server:8096/Items/item-1/Images/Primary?tag=abc",
+                "token",
+            ),
+        )
+    }
+
+    @Test
+    fun `does not leak token to external image hosts or duplicate an existing token`() {
+        assertEquals(
+            "https://cdn.example/image.jpg",
+            resolveMediaUrl("http://server:8096", "https://cdn.example/image.jpg", "token"),
+        )
+        assertEquals(
+            "http://server:8096/image.jpg?api_key=existing",
+            resolveMediaUrl(
+                "http://server:8096",
+                "http://server:8096/image.jpg?api_key=existing",
+                "token",
+            ),
+        )
+    }
+
+    @Test
     fun `builds user avatar path from the server primary image tag`() {
         assertEquals(
             "Users/user-1/Images/Primary?tag=tag-1",

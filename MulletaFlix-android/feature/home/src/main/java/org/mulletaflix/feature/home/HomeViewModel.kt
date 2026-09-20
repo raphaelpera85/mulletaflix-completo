@@ -3,8 +3,6 @@ package org.mulletaflix.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +45,9 @@ class HomeViewModel @Inject constructor(
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
     private var loadJob: Job? = null
+    private var loadGeneration = 0L
+    private var currentUserId: String? = null
+    private var hasObservedSession = false
 
     init {
         viewModelScope.launch {
@@ -58,7 +59,33 @@ class HomeViewModel @Inject constructor(
                 if (recovered) refresh()
             }
         }
-        loadHome()
+        viewModelScope.launch {
+            sessionRepository.getCurrentUserId().distinctUntilChanged().collect { userId ->
+                val userChanged = hasObservedSession && currentUserId != userId
+                currentUserId = userId
+                hasObservedSession = true
+                if (userChanged) {
+                    loadJob?.cancel()
+                    ++loadGeneration
+                    _state.update {
+                        it.copy(
+                            heroItem = null,
+                            resumeItems = emptyList(),
+                            nextUpItems = emptyList(),
+                            favoriteItems = emptyList(),
+                            recentlyAddedByLibrary = emptyMap(),
+                            liveTvChannels = emptyList(),
+                            libraries = emptyList(),
+                            userProfile = null,
+                            isLoading = false,
+                            isRefreshing = false,
+                            error = null,
+                        )
+                    }
+                }
+                loadHome()
+            }
+        }
     }
 
     fun refresh() {
@@ -68,35 +95,53 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun loadHome(refresh: Boolean = false) {
+        val generation = ++loadGeneration
         loadJob = viewModelScope.launch {
-            val userId = sessionRepository.getCurrentUserId().first()
+            val userId = currentUserId ?: sessionRepository.getCurrentUserId().first()
             if (userId.isNullOrBlank()) {
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        error = "Sessão expirada. Entre novamente para carregar sua biblioteca.",
-                    )
-                }
-                return@launch
-            }
-            _state.update { it.copy(isLoading = !refresh, error = null) }
-
-            coroutineScope {
-                val profileDeferred = async { authRepository.getCurrentUserProfile().getOrNull() }
-                val result = getHomeFeedUseCase(userId)
-                val profile = profileDeferred.await()
-
-                result.onFailure { error ->
+                if (isCurrentLoad(generation)) {
                     _state.update {
                         it.copy(
                             isLoading = false,
                             isRefreshing = false,
-                            userProfile = profile,
+                            error = "Sessão expirada. Entre novamente para carregar sua biblioteca.",
+                        )
+                    }
+                }
+                return@launch
+            }
+            if (isCurrentLoad(generation)) {
+                _state.update { it.copy(isLoading = !refresh, error = null) }
+            }
+
+            // Profile/avatar data is secondary to the catalog. Keep it in the
+            // same parent job for cancellation, but never make the Home feed
+            // wait for a slow profile endpoint before becoming usable.
+            val profileJob = launch {
+                authRepository.getCurrentUserProfile().getOrNull()?.let { profile ->
+                    if (isCurrentLoad(generation)) {
+                        _state.update { it.copy(userProfile = profile) }
+                    }
+                }
+            }
+            val result = getHomeFeedUseCase(userId)
+
+            if (!isCurrentLoad(generation)) {
+                profileJob.cancel()
+                return@launch
+            }
+            result.onFailure { error ->
+                if (isCurrentLoad(generation)) {
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
                             error = error.userMessage(),
                         )
                     }
-                }.onSuccess { feed ->
+                }
+            }.onSuccess { feed ->
+                if (isCurrentLoad(generation)) {
                     _state.update {
                         it.copy(
                             isLoading = false,
@@ -108,7 +153,6 @@ class HomeViewModel @Inject constructor(
                             recentlyAddedByLibrary = feed.recentlyAddedByLibrary,
                             liveTvChannels = feed.liveTvChannels,
                             libraries = feed.libraries,
-                            userProfile = profile,
                             error = null,
                         )
                     }
@@ -116,6 +160,8 @@ class HomeViewModel @Inject constructor(
             }
         }
     }
+
+    private fun isCurrentLoad(generation: Long): Boolean = generation == loadGeneration
 }
 
 private fun Throwable.userMessage(): String = when (this) {

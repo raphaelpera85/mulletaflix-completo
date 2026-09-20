@@ -30,6 +30,38 @@ class ServerSelectionPolicyTest {
     }
 
     @Test
+    fun `matching server identity wins over an earlier unrelated discovery`() {
+        val unrelated = ServerInfo(
+            name = "Other Server",
+            url = "http://192.168.1.20:8096",
+            serverId = "other-id",
+        )
+        val matching = ServerInfo(
+            name = "MulletaFlix LAN",
+            url = "http://192.168.1.10:8096",
+            serverId = "saved-id",
+        )
+        val saved = ServerInfo(
+            name = "MulletaFlix Cloud",
+            url = DEFAULT_MULLETAFLIX_SERVER_URL,
+            serverId = "saved-id",
+        )
+
+        assertEquals(
+            matching.url,
+            preferredServerUrl(listOf(unrelated, matching), listOf(saved), saved.url),
+        )
+    }
+
+    @Test
+    fun `discovery without identity keeps first LAN endpoint for first-time setup`() {
+        val first = ServerInfo("First LAN", "http://192.168.1.20:8096")
+        val second = ServerInfo("Second LAN", "http://192.168.1.10:8096")
+
+        assertEquals(first.url, preferredServerUrl(listOf(first, second), emptyList(), null))
+    }
+
+    @Test
     fun `public endpoint is automatically verified after empty discovery`() {
         val state = AuthState(serverUrl = DEFAULT_MULLETAFLIX_SERVER_URL)
 

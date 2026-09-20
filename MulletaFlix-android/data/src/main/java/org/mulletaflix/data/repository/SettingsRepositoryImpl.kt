@@ -30,7 +30,12 @@ class SettingsRepositoryImpl @Inject constructor(
         val DEFAULT_QUALITY = stringPreferencesKey("default_quality")
         val DEFAULT_PLAYBACK_SPEED = floatPreferencesKey("default_playback_speed")
         val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size")
+        val SUBTITLE_COLOR = stringPreferencesKey("subtitle_color")
         val DEFAULT_ASPECT_RATIO = stringPreferencesKey("default_aspect_ratio")
+        val LIBRARY_GRID_VIEW_ENABLED = booleanPreferencesKey("library_grid_view_enabled")
+        val LIBRARY_GRID_DENSITY = stringPreferencesKey("library_grid_density")
+        val DEFAULT_LIBRARY_SORT = stringPreferencesKey("default_library_sort")
+        val DEFAULT_LIBRARY_FILTERS = stringSetPreferencesKey("default_library_filters")
     }
 
     override fun getTheme(): Flow<AppThemeSetting> {
@@ -119,10 +124,55 @@ class SettingsRepositoryImpl @Inject constructor(
         context.settingsDataStore.edit { it[Keys.SUBTITLE_FONT_SIZE] = size.coerceIn(50, 200) }
     }
 
+    override fun getSubtitleColor(): Flow<String> =
+        context.settingsDataStore.data.map { it[Keys.SUBTITLE_COLOR] ?: "WHITE" }
+
+    override suspend fun setSubtitleColor(color: String) {
+        val normalized = color.trim().uppercase().takeIf { it in setOf("WHITE", "YELLOW", "CYAN") } ?: "WHITE"
+        context.settingsDataStore.edit { it[Keys.SUBTITLE_COLOR] = normalized }
+    }
+
     override fun getDefaultAspectRatio(): Flow<String> =
         context.settingsDataStore.data.map { it[Keys.DEFAULT_ASPECT_RATIO] ?: "FIT" }
 
     override suspend fun setDefaultAspectRatio(aspectRatio: String) {
         context.settingsDataStore.edit { it[Keys.DEFAULT_ASPECT_RATIO] = aspectRatio.trim().uppercase() }
+    }
+
+    override fun isLibraryGridViewEnabled(): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.LIBRARY_GRID_VIEW_ENABLED] ?: true }
+
+    override suspend fun setLibraryGridViewEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.LIBRARY_GRID_VIEW_ENABLED] = enabled }
+    }
+
+    override fun getLibraryGridDensity(): Flow<String> =
+        context.settingsDataStore.data.map {
+            it[Keys.LIBRARY_GRID_DENSITY]
+                ?.trim()
+                ?.uppercase()
+                ?.takeIf { value -> value == "COMFORTABLE" || value == "COMPACT" }
+                ?: "COMFORTABLE"
+        }
+
+    override suspend fun setLibraryGridDensity(density: String) {
+        val normalized = density.trim().uppercase()
+            .takeIf { it == "COMFORTABLE" || it == "COMPACT" }
+            ?: "COMFORTABLE"
+        context.settingsDataStore.edit { it[Keys.LIBRARY_GRID_DENSITY] = normalized }
+    }
+
+    override fun getDefaultLibrarySort(): Flow<String> =
+        context.settingsDataStore.data.map { it[Keys.DEFAULT_LIBRARY_SORT] ?: "SortName" }
+
+    override suspend fun setDefaultLibrarySort(sortBy: String) {
+        context.settingsDataStore.edit { it[Keys.DEFAULT_LIBRARY_SORT] = sortBy.trim().ifBlank { "SortName" } }
+    }
+
+    override fun getDefaultLibraryFilters(): Flow<Set<String>> =
+        context.settingsDataStore.data.map { it[Keys.DEFAULT_LIBRARY_FILTERS] ?: emptySet() }
+
+    override suspend fun setDefaultLibraryFilters(filters: Set<String>) {
+        context.settingsDataStore.edit { it[Keys.DEFAULT_LIBRARY_FILTERS] = filters }
     }
 }

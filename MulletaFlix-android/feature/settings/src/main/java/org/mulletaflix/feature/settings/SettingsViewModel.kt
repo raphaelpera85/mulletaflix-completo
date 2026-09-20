@@ -5,8 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import org.mulletaflix.core.common.dispatcher.IoDispatcher
 import org.mulletaflix.core.common.update.AppUpdateDownloader
 import org.mulletaflix.core.common.update.AppUpdateInstaller
 import org.mulletaflix.core.common.update.DownloadState
@@ -20,17 +24,30 @@ import org.mulletaflix.domain.usecase.LogoutUseCase
 import org.mulletaflix.domain.usecase.VerifyServerUseCase
 import javax.inject.Inject
 
+private const val LIBRARY_GRID_DENSITY_COMFORTABLE = "COMFORTABLE"
+private const val LIBRARY_GRID_DENSITY_COMPACT = "COMPACT"
+private const val LIBRARY_SORT_NAME = "SortName"
+private const val LIBRARY_SORT_DATE_ADDED = "DateCreated"
+private const val LIBRARY_SORT_RELEASE_DATE = "PremiereDate"
+private const val LIBRARY_SORT_RUNTIME = "Runtime"
+private const val LIBRARY_SORT_RATING = "CommunityRating"
+
 data class SettingsState(
     val serverUrl: String? = null,
     val username: String? = null,
     val theme: MulletaFlixThemeVariant = MulletaFlixThemeVariant.Dark,
     val defaultQuality: String = "Auto",
+    val aspectRatio: String = DEFAULT_ASPECT_RATIO,
     val defaultSpeed: Float = 1.0f,
     val autoPlay: Boolean = true,
     val skipIntro: Boolean = true,
     val pictureInPicture: Boolean = true,
+    val audioLanguage: String = "Português (Brasil)",
     val subtitleLanguage: String = "Português (Brasil)",
     val subtitleFontSize: Int = 100,
+    val subtitleColor: String = "Branco",
+    val libraryGridDensity: String = "Confortável",
+    val librarySort: String = "Nome A-Z",
     val downloadPath: String = "Armazenamento Interno",
     val downloadStorageGb: Int = 10,
     val downloadQuality: String = "1080p (Original)",
@@ -43,6 +60,7 @@ data class SettingsState(
     val showUpdateDialog: Boolean = false,
     val isCheckingConnection: Boolean = false,
     val connectionStatus: String? = null,
+    val cacheStatusMessage: String? = null,
 )
 
 @HiltViewModel
@@ -54,6 +72,7 @@ class SettingsViewModel @Inject constructor(
     private val checkAppUpdateUseCase: CheckAppUpdateUseCase? = null,
     private val appUpdateDownloader: AppUpdateDownloader? = null,
     private val verifyServerUseCase: VerifyServerUseCase? = null,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -95,6 +114,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            settingsRepository.getPreferredAudioLanguage().collect { language ->
+                _state.update { it.copy(audioLanguage = audioLabel(language)) }
+            }
+        }
+        viewModelScope.launch {
             settingsRepository.getPreferredSubtitleLanguage().collect { language ->
                 _state.update { it.copy(subtitleLanguage = subtitleLabel(language)) }
             }
@@ -116,7 +140,12 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsRepository.getDefaultQuality().collect { quality ->
-                _state.update { it.copy(defaultQuality = quality) }
+                _state.update { it.copy(defaultQuality = normalizeDefaultQuality(quality)) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getDefaultAspectRatio().collect { ratio ->
+                _state.update { it.copy(aspectRatio = normalizeAspectRatioPreferenceName(ratio)) }
             }
         }
         viewModelScope.launch {
@@ -127,6 +156,21 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsRepository.getSubtitleFontSize().collect { size ->
                 _state.update { it.copy(subtitleFontSize = normalizeSubtitleFontSize(size)) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getSubtitleColor().collect { color ->
+                _state.update { it.copy(subtitleColor = subtitleColorLabel(color)) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getLibraryGridDensity().collect { density ->
+                _state.update { it.copy(libraryGridDensity = libraryGridDensityLabel(density)) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getDefaultLibrarySort().collect { sortBy ->
+                _state.update { it.copy(librarySort = librarySortLabel(sortBy)) }
             }
         }
     }
@@ -160,6 +204,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setAudioLanguage(language: String) {
+        _state.update { it.copy(audioLanguage = audioLabel(language)) }
+        viewModelScope.launch {
+            settingsRepository.setPreferredAudioLanguage(audioLanguageCode(language))
+        }
+    }
+
     fun setSkipIntro(skipIntro: Boolean) {
         _state.update { it.copy(skipIntro = skipIntro) }
         viewModelScope.launch { settingsRepository.setSkipIntroEnabled(skipIntro) }
@@ -171,8 +222,15 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setDefaultQuality(quality: String) {
-        _state.update { it.copy(defaultQuality = quality) }
-        viewModelScope.launch { settingsRepository.setDefaultQuality(quality) }
+        val normalized = normalizeDefaultQuality(quality)
+        _state.update { it.copy(defaultQuality = normalized) }
+        viewModelScope.launch { settingsRepository.setDefaultQuality(normalized) }
+    }
+
+    fun setDefaultAspectRatio(aspectRatio: String) {
+        val normalized = normalizeAspectRatioPreferenceName(aspectRatio)
+        _state.update { it.copy(aspectRatio = normalized) }
+        viewModelScope.launch { settingsRepository.setDefaultAspectRatio(normalized) }
     }
 
     fun setDefaultPlaybackSpeed(speed: Float) {
@@ -185,6 +243,24 @@ class SettingsViewModel @Inject constructor(
         val normalized = normalizeSubtitleFontSize(size)
         _state.update { it.copy(subtitleFontSize = normalized) }
         viewModelScope.launch { settingsRepository.setSubtitleFontSize(normalized) }
+    }
+
+    fun setSubtitleColor(color: String) {
+        val normalized = subtitleColorCode(color)
+        _state.update { it.copy(subtitleColor = subtitleColorLabel(normalized)) }
+        viewModelScope.launch { settingsRepository.setSubtitleColor(normalized) }
+    }
+
+    fun setLibraryGridDensity(density: String) {
+        val normalized = libraryGridDensityCode(density)
+        _state.update { it.copy(libraryGridDensity = libraryGridDensityLabel(normalized)) }
+        viewModelScope.launch { settingsRepository.setLibraryGridDensity(normalized) }
+    }
+
+    fun setLibrarySort(label: String) {
+        val normalized = librarySortCode(label)
+        _state.update { it.copy(librarySort = librarySortLabel(normalized)) }
+        viewModelScope.launch { settingsRepository.setDefaultLibrarySort(normalized) }
     }
 
     fun logout() {
@@ -228,26 +304,85 @@ class SettingsViewModel @Inject constructor(
 
     fun clearImageCache() {
         viewModelScope.launch {
-            context.cacheDir.resolve("image_cache").deleteRecursively()
-            context.cacheDir.resolve("coil").deleteRecursively()
+            runCatching {
+                withContext(ioDispatcher) {
+                    context.cacheDir.resolve("image_cache").deleteRecursively()
+                    context.cacheDir.resolve("coil").deleteRecursively()
+                }
+            }.onSuccess {
+                _state.update { it.copy(cacheStatusMessage = "Cache de imagens limpo.") }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        cacheStatusMessage = error.localizedMessage
+                            ?.takeIf(String::isNotBlank)
+                            ?.let { message -> "Não foi possível limpar o cache: $message" }
+                            ?: "Não foi possível limpar o cache.",
+                    )
+                }
+            }
         }
     }
 
     fun clearAllCache() {
         viewModelScope.launch {
-            context.cacheDir.listFiles()
-                ?.let { files -> cacheEntriesToRemove(files.map { it.name }).mapNotNull { name -> files.firstOrNull { it.name == name } } }
-                ?.forEach { it.deleteRecursively() }
-            settingsRepository.clearLocalPreferences()
-            logoutUseCase()
+            runCatching {
+                withContext(ioDispatcher) {
+                    context.cacheDir.listFiles()
+                        ?.let { files ->
+                            cacheEntriesToRemove(files.map { it.name })
+                                .mapNotNull { name -> files.firstOrNull { it.name == name } }
+                        }
+                        ?.forEach { entry ->
+                            check(entry.deleteRecursively()) {
+                                "Não foi possível remover ${entry.name}"
+                            }
+                        }
+                }
+                settingsRepository.clearLocalPreferences()
+                logoutUseCase().getOrThrow()
+            }.onSuccess {
+                _state.update {
+                    it.copy(cacheStatusMessage = "Dados locais limpos. Você saiu da conta.")
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        cacheStatusMessage = error.localizedMessage
+                            ?.takeIf(String::isNotBlank)
+                            ?.let { message -> "Não foi possível concluir a limpeza: $message" }
+                            ?: "Não foi possível concluir a limpeza dos dados locais.",
+                    )
+                }
+            }
         }
     }
 
-    fun checkForUpdates(currentVersion: String = "1.0.0") {
-        if (checkAppUpdateUseCase == null) return
+    fun checkForUpdates(currentVersion: String) {
+        val normalizedVersion = currentVersion.trim()
+        if (checkAppUpdateUseCase == null) {
+            _state.update {
+                it.copy(
+                    updateErrorMessage = "A verificação de atualizações não está disponível.",
+                    updateStatusMessage = null,
+                )
+            }
+            return
+        }
+        if (normalizedVersion.isBlank()) {
+            _state.update {
+                it.copy(
+                    updateErrorMessage = "Não foi possível identificar a versão instalada.",
+                    updateStatusMessage = null,
+                )
+            }
+            return
+        }
+        if (_state.value.isCheckingUpdate || _state.value.isDownloadingUpdate) return
+        _state.update { it.copy(isCheckingUpdate = true, updateErrorMessage = null, updateStatusMessage = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isCheckingUpdate = true, updateErrorMessage = null, updateStatusMessage = null) }
-            checkAppUpdateUseCase(currentVersion)
+            runCatching { checkAppUpdateUseCase(normalizedVersion) }
+                .getOrElse { Result.failure(it) }
                 .onSuccess { info ->
                     _state.update {
                         it.copy(
@@ -340,9 +475,16 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun subtitleLabel(language: String?): String = when (language?.lowercase()) {
-        "por", "pt", "pt-br" -> "Português (Brasil)"
-        "eng", "en" -> "English"
-        "off", "none" -> "Desativadas"
+        "por", "pt", "pt-br", "português (brasil)" -> "Português (Brasil)"
+        "eng", "en", "english" -> "English"
+        "off", "none", "desativadas" -> "Desativadas"
+        else -> "Idioma original"
+    }
+
+    private fun audioLabel(language: String?): String = when (language?.lowercase()) {
+        "por", "pt", "pt-br", "português (brasil)" -> "Português (Brasil)"
+        "eng", "en", "english" -> "English"
+        "original", "idioma original" -> "Idioma original"
         else -> "Idioma original"
     }
 
@@ -351,5 +493,49 @@ class SettingsViewModel @Inject constructor(
         "English" -> "eng"
         "Desativadas" -> "off"
         else -> "original"
+    }
+
+    private fun audioLanguageCode(label: String): String = when (label) {
+        "Português (Brasil)" -> "por"
+        "English" -> "eng"
+        else -> "original"
+    }
+
+    private fun subtitleColorLabel(color: String?): String = when (color?.trim()?.uppercase()) {
+        "YELLOW" -> "Amarelo"
+        "CYAN" -> "Ciano"
+        else -> "Branco"
+    }
+
+    private fun subtitleColorCode(label: String): String = when (label) {
+        "Amarelo" -> "YELLOW"
+        "Ciano" -> "CYAN"
+        else -> "WHITE"
+    }
+
+    private fun libraryGridDensityLabel(value: String?): String = when (value?.trim()?.uppercase()) {
+        LIBRARY_GRID_DENSITY_COMPACT -> "Compacta"
+        else -> "Confortável"
+    }
+
+    private fun libraryGridDensityCode(label: String): String = when (label) {
+        "Compacta" -> LIBRARY_GRID_DENSITY_COMPACT
+        else -> LIBRARY_GRID_DENSITY_COMFORTABLE
+    }
+
+    private fun librarySortLabel(value: String?): String = when (value?.trim()) {
+        LIBRARY_SORT_DATE_ADDED -> "Data de adição"
+        LIBRARY_SORT_RELEASE_DATE -> "Data de lançamento"
+        LIBRARY_SORT_RUNTIME -> "Duração"
+        LIBRARY_SORT_RATING -> "Avaliação"
+        else -> "Nome A-Z"
+    }
+
+    private fun librarySortCode(label: String): String = when (label) {
+        "Data de adição" -> LIBRARY_SORT_DATE_ADDED
+        "Data de lançamento" -> LIBRARY_SORT_RELEASE_DATE
+        "Duração" -> LIBRARY_SORT_RUNTIME
+        "Avaliação" -> LIBRARY_SORT_RATING
+        else -> LIBRARY_SORT_NAME
     }
 }

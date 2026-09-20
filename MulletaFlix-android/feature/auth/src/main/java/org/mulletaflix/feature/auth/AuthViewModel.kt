@@ -3,6 +3,7 @@ package org.mulletaflix.feature.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -68,7 +69,12 @@ class AuthViewModel @Inject constructor(
 
     private var quickConnectPollingJob: Job? = null
     private var usersLoadJob: Job? = null
+    private var discoveryJob: Job? = null
+    private var connectionJob: Job? = null
+    private var connectionGeneration = 0L
     private var usersLoadedForUrl: String? = null
+    private var usersLoadingForUrl: String? = null
+    private var usersLoadGeneration = 0L
 
     init {
         discoverLocalServers()
@@ -98,7 +104,14 @@ class AuthViewModel @Inject constructor(
                                 serverId = s.serverId,
                             )
                         }
-                        current.copy(savedServers = mapped)
+                        current.copy(
+                            savedServers = mapped,
+                            serverUrl = preferredServerUrl(
+                                discovered = current.discoveredServers,
+                                saved = mapped,
+                                fallback = current.serverUrl,
+                            ),
+                        )
                     }
                 }
             }
@@ -116,50 +129,74 @@ class AuthViewModel @Inject constructor(
     }
 
     private fun loadAvailableUsers(serverUrl: String) {
-        if (usersLoadedForUrl == serverUrl) return
-        usersLoadedForUrl = serverUrl
+        if (usersLoadedForUrl == serverUrl || usersLoadingForUrl == serverUrl) return
         usersLoadJob?.cancel()
+        val generation = ++usersLoadGeneration
+        usersLoadingForUrl = serverUrl
         usersLoadJob = viewModelScope.launch {
-            authRepository.getAvailableUsers().onSuccess { users ->
-                _state.update {
-                    it.copy(
-                        availableUsers = users.map { user ->
-                            AuthUser(user.id, user.name, user.primaryImageTag)
-                        },
-                    )
+            authRepository.getAvailableUsers()
+                .onSuccess { users ->
+                    if (generation != usersLoadGeneration || _state.value.serverUrl != serverUrl) return@onSuccess
+                    usersLoadedForUrl = serverUrl
+                    usersLoadingForUrl = null
+                    _state.update {
+                        it.copy(
+                            availableUsers = users.map { user ->
+                                AuthUser(user.id, user.name, user.primaryImageTag)
+                            },
+                        )
+                    }
                 }
-            }
+                .onFailure {
+                    // A transient failure must not poison the URL cache: a later
+                    // connection attempt needs to be able to try again.
+                    if (generation == usersLoadGeneration) {
+                        usersLoadedForUrl = null
+                        usersLoadingForUrl = null
+                    }
+                }
         }
     }
 
+    private fun invalidateAvailableUsersForEndpoint() {
+        usersLoadJob?.cancel()
+        usersLoadJob = null
+        usersLoadedForUrl = null
+        usersLoadingForUrl = null
+        usersLoadGeneration += 1
+        _state.update { it.copy(availableUsers = emptyList()) }
+    }
+
     fun discoverLocalServers() {
-        viewModelScope.launch {
-            _state.update { it.copy(isDiscovering = true, error = null) }
-            runCatching { localServerDiscovery.discover() }
-                .onSuccess { servers ->
-                    _state.update { current ->
-                        current.copy(
-                            isDiscovering = false,
-                            // Prefer the LAN address over the public DuckDNS fallback.
-                            // This keeps playback inside the local network whenever the
-                            // server advertises itself there.
-                            serverUrl = preferredServerUrl(servers, emptyList(), current.serverUrl),
-                            // Keep LAN results even when the URL is already saved.
-                            // The UI uses this list to trigger the automatic LAN
-                            // connection on every startup.
-                            discoveredServers = servers.distinctBy { it.url },
-                        )
-                    }
+        discoveryJob?.cancel()
+        _state.update { it.copy(isDiscovering = true, error = null) }
+        discoveryJob = viewModelScope.launch {
+            try {
+                val servers = localServerDiscovery.discover()
+                _state.update { current ->
+                    current.copy(
+                        isDiscovering = false,
+                        // Prefer the LAN address over the public DuckDNS fallback.
+                        // This keeps playback inside the local network whenever the
+                        // server advertises itself there.
+                        serverUrl = preferredServerUrl(servers, current.savedServers, current.serverUrl),
+                        // Keep LAN results even when the URL is already saved.
+                        // The UI uses this list to trigger the automatic LAN
+                        // connection on every startup.
+                        discoveredServers = servers.distinctBy { it.url },
+                    )
                 }
-                .onFailure { error ->
-                    _state.update {
-                        it.copy(
-                            isDiscovering = false,
-                            error = error.localizedMessage?.takeIf(String::isNotBlank)
-                                ?: "Não foi possível procurar servidores nesta rede",
-                        )
-                    }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                _state.update {
+                    it.copy(
+                        isDiscovering = false,
+                        error = error.localizedMessage?.takeIf(String::isNotBlank)
+                            ?: "Não foi possível procurar servidores nesta rede",
+                    )
                 }
+            }
         }
     }
 
@@ -176,16 +213,23 @@ class AuthViewModel @Inject constructor(
     }
 
     fun connectToServer(url: String, onSuccess: () -> Unit, onFailure: () -> Unit = {}) {
-        viewModelScope.launch {
+        connectionJob?.cancel()
+        val generation = ++connectionGeneration
+        connectionJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             val cleanUrl = normalizeServerUrl(url)
             if (cleanUrl == null) {
+                if (generation != connectionGeneration) return@launch
                 _state.update { it.copy(isLoading = false, error = "Informe uma URL HTTP ou HTTPS válida") }
                 onFailure()
                 return@launch
             }
+            // Do not keep showing users from the previous server while this
+            // endpoint is being verified or when its verification fails.
+            invalidateAvailableUsersForEndpoint()
             verifyServerUseCase(cleanUrl)
                 .onSuccess { verification ->
+                    if (generation != connectionGeneration) return@onSuccess
                     authRepository.setServerUrl(cleanUrl)
                     authRepository.addSavedServer(
                         org.mulletaflix.domain.repository.SavedServer(
@@ -211,9 +255,14 @@ class AuthViewModel @Inject constructor(
                             savedServers = (listOf(newServer) + it.savedServers).distinctBy { s -> s.url }
                         )
                     }
+                    // The API client now points at the verified endpoint. Refresh
+                    // the user picker so it can never show users from a previous
+                    // server after a LAN/public endpoint switch.
+                    loadAvailableUsers(cleanUrl)
                     onSuccess()
                 }
                 .onFailure { err ->
+                    if (generation != connectionGeneration) return@onFailure
                     _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Servidor não encontrado ou indisponível") }
                     onFailure()
                 }

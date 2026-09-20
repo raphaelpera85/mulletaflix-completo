@@ -206,4 +206,37 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] **Perfil de Usuário**
   - [x] Exibição de foto de perfil e permissões
   - [x] Alternância rápida entre usuários cadastrados no servidor
-  - [x] Ação de logout seguro com limpeza de sessão
+- [x] Ação de logout seguro com limpeza de sessão
+
+## 169. Downloads offline isolados por conta (v1.1.61)
+
+- [x] Escopar IDs de requisição do Media3 pelo usuário ativo.
+- [x] Armazenar proprietário e ID público da mídia nos metadados locais.
+- [x] Exibir, remover e limpar somente downloads da conta atual.
+- [x] Cobrir identidade e filtragem por usuário com testes unitários.
+
+## 170. Feedback de falhas nas ações offline (v1.1.62)
+
+- [x] Expor falhas de retry, remoção, limpeza, pausa, retomada e Wi-Fi somente.
+- [x] Exibir a mensagem de erro em Snackbar sem interromper a tela de downloads.
+- [x] Permitir limpar o aviso após a apresentação e cobrir erros em testes de ViewModel.
+
+## 171. Mensagens de falha dos downloads (v1.1.63)
+
+- [x] Converter códigos de falha do Media3 em mensagens de retry amigáveis.
+- [x] Preservar o código técnico apenas como diagnóstico complementar.
+- [x] Cobrir ausência de falha, falha desconhecida e códigos inesperados em testes unitários.
+
+## 172. Feedback da limpeza total local (v1.1.64)
+
+- [x] Informar sucesso ou falha da limpeza total de dados locais.
+- [x] Preservar downloads offline durante a limpeza geral.
+- [x] Só concluir a ação após limpar preferências e encerrar a sessão.
+- [x] Cobrir o fluxo completo em teste de ViewModel.
+
+## 173. Posições offline isoladas por conta (v1.1.65)
+
+- [x] Escopar a retomada de downloads pela conta ativa.
+- [x] Migrar uma posição legada sem expor a posição entre usuários.
+- [x] Limpar chaves escopadas e legadas ao concluir a reprodução.
+- [x] Cobrir a separação entre usuários em teste unitário.

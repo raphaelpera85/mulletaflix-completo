@@ -96,17 +96,21 @@ fun LibraryScreen(
                     onClearFilters = viewModel::clearFilters,
                 )
             } else {
-                val columns = if (state.isGridView) 3 else 1
+                val columns = if (state.isGridView) {
+                    GridCells.Adaptive(minSize = libraryGridMinSizeDp(state.gridDensity).dp)
+                } else {
+                    GridCells.Fixed(1)
+                }
 
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(columns),
+                    columns = columns,
                     contentPadding = PaddingValues(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     // Active filters summary
                     if (loadError != null) {
-                        item(span = { GridItemSpan(columns) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                                 modifier = Modifier.fillMaxWidth(),
@@ -119,7 +123,7 @@ fun LibraryScreen(
                         }
                     }
                     if (state.activeFilters.isNotEmpty()) {
-                        item(span = { GridItemSpan(columns) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             ActiveFiltersRow(
                                 filters = state.activeFilters,
                                 onRemoveFilter = viewModel::removeFilter,
@@ -128,13 +132,16 @@ fun LibraryScreen(
                         }
                     }
 
-                    items(state.items) { item ->
+                    items(
+                        items = state.items,
+                        key = { item -> item.id },
+                    ) { item ->
                         if (state.isGridView) {
                             MediaCard(
                                 title = item.name,
                                 imageUrl = item.primaryImageUrl,
                                 metadata = item.cardMetadata(),
-                                shape = if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape,
+                                shape = libraryCardShape(item),
                                 progress = item.playbackProgressFraction(),
                                 isWatched = item.isPlayed,
                                 isFavorite = item.isFavorite,
@@ -150,7 +157,7 @@ fun LibraryScreen(
 
                     // Load more trigger
                     if (state.hasMore) {
-                        item(span = { GridItemSpan(columns) }) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
                             LaunchedEffect(Unit) { viewModel.loadMore() }
                             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(modifier = Modifier.padding(16.dp))
@@ -158,7 +165,7 @@ fun LibraryScreen(
                         }
                     }
 
-                    item(span = { GridItemSpan(columns) }) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         Spacer(modifier = Modifier.height(80.dp))
                     }
                 }
@@ -233,7 +240,7 @@ private fun LibraryListRow(item: MediaItem, onClick: () -> Unit) {
             title = item.name,
             imageUrl = item.primaryImageUrl,
             metadata = item.cardMetadata(),
-            shape = MediaCardShape.Portrait,
+            shape = libraryCardShape(item),
             isWatched = item.isPlayed,
             isFavorite = item.isFavorite,
             unplayedCount = item.unplayedItemCount ?: 0,
@@ -248,6 +255,9 @@ private fun LibraryListRow(item: MediaItem, onClick: () -> Unit) {
         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+internal fun libraryCardShape(item: MediaItem): MediaCardShape =
+    if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape
 
 @Composable
 private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> Unit, onClearAll: () -> Unit) {

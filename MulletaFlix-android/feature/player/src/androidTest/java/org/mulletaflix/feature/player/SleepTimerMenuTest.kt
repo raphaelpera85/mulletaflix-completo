@@ -21,11 +21,15 @@ class SleepTimerMenuTest {
     @Test
     fun timerOptionIsAWholeRowRadioAction() {
         var selectedMinutes: Int? = null
+        var selectedAtMediaEnd = false
         composeRule.setContent {
             MaterialTheme {
                 SleepTimerMenu(
                     remainingMs = null,
+                    selectedMinutes = null,
+                    isAtMediaEnd = false,
                     onSelect = { selectedMinutes = it },
+                    onSelectAtMediaEnd = { selectedAtMediaEnd = true },
                     onDismiss = {},
                 )
             }
@@ -41,5 +45,34 @@ class SleepTimerMenuTest {
             .performClick()
 
         assertEquals(30, selectedMinutes)
+        assertEquals(false, selectedAtMediaEnd)
+    }
+
+    @Test
+    fun mediaEndOptionIsAWholeRowRadioAction() {
+        var selectedAtMediaEnd = false
+        composeRule.setContent {
+            MaterialTheme {
+                SleepTimerMenu(
+                    remainingMs = null,
+                    selectedMinutes = null,
+                    isAtMediaEnd = false,
+                    onSelect = {},
+                    onSelectAtMediaEnd = { selectedAtMediaEnd = true },
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule
+            .onNode(
+                SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton) and
+                    hasText("Ao fim da mídia") and
+                    hasClickAction(),
+            )
+            .assertHasClickAction()
+            .performClick()
+
+        assertEquals(true, selectedAtMediaEnd)
     }
 }

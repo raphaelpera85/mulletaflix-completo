@@ -22,6 +22,8 @@ class DownloadsViewModel @Inject constructor(
 
     private val _queuePaused = MutableStateFlow(false)
     val queuePaused: StateFlow<Boolean> = _queuePaused
+    private val _actionMessage = MutableStateFlow<String?>(null)
+    val actionMessage: StateFlow<String?> = _actionMessage
     val wifiOnly: StateFlow<Boolean> = manageDownloadsUseCase.observeWifiOnly()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
@@ -32,22 +34,50 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun remove(id: String) {
-        manageDownloadsUseCase.remove(id)
+        runAction { manageDownloadsUseCase.remove(id) }
+    }
+
+    fun removeCompleted() {
+        runAction { manageDownloadsUseCase.removeCompleted() }
+    }
+
+    fun removeFailed() {
+        runAction { manageDownloadsUseCase.removeFailed() }
     }
 
     fun retry(entry: DownloadEntry) {
-        manageDownloadsUseCase.retry(entry)
+        runAction { manageDownloadsUseCase.retry(entry) }
+    }
+
+    /** Requeues every failed item in the queue snapshot currently rendered. */
+    fun retryFailed(entries: List<DownloadEntry>) {
+        failedDownloads(entries).forEach { entry ->
+            runAction { manageDownloadsUseCase.retry(entry) }
+        }
     }
 
     fun pauseQueue() {
-        manageDownloadsUseCase.pauseAll().onSuccess { _queuePaused.value = true }
+        runAction { manageDownloadsUseCase.pauseAll() }
+            .onSuccess { _queuePaused.value = true }
     }
 
     fun resumeQueue() {
-        manageDownloadsUseCase.resumeAll().onSuccess { _queuePaused.value = false }
+        runAction { manageDownloadsUseCase.resumeAll() }
+            .onSuccess { _queuePaused.value = false }
     }
 
     fun setWifiOnly(enabled: Boolean) {
-        manageDownloadsUseCase.setWifiOnly(enabled)
+        runAction { manageDownloadsUseCase.setWifiOnly(enabled) }
+    }
+
+    fun clearActionMessage() {
+        _actionMessage.value = null
+    }
+
+    private fun runAction(action: () -> Result<Unit>): Result<Unit> = runCatching {
+        action().getOrThrow()
+    }.onFailure { error ->
+        _actionMessage.value = error.localizedMessage?.takeIf(String::isNotBlank)
+            ?: "Não foi possível concluir a ação offline."
     }
 }

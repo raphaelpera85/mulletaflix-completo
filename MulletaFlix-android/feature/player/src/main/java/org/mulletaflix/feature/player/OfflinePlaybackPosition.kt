@@ -2,10 +2,11 @@ package org.mulletaflix.feature.player
 
 import java.security.MessageDigest
 
-/** Stable, non-sensitive preference key for a downloaded media URI.
- *
- * Keep the unnamespaced input for compatibility with positions written by v1.0.25.
- */
+/** Stable, user-scoped preference key for a downloaded media URI. */
+internal fun offlinePlaybackPositionKey(userId: String, uri: String): String =
+    stablePlaybackPositionKey("offline:$userId:$uri")
+
+/** Legacy key kept only to migrate positions written before account isolation. */
 internal fun offlinePlaybackPositionKey(uri: String): String =
     stablePlaybackPositionKey(uri)
 

@@ -9,6 +9,16 @@ import org.mulletaflix.domain.model.MediaStreamType
 class PlayerOptionsTest {
 
     @Test
+    fun `cast action communicates whether a receiver session is active`() {
+        assertEquals("Transmitir", castActionLabel(isCasting = false))
+        assertEquals("Transmitindo", castActionLabel(isCasting = true))
+        assertEquals(
+            "Transmitindo para dispositivo compatível",
+            castActionContentDescription(isCasting = true),
+        )
+    }
+
+    @Test
     fun `formats playback stats for support sharing`() {
         val text = formatPlaybackStats(
             PlaybackStats(
@@ -63,6 +73,26 @@ class PlayerOptionsTest {
         assertEquals("Auto", normalizeQualityPreference(null))
         assertEquals("Auto", normalizeQualityPreference("   "))
         assertEquals("1080p", normalizeQualityPreference(" 1080p "))
+    }
+
+    @Test
+    fun `quality preference normalizes persisted aliases to canonical labels`() {
+        assertEquals("4K", normalizeQualityPreference(" 2160p "))
+        assertEquals("1440p", normalizeQualityPreference("1440"))
+        assertEquals("1080p", normalizeQualityPreference("FULL HD"))
+        assertEquals("Auto", normalizeQualityPreference("automático"))
+    }
+
+    @Test
+    fun `invalid quality values fall back to automatic mode`() {
+        assertEquals("Auto", normalizeQualityPreference("unsupported"))
+    }
+
+    @Test
+    fun `quality selection falls back to auto when saved resolution is unavailable`() {
+        assertEquals("Auto", effectiveQualitySelection("4K", listOf("1080p", "720p")))
+        assertEquals("1440p", effectiveQualitySelection("1440", listOf("1440p", "1080p")))
+        assertEquals("Auto", effectiveQualitySelection("Auto", emptyList()))
     }
 
     @Test

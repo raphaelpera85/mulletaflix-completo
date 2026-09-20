@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -206,7 +207,7 @@ fun ProfileScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Online • ${state.serverVerification?.latencyMs ?: 12} ms de latência",
+                            text = formatServerConnectionStatus(state.serverVerification?.latencyMs),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF4CAF50),
                             fontWeight = FontWeight.Medium,
@@ -338,7 +339,7 @@ fun ProfileScreen(
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                     ProfileOptionItem(
-                        icon = Icons.Default.Logout,
+                        icon = Icons.AutoMirrored.Filled.Logout,
                         title = "Sair da Conta",
                         subtitle = "Finaliza a sessão neste dispositivo",
                         tint = MaterialTheme.colorScheme.error,

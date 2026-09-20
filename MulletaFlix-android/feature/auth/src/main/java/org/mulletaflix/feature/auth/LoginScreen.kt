@@ -40,6 +40,7 @@ import coil.compose.SubcomposeAsyncImageContent
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
+import org.mulletaflix.designsystem.components.MulletaFlixWordmark
 
 internal const val REGISTER_DIALOG_CONTENT_DESCRIPTION = "Conteúdo do cadastro; deslize verticalmente para ver mais"
 
@@ -93,10 +94,8 @@ fun LoginScreen(
                 modifier = Modifier.size(80.dp)
             )
 
-            Text(
-                text = "MulletaFlix",
+            MulletaFlixWordmark(
                 style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 12.dp)
             )

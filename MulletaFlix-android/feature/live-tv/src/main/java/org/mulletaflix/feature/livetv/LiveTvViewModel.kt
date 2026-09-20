@@ -6,7 +6,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.MediaItem
@@ -27,7 +29,7 @@ data class LiveTvUiState(
     val error: String? = null,
     val guideError: String? = null,
     val recordingsError: String? = null,
-    val schedulingProgramId: String? = null,
+    val schedulingProgramIds: Set<String> = emptySet(),
     val scheduledProgramIds: Set<String> = emptySet(),
 )
 
@@ -39,19 +41,65 @@ class LiveTvViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(LiveTvUiState())
     val state = _state.asStateFlow()
+    private var refreshJob: Job? = null
+    private var guideJob: Job? = null
+    private var refreshGeneration = 0L
+    private var guideGeneration = 0L
+    private var currentUserId: String? = null
+    private var sessionGeneration = 0L
+    private var hasObservedSession = false
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            sessionRepository.getCurrentUserId().distinctUntilChanged().collect { userId ->
+                val userChanged = hasObservedSession && currentUserId != userId
+                currentUserId = userId
+                hasObservedSession = true
+                if (userChanged) {
+                    ++sessionGeneration
+                    refreshJob?.cancel()
+                    guideJob?.cancel()
+                    ++guideGeneration
+                    _state.update {
+                        it.copy(
+                            channels = emptyList(),
+                            recordings = emptyList(),
+                            programs = emptyList(),
+                            isLoading = false,
+                            isLoadingGuide = false,
+                            error = null,
+                            guideError = null,
+                            recordingsError = null,
+                            schedulingProgramIds = emptySet(),
+                            scheduledProgramIds = emptySet(),
+                        )
+                    }
+                }
+                refresh()
+            }
+        }
+    }
 
     fun refresh() {
-        viewModelScope.launch {
-            val userId = sessionRepository.getCurrentUserId().first()
+        refreshJob?.cancel()
+        val generation = ++refreshGeneration
+        val sessionAtRequest = sessionGeneration
+        // A new channel snapshot invalidates any guide request based on the
+        // previous snapshot, even when the transport ignores cancellation.
+        guideGeneration++
+        refreshJob = viewModelScope.launch {
+            val userId = currentUserId ?: sessionRepository.getCurrentUserId().first()
             if (userId.isNullOrBlank()) {
-                _state.update { it.copy(isLoading = false, error = "Sessão expirada. Entre novamente para ver a TV ao vivo.") }
+                if (sessionAtRequest == sessionGeneration && currentUserId == userId) {
+                    _state.update { it.copy(isLoading = false, error = "Sessão expirada. Entre novamente para ver a TV ao vivo.") }
+                }
                 return@launch
             }
+            if (!isCurrentSession(userId, sessionAtRequest)) return@launch
             _state.update { it.copy(isLoading = true, error = null) }
             getLiveTvChannelsUseCase(userId)
                 .onSuccess { guide ->
+                    if (generation != refreshGeneration || !isCurrentSession(userId, sessionAtRequest)) return@onSuccess
                     _state.update {
                         it.copy(
                             channels = guide.channels,
@@ -63,6 +111,7 @@ class LiveTvViewModel @Inject constructor(
                     }
                 }
                 .onFailure { e ->
+                    if (generation != refreshGeneration || !isCurrentSession(userId, sessionAtRequest)) return@onFailure
                     _state.update {
                         it.copy(
                             isLoading = false,
@@ -74,7 +123,12 @@ class LiveTvViewModel @Inject constructor(
     }
 
     fun loadGuide() {
-        viewModelScope.launch {
+        guideJob?.cancel()
+        val generation = ++guideGeneration
+        val sessionAtRequest = sessionGeneration
+        val userIdAtRequest = currentUserId
+        guideJob = viewModelScope.launch {
+            if (!isCurrentSession(userIdAtRequest, sessionAtRequest)) return@launch
             val ids = _state.value.channels.map { it.id }
             if (ids.isEmpty()) return@launch
             _state.update { it.copy(isLoadingGuide = true, guideError = null) }
@@ -84,32 +138,58 @@ class LiveTvViewModel @Inject constructor(
             val startMillis = System.currentTimeMillis()
             val endMillis = startMillis + TimeUnit.HOURS.toMillis(24)
             repository.getPrograms(ids, formatter.format(Date(startMillis)), formatter.format(Date(endMillis)))
-                .onSuccess { programs -> _state.update { it.copy(programs = programs, isLoadingGuide = false) } }
-                .onFailure { e -> _state.update { it.copy(isLoadingGuide = false, guideError = e.message ?: "Não foi possível carregar o guia.") } }
+                .onSuccess { programs ->
+                    if (generation != guideGeneration || !isCurrentSession(userIdAtRequest, sessionAtRequest)) return@onSuccess
+                    _state.update { it.copy(programs = programs, isLoadingGuide = false) }
+                }
+                .onFailure { e ->
+                    if (generation != guideGeneration || !isCurrentSession(userIdAtRequest, sessionAtRequest)) return@onFailure
+                    _state.update { it.copy(isLoadingGuide = false, guideError = e.message ?: "Não foi possível carregar o guia.") }
+                }
         }
     }
 
     fun scheduleRecording(program: MediaItem) {
-        if (program.id in _state.value.scheduledProgramIds) return
+        if (program.id in _state.value.scheduledProgramIds ||
+            program.id in _state.value.schedulingProgramIds
+        ) return
+        // Update synchronously so repeated taps are rejected before the
+        // coroutine gets a chance to start the network request.
+        _state.update {
+            it.copy(
+                schedulingProgramIds = it.schedulingProgramIds + program.id,
+                guideError = null,
+            )
+        }
+        val sessionAtRequest = sessionGeneration
+        val userIdAtRequest = currentUserId
+        // Keep each program request independent: cancelling a different
+        // program could leave a server-created timer unrepresented locally.
         viewModelScope.launch {
-            _state.update { it.copy(schedulingProgramId = program.id, guideError = null) }
             repository.scheduleRecording(program)
                 .onSuccess {
+                    if (!isCurrentSession(userIdAtRequest, sessionAtRequest)) return@onSuccess
                     _state.update {
                         it.copy(
-                            schedulingProgramId = null,
+                            schedulingProgramIds = it.schedulingProgramIds - program.id,
                             scheduledProgramIds = it.scheduledProgramIds + program.id,
                         )
                     }
                 }
                 .onFailure { error ->
+                    if (!isCurrentSession(userIdAtRequest, sessionAtRequest)) return@onFailure
                     _state.update {
                         it.copy(
-                            schedulingProgramId = null,
+                            schedulingProgramIds = it.schedulingProgramIds - program.id,
                             guideError = error.message ?: "Não foi possível agendar a gravação.",
                         )
                     }
                 }
         }
     }
+
+    private fun isCurrentSession(userId: String?, generation: Long): Boolean =
+        !userId.isNullOrBlank() &&
+            currentUserId == userId &&
+            sessionGeneration == generation
 }

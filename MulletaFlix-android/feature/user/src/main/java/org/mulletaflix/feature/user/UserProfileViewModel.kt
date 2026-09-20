@@ -5,8 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.mulletaflix.core.common.dispatcher.IoDispatcher
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
@@ -46,10 +51,17 @@ class UserProfileViewModel @Inject constructor(
     private val logoutUseCase: LogoutUseCase,
     private val switchUserUseCase: SwitchUserUseCase,
     @param:ApplicationContext private val context: Context,
+    @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(UserProfileUiState())
     val uiState: StateFlow<UserProfileUiState> = _uiState.asStateFlow()
+
+    private var observedUserId: String? = null
+    private var hasObservedSession = false
+    private var sessionGeneration = 0L
+    private var profileRequestGeneration = 0L
+    private var profileJob: Job? = null
 
     init {
         observeSession()
@@ -65,19 +77,34 @@ class UserProfileViewModel @Inject constructor(
             ) { url, id, name ->
                 Triple(url, id, name)
             }.collect { (url, id, name) ->
+                val userChanged = hasObservedSession && observedUserId != id
+                hasObservedSession = true
+                observedUserId = id
                 _uiState.update {
                     it.copy(
                         serverUrl = url,
                         fallbackUserId = id,
                         fallbackUserName = name,
+                        userProfile = if (userChanged) null else it.userProfile,
+                        availableUsers = if (userChanged) emptyList() else it.availableUsers,
+                        serverVerification = if (userChanged) null else it.serverVerification,
                     )
+                }
+                if (userChanged) {
+                    sessionGeneration++
+                    profileRequestGeneration++
+                    profileJob?.cancel()
+                    loadProfile()
                 }
             }
         }
     }
 
     fun loadProfile() {
-        viewModelScope.launch {
+        profileJob?.cancel()
+        val requestGeneration = ++profileRequestGeneration
+        val requestSessionGeneration = sessionGeneration
+        profileJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             calculateCacheSize()
 
@@ -95,6 +122,7 @@ class UserProfileViewModel @Inject constructor(
 
             // 1. Fetch remote user profile
             val profileResult = getUserProfileUseCase()
+            if (!isCurrentProfileRequest(requestGeneration, requestSessionGeneration, currentUserId)) return@launch
             if (profileResult.isSuccess) {
                 val profile = profileResult.getOrNull()
                 _uiState.update { it.copy(userProfile = profile) }
@@ -117,19 +145,26 @@ class UserProfileViewModel @Inject constructor(
 
             // 2. Fetch server verification / latency
             if (currentUrl.isNotBlank()) {
-                authRepository.verifyServer(currentUrl).onSuccess { verification ->
-                    _uiState.update { it.copy(serverVerification = verification) }
-                }
+                authRepository.verifyServer(currentUrl)
+                    .onSuccess { verification ->
+                        if (isCurrentProfileRequest(requestGeneration, requestSessionGeneration, currentUserId)) {
+                            _uiState.update { it.copy(serverVerification = verification) }
+                        }
+                    }
             }
 
             // 3. Fetch public users for quick switching
             authRepository.getAvailableUsers().onSuccess { users ->
-                val myId = _uiState.value.userProfile?.id ?: currentUserId
-                val otherUsers = users.filter { it.id != myId }
-                _uiState.update { it.copy(availableUsers = otherUsers) }
+                if (isCurrentProfileRequest(requestGeneration, requestSessionGeneration, currentUserId)) {
+                    val myId = _uiState.value.userProfile?.id ?: currentUserId
+                    val otherUsers = users.filter { it.id != myId }
+                    _uiState.update { it.copy(availableUsers = otherUsers) }
+                }
             }
 
-            _uiState.update { it.copy(isLoading = false) }
+            if (isCurrentProfileRequest(requestGeneration, requestSessionGeneration, currentUserId)) {
+                _uiState.update { it.copy(isLoading = false) }
+            }
         }
     }
 
@@ -192,9 +227,11 @@ class UserProfileViewModel @Inject constructor(
     fun clearCache() {
         viewModelScope.launch {
             try {
-                context.cacheDir.resolve("image_cache").deleteRecursively()
-                context.cacheDir.resolve("coil").deleteRecursively()
-                context.cacheDir.resolve("code_cache").deleteRecursively()
+                withContext(ioDispatcher) {
+                    context.cacheDir.resolve("image_cache").deleteRecursively()
+                    context.cacheDir.resolve("coil").deleteRecursively()
+                    context.cacheDir.resolve("code_cache").deleteRecursively()
+                }
                 calculateCacheSize()
                 _uiState.update {
                     it.copy(
@@ -209,7 +246,7 @@ class UserProfileViewModel @Inject constructor(
     }
 
 
-    private fun calculateCacheSize() {
+    private suspend fun calculateCacheSize() = withContext(ioDispatcher) {
         try {
             val cacheSize = getDirSize(context.cacheDir)
             val sizeMb = cacheSize / (1024.0 * 1024.0)
@@ -231,5 +268,15 @@ class UserProfileViewModel @Inject constructor(
 
     fun dismissMessage() {
         _uiState.update { it.copy(message = null, error = null) }
+    }
+
+    private fun isCurrentProfileRequest(
+        requestGeneration: Long,
+        requestSessionGeneration: Long,
+        requestUserId: String?,
+    ): Boolean {
+        return profileRequestGeneration == requestGeneration &&
+            sessionGeneration == requestSessionGeneration &&
+            observedUserId == requestUserId
     }
 }

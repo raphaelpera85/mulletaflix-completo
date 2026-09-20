@@ -1,6 +1,7 @@
 package org.mulletaflix.domain.repository
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 enum class AppThemeSetting {
     Dark,
@@ -46,6 +47,22 @@ interface SettingsRepository {
     fun getSubtitleFontSize(): Flow<Int>
     suspend fun setSubtitleFontSize(size: Int)
 
+    fun getSubtitleColor(): Flow<String> = flowOf("WHITE")
+    suspend fun setSubtitleColor(color: String) = Unit
+
     fun getDefaultAspectRatio(): Flow<String>
     suspend fun setDefaultAspectRatio(aspectRatio: String)
+
+    fun isLibraryGridViewEnabled(): Flow<Boolean>
+    suspend fun setLibraryGridViewEnabled(enabled: Boolean)
+
+    /** Minimum card width used by the adaptive library grid. */
+    fun getLibraryGridDensity(): Flow<String> = flowOf("COMFORTABLE")
+    suspend fun setLibraryGridDensity(density: String) = Unit
+
+    fun getDefaultLibrarySort(): Flow<String>
+    suspend fun setDefaultLibrarySort(sortBy: String)
+
+    fun getDefaultLibraryFilters(): Flow<Set<String>>
+    suspend fun setDefaultLibraryFilters(filters: Set<String>)
 }

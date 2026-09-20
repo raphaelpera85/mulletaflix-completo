@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.LibraryBrowseTypes
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetLibraryItemsUseCase
 import javax.inject.Inject
@@ -16,6 +17,7 @@ import javax.inject.Inject
 data class LibraryState(
     val libraryName: String = "Biblioteca",
     val isGridView: Boolean = true,
+    val gridDensity: String = LIBRARY_GRID_DENSITY_COMFORTABLE,
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val items: List<MediaItem> = emptyList(),
@@ -32,6 +34,7 @@ class LibraryViewModel @Inject constructor(
     private val getLibraryItemsUseCase: GetLibraryItemsUseCase,
     private val getItemDetailUseCase: GetItemDetailUseCase,
     private val authRepository: AuthRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryState())
@@ -39,28 +42,72 @@ class LibraryViewModel @Inject constructor(
 
     private var currentLibraryId: String? = null
     private var currentUserId: String? = null
+    private var hasObservedUser = false
     private var currentStartIndex: Int = 0
     private var currentIncludeItemTypes: String = LibraryBrowseTypes.DEFAULT
     private val pageSize = 40
     private var totalItems = 0
     private var loadJob: Job? = null
+    private var requestGeneration: Long = 0L
 
     companion object {
         const val FILTER_FAVORITES = "Favoritos"
         const val FILTER_PLAYED = "Assistidos"
         const val FILTER_UNPLAYED = "Não assistidos"
+        private val SUPPORTED_FILTERS = listOf(FILTER_FAVORITES, FILTER_PLAYED, FILTER_UNPLAYED)
     }
 
     init {
         viewModelScope.launch {
             authRepository.getSavedUserId().collect { userId ->
+                val userChanged = hasObservedUser && currentUserId != userId
                 currentUserId = userId
+                hasObservedUser = true
+                if (userChanged) {
+                    loadJob?.cancel()
+                    ++requestGeneration
+                    currentLibraryId = null
+                    currentStartIndex = 0
+                    totalItems = 0
+                    _state.update {
+                        it.copy(
+                            items = emptyList(),
+                            hasMore = false,
+                            isLoading = false,
+                            isRefreshing = false,
+                            error = null,
+                        )
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.isLibraryGridViewEnabled().collect { enabled ->
+                _state.update { it.copy(isGridView = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getLibraryGridDensity().collect { density ->
+                _state.update { it.copy(gridDensity = normalizeLibraryGridDensity(density)) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getDefaultLibrarySort().collect { sortValue ->
+                val sort = SortOption.values().firstOrNull { it.apiValue.equals(sortValue, ignoreCase = true) }
+                    ?: SortOption.Name
+                _state.update { it.copy(sortBy = sort) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.getDefaultLibraryFilters().collect { filters ->
+                _state.update { it.copy(activeFilters = orderedFilters(filters)) }
             }
         }
     }
 
     fun loadLibrary(libraryId: String) {
         loadJob?.cancel()
+        val requestGeneration = ++this.requestGeneration
         currentLibraryId = libraryId
         currentStartIndex = 0
         loadJob = viewModelScope.launch {
@@ -72,6 +119,7 @@ class LibraryViewModel @Inject constructor(
 
             // Get library details (name + collection type drive the browse query)
             val libResult = getItemDetailUseCase(userId, libraryId)
+            if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@launch
             val library = libResult.getOrNull()
             val libName = library?.name ?: "Biblioteca"
             currentIncludeItemTypes = LibraryBrowseTypes.forCollectionType(library?.collectionType)
@@ -86,6 +134,7 @@ class LibraryViewModel @Inject constructor(
                 isPlayed = playedFilter(_state.value.activeFilters),
                 isFavorite = favoriteFilter(_state.value.activeFilters),
             ).onSuccess { (items, total) ->
+                if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
                 totalItems = total
                 _state.update {
                     it.copy(
@@ -98,21 +147,46 @@ class LibraryViewModel @Inject constructor(
                     )
                 }
             }.onFailure { error ->
+                if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onFailure
                 _state.update { it.copy(isLoading = false, isRefreshing = false, error = error.message ?: "Não foi possível carregar a biblioteca.") }
             }
         }
     }
 
     fun loadMore() {
-        val libId = currentLibraryId ?: return
-        if (_state.value.isLoading || !_state.value.hasMore) return
+        val libId = currentLibraryId ?: run {
+            if (currentUserId == null) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Sessão expirada. Entre novamente.",
+                    )
+                }
+            }
+            return
+        }
+        if (!shouldRequestNextLibraryPage(_state.value.isLoading, _state.value.hasMore)) return
 
+        // Mark the state before launching the coroutine. Compose can request the
+        // sentinel item more than once during a fast scroll/recomposition; the
+        // synchronous transition closes that small window and prevents duplicate
+        // pages from being appended.
+        val requestGeneration = ++this.requestGeneration
+        _state.update { it.copy(isLoading = true, error = null) }
         loadJob = viewModelScope.launch {
-            val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
+            val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Sessão expirada. Entre novamente.",
+                    )
+                }
+                return@launch
+            }
+            if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@launch
             // Page from the number of items actually loaded: the server may cap
             // a page below the requested size, which would otherwise skip items.
             val requestedStartIndex = _state.value.items.size
-            _state.update { it.copy(isLoading = true, error = null) }
             getLibraryItemsUseCase(
                 userId = userId,
                 libraryId = libId,
@@ -123,6 +197,7 @@ class LibraryViewModel @Inject constructor(
                 isPlayed = playedFilter(_state.value.activeFilters),
                 isFavorite = favoriteFilter(_state.value.activeFilters),
             ).onSuccess { (newItems, total) ->
+                if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onSuccess
                 val combined = _state.value.items + newItems
                 currentStartIndex = requestedStartIndex
                 _state.update {
@@ -134,13 +209,22 @@ class LibraryViewModel @Inject constructor(
                     )
                 }
             }.onFailure { error ->
+                if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onFailure
                 _state.update { it.copy(isLoading = false, error = error.message ?: "Não foi possível carregar mais itens.") }
             }
         }
     }
 
     fun toggleView() {
-        _state.update { it.copy(isGridView = !it.isGridView) }
+        val nextValue = !_state.value.isGridView
+        _state.update { it.copy(isGridView = nextValue) }
+        viewModelScope.launch { settingsRepository.setLibraryGridViewEnabled(nextValue) }
+    }
+
+    fun setGridDensity(density: String) {
+        val normalized = normalizeLibraryGridDensity(density)
+        _state.update { it.copy(gridDensity = normalized) }
+        viewModelScope.launch { settingsRepository.setLibraryGridDensity(normalized) }
     }
 
     fun showSortMenu() {
@@ -160,34 +244,45 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun toggleFilter(filter: String) {
-        _state.update {
-            val filters = if (filter in it.activeFilters) {
-                it.activeFilters - filter
-            } else {
-                (it.activeFilters.filterNot { active ->
-                    (filter == FILTER_PLAYED || filter == FILTER_UNPLAYED) &&
-                        (active == FILTER_PLAYED || active == FILTER_UNPLAYED)
-                } + filter).distinct()
-            }
-            it.copy(activeFilters = filters, showFilterMenu = false)
+        val currentFilters = _state.value.activeFilters
+        val nextFilters = if (filter in currentFilters) {
+            currentFilters - filter
+        } else {
+            (currentFilters.filterNot { active ->
+                (filter == FILTER_PLAYED || filter == FILTER_UNPLAYED) &&
+                    (active == FILTER_PLAYED || active == FILTER_UNPLAYED)
+            } + filter).distinct()
         }
+        _state.update { it.copy(activeFilters = nextFilters, showFilterMenu = false) }
+        persistFilters(nextFilters)
         currentLibraryId?.let { loadLibrary(it) }
     }
 
     fun setSortBy(option: SortOption) {
         _state.update { it.copy(sortBy = option, showSortMenu = false) }
+        viewModelScope.launch { settingsRepository.setDefaultLibrarySort(option.apiValue) }
         currentLibraryId?.let { loadLibrary(it) }
     }
 
     fun removeFilter(filter: String) {
-        _state.update { it.copy(activeFilters = it.activeFilters - filter) }
+        val nextFilters = _state.value.activeFilters - filter
+        _state.update { it.copy(activeFilters = nextFilters) }
+        persistFilters(nextFilters)
         currentLibraryId?.let { loadLibrary(it) }
     }
 
     fun clearFilters() {
         _state.update { it.copy(activeFilters = emptyList()) }
+        persistFilters(emptyList())
         currentLibraryId?.let { loadLibrary(it) }
     }
+
+    private fun persistFilters(filters: Collection<String>) {
+        viewModelScope.launch { settingsRepository.setDefaultLibraryFilters(orderedFilters(filters).toSet()) }
+    }
+
+    private fun orderedFilters(filters: Collection<String>): List<String> =
+        SUPPORTED_FILTERS.filter { it in filters }
 
     private fun playedFilter(filters: List<String>): Boolean? = when {
         FILTER_PLAYED in filters -> true
@@ -197,4 +292,13 @@ class LibraryViewModel @Inject constructor(
 
     private fun favoriteFilter(filters: List<String>): Boolean? =
         if (FILTER_FAVORITES in filters) true else null
+
+    private fun isCurrentLibraryRequest(
+        generation: Long,
+        userId: String,
+        libraryId: String,
+    ): Boolean =
+        generation == requestGeneration &&
+            currentUserId == userId &&
+            currentLibraryId == libraryId
 }

@@ -1,6 +1,8 @@
 package org.mulletaflix.feature.library
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -8,6 +10,8 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -77,18 +81,80 @@ class FavoritesViewModelTest {
         assertTrue(viewModel.state.value.hasMore)
     }
 
+    @Test
+    fun `repeated load more taps start only one page request`() = runTest {
+        val first = MediaItem("one", "One", MediaItemType.Movie)
+        val second = MediaItem("two", "Two", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(first) to 2)
+        media.pages[1] = Result.success(listOf(second) to 2)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadMore()
+        viewModel.loadMore()
+        runCurrent()
+
+        assertEquals(1, media.pageRequestCountFor(1))
+    }
+
+    @Test
+    fun `late refresh response cannot replace a newer favorites list`() = runTest {
+        val oldResponse = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        val old = MediaItem("old", "Old", MediaItemType.Movie)
+        val fresh = MediaItem("fresh", "Fresh", MediaItemType.Movie)
+        media.responseSequence = ArrayDeque(listOf(oldResponse, CompletableDeferred(Result.success(listOf(fresh) to 1))))
+        val viewModel = createViewModel()
+        runCurrent()
+
+        viewModel.refresh()
+        runCurrent()
+        assertEquals(listOf(fresh), viewModel.state.value.items)
+
+        oldResponse.complete(Result.success(listOf(old) to 1))
+        advanceUntilIdle()
+        assertEquals(listOf(fresh), viewModel.state.value.items)
+    }
+
+    @Test
+    fun `late favorites response from a previous user cannot replace current session`() = runTest {
+        val oldResponse = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        val old = MediaItem("old", "Conta antiga", MediaItemType.Movie)
+        media.responseSequence = ArrayDeque(listOf(oldResponse))
+        val auth = FakeAuthRepository()
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth)
+        runCurrent()
+
+        auth.userIdState.value = "user-2"
+        runCurrent()
+        advanceUntilIdle()
+
+        oldResponse.complete(Result.success(listOf(old) to 1))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.items.isEmpty())
+        assertEquals(false, viewModel.state.value.hasMore)
+    }
+
     private class FakeMediaRepository : MediaRepository {
         val pages = mutableMapOf<Int, Result<Pair<List<MediaItem>, Int>>>()
         var lastFilters: String? = null
         var lastIsFavorite: Boolean? = null
         var lastStartIndex = -1
+        var requestStarts = mutableListOf<Int>()
+        var responseSequence: ArrayDeque<CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>>? = null
 
         override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> {
             lastFilters = filters
             lastIsFavorite = isFavorite
             lastStartIndex = startIndex
+            requestStarts += startIndex
+            responseSequence?.removeFirstOrNull()?.let { deferred ->
+                return withContext(NonCancellable) { deferred.await() }
+            }
             return pages[startIndex] ?: Result.success(emptyList<MediaItem>() to 0)
         }
+
+        fun pageRequestCountFor(startIndex: Int): Int = requestStarts.count { it == startIndex }
         override suspend fun getItem(userId: String, itemId: String) = Result.success(MediaItem(itemId, itemId, MediaItemType.Movie))
         override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
         override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
@@ -111,7 +177,8 @@ class FavoritesViewModelTest {
     }
 
     private class FakeAuthRepository : AuthRepository {
-        override fun getSavedUserId() = MutableStateFlow<String?>("user-1")
+        val userIdState = MutableStateFlow<String?>("user-1")
+        override fun getSavedUserId() = userIdState
         override fun getSavedToken() = MutableStateFlow<String?>("token")
         override fun getSavedServerUrl() = MutableStateFlow("http://localhost")
         override suspend fun verifyServer(url: String) = Result.success(ServerVerification("Test", "1"))

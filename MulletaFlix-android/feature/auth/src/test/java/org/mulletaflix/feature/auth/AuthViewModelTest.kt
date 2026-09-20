@@ -3,6 +3,8 @@ package org.mulletaflix.feature.auth
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,8 +12,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -190,6 +194,139 @@ class AuthViewModelTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.state.value.savedServers.any { it.url == DEFAULT_MULLETAFLIX_SERVER_URL })
+    }
+
+    @Test
+    fun `new LAN discovery cancels a stale slower discovery`() = runTest {
+        var call = 0
+        coEvery { discovery.discover(any()) } coAnswers {
+            val currentCall = ++call
+            if (currentCall == 2) delay(100)
+            listOf(
+                ServerInfo(
+                    name = if (currentCall == 2) "Stale LAN" else "Fresh LAN",
+                    url = "http://192.168.1.${if (currentCall == 2) 20 else 30}:8096",
+                )
+            )
+        }
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        call = 1 // The initial scan already consumed call 1.
+
+        viewModel.discoverLocalServers()
+        runCurrent()
+        viewModel.discoverLocalServers()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isDiscovering)
+        assertEquals("Fresh LAN", viewModel.state.value.discoveredServers.single().name)
+    }
+
+    @Test
+    fun `startup discovery prefers the saved server identity on the LAN`() = runTest {
+        coEvery { discovery.discover(any()) } returns listOf(
+            ServerInfo("Other LAN", "http://192.168.1.20:8096", serverId = "other-id"),
+            ServerInfo("Saved LAN", "http://192.168.1.10:8096", serverId = "saved-id"),
+        )
+        val authRepo = object : FakeAuthRepository() {
+            init {
+                savedServersState.value = listOf(
+                    SavedServer(
+                        name = "MulletaFlix Cloud",
+                        url = DEFAULT_MULLETAFLIX_SERVER_URL,
+                        version = "12.0.2",
+                        serverId = "saved-id",
+                    )
+                )
+            }
+        }
+
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals("http://192.168.1.10:8096", viewModel.state.value.serverUrl)
+    }
+
+    @Test
+    fun `connecting to a new endpoint refreshes the available user picker`() = runTest {
+        var availableUsersCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override fun getSavedServerUrl(): Flow<String> = flowOf("")
+
+            override suspend fun getAvailableUsers(): Result<List<AvailableUser>> {
+                availableUsersCalls += 1
+                return Result.success(listOf(AvailableUser(id = "u1", name = "Raphael")))
+            }
+        }
+        coEvery { discovery.discover(any()) } returns emptyList()
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.connectToServer("http://192.168.1.10:8096", onSuccess = {})
+        advanceUntilIdle()
+
+        assertEquals(1, availableUsersCalls)
+        assertEquals(listOf("Raphael"), viewModel.state.value.availableUsers.map { it.name })
+    }
+
+    @Test
+    fun `failed user picker load can be retried for the same endpoint`() = runTest {
+        var availableUsersCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override fun getSavedServerUrl(): Flow<String> = flowOf("")
+
+            override suspend fun getAvailableUsers(): Result<List<AvailableUser>> {
+                availableUsersCalls += 1
+                return if (availableUsersCalls == 1) {
+                    Result.failure(IllegalStateException("temporary network failure"))
+                } else {
+                    Result.success(listOf(AvailableUser(id = "u2", name = "Retry User")))
+                }
+            }
+        }
+        coEvery { discovery.discover(any()) } returns emptyList()
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.connectToServer("http://192.168.1.11:8096", onSuccess = {})
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.availableUsers.isEmpty())
+
+        viewModel.connectToServer("http://192.168.1.11:8096", onSuccess = {})
+        advanceUntilIdle()
+
+        assertEquals(2, availableUsersCalls)
+        assertEquals(listOf("Retry User"), viewModel.state.value.availableUsers.map { it.name })
+    }
+
+    @Test
+    fun `latest server connection wins over a late verification response`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun verifyServer(url: String): Result<ServerVerification> {
+                if (url.contains("old")) {
+                    withContext(NonCancellable) { delay(100) }
+                }
+                return Result.success(
+                    ServerVerification(
+                        name = "Verified $url",
+                        version = "12.0.2",
+                        latencyMs = 10L,
+                        serverId = url,
+                    )
+                )
+            }
+        }
+        coEvery { discovery.discover(any()) } returns emptyList()
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.connectToServer("http://old-server:8096", onSuccess = {})
+        runCurrent()
+        viewModel.connectToServer("http://new-server:8096", onSuccess = {})
+        advanceUntilIdle()
+
+        assertEquals("http://new-server:8096", viewModel.state.value.serverUrl)
+        assertFalse(viewModel.state.value.savedServers.any { it.url == "http://old-server:8096" })
     }
 
     private open class FakeAuthRepository : AuthRepository {

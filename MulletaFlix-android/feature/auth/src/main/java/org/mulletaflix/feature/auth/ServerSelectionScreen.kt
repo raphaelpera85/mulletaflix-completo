@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import org.mulletaflix.designsystem.components.MulletaFlixWordmark
 
 /**
  * Server selection screen — shown before login.
@@ -94,7 +95,11 @@ fun ServerSelectionScreen(
                 tint = Color.Unspecified,
                 modifier = Modifier.size(72.dp)
             )
-            Text("MulletaFlix", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+            MulletaFlixWordmark(
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 12.dp),
+            )
             Text("Player conectado ao servidor remoto", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.5f), modifier = Modifier.padding(bottom = 32.dp))
 
             // Manual URL entry

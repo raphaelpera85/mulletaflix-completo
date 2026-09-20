@@ -33,3 +33,13 @@ internal fun shouldRetryAfterNetworkRestored(
     hasPlaybackError &&
     errorCode != null &&
     isTransientNetworkPlaybackError(errorCode)
+
+internal fun isCurrentPlaybackLoad(
+    expectedGeneration: Long,
+    currentGeneration: Long,
+    expectedItemId: String?,
+    currentItemId: String?,
+    expectedSessionGeneration: Long? = null,
+    currentSessionGeneration: Long? = null,
+): Boolean = expectedGeneration == currentGeneration && expectedItemId == currentItemId
+    && (expectedSessionGeneration == null || expectedSessionGeneration == currentSessionGeneration)

@@ -48,6 +48,12 @@ import org.mulletaflix.designsystem.media.resolveMediaUrl
  */
 enum class MediaCardShape { Portrait, Landscape, Square, Banner }
 
+/** Keeps poster and landscape artwork fully visible instead of cropping its edges. */
+internal fun mediaCardContentScale(shape: MediaCardShape): ContentScale = when (shape) {
+    MediaCardShape.Portrait, MediaCardShape.Landscape -> ContentScale.Fit
+    MediaCardShape.Square, MediaCardShape.Banner -> ContentScale.Crop
+}
+
 /** Keeps server-provided resume values safe for Compose's fraction modifiers. */
 internal fun normalizedCardProgress(progress: Float): Float =
     if (progress.isFinite()) progress.coerceIn(0f, 1f) else 0f
@@ -118,7 +124,7 @@ fun MediaCard(
         SubcomposeAsyncImage(
             model = resolvedImageUrl,
             contentDescription = title,
-            contentScale = if (shape == MediaCardShape.Portrait) ContentScale.Fit else ContentScale.Crop,
+            contentScale = mediaCardContentScale(shape),
             modifier = Modifier.fillMaxSize()
         ) {
             val state = painter.state

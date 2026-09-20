@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
@@ -31,6 +32,9 @@ data class ItemDetailState(
     val isLoadingSeasons: Boolean = false,
     val error: String? = null,
     val downloadMessage: String? = null,
+    val isPreparingDownload: Boolean = false,
+    val isFavoriteUpdating: Boolean = false,
+    val isWatchedUpdating: Boolean = false,
     val playlists: List<Playlist> = emptyList(),
     val isPlaylistDialogVisible: Boolean = false,
     val playlistMessage: String? = null,
@@ -53,13 +57,38 @@ class ItemDetailViewModel @Inject constructor(
     val state: StateFlow<ItemDetailState> = _state.asStateFlow()
 
     private var currentUserId: String? = null
+    private var sessionGeneration = 0L
     private var currentSeriesId: String? = null
     private var downloads: List<DownloadEntry> = emptyList()
+    private var itemLoadJob: Job? = null
+    private var itemRequestGeneration = 0L
+    private var seasonLoadJob: Job? = null
+    private var seasonRequestGeneration = 0L
+    private var favoriteJob: Job? = null
+    private var watchedJob: Job? = null
+    private var favoriteMutationGeneration = 0L
+    private var watchedMutationGeneration = 0L
 
     init {
         viewModelScope.launch {
-            authRepository.getSavedUserId().collect { userId ->
+            authRepository.getSavedUserId().distinctUntilChanged().collect { userId ->
+                if (currentUserId == null && !userId.isNullOrBlank()) {
+                    currentUserId = userId
+                    return@collect
+                }
+                if (currentUserId == userId) return@collect
                 currentUserId = userId
+                sessionGeneration++
+                itemLoadJob?.cancel()
+                seasonLoadJob?.cancel()
+                favoriteJob?.cancel()
+                watchedJob?.cancel()
+                itemRequestGeneration++
+                seasonRequestGeneration++
+                favoriteMutationGeneration++
+                watchedMutationGeneration++
+                currentSeriesId = null
+                _state.value = ItemDetailState()
             }
         }
         viewModelScope.launch {
@@ -70,18 +99,49 @@ class ItemDetailViewModel @Inject constructor(
     }
 
     fun loadItem(itemId: String) {
-        viewModelScope.launch {
+        itemLoadJob?.cancel()
+        seasonLoadJob?.cancel()
+        favoriteJob?.cancel()
+        watchedJob?.cancel()
+        val requestGeneration = ++itemRequestGeneration
+        seasonRequestGeneration++
+        favoriteMutationGeneration++
+        watchedMutationGeneration++
+        currentSeriesId = null
+        itemLoadJob = viewModelScope.launch {
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return@launch
-            _state.update { it.copy(isLoading = true, error = null) }
+            if (currentUserId == null) currentUserId = userId
+            val requestSessionGeneration = sessionGeneration
+            _state.update {
+                it.copy(
+                    item = null,
+                    seasons = emptyList(),
+                    episodes = emptyList(),
+                    selectedSeasonIndex = 0,
+                    similarItems = emptyList(),
+                    specialFeatures = emptyList(),
+                    isLoading = true,
+                    isLoadingSeasons = false,
+                    error = null,
+                    downloadMessage = null,
+                    isPreparingDownload = false,
+                    isFavoriteUpdating = false,
+                    isWatchedUpdating = false,
+                )
+            }
 
             getItemDetailUseCase(userId, itemId)
                 .onSuccess { mediaItem ->
+                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@onSuccess
                     _state.update { it.copy(item = mediaItem, isLoading = false) }
 
                     // Load similar
                     launch {
                         mediaRepository.getSimilarItems(userId, itemId)
-                            .onSuccess { similar -> _state.update { it.copy(similarItems = similar) } }
+                            .onSuccess { similar ->
+                                if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@onSuccess
+                                _state.update { it.copy(similarItems = similar) }
+                            }
                     }
 
                     // Series context: season tabs + episodes. Seasons and episodes
@@ -107,6 +167,7 @@ class ItemDetailViewModel @Inject constructor(
                                 includeItemTypes = "Audio",
                                 sortBy = "ParentIndexNumber,IndexNumber,SortName",
                             ).onSuccess { (tracks, _) ->
+                                if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@onSuccess
                                 _state.update { it.copy(episodes = tracks) }
                             }
                         }
@@ -115,10 +176,14 @@ class ItemDetailViewModel @Inject constructor(
                     // Extras / special features
                     launch {
                         mediaRepository.getSpecialFeatures(userId, itemId)
-                            .onSuccess { extras -> _state.update { it.copy(specialFeatures = extras) } }
+                            .onSuccess { extras ->
+                                if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@onSuccess
+                                _state.update { it.copy(specialFeatures = extras) }
+                            }
                     }
                 }
                 .onFailure { err ->
+                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@onFailure
                     _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Erro ao carregar detalhes") }
                 }
         }
@@ -132,11 +197,15 @@ class ItemDetailViewModel @Inject constructor(
      * into seasons still shows all of its episodes (no tab row).
      */
     private fun loadSeriesContext(userId: String, seriesId: String, initialSeasonId: String?) {
+        seasonLoadJob?.cancel()
+        val requestGeneration = ++seasonRequestGeneration
         currentSeriesId = seriesId
-        viewModelScope.launch {
+        val requestSessionGeneration = sessionGeneration
+        seasonLoadJob = viewModelScope.launch {
             _state.update { it.copy(isLoadingSeasons = true) }
             mediaRepository.getSeasons(userId, seriesId)
                 .onSuccess { seasonsList ->
+                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onSuccess
                     val selectedIndex = seasonsList.indexOfFirst { it.id == initialSeasonId }.coerceAtLeast(0)
                     _state.update {
                         it.copy(
@@ -147,9 +216,13 @@ class ItemDetailViewModel @Inject constructor(
                     }
                     val seasonId = seasonsList.getOrNull(selectedIndex)?.id
                     mediaRepository.getEpisodes(userId, seriesId, seasonId)
-                        .onSuccess { eps -> _state.update { it.copy(episodes = eps) } }
+                        .onSuccess { eps ->
+                            if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onSuccess
+                            _state.update { it.copy(episodes = eps) }
+                        }
                 }
                 .onFailure {
+                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onFailure
                     _state.update { it.copy(isLoadingSeasons = false) }
                 }
         }
@@ -161,15 +234,20 @@ class ItemDetailViewModel @Inject constructor(
         if (index !in seasons.indices) return
         val seriesId = currentSeriesId ?: return
 
+        seasonLoadJob?.cancel()
+        val requestGeneration = ++seasonRequestGeneration
+        val requestSessionGeneration = sessionGeneration
         _state.update { it.copy(selectedSeasonIndex = index, isLoadingSeasons = true) }
         val season = seasons[index]
 
-        viewModelScope.launch {
+        seasonLoadJob = viewModelScope.launch {
             mediaRepository.getEpisodes(userId, seriesId, season.id)
                 .onSuccess { eps ->
+                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onSuccess
                     _state.update { it.copy(episodes = eps, isLoadingSeasons = false) }
                 }
                 .onFailure {
+                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onFailure
                     _state.update { it.copy(isLoadingSeasons = false) }
                 }
         }
@@ -178,71 +256,131 @@ class ItemDetailViewModel @Inject constructor(
     fun toggleFavorite() {
         val userId = currentUserId ?: return
         val current = _state.value.item ?: return
+        if (_state.value.isFavoriteUpdating) return
         val newFav = !current.isFavorite
+        val mutationGeneration = ++favoriteMutationGeneration
+        val mutationSessionGeneration = sessionGeneration
 
-        _state.update { it.copy(item = current.copy(isFavorite = newFav)) }
+        _state.update {
+            it.copy(item = current.copy(isFavorite = newFav), isFavoriteUpdating = true)
+        }
 
-        viewModelScope.launch {
+        favoriteJob?.cancel()
+        favoriteJob = viewModelScope.launch {
             toggleFavoriteUseCase(userId, current.id, current.isFavorite)
                 .onSuccess { updatedFav ->
-                    _state.update { it.copy(item = current.copy(isFavorite = updatedFav)) }
+                    if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, favoriteMutationGeneration) && _state.value.item?.id == current.id) {
+                        _state.update { it.copy(item = current.copy(isFavorite = updatedFav)) }
+                    }
                 }
                 .onFailure {
-                    _state.update { it.copy(item = current) }
+                    if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, favoriteMutationGeneration) && _state.value.item?.id == current.id) {
+                        _state.update { it.copy(item = current) }
+                    }
                 }
+            if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, favoriteMutationGeneration) && _state.value.item?.id == current.id) {
+                _state.update { it.copy(isFavoriteUpdating = false) }
+            }
         }
     }
 
     fun toggleWatched() {
         val userId = currentUserId ?: return
         val current = _state.value.item ?: return
+        if (_state.value.isWatchedUpdating) return
         val newWatched = !current.isPlayed
+        val mutationGeneration = ++watchedMutationGeneration
+        val mutationSessionGeneration = sessionGeneration
 
-        _state.update { it.copy(item = current.copy(isPlayed = newWatched)) }
+        _state.update {
+            it.copy(item = current.copy(isPlayed = newWatched), isWatchedUpdating = true)
+        }
 
-        viewModelScope.launch {
+        watchedJob?.cancel()
+        watchedJob = viewModelScope.launch {
             togglePlayedUseCase(userId, current.id, current.isPlayed)
                 .onSuccess { updatedPlayed ->
-                    _state.update { it.copy(item = current.copy(isPlayed = updatedPlayed)) }
+                    if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, watchedMutationGeneration) && _state.value.item?.id == current.id) {
+                        _state.update { it.copy(item = current.copy(isPlayed = updatedPlayed)) }
+                    }
                 }
                 .onFailure {
-                    _state.update { it.copy(item = current) }
+                    if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, watchedMutationGeneration) && _state.value.item?.id == current.id) {
+                        _state.update { it.copy(item = current) }
+                    }
                 }
+            if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, watchedMutationGeneration) && _state.value.item?.id == current.id) {
+                _state.update { it.copy(isWatchedUpdating = false) }
+            }
         }
     }
 
     fun downloadItem() {
         val userId = currentUserId ?: return
         val item = _state.value.item ?: return
+        if (_state.value.isPreparingDownload) {
+            _state.update { it.copy(downloadMessage = "Este download já está sendo preparado.") }
+            return
+        }
         if (hasActiveDownload(downloads, item.id)) {
             _state.update { it.copy(downloadMessage = "Este título já está na fila ou disponível offline.") }
             return
         }
+        val requestGeneration = itemRequestGeneration
+        val requestSessionGeneration = sessionGeneration
         viewModelScope.launch {
-            _state.update { it.copy(downloadMessage = "Preparando download…") }
-            playbackRepository.getPlaybackInfo(item.id, userId)
-                .mapCatching { playbackInfo ->
-                    preferredDownloadUrl(playbackInfo.mediaSources)
-                        ?: error("O servidor não forneceu uma fonte para download.")
-                }
-                .fold(
+            _state.update { it.copy(downloadMessage = "Preparando download…", isPreparingDownload = true) }
+            try {
+                val preparation = runCatching {
+                    playbackRepository.getPlaybackInfo(item.id, userId)
+                        .mapCatching { playbackInfo ->
+                            preferredDownloadUrl(playbackInfo.mediaSources)
+                                ?: error("O servidor não forneceu uma fonte para download.")
+                        }
+                }.getOrElse { Result.failure(it) }
+                if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
+                preparation.fold(
                     onSuccess = { url ->
                         manageDownloadsUseCase.enqueueWithMetadata(item.id, item.name, url, item.primaryImageUrl)
-                            .onSuccess { _state.update { it.copy(downloadMessage = "Download adicionado à fila.") } }
-                            .onFailure { e -> _state.update { it.copy(downloadMessage = e.message ?: "Não foi possível iniciar o download.") } }
+                            .onSuccess {
+                                if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
+                                    _state.update { it.copy(downloadMessage = "Download adicionado à fila.") }
+                                }
+                            }
+                            .onFailure { e ->
+                                if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
+                                    _state.update { it.copy(downloadMessage = e.message ?: "Não foi possível iniciar o download.") }
+                                }
+                            }
                     },
-                    onFailure = { e -> _state.update { it.copy(downloadMessage = e.message ?: "Não foi possível preparar o download.") } }
+                    onFailure = { e ->
+                        if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
+                            _state.update { it.copy(downloadMessage = e.message ?: "Não foi possível preparar o download.") }
+                        }
+                    },
                 )
+            } finally {
+                if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
+                    _state.update { it.copy(isPreparingDownload = false) }
+                }
+            }
         }
     }
 
     fun openPlaylistPicker() {
         val userId = currentUserId ?: return
+        val requestSessionGeneration = sessionGeneration
         _state.update { it.copy(isPlaylistDialogVisible = true, isPlaylistLoading = true, playlistMessage = null) }
         viewModelScope.launch {
             managePlaylistUseCase.getPlaylists(userId)
-                .onSuccess { lists -> _state.update { it.copy(playlists = lists, isPlaylistLoading = false) } }
-                .onFailure { error -> _state.update { it.copy(isPlaylistLoading = false, playlistMessage = error.message ?: "Não foi possível carregar as playlists.") } }
+                .onSuccess { lists ->
+                    if (!isCurrentSession(userId, requestSessionGeneration)) return@onSuccess
+                    _state.update { it.copy(playlists = lists, isPlaylistLoading = false) }
+                }
+                .onFailure { error ->
+                    if (!isCurrentSession(userId, requestSessionGeneration)) return@onFailure
+                    _state.update { it.copy(isPlaylistLoading = false, playlistMessage = error.message ?: "Não foi possível carregar as playlists.") }
+                }
         }
     }
 
@@ -253,20 +391,53 @@ class ItemDetailViewModel @Inject constructor(
     fun addToPlaylist(playlist: Playlist) {
         val userId = currentUserId ?: return
         val itemId = _state.value.item?.id ?: return
+        val requestSessionGeneration = sessionGeneration
         viewModelScope.launch {
             managePlaylistUseCase.addToPlaylist(userId, playlist.id, itemId)
-                .onSuccess { _state.update { it.copy(isPlaylistDialogVisible = false, playlistMessage = "Adicionado à playlist ${playlist.name}.") } }
-                .onFailure { error -> _state.update { it.copy(playlistMessage = error.message ?: "Não foi possível adicionar à playlist.") } }
+                .onSuccess {
+                    if (!isCurrentSession(userId, requestSessionGeneration)) return@onSuccess
+                    _state.update { it.copy(isPlaylistDialogVisible = false, playlistMessage = "Adicionado à playlist ${playlist.name}.") }
+                }
+                .onFailure { error ->
+                    if (!isCurrentSession(userId, requestSessionGeneration)) return@onFailure
+                    _state.update { it.copy(playlistMessage = error.message ?: "Não foi possível adicionar à playlist.") }
+                }
         }
     }
 
     fun createPlaylist(name: String) {
         val userId = currentUserId ?: return
         val itemId = _state.value.item?.id ?: return
+        val requestSessionGeneration = sessionGeneration
         viewModelScope.launch {
             managePlaylistUseCase.createPlaylist(userId, name, itemId)
-                .onSuccess { playlist -> _state.update { it.copy(isPlaylistDialogVisible = false, playlistMessage = "Playlist ${playlist.name} criada.") } }
-                .onFailure { error -> _state.update { it.copy(playlistMessage = error.message ?: "Não foi possível criar a playlist.") } }
+                .onSuccess { playlist ->
+                    if (!isCurrentSession(userId, requestSessionGeneration)) return@onSuccess
+                    _state.update { it.copy(isPlaylistDialogVisible = false, playlistMessage = "Playlist ${playlist.name} criada.") }
+                }
+                .onFailure { error ->
+                    if (!isCurrentSession(userId, requestSessionGeneration)) return@onFailure
+                    _state.update { it.copy(playlistMessage = error.message ?: "Não foi possível criar a playlist.") }
+                }
         }
     }
+
+    private fun isCurrentSession(userId: String, requestSessionGeneration: Long): Boolean =
+        currentUserId == userId && sessionGeneration == requestSessionGeneration
+
+    private fun isCurrentRequest(
+        userId: String,
+        requestSessionGeneration: Long,
+        requestGeneration: Long,
+        currentRequestGeneration: Long = itemRequestGeneration,
+    ): Boolean = isCurrentSession(userId, requestSessionGeneration) &&
+        currentRequestGeneration == requestGeneration
+
+    private fun isCurrentMutation(
+        userId: String,
+        mutationSessionGeneration: Long,
+        mutationGeneration: Long,
+        currentMutationGeneration: Long,
+    ): Boolean = isCurrentSession(userId, mutationSessionGeneration) &&
+        currentMutationGeneration == mutationGeneration
 }

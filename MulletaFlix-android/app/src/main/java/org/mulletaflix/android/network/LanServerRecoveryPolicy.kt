@@ -60,3 +60,10 @@ internal fun publicFallbackAfterLanLoss(
 ): String? = publicUrl.takeIf {
     isLocalServerUrl(currentUrl) && comparableServerUrl(it) != comparableServerUrl(currentUrl)
 }
+
+/** A cancelled discovery must never mutate the active session after a newer scan. */
+internal fun isCurrentLanScan(
+    scanGeneration: Long,
+    latestGeneration: Long,
+    isStarted: Boolean,
+): Boolean = isStarted && scanGeneration == latestGeneration

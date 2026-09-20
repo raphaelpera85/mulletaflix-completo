@@ -92,6 +92,35 @@ class DownloadsViewModelTest {
     }
 
     @Test
+    fun `failed retry exposes a recoverable action message`() {
+        val repository = FakeDownloadRepository(failRetry = true)
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+        val entry = DownloadEntry(
+            "movie",
+            "Filme",
+            "https://server/media",
+            org.mulletaflix.domain.repository.DownloadState.Failed,
+            42,
+        )
+
+        viewModel.retry(entry)
+
+        assertEquals("retry failed", viewModel.actionMessage.value)
+        viewModel.clearActionMessage()
+        assertEquals(null, viewModel.actionMessage.value)
+    }
+
+    @Test
+    fun `failed wifi preference exposes an action message`() {
+        val repository = FakeDownloadRepository(failWifiOnly = true)
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+
+        viewModel.setWifiOnly(true)
+
+        assertEquals("wifi preference failed", viewModel.actionMessage.value)
+    }
+
+    @Test
     fun `resuming the queue clears paused state after repository succeeds`() {
         val repository = FakeDownloadRepository()
         val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
@@ -125,30 +154,116 @@ class DownloadsViewModelTest {
         assertTrue(repository.retryArguments.contentEquals(arrayOf("movie", "Filme", "https://server/media")))
     }
 
+    @Test
+    fun `retry failed requeues every failed item in queue order`() {
+        val repository = FakeDownloadRepository()
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+        val entries = listOf(
+            DownloadEntry("queued", "Na fila", "https://server/queued", org.mulletaflix.domain.repository.DownloadState.Queued, 0),
+            DownloadEntry("failed-1", "Falhou 1", "https://server/one", org.mulletaflix.domain.repository.DownloadState.Failed, 20),
+            DownloadEntry("done", "Pronto", "https://server/done", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+            DownloadEntry("failed-2", "Falhou 2", "https://server/two", org.mulletaflix.domain.repository.DownloadState.Failed, 5),
+        )
+
+        viewModel.retryFailed(entries)
+
+        assertEquals(listOf("failed-1", "failed-2"), repository.retriedIds)
+    }
+
+    @Test
+    fun `completed download policy excludes active and failed items`() {
+        val entries = listOf(
+            DownloadEntry("done", "Pronto", "https://server/done", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+            DownloadEntry("active", "Baixando", "https://server/active", org.mulletaflix.domain.repository.DownloadState.Downloading, 50),
+            DownloadEntry("failed", "Falhou", "https://server/failed", org.mulletaflix.domain.repository.DownloadState.Failed, 10),
+        )
+
+        assertEquals(listOf("done"), completedDownloads(entries).map { it.id })
+    }
+
+    @Test
+    fun `failed download policy excludes active and completed items`() {
+        val entries = listOf(
+            DownloadEntry("done", "Pronto", "https://server/done", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+            DownloadEntry("active", "Baixando", "https://server/active", org.mulletaflix.domain.repository.DownloadState.Downloading, 50),
+            DownloadEntry("failed", "Falhou", "https://server/failed", org.mulletaflix.domain.repository.DownloadState.Failed, 10),
+        )
+
+        assertEquals(listOf("failed"), failedDownloads(entries).map { it.id })
+    }
+
+    @Test
+    fun `failed download policy removes duplicate ids while preserving first occurrence`() {
+        val entries = listOf(
+            DownloadEntry("failed", "Falhou primeiro", "https://server/one", org.mulletaflix.domain.repository.DownloadState.Failed, 10),
+            DownloadEntry("failed", "Falhou repetido", "https://server/one", org.mulletaflix.domain.repository.DownloadState.Failed, 20),
+            DownloadEntry("other", "Outra falha", "https://server/two", org.mulletaflix.domain.repository.DownloadState.Failed, 5),
+        )
+
+        assertEquals(listOf("failed", "other"), failedDownloads(entries).map { it.id })
+        assertEquals("Falhou primeiro", failedDownloads(entries).first().title)
+    }
+
+    @Test
+    fun `clear completed delegates to repository`() {
+        val repository = FakeDownloadRepository()
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+
+        viewModel.removeCompleted()
+
+        assertTrue(repository.removedCompleted)
+    }
+
+    @Test
+    fun `clear failed delegates to repository`() {
+        val repository = FakeDownloadRepository()
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+
+        viewModel.removeFailed()
+
+        assertTrue(repository.removedFailed)
+    }
+
     private class FakeDownloadRepository(
         private val failPause: Boolean = false,
+        private val failRetry: Boolean = false,
+        private val failWifiOnly: Boolean = false,
     ) : DownloadRepository {
         var paused = false
         var resumed = false
         var retried = false
         var retryArguments = emptyArray<String>()
+        val retriedIds = mutableListOf<String>()
         var wifiOnly = false
+        var removedCompleted = false
+        var removedFailed = false
         private val queuePaused = MutableStateFlow(false)
 
         override fun observeDownloads(): Flow<List<DownloadEntry>> = flowOf(emptyList())
         override fun observeQueuePaused(): Flow<Boolean> = queuePaused
         override fun observeWifiOnly(): Flow<Boolean> = flowOf(wifiOnly)
         override fun setWifiOnly(enabled: Boolean): Result<Unit> {
+            if (failWifiOnly) return Result.failure(IllegalStateException("wifi preference failed"))
             wifiOnly = enabled
             return Result.success(Unit)
         }
         override fun enqueue(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
         override fun retry(id: String, title: String, uri: String): Result<Unit> {
+            if (failRetry) return Result.failure(IllegalStateException("retry failed"))
             retried = true
             retryArguments = arrayOf(id, title, uri)
+            retriedIds += id
             return Result.success(Unit)
         }
         override fun remove(id: String): Result<Unit> = Result.success(Unit)
+        override fun removeCompleted(): Result<Unit> {
+            removedCompleted = true
+            return Result.success(Unit)
+        }
+        override fun removeFailed(): Result<Unit> {
+            removedFailed = true
+            return Result.success(Unit)
+        }
         override fun pauseAll(): Result<Unit> = if (failPause) {
             Result.failure(IllegalStateException("pause failed"))
         } else {

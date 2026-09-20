@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,6 +46,8 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showLicensesDialog by remember { mutableStateOf(false) }
+    var showClearAllDataDialog by remember { mutableStateOf(false) }
+    var showClearImageCacheDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
@@ -79,7 +82,7 @@ fun SettingsScreen(
                 )
                 SettingsItem(icon = Icons.Default.Person, title = "Meu Perfil", subtitle = state.username ?: "Ver perfil, permissões e alternar usuário", onClick = onProfile)
                 SettingsItem(icon = Icons.Default.Group, title = "Salas SyncPlay", subtitle = "Assistir sincronizado com amigos", onClick = onSyncPlay)
-                SettingsItem(icon = Icons.Default.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
+                SettingsItem(icon = Icons.AutoMirrored.Filled.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
                     viewModel.logout()
                     onLogout()
                 })
@@ -88,11 +91,25 @@ fun SettingsScreen(
             // ── Aparência ────────────────────────────────────────────────────
             SettingsGroup(title = "Aparência") {
                 var showThemeDialog by remember { mutableStateOf(false) }
+                var showGridDensityDialog by remember { mutableStateOf(false) }
+                var showLibrarySortDialog by remember { mutableStateOf(false) }
                 SettingsItem(
                     icon = Icons.Default.Palette,
                     title = "Tema",
                     subtitle = state.theme.displayName,
                     onClick = { showThemeDialog = true }
+                )
+                SettingsItem(
+                    icon = Icons.Default.GridView,
+                    title = "Densidade da Grade",
+                    subtitle = state.libraryGridDensity,
+                    onClick = { showGridDensityDialog = true },
+                )
+                SettingsItem(
+                icon = Icons.Default.List,
+                    title = "Ordenação da Biblioteca",
+                    subtitle = state.librarySort,
+                    onClick = { showLibrarySortDialog = true },
                 )
                 if (showThemeDialog) {
                     ThemePickerDialog(
@@ -101,21 +118,58 @@ fun SettingsScreen(
                         onDismiss = { showThemeDialog = false }
                     )
                 }
+                if (showGridDensityDialog) {
+                    ChoiceDialog(
+                        title = "Densidade da grade",
+                        options = listOf("Confortável", "Compacta"),
+                        selected = state.libraryGridDensity,
+                        onSelect = { viewModel.setLibraryGridDensity(it); showGridDensityDialog = false },
+                        onDismiss = { showGridDensityDialog = false },
+                    )
+                }
+                if (showLibrarySortDialog) {
+                    ChoiceDialog(
+                        title = "Ordenação padrão da biblioteca",
+                        options = listOf("Nome A-Z", "Data de adição", "Data de lançamento", "Duração", "Avaliação"),
+                        selected = state.librarySort,
+                        onSelect = { viewModel.setLibrarySort(it); showLibrarySortDialog = false },
+                        onDismiss = { showLibrarySortDialog = false },
+                    )
+                }
             }
 
             // ── Reprodução ───────────────────────────────────────────────────
             SettingsGroup(title = "Reprodução") {
                 var showQualityDialog by remember { mutableStateOf(false) }
+                var showAspectRatioDialog by remember { mutableStateOf(false) }
                 var showSpeedDialog by remember { mutableStateOf(false) }
                 SettingsItem(icon = Icons.Default.Hd, title = "Qualidade Padrão", subtitle = qualityLabel(state.defaultQuality), onClick = { showQualityDialog = true })
+                SettingsItem(
+                    icon = Icons.Default.AspectRatio,
+                    title = "Proporção da Imagem",
+                    subtitle = aspectRatioTitle(state.aspectRatio),
+                    onClick = { showAspectRatioDialog = true },
+                )
                 SettingsItem(icon = Icons.Default.Speed, title = "Velocidade Padrão", subtitle = "${state.defaultSpeed}x", onClick = { showSpeedDialog = true })
                 if (showQualityDialog) {
                     ChoiceDialog(
                         title = "Qualidade padrão",
-                        options = listOf("Auto", "1080p", "720p", "480p"),
+                        options = defaultQualityChoices,
                         selected = state.defaultQuality,
                         onSelect = { viewModel.setDefaultQuality(it); showQualityDialog = false },
                         onDismiss = { showQualityDialog = false },
+                    )
+                }
+                if (showAspectRatioDialog) {
+                    ChoiceDialog(
+                        title = "Proporção da imagem",
+                        options = aspectRatioChoices.map { it.second },
+                        selected = aspectRatioTitle(state.aspectRatio),
+                        onSelect = { selected ->
+                            aspectRatioChoices.firstOrNull { it.second == selected }?.first?.let(viewModel::setDefaultAspectRatio)
+                            showAspectRatioDialog = false
+                        },
+                        onDismiss = { showAspectRatioDialog = false },
                     )
                 }
                 if (showSpeedDialog) {
@@ -150,6 +204,24 @@ fun SettingsScreen(
                 )
             }
 
+            // ── Áudio ───────────────────────────────────────────────────────
+            SettingsGroup(title = "Áudio") {
+                var showAudioDialog by remember { mutableStateOf(false) }
+                SettingsItem(
+                    icon = Icons.Default.Audiotrack,
+                    title = "Idioma do Áudio",
+                    subtitle = state.audioLanguage,
+                    onClick = { showAudioDialog = true },
+                )
+                if (showAudioDialog) {
+                    AudioLanguageDialog(
+                        current = state.audioLanguage,
+                        onSelect = { viewModel.setAudioLanguage(it); showAudioDialog = false },
+                        onDismiss = { showAudioDialog = false },
+                    )
+                }
+            }
+
             // ── Subtítulos ───────────────────────────────────────────────────
             SettingsGroup(title = "Legendas") {
                 var showSubtitleDialog by remember { mutableStateOf(false) }
@@ -172,6 +244,22 @@ fun SettingsScreen(
                         onDismiss = { showFontSizeDialog = false },
                     )
                 }
+                var showSubtitleColorDialog by remember { mutableStateOf(false) }
+                SettingsItem(
+                    icon = Icons.Default.FormatColorText,
+                    title = "Cor da Legenda",
+                    subtitle = state.subtitleColor,
+                    onClick = { showSubtitleColorDialog = true },
+                )
+                if (showSubtitleColorDialog) {
+                    ChoiceDialog(
+                        title = "Cor da legenda",
+                        options = listOf("Branco", "Amarelo", "Ciano"),
+                        selected = state.subtitleColor,
+                        onSelect = { viewModel.setSubtitleColor(it); showSubtitleColorDialog = false },
+                        onDismiss = { showSubtitleColorDialog = false },
+                    )
+                }
             }
 
             // ── Downloads ────────────────────────────────────────────────────
@@ -183,8 +271,21 @@ fun SettingsScreen(
 
             // ── Cache ────────────────────────────────────────────────────────
             SettingsGroup(title = "Cache") {
-                SettingsItem(icon = Icons.Default.DeleteOutline, title = "Limpar Cache de Imagens", subtitle = "Libera espaço removendo imagens em cache", onClick = { viewModel.clearImageCache() })
-                SettingsItem(icon = Icons.Default.Delete, title = "Limpar Todos os Dados Locais", subtitle = "Remove cache e preferências locais", onClick = { viewModel.clearAllCache() })
+                SettingsItem(icon = Icons.Default.DeleteOutline, title = "Limpar Cache de Imagens", subtitle = "Libera espaço removendo imagens em cache", onClick = { showClearImageCacheDialog = true })
+                state.cacheStatusMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    )
+                }
+                SettingsItem(
+                    icon = Icons.Default.Delete,
+                    title = "Limpar Todos os Dados Locais",
+                    subtitle = "Remove cache e preferências locais",
+                    onClick = { showClearAllDataDialog = true },
+                )
             }
 
             // ── Sobre ────────────────────────────────────────────────────────
@@ -208,7 +309,8 @@ fun SettingsScreen(
                         state.updateErrorMessage != null -> state.updateErrorMessage ?: ""
                         else -> "Tocar para verificar atualizações"
                     },
-                    onClick = { viewModel.checkForUpdates(currentAppVersion) }
+                    onClick = { viewModel.checkForUpdates(currentAppVersion) },
+                    enabled = !state.isCheckingUpdate && !state.isDownloadingUpdate,
                 )
                 SettingsItem(
                     icon = Icons.Default.OpenInBrowser,
@@ -238,6 +340,37 @@ fun SettingsScreen(
                     confirmButton = {
                         TextButton(onClick = { showLicensesDialog = false }) { Text("Fechar") }
                     },
+                )
+            }
+
+            if (showClearAllDataDialog) {
+                AlertDialog(
+                    onDismissRequest = { showClearAllDataDialog = false },
+                    icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                    title = { Text("Limpar dados locais?") },
+                    text = { Text("Isso removerá preferências, cache e a sessão atual. A ação não pode ser desfeita.") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showClearAllDataDialog = false
+                                viewModel.clearAllCache()
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        ) { Text("Limpar e sair") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showClearAllDataDialog = false }) { Text("Cancelar") }
+                    },
+                )
+            }
+
+            if (showClearImageCacheDialog) {
+                ClearImageCacheDialog(
+                    onConfirm = {
+                        showClearImageCacheDialog = false
+                        viewModel.clearImageCache()
+                    },
+                    onDismiss = { showClearImageCacheDialog = false },
                 )
             }
 
@@ -325,6 +458,28 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+@Composable
+internal fun ClearImageCacheDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+        title = { Text("Limpar cache de imagens?") },
+        text = { Text("As capas e imagens serão baixadas novamente quando necessário.") },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Limpar") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
 }
 
 internal fun openExternalUrl(context: Context, url: String) {
@@ -455,6 +610,33 @@ private fun SubtitleLanguageDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Idioma das legendas") },
+        text = {
+            Column {
+                options.forEach { option ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable { onSelect(option) }.padding(vertical = 8.dp),
+                    ) {
+                        RadioButton(selected = current == option, onClick = { onSelect(option) })
+                        Text(option, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+private fun AudioLanguageDialog(
+    current: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf("Português (Brasil)", "English", "Idioma original")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Idioma do áudio") },
         text = {
             Column {
                 options.forEach { option ->

@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.home
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -8,8 +9,11 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -71,6 +75,44 @@ class HomeViewModelTest {
         assertEquals(profile, viewModel.state.value.userProfile)
     }
 
+    @Test fun `home feed becomes usable before a slow profile response`() = runTest {
+        val profileStarted = CompletableDeferred<Unit>()
+        val releaseProfile = CompletableDeferred<Unit>()
+        val movie = MediaItem("m1", "Movie 1", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(listOf(movie))
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val profile = UserProfile(id = "u1", name = "Raphael")
+        val authRepository = object : FakeAuthRepository(profile) {
+            override suspend fun getCurrentUserProfile(): Result<UserProfile> {
+                profileStarted.complete(Unit)
+                releaseProfile.await()
+                return Result.success(profile)
+            }
+        }
+
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            authRepository,
+        )
+        runCurrent()
+        profileStarted.await()
+
+        assertFalse(viewModel.state.value.isLoading)
+        assertEquals(listOf(movie), viewModel.state.value.resumeItems)
+        assertEquals(null, viewModel.state.value.userProfile)
+
+        releaseProfile.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(profile, viewModel.state.value.userProfile)
+    }
+
     @Test fun `network monitor transitions update isOffline state`() = runTest {
         val networkMonitor = FakeNetworkMonitor(initialOnline = true)
         val repository = FakeMediaRepository()
@@ -86,6 +128,78 @@ class HomeViewModelTest {
         assertTrue(viewModel.state.value.isOffline)
     }
 
+    @Test fun `a late refresh cannot overwrite a newer home response`() = runTest {
+        val firstResponse = CompletableDeferred<Unit>()
+        val repository = object : FakeMediaRepository() {
+            var resumeCalls = 0
+
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                resumeCalls++
+                if (resumeCalls == 1) {
+                    withContext(NonCancellable) { firstResponse.await() }
+                    return Result.success(listOf(MediaItem("old", "Resposta antiga", org.mulletaflix.domain.model.MediaItemType.Movie)))
+                }
+                return Result.success(listOf(MediaItem("new", "Resposta nova", org.mulletaflix.domain.model.MediaItemType.Movie)))
+            }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?) = Result.success(emptyList<MediaItem>() to 0)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        runCurrent()
+
+        viewModel.refresh()
+        runCurrent()
+        assertEquals("Resposta nova", viewModel.state.value.resumeItems.single().name)
+
+        firstResponse.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("Resposta nova", viewModel.state.value.resumeItems.single().name)
+    }
+
+    @Test fun `home reloads for the new user and ignores a late previous session`() = runTest {
+        val oldResponse = CompletableDeferred<Unit>()
+        val old = MediaItem("old", "Conta antiga", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val fresh = MediaItem("fresh", "Conta atual", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                if (userId == "u1") {
+                    withContext(NonCancellable) { oldResponse.await() }
+                    return Result.success(listOf(old))
+                }
+                return Result.success(listOf(fresh))
+            }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val session = FakeSessionRepository("u1")
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            session,
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        runCurrent()
+
+        session.userIdState.value = "u2"
+        runCurrent()
+        advanceUntilIdle()
+        assertEquals(listOf(fresh), viewModel.state.value.resumeItems)
+
+        oldResponse.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf(fresh), viewModel.state.value.resumeItems)
+    }
+
     private class FakeNetworkMonitor(initialOnline: Boolean = true) : NetworkMonitor {
         private val _isOnline = MutableStateFlow(initialOnline)
         override val isOnline: Flow<Boolean> = _isOnline
@@ -93,16 +207,17 @@ class HomeViewModelTest {
     }
 
     private class FakeSessionRepository(private val userId: String?) : SessionRepository {
+        val userIdState = MutableStateFlow(userId)
         override fun getAccessToken() = flowOf(null)
         override fun getDeviceId() = flowOf("home-test")
         override fun getBaseUrl() = flowOf("http://localhost:8096")
-        override fun getCurrentUserId() = flowOf(userId)
+        override fun getCurrentUserId() = userIdState
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
         override suspend fun setBaseUrl(url: String) = Unit
         override suspend fun clearSession() = Unit
     }
 
-    private class FakeAuthRepository(
+    private open class FakeAuthRepository(
         private val profile: UserProfile? = null,
     ) : AuthRepository {
         override suspend fun verifyServer(url: String): Result<ServerVerification> = Result.success(ServerVerification("Test", "1"))

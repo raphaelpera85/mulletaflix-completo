@@ -46,6 +46,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.cast.MediaRouteButton
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.CaptionStyleCompat
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -283,6 +284,16 @@ fun VideoPlayerScreen(
                 playerView.resizeMode = state.aspectRatio.resizeMode
                 playerView.subtitleView?.setFractionalTextSize(
                     0.0533f * state.subtitleFontSize.coerceIn(50, 200) / 100f,
+                )
+                playerView.subtitleView?.setStyle(
+                    CaptionStyleCompat(
+                        subtitleForegroundColor(state.subtitleColor),
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
+                        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                        android.graphics.Color.BLACK,
+                        null,
+                    )
                 )
             },
             modifier = Modifier.fillMaxSize()
@@ -526,6 +537,7 @@ fun VideoPlayerScreen(
                 onQualitySelect = { quality -> viewModel.selectQuality(quality) },
                 onSpeedSelect = { speed -> viewModel.setPlaybackSpeed(speed) },
                 onSleepTimerSelect = { minutes -> viewModel.setSleepTimer(minutes) },
+                onSleepTimerAtMediaEnd = { viewModel.setSleepTimerAtMediaEnd() },
                 onAspectRatioSelect = { ratio -> viewModel.setAspectRatio(ratio) },
                 onLockClick = { viewModel.setControlsLocked(true) },
                 onCastClick = { viewModel.startCast() },
@@ -554,6 +566,7 @@ private fun PlayerOsd(
     onQualitySelect: (String) -> Unit,
     onSpeedSelect: (Float) -> Unit,
     onSleepTimerSelect: (Int?) -> Unit,
+    onSleepTimerAtMediaEnd: () -> Unit,
     onAspectRatioSelect: (VideoAspectRatio) -> Unit,
     onLockClick: () -> Unit,
     onCastClick: () -> Unit,
@@ -621,14 +634,14 @@ private fun PlayerOsd(
                     modifier = Modifier
                         .padding(end = 4.dp)
                         .semantics(mergeDescendants = true) {
-                            contentDescription = CAST_ACTION_CONTENT_DESCRIPTION
+                                contentDescription = castActionContentDescription(state.isCasting)
                         },
                 ) {
                     MediaRouteButton(
                         modifier = Modifier.size(40.dp),
                     )
                     Text(
-                        text = "Transmitir",
+                        text = castActionLabel(state.isCasting),
                         color = Color.White,
                         style = MaterialTheme.typography.labelSmall,
                     )
@@ -663,9 +676,9 @@ private fun PlayerOsd(
                 IconButton(onClick = { showSleepTimerMenu = true }) {
                     Icon(
                         Icons.Default.Bedtime,
-                        contentDescription = sleepTimerLabel(state.sleepTimerRemainingMs)
+                        contentDescription = sleepTimerDisplayLabel(state.sleepTimerMode, state.sleepTimerRemainingMs)
                             ?: "Temporizador de suspensão",
-                        tint = if (state.sleepTimerRemainingMs != null) {
+                        tint = if (state.sleepTimerMode != SleepTimerMode.OFF) {
                             MaterialTheme.colorScheme.secondary
                         } else {
                             Color.White
@@ -824,8 +837,14 @@ private fun PlayerOsd(
         if (showSleepTimerMenu) {
             SleepTimerMenu(
                 remainingMs = state.sleepTimerRemainingMs,
+                selectedMinutes = state.sleepTimerMinutes,
+                isAtMediaEnd = state.sleepTimerMode == SleepTimerMode.AT_MEDIA_END,
                 onSelect = { minutes ->
                     onSleepTimerSelect(minutes)
+                    showSleepTimerMenu = false
+                },
+                onSelectAtMediaEnd = {
+                    onSleepTimerAtMediaEnd()
                     showSleepTimerMenu = false
                 },
                 onDismiss = { showSleepTimerMenu = false },
@@ -924,7 +943,7 @@ internal fun PlayerTrackMenu(
                             .padding(vertical = 8.dp),
                     ) {
                         RadioButton(selected = selectedIndex == index, onClick = null)
-                        Text(track.displayName, modifier = Modifier.padding(start = 8.dp))
+                        Text(trackLabel(track), modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
@@ -1012,7 +1031,10 @@ private fun SpeedMenu(
 @Composable
 internal fun SleepTimerMenu(
     remainingMs: Long?,
+    selectedMinutes: Int?,
+    isAtMediaEnd: Boolean,
     onSelect: (Int?) -> Unit,
+    onSelectAtMediaEnd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val options = listOf(15, 30, 45, 60, 90)
@@ -1044,19 +1066,33 @@ internal fun SleepTimerMenu(
                     RadioButton(selected = remainingMs == null, onClick = null)
                     Text("Desativado", modifier = Modifier.padding(start = 8.dp))
                 }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = isAtMediaEnd,
+                            role = Role.RadioButton,
+                            onClick = onSelectAtMediaEnd,
+                        )
+                        .padding(vertical = 8.dp),
+                ) {
+                    RadioButton(selected = isAtMediaEnd, onClick = null)
+                    Text("Ao fim da mídia", modifier = Modifier.padding(start = 8.dp))
+                }
                 options.forEach { minutes ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .selectable(
-                                selected = false,
-                                role = Role.RadioButton,
-                                onClick = { onSelect(minutes) },
-                            )
-                            .padding(vertical = 8.dp),
+                        .selectable(
+                            selected = isSleepTimerOptionSelected(selectedMinutes, minutes),
+                            role = Role.RadioButton,
+                            onClick = { onSelect(minutes) },
+                        )
+                        .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = false, onClick = null)
+                    RadioButton(selected = isSleepTimerOptionSelected(selectedMinutes, minutes), onClick = null)
                         Text("${minutes} minutos", modifier = Modifier.padding(start = 8.dp))
                     }
                 }

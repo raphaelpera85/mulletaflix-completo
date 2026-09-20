@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
@@ -33,54 +34,101 @@ class FavoritesViewModel @Inject constructor(
     val state: StateFlow<FavoritesState> = _state.asStateFlow()
     private val pageSize = 40
     private var loadJob: Job? = null
+    private var loadGeneration = 0L
+    private var loadInFlight = false
+    private var currentUserId: String? = null
+    private var hasObservedUser = false
 
-    init { load() }
+    init {
+        viewModelScope.launch {
+            authRepository.getSavedUserId().distinctUntilChanged().collect { userId ->
+                val userChanged = hasObservedUser && currentUserId != userId
+                currentUserId = userId
+                hasObservedUser = true
+                if (userChanged) {
+                    loadJob?.cancel()
+                    loadInFlight = false
+                    ++loadGeneration
+                    _state.update {
+                        it.copy(
+                            items = emptyList(),
+                            hasMore = false,
+                            isLoading = false,
+                            isRefreshing = false,
+                            error = null,
+                        )
+                    }
+                }
+                load()
+            }
+        }
+    }
 
     fun refresh() {
         loadJob?.cancel()
+        loadInFlight = false
         _state.update { it.copy(isRefreshing = true) }
         load()
     }
 
     fun loadMore() {
         val current = _state.value
-        if (current.isLoading || !current.hasMore) return
+        if (current.isLoading || !current.hasMore || loadInFlight) return
         load(startIndex = current.items.size, append = true)
     }
 
     private fun load(startIndex: Int = 0, append: Boolean = false) {
+        if (loadInFlight) return
+        val generation = ++loadGeneration
+        loadInFlight = true
         loadJob = viewModelScope.launch {
-            val userId = authRepository.getSavedUserId().firstOrNull()
-            if (userId.isNullOrBlank()) {
-                _state.update {
-                    it.copy(isLoading = false, isRefreshing = false, error = "Sessão expirada. Entre novamente.")
+            var requestUserId: String? = null
+            try {
+                val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull()
+                requestUserId = userId
+                if (userId.isNullOrBlank()) {
+                    if (isCurrentLoad(generation, userId)) {
+                        _state.update {
+                            it.copy(isLoading = false, isRefreshing = false, error = "Sessão expirada. Entre novamente.")
+                        }
+                    }
+                    return@launch
                 }
-                return@launch
-            }
 
-            _state.update { it.copy(isLoading = true, error = if (append) it.error else null) }
-            getFavoriteItemsUseCase(userId, startIndex, pageSize)
-                .onSuccess { (items, total) ->
-                    _state.update {
-                        val merged = if (append) it.items + items else items
-                        it.copy(
-                            isLoading = false,
-                            isRefreshing = false,
-                            items = merged,
-                            hasMore = merged.size < total,
-                            error = null,
-                        )
+                if (!isCurrentLoad(generation, userId)) return@launch
+                _state.update { it.copy(isLoading = true, error = if (append) it.error else null) }
+                getFavoriteItemsUseCase(userId, startIndex, pageSize)
+                    .onSuccess { (items, total) ->
+                        if (!isCurrentLoad(generation, userId)) return@onSuccess
+                        _state.update {
+                            val merged = if (append) it.items + items else items
+                            it.copy(
+                                isLoading = false,
+                                isRefreshing = false,
+                                items = merged,
+                                hasMore = merged.size < total,
+                                error = null,
+                            )
+                        }
                     }
-                }
-                .onFailure { error ->
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            isRefreshing = false,
-                            error = error.message ?: "Não foi possível carregar Minha Lista.",
-                        )
+                    .onFailure { error ->
+                        if (!isCurrentLoad(generation, userId)) return@onFailure
+                        _state.update {
+                            it.copy(
+                                isLoading = false,
+                                isRefreshing = false,
+                                error = error.message ?: "Não foi possível carregar Minha Lista.",
+                            )
+                        }
                     }
-                }
+            } finally {
+                if (isCurrentLoad(generation, requestUserId)) loadInFlight = false
+            }
         }
     }
+
+    private fun isCurrentLoad(generation: Long, userId: String?): Boolean =
+        generation == loadGeneration &&
+            !userId.isNullOrBlank() &&
+            currentUserId == userId
 }

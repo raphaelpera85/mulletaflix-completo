@@ -5,6 +5,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -73,6 +74,27 @@ class SearchViewModelTest {
         assertEquals(10, viewModel.state.value.history.size)
         assertEquals("term-11", viewModel.state.value.history.first())
         assertEquals(10, historyRepository.entries.size)
+    }
+
+    @Test
+    fun `manual search trims the query in state and history`() = runTest {
+        advanceUntilIdle()
+        viewModel.search("  matrix  ")
+        advanceUntilIdle()
+
+        assertEquals("matrix", viewModel.state.value.query)
+        assertEquals(listOf("matrix"), viewModel.state.value.history)
+        assertEquals(listOf("matrix"), historyRepository.entries)
+        assertEquals("matrix", searchRepository.term)
+    }
+
+    @Test
+    fun `blank manual search does not create history or request the server`() = runTest {
+        viewModel.search("   ")
+        advanceUntilIdle()
+
+        assertFalse(searchRepository.called)
+        assertTrue(historyRepository.entries.isEmpty())
     }
 
     @Test
@@ -175,6 +197,54 @@ class SearchViewModelTest {
         assertEquals(listOf("batman"), viewModel.state.value.history)
     }
 
+    @Test
+    fun `late history emission from a previous user cannot replace current history`() = runTest {
+        val auth = SwitchingAuthRepository()
+        val oldHistory = CompletableDeferred<List<String>>()
+        val repository = FakeSearchHistoryRepository().apply {
+            seed("user-1", listOf("old"))
+            seed("user-2", listOf("current"))
+            lateUserOneHistory = oldHistory
+        }
+        viewModel = SearchViewModel(SearchMediaUseCase(searchRepository), auth, repository)
+        advanceUntilIdle()
+
+        auth.switchTo("user-2")
+        runCurrent()
+        assertEquals(listOf("current"), viewModel.state.value.history)
+
+        oldHistory.complete(listOf("stale"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("current"), viewModel.state.value.history)
+    }
+
+    @Test
+    fun `late search result from a previous user cannot replace current session`() = runTest {
+        val auth = SwitchingAuthRepository()
+        val controlledRepository = ControlledSearchRepository()
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(controlledRepository),
+            auth,
+            historyRepository,
+        )
+        advanceUntilIdle()
+
+        viewModel.search("matrix")
+        runCurrent()
+        assertEquals("user-1", controlledRepository.userIdFor("matrix"))
+
+        auth.switchTo("user-2")
+        runCurrent()
+        assertTrue(viewModel.state.value.results.isEmpty())
+
+        controlledRepository.complete("matrix", "Stale result")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.results.isEmpty())
+        assertFalse(viewModel.state.value.isLoading)
+    }
+
     private class RecordingSearchRepository : SearchRepository {
         var called = false
         var term: String? = null
@@ -194,11 +264,13 @@ class SearchViewModelTest {
 
     private class ControlledSearchRepository : SearchRepository {
         private val pending = mutableMapOf<String, CompletableDeferred<Result<List<MediaItem>>>>()
+        private val users = mutableMapOf<String, String>()
 
         override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
 
-        override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> =
-            withContext(NonCancellable) {
+        override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> {
+            users[term] = userId
+            return withContext(NonCancellable) {
                 val deferred = pending.getOrPut(term) { CompletableDeferred() }
                 try {
                     deferred.await()
@@ -206,6 +278,9 @@ class SearchViewModelTest {
                     pending.remove(term, deferred)
                 }
             }
+        }
+
+        fun userIdFor(term: String): String? = users[term]
 
         fun complete(term: String, title: String) {
             pending.getOrPut(term) { CompletableDeferred() }
@@ -216,9 +291,20 @@ class SearchViewModelTest {
     private class FakeSearchHistoryRepository : SearchHistoryRepository {
         val entries = mutableListOf<String>()
         private val byUser = mutableMapOf<String?, MutableList<String>>()
+        var lateUserOneHistory: CompletableDeferred<List<String>>? = null
 
-        override fun observeHistory(userId: String?): Flow<List<String>> =
-            MutableStateFlow(byUser[userId]?.toList().orEmpty())
+        override fun observeHistory(userId: String?): Flow<List<String>> {
+            val deferred = lateUserOneHistory
+            if (userId == "user-1" && deferred != null) {
+                return channelFlow {
+                    send(byUser[userId]?.toList().orEmpty())
+                    withContext(NonCancellable) {
+                        send(deferred.await())
+                    }
+                }
+            }
+            return MutableStateFlow(byUser[userId]?.toList().orEmpty())
+        }
 
         override suspend fun add(userId: String?, query: String) {
             val list = byUser.getOrPut(userId) { mutableListOf() }
@@ -239,7 +325,13 @@ class SearchViewModelTest {
     }
 
     private class SwitchingAuthRepository : FakeAuthRepository() {
-        override fun getSavedUserId(): Flow<String?> = MutableStateFlow("user-1")
+        private val userId = MutableStateFlow<String?>("user-1")
+
+        override fun getSavedUserId(): Flow<String?> = userId
+
+        fun switchTo(nextUserId: String) {
+            userId.value = nextUserId
+        }
     }
 
     private open class FakeAuthRepository : AuthRepository {
