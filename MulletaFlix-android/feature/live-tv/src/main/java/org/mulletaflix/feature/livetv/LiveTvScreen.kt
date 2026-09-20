@@ -1,7 +1,10 @@
 package org.mulletaflix.feature.livetv
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +14,10 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
@@ -22,6 +29,7 @@ import coil.compose.SubcomposeAsyncImageContent
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
+import org.mulletaflix.designsystem.theme.MulletaFlixRed
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.primaryImageUrl
 
@@ -33,6 +41,8 @@ fun LiveTvScreen(
     viewModel: LiveTvViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
     var showGuide by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
@@ -82,7 +92,9 @@ fun LiveTvScreen(
             state.error?.let { error -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); TextButton(onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }
             if (state.isLoading && state.channels.isEmpty()) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (!state.isLoading && state.channels.isEmpty() && state.error == null) item { EmptyLiveTvState() }
-            items(state.channels, key = { it.id }) { channel -> ChannelRow(channel, onPlay = { onChannelPlay(channel.id) }) }
+            items(state.channels, key = { it.id }) { channel ->
+                ChannelRow(channel, isTelevision = isTelevision, onPlay = { onChannelPlay(channel.id) })
+            }
             if (state.recordings.isNotEmpty()) {
                 item {
                     Text(
@@ -93,7 +105,7 @@ fun LiveTvScreen(
                     )
                 }
                 items(state.recordings, key = { "recording-${it.id}" }) { recording ->
-                    RecordingRow(recording, onPlay = { onChannelPlay(recording.id) })
+                    RecordingRow(recording, isTelevision = isTelevision, onPlay = { onChannelPlay(recording.id) })
                 }
             }
         }
@@ -102,14 +114,32 @@ fun LiveTvScreen(
 }
 
 @Composable
-private fun ChannelRow(channel: MediaItem, onPlay: () -> Unit) {
+private fun ChannelRow(channel: MediaItem, isTelevision: Boolean, onPlay: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    val focusScale by animateFloatAsState(
+        targetValue = if (isTelevision && isFocused) 1.03f else 1f,
+        label = "live-tv-channel-focus-scale",
+    )
     val imageUrl = resolveMediaUrl(
         LocalMulletaFlixServerUrl.current,
         channel.primaryImageUrl,
         LocalMulletaFlixAccessToken.current,
     )
     Card(
-        Modifier.fillMaxWidth().clickable(onClick = onPlay),
+        Modifier
+            .fillMaxWidth()
+            .scale(focusScale)
+            .then(
+                if (isTelevision) {
+                    Modifier.onFocusChanged { isFocused = it.isFocused }.focusable()
+                } else Modifier
+            )
+            .then(
+                if (isTelevision && isFocused) {
+                    Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.medium)
+                } else Modifier
+            )
+            .clickable(onClick = onPlay),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -159,9 +189,27 @@ private fun ChannelLogo(channelName: String, imageUrl: String?) {
 }
 
 @Composable
-private fun RecordingRow(recording: MediaItem, onPlay: () -> Unit) {
+private fun RecordingRow(recording: MediaItem, isTelevision: Boolean, onPlay: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    val focusScale by animateFloatAsState(
+        targetValue = if (isTelevision && isFocused) 1.03f else 1f,
+        label = "live-tv-recording-focus-scale",
+    )
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay),
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(focusScale)
+            .then(
+                if (isTelevision) {
+                    Modifier.onFocusChanged { isFocused = it.isFocused }.focusable()
+                } else Modifier
+            )
+            .then(
+                if (isTelevision && isFocused) {
+                    Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.medium)
+                } else Modifier
+            )
+            .clickable(onClick = onPlay),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -32,6 +32,15 @@ class MediaCardPresentationTest {
     }
 
     @Test
+    fun `focus treatment is reserved for remote friendly cards`() {
+        assertEquals(1f, mediaCardFocusScale(isFocusFriendly = false, isFocused = true))
+        assertEquals(1f, mediaCardFocusScale(isFocusFriendly = true, isFocused = false))
+        assertEquals(1.04f, mediaCardFocusScale(isFocusFriendly = true, isFocused = true))
+        assertEquals(0f, mediaCardFocusBorderWidthDp(isFocusFriendly = false, isFocused = true))
+        assertEquals(2f, mediaCardFocusBorderWidthDp(isFocusFriendly = true, isFocused = true))
+    }
+
+    @Test
     fun `accessibility label exposes visible playback state`() {
         assertEquals(
             "Abrir A Série, na Minha Lista, HD, 3 episódios não assistidos, 42% reproduzido",

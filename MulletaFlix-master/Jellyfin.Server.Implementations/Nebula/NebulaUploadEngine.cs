@@ -395,11 +395,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 if (protectedFile)
                 {
                     _logger.LogInformation(
-                        "[NEBULA-UPLOAD] Capa/metadado '{Target}' já enviado com a mídia '{Comp}' (ID: {Id}); arquivo retirado do staging.",
+                        "[NEBULA-UPLOAD] Capa/metadado '{Target}' já enviado com a mídia '{Comp}' (ID: {Id}); arquivo preservado no cache local.",
                         targetFileName,
                         compName,
                         compId);
-                    LogServer("INFO", $"[NEBULA-UPLOAD] '{targetFileName}' já enviado com a mídia. Arquivo retirado do staging.");
+                    LogServer("INFO", $"[NEBULA-UPLOAD] '{targetFileName}' já enviado com a mídia. Arquivo preservado no cache local.");
                 }
                 else
                 {
@@ -420,21 +420,25 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         cancellationToken).ConfigureAwait(false);
                 }
 
-                try
+                if (ShouldDeleteLocalSource(localFilePath))
                 {
-                    if (File.Exists(localFilePath))
+                    try
                     {
-                        File.Delete(localFilePath);
-                        _logger.LogInformation("[NEBULA-UPLOAD] Arquivo local de mídia já enviada removido: {Path}", localFilePath);
+                        if (File.Exists(localFilePath))
+                        {
+                            File.Delete(localFilePath);
+                            _logger.LogInformation("[NEBULA-UPLOAD] Arquivo local de mídia já enviada removido: {Path}", localFilePath);
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível remover arquivo local já enviado: {Path}", localFilePath);
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[NEBULA-UPLOAD] Não foi possível remover arquivo local já enviado: {Path}", localFilePath);
+                    }
+
+                    CleanEmptyParentDirectories(localFilePath);
                 }
 
                 NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
-                CleanEmptyParentDirectories(localFilePath);
                 return true;
             }
 
@@ -452,7 +456,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     IsCompletedUploadForFile(existingDoc, totalSize, totalParts))
                 {
                     _logger.LogInformation("[NEBULA-UPLOAD] Arquivo '{Name}' já está 100% concluído no Nebula.", targetFileName);
-                    if (_deleteSourceAfterUpload)
+                    if (ShouldDeleteLocalSource(localFilePath))
                     {
                         try
                         {
@@ -468,7 +472,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     // retry discovered that the media was already complete.
                     // Release it so queued sidecars are not blocked forever.
                     NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
-                    if (_deleteSourceAfterUpload)
+                    if (ShouldDeleteLocalSource(localFilePath))
                     {
                         CleanEmptyParentDirectories(localFilePath);
                     }
@@ -829,7 +833,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 await _logQueueState($"concluido:{targetFileName}").ConfigureAwait(false);
             }
 
-            if (_deleteSourceAfterUpload)
+            if (ShouldDeleteLocalSource(localFilePath))
             {
                 try
                 {
@@ -847,7 +851,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             // sidecars antes da mídia correspondente.
             NebulaMetadataExportService.ReleasePendingMarkerForMedia(localFilePath);
 
-            if (_deleteSourceAfterUpload)
+            if (ShouldDeleteLocalSource(localFilePath))
             {
                 CleanEmptyParentDirectories(localFilePath);
             }
@@ -943,6 +947,9 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         _disposed = true;
         await Task.CompletedTask.ConfigureAwait(false);
     }
+
+    private bool ShouldDeleteLocalSource(string localFilePath)
+        => _deleteSourceAfterUpload && !IsMetadataOrSidecar(localFilePath);
 
     /// <summary>
     /// Limpa recursivamente diretórios pais vazios a partir do diretório do arquivo excluído,

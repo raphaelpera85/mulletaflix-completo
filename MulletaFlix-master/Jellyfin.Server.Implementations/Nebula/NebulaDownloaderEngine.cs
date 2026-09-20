@@ -1272,8 +1272,27 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         var existing = await _mongoContext.FindByNameAndParentAsync(fileName, parentId, cancellationToken).ConfigureAwait(false);
         if (existing == null)
         {
-            var nodeDoc = new BsonDocument
-            {
+            // A restauração ou uma árvore de diretórios criada por uma versão
+            // anterior pode ter o mesmo arquivo com o pai representado por
+            // outro formato. O caminho local é a segunda chave de identidade
+            // para impedir que NFO/capas já enviados voltem à fila.
+            existing = await _mongoContext.FindFileForUploadAsync(fileName, parentId, filePath, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (existing != null)
+        {
+            var status = existing.GetValue("status", string.Empty).AsString;
+            var protectedFile = NebulaProtectedContent.IsProtectedPath(filePath);
+            _logger.LogDebug(
+                "[NEBULA-FEEDER] Arquivo {Name} já possui registro no MongoDB (status={Status}, protegido={Protected}); não será reenfileirado.",
+                fileName,
+                status,
+                protectedFile);
+            return;
+        }
+
+        var nodeDoc = new BsonDocument
+        {
                 { "_id", ObjectId.GenerateNewId() },
                 { "name", fileName },
                 { "type", "file" },
@@ -1286,11 +1305,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 { "parts", new BsonArray() },
                 { "created_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
                 { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
-            };
+        };
 
-            await _mongoContext.InsertFileDocAsync(nodeDoc, cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("[NEBULA-FEEDER] Mídia {Name} enfileirada no MongoDB com sucesso.", fileName);
-        }
+        await _mongoContext.InsertFileDocAsync(nodeDoc, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("[NEBULA-FEEDER] Mídia {Name} enfileirada no MongoDB com sucesso.", fileName);
     }
 
     private async Task<(string? ParentId, string VirtualPath)> EnsureDirectoryStructureInMongoAsync(string relDir, CancellationToken cancellationToken)
@@ -1645,6 +1663,12 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             {
                 foreach (var file in stageFiles)
                 {
+                    if (NebulaProtectedContent.IsProtectedPath(file))
+                    {
+                        _logger.LogDebug("[NEBULA-DOWNLOADER] Conteúdo protegido preservado no cache local: {File}", file);
+                        continue;
+                    }
+
                     try
                     {
                         if (File.Exists(file))

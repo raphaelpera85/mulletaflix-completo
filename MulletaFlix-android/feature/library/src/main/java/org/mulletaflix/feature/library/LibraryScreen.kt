@@ -97,6 +97,7 @@ fun LibraryScreen(
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val viewportWidthDp = maxWidth.value.roundToInt()
         Box(modifier = Modifier.fillMaxSize()) {
             if (state.isLoading && state.items.isEmpty()) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -119,7 +120,7 @@ fun LibraryScreen(
             } else {
                 val columns = if (state.isGridView) {
                     val tvColumns = libraryGridColumns(
-                        widthDp = maxWidth.value.roundToInt(),
+                        widthDp = viewportWidthDp,
                         density = state.gridDensity,
                         isTelevision = isTelevision,
                     )
@@ -175,9 +176,10 @@ fun LibraryScreen(
                                 progress = item.playbackProgressFraction(),
                                 isWatched = item.isPlayed,
                                 isFavorite = item.isFavorite,
-                                unplayedCount = item.unplayedItemCount ?: 0,
-                                qualityBadge = when { item.has4K -> "4K"; item.hasHD -> "HD"; else -> null },
-                                onClick = { onItemClick(item.id) },
+                                 unplayedCount = item.unplayedItemCount ?: 0,
+                                 qualityBadge = when { item.has4K -> "4K"; item.hasHD -> "HD"; else -> null },
+                                 focusFriendly = isTelevision,
+                                 onClick = { onItemClick(item.id) },
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {

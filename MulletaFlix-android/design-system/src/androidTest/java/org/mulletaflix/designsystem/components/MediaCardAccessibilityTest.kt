@@ -1,10 +1,14 @@
 package org.mulletaflix.designsystem.components
 
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.remember
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -34,5 +38,23 @@ class MediaCardAccessibilityTest {
             .performClick()
 
         assertTrue(clicked.get())
+    }
+
+    @Test
+    fun remoteFriendlyMediaCard_acceptsRemoteFocus() {
+        val focusRequester = FocusRequester()
+
+        composeRule.setContent {
+            MediaCard(
+                title = "Filme na TV",
+                imageUrl = null,
+                focusFriendly = true,
+                onClick = {},
+                modifier = androidx.compose.ui.Modifier.focusRequester(focusRequester),
+            )
+        }
+
+        composeRule.runOnIdle { focusRequester.requestFocus() }
+        composeRule.onNodeWithContentDescription("Abrir Filme na TV").assertIsFocused()
     }
 }

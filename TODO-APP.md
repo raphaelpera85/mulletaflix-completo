@@ -351,3 +351,27 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Usar colunas previsíveis e amigáveis ao controle remoto na TV.
 - [x] Atualizar a biblioteca automaticamente enquanto a tela estiver em primeiro plano.
 - [x] Cobrir a densidade e o cálculo de colunas com testes unitários.
+
+## 195. Foco visual para navegação por controle remoto (v1.1.87)
+- [x] Exibir escala e borda vermelha ao focar cards na Android TV.
+- [x] Aplicar o tratamento de foco nas seções da Home e na grade da biblioteca.
+- [x] Preservar a geometria de cards em celular e tablet.
+- [x] Cobrir a política de escala e borda com teste unitário.
+
+## 196. Rótulos de qualidade fornecidos pelo servidor (v1.1.87)
+- [x] Preservar nomes de qualidade desconhecidos no menu do player.
+- [x] Continuar normalizando resoluções conhecidas e aliases de Auto.
+- [x] Manter o aviso de rede medida somente no modo Auto.
+- [x] Cobrir a apresentação dos rótulos com teste unitário e instrumentado.
+
+## 197. Foco remoto em busca e TV ao vivo (v1.1.88)
+- [x] Aplicar foco remoto aos cards de resultados da busca na TV.
+- [x] Aplicar foco remoto aos canais e gravações da TV ao vivo.
+- [x] Preservar o layout original em celular e tablet.
+- [x] Validar foco real em `MediaCard` com teste Compose instrumentado.
+
+## 198. Atualização automática da Home na Android TV (v1.1.89)
+- [x] Atualizar a Home automaticamente a cada 60 segundos enquanto estiver visível na TV.
+- [x] Interromper o ciclo ao sair da tela ou perder o estado RESUMED.
+- [x] Preservar o comportamento explícito de atualização em celular e tablet.
+- [x] Cobrir a política de intervalo por tipo de dispositivo com testes unitários.

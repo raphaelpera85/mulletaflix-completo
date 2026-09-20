@@ -89,10 +89,17 @@ internal fun effectivePlaybackQuality(preference: String?, isMetered: Boolean): 
 
 /** Makes the adaptive cap visible without changing the persisted Auto preference. */
 internal fun qualityOptionLabel(quality: String, isMetered: Boolean): String =
-    if (normalizeQualityPreference(quality) == "Auto" && isMetered) {
-        "Auto (até 720p nesta rede)"
-    } else {
-        normalizeQualityPreference(quality)
+    quality.trim().let { raw ->
+        val normalized = normalizeQualityPreference(raw)
+        val isAutoAlias = raw.equals("auto", ignoreCase = true) ||
+            raw.equals("automático", ignoreCase = true) ||
+            raw.equals("automatico", ignoreCase = true)
+        when {
+            isAutoAlias && isMetered -> "Auto (até 720p nesta rede)"
+            isAutoAlias -> "Auto"
+            normalized != "Auto" -> normalized
+            else -> raw
+        }
     }
 
 /** Keeps the quality radio selection truthful when a title lacks the saved resolution. */

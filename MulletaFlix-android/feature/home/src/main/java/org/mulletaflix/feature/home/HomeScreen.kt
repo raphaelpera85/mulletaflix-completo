@@ -16,6 +16,11 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -64,12 +69,25 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
             Configuration.UI_MODE_TYPE_TELEVISION
         val layoutSpec = homeLayoutSpec(
             homeDeviceClass(maxWidth.value.roundToInt(), isTelevision),
         )
+
+        LaunchedEffect(lifecycleOwner, isTelevision) {
+            val refreshInterval = homeAutoRefreshIntervalMillis(isTelevision)
+            if (refreshInterval > 0L) {
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    while (isActive) {
+                        delay(refreshInterval)
+                        viewModel.refresh()
+                    }
+                }
+            }
+        }
 
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
@@ -453,12 +471,13 @@ private fun MediaSection(
                     isFavorite = item.isFavorite,
                     unplayedCount = item.unplayedItemCount ?: 0,
                     isLive = isLive,
-                    qualityBadge = when {
-                        item.has4K -> "4K"
-                        item.hasHD -> "HD"
-                        else -> null
-                    },
-                    onClick = { onItemClick(item.id) },
+                     qualityBadge = when {
+                         item.has4K -> "4K"
+                         item.hasHD -> "HD"
+                         else -> null
+                     },
+                     focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                     onClick = { onItemClick(item.id) },
                     modifier = Modifier.width(resolvedWidth)
                 )
             }
@@ -494,9 +513,10 @@ private fun LibraryTiles(
             ) { lib ->
                 MediaCard(
                     title = lib.name,
-                    imageUrl = lib.primaryImageUrl,
-                    shape = MediaCardShape.Landscape,
-                    onClick = { onLibraryClick(lib) },
+                     imageUrl = lib.primaryImageUrl,
+                     shape = MediaCardShape.Landscape,
+                     focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                     onClick = { onLibraryClick(lib) },
                     modifier = Modifier.width(180.dp * layoutSpec.cardScale)
                 )
             }

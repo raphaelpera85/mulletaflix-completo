@@ -192,6 +192,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
             try
             {
                 Log("Iniciando sync automatico...");
+                await RemoveManagedStrmLibrariesAsync(config).ConfigureAwait(false);
 
                 var baseUrl = _serverApplicationHost.GetSmartApiUrl("localhost");
                 MidiaStorageOnlineStreamProxy.LocalBaseUrl = baseUrl;
@@ -351,43 +352,6 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.ScheduledTasks
                     }
 
                     validatedMediaEntries = MidiaStorageOnlineEntryDeduplicator.DeduplicateByKey(validatedMediaEntries, BuildEntryDedupKey).ToList();
-
-                    // Count upfront to create libraries before file processing
-                    int entryMovieCount = validatedMediaEntries.Count(e => e.Type == "Filme");
-                    int entrySeriesCount = validatedMediaEntries.Count(e => e.Type == "Serie");
-
-                    var existingLibs = _libraryManager.GetVirtualFolders().Select(v => v.Name).ToHashSet();
-                    try
-                    {
-                        if (!existingLibs.Contains("Filmes") && entryMovieCount > 0)
-                        {
-                            await _libraryManager.AddVirtualFolder("Filmes", CollectionTypeOptions.movies,
-                                new LibraryOptions
-                                {
-                                    PathInfos = new[] { new MediaPathInfo(moviesPath) },
-                                    PreferredMetadataLanguage = "pt-BR",
-                                    MetadataCountryCode = "BR"
-                                }, true).ConfigureAwait(false);
-                            Log("Biblioteca 'Filmes' criada");
-                        }
-                        if (!existingLibs.Contains("Series") && entrySeriesCount > 0)
-                        {
-                            await _libraryManager.AddVirtualFolder("Series", CollectionTypeOptions.tvshows,
-                                new LibraryOptions
-                                {
-                                    PathInfos = new[] { new MediaPathInfo(seriesPath) },
-                                    PreferredMetadataLanguage = "pt-BR",
-                                    MetadataCountryCode = "BR"
-                                }, true).ConfigureAwait(false);
-                            Log("Biblioteca 'Series' criada");
-                        }
-                    }
-                    catch (Exception libEx)
-                    {
-                        Log($"Falha ao criar bibliotecas virtuais: {libEx}");
-                        config.LastSyncError = $"Falha ao criar bibliotecas virtuais: {libEx.Message}";
-                        SaveConfig(config);
-                    }
 
                     var manifest = LoadManifest();
                     var seenSourceUrlsInRun = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);

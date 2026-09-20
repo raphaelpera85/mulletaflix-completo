@@ -927,6 +927,7 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
             try
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
+                await RemoveManagedStrmLibrariesAsync(config).ConfigureAwait(false);
                 var outputMode = NormalizeOutputMode(config.OutputMode);
                 Log(config.UseWorldStorage && string.IsNullOrWhiteSpace(config.M3uUrl)
                     ? "Iniciando sync: baixando M3U do storage mundial"
@@ -1123,36 +1124,6 @@ namespace MediaBrowser.Providers.Plugins.MidiaStorageOnline.Api
                     }
 
                     validatedMediaEntries = MidiaStorageOnlineEntryDeduplicator.DeduplicateByKey(validatedMediaEntries, BuildEntryDedupKey).ToList();
-
-                    // Count upfront to create libraries before file processing
-                    int entryMovieCount = validatedMediaEntries.Count(e => e.Type == "Filme");
-                    int entrySeriesCount = validatedMediaEntries.Count(e => e.Type == "Serie");
-
-                var existingLibs = _libraryManager.GetVirtualFolders().Select(v => v.Name).ToHashSet();
-
-                if (!existingLibs.Contains("Filmes"))
-                {
-                    await _libraryManager.AddVirtualFolder("Filmes", CollectionTypeOptions.movies,
-                        new LibraryOptions
-                        {
-                            PathInfos = new[] { new MediaPathInfo(moviesPath) },
-                            PreferredMetadataLanguage = "pt-BR",
-                            MetadataCountryCode = "BR"
-                        }, true).ConfigureAwait(false);
-                    Log($"Biblioteca 'Filmes' criada apontando para {moviesPath}");
-                }
-
-                if (!existingLibs.Contains("Series") && entrySeriesCount > 0)
-                {
-                    await _libraryManager.AddVirtualFolder("Series", CollectionTypeOptions.tvshows,
-                        new LibraryOptions
-                        {
-                            PathInfos = new[] { new MediaPathInfo(seriesPath) },
-                            PreferredMetadataLanguage = "pt-BR",
-                            MetadataCountryCode = "BR"
-                        }, true).ConfigureAwait(false);
-                    Log($"Biblioteca 'Series' criada apontando para {seriesPath}");
-                }
 
                     var manifest = force ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : LoadManifest();
                     var newManifest = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);

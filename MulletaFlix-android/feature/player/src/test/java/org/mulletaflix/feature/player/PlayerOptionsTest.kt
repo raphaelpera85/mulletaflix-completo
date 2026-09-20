@@ -103,6 +103,12 @@ class PlayerOptionsTest {
     }
 
     @Test
+    fun `quality labels preserve unknown server supplied names`() {
+        assertEquals("Qualidade 20", qualityOptionLabel("Qualidade 20", isMetered = false))
+        assertEquals("1080p", qualityOptionLabel("1080", isMetered = false))
+    }
+
+    @Test
     fun `quality selection falls back to auto when saved resolution is unavailable`() {
         assertEquals("Auto", effectiveQualitySelection("4K", listOf("1080p", "720p")))
         assertEquals("1440p", effectiveQualitySelection("1440", listOf("1440p", "1080p")))

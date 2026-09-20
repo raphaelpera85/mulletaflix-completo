@@ -1,9 +1,12 @@
 package org.mulletaflix.designsystem.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -12,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -114,8 +119,16 @@ fun MediaCard(
     qualityBadge: String? = null,    // "HD", "4K", "SDR"
     unplayedCount: Int = 0,
     isLive: Boolean = false,
+    focusFriendly: Boolean = false,
     onClick: () -> Unit = {}
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    val focusScale by animateFloatAsState(
+        targetValue = mediaCardFocusScale(focusFriendly, isFocused),
+        animationSpec = tween(durationMillis = 120),
+        label = "media-card-focus-scale",
+    )
+    val focusBorderWidth = mediaCardFocusBorderWidthDp(focusFriendly, isFocused)
     val normalizedProgress = normalizedCardProgress(progress)
     val aspectRatio = when (shape) {
         MediaCardShape.Portrait -> 2f / 3f
@@ -142,6 +155,27 @@ fun MediaCard(
 
     Column(
         modifier = modifier
+            .scale(focusScale)
+            .then(
+                if (focusFriendly) {
+                    Modifier
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .focusable()
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (focusBorderWidth > 0f) {
+                    Modifier.border(
+                        width = focusBorderWidth.dp,
+                        color = MulletaFlixRed,
+                        shape = RoundedCornerShape(10.dp),
+                    )
+                } else {
+                    Modifier
+                },
+            )
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
                 role = Role.Button

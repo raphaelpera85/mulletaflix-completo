@@ -20,7 +20,9 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import android.content.res.Configuration
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,6 +53,8 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
     var isListening by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf<String?>(null) }
     var showClearHistoryConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -278,6 +282,7 @@ fun SearchScreen(
                                     metadata = item.cardMetadata(),
                                     shape = cardShape,
                                     isWatched = item.isPlayed,
+                                    focusFriendly = isTelevision,
                                     onClick = { onItemClick(item.id) },
                                     modifier = Modifier.width(if (cardShape == MediaCardShape.Portrait) 110.dp else 190.dp)
                                 )

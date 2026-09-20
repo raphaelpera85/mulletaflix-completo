@@ -825,7 +825,7 @@ public class NebulaUploadEngineTests
     }
 
     [Fact]
-    public void Downloader_DeleteTargetStageDirectoryIfCompleted_RemovesStageSidecarsAndDirectory()
+    public void Downloader_DeleteTargetStageDirectoryIfCompleted_PreservesProtectedCacheFiles()
     {
         var root = Path.Combine(Path.GetTempPath(), "nebula-stage-clean-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -849,12 +849,12 @@ public class NebulaUploadEngineTests
             Assert.NotNull(cleanStageMethod);
             cleanStageMethod.Invoke(engine, [root]);
 
-            // O stage é fila transitória: o que já foi enviado ao Telegram sai dele,
-            // inclusive capas/NFO, e a pasta vazia é removida.
+            // O stage é transitório apenas para arquivos não protegidos. NFO e
+            // imagens continuam no cache local para a exibição da biblioteca.
             Assert.False(File.Exists(leftoverFile));
-            Assert.False(File.Exists(nfoFile));
-            Assert.False(File.Exists(jpgFile));
-            Assert.False(Directory.Exists(root));
+            Assert.True(File.Exists(nfoFile));
+            Assert.True(File.Exists(jpgFile));
+            Assert.True(Directory.Exists(root));
         }
         finally
         {
