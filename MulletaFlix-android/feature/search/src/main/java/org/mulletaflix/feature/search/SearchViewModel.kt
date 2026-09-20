@@ -194,7 +194,7 @@ class SearchViewModel @Inject constructor(
             if (isCurrentSearch(query, filter, generation, userId)) {
                 _state.update {
                     it.copy(
-                        results = emptyList(),
+                        results = if (isRefresh) it.results else emptyList(),
                         isLoading = false,
                         isRefreshing = false,
                         error = "Erro ao buscar conteúdo",

@@ -49,4 +49,14 @@ class DeepLinkNavigationPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun `marks a link handled when its destination is already visible`() {
+        assertTrue(shouldMarkMediaDeepLinkHandled("movie-123", "movie-123"))
+    }
+
+    @Test
+    fun `does not mark another destination handled`() {
+        assertFalse(shouldMarkMediaDeepLinkHandled("movie-123", "episode-456"))
+    }
 }

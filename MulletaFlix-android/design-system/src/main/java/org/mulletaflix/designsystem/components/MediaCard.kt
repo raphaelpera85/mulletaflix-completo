@@ -58,6 +58,37 @@ internal fun mediaCardContentScale(shape: MediaCardShape): ContentScale = when (
 internal fun normalizedCardProgress(progress: Float): Float =
     if (progress.isFinite()) progress.coerceIn(0f, 1f) else 0f
 
+/** Builds one concise TalkBack label from the card's visible playback state. */
+internal fun mediaCardAccessibilityLabel(
+    title: String,
+    isLive: Boolean,
+    isWatched: Boolean,
+    isFavorite: Boolean,
+    qualityBadge: String?,
+    unplayedCount: Int,
+    progress: Float,
+): String {
+    val details = buildList {
+        if (isLive) add("ao vivo")
+        if (isWatched) add("assistido")
+        if (isFavorite) add("na Minha Lista")
+        qualityBadge?.takeIf { it.isNotBlank() }?.let { add(it) }
+        if (unplayedCount > 0) add("$unplayedCount episódios não assistidos")
+        val normalized = normalizedCardProgress(progress)
+        if (!isWatched && normalized > 0f) {
+            add("${(normalized * 100).toInt()}% reproduzido")
+        }
+    }
+    return buildString {
+        append("Abrir ")
+        append(title)
+        if (details.isNotEmpty()) {
+            append(", ")
+            append(details.joinToString(", "))
+        }
+    }
+}
+
 /**
  * Reusable media card composable used across Home, Library, Search and Detail screens.
  *
@@ -99,11 +130,15 @@ fun MediaCard(
     }
 
     val resolvedImageUrl = resolveMediaUrl(LocalMulletaFlixServerUrl.current, imageUrl, LocalMulletaFlixAccessToken.current)
-    val accessibilityLabel = if (isLive) {
-        "Abrir $title, ao vivo"
-    } else {
-        "Abrir $title"
-    }
+    val accessibilityLabel = mediaCardAccessibilityLabel(
+        title = title,
+        isLive = isLive,
+        isWatched = isWatched,
+        isFavorite = isFavorite,
+        qualityBadge = qualityBadge,
+        unplayedCount = unplayedCount,
+        progress = normalizedProgress,
+    )
 
     Column(
         modifier = modifier

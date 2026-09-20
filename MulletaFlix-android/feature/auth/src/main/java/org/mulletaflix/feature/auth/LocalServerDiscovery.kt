@@ -1,6 +1,9 @@
 package org.mulletaflix.feature.auth
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -26,16 +29,19 @@ class LocalServerDiscovery @Inject constructor(
     @ApplicationContext context: Context,
 ) {
     private val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java)
+    private val connectivityManager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
 
     suspend fun discover(timeoutMs: Int = 2_500): List<ServerInfo> = withContext(Dispatchers.IO) {
         val broadcastAddresses = networkBroadcastAddresses()
 
         val results = linkedMapOf<String, ServerInfo>()
         withWifiMulticastLock {
-            DatagramSocket().use { socket ->
-                socket.broadcast = true
-                socket.reuseAddress = true
-                socket.soTimeout = 250
+            val sockets = createDiscoverySockets()
+            try {
+                sockets.forEach { socket ->
+                    socket.broadcast = true
+                    socket.reuseAddress = true
+                }
                 val request = DISCOVERY_MESSAGE.toByteArray(Charsets.UTF_8)
                 val targets = (broadcastAddresses + InetAddress.getByName("255.255.255.255")).distinct()
                 val deadline = System.currentTimeMillis() + timeoutMs.coerceAtLeast(0)
@@ -45,32 +51,66 @@ class LocalServerDiscovery @Inject constructor(
                 while (System.currentTimeMillis() < deadline) {
                     val now = System.currentTimeMillis()
                     if (probeIndex < probeDelays.size && now >= nextProbeAt) {
-                        targets.forEach { target ->
-                            socket.send(DatagramPacket(request, request.size, target, DISCOVERY_PORT))
+                        sockets.forEach { socket ->
+                            targets.forEach { target ->
+                                runCatching {
+                                    socket.send(DatagramPacket(request, request.size, target, DISCOVERY_PORT))
+                                }
+                            }
                         }
                         probeIndex += 1
                         nextProbeAt = System.currentTimeMillis() +
                             (probeDelays.getOrNull(probeIndex)?.minus(probeDelays[probeIndex - 1])
                                 ?: DISCOVERY_RETRY_INTERVAL_MS)
                     }
-                    val buffer = ByteArray(4096)
-                    val packet = DatagramPacket(buffer, buffer.size)
-                    socket.soTimeout = minOf(
-                        250,
-                        (deadline - System.currentTimeMillis()).coerceAtLeast(1L).toInt(),
-                    )
-                    try {
-                        socket.receive(packet)
-                        parseDiscoveryResponse(String(packet.data, 0, packet.length, Charsets.UTF_8))?.let { server ->
-                            results[server.url] = server
+                    sockets.forEach { socket ->
+                        if (System.currentTimeMillis() >= deadline) return@forEach
+                        val buffer = ByteArray(4096)
+                        val packet = DatagramPacket(buffer, buffer.size)
+                        socket.soTimeout = minOf(
+                            100,
+                            (deadline - System.currentTimeMillis()).coerceAtLeast(1L).toInt(),
+                        )
+                        try {
+                            socket.receive(packet)
+                            parseDiscoveryResponse(String(packet.data, 0, packet.length, Charsets.UTF_8))?.let { server ->
+                                results[server.url] = server
+                            }
+                        } catch (_: java.net.SocketTimeoutException) {
+                            // Short timeouts let us keep discovery responsive across all local interfaces.
                         }
-                    } catch (_: java.net.SocketTimeoutException) {
-                        // Short timeouts let us keep the discovery responsive while collecting replies.
                     }
                 }
+            } finally {
+                sockets.forEach { socket -> runCatching { socket.close() } }
             }
         }
         results.values.toList()
+    }
+
+    /**
+     * Creates one UDP socket per eligible local transport. Android otherwise
+     * routes a process-wide broadcast through only its default network, which
+     * can miss a MulletaFlix server when Wi-Fi/Ethernet or VPN interfaces
+     * coexist. A plain socket remains the compatibility fallback for devices
+     * where ConnectivityManager does not expose a usable local network.
+     */
+    @Suppress("DEPRECATION") // allNetworks keeps the Android 24 compatibility path for local-only transports.
+    private fun createDiscoverySockets(): List<DatagramSocket> {
+        val localNetworks = connectivityManager?.allNetworks.orEmpty()
+            .filter { network ->
+                val capabilities = connectivityManager?.getNetworkCapabilities(network)
+                capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                    capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+            }
+            .distinct()
+
+        val boundSockets = localNetworks.mapNotNull { network ->
+            runCatching {
+                DatagramSocket().also { socket -> network.bindSocket(socket) }
+            }.getOrNull()
+        }
+        return boundSockets.ifEmpty { listOf(DatagramSocket()) }
     }
 
     /**

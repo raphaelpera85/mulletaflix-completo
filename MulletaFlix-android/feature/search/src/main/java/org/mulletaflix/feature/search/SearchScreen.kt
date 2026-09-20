@@ -185,7 +185,7 @@ fun SearchScreen(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else if (state.error != null) {
+        } else if (state.error != null && state.results.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -230,6 +230,26 @@ fun SearchScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
             LazyColumn {
+                if (state.error != null) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(start = 12.dp, end = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "Não foi possível atualizar a busca.",
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = viewModel::retrySearch) { Text("Tentar") }
+                            }
+                        }
+                    }
+                }
                 val grouped = state.results.groupBy { it.type.toGroupLabel() }
                 grouped.forEach { (groupLabel, items) ->
                     item {

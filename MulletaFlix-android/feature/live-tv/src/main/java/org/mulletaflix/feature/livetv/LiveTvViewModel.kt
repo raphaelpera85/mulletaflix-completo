@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.LiveTvRepository
 import org.mulletaflix.domain.usecase.GetLiveTvChannelsUseCase
@@ -26,6 +27,7 @@ data class LiveTvUiState(
     val programs: List<MediaItem> = emptyList(),
     val isLoading: Boolean = true,
     val isLoadingGuide: Boolean = false,
+    val isOffline: Boolean = false,
     val error: String? = null,
     val guideError: String? = null,
     val recordingsError: String? = null,
@@ -38,6 +40,7 @@ class LiveTvViewModel @Inject constructor(
     private val getLiveTvChannelsUseCase: GetLiveTvChannelsUseCase,
     private val repository: LiveTvRepository,
     private val sessionRepository: SessionRepository,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LiveTvUiState())
     val state = _state.asStateFlow()
@@ -50,6 +53,15 @@ class LiveTvViewModel @Inject constructor(
     private var hasObservedSession = false
 
     init {
+        viewModelScope.launch {
+            var previousOnline: Boolean? = null
+            networkMonitor.isOnline.distinctUntilChanged().collect { online ->
+                val recovered = shouldRefreshLiveTvOnNetworkReturn(previousOnline, online)
+                previousOnline = online
+                _state.update { it.copy(isOffline = !online) }
+                if (recovered) refresh()
+            }
+        }
         viewModelScope.launch {
             sessionRepository.getCurrentUserId().distinctUntilChanged().collect { userId ->
                 val userChanged = hasObservedSession && currentUserId != userId

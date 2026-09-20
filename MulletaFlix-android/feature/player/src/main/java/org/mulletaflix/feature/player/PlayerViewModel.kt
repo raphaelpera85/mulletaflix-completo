@@ -95,6 +95,7 @@ data class PlayerState(
     val chapters: List<Chapter> = emptyList(),
     val playbackStats: PlaybackStats? = null,
     val isNetworkOffline: Boolean = false,
+    val isNetworkMetered: Boolean = false,
     val sleepTimerRemainingMs: Long? = null,
     val sleepTimerMinutes: Int? = null,
     val sleepTimerMode: SleepTimerMode = SleepTimerMode.OFF,
@@ -169,23 +170,38 @@ class PlayerViewModel @Inject constructor(
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                pendingAudioStreamIndex?.let { index ->
+                if (pendingAudioStreamIndex != null) {
+                    val index = pendingAudioStreamIndex!!
                     selectTrackByServerIndex(index, C.TRACK_TYPE_AUDIO)
                     pendingAudioStreamIndex = null
+                } else if (restoreTrackSelectionOnNextTracksChange) {
+                    playbackAudioStreamIndex?.let { index ->
+                        selectTrackByServerIndex(index, C.TRACK_TYPE_AUDIO)
+                    }
                 }
                 if (pendingSubtitlesDisabled) {
-                    selectSubtitle(-1)
+                    selectTrackByServerIndex(-1, C.TRACK_TYPE_TEXT)
                     pendingSubtitlesDisabled = false
-                } else {
-                    pendingSubtitleStreamIndex?.let { index ->
-                        selectTrackByServerIndex(index, C.TRACK_TYPE_TEXT)
-                        pendingSubtitleStreamIndex = null
+                } else if (pendingSubtitleStreamIndex != null) {
+                    selectTrackByServerIndex(pendingSubtitleStreamIndex!!, C.TRACK_TYPE_TEXT)
+                    pendingSubtitleStreamIndex = null
+                } else if (restoreTrackSelectionOnNextTracksChange) {
+                    if (playbackSubtitlesDisabled) {
+                        selectTrackByServerIndex(-1, C.TRACK_TYPE_TEXT)
+                    } else {
+                        playbackSubtitleStreamIndex?.let { index ->
+                            selectTrackByServerIndex(index, C.TRACK_TYPE_TEXT)
+                        }
                     }
+                }
+                if (restoreTrackSelectionOnNextTracksChange) {
+                    restoreTrackSelectionOnNextTracksChange = false
                 }
             }
 
             override fun onPlayerError(error: PlaybackException) {
                 lastPlaybackErrorCode = error.errorCode
+                lastPlaybackPositionAtError = localPlayer.currentPosition.coerceAtLeast(0L)
                 val transcodeUrl = currentTranscodeUrl
                 if (shouldFallbackToTranscode(
                         currentUri = localPlayer.currentMediaItem?.localConfiguration?.uri?.toString(),
@@ -202,6 +218,7 @@ class PlayerViewModel @Inject constructor(
                             .setMediaMetadata(currentMediaMetadata ?: MediaMetadata.EMPTY)
                             .build(),
                     )
+                    restoreTrackSelectionOnNextTracksChange = true
                     player.prepare()
                     player.seekTo(positionAtError)
                     player.play()
@@ -226,6 +243,7 @@ class PlayerViewModel @Inject constructor(
                             ) &&
                             localPlayer.currentMediaItem?.localConfiguration?.uri == uriAtError
                         ) {
+                            restoreTrackSelectionOnNextTracksChange = true
                             player.prepare()
                             player.seekTo(positionAtError)
                             player.play()
@@ -284,10 +302,12 @@ class PlayerViewModel @Inject constructor(
     private var sessionGeneration = 0L
     private var networkWasOffline = false
     private var lastPlaybackErrorCode: Int? = null
+    private var lastPlaybackPositionAtError = 0L
     private var stoppedReported = false
     private var autoPlayEnabled = true
     private var skipIntroEnabled = true
     private var defaultQuality = "Auto"
+    private var networkIsMetered = false
     private var defaultPlaybackSpeed = 1f
     private var defaultAspectRatio = VideoAspectRatio.FIT
     private var subtitleFontSize = 100
@@ -295,6 +315,11 @@ class PlayerViewModel @Inject constructor(
     private var pendingAudioStreamIndex: Int? = null
     private var pendingSubtitleStreamIndex: Int? = null
     private var pendingSubtitlesDisabled = false
+    /** Keeps a user's manual track choice while Media3 rebuilds tracks after a retry. */
+    private var playbackAudioStreamIndex: Int? = null
+    private var playbackSubtitleStreamIndex: Int? = null
+    private var playbackSubtitlesDisabled = false
+    private var restoreTrackSelectionOnNextTracksChange = false
     /** Global stream indexes required by the server's playback reporting API. */
     private var currentAudioStreamIndex: Int? = null
     private var currentSubtitleStreamIndex: Int? = null
@@ -328,6 +353,13 @@ class PlayerViewModel @Inject constructor(
                 ) {
                     retryCurrentPlaybackAfterNetworkRestored()
                 }
+            }
+        }
+        viewModelScope.launch {
+            networkMonitor.isMetered.distinctUntilChanged().collect { isMetered ->
+                networkIsMetered = isMetered
+                _state.update { it.copy(isNetworkMetered = isMetered) }
+                if (defaultQuality == "Auto") applyQuality("Auto")
             }
         }
         viewModelScope.launch {
@@ -387,8 +419,13 @@ class PlayerViewModel @Inject constructor(
         currentTranscodeUrl = null
         currentMediaMetadata = null
         lastPlaybackErrorCode = null
+        lastPlaybackPositionAtError = 0L
         currentAudioStreamIndex = null
         currentSubtitleStreamIndex = null
+        playbackAudioStreamIndex = null
+        playbackSubtitleStreamIndex = null
+        playbackSubtitlesDisabled = false
+        restoreTrackSelectionOnNextTracksChange = false
         triedTranscodeFallback = false
         playbackRetryCount = 0
         _state.update {
@@ -499,14 +536,26 @@ class PlayerViewModel @Inject constructor(
             pendingSubtitleStreamIndex = preferredSubtitleStreamIndex
             currentAudioStreamIndex = preferredAudioStreamIndex
             currentSubtitleStreamIndex = preferredSubtitleStreamIndex
-            pendingSubtitlesDisabled = preferredSubtitleLanguage.equals("off", ignoreCase = true) ||
-                preferredSubtitleLanguage.equals("none", ignoreCase = true)
+            val recoverySelection = trackRecoverySelection(
+                audioStreamIndex = preferredAudioStreamIndex,
+                subtitleStreamIndex = preferredSubtitleStreamIndex,
+                subtitlesDisabled = preferredSubtitleLanguage.equals("off", ignoreCase = true) ||
+                    preferredSubtitleLanguage.equals("none", ignoreCase = true),
+            )
+            playbackAudioStreamIndex = recoverySelection.audioStreamIndex
+            playbackSubtitleStreamIndex = recoverySelection.subtitleStreamIndex
+            playbackSubtitlesDisabled = recoverySelection.subtitlesDisabled
+            pendingSubtitlesDisabled = playbackSubtitlesDisabled
 
             val subtitleTracks = subtitleStreams
                 .mapIndexed { i, stream ->
                     TrackInfo(
                         index = stream.index,
-                        displayName = stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Legenda ${i + 1}",
+                        displayName = friendlyTrackName(
+                            displayName = stream.displayTitle,
+                            language = stream.displayLanguage ?: stream.language,
+                            fallback = "Legenda ${i + 1}",
+                        ),
                         language = stream.language ?: stream.displayLanguage,
                         codec = stream.codec,
                         isDefault = stream.isDefault,
@@ -518,7 +567,11 @@ class PlayerViewModel @Inject constructor(
                 .mapIndexed { i, stream ->
                     TrackInfo(
                         index = stream.index,
-                        displayName = stream.displayTitle ?: stream.displayLanguage ?: stream.language ?: "Áudio ${i + 1}",
+                        displayName = friendlyTrackName(
+                            displayName = stream.displayTitle,
+                            language = stream.displayLanguage ?: stream.language,
+                            fallback = "Áudio ${i + 1}",
+                        ),
                         language = stream.language ?: stream.displayLanguage,
                         codec = stream.codec,
                         channels = stream.channels,
@@ -659,6 +712,7 @@ class PlayerViewModel @Inject constructor(
             currentTranscodeUrl = null
             currentMediaMetadata = null
             lastPlaybackErrorCode = null
+            lastPlaybackPositionAtError = 0L
             currentAudioStreamIndex = null
             currentSubtitleStreamIndex = null
             triedTranscodeFallback = true
@@ -730,6 +784,28 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    /** Retries the already prepared remote item without discarding its position. */
+    fun retryPlayback() {
+        val itemId = currentItemId ?: return
+        if (localPlayer.currentMediaItem == null) {
+            loadMedia(itemId)
+            return
+        }
+
+        retryJob?.cancel()
+        val generation = playbackLoadGeneration
+        val position = playbackRetryPosition(localPlayer.currentPosition, lastPlaybackPositionAtError)
+        playbackRetryCount = 0
+        _state.update { it.copy(isBuffering = true, error = null, isPlaying = false) }
+        retryJob = viewModelScope.launch {
+            if (!isCurrentPlaybackLoad(generation, playbackLoadGeneration, itemId, currentItemId)) return@launch
+            restoreTrackSelectionOnNextTracksChange = true
+            player.prepare()
+            player.seekTo(position)
+            player.play()
+        }
+    }
+
     fun seekBy(deltaMs: Long) {
         seekTo(seekPositionByDelta(player.currentPosition, deltaMs, player.duration))
     }
@@ -762,6 +838,8 @@ class PlayerViewModel @Inject constructor(
         _state.update { it.copy(selectedSubtitleIndex = index) }
         if (index < 0) {
             currentSubtitleStreamIndex = null
+            playbackSubtitleStreamIndex = null
+            playbackSubtitlesDisabled = true
             selectTrackByServerIndex(-1, C.TRACK_TYPE_TEXT)
             viewModelScope.launch {
                 settingsRepository.setPreferredSubtitleLanguage("off")
@@ -771,6 +849,8 @@ class PlayerViewModel @Inject constructor(
         val track = _state.value.subtitleTracks.getOrNull(index) ?: return
         val serverIndex = track.index
         currentSubtitleStreamIndex = serverIndex
+        playbackSubtitleStreamIndex = serverIndex
+        playbackSubtitlesDisabled = false
         selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_TEXT)
         viewModelScope.launch {
             settingsRepository.setPreferredSubtitleLanguage(track.language)
@@ -782,6 +862,7 @@ class PlayerViewModel @Inject constructor(
         val track = _state.value.audioTracks.getOrNull(index) ?: return
         val serverIndex = track.index
         currentAudioStreamIndex = serverIndex
+        playbackAudioStreamIndex = serverIndex
         selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_AUDIO)
         viewModelScope.launch {
             settingsRepository.setPreferredAudioLanguage(track.language)
@@ -797,8 +878,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun applyQuality(quality: String) {
-        _state.update { it.copy(selectedQuality = quality) }
-        val constraint = videoQualityConstraint(quality)
+        val normalizedQuality = normalizeQualityPreference(quality)
+        _state.update { it.copy(selectedQuality = normalizedQuality) }
+        val constraint = videoQualityConstraint(effectivePlaybackQuality(normalizedQuality, networkIsMetered))
         localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
             .buildUpon()
             .setMaxVideoSize(constraint.maxWidth, constraint.maxHeight)
@@ -1216,7 +1298,10 @@ class PlayerViewModel @Inject constructor(
     private fun retryCurrentPlaybackAfterNetworkRestored() {
         val itemId = currentItemId ?: return
         if (retryJob?.isActive == true) return
-        val positionAtError = localPlayer.currentPosition
+        val positionAtError = playbackRetryPosition(
+            currentPositionMs = localPlayer.currentPosition,
+            errorPositionMs = lastPlaybackPositionAtError,
+        )
         val generationAtRestore = playbackLoadGeneration
         retryJob = viewModelScope.launch {
             _state.update { it.copy(isBuffering = true, error = null) }
@@ -1229,6 +1314,7 @@ class PlayerViewModel @Inject constructor(
                 )
             ) {
                 playbackRetryCount = 0
+                restoreTrackSelectionOnNextTracksChange = true
                 player.prepare()
                 player.seekTo(positionAtError)
                 player.play()

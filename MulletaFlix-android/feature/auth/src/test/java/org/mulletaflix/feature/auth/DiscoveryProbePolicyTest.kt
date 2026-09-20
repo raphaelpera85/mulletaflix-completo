@@ -21,4 +21,9 @@ class DiscoveryProbePolicyTest {
     fun `uses a safe interval when caller provides a non-positive value`() {
         assertEquals(listOf(0, 1, 2), discoveryProbeDelays(timeoutMs = 3, retryIntervalMs = 0))
     }
+
+    @Test
+    fun `keeps retry schedule bounded for a short multi-interface scan`() {
+        assertEquals(listOf(0, 500, 1000), discoveryProbeDelays(timeoutMs = 1_250, retryIntervalMs = 500))
+    }
 }

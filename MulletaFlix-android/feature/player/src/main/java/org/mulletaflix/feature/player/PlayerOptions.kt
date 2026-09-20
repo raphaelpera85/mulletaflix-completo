@@ -81,6 +81,20 @@ internal fun normalizeQualityPreference(value: String?): String =
         else -> "Auto"
     }
 
+/** Auto mode stays conservative on cellular/hotspot plans while manual choices remain authoritative. */
+internal fun effectivePlaybackQuality(preference: String?, isMetered: Boolean): String {
+    val normalized = normalizeQualityPreference(preference)
+    return if (normalized == "Auto" && isMetered) "720p" else normalized
+}
+
+/** Makes the adaptive cap visible without changing the persisted Auto preference. */
+internal fun qualityOptionLabel(quality: String, isMetered: Boolean): String =
+    if (normalizeQualityPreference(quality) == "Auto" && isMetered) {
+        "Auto (até 720p nesta rede)"
+    } else {
+        normalizeQualityPreference(quality)
+    }
+
 /** Keeps the quality radio selection truthful when a title lacks the saved resolution. */
 internal fun effectiveQualitySelection(
     preference: String?,

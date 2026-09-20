@@ -5,6 +5,20 @@ import org.junit.Test
 
 class TrackLabelPolicyTest {
     @Test
+    fun `translates bare server language codes`() {
+        assertEquals("Português (Brasil)", friendlyTrackName(displayName = "pt-BR", language = null, fallback = "Áudio 1"))
+        assertEquals("English", friendlyTrackName(displayName = null, language = "eng", fallback = "Legenda 1"))
+    }
+
+    @Test
+    fun `preserves explicit server display titles`() {
+        assertEquals(
+            "Português (Brasil) Original",
+            friendlyTrackName(displayName = "Português (Brasil) Original", language = "por", fallback = "Áudio 1"),
+        )
+    }
+
+    @Test
     fun `audio label exposes codec channels and default marker`() {
         assertEquals(
             "Português (Brasil) • AAC • 5.1 • Padrão",

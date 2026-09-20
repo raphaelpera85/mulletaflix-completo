@@ -82,6 +82,34 @@ class ConnectivityNetworkMonitor @Inject constructor(
             connectivityManager.unregisterNetworkCallback(callback)
         }
     }.conflate()
+
+    override val isMetered: Flow<Boolean> = callbackFlow {
+        val connectivityManager = context.getSystemService<ConnectivityManager>()
+        if (connectivityManager == null) {
+            trySend(false)
+            close()
+            return@callbackFlow
+        }
+
+        fun emitMeteredState() {
+            trySend(connectivityManager.isActiveNetworkMetered)
+        }
+
+        val callback = object : NetworkCallback() {
+            override fun onAvailable(network: Network) = emitMeteredState()
+            override fun onLost(network: Network) = emitMeteredState()
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities,
+            ) = emitMeteredState()
+        }
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        connectivityManager.registerNetworkCallback(request, callback)
+        emitMeteredState()
+        awaitClose { connectivityManager.unregisterNetworkCallback(callback) }
+    }.conflate()
 }
 
 /**
@@ -90,3 +118,5 @@ class ConnectivityNetworkMonitor @Inject constructor(
  * the actual MulletaFlix endpoint remains the source of truth for server reachability.
  */
 internal fun isUsableForServerAccess(hasInternetCapability: Boolean): Boolean = hasInternetCapability
+
+internal fun isMeteredNetwork(isActiveNetworkMetered: Boolean): Boolean = isActiveNetworkMetered

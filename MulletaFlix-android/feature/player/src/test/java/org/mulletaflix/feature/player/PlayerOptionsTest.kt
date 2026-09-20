@@ -89,6 +89,20 @@ class PlayerOptionsTest {
     }
 
     @Test
+    fun `auto quality is capped on metered networks without changing manual choices`() {
+        assertEquals("720p", effectivePlaybackQuality("Auto", isMetered = true))
+        assertEquals("Auto", effectivePlaybackQuality("Auto", isMetered = false))
+        assertEquals("1080p", effectivePlaybackQuality("1080p", isMetered = true))
+    }
+
+    @Test
+    fun `auto quality label explains the metered network cap`() {
+        assertEquals("Auto (até 720p nesta rede)", qualityOptionLabel("Auto", isMetered = true))
+        assertEquals("Auto", qualityOptionLabel("Auto", isMetered = false))
+        assertEquals("1080p", qualityOptionLabel("1080p", isMetered = true))
+    }
+
+    @Test
     fun `quality selection falls back to auto when saved resolution is unavailable`() {
         assertEquals("Auto", effectiveQualitySelection("4K", listOf("1080p", "720p")))
         assertEquals("1440p", effectiveQualitySelection("1440", listOf("1440p", "1080p")))

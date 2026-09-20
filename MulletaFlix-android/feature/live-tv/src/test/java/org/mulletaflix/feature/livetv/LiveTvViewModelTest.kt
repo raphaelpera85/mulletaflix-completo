@@ -17,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.LiveTvRepository
 import org.mulletaflix.domain.usecase.GetLiveTvChannelsUseCase
@@ -33,14 +34,14 @@ class LiveTvViewModelTest {
     @Test fun `loads channels for active session`() = runTest {
         val channel = MediaItem(id = "channel-1", name = "Canal teste", type = org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
         repository.channels = listOf(channel)
-        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
+        val viewModel = createViewModel()
         advanceUntilIdle()
         assertEquals(listOf(channel), viewModel.state.value.channels)
         assertTrue(viewModel.state.value.error == null)
     }
 
     @Test fun `does not request channels without a session`() = runTest {
-        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository(userId = null))
+        val viewModel = createViewModel(session = FakeSessionRepository(userId = null))
         advanceUntilIdle()
         assertTrue(viewModel.state.value.error!!.contains("Sessão expirada"))
         assertEquals(0, repository.channelRequests)
@@ -49,7 +50,7 @@ class LiveTvViewModelTest {
     @Test fun `loads recordings for active session`() = runTest {
         val recording = MediaItem(id = "recording-1", name = "Jornal", type = org.mulletaflix.domain.model.MediaItemType.Recording)
         repository.recordings = listOf(recording)
-        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
+        val viewModel = createViewModel()
         advanceUntilIdle()
         assertEquals(listOf(recording), viewModel.state.value.recordings)
         assertEquals(1, repository.recordingRequests)
@@ -64,7 +65,7 @@ class LiveTvViewModelTest {
             startDate = "2026-09-14T20:00:00Z",
             endDate = "2026-09-14T22:00:00Z",
         )
-        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
+        val viewModel = createViewModel()
         advanceUntilIdle()
 
         viewModel.scheduleRecording(program)
@@ -83,7 +84,7 @@ class LiveTvViewModelTest {
             startDate = "2026-09-14T20:00:00Z",
             endDate = "2026-09-14T22:00:00Z",
         )
-        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
+        val viewModel = createViewModel()
         advanceUntilIdle()
 
         viewModel.scheduleRecording(program)
@@ -96,7 +97,7 @@ class LiveTvViewModelTest {
     @Test fun `different programs can be scheduled without cancelling each other`() = runTest {
         val first = testProgram("program-first")
         val second = testProgram("program-second")
-        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
+        val viewModel = createViewModel()
         advanceUntilIdle()
 
         viewModel.scheduleRecording(first)
@@ -115,7 +116,7 @@ class LiveTvViewModelTest {
         repository.guideResponses.add(firstResponse)
         repository.guideResponses.add(secondResponse)
         repository.channels = listOf(MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel))
-        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, FakeSessionRepository())
+        val viewModel = createViewModel()
         advanceUntilIdle()
 
         viewModel.loadGuide()
@@ -135,7 +136,7 @@ class LiveTvViewModelTest {
         repository.channels = listOf(MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel))
         repository.guideResponses.add(oldResponse)
         val session = FakeSessionRepository()
-        val viewModel = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, session)
+        val viewModel = createViewModel(session = session)
         advanceUntilIdle()
 
         viewModel.loadGuide()
@@ -159,6 +160,11 @@ class LiveTvViewModelTest {
         startDate = "2026-09-14T20:00:00Z",
         endDate = "2026-09-14T22:00:00Z",
     )
+
+    private fun createViewModel(
+        session: FakeSessionRepository = FakeSessionRepository(),
+        networkMonitor: FakeNetworkMonitor = FakeNetworkMonitor(),
+    ) = LiveTvViewModel(GetLiveTvChannelsUseCase(repository), repository, session, networkMonitor)
 
     private class FakeLiveTvRepository : LiveTvRepository {
         var channels = emptyList<MediaItem>()
@@ -188,5 +194,9 @@ class LiveTvViewModelTest {
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
         override suspend fun setBaseUrl(url: String) = Unit
         override suspend fun clearSession() = Unit
+    }
+
+    private class FakeNetworkMonitor : NetworkMonitor {
+        override val isOnline = kotlinx.coroutines.flow.MutableStateFlow(true)
     }
 }

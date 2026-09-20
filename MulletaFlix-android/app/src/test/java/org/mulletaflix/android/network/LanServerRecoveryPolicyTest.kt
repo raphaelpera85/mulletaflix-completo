@@ -40,6 +40,29 @@ class LanServerRecoveryPolicyTest {
             publicFallbackAfterLanLoss(
                 currentUrl = "http://192.168.1.20:8096",
                 publicUrl = "http://mulletaflix.duckdns.org:8096",
+                consecutiveMisses = 2,
+            ) == "http://mulletaflix.duckdns.org:8096",
+        )
+    }
+
+    @Test
+    fun `does not fall back after a single transient LAN miss`() {
+        assertTrue(
+            publicFallbackAfterLanLoss(
+                currentUrl = "http://192.168.1.20:8096",
+                publicUrl = "http://mulletaflix.duckdns.org:8096",
+                consecutiveMisses = 1,
+            ) == null,
+        )
+    }
+
+    @Test
+    fun `falls back from a local endpoint even when it has a trailing slash`() {
+        assertTrue(
+            publicFallbackAfterLanLoss(
+                currentUrl = "http://192.168.1.20:8096/",
+                publicUrl = "http://mulletaflix.duckdns.org:8096",
+                consecutiveMisses = 2,
             ) == "http://mulletaflix.duckdns.org:8096",
         )
     }

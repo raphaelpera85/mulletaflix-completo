@@ -150,6 +150,30 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `refresh failure preserves current results for retry`() = runTest {
+        val controlledRepository = ControlledSearchRepository()
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(controlledRepository),
+            FakeAuthRepository(),
+            historyRepository,
+        )
+        advanceUntilIdle()
+
+        viewModel.search("matrix")
+        runCurrent()
+        controlledRepository.complete("matrix", "Initial result")
+        advanceUntilIdle()
+
+        controlledRepository.failNext = true
+        viewModel.refreshSearch()
+        advanceUntilIdle()
+
+        assertEquals("Initial result", viewModel.state.value.results.single().name)
+        assertEquals("Erro ao buscar conteúdo", viewModel.state.value.error)
+        assertFalse(viewModel.state.value.isRefreshing)
+    }
+
+    @Test
     fun `late result from an older query cannot replace the latest result`() = runTest {
         val controlledRepository = ControlledSearchRepository()
         viewModel = SearchViewModel(
@@ -265,11 +289,16 @@ class SearchViewModelTest {
     private class ControlledSearchRepository : SearchRepository {
         private val pending = mutableMapOf<String, CompletableDeferred<Result<List<MediaItem>>>>()
         private val users = mutableMapOf<String, String>()
+        var failNext = false
 
         override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
 
         override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> {
             users[term] = userId
+            if (failNext) {
+                failNext = false
+                return Result.failure(Exception("Network error"))
+            }
             return withContext(NonCancellable) {
                 val deferred = pending.getOrPut(term) { CompletableDeferred() }
                 try {

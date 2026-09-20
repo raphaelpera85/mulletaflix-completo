@@ -39,9 +39,17 @@ class LanServerRecovery @Inject constructor(
     @Volatile private var started = false
     private var registered = false
     private val scanGeneration = AtomicLong(0L)
+    private var consecutiveLanMisses = 0
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            scheduleScan()
+        }
+
+        override fun onLost(network: Network) {
+            // A LAN endpoint may disappear while the activity remains open.
+            // Re-scan immediately so the session can fall back to the public
+            // server instead of keeping a stale private address.
             scheduleScan()
         }
     }
@@ -107,13 +115,16 @@ class LanServerRecovery @Inject constructor(
                 )
                 if (!isCurrentLanScan(generation, scanGeneration.get(), started)) return@withLock
                 if (localServer != null) {
+                    consecutiveLanMisses = 0
                     if (shouldSwitchToLan(currentUrl, localServer.url)) {
                         sessionRepository.setBaseUrl(localServer.url)
                     }
                 } else {
+                    consecutiveLanMisses += 1
                     publicFallbackAfterLanLoss(
                         currentUrl = currentUrl,
                         publicUrl = DEFAULT_MULLETAFLIX_SERVER_URL,
+                        consecutiveMisses = consecutiveLanMisses,
                     )?.let { fallbackUrl -> sessionRepository.setBaseUrl(fallbackUrl) }
                 }
             }

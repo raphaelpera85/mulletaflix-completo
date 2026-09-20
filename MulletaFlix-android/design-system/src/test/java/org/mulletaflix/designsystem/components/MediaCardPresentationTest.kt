@@ -30,4 +30,36 @@ class MediaCardPresentationTest {
         assertEquals(0f, normalizedCardProgress(Float.POSITIVE_INFINITY))
         assertEquals(0f, normalizedCardProgress(Float.NEGATIVE_INFINITY))
     }
+
+    @Test
+    fun `accessibility label exposes visible playback state`() {
+        assertEquals(
+            "Abrir A Série, na Minha Lista, HD, 3 episódios não assistidos, 42% reproduzido",
+            mediaCardAccessibilityLabel(
+                title = "A Série",
+                isLive = false,
+                isWatched = false,
+                isFavorite = true,
+                qualityBadge = "HD",
+                unplayedCount = 3,
+                progress = 0.42f,
+            ),
+        )
+    }
+
+    @Test
+    fun `watched live cards avoid stale progress announcement`() {
+        assertEquals(
+            "Abrir Canal 1, ao vivo, assistido",
+            mediaCardAccessibilityLabel(
+                title = "Canal 1",
+                isLive = true,
+                isWatched = true,
+                isFavorite = false,
+                qualityBadge = null,
+                unplayedCount = 0,
+                progress = 0.9f,
+            ),
+        )
+    }
 }

@@ -260,3 +260,88 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Evitar que o compartilhamento do APK gere links de localhost ou loopback.
 - [x] Usar a URL pública oficial somente para hosts locais.
 - [x] Preservar URLs reais de LAN/internet e cobrir a normalização em teste.
+## 179. Busca resiliente durante refresh (v1.1.71)
+- [x] Preservar resultados válidos quando uma atualização falhar.
+- [x] Exibir aviso acionável sem remover a navegação existente.
+- [x] Cobrir falha de refresh e preservação dos resultados em teste.
+## 180. Retry de streaming com posição (v1.1.72)
+- [x] Repetir a fonte remota já preparada sem recarregar toda a mídia.
+- [x] Preservar a posição conhecida no momento da falha.
+- [x] Cobrir a política de posição do retry em teste unitário.
+## 181. Recuperação de rede com posição (v1.1.73)
+- [x] Usar a maior posição conhecida quando a rede retornar após uma falha.
+- [x] Evitar que o reset interno do player retome o streaming do início.
+- [x] Cobrir o cenário de posição zerada após erro em teste unitário.
+## 182. Deep link consumível (v1.1.74)
+- [x] Abrir links de mídia recebidos somente uma vez por destino.
+- [x] Preservar a abertura do link após o login sem reabrir ao voltar para a Home.
+- [x] Permitir que um novo link substitua o link já tratado.
+- [x] Cobrir a política de consumo do deep link em testes unitários.
+## 183. Recuperação LAN ao perder a rede (v1.1.75)
+- [x] Reexecutar a descoberta quando uma rede disponível for perdida.
+- [x] Evitar manter um endereço privado obsoleto durante a sessão.
+- [x] Voltar automaticamente à URL pública quando o servidor LAN desaparecer.
+- [x] Cobrir o fallback LAN com variações de URL em teste unitário.
+
+## 184. Semântica completa nos cards de mídia (v1.1.76)
+- [x] Anunciar ao TalkBack os estados ao vivo, assistido e Minha Lista.
+- [x] Expor qualidade, episódios pendentes e progresso de reprodução.
+- [x] Evitar anunciar progresso obsoleto para itens já assistidos.
+- [x] Cobrir os rótulos acessíveis com testes unitários.
+
+## 185. Retry seguro da API em oscilações transitórias (v1.1.77)
+- [x] Repetir somente requisições de leitura idempotentes.
+- [x] Cobrir respostas 408, 425, 429 e 5xx com orçamento limitado.
+- [x] Respeitar `Retry-After` sem bloquear por períodos excessivos.
+- [x] Não repetir login, progresso ou comandos de alteração.
+- [x] Cobrir a política de retry com testes unitários.
+
+## 186. Recuperação automática da TV ao vivo após rede (v1.1.78)
+
+- [x] Atualizar o catálogo de canais quando a conectividade voltar.
+- [x] Exibir aviso não bloqueante enquanto o dispositivo estiver offline.
+- [x] Evitar refresh duplicado na emissão inicial ou em estados inalterados.
+- [x] Cobrir a transição offline/online com testes unitários.
+
+## 187. Preservação de faixas no retry do player (v1.1.79)
+
+- [x] Preservar a seleção manual de áudio durante a reconstrução das faixas.
+- [x] Preservar a seleção manual de legenda durante retry e reconexão.
+- [x] Manter legendas explicitamente desativadas após a recuperação.
+- [x] Cobrir a política de recuperação de faixas com testes unitários.
+
+## 188. Idiomas legíveis nas faixas do player (v1.1.80)
+
+- [x] Converter códigos de idioma do servidor em nomes compreensíveis.
+- [x] Cobrir variantes como `pt-BR`, `por`, `eng` e `en-US`.
+- [x] Preservar títulos explícitos enviados pelo servidor.
+- [x] Cobrir a apresentação de idiomas com testes unitários.
+## 189. Fallback LAN resiliente a perda transitória (v1.1.81)
+- [x] Evitar troca imediata para a URL pública após uma única descoberta sem resposta.
+- [x] Exigir duas ausências consecutivas antes de abandonar um endpoint privado ativo.
+- [x] Resetar o contador assim que o servidor LAN autenticado voltar a responder.
+- [x] Cobrir a política com teste unitário.
+
+## 190. Descoberta LAN por interface local (v1.1.82)
+- [x] Vincular probes UDP às redes Wi-Fi e Ethernet locais elegíveis.
+- [x] Manter fallback compatível para dispositivos sem rede local exposta pelo sistema.
+- [x] Coletar respostas de múltiplas interfaces sem duplicar servidores.
+- [x] Cobrir o orçamento de retries da varredura com teste unitário.
+
+## 191. Qualidade adaptativa para rede medida (v1.1.83)
+- [x] Detectar o estado de rede medida pelo Android.
+- [x] Limitar o modo automático a 720p em rede medida.
+- [x] Preservar escolhas manuais de qualidade do usuário.
+- [x] Cobrir a política com testes unitários.
+
+## 192. Transparência da qualidade adaptativa (v1.1.84)
+- [x] Expor no estado do player quando a rede atual é medida.
+- [x] Informar no menu de qualidade que o modo Auto está limitado a 720p.
+- [x] Manter as escolhas manuais sem alteração.
+- [x] Cobrir os rótulos da qualidade adaptativa com teste unitário.
+
+## 193. UX adaptativa para celular, tablet e TV (v1.1.85)
+- [x] Definir contratos de layout por família de dispositivo.
+- [x] Centralizar e limitar o conteúdo em tablets.
+- [x] Ampliar artes e espaçamento para navegação por foco na TV.
+- [x] Criar testes unitários e testes de uso Compose para as três superfícies.

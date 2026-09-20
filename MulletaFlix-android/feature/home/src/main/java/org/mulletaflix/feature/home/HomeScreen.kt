@@ -26,6 +26,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
+import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -61,20 +64,32 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            Configuration.UI_MODE_TYPE_TELEVISION
+        val layoutSpec = homeLayoutSpec(
+            homeDeviceClass(maxWidth.value.roundToInt(), isTelevision),
+        )
 
-    PullToRefreshBox(
-        isRefreshing = state.isRefreshing,
-        onRefresh = { viewModel.refresh() }
-    ) {
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = { viewModel.refresh() },
             modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+                .fillMaxWidth()
+                .widthIn(max = layoutSpec.contentMaxWidthDp.dp)
+                .align(Alignment.TopCenter),
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(horizontal = layoutSpec.horizontalPaddingDp.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
             item {
                 HomeTopBar(
                     profile = state.userProfile,
+                    layoutSpec = layoutSpec,
                     onSearch = { navController.navigate("main/search") },
                     onLiveTv = { navController.navigate("main/live-tv") },
                     onDownloads = { navController.navigate("main/downloads") },
@@ -157,6 +172,7 @@ fun HomeScreen(
                 item {
                     HeroBanner(
                         item = hero,
+                        heightDp = layoutSpec.heroHeightDp,
                         onPlay = { onItemClick(hero.id) },
                         onMoreInfo = { onItemClick(hero.id) }
                     )
@@ -171,6 +187,7 @@ fun HomeScreen(
                         items = state.resumeItems,
                         cardShape = null,
                         cardWidth = null,
+                        layoutSpec = layoutSpec,
                         onItemClick = onItemClick
                     )
                 }
@@ -184,6 +201,7 @@ fun HomeScreen(
                         items = state.nextUpItems,
                         cardShape = MediaCardShape.Landscape,
                         cardWidth = 240.dp,
+                        layoutSpec = layoutSpec,
                         onItemClick = onItemClick
                     )
                 }
@@ -197,6 +215,7 @@ fun HomeScreen(
                         items = state.favoriteItems,
                         cardShape = MediaCardShape.Portrait,
                         cardWidth = 130.dp,
+                        layoutSpec = layoutSpec,
                         onItemClick = onItemClick,
                     )
                 }
@@ -210,6 +229,7 @@ fun HomeScreen(
                         items = items,
                         cardShape = MediaCardShape.Portrait,
                         cardWidth = 130.dp,
+                        layoutSpec = layoutSpec,
                         onItemClick = onItemClick
                     )
                 }
@@ -223,6 +243,7 @@ fun HomeScreen(
                         items = state.liveTvChannels,
                         cardShape = MediaCardShape.Landscape,
                         cardWidth = 200.dp,
+                        layoutSpec = layoutSpec,
                         onItemClick = onItemClick,
                         isLive = true
                     )
@@ -234,6 +255,7 @@ fun HomeScreen(
                 item {
                     LibraryTiles(
                         libraries = state.libraries,
+                        layoutSpec = layoutSpec,
                         onLibraryClick = { library ->
                             if (shouldOpenLiveTv(library)) onLiveTvClick() else onLibraryClick(library.id)
                         },
@@ -251,6 +273,7 @@ fun HomeScreen(
 
             // Bottom spacing for nav bar
             item { Spacer(modifier = Modifier.height(80.dp)) }
+            }
         }
     }
 
@@ -287,6 +310,7 @@ private fun EmptyHomeState(modifier: Modifier = Modifier) {
 @Composable
 private fun HeroBanner(
     item: MediaItem,
+    heightDp: Int,
     onPlay: () -> Unit,
     onMoreInfo: () -> Unit,
 ) {
@@ -295,7 +319,7 @@ private fun HeroBanner(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(500.dp)
+            .height(heightDp.dp)
     ) {
         // Blurred backdrop
         AsyncImage(
@@ -398,6 +422,7 @@ private fun MediaSection(
     items: List<MediaItem>,
     cardShape: MediaCardShape?,
     cardWidth: androidx.compose.ui.unit.Dp?,
+    layoutSpec: HomeLayoutSpec,
     onItemClick: (String) -> Unit,
     isLive: Boolean = false,
 ) {
@@ -417,7 +442,7 @@ private fun MediaSection(
                 key = { item -> item.id },
             ) { item ->
                 val resolvedShape = cardShape ?: defaultMediaSectionShape(item)
-                val resolvedWidth = cardWidth ?: if (resolvedShape == MediaCardShape.Portrait) 130.dp else 240.dp
+                val resolvedWidth = (cardWidth ?: if (resolvedShape == MediaCardShape.Portrait) 130.dp else 240.dp) * layoutSpec.cardScale
                 MediaCard(
                     title = item.name,
                     imageUrl = item.primaryImageUrl,
@@ -449,6 +474,7 @@ internal fun defaultMediaSectionShape(item: MediaItem): MediaCardShape =
 @Composable
 private fun LibraryTiles(
     libraries: List<MediaItem>,
+    layoutSpec: HomeLayoutSpec,
     onLibraryClick: (MediaItem) -> Unit,
 ) {
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
@@ -471,7 +497,7 @@ private fun LibraryTiles(
                     imageUrl = lib.primaryImageUrl,
                     shape = MediaCardShape.Landscape,
                     onClick = { onLibraryClick(lib) },
-                    modifier = Modifier.width(180.dp)
+                    modifier = Modifier.width(180.dp * layoutSpec.cardScale)
                 )
             }
         }
@@ -487,6 +513,7 @@ private val MediaItem.runtimeMinutes: Int? get() =
 @Composable
 private fun HomeTopBar(
     profile: UserProfile?,
+    layoutSpec: HomeLayoutSpec,
     onSearch: () -> Unit,
     onLiveTv: () -> Unit,
     onDownloads: () -> Unit,
@@ -507,7 +534,7 @@ private fun HomeTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = if (layoutSpec.usesFocusFriendlySpacing) 16.dp else 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {

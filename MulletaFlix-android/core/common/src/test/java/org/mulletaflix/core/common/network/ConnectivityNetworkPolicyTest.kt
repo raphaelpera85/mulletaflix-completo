@@ -15,4 +15,10 @@ class ConnectivityNetworkPolicyTest {
     fun `rejects networks that cannot carry server traffic`() {
         assertFalse(isUsableForServerAccess(hasInternetCapability = false))
     }
+
+    @Test
+    fun `uses the Android active transport metered signal as the source of truth`() {
+        assertTrue(isMeteredNetwork(isActiveNetworkMetered = true))
+        assertFalse(isMeteredNetwork(isActiveNetworkMetered = false))
+    }
 }

@@ -19,3 +19,9 @@ internal fun shouldNavigateToMediaDeepLink(
     }
     return currentItemId != targetItemId
 }
+
+/** Marks a link as handled once its destination is already visible. */
+internal fun shouldMarkMediaDeepLinkHandled(
+    currentItemId: String?,
+    targetItemId: String?,
+): Boolean = !targetItemId.isNullOrBlank() && currentItemId == targetItemId

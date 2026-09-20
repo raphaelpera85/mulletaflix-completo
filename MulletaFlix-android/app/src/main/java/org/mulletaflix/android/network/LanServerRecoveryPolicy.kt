@@ -57,7 +57,10 @@ internal fun isLocalServerUrl(url: String): Boolean {
 internal fun publicFallbackAfterLanLoss(
     currentUrl: String,
     publicUrl: String,
+    consecutiveMisses: Int = 1,
+    requiredMisses: Int = 2,
 ): String? = publicUrl.takeIf {
+    consecutiveMisses >= requiredMisses.coerceAtLeast(1) &&
     isLocalServerUrl(currentUrl) && comparableServerUrl(it) != comparableServerUrl(currentUrl)
 }
 

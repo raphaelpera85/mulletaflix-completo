@@ -399,7 +399,7 @@ fun VideoPlayerScreen(
                     Text(state.error ?: "Erro de reprodução", color = MaterialTheme.colorScheme.onSurface)
                     Button(onClick = {
                         if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId)
-                        else viewModel.loadMedia(itemId)
+                        else viewModel.retryPlayback()
                     }) {
                         Text("Tentar novamente")
                     }
@@ -820,6 +820,7 @@ private fun PlayerOsd(
             QualityMenu(
                 qualities = state.availableQualities,
                 selectedQuality = state.selectedQuality,
+                isMetered = state.isNetworkMetered,
                 onSelect = { onQualitySelect(it); showQualityMenu = false },
                 onDismiss = { showQualityMenu = false }
             )
@@ -956,6 +957,7 @@ internal fun PlayerTrackMenu(
 internal fun QualityMenu(
     qualities: List<String>,
     selectedQuality: String?,
+    isMetered: Boolean = false,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -968,6 +970,13 @@ internal fun QualityMenu(
                     .heightIn(max = 360.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
+                if (isMetered) {
+                    Text(
+                        text = "Rede medida: o modo Auto limita a reprodução a 720p para reduzir o consumo de dados.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
                 qualityMenuOptions(qualities).forEach { q ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -981,7 +990,7 @@ internal fun QualityMenu(
                             .padding(vertical = 8.dp),
                     ) {
                         RadioButton(selected = selectedQuality == q, onClick = null)
-                        Text(q, modifier = Modifier.padding(start = 8.dp))
+                        Text(qualityOptionLabel(q, isMetered), modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
