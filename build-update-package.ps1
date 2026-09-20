@@ -22,6 +22,8 @@ if (-not $OutputDir) {
 }
 
 $stageDir = Join-Path $projectRoot 'stage'
+$webRoot = Join-Path $projectRoot 'MulletaFlix-web-master'
+$webDist = Join-Path $webRoot 'dist'
 $packagingRoot = Join-Path $projectRoot 'MulletaFlix-packaging-master'
 $updaterScriptSource = Join-Path $packagingRoot 'MulletaFlix-ux-custom\nsis\apply-update.ps1'
 
@@ -72,6 +74,26 @@ if (-not $SkipBuild) {
     }
 } elseif (-not (Test-Path -LiteralPath $stageDir) -or -not (Test-Path -LiteralPath (Join-Path $stageDir 'MulletaFlix.dll'))) {
     throw "Stage directory does not contain MulletaFlix binaries. Run build without -SkipBuild."
+}
+
+# Refresh web assets. Stale stage assets can hide dashboard routes behind the old service worker cache.
+if (Test-Path -LiteralPath (Join-Path $webRoot 'package.json')) {
+    Write-Host "Building latest web client..." -ForegroundColor Yellow
+    $webBuildExitCode = (Start-Process -FilePath 'cmd.exe' -ArgumentList '/c npm run build:production' -WorkingDirectory $webRoot -Wait -PassThru).ExitCode
+    if ($webBuildExitCode -ne 0) {
+        throw "Web build failed with exit code $webBuildExitCode"
+    }
+
+    if (-not (Test-Path -LiteralPath $webDist)) {
+        throw "Web build output not found: $webDist"
+    }
+
+    $stageWeb = Join-Path $stageDir 'MulletaFlix-web'
+    if (Test-Path -LiteralPath $stageWeb) {
+        Remove-Item -LiteralPath $stageWeb -Recurse -Force
+    }
+    Copy-Item -LiteralPath $webDist -Destination $stageWeb -Recurse -Force
+    Write-Host "Refreshed web assets in stage." -ForegroundColor Green
 }
 
 # 2. Ensure apply-update.ps1 is in stage

@@ -36,3 +36,27 @@ Os fluxos abaixo estão implementados no aplicativo, mas precisam de um servidor
 - logout, cache, preferências e troca de servidor.
 
 Esses cenários devem ser executados com dados de teste controlados; credenciais reais não devem ser armazenadas nos testes ou relatórios.
+
+## Perfis de emulador para UX adaptativa
+
+Use os AVDs abaixo para validar superfícies diferentes:
+
+- `MulletaflixApi35`: telefone, Android 15, API 35.
+- `MulletaflixTabletApi35`: tablet, Android 15, 2560x1600, API 35.
+- `MulletaflixTvApi34`: Android TV, Android 14, 1920x1080, API 34.
+
+Comandos úteis:
+
+```powershell
+& "$env:ANDROID_HOME\emulator\emulator.exe" -avd MulletaflixTvApi34 -port 5556
+& "$env:ANDROID_HOME\emulator\emulator.exe" -avd MulletaflixTabletApi35 -port 5558
+& "$env:ANDROID_HOME\platform-tools\adb.exe" devices
+```
+
+Use `tools\with-emulator.ps1` para iniciar um AVD somente durante um comando; o script encerra o processo criado no bloco `finally`:
+
+```powershell
+.\tools\with-emulator.ps1 -AvdName MulletaflixTvApi34 -Port 5556 -Command .\gradlew.bat -CommandArgument @(':app:connectedDebugAndroidTest', '--no-daemon', '--console=plain')
+```
+
+Testes de TV devem validar foco remoto, grade compacta e atualização em primeiro plano. Testes de tablet devem validar conteúdo centralizado, rolagem e capas retangulares sem aplicar a política de foco da TV.

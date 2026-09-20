@@ -54,7 +54,7 @@ function executeAction(action: ServiceWorkerAction, data: ServiceWorkerNotificat
 }
 
 const serviceWorker = globalThis as unknown as ServiceWorkerScope;
-const SHELL_CACHE = 'mulletaflix-shell-v12';
+const SHELL_CACHE = 'mulletaflix-shell-v13';
 const SHELL_CACHE_PREFIX = 'mulletaflix-shell-';
 
 function isCacheableShellRequest(request: Request): boolean {

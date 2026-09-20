@@ -2,6 +2,7 @@ package org.mulletaflix.core.api
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.http.GET
 import retrofit2.http.POST

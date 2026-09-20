@@ -3,6 +3,7 @@ package org.mulletaflix.feature.auth
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.HttpException
 
 class QuickConnectPolicyTest {
@@ -13,7 +14,7 @@ class QuickConnectPolicyTest {
 
     @Test
     fun `unknown secret stops polling with expiration message`() {
-        val error = HttpException(retrofit2.Response.error<Any>(404, okhttp3.ResponseBody.create(null, "")))
+        val error = HttpException(retrofit2.Response.error<Any>(404, "".toResponseBody()))
         assertEquals(
             "O código Quick Connect expirou. Gere um novo código.",
             quickConnectTerminalErrorMessage(error),

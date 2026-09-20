@@ -15,7 +15,6 @@ import org.mulletaflix.domain.usecase.LoginUseCase
 import org.mulletaflix.domain.usecase.RegisterUseCase
 import org.mulletaflix.domain.usecase.VerifyServerUseCase
 import javax.inject.Inject
-import retrofit2.HttpException
 
 const val DEFAULT_MULLETAFLIX_SERVER_URL = "http://mulletaflix.duckdns.org:8096"
 
