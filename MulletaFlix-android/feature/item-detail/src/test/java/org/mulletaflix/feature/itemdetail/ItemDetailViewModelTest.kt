@@ -450,6 +450,31 @@ class ItemDetailViewModelTest {
 
         advanceUntilIdle()
         assertTrue(markedFavorite)
+        assertEquals("Adicionado aos favoritos.", viewModel.state.value.interactionMessage)
+    }
+
+    @Test
+    fun `favorite failure rolls back and exposes actionable feedback`() = runTest {
+        val movie = MediaItem(id = "m1", name = "Movie", type = MediaItemType.Movie, isFavorite = false)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(movie)
+            override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> =
+                Result.failure(IllegalStateException("Servidor indisponível"))
+        }
+        val viewModel = createViewModel(mediaRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem("m1")
+        advanceUntilIdle()
+        viewModel.toggleFavorite()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.item?.isFavorite == true)
+        assertEquals(
+            "Não foi possível atualizar os favoritos: Servidor indisponível",
+            viewModel.state.value.interactionMessage,
+        )
+        assertFalse(viewModel.state.value.isFavoriteUpdating)
     }
 
     @Test

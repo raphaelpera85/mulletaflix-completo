@@ -240,3 +240,23 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Migrar uma posição legada sem expor a posição entre usuários.
 - [x] Limpar chaves escopadas e legadas ao concluir a reprodução.
 - [x] Cobrir a separação entre usuários em teste unitário.
+## 174. Inicialização robusta da reprodução offline (v1.1.66)
+- [x] Usar a sessão persistida quando o observador de autenticação ainda não emitiu o usuário.
+- [x] Abortar a preparação se a conta mudar enquanto a sessão é resolvida.
+- [x] Cobrir prioridade, fallback e ausência de usuário em testes unitários.
+## 175. Autoridade da sessão offline durante troca de conta (v1.1.67)
+- [x] Priorizar a sessão persistida quando o observador ainda contém a conta anterior.
+- [x] Usar o usuário observado somente como fallback durante o bootstrap.
+- [x] Cobrir a condição de corrida entre cache e sessão persistida em teste unitário.
+## 176. Espaço real para downloads offline (v1.1.68)
+- [x] Substituir o limite estático de 10 GB pelo espaço utilizável real do cache de downloads.
+- [x] Atualizar o indicador periodicamente sem bloquear a interface.
+- [x] Cobrir arredondamento e formatação do espaço disponível em teste unitário.
+## 177. Feedback das ações no detalhe (v1.1.69)
+- [x] Informar sucesso ao favoritar ou marcar uma mídia como assistida.
+- [x] Informar falha do servidor e preservar o rollback do estado otimista.
+- [x] Cobrir rollback e mensagem acionável em teste de ViewModel.
+## 178. Links de compartilhamento públicos (v1.1.70)
+- [x] Evitar que o compartilhamento do APK gere links de localhost ou loopback.
+- [x] Usar a URL pública oficial somente para hosts locais.
+- [x] Preservar URLs reais de LAN/internet e cobrir a normalização em teste.

@@ -98,6 +98,9 @@ fun ItemDetailScreen(
                 state.downloadMessage?.let { message ->
                     Text(message, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                 }
+                state.interactionMessage?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                }
                 state.playlistMessage?.let { message ->
                     Text(message, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                 }

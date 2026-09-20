@@ -32,6 +32,7 @@ data class ItemDetailState(
     val isLoadingSeasons: Boolean = false,
     val error: String? = null,
     val downloadMessage: String? = null,
+    val interactionMessage: String? = null,
     val isPreparingDownload: Boolean = false,
     val isFavoriteUpdating: Boolean = false,
     val isWatchedUpdating: Boolean = false,
@@ -124,6 +125,7 @@ class ItemDetailViewModel @Inject constructor(
                     isLoadingSeasons = false,
                     error = null,
                     downloadMessage = null,
+                    interactionMessage = null,
                     isPreparingDownload = false,
                     isFavoriteUpdating = false,
                     isWatchedUpdating = false,
@@ -270,12 +272,22 @@ class ItemDetailViewModel @Inject constructor(
             toggleFavoriteUseCase(userId, current.id, current.isFavorite)
                 .onSuccess { updatedFav ->
                     if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, favoriteMutationGeneration) && _state.value.item?.id == current.id) {
-                        _state.update { it.copy(item = current.copy(isFavorite = updatedFav)) }
+                        _state.update {
+                            it.copy(
+                                item = current.copy(isFavorite = updatedFav),
+                                interactionMessage = if (updatedFav) "Adicionado aos favoritos." else "Removido dos favoritos.",
+                            )
+                        }
                     }
                 }
-                .onFailure {
+                .onFailure { error ->
                     if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, favoriteMutationGeneration) && _state.value.item?.id == current.id) {
-                        _state.update { it.copy(item = current) }
+                        _state.update {
+                            it.copy(
+                                item = current,
+                                interactionMessage = "Não foi possível atualizar os favoritos: ${error.userMessage()}",
+                            )
+                        }
                     }
                 }
             if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, favoriteMutationGeneration) && _state.value.item?.id == current.id) {
@@ -301,12 +313,22 @@ class ItemDetailViewModel @Inject constructor(
             togglePlayedUseCase(userId, current.id, current.isPlayed)
                 .onSuccess { updatedPlayed ->
                     if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, watchedMutationGeneration) && _state.value.item?.id == current.id) {
-                        _state.update { it.copy(item = current.copy(isPlayed = updatedPlayed)) }
+                        _state.update {
+                            it.copy(
+                                item = current.copy(isPlayed = updatedPlayed),
+                                interactionMessage = if (updatedPlayed) "Marcado como assistido." else "Marcado como não assistido.",
+                            )
+                        }
                     }
                 }
-                .onFailure {
+                .onFailure { error ->
                     if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, watchedMutationGeneration) && _state.value.item?.id == current.id) {
-                        _state.update { it.copy(item = current) }
+                        _state.update {
+                            it.copy(
+                                item = current,
+                                interactionMessage = "Não foi possível atualizar o status: ${error.userMessage()}",
+                            )
+                        }
                     }
                 }
             if (isCurrentMutation(userId, mutationSessionGeneration, mutationGeneration, watchedMutationGeneration) && _state.value.item?.id == current.id) {
@@ -440,4 +462,6 @@ class ItemDetailViewModel @Inject constructor(
         currentMutationGeneration: Long,
     ): Boolean = isCurrentSession(userId, mutationSessionGeneration) &&
         currentMutationGeneration == mutationGeneration
+
+    private fun Throwable.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: "tente novamente."
 }

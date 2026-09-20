@@ -49,7 +49,7 @@ data class SettingsState(
     val libraryGridDensity: String = "Confortável",
     val librarySort: String = "Nome A-Z",
     val downloadPath: String = "Armazenamento Interno",
-    val downloadStorageGb: Int = 10,
+    val downloadStorageGb: Int = 0,
     val downloadQuality: String = "1080p (Original)",
     val isCheckingUpdate: Boolean = false,
     val updateInfo: AppUpdateInfo? = null,
@@ -79,6 +79,7 @@ class SettingsViewModel @Inject constructor(
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 
     init {
+        refreshStorageInfo()
         viewModelScope.launch {
             authRepository.getSavedServerUrl().collect { url ->
                 _state.update { it.copy(serverUrl = url.ifBlank { null }) }
@@ -172,6 +173,13 @@ class SettingsViewModel @Inject constructor(
             settingsRepository.getDefaultLibrarySort().collect { sortBy ->
                 _state.update { it.copy(librarySort = librarySortLabel(sortBy)) }
             }
+        }
+    }
+
+    fun refreshStorageInfo() {
+        viewModelScope.launch {
+            val usableBytes = withContext(ioDispatcher) { context.cacheDir.usableSpace }
+            _state.update { it.copy(downloadStorageGb = availableStorageGb(usableBytes)) }
         }
     }
 

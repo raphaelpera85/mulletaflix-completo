@@ -617,7 +617,8 @@ class PlayerViewModel @Inject constructor(
 
     /** Plays a completed Media3 download through the shared cache, without server calls. */
     fun loadOffline(uri: String, title: String) {
-        playbackLoadGeneration++
+        val loadGeneration = ++playbackLoadGeneration
+        val sessionAtLoad = sessionGeneration
         loadJob?.cancel()
         retryJob?.cancel()
         progressJob?.cancel()
@@ -629,54 +630,64 @@ class PlayerViewModel @Inject constructor(
         currentItemId = null
         localPlaybackKey = null
         legacyLocalPlaybackKey = null
-        val userId = currentUserId
-        if (userId.isNullOrBlank()) {
+        viewModelScope.launch {
+            val userId = resolveOfflinePlaybackUserId(
+                cachedUserId = currentUserId,
+                persistedUserId = sessionRepository.getCurrentUserId().first(),
+            )
+            if (userId == null) {
+                _state.value = PlayerState(
+                    title = title,
+                    isBuffering = false,
+                    error = "Faça login para reproduzir este download.",
+                    isNetworkOffline = false,
+                    aspectRatio = defaultAspectRatio,
+                    subtitleColor = subtitleColor,
+                )
+                return@launch
+            }
+            if (loadGeneration != playbackLoadGeneration ||
+                sessionAtLoad != sessionGeneration ||
+                currentUserId?.let { it != userId } == true
+            ) return@launch
+
+            localPlaybackKey = offlinePlaybackPositionKey(userId, uri)
+            legacyLocalPlaybackKey = offlinePlaybackPositionKey(uri)
+            lastLocalPositionPersistedAt = 0L
+            currentPlaySessionId = null
+            currentMediaSourceId = null
+            currentTranscodeUrl = null
+            currentMediaMetadata = null
+            lastPlaybackErrorCode = null
+            currentAudioStreamIndex = null
+            currentSubtitleStreamIndex = null
+            triedTranscodeFallback = true
+            playbackRetryCount = 0
             _state.value = PlayerState(
                 title = title,
-                isBuffering = false,
-                error = "Faça login para reproduzir este download.",
+                isBuffering = true,
+                error = null,
                 isNetworkOffline = false,
                 aspectRatio = defaultAspectRatio,
                 subtitleColor = subtitleColor,
             )
-            return
+            player.setMediaItem(
+                Media3Item.Builder()
+                    .setUri(uri)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(title)
+                            .build(),
+                    )
+                    .build(),
+            )
+            player.prepare()
+            applyDefaultPlaybackPreferences()
+            localOfflinePlaybackPosition()
+                .takeIf { it > 0L }
+                ?.let(player::seekTo)
+            player.play()
         }
-        localPlaybackKey = offlinePlaybackPositionKey(userId, uri)
-        legacyLocalPlaybackKey = offlinePlaybackPositionKey(uri)
-        lastLocalPositionPersistedAt = 0L
-        currentPlaySessionId = null
-        currentMediaSourceId = null
-        currentTranscodeUrl = null
-        currentMediaMetadata = null
-        lastPlaybackErrorCode = null
-        currentAudioStreamIndex = null
-        currentSubtitleStreamIndex = null
-        triedTranscodeFallback = true
-        playbackRetryCount = 0
-        _state.value = PlayerState(
-            title = title,
-            isBuffering = true,
-            error = null,
-            isNetworkOffline = false,
-            aspectRatio = defaultAspectRatio,
-            subtitleColor = subtitleColor,
-        )
-        player.setMediaItem(
-            Media3Item.Builder()
-                .setUri(uri)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(title)
-                        .build(),
-                )
-                .build(),
-        )
-        player.prepare()
-        applyDefaultPlaybackPreferences()
-        localOfflinePlaybackPosition()
-            .takeIf { it > 0L }
-            ?.let(player::seekTo)
-        player.play()
     }
 
     fun togglePlayPause() {

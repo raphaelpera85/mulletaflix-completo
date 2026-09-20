@@ -24,6 +24,18 @@ class ShareItemContentTest {
     }
 
     @Test
+    fun `loopback server uses the public MulletaFlix link when sharing`() {
+        assertEquals(
+            "http://mulletaflix.duckdns.org:8096/web/index.html#!/details?id=movie-1",
+            buildItemShareUrl("http://localhost:8096", "movie-1"),
+        )
+        assertEquals(
+            "http://mulletaflix.duckdns.org:8096",
+            canonicalShareBaseUrl("http://127.0.0.1:8096/"),
+        )
+    }
+
+    @Test
     fun `blank server does not create a broken link`() {
         assertNull(buildItemShareUrl("  ", "movie-1"))
         assertEquals("Confira \"O Filme\" no MulletaFlix.", buildItemShareText("O Filme", "movie-1", ""))

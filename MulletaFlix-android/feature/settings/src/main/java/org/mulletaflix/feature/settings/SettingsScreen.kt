@@ -13,6 +13,8 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +51,13 @@ fun SettingsScreen(
     var showClearAllDataDialog by remember { mutableStateOf(false) }
     var showClearImageCacheDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            viewModel.refreshStorageInfo()
+            delay(30_000L)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -265,7 +274,7 @@ fun SettingsScreen(
             // ── Downloads ────────────────────────────────────────────────────
             SettingsGroup(title = "Downloads") {
                 SettingsItem(icon = Icons.Default.Folder, title = "Pasta de Downloads", subtitle = state.downloadPath, enabled = false)
-                SettingsItem(icon = Icons.Default.Storage, title = "Limite de Armazenamento", subtitle = "${state.downloadStorageGb} GB", enabled = false)
+                SettingsItem(icon = Icons.Default.Storage, title = "Espaço livre para downloads", subtitle = "${state.downloadStorageGb} GB disponíveis", enabled = false)
                 SettingsItem(icon = Icons.Default.Hd, title = "Qualidade de Download", subtitle = state.downloadQuality, enabled = false)
             }
 
