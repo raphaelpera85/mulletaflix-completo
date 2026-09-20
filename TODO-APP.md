@@ -375,3 +375,16 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Interromper o ciclo ao sair da tela ou perder o estado RESUMED.
 - [x] Preservar o comportamento explícito de atualização em celular e tablet.
 - [x] Cobrir a política de intervalo por tipo de dispositivo com testes unitários.
+
+## 199. Correção do Quick Connect (v1.1.90)
+- [x] Usar `POST /QuickConnect/Initiate` conforme o contrato do servidor.
+- [x] Consultar `GET /QuickConnect/Connect?secret=...` durante o polling.
+- [x] Preservar a autenticação e o armazenamento da sessão após autorização.
+- [x] Cobrir os verbos, caminhos e query parameters com teste de contrato Retrofit.
+
+## 200. Autenticação completa do Quick Connect (v1.1.91)
+- [x] Interpretar `GET /QuickConnect/Connect` como estado, sem esperar token.
+- [x] Trocar o secret autorizado em `POST /Users/AuthenticateWithQuickConnect`.
+- [x] Encerrar polling após expiração, erro 401/404 ou orçamento de cinco minutos.
+- [x] Manter falhas transitórias de rede elegíveis para retry.
+- [x] Cobrir estado, troca de autenticação e política de polling nos testes.

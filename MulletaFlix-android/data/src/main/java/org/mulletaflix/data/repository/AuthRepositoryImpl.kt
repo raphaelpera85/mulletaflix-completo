@@ -96,7 +96,10 @@ class AuthRepositoryImpl @Inject constructor(
     override suspend fun checkQuickConnect(secret: String): Result<UserSession?> = runCatching {
         val serverUrl = sessionRepository.getBaseUrl().first()
         val deviceId = sessionRepository.getDeviceId().first()
-        val res = api.connectQuickConnect(QuickConnectDto(secret = secret))
+        val status = api.connectQuickConnect(secret = secret)
+        if (!status.authenticated) return@runCatching null
+
+        val res = api.authenticateWithQuickConnect(QuickConnectDto(secret = secret))
         val token = res.accessToken
         val user = res.user
 

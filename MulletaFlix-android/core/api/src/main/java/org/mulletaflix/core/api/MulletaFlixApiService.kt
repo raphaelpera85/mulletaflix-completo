@@ -21,14 +21,17 @@ interface MulletaFlixApiService {
     @POST("Users/Register")
     suspend fun registerUser(@Body body: RegisterUserDto): RegisterUserResultDto
 
-    @GET("QuickConnect/Initiate")
+    @POST("QuickConnect/Initiate")
     suspend fun initiateQuickConnect(): QuickConnectResultDto
 
     @POST("QuickConnect/Authorize")
     suspend fun authorizeQuickConnect(@Query("code") code: String): Boolean
 
-    @POST("QuickConnect/Connect")
-    suspend fun connectQuickConnect(@Body body: QuickConnectDto): AuthenticationResultDto
+    @GET("QuickConnect/Connect")
+    suspend fun connectQuickConnect(@Query("secret") secret: String): QuickConnectResultDto
+
+    @POST("Users/AuthenticateWithQuickConnect")
+    suspend fun authenticateWithQuickConnect(@Body body: QuickConnectDto): AuthenticationResultDto
 
     // ── Users ───────────────────────────────────────────────────────────────
 

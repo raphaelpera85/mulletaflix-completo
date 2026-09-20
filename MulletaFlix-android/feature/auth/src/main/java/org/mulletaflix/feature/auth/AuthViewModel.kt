@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import retrofit2.HttpException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
@@ -367,20 +368,42 @@ class AuthViewModel @Inject constructor(
     private fun startQuickConnectPolling(secret: String) {
         quickConnectPollingJob?.cancel()
         quickConnectPollingJob = viewModelScope.launch {
-            while (isActive) {
+            var attempts = 0
+            while (isActive && attempts < QUICK_CONNECT_MAX_POLL_ATTEMPTS) {
                 delay(3000)
-                authRepository.checkQuickConnect(secret)
-                    .onSuccess { session ->
+                attempts++
+                authRepository.checkQuickConnect(secret).fold(
+                    onSuccess = { session ->
                         if (session != null) {
+                            _state.update { it.copy(isWaitingForQuickConnect = false, isAuthenticated = true) }
+                            return@launch
+                        }
+                    },
+                    onFailure = { error ->
+                        quickConnectTerminalErrorMessage(error)?.let { message ->
                             _state.update {
                                 it.copy(
                                     isWaitingForQuickConnect = false,
-                                    isAuthenticated = true
+                                    quickConnectPin = null,
+                                    quickConnectSecret = null,
+                                    error = message,
                                 )
                             }
-                            quickConnectPollingJob?.cancel()
+                            return@launch
                         }
-                    }
+                    },
+                )
+            }
+
+            if (isActive) {
+                _state.update {
+                    it.copy(
+                        isWaitingForQuickConnect = false,
+                        quickConnectPin = null,
+                        quickConnectSecret = null,
+                        error = "O código Quick Connect expirou. Gere um novo código.",
+                    )
+                }
             }
         }
     }
@@ -395,4 +418,14 @@ class AuthViewModel @Inject constructor(
             )
         }
     }
+}
+
+internal const val QUICK_CONNECT_MAX_POLL_ATTEMPTS = 100
+
+internal fun quickConnectTerminalErrorMessage(error: Throwable): String? = when {
+    error is HttpException && error.code() == 404 ->
+        "O código Quick Connect expirou. Gere um novo código."
+    error is HttpException && error.code() == 401 ->
+        "Quick Connect está desativado ou requer autorização no servidor."
+    else -> null
 }
