@@ -345,3 +345,9 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Centralizar e limitar o conteúdo em tablets.
 - [x] Ampliar artes e espaçamento para navegação por foco na TV.
 - [x] Criar testes unitários e testes de uso Compose para as três superfícies.
+
+## 194. Grade e atualização automática na Android TV (v1.1.86)
+- [x] Reduzir o tamanho mínimo das capas na TV para exibir mais títulos por linha.
+- [x] Usar colunas previsíveis e amigáveis ao controle remoto na TV.
+- [x] Atualizar a biblioteca automaticamente enquanto a tela estiver em primeiro plano.
+- [x] Cobrir a densidade e o cálculo de colunas com testes unitários.

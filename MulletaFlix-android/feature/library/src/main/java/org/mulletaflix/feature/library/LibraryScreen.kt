@@ -15,7 +15,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
+import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.domain.model.*
@@ -41,8 +49,20 @@ fun LibraryScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val loadError = state.error
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     LaunchedEffect(libraryId) { viewModel.loadLibrary(libraryId) }
+    LaunchedEffect(libraryId, lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                delay(60_000)
+                viewModel.loadLibrary(libraryId)
+            }
+        }
+    }
+
+    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
 
     Scaffold(
         topBar = {
@@ -76,6 +96,7 @@ fun LibraryScreen(
             onRefresh = { viewModel.loadLibrary(libraryId) },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (state.isLoading && state.items.isEmpty()) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -97,7 +118,16 @@ fun LibraryScreen(
                 )
             } else {
                 val columns = if (state.isGridView) {
-                    GridCells.Adaptive(minSize = libraryGridMinSizeDp(state.gridDensity).dp)
+                    val tvColumns = libraryGridColumns(
+                        widthDp = maxWidth.value.roundToInt(),
+                        density = state.gridDensity,
+                        isTelevision = isTelevision,
+                    )
+                    if (tvColumns > 0) {
+                        GridCells.Fixed(tvColumns)
+                    } else {
+                        GridCells.Adaptive(minSize = libraryGridMinSizeDp(state.gridDensity).dp)
+                    }
                 } else {
                     GridCells.Fixed(1)
                 }
@@ -187,6 +217,7 @@ fun LibraryScreen(
                     onDismiss = viewModel::hideFilterMenu,
                 )
             }
+        }
         }
         }
     }
