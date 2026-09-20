@@ -18,8 +18,10 @@ class PlayerOptionsTest {
                 bitrate = "8 Mbps",
                 playMethod = "Transcode",
             ),
+            title = "À Beira da Extinção",
         )
 
+        assertTrue(text.contains("Título: À Beira da Extinção"))
         assertTrue(text.contains("Método de Reprodução: Transcode"))
         assertTrue(text.contains("Codec de Vídeo: H.265"))
         assertTrue(text.contains("Taxa de Bits: 8 Mbps"))

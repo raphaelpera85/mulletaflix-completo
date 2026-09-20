@@ -203,7 +203,11 @@ class MainActivity : ComponentActivity() {
                                             val downloadUrl = update.apkDownloadUrl ?: return@Button
                                             coroutineScope.launch {
                                                 isDownloadingUpdate = true
-                                                appUpdateDownloader.downloadApk(downloadUrl, update.latestVersion).collect { downloadState ->
+                                                appUpdateDownloader.downloadApk(
+                                                    downloadUrl = downloadUrl,
+                                                    versionName = update.latestVersion,
+                                                    expectedSha256 = update.apkSha256,
+                                                ).collect { downloadState ->
                                                     when (downloadState) {
                                                         is DownloadState.Downloading -> {
                                                             updateProgress = downloadState.progress

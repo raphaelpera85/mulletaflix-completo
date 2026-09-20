@@ -9,6 +9,8 @@ data class AppUpdateInfo(
     val latestVersion: String,
     val releaseNotes: String? = null,
     val apkDownloadUrl: String? = null,
+    /** SHA-256 digest published by GitHub for the APK asset, when available. */
+    val apkSha256: String? = null,
     val apkSize: Long = 0L,
     val publishedAt: String? = null,
 )

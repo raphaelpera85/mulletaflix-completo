@@ -35,8 +35,9 @@ data class PlaybackStats(
 )
 
 /** Stable, user-facing text for sharing playback diagnostics with support. */
-internal fun formatPlaybackStats(stats: PlaybackStats?): String = buildString {
+internal fun formatPlaybackStats(stats: PlaybackStats?, title: String? = null): String = buildString {
     appendLine("Dados técnicos da mídia")
+    title?.takeIf(String::isNotBlank)?.let { appendLine("Título: $it") }
     appendLine("Método de Reprodução: ${stats?.playMethod ?: "Direct Play"}")
     stats?.resolution?.let { appendLine("Resolução: $it") }
     stats?.videoCodec?.let { appendLine("Codec de Vídeo: $it") }

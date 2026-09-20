@@ -38,6 +38,7 @@ class AppUpdateRepositoryTest {
                     {
                         "name": "mulletaflix-app-v1.0.1.apk",
                         "size": 7500000,
+                        "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                         "browser_download_url": "https://github.com/releases/download/app-v1.0.1/mulletaflix-app-v1.0.1.apk"
                     }
                 ]
@@ -64,6 +65,7 @@ class AppUpdateRepositoryTest {
         assertEquals("1.0.0", info.currentVersion)
         assertEquals("Novas correções e melhorias no player", info.releaseNotes)
         assertEquals("https://github.com/releases/download/app-v1.0.1/mulletaflix-app-v1.0.1.apk", info.apkDownloadUrl)
+        assertEquals("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", info.apkSha256)
         assertEquals(7500000L, info.apkSize)
     }
 
@@ -160,6 +162,27 @@ class AppUpdateRepositoryTest {
         assertFalse(info.isUpdateAvailable)
         assertEquals("1.0.0", info.latestVersion)
         assertEquals(null, info.apkDownloadUrl)
+    }
+
+    @Test
+    fun `parseReleases ignores APK when published digest is malformed`() {
+        val json = """
+        [{
+            "tag_name": "app-v9.0.0",
+            "assets": [{
+                "name": "mulletaflix-app-v9.0.0.apk",
+                "digest": "sha256:not-a-valid-sha256",
+                "browser_download_url": "https://github.com/releases/download/app-v9.0.0/mulletaflix-app-v9.0.0.apk"
+            }]
+        }]
+        """.trimIndent()
+
+        val info = repository.parseReleases(json, "1.0.0")
+
+        assertFalse(info.isUpdateAvailable)
+        assertEquals("1.0.0", info.latestVersion)
+        assertEquals(null, info.apkDownloadUrl)
+        assertEquals(null, info.apkSha256)
     }
 
     @Test

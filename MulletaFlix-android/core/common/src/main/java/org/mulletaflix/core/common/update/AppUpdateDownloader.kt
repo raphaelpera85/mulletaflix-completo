@@ -37,7 +37,11 @@ class AppUpdateDownloader @Inject constructor(
     /**
      * Downloads an APK from [downloadUrl] and streams progress updates.
      */
-    fun downloadApk(downloadUrl: String, versionName: String): Flow<DownloadState> = flow {
+    fun downloadApk(
+        downloadUrl: String,
+        versionName: String,
+        expectedSha256: String? = null,
+    ): Flow<DownloadState> = flow {
         emit(DownloadState.Downloading(0f, 0L, -1L))
 
         try {
@@ -91,6 +95,11 @@ class AppUpdateDownloader @Inject constructor(
             }
 
             if (destinationFile.exists() && destinationFile.length() > 0) {
+                if (expectedSha256 != null && !sha256Matches(destinationFile, expectedSha256)) {
+                    destinationFile.delete()
+                    emit(DownloadState.Error("A assinatura SHA-256 do APK não confere."))
+                    return@flow
+                }
                 emit(DownloadState.Completed(destinationFile))
             } else {
                 emit(DownloadState.Error("Arquivo baixado está corrompido ou vazio."))

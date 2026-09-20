@@ -286,7 +286,11 @@ class SettingsViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.update { it.copy(isDownloadingUpdate = true, updateDownloadProgress = 0f, updateErrorMessage = null) }
-            downloader.downloadApk(downloadUrl, versionName).collect { downloadState ->
+            downloader.downloadApk(
+                downloadUrl = downloadUrl,
+                versionName = versionName,
+                expectedSha256 = _state.value.updateInfo?.apkSha256,
+            ).collect { downloadState ->
                 when (downloadState) {
                     is DownloadState.Downloading -> {
                         _state.update { it.copy(updateDownloadProgress = downloadState.progress) }

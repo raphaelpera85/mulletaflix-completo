@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.os.Build
@@ -453,7 +454,8 @@ fun VideoPlayerScreen(
                 onAspectRatioSelect = { ratio -> viewModel.setAspectRatio(ratio) },
                 onLockClick = { viewModel.setControlsLocked(true) },
                 onCastClick = { viewModel.startCast() },
-                onCopyStats = { copyPlaybackStats(context, state.playbackStats) },
+                onCopyStats = { copyPlaybackStats(context, state.title, state.playbackStats) },
+                onShareStats = { sharePlaybackStats(context, state.title, state.playbackStats) },
             )
         }
     }
@@ -481,6 +483,7 @@ private fun PlayerOsd(
     onLockClick: () -> Unit,
     onCastClick: () -> Unit,
     onCopyStats: () -> Unit,
+    onShareStats: () -> Unit,
 ) {
     var showSubtitleMenu by remember { mutableStateOf(false) }
     var showAudioMenu by remember { mutableStateOf(false) }
@@ -760,8 +763,10 @@ private fun PlayerOsd(
         // ── Playback Stats Dialog ─────────────────────────────────────────────
         if (showStatsDialog) {
             PlaybackStatsDialog(
+                title = state.title,
                 stats = state.playbackStats,
                 onCopy = onCopyStats,
+                onShare = onShareStats,
                 onDismiss = { showStatsDialog = false }
             )
         }
@@ -1019,8 +1024,10 @@ private fun AspectRatioMenu(
 
 @Composable
 internal fun PlaybackStatsDialog(
+    title: String? = null,
     stats: PlaybackStats?,
     onCopy: () -> Unit,
+    onShare: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var copied by remember { mutableStateOf(false) }
@@ -1038,6 +1045,9 @@ internal fun PlaybackStatsDialog(
                     },
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                title?.takeIf(String::isNotBlank)?.let {
+                    Text("Mídia: $it", style = MaterialTheme.typography.titleSmall)
+                }
                 Text("Método de Reprodução: ${stats?.playMethod ?: "Direct Play"}", style = MaterialTheme.typography.bodyMedium)
                 stats?.resolution?.let { Text("Resolução: $it", style = MaterialTheme.typography.bodyMedium) }
                 stats?.videoCodec?.let { Text("Codec de Vídeo: $it", style = MaterialTheme.typography.bodyMedium) }
@@ -1053,6 +1063,9 @@ internal fun PlaybackStatsDialog(
                 }) {
                     Text(if (copied) "Copiado" else "Copiar")
                 }
+                TextButton(onClick = onShare) {
+                    Text("Compartilhar")
+                }
                 TextButton(onClick = onDismiss) {
                     Text("Fechar")
                 }
@@ -1061,9 +1074,19 @@ internal fun PlaybackStatsDialog(
     )
 }
 
-private fun copyPlaybackStats(context: Context, stats: PlaybackStats?) {
+private fun copyPlaybackStats(context: Context, title: String?, stats: PlaybackStats?) {
     val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
-    clipboard.setPrimaryClip(ClipData.newPlainText("Dados técnicos da mídia", formatPlaybackStats(stats)))
+    clipboard.setPrimaryClip(ClipData.newPlainText("Dados técnicos da mídia", formatPlaybackStats(stats, title)))
+}
+
+private fun sharePlaybackStats(context: Context, title: String?, stats: PlaybackStats?) {
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "Dados técnicos da mídia — MulletaFlix")
+        putExtra(Intent.EXTRA_TEXT, formatPlaybackStats(stats, title))
+        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(Intent.createChooser(shareIntent, "Compartilhar dados técnicos"))
 }
 
 // Extension: millis to time string

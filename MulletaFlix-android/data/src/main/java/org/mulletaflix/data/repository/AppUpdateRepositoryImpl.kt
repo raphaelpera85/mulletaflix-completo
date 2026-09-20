@@ -56,6 +56,7 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
         var highestVersionStr: String = currentVersion
         var bestApkUrl: String? = null
         var bestNotes: String? = null
+        var bestSha256: String? = null
         var bestSize: Long = 0L
         var bestPublishedAt: String? = null
 
@@ -80,6 +81,8 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                 val assets = release.optJSONArray("assets") ?: continue
 
                 var releaseApkUrl: String? = null
+                var releaseApkSha256: String? = null
+                var releaseApkDigestInvalid = false
                 var releaseApkSize: Long = 0L
                 var assetVersion: String? = null
 
@@ -88,6 +91,12 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                     val name = asset.optString("name", "")
                     if (name.endsWith(".apk", ignoreCase = true)) {
                         releaseApkUrl = asset.optString("browser_download_url", "")
+                        val rawDigest = asset.optString("digest", "").trim()
+                        releaseApkSha256 = rawDigest
+                            .removePrefix("sha256:")
+                            .trim()
+                            .takeIf { it.matches(Regex("[0-9a-fA-F]{64}")) }
+                        releaseApkDigestInvalid = rawDigest.isNotBlank() && releaseApkSha256 == null
                         releaseApkSize = asset.optLong("size", 0L)
                         // Extract version from asset name like mulletaflix-app-v1.0.0.apk
                         val match = Regex("""(?:mulletaflix-app-)?v?([0-9]+(?:\.[0-9]+)*)\.apk""", RegexOption.IGNORE_CASE)
@@ -99,7 +108,7 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                     }
                 }
 
-                if (releaseApkUrl.isNullOrBlank()) {
+                if (releaseApkUrl.isNullOrBlank() || releaseApkDigestInvalid) {
                     continue
                 }
 
@@ -113,6 +122,7 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                 if (isVersionNewer(candidateVersion, highestVersionStr)) {
                     highestVersionStr = candidateVersion
                     bestApkUrl = releaseApkUrl
+                    bestSha256 = releaseApkSha256
                     bestNotes = body.ifBlank { null }
                     bestSize = releaseApkSize
                     bestPublishedAt = publishedAt.ifBlank { null }
@@ -130,6 +140,7 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
             latestVersion = highestVersionStr,
             releaseNotes = bestNotes,
             apkDownloadUrl = bestApkUrl,
+            apkSha256 = bestSha256,
             apkSize = bestSize,
             publishedAt = bestPublishedAt,
         )

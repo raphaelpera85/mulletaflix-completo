@@ -575,3 +575,23 @@ Pendências relacionadas:
 - [x] Confirmar visualmente a cópia dos dados técnicos com o estado “Copiado”.
 - [x] Evitar que a ação pareça não executada em telas com feedback transitório.
 - [x] Cobrir a confirmação com teste instrumentado.
+
+## 60. Compartilhamento nativo de diagnóstico (v1.0.52)
+
+- [x] Expor os dados técnicos pela folha nativa de compartilhamento do Android.
+- [x] Usar texto simples compatível com mensageiros, e-mail e ferramentas de suporte.
+- [x] Cobrir a ação de compartilhamento no teste instrumentado.
+
+## 61. Diagnóstico identificado por mídia (v1.0.53)
+
+- [x] Incluir o título da mídia no texto copiado e compartilhado.
+- [x] Preservar o formato técnico para suporte e reprodução do problema.
+- [x] Cobrir a identificação no teste unitário e no diálogo instrumentado.
+
+## 62. Integridade do atualizador Android (próxima release)
+
+- [x] Ler o digest SHA-256 publicado pelo GitHub para o asset APK.
+- [x] Validar o APK baixado antes de disponibilizá-lo para instalação.
+- [x] Rejeitar digest inválido ou divergente e manter compatibilidade com releases antigas sem digest.
+- [x] Cobrir digest correto, incorreto e malformado com teste unitário.
+- [x] Ignorar releases com campo de digest presente, mas malformado, antes do download.

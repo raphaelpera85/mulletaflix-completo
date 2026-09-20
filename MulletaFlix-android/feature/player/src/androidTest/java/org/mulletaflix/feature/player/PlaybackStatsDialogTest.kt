@@ -22,6 +22,7 @@ class PlaybackStatsDialogTest {
         composeRule.setContent {
             MaterialTheme {
                 PlaybackStatsDialog(
+                    title = "Filme de teste",
                     stats = PlaybackStats(
                         videoCodec = longCodec,
                         audioCodec = "E-AC-3 / Atmos / idioma Português (Brasil)",
@@ -30,11 +31,13 @@ class PlaybackStatsDialogTest {
                         playMethod = "Direct Play",
                     ),
                     onCopy = {},
+                    onShare = {},
                     onDismiss = {},
                 )
             }
         }
 
+        composeRule.onNodeWithText("Filme de teste", substring = true).assertExists()
         composeRule
             .onNodeWithContentDescription(PLAYBACK_STATS_CONTENT_DESCRIPTION)
             .performTouchInput { swipeUp() }
@@ -50,6 +53,7 @@ class PlaybackStatsDialogTest {
                 PlaybackStatsDialog(
                     stats = PlaybackStats(videoCodec = "H.265"),
                     onCopy = { copyCount++ },
+                    onShare = {},
                     onDismiss = {},
                 )
             }
@@ -58,5 +62,24 @@ class PlaybackStatsDialogTest {
         composeRule.onNodeWithText("Copiar").performClick()
         org.junit.Assert.assertEquals(1, copyCount)
         composeRule.onNodeWithText("Copiado").assertExists()
+    }
+
+    @Test
+    fun shareActionIsExposedForTechnicalDetails() {
+        var shareCount = 0
+
+        composeRule.setContent {
+            MaterialTheme {
+                PlaybackStatsDialog(
+                    stats = PlaybackStats(videoCodec = "H.265"),
+                    onCopy = {},
+                    onShare = { shareCount++ },
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Compartilhar").performClick()
+        org.junit.Assert.assertEquals(1, shareCount)
     }
 }
