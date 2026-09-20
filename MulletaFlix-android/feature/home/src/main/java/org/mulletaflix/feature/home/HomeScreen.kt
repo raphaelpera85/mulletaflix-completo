@@ -24,6 +24,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -168,8 +171,8 @@ fun HomeScreen(
                     MediaSection(
                         title = "Continuar Assistindo",
                         items = state.resumeItems,
-                        cardShape = MediaCardShape.Landscape,
-                        cardWidth = 240.dp,
+                        cardShape = null,
+                        cardWidth = null,
                         onItemClick = onItemClick
                     )
                 }
@@ -395,8 +398,8 @@ private fun HeroBanner(
 private fun MediaSection(
     title: String,
     items: List<MediaItem>,
-    cardShape: MediaCardShape,
-    cardWidth: androidx.compose.ui.unit.Dp,
+    cardShape: MediaCardShape?,
+    cardWidth: androidx.compose.ui.unit.Dp?,
     onItemClick: (String) -> Unit,
     isLive: Boolean = false,
 ) {
@@ -411,12 +414,18 @@ private fun MediaSection(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(items) { item ->
+            items(
+                items = items,
+                key = { item -> item.id },
+            ) { item ->
+                val resolvedShape = cardShape ?: defaultMediaSectionShape(item)
+                val resolvedWidth = cardWidth ?: if (resolvedShape == MediaCardShape.Portrait) 130.dp else 240.dp
                 MediaCard(
                     title = item.name,
                     imageUrl = item.primaryImageUrl,
-                    shape = cardShape,
-                    progress = item.playedPercentage?.toFloat()?.div(100f) ?: 0f,
+                    metadata = item.cardMetadata(),
+                    shape = resolvedShape,
+                    progress = item.playbackProgressFraction(),
                     isWatched = item.isPlayed,
                     isFavorite = item.isFavorite,
                     unplayedCount = item.unplayedItemCount ?: 0,
@@ -427,12 +436,15 @@ private fun MediaSection(
                         else -> null
                     },
                     onClick = { onItemClick(item.id) },
-                    modifier = Modifier.width(cardWidth)
+                    modifier = Modifier.width(resolvedWidth)
                 )
             }
         }
     }
 }
+
+internal fun defaultMediaSectionShape(item: MediaItem): MediaCardShape =
+    if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape
 
 // ── Library Tiles ─────────────────────────────────────────────────────────────
 
@@ -452,7 +464,10 @@ private fun LibraryTiles(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(libraries) { lib ->
+            items(
+                items = libraries,
+                key = { library -> library.id },
+            ) { lib ->
                 MediaCard(
                     title = lib.name,
                     imageUrl = lib.primaryImageUrl,
@@ -499,10 +514,16 @@ private fun HomeTopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "MULLETAFLIX",
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(color = MaterialTheme.colorScheme.secondary)) {
+                    append("MULLETA")
+                }
+                withStyle(SpanStyle(color = Color.White)) {
+                    append("FLIX")
+                }
+            },
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Black,
-            color = MaterialTheme.colorScheme.secondary,
         )
         Row(
             verticalAlignment = Alignment.CenterVertically,

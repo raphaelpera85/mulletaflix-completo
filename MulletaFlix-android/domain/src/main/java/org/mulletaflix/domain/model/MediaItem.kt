@@ -89,6 +89,35 @@ enum class MediaItemType {
     Playlist, Trailer, Unknown
 }
 
+/**
+ * Identifies item types whose canonical artwork is a vertical title poster.
+ * Episodes and live content intentionally keep their landscape presentation.
+ */
+fun MediaItemType.usesPosterArtwork(): Boolean = when (this) {
+    MediaItemType.Movie,
+    MediaItemType.Series,
+    MediaItemType.MusicAlbum,
+    MediaItemType.Book -> true
+    else -> false
+}
+
+/** Converts the server percentage to the safe fraction expected by Compose. */
+fun MediaItem.playbackProgressFraction(): Float {
+    val percentage = playedPercentage ?: return 0f
+    if (!percentage.isFinite()) return 0f
+    return (percentage / 100.0).coerceIn(0.0, 1.0).toFloat()
+}
+
+/** Compact metadata shared by every card surface for episodic items. */
+fun MediaItem.cardMetadata(): String? = when (type) {
+    MediaItemType.Episode -> {
+        if (parentIndexNumber == null || indexNumber == null) null
+        else "T${parentIndexNumber.toString().padStart(2, '0')} · E${indexNumber.toString().padStart(2, '0')}"
+    }
+    MediaItemType.Season -> parentIndexNumber?.let { "Temporada $it" }
+    else -> null
+}
+
 enum class ImageType {
     Primary, Art, Backdrop, Banner, Logo, Thumb, Disc, Box, Screenshot, Menu, Chapter, BoxRear, Profile
 }

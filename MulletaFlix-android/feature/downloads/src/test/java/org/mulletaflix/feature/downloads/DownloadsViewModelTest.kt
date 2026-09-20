@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.downloads
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -132,8 +133,10 @@ class DownloadsViewModelTest {
         var retried = false
         var retryArguments = emptyArray<String>()
         var wifiOnly = false
+        private val queuePaused = MutableStateFlow(false)
 
         override fun observeDownloads(): Flow<List<DownloadEntry>> = flowOf(emptyList())
+        override fun observeQueuePaused(): Flow<Boolean> = queuePaused
         override fun observeWifiOnly(): Flow<Boolean> = flowOf(wifiOnly)
         override fun setWifiOnly(enabled: Boolean): Result<Unit> {
             wifiOnly = enabled
@@ -150,11 +153,13 @@ class DownloadsViewModelTest {
             Result.failure(IllegalStateException("pause failed"))
         } else {
             paused = true
+            queuePaused.value = true
             Result.success(Unit)
         }
         override fun resumeAll(): Result<Unit> {
             resumed = true
             paused = false
+            queuePaused.value = false
             return Result.success(Unit)
         }
     }

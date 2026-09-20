@@ -44,6 +44,7 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.primaryImageUrl
+import org.mulletaflix.domain.model.playbackProgressFraction
 
 /**
  * Season selector + episode list used by the item detail screen.
@@ -182,9 +183,9 @@ private fun EpisodeRow(episode: MediaItem, onPlay: () -> Unit, onClick: () -> Un
     ) {
         Box(modifier = Modifier.width(160.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
             AsyncImage(model = resolveMediaUrl(LocalMulletaFlixServerUrl.current, episode.primaryImageUrl, LocalMulletaFlixAccessToken.current), contentDescription = episode.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            episode.playedPercentage?.takeIf { it > 0.0 }?.let { playedPercentage ->
+            episode.playbackProgressFraction().takeIf { it > 0f }?.let { progress ->
                 Box(modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.BottomCenter).background(MaterialTheme.colorScheme.surface)) {
-                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth((playedPercentage / 100.0).toFloat()).background(MaterialTheme.colorScheme.secondary))
+                    Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(MaterialTheme.colorScheme.secondary))
                 }
             }
             IconButton(onClick = onPlay, modifier = Modifier.align(Alignment.Center).size(40.dp).background(Color.Black.copy(0.5f), CircleShape)) {

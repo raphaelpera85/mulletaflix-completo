@@ -26,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,7 +39,10 @@ import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.cardMetadata
+import org.mulletaflix.domain.model.playbackProgressFraction
 import org.mulletaflix.domain.model.primaryImageUrl
+import org.mulletaflix.domain.model.usesPosterArtwork
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +70,12 @@ fun FavoritesScreen(
             )
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+        Box(Modifier.fillMaxSize()) {
             when {
                 state.isLoading && state.items.isEmpty() ->
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -85,6 +94,7 @@ fun FavoritesScreen(
                     Text(state.error!!, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer)
                 }
             }
+        }
         }
     }
 }
@@ -107,8 +117,9 @@ private fun FavoritesGrid(
             MediaCard(
                 title = item.name,
                 imageUrl = item.primaryImageUrl,
-                shape = if (item.type == MediaItemType.Movie || item.type == MediaItemType.MusicAlbum || item.type == MediaItemType.Book) MediaCardShape.Portrait else MediaCardShape.Landscape,
-                progress = item.playedPercentage?.toFloat()?.div(100f) ?: 0f,
+                metadata = item.cardMetadata(),
+                shape = if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape,
+                progress = item.playbackProgressFraction(),
                 isWatched = item.isPlayed,
                 isFavorite = true,
                 unplayedCount = item.unplayedItemCount ?: 0,

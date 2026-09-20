@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -135,6 +136,11 @@ fun SearchScreen(
             }
         } else {
             // Grouped results
+            PullToRefreshBox(
+                isRefreshing = state.isRefreshing,
+                onRefresh = viewModel::refreshSearch,
+                modifier = Modifier.fillMaxSize(),
+            ) {
             LazyColumn {
                 val grouped = state.results.groupBy { it.type.toGroupLabel() }
                 grouped.forEach { (groupLabel, items) ->
@@ -153,13 +159,15 @@ fun SearchScreen(
                             modifier = Modifier.padding(bottom = 8.dp)
                         ) {
                             items(items) { item ->
-                                val cardShape = when (item.type) {
-                                    MediaItemType.Movie, MediaItemType.MusicAlbum, MediaItemType.Book -> MediaCardShape.Portrait
-                                    else -> MediaCardShape.Landscape
+                                val cardShape = if (item.type.usesPosterArtwork()) {
+                                    MediaCardShape.Portrait
+                                } else {
+                                    MediaCardShape.Landscape
                                 }
                                 MediaCard(
                                     title = item.name,
                                     imageUrl = item.primaryImageUrl,
+                                    metadata = item.cardMetadata(),
                                     shape = cardShape,
                                     isWatched = item.isPlayed,
                                     onClick = { onItemClick(item.id) },
@@ -170,6 +178,7 @@ fun SearchScreen(
                     }
                 }
                 item { Spacer(modifier = Modifier.height(80.dp)) }
+            }
             }
         }
     }
@@ -182,33 +191,49 @@ private fun SearchHistory(
     onRemoveItem: (String) -> Unit,
     onClearHistory: () -> Unit,
 ) {
-    if (history.isEmpty()) return
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Buscas Recentes", style = MaterialTheme.typography.titleSmall)
-            TextButton(onClick = onClearHistory) { Text("Limpar") }
-        }
-        history.forEach { query ->
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 80.dp),
+    ) {
+        item {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onItemClick(query) }
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(query, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
-                IconButton(onClick = { onRemoveItem(query) }) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Remover da busca",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
+                Text("Buscas Recentes", style = MaterialTheme.typography.titleSmall)
+                if (history.isNotEmpty()) {
+                    TextButton(onClick = onClearHistory) { Text("Limpar") }
+                }
+            }
+        }
+        if (history.isEmpty()) {
+            item {
+                Text(
+                    "Suas buscas recentes aparecerão aqui.",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            items(history, key = { it }) { query ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onItemClick(query) }
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(query, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
+                    IconButton(onClick = { onRemoveItem(query) }) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Remover da busca",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
         }

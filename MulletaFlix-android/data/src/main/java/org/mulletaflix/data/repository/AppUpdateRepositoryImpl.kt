@@ -119,6 +119,10 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                     else -> tagName
                 }
 
+                // The Android channel uses two-digit patch cycles. The first
+                // release after 1.0.99 is 1.1.0, never 1.0.100.
+                if (!isSupportedAppVersion(candidateVersion)) continue
+
                 if (isVersionNewer(candidateVersion, highestVersionStr)) {
                     highestVersionStr = candidateVersion
                     bestApkUrl = releaseApkUrl
@@ -158,6 +162,9 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
         val remoteParts = parseVersion(remote)
         val currentParts = parseVersion(current)
         if (remoteParts.isEmpty()) return false
+        // Release version names use two-digit patch cycles. A remote
+        // 1.0.100-style value must never outrank a valid SemVer release.
+        if (remoteParts.size == 3 && remoteParts[2] !in 0..99) return false
         if (currentParts.isEmpty()) return true
 
         val maxLen = maxOf(remoteParts.size, currentParts.size)
@@ -168,5 +175,10 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
             if (r < c) return false
         }
         return false
+    }
+
+    internal fun isSupportedAppVersion(version: String): Boolean {
+        val parts = parseVersion(version)
+        return parts.size == 3 && parts[2] in 0..99
     }
 }

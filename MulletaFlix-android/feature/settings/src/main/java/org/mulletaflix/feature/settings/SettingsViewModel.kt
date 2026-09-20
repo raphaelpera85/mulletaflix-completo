@@ -296,14 +296,34 @@ class SettingsViewModel @Inject constructor(
                         _state.update { it.copy(updateDownloadProgress = downloadState.progress) }
                     }
                     is DownloadState.Completed -> {
-                        _state.update {
-                            it.copy(
-                                isDownloadingUpdate = false,
-                                showUpdateDialog = false,
-                                updateStatusMessage = "Download concluído. Iniciando instalação..."
-                            )
+                        val installationStarted = runCatching {
+                            AppUpdateInstaller.installApk(context, downloadState.file)
+                        }.getOrElse { error ->
+                            _state.update {
+                                it.copy(
+                                    isDownloadingUpdate = false,
+                                    updateErrorMessage = error.localizedMessage
+                                        ?: "Não foi possível abrir o instalador do APK.",
+                                )
+                            }
+                            false
                         }
-                        AppUpdateInstaller.installApk(context, downloadState.file)
+                        if (installationStarted) {
+                            _state.update {
+                                it.copy(
+                                    isDownloadingUpdate = false,
+                                    showUpdateDialog = false,
+                                    updateStatusMessage = "Download concluído. Iniciando instalação...",
+                                )
+                            }
+                        } else if (_state.value.updateErrorMessage == null) {
+                            _state.update {
+                                it.copy(
+                                    isDownloadingUpdate = false,
+                                    updateErrorMessage = "Permita a instalação de fontes desconhecidas e tente novamente.",
+                                )
+                            }
+                        }
                     }
                     is DownloadState.Error -> {
                         _state.update {

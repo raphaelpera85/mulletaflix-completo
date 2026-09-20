@@ -1,15 +1,19 @@
 package org.mulletaflix.feature.player
 
+import android.Manifest
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -49,6 +53,8 @@ import kotlin.math.roundToInt
 internal const val CAST_ACTION_CONTENT_DESCRIPTION = "Transmitir para dispositivo compatível"
 internal const val PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION = "Ações do player; deslize horizontalmente para ver mais"
 internal const val PLAYBACK_STATS_CONTENT_DESCRIPTION = "Dados técnicos da mídia; deslize verticalmente para ver mais"
+private const val NOTIFICATION_PROMPT_PREFERENCES = "player_notification_preferences"
+private const val NOTIFICATION_PROMPT_DISMISSED_KEY = "permission_prompt_dismissed"
 
 /**
  * Full-screen video player screen using Media3 / ExoPlayer.
@@ -78,11 +84,40 @@ fun VideoPlayerScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val notificationPreferences = remember(context) {
+        context.getSharedPreferences(NOTIFICATION_PROMPT_PREFERENCES, Context.MODE_PRIVATE)
+    }
     val latestPosition by rememberUpdatedState(state.currentPosition)
     val latestDuration by rememberUpdatedState(state.duration)
     val latestPlaying by rememberUpdatedState(state.isPlaying)
     val latestPipEnabled by rememberUpdatedState(state.pictureInPictureEnabled)
     var gestureHint by remember { mutableStateOf<String?>(null) }
+    var notificationPromptDismissed by remember(notificationPreferences) {
+        mutableStateOf(
+            notificationPreferences.getBoolean(NOTIFICATION_PROMPT_DISMISSED_KEY, false),
+        )
+    }
+    var notificationPermissionGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < 33 ||
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notificationPermissionGranted = granted
+        notificationPromptDismissed = !granted
+        notificationPreferences.edit()
+            .putBoolean(NOTIFICATION_PROMPT_DISMISSED_KEY, !granted)
+            .apply()
+    }
+    val showNotificationPrompt =
+        shouldShowNotificationPermissionPrompt(
+            sdkInt = Build.VERSION.SDK_INT,
+            permissionGranted = notificationPermissionGranted,
+            promptDismissed = notificationPromptDismissed,
+        )
     LaunchedEffect(gestureHint) {
         if (gestureHint != null) {
             delay(900)
@@ -252,6 +287,46 @@ fun VideoPlayerScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        AnimatedVisibility(
+            visible = showNotificationPrompt && osdVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                tonalElevation = 6.dp,
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Ative as notificações para controles de mídia e downloads.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.widthIn(max = 220.dp),
+                    )
+                    TextButton(
+                        onClick = { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) },
+                    ) {
+                        Text("Ativar")
+                    }
+                    IconButton(
+                        onClick = {
+                            notificationPromptDismissed = true
+                            notificationPreferences.edit()
+                                .putBoolean(NOTIFICATION_PROMPT_DISMISSED_KEY, true)
+                                .apply()
+                        },
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Agora não")
+                    }
+                }
+            }
+        }
 
         // ── Floating Unlock Button when Screen is Locked ─────────────────────
         AnimatedVisibility(
@@ -563,11 +638,17 @@ private fun PlayerOsd(
                     Icon(Icons.Default.AspectRatio, contentDescription = "Proporção", tint = Color.White)
                 }
                 // Audio tracks
-                IconButton(onClick = { showAudioMenu = true }) {
+                IconButton(
+                    onClick = { showAudioMenu = true },
+                    enabled = state.audioTracks.isNotEmpty(),
+                ) {
                     Icon(Icons.Default.Audiotrack, contentDescription = "Áudio", tint = Color.White)
                 }
                 // Subtitles
-                IconButton(onClick = { showSubtitleMenu = true }) {
+                IconButton(
+                    onClick = { showSubtitleMenu = true },
+                    enabled = state.subtitleTracks.isNotEmpty(),
+                ) {
                     Icon(Icons.Default.ClosedCaption, contentDescription = "Legendas", tint = Color.White)
                 }
                 // Quality

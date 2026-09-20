@@ -17,6 +17,7 @@ data class SearchState(
     val query: String = "",
     val activeFilter: SearchFilter? = null,
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val results: List<MediaItem> = emptyList(),
     val history: List<String> = emptyList(),
     val error: String? = null,
@@ -35,6 +36,7 @@ class SearchViewModel @Inject constructor(
     private var searchJob: Job? = null
     private var historyJob: Job? = null
     private var currentUserId: String? = null
+    private var searchGeneration = 0L
 
     init {
         viewModelScope.launch {
@@ -53,6 +55,7 @@ class SearchViewModel @Inject constructor(
     fun onQueryChange(newQuery: String) {
         _state.update { it.copy(query = newQuery, error = null) }
         searchJob?.cancel()
+        val generation = ++searchGeneration
         if (newQuery.isBlank()) {
             _state.update { it.copy(results = emptyList(), isLoading = false, error = null) }
             return
@@ -60,12 +63,11 @@ class SearchViewModel @Inject constructor(
 
         searchJob = viewModelScope.launch {
             delay(350) // debounce
-            performSearch(newQuery, _state.value.activeFilter)
+            performSearch(newQuery, _state.value.activeFilter, generation)
         }
     }
 
     fun search(query: String) {
-        searchJob?.cancel()
         if (query.isBlank()) return
         _state.update {
             it.copy(
@@ -76,7 +78,11 @@ class SearchViewModel @Inject constructor(
         }
         viewModelScope.launch {
             searchHistoryRepository.add(currentUserId, query)
-            performSearch(query, _state.value.activeFilter)
+        }
+        searchJob?.cancel()
+        val generation = ++searchGeneration
+        searchJob = viewModelScope.launch {
+            performSearch(query, _state.value.activeFilter, generation)
         }
     }
 
@@ -84,9 +90,20 @@ class SearchViewModel @Inject constructor(
         val currentQuery = _state.value.query
         if (currentQuery.isNotBlank()) {
             searchJob?.cancel()
-            viewModelScope.launch {
-                performSearch(currentQuery, _state.value.activeFilter)
+            val generation = ++searchGeneration
+            searchJob = viewModelScope.launch {
+                performSearch(currentQuery, _state.value.activeFilter, generation, isRefresh = false)
             }
+        }
+    }
+
+    fun refreshSearch() {
+        val currentQuery = _state.value.query
+        if (currentQuery.isBlank() || _state.value.isLoading || _state.value.isRefreshing) return
+        searchJob?.cancel()
+        val generation = ++searchGeneration
+        searchJob = viewModelScope.launch {
+            performSearch(currentQuery, _state.value.activeFilter, generation, isRefresh = true)
         }
     }
 
@@ -95,8 +112,9 @@ class SearchViewModel @Inject constructor(
         val currentQuery = _state.value.query
         if (currentQuery.isNotBlank()) {
             searchJob?.cancel()
-            viewModelScope.launch {
-                performSearch(currentQuery, filter)
+            val generation = ++searchGeneration
+            searchJob = viewModelScope.launch {
+                performSearch(currentQuery, filter, generation, isRefresh = false)
             }
         }
     }
@@ -111,12 +129,26 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch { searchHistoryRepository.clear(currentUserId) }
     }
 
-    private suspend fun performSearch(query: String, filter: SearchFilter?) {
+    private suspend fun performSearch(
+        query: String,
+        filter: SearchFilter?,
+        generation: Long,
+        isRefresh: Boolean = false,
+    ) {
         val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
-            _state.update { it.copy(isLoading = false, error = "Usuário não autenticado") }
+            if (isCurrentSearch(query, filter, generation)) {
+                _state.update { it.copy(isLoading = false, isRefreshing = false, error = "Usuário não autenticado") }
+            }
             return
         }
-        _state.update { it.copy(isLoading = true, error = null) }
+        if (!isCurrentSearch(query, filter, generation)) return
+        _state.update {
+            it.copy(
+                isLoading = !isRefresh,
+                isRefreshing = isRefresh,
+                error = null,
+            )
+        }
 
         val typeParam = when (filter) {
             SearchFilter.Movies -> "Movie"
@@ -134,9 +166,25 @@ class SearchViewModel @Inject constructor(
             query = query,
             itemTypes = typeParam,
         ).onSuccess { items ->
-            _state.update { it.copy(results = items, isLoading = false, error = null) }
+            if (isCurrentSearch(query, filter, generation)) {
+                _state.update { it.copy(results = items, isLoading = false, isRefreshing = false, error = null) }
+            }
         }.onFailure {
-            _state.update { it.copy(results = emptyList(), isLoading = false, error = "Erro ao buscar conteúdo") }
+            if (isCurrentSearch(query, filter, generation)) {
+                _state.update {
+                    it.copy(
+                        results = emptyList(),
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = "Erro ao buscar conteúdo",
+                    )
+                }
+            }
         }
     }
+
+    private fun isCurrentSearch(query: String, filter: SearchFilter?, generation: Long): Boolean =
+        generation == searchGeneration &&
+            _state.value.query == query &&
+            _state.value.activeFilter == filter
 }

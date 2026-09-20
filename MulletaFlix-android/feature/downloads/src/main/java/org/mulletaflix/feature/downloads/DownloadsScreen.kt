@@ -16,6 +16,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
+import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
+import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
+import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadState
 
@@ -30,6 +34,8 @@ fun DownloadsScreen(
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val queuePaused by viewModel.queuePaused.collectAsStateWithLifecycle()
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
+    val serverUrl = LocalMulletaFlixServerUrl.current
+    val accessToken = LocalMulletaFlixAccessToken.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf(DownloadStatusFilter.All) }
     val filteredDownloads = remember(downloads, searchQuery, statusFilter) {
@@ -107,6 +113,7 @@ fun DownloadsScreen(
                     items(filteredDownloads, key = { it.id }) { entry ->
                         DownloadRow(
                             entry = entry,
+                            imageModel = resolveMediaUrl(serverUrl, entry.imageUrl, accessToken),
                             onPlay = { onItemClick(entry) },
                             onRetry = { viewModel.retry(entry) },
                             onRemove = { itemPendingDeletion = entry },
@@ -298,6 +305,7 @@ private fun OfflineSummary(
 @Composable
 private fun DownloadRow(
     entry: DownloadEntry,
+    imageModel: String?,
     onPlay: () -> Unit,
     onRetry: () -> Unit,
     onRemove: () -> Unit
@@ -307,12 +315,21 @@ private fun DownloadRow(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                if (entry.state == DownloadState.Completed) Icons.Default.DownloadDone else Icons.Default.Downloading,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(32.dp)
-            )
+            if (imageModel != null) {
+                AsyncImage(
+                    model = imageModel,
+                    contentDescription = entry.title,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.size(width = 56.dp, height = 80.dp),
+                )
+            } else {
+                Icon(
+                    if (entry.state == DownloadState.Completed) Icons.Default.DownloadDone else Icons.Default.Downloading,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(entry.title, style = MaterialTheme.typography.titleMedium)

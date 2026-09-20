@@ -6,7 +6,15 @@ import org.mulletaflix.feature.auth.ServerInfo
 /** A LAN endpoint is preferred only when it is a real, different endpoint. */
 internal fun shouldSwitchToLan(currentUrl: String, discoveredUrl: String): Boolean =
     discoveredUrl.isNotBlank() &&
-    !discoveredUrl.equals(currentUrl.trimEnd('/'), ignoreCase = true)
+    comparableServerUrl(discoveredUrl) != comparableServerUrl(currentUrl)
+
+/**
+ * Discovery responses commonly include a trailing slash while DataStore keeps
+ * a manually entered URL without one. Compare endpoint identities rather than
+ * their presentation so LAN recovery does not oscillate between aliases.
+ */
+private fun comparableServerUrl(url: String): String =
+    url.trim().trimEnd('/').lowercase()
 
 /** A successful login is enough to trigger a LAN re-check. */
 internal fun shouldScanAfterAuthentication(userId: String?): Boolean =
@@ -50,5 +58,5 @@ internal fun publicFallbackAfterLanLoss(
     currentUrl: String,
     publicUrl: String,
 ): String? = publicUrl.takeIf {
-    isLocalServerUrl(currentUrl) && !it.equals(currentUrl.trimEnd('/'), ignoreCase = true)
+    isLocalServerUrl(currentUrl) && comparableServerUrl(it) != comparableServerUrl(currentUrl)
 }

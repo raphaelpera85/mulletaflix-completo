@@ -2,17 +2,22 @@ package org.mulletaflix.feature.search
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.domain.model.MediaItem
@@ -97,6 +102,56 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `refreshSearch keeps the current query and completes refresh state`() = runTest {
+        val controlledRepository = ControlledSearchRepository()
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(controlledRepository),
+            FakeAuthRepository(),
+            historyRepository,
+        )
+        advanceUntilIdle()
+
+        viewModel.search("matrix")
+        runCurrent()
+        controlledRepository.complete("matrix", "Initial result")
+        advanceUntilIdle()
+
+        viewModel.refreshSearch()
+        runCurrent()
+        assertTrue(viewModel.state.value.isRefreshing)
+        controlledRepository.complete("matrix", "Refreshed result")
+        advanceUntilIdle()
+
+        assertEquals("Refreshed result", viewModel.state.value.results.single().name)
+        assertFalse(viewModel.state.value.isRefreshing)
+        assertFalse(viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `late result from an older query cannot replace the latest result`() = runTest {
+        val controlledRepository = ControlledSearchRepository()
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(controlledRepository),
+            FakeAuthRepository(),
+            historyRepository,
+        )
+        advanceUntilIdle()
+
+        viewModel.search("old")
+        runCurrent()
+        viewModel.search("new")
+        runCurrent()
+
+        controlledRepository.complete("new", "New result")
+        advanceUntilIdle()
+        assertEquals("New result", viewModel.state.value.results.single().name)
+
+        controlledRepository.complete("old", "Old result")
+        advanceUntilIdle()
+        assertEquals("New result", viewModel.state.value.results.single().name)
+    }
+
+    @Test
     fun `removeHistoryItem removes single entry from search history`() = runTest {
         advanceUntilIdle()
         viewModel.search("batman")
@@ -134,6 +189,27 @@ class SearchViewModelTest {
                 return Result.failure(Exception("Network error"))
             }
             return Result.success(listOf(MediaItem("1", "Result", MediaItemType.Movie)))
+        }
+    }
+
+    private class ControlledSearchRepository : SearchRepository {
+        private val pending = mutableMapOf<String, CompletableDeferred<Result<List<MediaItem>>>>()
+
+        override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
+
+        override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> =
+            withContext(NonCancellable) {
+                val deferred = pending.getOrPut(term) { CompletableDeferred() }
+                try {
+                    deferred.await()
+                } finally {
+                    pending.remove(term, deferred)
+                }
+            }
+
+        fun complete(term: String, title: String) {
+            pending.getOrPut(term) { CompletableDeferred() }
+                .complete(Result.success(listOf(MediaItem(term, title, MediaItemType.Movie))))
         }
     }
 

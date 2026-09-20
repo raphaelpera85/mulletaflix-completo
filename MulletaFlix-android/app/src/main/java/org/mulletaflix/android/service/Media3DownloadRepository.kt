@@ -25,13 +25,17 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
     private val manager = DownloadManagerSingleton.get(context)
     private val metadata = context.getSharedPreferences("offline_downloads", Context.MODE_PRIVATE)
     private val titles = ConcurrentHashMap<String, String>()
+    private val queuePaused = MutableStateFlow(metadata.getBoolean(KEY_QUEUE_PAUSED, false))
     private val wifiOnly = MutableStateFlow(metadata.getBoolean(KEY_WIFI_ONLY, false))
 
     init {
         manager.requirements = requirementsFor(wifiOnly.value)
+        if (queuePaused.value) manager.pauseDownloads()
     }
 
     override fun observeWifiOnly(): Flow<Boolean> = wifiOnly
+
+    override fun observeQueuePaused(): Flow<Boolean> = queuePaused
 
     override fun setWifiOnly(enabled: Boolean): Result<Unit> = runCatching {
         manager.requirements = requirementsFor(enabled)
@@ -51,10 +55,19 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
     }
 
     override fun enqueue(id: String, title: String, uri: String): Result<Unit> = runCatching {
+        enqueueWithMetadata(id, title, uri, null).getOrThrow()
+    }
+
+    override fun enqueueWithMetadata(id: String, title: String, uri: String, imageUrl: String?): Result<Unit> = runCatching {
         require(id.isNotBlank()) { "O identificador da mídia é obrigatório." }
         require(uri.startsWith("http://") || uri.startsWith("https://")) { "A URL da mídia não é válida." }
         titles[id] = title
-        metadata.edit().putString("title:$id", title).apply()
+        metadata.edit()
+            .putString("title:$id", title)
+            .apply {
+                if (imageUrl.isNullOrBlank()) remove("image:$id") else putString("image:$id", imageUrl)
+            }
+            .apply()
         manager.addDownload(DownloadRequest.Builder(id, Uri.parse(uri)).build())
     }
 
@@ -71,15 +84,22 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
     override fun remove(id: String): Result<Unit> = runCatching {
         manager.removeDownload(id)
         titles.remove(id)
-        metadata.edit().remove("title:$id").apply()
+        metadata.edit()
+            .remove("title:$id")
+            .remove("image:$id")
+            .apply()
     }
 
     override fun pauseAll(): Result<Unit> = runCatching {
         manager.pauseDownloads()
+        metadata.edit().putBoolean(KEY_QUEUE_PAUSED, true).apply()
+        queuePaused.value = true
     }
 
     override fun resumeAll(): Result<Unit> = runCatching {
         manager.resumeDownloads()
+        metadata.edit().putBoolean(KEY_QUEUE_PAUSED, false).apply()
+        queuePaused.value = false
     }
 
     private fun snapshot(): List<DownloadEntry> {
@@ -94,6 +114,7 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
     private fun Download.toEntry() = DownloadEntry(
         id = request.id,
         title = titles[request.id] ?: metadata.getString("title:${request.id}", request.id).orEmpty(),
+        imageUrl = metadata.getString("image:${request.id}", null),
         uri = request.uri.toString(),
         state = when (state) {
             Download.STATE_QUEUED, Download.STATE_RESTARTING -> DownloadState.Queued
@@ -112,6 +133,7 @@ class Media3DownloadRepository @Inject constructor(@ApplicationContext context: 
         if (enabled) Requirements(Requirements.NETWORK_UNMETERED) else Requirements(0)
 
     private companion object {
+        const val KEY_QUEUE_PAUSED = "queue_paused"
         const val KEY_WIFI_ONLY = "wifi_only"
     }
 }

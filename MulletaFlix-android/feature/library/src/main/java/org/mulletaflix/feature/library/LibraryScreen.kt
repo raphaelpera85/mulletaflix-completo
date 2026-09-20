@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +71,12 @@ fun LibraryScreen(
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = { viewModel.loadLibrary(libraryId) },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             if (state.isLoading && state.items.isEmpty()) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else if (loadError != null && state.items.isEmpty()) {
@@ -127,8 +133,9 @@ fun LibraryScreen(
                             MediaCard(
                                 title = item.name,
                                 imageUrl = item.primaryImageUrl,
-                                shape = if (item.type == MediaItemType.Movie || item.type == MediaItemType.MusicAlbum || item.type == MediaItemType.Book) MediaCardShape.Portrait else MediaCardShape.Landscape,
-                                progress = item.playedPercentage?.toFloat()?.div(100f) ?: 0f,
+                                metadata = item.cardMetadata(),
+                                shape = if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape,
+                                progress = item.playbackProgressFraction(),
                                 isWatched = item.isPlayed,
                                 isFavorite = item.isFavorite,
                                 unplayedCount = item.unplayedItemCount ?: 0,
@@ -173,6 +180,7 @@ fun LibraryScreen(
                     onDismiss = viewModel::hideFilterMenu,
                 )
             }
+        }
         }
     }
 }
@@ -224,6 +232,7 @@ private fun LibraryListRow(item: MediaItem, onClick: () -> Unit) {
         MediaCard(
             title = item.name,
             imageUrl = item.primaryImageUrl,
+            metadata = item.cardMetadata(),
             shape = MediaCardShape.Portrait,
             isWatched = item.isPlayed,
             isFavorite = item.isFavorite,

@@ -18,6 +18,16 @@ class LanServerRecoveryPolicyTest {
     }
 
     @Test
+    fun `does not oscillate when discovery adds whitespace and trailing slash`() {
+        assertFalse(
+            shouldSwitchToLan(
+                currentUrl = " HTTP://192.168.1.20:8096 ",
+                discoveredUrl = "http://192.168.1.20:8096/",
+            ),
+        )
+    }
+
+    @Test
     fun `authenticated session triggers a fresh LAN scan`() {
         assertTrue(shouldScanAfterAuthentication("user-123"))
         assertFalse(shouldScanAfterAuthentication(null))

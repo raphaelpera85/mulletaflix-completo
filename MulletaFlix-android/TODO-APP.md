@@ -595,3 +595,182 @@ Pendências relacionadas:
 - [x] Rejeitar digest inválido ou divergente e manter compatibilidade com releases antigas sem digest.
 - [x] Cobrir digest correto, incorreto e malformado com teste unitário.
 - [x] Ignorar releases com campo de digest presente, mas malformado, antes do download.
+
+## 63. Capas nos downloads offline (próxima release)
+
+- [x] Persistir a referência da capa junto ao item da fila de downloads.
+- [x] Exibir a capa autenticada na lista de downloads quando o servidor estiver acessível.
+- [x] Manter o fallback por ícone e título para entradas antigas ou sem imagem.
+- [x] Cobrir a propagação da referência de capa no caso de uso e no detalhe da mídia.
+
+## 64. Capas verticais completas para filmes e séries (próxima release)
+
+- [x] Renderizar filmes e séries em cards de pôster vertical `2:3` nas grades e favoritos.
+- [x] Preservar a capa inteira com `ContentScale.Fit` nos cards de pôster.
+- [x] Aplicar a mesma proporção vertical aos resultados de busca.
+
+## 65. Regra única para apresentação de capas (próxima release)
+
+- [x] Centralizar no domínio a classificação de mídias que usam arte de pôster.
+- [x] Reutilizar a regra em biblioteca, favoritos e busca.
+- [x] Cobrir filmes, séries, episódios e TV ao vivo com testes unitários.
+
+## 66. Carrossel adaptativo da Home (próxima release)
+
+- [x] Exibir filmes e séries retomados com cards verticais no “Continuar Assistindo”.
+- [x] Manter episódios e canais em cards paisagem nos carrosséis apropriados.
+- [x] Cobrir a política de formato da Home com testes unitários.
+
+## 67. Identificação de episódios nos cards (v1.0.60)
+
+- [x] Exibir temporada e episódio em cards de episódios quando a numeração estiver disponível.
+- [x] Manter o metadado opcional para não alterar cards de filmes, séries e canais.
+- [x] Cobrir numeração completa e incompleta com testes unitários.
+
+## 68. Metadados de episódios consistentes (v1.0.61)
+
+- [x] Centralizar a regra de temporada/episódio no domínio.
+- [x] Reutilizar o metadado em Home, busca, biblioteca, favoritos e detalhe.
+- [x] Cobrir temporadas, episódios e numeração incompleta com testes unitários.
+
+## 69. Marca com contraste MULLETA/FLIX (v1.0.62)
+
+- [x] Exibir “MULLETA” em vermelho e “FLIX” em branco no cabeçalho da Home.
+- [x] Preservar um único texto semântico “MULLETAFLIX” para acessibilidade e testes.
+- [x] Manter contraste adequado sobre o fundo preto.
+
+## 70. Progresso seguro nos cards (v1.0.63)
+
+- [x] Limitar o progresso recebido do servidor ao intervalo aceito pelo Compose.
+- [x] Tratar valores `NaN` e infinitos como progresso inexistente.
+- [x] Cobrir valores negativos, normais, excedentes e não finitos com testes unitários.
+
+## 71. Progresso unificado em toda a UI (v1.0.64)
+
+- [x] Centralizar a conversão percentual do servidor em uma fração segura no domínio.
+- [x] Aplicar a mesma normalização nos cards da Home, biblioteca, favoritos e episódios.
+- [x] Cobrir valores ausentes, negativos, excedentes e não finitos com testes unitários.
+
+## 72. Faixas de áudio e legendas sem opções inválidas (v1.0.65)
+
+- [x] Representar ausência de faixa de áudio com índice `-1`, sem selecionar uma posição inexistente.
+- [x] Desabilitar os controles de áudio e legendas quando o servidor não retornar faixas.
+- [x] Reutilizar a cobertura existente de listas vazias na política de seleção de faixas.
+
+## 73. Política de versionamento semântico
+
+- [x] Manter `1.0.x` até `1.0.99`.
+- [x] Usar `1.1.0` após `1.0.99`, sem criar `1.0.100`.
+- [x] Continuar o incremento semântico (`1.1.1`…`1.1.99`, depois `1.2.0`).
+
+## 74. Atualizador alinhado ao versionamento (v1.0.66)
+
+- [x] Ordenar corretamente a transição `1.0.99` para `1.1.0`.
+- [x] Ignorar releases Android inválidas com patch `100` ou superior.
+- [x] Cobrir a transição e a filtragem com testes do parser de releases.
+
+## 75. Download de atualização com origem confiável (v1.0.67)
+
+- [x] Aceitar downloads somente do endpoint oficial de assets APK do GitHub.
+- [x] Rejeitar HTTP, hosts externos e repositórios diferentes antes do download.
+- [x] Sanitizar o nome local do APK e cobrir URLs confiáveis e maliciosas com testes.
+
+## 76. Limpeza segura do updater (v1.0.68)
+
+- [x] Fechar sempre a resposta HTTP após o download ou falha de rede.
+- [x] Remover APKs parciais em erro HTTP, resposta vazia, hash inválido ou cancelamento.
+- [x] Preservar o cancelamento da coroutine e cobrir a limpeza idempotente com teste unitário.
+
+## 77. Feedback e nova tentativa do updater (v1.0.69)
+
+- [x] Exibir no diálogo o motivo retornado quando o download da atualização falhar.
+- [x] Manter o diálogo aberto após falha, sem exigir reinicialização do aplicativo.
+- [x] Oferecer uma nova tentativa explícita e limpar o erro ao iniciar o novo download.
+- [x] Preservar cancelamento de coroutine sem convertê-lo em erro visual.
+
+## 78. Instalação de atualização com feedback (v1.0.70)
+
+- [x] Não fechar o diálogo antes de confirmar que o instalador Android foi aberto.
+- [x] Informar bloqueios de permissão ou falhas ao iniciar o instalador.
+- [x] Permitir nova tentativa após uma instalação que não pôde ser iniciada.
+
+## 79. Estabilidade da recuperação LAN (v1.0.71)
+
+- [x] Comparar URLs descobertas ignorando espaços e barras finais equivalentes.
+- [x] Evitar alternância repetida entre o mesmo endpoint LAN durante a recuperação.
+- [x] Cobrir aliases de endpoint com teste unitário de regressão.
+
+## 80. Atualizador consistente nas Configurações (v1.0.72)
+
+- [x] Aplicar na tela de Configurações o mesmo feedback de instalação usado na Home.
+- [x] Manter o diálogo aberto quando o instalador Android não puder ser iniciado.
+- [x] Exibir a falha e oferecer “Tentar novamente” sem reiniciar o aplicativo.
+
+## 81. Permissão de notificações no player (v1.0.73)
+
+- [x] Detectar a permissão runtime de notificações em Android 13 ou superior.
+- [x] Exibir aviso não bloqueante para ativar controles de mídia e notificações de downloads.
+- [x] Permitir dispensar o aviso sem interromper a reprodução.
+- [x] Cobrir a política por versão do Android e estado da permissão com testes unitários.
+
+## 82. Lembrança da preferência de notificações (v1.0.74)
+
+- [x] Persistir a dispensa do aviso de notificações no armazenamento local do APK.
+- [x] Não reapresentar o aviso após “Agora não” ou recusa da permissão.
+- [x] Manter o aviso disponível para usuários que ainda não decidiram.
+- [x] Cobrir a política de apresentação para permissão ausente e aviso dispensado.
+
+## 83. Descoberta LAN resiliente (v1.0.75)
+
+- [x] Repetir sondagens UDP durante a janela de descoberta sem aumentar o timeout total.
+- [x] Manter a descoberta responsiva com intervalos curtos de recepção.
+- [x] Cobrir a agenda de tentativas e intervalos inválidos com testes unitários.
+
+## 84. Pausa persistente da fila offline (v1.0.76)
+
+- [x] Persistir o estado de pausa da fila de downloads no armazenamento local.
+- [x] Restaurar a pausa ao recriar o processo do aplicativo.
+- [x] Expor o estado persistido por `Flow` para manter a tela sincronizada.
+- [x] Cobrir pausa, retomada e falha da operação nos testes do módulo.
+
+## 85. Atualização por gesto na biblioteca (v1.0.77)
+
+- [x] Adicionar pull-to-refresh à tela de biblioteca.
+- [x] Separar o estado de atualização da paginação para não exibir feedback incorreto.
+- [x] Manter o botão de atualização manual e o retry de erro compatíveis com o gesto.
+
+## 86. Atualização por gesto em Minha Lista (v1.0.78)
+
+- [x] Conectar o estado `isRefreshing` existente ao indicador visual da tela.
+- [x] Adicionar pull-to-refresh aos favoritos sem interferir na paginação.
+- [x] Preservar o botão manual, retry e estados vazio/erro.
+
+## 87. EPG rolável no Live TV (v1.0.79)
+
+- [x] Renderizar a programação em uma lista virtualizada dentro do diálogo.
+- [x] Limitar a altura do EPG e permitir rolagem vertical para muitos programas.
+- [x] Preservar o agendamento individual e o estado “Agendado”.
+
+## 88. Histórico de busca rolável (v1.0.80)
+
+- [x] Renderizar o histórico em `LazyColumn` para suportar vários itens.
+- [x] Preservar seleção, remoção individual e limpeza completa.
+- [x] Exibir estado vazio orientando o usuário sem conteúdo oculto.
+
+## 89. Busca sem resultados obsoletos (v1.0.81)
+
+- [x] Cancelar a consulta anterior ao iniciar uma nova busca, troca de filtro ou nova tentativa.
+- [x] Identificar cada requisição com uma geração para bloquear respostas atrasadas.
+- [x] Cobrir a corrida entre consultas com teste unitário controlado.
+
+## 90. Atualização por gesto na busca (v1.0.82)
+
+- [x] Adicionar pull-to-refresh aos resultados sem sair da consulta atual.
+- [x] Manter os resultados visíveis enquanto a atualização está em andamento.
+- [x] Cobrir o estado de atualização e a substituição dos resultados após o refresh.
+
+## 91. Rolagem estável na Home (v1.0.83)
+
+- [x] Adicionar chaves estáveis aos cards de mídia nas fileiras horizontais.
+- [x] Adicionar chaves estáveis aos cards de bibliotecas.
+- [x] Evitar que atualizações do servidor troquem a identidade visual dos itens e desloquem a rolagem.

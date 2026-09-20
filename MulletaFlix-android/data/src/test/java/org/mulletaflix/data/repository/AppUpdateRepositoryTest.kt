@@ -27,6 +27,53 @@ class AppUpdateRepositoryTest {
     }
 
     @Test
+    fun `version transition from 1 0 99 to 1 1 0 is ordered correctly`() {
+        assertTrue(repository.isVersionNewer("1.1.0", "1.0.99"))
+        assertFalse(repository.isVersionNewer("1.0.99", "1.1.0"))
+        assertTrue(repository.isSupportedAppVersion("1.1.0"))
+        assertFalse(repository.isSupportedAppVersion("1.0.100"))
+    }
+
+    @Test
+    fun `version cycles keep patch below 100 after minor rollover`() {
+        assertTrue(repository.isSupportedAppVersion("1.1.99"))
+        assertFalse(repository.isSupportedAppVersion("1.1.100"))
+        assertTrue(repository.isVersionNewer("1.2.0", "1.1.99"))
+        assertFalse(repository.isVersionNewer("1.1.100", "1.1.99"))
+    }
+
+    @Test
+    fun `release parser ignores forbidden 1 0 100 and selects 1 1 0`() {
+        val digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        val json = """
+        [
+            {
+                "tag_name": "app-v1.0.100",
+                "assets": [{
+                    "name": "mulletaflix-app-v1.0.100.apk",
+                    "digest": "sha256:$digest",
+                    "browser_download_url": "https://github.com/releases/download/app-v1.0.100/app.apk"
+                }]
+            },
+            {
+                "tag_name": "app-v1.1.0",
+                "assets": [{
+                    "name": "mulletaflix-app-v1.1.0.apk",
+                    "digest": "sha256:$digest",
+                    "browser_download_url": "https://github.com/releases/download/app-v1.1.0/app.apk"
+                }]
+            }
+        ]
+        """.trimIndent()
+
+        val info = repository.parseReleases(json, "1.0.99")
+
+        assertTrue(info.isUpdateAvailable)
+        assertEquals("1.1.0", info.latestVersion)
+        assertEquals("https://github.com/releases/download/app-v1.1.0/app.apk", info.apkDownloadUrl)
+    }
+
+    @Test
     fun `parseReleases detects newer APK and populates metadata`() {
         val json = """
         [

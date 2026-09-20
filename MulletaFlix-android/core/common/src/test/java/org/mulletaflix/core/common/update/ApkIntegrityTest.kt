@@ -32,6 +32,25 @@ class ApkIntegrityTest {
         }
     }
 
+    @Test
+    fun `only official github release apk urls are trusted`() {
+        assertTrue(isTrustedApkDownloadUrl("https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.0.66/mulletaflix-app-v1.0.66.apk"))
+        assertFalse(isTrustedApkDownloadUrl("http://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.0.66/app.apk"))
+        assertFalse(isTrustedApkDownloadUrl("https://evil.example/raphaelpera85/mulletaflix-completo/releases/download/app-v1.0.66/app.apk"))
+        assertFalse(isTrustedApkDownloadUrl("https://github.com/other/repository/releases/download/app-v1.0.66/app.apk"))
+    }
+
+    @Test
+    fun `partial apk cleanup is idempotent`() {
+        val file = temporaryApk("partial-update")
+
+        deletePartialApk(file)
+        deletePartialApk(file)
+        deletePartialApk(null)
+
+        assertFalse(file.exists())
+    }
+
     private fun temporaryApk(content: String): File = File.createTempFile("mulletaflix-", ".apk").apply {
         writeText(content, StandardCharsets.UTF_8)
     }

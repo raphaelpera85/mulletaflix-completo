@@ -19,6 +19,7 @@ import javax.inject.Inject
 
 private const val DISCOVERY_PORT = 7359
 private const val DISCOVERY_MESSAGE = "who is MulletaFlixServer?"
+private const val DISCOVERY_RETRY_INTERVAL_MS = 750
 
 /** Discovers MulletaFlix/Jellyfin-compatible servers on the current LAN. */
 class LocalServerDiscovery @Inject constructor(
@@ -37,14 +38,27 @@ class LocalServerDiscovery @Inject constructor(
                 socket.soTimeout = 250
                 val request = DISCOVERY_MESSAGE.toByteArray(Charsets.UTF_8)
                 val targets = (broadcastAddresses + InetAddress.getByName("255.255.255.255")).distinct()
-                targets.forEach { target ->
-                    socket.send(DatagramPacket(request, request.size, target, DISCOVERY_PORT))
-                }
-
                 val deadline = System.currentTimeMillis() + timeoutMs.coerceAtLeast(0)
+                val probeDelays = discoveryProbeDelays(timeoutMs)
+                var probeIndex = 0
+                var nextProbeAt = System.currentTimeMillis()
                 while (System.currentTimeMillis() < deadline) {
+                    val now = System.currentTimeMillis()
+                    if (probeIndex < probeDelays.size && now >= nextProbeAt) {
+                        targets.forEach { target ->
+                            socket.send(DatagramPacket(request, request.size, target, DISCOVERY_PORT))
+                        }
+                        probeIndex += 1
+                        nextProbeAt = System.currentTimeMillis() +
+                            (probeDelays.getOrNull(probeIndex)?.minus(probeDelays[probeIndex - 1])
+                                ?: DISCOVERY_RETRY_INTERVAL_MS)
+                    }
                     val buffer = ByteArray(4096)
                     val packet = DatagramPacket(buffer, buffer.size)
+                    socket.soTimeout = minOf(
+                        250,
+                        (deadline - System.currentTimeMillis()).coerceAtLeast(1L).toInt(),
+                    )
                     try {
                         socket.receive(packet)
                         parseDiscoveryResponse(String(packet.data, 0, packet.length, Charsets.UTF_8))?.let { server ->
@@ -93,6 +107,19 @@ class LocalServerDiscovery @Inject constructor(
             .toList()
     }.getOrDefault(emptyList())
 
+}
+
+/** Returns retry offsets without exceeding the discovery window. */
+internal fun discoveryProbeDelays(
+    timeoutMs: Int,
+    retryIntervalMs: Int = DISCOVERY_RETRY_INTERVAL_MS,
+): List<Int> {
+    val timeout = timeoutMs.coerceAtLeast(0)
+    val interval = retryIntervalMs.coerceAtLeast(1)
+    if (timeout == 0) return emptyList()
+    return generateSequence(0) { previous -> previous + interval }
+        .takeWhile { it < timeout }
+        .toList()
 }
 
 /** Parses the Jellyfin/MulletaFlix UDP discovery payload safely. */

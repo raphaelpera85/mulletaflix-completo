@@ -17,6 +17,30 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $androidDir = Join-Path $projectRoot 'MulletaFlix-android'
 
+function Normalize-AppVersion {
+    param([Parameter(Mandatory)][string]$Value)
+
+    if ($Value -notmatch '^([0-9]+)\.([0-9]+)\.([0-9]+)$') {
+        throw "Versão inválida '$Value'. Use o formato semântico X.Y.Z."
+    }
+
+    $major = [int64]$Matches[1]
+    $minor = [int64]$Matches[2]
+    $patch = [int64]$Matches[3]
+
+    # O APK segue SemVer: não criamos versões 1.0.100; fazemos o carry para 1.1.0.
+    if ($patch -ge 100) {
+        $minor += [math]::Floor($patch / 100)
+        $patch = $patch % 100
+    }
+    if ($minor -ge 100) {
+        $major += [math]::Floor($minor / 100)
+        $minor = $minor % 100
+    }
+
+    return "$major.$minor.$patch"
+}
+
 if (-not $Version) {
     $gradleFile = Join-Path $androidDir 'app\build.gradle.kts'
     if (Test-Path -LiteralPath $gradleFile) {
@@ -29,6 +53,7 @@ if (-not $Version) {
         $Version = "1.0.0"
     }
 }
+$Version = Normalize-AppVersion $Version
 
 if (-not $OutputDir) {
     $OutputDir = Join-Path $projectRoot 'dist'

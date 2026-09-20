@@ -48,6 +48,10 @@ import org.mulletaflix.designsystem.media.resolveMediaUrl
  */
 enum class MediaCardShape { Portrait, Landscape, Square, Banner }
 
+/** Keeps server-provided resume values safe for Compose's fraction modifiers. */
+internal fun normalizedCardProgress(progress: Float): Float =
+    if (progress.isFinite()) progress.coerceIn(0f, 1f) else 0f
+
 /**
  * Reusable media card composable used across Home, Library, Search and Detail screens.
  *
@@ -64,6 +68,7 @@ enum class MediaCardShape { Portrait, Landscape, Square, Banner }
 fun MediaCard(
     title: String,
     imageUrl: String?,
+    metadata: String? = null,
     modifier: Modifier = Modifier,
     shape: MediaCardShape = MediaCardShape.Portrait,
     progress: Float = 0f,            // 0..1, 0 = not shown
@@ -74,6 +79,7 @@ fun MediaCard(
     isLive: Boolean = false,
     onClick: () -> Unit = {}
 ) {
+    val normalizedProgress = normalizedCardProgress(progress)
     val aspectRatio = when (shape) {
         MediaCardShape.Portrait -> 2f / 3f
         MediaCardShape.Landscape -> 16f / 9f
@@ -112,7 +118,7 @@ fun MediaCard(
         SubcomposeAsyncImage(
             model = resolvedImageUrl,
             contentDescription = title,
-            contentScale = ContentScale.Crop,
+            contentScale = if (shape == MediaCardShape.Portrait) ContentScale.Fit else ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         ) {
             val state = painter.state
@@ -187,7 +193,7 @@ fun MediaCard(
         )
 
         // Progress bar
-        if (progress > 0f && !isWatched) {
+        if (normalizedProgress > 0f && !isWatched) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -198,7 +204,7 @@ fun MediaCard(
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(progress)
+                        .fillMaxWidth(normalizedProgress)
                         .background(MulletaFlixRed)
                 )
             }
@@ -279,6 +285,16 @@ fun MediaCard(
           overflow = TextOverflow.Ellipsis,
           modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp)
       )
+      metadata?.takeIf { it.isNotBlank() }?.let { label ->
+          Text(
+              text = label,
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.padding(top = 2.dp, start = 2.dp, end = 2.dp),
+          )
+      }
     }
 }
 

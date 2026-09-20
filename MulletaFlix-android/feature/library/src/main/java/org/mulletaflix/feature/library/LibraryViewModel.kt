@@ -17,6 +17,7 @@ data class LibraryState(
     val libraryName: String = "Biblioteca",
     val isGridView: Boolean = true,
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val items: List<MediaItem> = emptyList(),
     val activeFilters: List<String> = emptyList(),
     val hasMore: Boolean = false,
@@ -64,10 +65,10 @@ class LibraryViewModel @Inject constructor(
         currentStartIndex = 0
         loadJob = viewModelScope.launch {
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
-                _state.update { it.copy(isLoading = false, error = "Sessão expirada. Entre novamente.") }
+                _state.update { it.copy(isLoading = false, isRefreshing = false, error = "Sessão expirada. Entre novamente.") }
                 return@launch
             }
-            _state.update { it.copy(isLoading = true, error = null) }
+            _state.update { it.copy(isLoading = true, isRefreshing = true, error = null) }
 
             // Get library details (name + collection type drive the browse query)
             val libResult = getItemDetailUseCase(userId, libraryId)
@@ -92,11 +93,12 @@ class LibraryViewModel @Inject constructor(
                         items = items,
                         hasMore = items.size < total,
                         isLoading = false,
+                        isRefreshing = false,
                         error = null,
                     )
                 }
             }.onFailure { error ->
-                _state.update { it.copy(isLoading = false, error = error.message ?: "Não foi possível carregar a biblioteca.") }
+                _state.update { it.copy(isLoading = false, isRefreshing = false, error = error.message ?: "Não foi possível carregar a biblioteca.") }
             }
         }
     }

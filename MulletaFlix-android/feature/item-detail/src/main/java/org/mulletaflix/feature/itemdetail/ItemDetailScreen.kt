@@ -440,7 +440,7 @@ private fun SimilarSection(items: List<MediaItem>, onItemClick: (String) -> Unit
         SectionTitle("Mais como Este")
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(items) { item ->
-                MediaCard(title = item.name, imageUrl = item.primaryImageUrl, shape = MediaCardShape.Portrait, onClick = { onItemClick(item.id) }, modifier = Modifier.width(110.dp))
+                MediaCard(title = item.name, imageUrl = item.primaryImageUrl, metadata = item.cardMetadata(), shape = MediaCardShape.Portrait, onClick = { onItemClick(item.id) }, modifier = Modifier.width(110.dp))
             }
         }
     }
@@ -452,7 +452,7 @@ private fun SpecialFeaturesSection(items: List<MediaItem>, onPlay: (String) -> U
         SectionTitle("Extras")
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(items) { item ->
-                MediaCard(title = item.name, imageUrl = item.primaryImageUrl, shape = MediaCardShape.Landscape, onClick = { onPlay(item.id) }, modifier = Modifier.width(200.dp))
+                MediaCard(title = item.name, imageUrl = item.primaryImageUrl, metadata = item.cardMetadata(), shape = MediaCardShape.Landscape, onClick = { onPlay(item.id) }, modifier = Modifier.width(200.dp))
             }
         }
     }

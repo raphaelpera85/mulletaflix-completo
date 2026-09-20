@@ -2,6 +2,7 @@ package org.mulletaflix.core.common.update
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -44,9 +45,20 @@ class AppUpdateDownloader @Inject constructor(
     ): Flow<DownloadState> = flow {
         emit(DownloadState.Downloading(0f, 0L, -1L))
 
+        var destinationFile: File? = null
+        var completed = false
         try {
+            if (!isTrustedApkDownloadUrl(downloadUrl)) {
+                emit(DownloadState.Error("A origem do APK não é confiável."))
+                return@flow
+            }
+
             val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
-            val destinationFile = File(updatesDir, "mulletaflix-app-v$versionName.apk")
+            val safeVersionName = versionName
+                .trim()
+                .replace(Regex("[^0-9A-Za-z._-]"), "_")
+                .ifBlank { "unknown" }
+            destinationFile = File(updatesDir, "mulletaflix-app-v$safeVersionName.apk")
 
             if (destinationFile.exists()) {
                 destinationFile.delete()
@@ -58,54 +70,63 @@ class AppUpdateDownloader @Inject constructor(
                 .get()
                 .build()
 
-            val response = httpClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                emit(DownloadState.Error("Falha no download do APK: HTTP ${response.code}"))
-                return@flow
-            }
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    emit(DownloadState.Error("Falha no download do APK: HTTP ${response.code}"))
+                    return@flow
+                }
 
-            val body = response.body
-            if (body == null) {
-                emit(DownloadState.Error("Resposta vazia ao baixar o APK."))
-                return@flow
-            }
+                val body = response.body
+                if (body == null) {
+                    emit(DownloadState.Error("Resposta vazia ao baixar o APK."))
+                    return@flow
+                }
 
-            val totalBytes = body.contentLength()
-            var bytesDownloaded = 0L
+                val totalBytes = body.contentLength()
+                var bytesDownloaded = 0L
 
-            body.byteStream().use { input ->
-                FileOutputStream(destinationFile).use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var bytesRead: Int
+                body.byteStream().use { input ->
+                    FileOutputStream(destinationFile).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var bytesRead: Int
 
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        bytesDownloaded += bytesRead
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            bytesDownloaded += bytesRead
 
-                        val progress = if (totalBytes > 0) {
-                            (bytesDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
-                        } else {
-                            0f
+                            val progress = if (totalBytes > 0) {
+                                (bytesDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
+
+                            emit(DownloadState.Downloading(progress, bytesDownloaded, totalBytes))
                         }
-
-                        emit(DownloadState.Downloading(progress, bytesDownloaded, totalBytes))
+                        output.flush()
                     }
-                    output.flush()
                 }
             }
 
-            if (destinationFile.exists() && destinationFile.length() > 0) {
-                if (expectedSha256 != null && !sha256Matches(destinationFile, expectedSha256)) {
-                    destinationFile.delete()
+            val downloadedFile = destinationFile
+            if (downloadedFile?.exists() == true && downloadedFile.length() > 0) {
+                if (expectedSha256 != null && !sha256Matches(downloadedFile, expectedSha256)) {
+                    deletePartialApk(downloadedFile)
                     emit(DownloadState.Error("A assinatura SHA-256 do APK não confere."))
                     return@flow
                 }
-                emit(DownloadState.Completed(destinationFile))
+                emit(DownloadState.Completed(downloadedFile))
+                completed = true
             } else {
                 emit(DownloadState.Error("Arquivo baixado está corrompido ou vazio."))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             emit(DownloadState.Error("Erro durante o download: ${e.localizedMessage ?: e.message}"))
+        } finally {
+            if (!completed) {
+                deletePartialApk(destinationFile)
+            }
         }
     }.flowOn(Dispatchers.IO)
 }

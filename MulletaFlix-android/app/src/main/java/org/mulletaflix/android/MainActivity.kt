@@ -34,6 +34,7 @@ import androidx.media3.common.util.UnstableApi
 import javax.inject.Inject
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
 
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -83,6 +84,7 @@ class MainActivity : ComponentActivity() {
             var isDownloadingUpdate by remember { mutableStateOf(false) }
             var updateProgress by remember { mutableStateOf(0f) }
             var showUpdateDialog by remember { mutableStateOf(false) }
+            var updateError by remember { mutableStateOf<String?>(null) }
 
             val coroutineScope = rememberCoroutineScope()
             val context = LocalContext.current
@@ -195,6 +197,14 @@ class MainActivity : ComponentActivity() {
                                                 modifier = Modifier.padding(top = 4.dp),
                                             )
                                         }
+                                        updateError?.let { error ->
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text(
+                                                text = error,
+                                                color = MaterialTheme.colorScheme.error,
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
                                     }
                                 },
                                 confirmButton = {
@@ -202,32 +212,59 @@ class MainActivity : ComponentActivity() {
                                         onClick = {
                                             val downloadUrl = update.apkDownloadUrl ?: return@Button
                                             coroutineScope.launch {
+                                                updateError = null
+                                                updateProgress = 0f
                                                 isDownloadingUpdate = true
-                                                appUpdateDownloader.downloadApk(
-                                                    downloadUrl = downloadUrl,
-                                                    versionName = update.latestVersion,
-                                                    expectedSha256 = update.apkSha256,
-                                                ).collect { downloadState ->
-                                                    when (downloadState) {
-                                                        is DownloadState.Downloading -> {
-                                                            updateProgress = downloadState.progress
+                                                try {
+                                                    appUpdateDownloader.downloadApk(
+                                                        downloadUrl = downloadUrl,
+                                                        versionName = update.latestVersion,
+                                                        expectedSha256 = update.apkSha256,
+                                                    ).collect { downloadState ->
+                                                        when (downloadState) {
+                                                            is DownloadState.Downloading -> {
+                                                                updateProgress = downloadState.progress
+                                                            }
+                                                            is DownloadState.Completed -> {
+                                                                isDownloadingUpdate = false
+                                                                val installationStarted = runCatching {
+                                                                    AppUpdateInstaller.installApk(context, downloadState.file)
+                                                                }.getOrElse { error ->
+                                                                    updateError = error.localizedMessage
+                                                                        ?: "Não foi possível abrir o instalador do APK."
+                                                                    false
+                                                                }
+                                                                if (installationStarted) {
+                                                                    showUpdateDialog = false
+                                                                } else if (updateError == null) {
+                                                                    updateError = "Permita a instalação de fontes desconhecidas e tente novamente."
+                                                                }
+                                                            }
+                                                            is DownloadState.Error -> {
+                                                                isDownloadingUpdate = false
+                                                                updateError = downloadState.message
+                                                            }
+                                                            DownloadState.Idle -> Unit
                                                         }
-                                                        is DownloadState.Completed -> {
-                                                            isDownloadingUpdate = false
-                                                            showUpdateDialog = false
-                                                            AppUpdateInstaller.installApk(context, downloadState.file)
-                                                        }
-                                                        is DownloadState.Error -> {
-                                                            isDownloadingUpdate = false
-                                                        }
-                                                        DownloadState.Idle -> Unit
                                                     }
+                                                } catch (error: CancellationException) {
+                                                    throw error
+                                                } catch (error: Exception) {
+                                                    isDownloadingUpdate = false
+                                                    updateError = error.localizedMessage
+                                                        ?: "Não foi possível baixar a atualização."
                                                 }
                                             }
                                         },
                                         enabled = !isDownloadingUpdate && !update.apkDownloadUrl.isNullOrBlank(),
                                     ) {
-                                        Text(if (isDownloadingUpdate) "Baixando..." else "Atualizar Agora")
+                                        Text(
+                                            when {
+                                                isDownloadingUpdate -> "Baixando..."
+                                                updateError != null -> "Tentar novamente"
+                                                else -> "Atualizar Agora"
+                                            },
+                                        )
                                     }
                                 },
                                 dismissButton = {

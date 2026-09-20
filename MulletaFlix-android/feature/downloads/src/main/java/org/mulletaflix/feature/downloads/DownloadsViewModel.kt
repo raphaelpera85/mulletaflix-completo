@@ -6,7 +6,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 import javax.inject.Inject
@@ -22,6 +24,12 @@ class DownloadsViewModel @Inject constructor(
     val queuePaused: StateFlow<Boolean> = _queuePaused
     val wifiOnly: StateFlow<Boolean> = manageDownloadsUseCase.observeWifiOnly()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    init {
+        viewModelScope.launch {
+            manageDownloadsUseCase.observeQueuePaused().collect { _queuePaused.value = it }
+        }
+    }
 
     fun remove(id: String) {
         manageDownloadsUseCase.remove(id)

@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.domain.model.Playlist
+import org.mulletaflix.domain.model.primaryImageUrl
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.MediaRepository
@@ -226,7 +227,7 @@ class ItemDetailViewModel @Inject constructor(
                 }
                 .fold(
                     onSuccess = { url ->
-                        manageDownloadsUseCase.enqueue(item.id, item.name, url)
+                        manageDownloadsUseCase.enqueueWithMetadata(item.id, item.name, url, item.primaryImageUrl)
                             .onSuccess { _state.update { it.copy(downloadMessage = "Download adicionado à fila.") } }
                             .onFailure { e -> _state.update { it.copy(downloadMessage = e.message ?: "Não foi possível iniciar o download.") } }
                     },

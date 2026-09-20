@@ -171,8 +171,13 @@ private fun GuideContent(state: LiveTvUiState, onSchedule: (MediaItem) -> Unit) 
         state.isLoadingGuide -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         state.guideError != null -> Text(state.guideError)
         state.programs.isEmpty() -> Text("Nenhum programa encontrado para as próximas 24 horas.")
-        else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            state.programs.forEach { program ->
+        else -> LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 420.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(state.programs, key = { it.id }) { program ->
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                     Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -184,10 +189,10 @@ private fun GuideContent(state: LiveTvUiState, onSchedule: (MediaItem) -> Unit) 
                             val scheduled = program.id in state.scheduledProgramIds
                             TextButton(onClick = { onSchedule(program) }, enabled = !scheduled && state.schedulingProgramId != program.id) {
                                 Text(if (scheduled) "Agendado" else if (state.schedulingProgramId == program.id) "Agendando…" else "Gravar")
-                            }
-                        }
-                    }
                 }
+            }
+        }
+}
             }
         }
     }

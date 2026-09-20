@@ -290,6 +290,14 @@ fun SettingsScreen(
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
                             }
+                            state.updateErrorMessage?.let { error ->
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = error,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                         }
                     },
                     confirmButton = {
@@ -297,7 +305,13 @@ fun SettingsScreen(
                             onClick = { viewModel.downloadAndInstallUpdate(context) },
                             enabled = !state.isDownloadingUpdate && !update.apkDownloadUrl.isNullOrBlank()
                         ) {
-                            Text(if (state.isDownloadingUpdate) "Baixando..." else "Atualizar Agora")
+                            Text(
+                                when {
+                                    state.isDownloadingUpdate -> "Baixando..."
+                                    state.updateErrorMessage != null -> "Tentar novamente"
+                                    else -> "Atualizar Agora"
+                                },
+                            )
                         }
                     },
                     dismissButton = {

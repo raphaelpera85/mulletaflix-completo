@@ -85,6 +85,43 @@ class ItemDetailViewModelTest {
     }
 
     @Test
+    fun `downloadItem preserves the canonical cover reference`() = runTest {
+        val movie = MediaItem(
+            id = "m1",
+            name = "Test Movie",
+            type = MediaItemType.Movie,
+            imageTags = mapOf(ImageType.Primary to "cover-1"),
+        )
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(movie)
+        }
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ): Result<PlaybackInfo> = Result.success(
+                PlaybackInfo(
+                    playSessionId = "session-1",
+                    mediaSources = listOf(MediaSource(id = "source-1", directStreamUrl = "https://server/media.mkv")),
+                ),
+            )
+        }
+        val downloadRepo = FakeDownloadRepository()
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo, downloadRepo = downloadRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem("m1")
+        advanceUntilIdle()
+        viewModel.downloadItem()
+        advanceUntilIdle()
+
+        assertEquals("Items/m1/Images/Primary?tag=cover-1", downloadRepo.lastImageUrl)
+    }
+
+    @Test
     fun `loadItem for series loads seasons and auto selects first season`() = runTest {
         val series = MediaItem(id = "s1", name = "Test Series", type = MediaItemType.Series)
         val seasons = listOf(
@@ -468,7 +505,12 @@ class ItemDetailViewModelTest {
     }
 
     private open class FakeDownloadRepository : DownloadRepository {
+        var lastImageUrl: String? = null
         override fun enqueue(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
+        override fun enqueueWithMetadata(id: String, title: String, uri: String, imageUrl: String?): Result<Unit> {
+            lastImageUrl = imageUrl
+            return Result.success(Unit)
+        }
         override fun retry(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
         override fun remove(id: String): Result<Unit> = Result.success(Unit)
         override fun pauseAll(): Result<Unit> = Result.success(Unit)
@@ -482,4 +524,3 @@ class ItemDetailViewModelTest {
         override suspend fun addItem(userId: String, playlistId: String, itemId: String): Result<Unit> = Result.success(Unit)
     }
 }
-
