@@ -22,6 +22,7 @@ import org.junit.Test
 import java.nio.file.Files
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.domain.model.AppUpdateInfo
+import org.mulletaflix.domain.model.LibrarySortField
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.*
 import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
@@ -137,7 +138,7 @@ class SettingsViewModelTest {
         val viewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
         advanceUntilIdle()
 
-        assertEquals("Data de lançamento", viewModel.state.value.librarySort)
+        assertEquals("Data de Lançamento", viewModel.state.value.librarySort)
         viewModel.setLibrarySort("Avaliação")
         advanceUntilIdle()
 
@@ -150,6 +151,48 @@ class SettingsViewModelTest {
         directionViewModel.setLibrarySortOrder("Ascendente")
         advanceUntilIdle()
         assertEquals("Ascending", settingsRepo.librarySortOrder)
+    }
+
+    @Test
+    fun `settings shows the stored sort for every field the library menu offers`() = runTest {
+        // The library menu and this screen used to keep separate lists of labels,
+        // so fields 5-8 were displayed as "Nome" even though the library was
+        // ordered by them.
+        LibrarySortField.entries.forEach { field ->
+            val settingsRepo = FakeSettingsRepository().apply { librarySort = field.code }
+            val authRepo = FakeAuthRepository()
+            val viewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
+            advanceUntilIdle()
+
+            assertEquals(
+                "sort ${field.code} was displayed as the wrong field",
+                field.label,
+                viewModel.state.value.librarySort,
+            )
+        }
+    }
+
+    @Test
+    fun `confirming the displayed sort keeps the stored field`() = runTest {
+        // The defect that mattered: the settings dialog hands back the label it
+        // displayed, and the ViewModel re-derived the code from that label. An
+        // unrecognised label fell back to "Nome", so merely confirming the
+        // dialog destroyed the user's actual choice.
+        LibrarySortField.entries.forEach { field ->
+            val settingsRepo = FakeSettingsRepository().apply { librarySort = field.code }
+            val authRepo = FakeAuthRepository()
+            val viewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
+            advanceUntilIdle()
+
+            viewModel.setLibrarySort(viewModel.state.value.librarySort)
+            advanceUntilIdle()
+
+            assertEquals(
+                "confirming the value shown for ${field.code} overwrote it",
+                field.code,
+                settingsRepo.librarySort,
+            )
+        }
     }
 
     @Test

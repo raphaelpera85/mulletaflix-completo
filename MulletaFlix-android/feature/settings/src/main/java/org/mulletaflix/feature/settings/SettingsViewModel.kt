@@ -16,6 +16,7 @@ import org.mulletaflix.core.common.update.AppUpdateInstaller
 import org.mulletaflix.core.common.update.DownloadState
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.domain.model.AppUpdateInfo
+import org.mulletaflix.domain.model.LibrarySortField
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SettingsRepository
@@ -26,11 +27,6 @@ import javax.inject.Inject
 
 private const val LIBRARY_GRID_DENSITY_COMFORTABLE = "COMFORTABLE"
 private const val LIBRARY_GRID_DENSITY_COMPACT = "COMPACT"
-private const val LIBRARY_SORT_NAME = "SortName"
-private const val LIBRARY_SORT_DATE_ADDED = "DateCreated"
-private const val LIBRARY_SORT_RELEASE_DATE = "PremiereDate"
-private const val LIBRARY_SORT_RUNTIME = "Runtime"
-private const val LIBRARY_SORT_RATING = "CommunityRating"
 private const val LIBRARY_SORT_ORDER_ASCENDING = "Ascending"
 private const val LIBRARY_SORT_ORDER_DESCENDING = "Descending"
 
@@ -527,21 +523,9 @@ class SettingsViewModel @Inject constructor(
         else -> LIBRARY_GRID_DENSITY_COMFORTABLE
     }
 
-    private fun librarySortLabel(value: String?): String = when (value?.trim()) {
-        LIBRARY_SORT_DATE_ADDED -> "Data de adição"
-        LIBRARY_SORT_RELEASE_DATE -> "Data de lançamento"
-        LIBRARY_SORT_RUNTIME -> "Duração"
-        LIBRARY_SORT_RATING -> "Avaliação"
-        else -> "Nome"
-    }
+    private fun librarySortLabel(value: String?): String = LibrarySortField.fromCode(value).label
 
-    private fun librarySortCode(label: String): String = when (label) {
-        "Data de adição" -> LIBRARY_SORT_DATE_ADDED
-        "Data de lançamento" -> LIBRARY_SORT_RELEASE_DATE
-        "Duração" -> LIBRARY_SORT_RUNTIME
-        "Avaliação" -> LIBRARY_SORT_RATING
-        else -> LIBRARY_SORT_NAME
-    }
+    private fun librarySortCode(label: String): String = LibrarySortField.fromLabel(label).code
 
     private fun librarySortOrderLabel(value: String?): String =
         if (value?.trim().equals(LIBRARY_SORT_ORDER_DESCENDING, ignoreCase = true)) "Descendente" else "Ascendente"

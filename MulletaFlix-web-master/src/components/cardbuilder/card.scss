@@ -50,6 +50,14 @@ button::-moz-focus-inner {
     justify-content: center;
 }
 
+/* Remote image results must not collapse when the source image has no
+ * dimensions or fails lazy loading. */
+.availableImagesList > .remoteImageCard {
+    flex: 0 0 18em;
+    width: 18em;
+    min-width: 18em;
+}
+
 .cardScalable {
     position: relative;
     contain: layout style;

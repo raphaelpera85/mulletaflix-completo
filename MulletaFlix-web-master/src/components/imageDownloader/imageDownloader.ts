@@ -276,7 +276,10 @@ function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
     if (!safeImageUrl) {
         return '';
     }
-    let cssClass = 'card scalableCard imageEditorCard ' + shape + 'Card ' + shape + 'Card-scalable';
+    // Remote providers may return an image without usable dimensions. Keep the
+    // selection card sized by the layout, instead of allowing it to collapse to
+    // the width of the provider/title text.
+    let cssClass = 'card scalableCard imageEditorCard remoteImageCard ' + shape + 'Card ' + shape + 'Card-scalable';
 
     if (tagName === 'button') {
         cssClass += ' btnImageCard';

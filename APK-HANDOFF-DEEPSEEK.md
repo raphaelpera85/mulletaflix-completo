@@ -50,17 +50,17 @@ Fable: intenção/aceite
 
 ## Estado confirmado
 
-- Versão atual do APK: **1.2.47**.
-- `versionCode`: **248**.
-- Última release: [app-v1.2.47](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.47) (ID 393201907).
-- APK: [mulletaflix-app-v1.2.47.apk](https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.2.47/mulletaflix-app-v1.2.47.apk).
+- Versão atual do APK: **1.2.48**.
+- `versionCode`: **249**.
+- Última release: [app-v1.2.48](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.48) (ID 393225024).
+- APK: [mulletaflix-app-v1.2.48.apk](https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.2.48/mulletaflix-app-v1.2.48.apk).
 - Tamanho confirmado local/remoto: **7.324.749 bytes**.
-- SHA-256 confirmado local/remoto: `855749A2276B1F89522F9CE4B395625F160C6E7C63532B01BC764621BBAA431B`.
-- Release anterior conferida antes do pacote: [app-v1.2.46](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.46) — 7.324.749 bytes, `sha256:d6bb5dc636b1364634f8f58dc7ee927ffbbb642c056019d0a3c840fbe25c55c7`.
-- Quality Bar desta rodada: **593 testes unitários, 0 falhas**; **45 testes instrumentados** na AVD `MulletaflixTvApi34`, 0 falhas; `:app:lintDebug` código 0; `:app:assembleRelease` código 0; conferida por `aapt2` como `versionCode=248 / versionName=1.2.47`.
+- SHA-256 confirmado local/remoto: `EC1948C5133F7A7EB885E8947699AFE2E87ED566F8A1A7D6123BA4E05CD2695F`.
+- Release anterior conferida antes do pacote: [app-v1.2.47](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.47) — 7.324.749 bytes, `sha256:855749a2276b1f89522f9ce4b395625f160c6e7c63532b01bc764621bbaa431b`.
+- Quality Bar desta rodada: **605 testes unitários, 0 falhas**; `:app:lintDebug` código 0; `:app:assembleRelease` código 0; conferida por `aapt2` como `versionCode=249 / versionName=1.2.48`.
 - Nenhum emulador permaneceu aberto (`emulator=0`, `qemu=0`).
-- **A API do GitHub limita requisições anônimas.** Na rodada 9 a verificação do digest remoto falhou com `API rate limit exceeded` até usar o token do Git Credential Manager. Para conferir o artefato remoto, sempre autenticar a chamada (o `publish-app-release.ps1` já faz isso).
-- **O servidor MulletaFlix voltou ao ar na rodada 7** (`127.0.0.1:8096` → 200 e DuckDNS → 200). A confirmação do 429 nas capas continua pendente: o servidor não expõe usuários públicos (`/Users/Public` responde `[]`) e não há conta sem senha, então não é possível autenticar sem a credencial do usuário.
+- **A API do GitHub limita requisições anônimas.** Conferir o artefato remoto exige chamada autenticada (o `publish-app-release.ps1` já faz).
+- **O servidor MulletaFlix voltou ao ar na rodada 7.** A confirmação do 429 nas capas continua pendente: o servidor não expõe usuários públicos (`/Users/Public` responde `[]`) e não há conta sem senha, então não é possível autenticar sem a credencial do usuário.
 
 > Diagnóstico do 429 — evidência indireta que ficou mais forte (rodada 7): no log do
 > servidor, **todos** os avisos `Rate limit exceeded for anonymous requests` de
@@ -78,6 +78,82 @@ Fable: intenção/aceite
 
 > Histórico: a v1.2.40 foi a última release antes desta rodada e foi instalada no
 > Android TV com `Success`.
+
+## Rodada v1.2.48 — três defeitos confirmados por auditoria delegada
+
+Duas auditorias independentes em paralelo (somente leitura) varreram areas que eu
+ainda nao tinha olhado: persistencia de settings e stack offline/downloads. As
+duas acharam defeitos reais, todos confirmados por leitura de codigo e por teste
+que reprova sem a correcao.
+
+### D1 — o tema escolhido nunca era aplicado [ALTO]
+
+`SettingsViewModel` mantinha uma copia privada do mapeamento tema→variante e a
+exibia em Configuracoes, mas o app root chamava `MulletaFlixTheme()` **sem** a
+variante, entao o default `Dark` valia sempre. Nenhum composable lia
+`LocalMulletaFlixThemeVariant`.
+
+Efeito: escolher Claro, Netflix, Purple Haze, Blue Radiance ou Sistema gravava a
+preferencia, mostrava o nome escolhido e nao mudava uma cor.
+
+Correcao: a raiz le `settingsRepository.getTheme()` e aplica a variante; o
+mapeamento passou a existir em **um** lugar (`ThemeVariantMapper.kt` em
+`:feature:settings`, o modulo onde `:domain` e `:design-system` ja se encontram),
+com `toThemeVariant()` e o inverso `toAppThemeSetting()`. O
+`ThemeVariantMapperTest` verifica que os 8 valores mapeiam e voltam — era
+exatamente a duplicacao que deixou os dois lados divergirem.
+
+### D2 — titulo offline exibido com `+` no lugar de espacos [MEDIO]
+
+`MulletaFlixRoute.offlinePlayer` codificava com `URLEncoder`, que transforma
+espaco em `+`. O Navigation decodifica query com `Uri.getQueryParameters`
+(RFC 3986) e **nao** converte `+` de volta: o player offline mostrava
+`O+Retorno+de+Jedi`.
+
+Correcao: `encodeRouteQueryArgument`, um codificador RFC 3986 livre de
+`android.net.Uri` para poder ser testado na JVM — no teste unitario
+`Uri.encode` retorna null (`unitTests.isReturnDefaultValues = true`), e foi
+exatamente isso que esconde o defeito ate agora.
+
+O teste que existia **cristalizava** o comportamento errado
+(`route.contains("Movie+%26+Show")`) e foi corrigido. Reintroduzindo o
+`URLEncoder`, 5 testes falham.
+
+A metade de decodificacao ficou em
+`app/src/androidTest/.../OfflineRouteDecodingTest`, onde o framework real existe.
+
+### D3 — downloads anteriores a 1.0.6 ficavam inalcancaveis para sempre [MEDIO]
+
+Versoes ate 1.0.6 gravavam o id cru da midia, sem `owner:` nem escopo de conta.
+`downloadBelongsToUser` filtra entradas sem `owner:`, entao elas nunca apareciam
+na lista — nao podiam ser retomadas, removidas, nem alcancadas por "Limpar
+concluidos". Os bytes ficavam no aparelho sem nenhuma forma de recuperar o espaco
+pelo app.
+
+Correcao: `isLegacyUnscopedDownload` identifica o caso e a conta ativa **adota** a
+entrada na primeira vez que a ve, gravando `owner:` e `item:`. O id e resolvido
+explicitamente em vez de reler o metadata recem-escrito, para nao depender do
+momento em que a edicao fica visivel.
+
+**O que NAO foi verificado:** o caminho de adocao em si. Ele toca
+`DownloadManager`, que exige um aparelho com download real, entao a prova foi feita
+na politica pura (`DownloadIdentityTest`). A adocao em um aparelho que tenha
+downloads da 1.0.6 continua por testar.
+
+### Auditorias que tambem refutaram hipoteses
+
+- **Settings (7 classes verificadas):** chaves unicas, sem default contradizendo a
+  UI, sem `collect` reescrevendo o proprio DataStore, sem `LaunchedEffect`
+  regravando. A densidade da grade, citada como suspeita, e simetrica e correta.
+- **Downloads (7 hipoteses):** `currentUserId` obsoleto, bytes negativos,
+  posicao offline cruzando contas, mensagem enganosa e duplo submit foram todas
+  refutadas com guarda citada. O fallback de id nao alcanca outra conta, mas e
+  codigo morto — consequencia do D3, que agora o torna alcancavel.
+- Ainda **nao cobertos**: F2 do achado do settings (ordenacao da biblioteca
+  colapsa 3 das 8 opcoes em "Nome"; o round-trip `librarySortCode(librarySortLabel(v))`
+  nao e identidade e confirmar "Nome" destroi a escolha) e o idioma de
+  audio/legenda que colapsa em "Idioma original". Ficam registrados para a proxima
+  rodada, com o cenario e o efeito ja descritos.
 
 ## Rodada v1.2.47 — deep link verificado no aparelho e consistência do escopo de downloads
 

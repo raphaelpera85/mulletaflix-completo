@@ -445,15 +445,25 @@ internal fun SortDropdown(
     }
 }
 
+/**
+ * Sort options offered in the library menu.
+ *
+ * The label and the server code come from the shared [LibrarySortField], so the
+ * settings screen — which displays and re-persists the same value — cannot
+ * disagree with this menu. When the two were separate lists, "Data de Adição"
+ * here and "Data de adição" there never matched, so Settings showed "Nome"
+ * while the library was ordered differently and confirming that value
+ * overwrote the real choice.
+ */
 enum class SortOption(val label: String, val apiValue: String) {
-    Name("Nome", "SortName"),
-    DateAdded("Data de Adição", "DateCreated"),
-    ReleaseDate("Data de Lançamento", "PremiereDate"),
-    Runtime("Duração", "Runtime"),
-    CommunityRating("Avaliação", "CommunityRating"),
-    Random("Aleatório", "Random"),
-    PlayCount("Mais Assistidos", "PlayCount"),
-    LastPlayed("Assistido Recentemente", "DatePlayed"),
+    Name(LibrarySortField.Name.label, LibrarySortField.Name.code),
+    DateAdded(LibrarySortField.DateAdded.label, LibrarySortField.DateAdded.code),
+    ReleaseDate(LibrarySortField.ReleaseDate.label, LibrarySortField.ReleaseDate.code),
+    Runtime(LibrarySortField.Runtime.label, LibrarySortField.Runtime.code),
+    CommunityRating(LibrarySortField.CommunityRating.label, LibrarySortField.CommunityRating.code),
+    Random(LibrarySortField.Random.label, LibrarySortField.Random.code),
+    PlayCount(LibrarySortField.PlayCount.label, LibrarySortField.PlayCount.code),
+    LastPlayed(LibrarySortField.LastPlayed.label, LibrarySortField.LastPlayed.code),
 }
 
 enum class SortOrder(val label: String, val apiValue: String) {
