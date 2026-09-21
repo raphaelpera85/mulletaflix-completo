@@ -47,6 +47,27 @@ class LiveTvViewModelTest {
         assertEquals(0, repository.channelRequests)
     }
 
+    @Test fun `does not refresh live tv while offline and refreshes after reconnect`() = runTest {
+        val network = FakeNetworkMonitor()
+        val viewModel = createViewModel(networkMonitor = network)
+        advanceUntilIdle()
+        val requestsBeforeOffline = repository.channelRequests
+
+        network.online.value = false
+        advanceUntilIdle()
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(requestsBeforeOffline, repository.channelRequests)
+        assertTrue(viewModel.state.value.error?.contains("offline") == true)
+
+        network.online.value = true
+        advanceUntilIdle()
+
+        assertEquals(requestsBeforeOffline + 1, repository.channelRequests)
+        assertEquals(null, viewModel.state.value.error)
+    }
+
     @Test fun `loads recordings for active session`() = runTest {
         val recording = MediaItem(id = "recording-1", name = "Jornal", type = org.mulletaflix.domain.model.MediaItemType.Recording)
         repository.recordings = listOf(recording)
@@ -197,6 +218,7 @@ class LiveTvViewModelTest {
     }
 
     private class FakeNetworkMonitor : NetworkMonitor {
-        override val isOnline = kotlinx.coroutines.flow.MutableStateFlow(true)
+        val online = kotlinx.coroutines.flow.MutableStateFlow(true)
+        override val isOnline = online
     }
 }

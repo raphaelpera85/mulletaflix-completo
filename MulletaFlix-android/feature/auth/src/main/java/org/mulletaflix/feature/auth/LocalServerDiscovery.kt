@@ -23,6 +23,7 @@ import javax.inject.Inject
 private const val DISCOVERY_PORT = 7359
 private const val DISCOVERY_MESSAGE = "who is MulletaFlixServer?"
 private const val DISCOVERY_RETRY_INTERVAL_MS = 750
+private const val DISCOVERY_MAX_WINDOW_MS = 10_000
 
 /** Discovers MulletaFlix/Jellyfin-compatible servers on the current LAN. */
 class LocalServerDiscovery @Inject constructor(
@@ -32,6 +33,7 @@ class LocalServerDiscovery @Inject constructor(
     private val connectivityManager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
 
     suspend fun discover(timeoutMs: Int = 2_500): List<ServerInfo> = withContext(Dispatchers.IO) {
+        val boundedTimeoutMs = boundedDiscoveryTimeoutMs(timeoutMs)
         val broadcastAddresses = networkBroadcastAddresses()
 
         val results = linkedMapOf<String, ServerInfo>()
@@ -44,8 +46,8 @@ class LocalServerDiscovery @Inject constructor(
                 }
                 val request = DISCOVERY_MESSAGE.toByteArray(Charsets.UTF_8)
                 val targets = (broadcastAddresses + InetAddress.getByName("255.255.255.255")).distinct()
-                val deadline = System.currentTimeMillis() + timeoutMs.coerceAtLeast(0)
-                val probeDelays = discoveryProbeDelays(timeoutMs)
+                val deadline = System.currentTimeMillis() + boundedTimeoutMs
+                val probeDelays = discoveryProbeDelays(boundedTimeoutMs)
                 var probeIndex = 0
                 var nextProbeAt = System.currentTimeMillis()
                 while (System.currentTimeMillis() < deadline) {
@@ -148,6 +150,10 @@ class LocalServerDiscovery @Inject constructor(
     }.getOrDefault(emptyList())
 
 }
+
+/** Prevents a caller from holding LAN sockets and the Wi-Fi lock indefinitely. */
+internal fun boundedDiscoveryTimeoutMs(requestedTimeoutMs: Int): Int =
+    requestedTimeoutMs.coerceIn(0, DISCOVERY_MAX_WINDOW_MS)
 
 /** Returns retry offsets without exceeding the discovery window. */
 internal fun discoveryProbeDelays(

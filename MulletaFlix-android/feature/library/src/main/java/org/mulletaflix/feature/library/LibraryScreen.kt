@@ -16,6 +16,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import android.content.res.Configuration
 import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -50,21 +57,30 @@ fun LibraryScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val loadError = state.error
     val lifecycleOwner = LocalLifecycleOwner.current
+    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
 
-    LaunchedEffect(libraryId, lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            if (libraryRefreshImmediatelyOnResume()) {
-                viewModel.refreshIfIdle(libraryId)
-            }
-            while (isActive) {
-                delay(LIBRARY_AUTO_REFRESH_INTERVAL_MILLIS)
-                viewModel.refreshIfIdle(libraryId)
+    // A library must be populated as soon as its destination is entered. The
+    // TV refresh loop is intentionally periodic, so relying on it for the
+    // first request leaves a newly opened screen empty until the first tick.
+    LaunchedEffect(libraryId) {
+        viewModel.loadLibrary(libraryId)
+    }
+
+    LaunchedEffect(libraryId, lifecycleOwner, isTelevision) {
+        val refreshInterval = libraryAutoRefreshIntervalMillis(isTelevision)
+        if (refreshInterval > 0L) {
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                if (libraryRefreshImmediatelyOnResume(isTelevision)) {
+                    viewModel.refreshIfIdle(libraryId)
+                }
+                while (isActive) {
+                    delay(refreshInterval)
+                    viewModel.refreshIfIdle(libraryId)
+                }
             }
         }
     }
-
-    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-        Configuration.UI_MODE_TYPE_TELEVISION
 
     Scaffold(
         topBar = {
@@ -83,7 +99,10 @@ fun LibraryScreen(
                     }
                     // Sort
                     IconButton(onClick = viewModel::showSortMenu) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Ordenar")
+                        Icon(
+                            Icons.AutoMirrored.Filled.Sort,
+                            contentDescription = "Ordenar: ${state.sortBy.label}, ${state.sortOrder.label}",
+                        )
                     }
                     // Filter
                     IconButton(onClick = viewModel::showFilterMenu) {
@@ -185,7 +204,11 @@ fun LibraryScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
-                            LibraryListRow(item = item, onClick = { onItemClick(item.id) })
+                            LibraryListRow(
+                                item = item,
+                                focusFriendly = isTelevision,
+                                onClick = { onItemClick(item.id) },
+                            )
                         }
                     }
 
@@ -205,13 +228,22 @@ fun LibraryScreen(
                 }
             }
 
+            if (state.isOffline) {
+                LibraryOfflineBanner(
+                    onRetry = { viewModel.loadLibrary(libraryId) },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(12.dp)
+                        .zIndex(1f),
+                )
+            }
+
             // Sort dropdown
             if (state.showSortMenu) {
                 SortDropdown(
                     current = state.sortBy,
                     currentOrder = state.sortOrder,
-                    onSelect = viewModel::setSortBy,
-                    onSelectOrder = viewModel::setSortOrder,
+                    onApply = viewModel::setSort,
                     onDismiss = viewModel::hideSortMenu
                 )
             }
@@ -225,6 +257,40 @@ fun LibraryScreen(
             }
         }
         }
+        }
+    }
+}
+
+@Composable
+internal fun LibraryOfflineBanner(
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+        modifier = modifier.fillMaxWidth().widthIn(max = 640.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                Icons.Default.CloudOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                text = "Sem conexão. A biblioteca será atualizada quando a rede voltar.",
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onRetry) {
+                Text("Tentar novamente")
+            }
         }
     }
 }
@@ -268,9 +334,33 @@ private fun FilterDialog(
 }
 
 @Composable
-private fun LibraryListRow(item: MediaItem, onClick: () -> Unit) {
+private fun LibraryListRow(item: MediaItem, focusFriendly: Boolean, onClick: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (focusFriendly) {
+                    Modifier
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .focusable()
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (focusFriendly && isFocused) {
+                    Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium)
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = "Abrir ${item.name}"
+            }
+            .padding(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         MediaCard(
@@ -281,7 +371,7 @@ private fun LibraryListRow(item: MediaItem, onClick: () -> Unit) {
             isWatched = item.isPlayed,
             isFavorite = item.isFavorite,
             unplayedCount = item.unplayedItemCount ?: 0,
-            onClick = onClick,
+            isClickable = false,
             modifier = Modifier.width(60.dp)
         )
         Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -315,19 +405,21 @@ private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> 
 }
 
 @Composable
-private fun SortDropdown(
+internal fun SortDropdown(
     current: SortOption,
     currentOrder: SortOrder,
-    onSelect: (SortOption) -> Unit,
-    onSelectOrder: (SortOrder) -> Unit,
+    onApply: (SortOption, SortOrder) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var selectedOption by remember(current) { mutableStateOf(current) }
+    var selectedOrder by remember(currentOrder) { mutableStateOf(currentOrder) }
+
     DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
         SortOption.values().forEach { option ->
             DropdownMenuItem(
                 text = { Text(option.label) },
-                leadingIcon = { if (current == option) Icon(Icons.Default.Check, contentDescription = null) },
-                onClick = { onSelect(option); onDismiss() }
+                leadingIcon = { if (selectedOption == option) Icon(Icons.Default.Check, contentDescription = null) },
+                onClick = { selectedOption = option },
             )
         }
         HorizontalDivider()
@@ -340,10 +432,16 @@ private fun SortDropdown(
                         contentDescription = null,
                     )
                 },
-                trailingIcon = { if (currentOrder == order) Icon(Icons.Default.Check, contentDescription = null) },
-                onClick = { onSelectOrder(order); onDismiss() },
+                trailingIcon = { if (selectedOrder == order) Icon(Icons.Default.Check, contentDescription = null) },
+                onClick = { selectedOrder = order },
             )
         }
+        HorizontalDivider()
+        DropdownMenuItem(
+            text = { Text("Aplicar") },
+            leadingIcon = { Icon(Icons.Default.Check, contentDescription = null) },
+            onClick = { onApply(selectedOption, selectedOrder); onDismiss() },
+        )
     }
 }
 

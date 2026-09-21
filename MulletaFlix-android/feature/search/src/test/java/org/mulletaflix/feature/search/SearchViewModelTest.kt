@@ -32,6 +32,7 @@ import org.mulletaflix.domain.repository.SearchRepository
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
 import org.mulletaflix.domain.usecase.SearchMediaUseCase
+import org.mulletaflix.core.common.network.NetworkMonitor
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -39,13 +40,15 @@ class SearchViewModelTest {
     private lateinit var searchRepository: RecordingSearchRepository
     private lateinit var viewModel: SearchViewModel
     private lateinit var historyRepository: FakeSearchHistoryRepository
+    private lateinit var networkState: MutableStateFlow<Boolean>
 
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         searchRepository = RecordingSearchRepository()
         historyRepository = FakeSearchHistoryRepository()
-        viewModel = SearchViewModel(SearchMediaUseCase(searchRepository), FakeAuthRepository(), historyRepository)
+        networkState = MutableStateFlow(true)
+        viewModel = createViewModel()
     }
 
     @After
@@ -130,6 +133,7 @@ class SearchViewModelTest {
             SearchMediaUseCase(controlledRepository),
             FakeAuthRepository(),
             historyRepository,
+            FakeNetworkMonitor(networkState),
         )
         advanceUntilIdle()
 
@@ -156,6 +160,7 @@ class SearchViewModelTest {
             SearchMediaUseCase(controlledRepository),
             FakeAuthRepository(),
             historyRepository,
+            FakeNetworkMonitor(networkState),
         )
         advanceUntilIdle()
 
@@ -180,6 +185,7 @@ class SearchViewModelTest {
             SearchMediaUseCase(controlledRepository),
             FakeAuthRepository(),
             historyRepository,
+            FakeNetworkMonitor(networkState),
         )
         advanceUntilIdle()
 
@@ -215,7 +221,12 @@ class SearchViewModelTest {
     @Test
     fun `history loaded for one user does not leak to another user`() = runTest {
         historyRepository.seed("user-1", listOf("batman"))
-        viewModel = SearchViewModel(SearchMediaUseCase(searchRepository), SwitchingAuthRepository(), historyRepository)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(searchRepository),
+            SwitchingAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
         advanceUntilIdle()
 
         assertEquals(listOf("batman"), viewModel.state.value.history)
@@ -230,7 +241,12 @@ class SearchViewModelTest {
             seed("user-2", listOf("current"))
             lateUserOneHistory = oldHistory
         }
-        viewModel = SearchViewModel(SearchMediaUseCase(searchRepository), auth, repository)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(searchRepository),
+            auth,
+            repository,
+            FakeNetworkMonitor(networkState),
+        )
         advanceUntilIdle()
 
         auth.switchTo("user-2")
@@ -251,6 +267,7 @@ class SearchViewModelTest {
             SearchMediaUseCase(controlledRepository),
             auth,
             historyRepository,
+            FakeNetworkMonitor(networkState),
         )
         advanceUntilIdle()
 
@@ -269,14 +286,63 @@ class SearchViewModelTest {
         assertFalse(viewModel.state.value.isLoading)
     }
 
+    @Test
+    fun `search is refreshed once when connectivity returns`() = runTest {
+        advanceUntilIdle()
+        viewModel.search("matrix")
+        advanceUntilIdle()
+        assertEquals(1, searchRepository.calls)
+
+        networkState.value = false
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.isOffline)
+
+        networkState.value = true
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isOffline)
+        assertEquals(2, searchRepository.calls)
+    }
+
+    @Test
+    fun `offline search does not call the server and resumes after reconnect`() = runTest {
+        advanceUntilIdle()
+        networkState.value = false
+        advanceUntilIdle()
+
+        viewModel.search("matrix")
+        advanceUntilIdle()
+
+        assertEquals(0, searchRepository.calls)
+        assertEquals(
+            "Você está offline. A busca será retomada quando a conexão voltar.",
+            viewModel.state.value.error,
+        )
+
+        networkState.value = true
+        advanceUntilIdle()
+
+        assertEquals(1, searchRepository.calls)
+        assertEquals(null, viewModel.state.value.error)
+    }
+
+    private fun createViewModel(): SearchViewModel = SearchViewModel(
+        SearchMediaUseCase(searchRepository),
+        FakeAuthRepository(),
+        historyRepository,
+        FakeNetworkMonitor(networkState),
+    )
+
     private class RecordingSearchRepository : SearchRepository {
         var called = false
         var term: String? = null
         var itemTypes: String? = null
+        var calls = 0
         var shouldFail = false
         override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
         override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> {
             called = true
+            calls++
             this.term = term
             this.itemTypes = itemTypes
             if (shouldFail) {
@@ -361,6 +427,12 @@ class SearchViewModelTest {
         fun switchTo(nextUserId: String) {
             userId.value = nextUserId
         }
+    }
+
+    private class FakeNetworkMonitor(
+        private val online: Flow<Boolean>,
+    ) : NetworkMonitor {
+        override val isOnline: Flow<Boolean> = online
     }
 
     private open class FakeAuthRepository : AuthRepository {

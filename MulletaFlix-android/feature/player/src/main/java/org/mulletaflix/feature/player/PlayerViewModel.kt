@@ -17,6 +17,7 @@ import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManager
 import com.google.android.gms.cast.framework.SessionManagerListener
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.datasource.DefaultDataSource
@@ -123,8 +124,26 @@ class PlayerViewModel @Inject constructor(
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
     private val trackSelector = DefaultTrackSelector(context)
+    private val streamingPolicy = streamingBufferPolicy()
+    private val localPolicy = localBufferPolicy()
     private val localPlayer: ExoPlayer = ExoPlayer.Builder(context)
         .setTrackSelector(trackSelector)
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMsForStreaming(
+                    streamingPolicy.minBufferMs,
+                    streamingPolicy.maxBufferMs,
+                    streamingPolicy.bufferForPlaybackMs,
+                    streamingPolicy.bufferForPlaybackAfterRebufferMs,
+                )
+                .setBufferDurationsMsForLocalPlayback(
+                    localPolicy.minBufferMs,
+                    localPolicy.maxBufferMs,
+                    localPolicy.bufferForPlaybackMs,
+                    localPolicy.bufferForPlaybackAfterRebufferMs,
+                )
+                .build(),
+        )
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -137,7 +156,12 @@ class PlayerViewModel @Inject constructor(
             DefaultMediaSourceFactory(
                 CacheDataSource.Factory()
                     .setCache(OfflineDownloadCache.get(context))
-                    .setUpstreamDataSourceFactory(DefaultHttpDataSource.Factory())
+                    .setUpstreamDataSourceFactory(
+                        DefaultHttpDataSource.Factory()
+                            .setConnectTimeoutMs(MEDIA_CONNECT_TIMEOUT_MS)
+                            .setReadTimeoutMs(MEDIA_READ_TIMEOUT_MS)
+                            .setAllowCrossProtocolRedirects(true),
+                    )
             )
         )
         .build().also { exo ->
@@ -227,6 +251,22 @@ class PlayerViewModel @Inject constructor(
                 val itemIdAtError = currentItemId
                 val uriAtError = localPlayer.currentMediaItem?.localConfiguration?.uri
                 if (itemIdAtError != null && shouldRetryPlayback(error.errorCode, playbackRetryCount)) {
+                    if (shouldPausePlaybackForOffline(
+                            isOnline = !networkWasOffline,
+                            isOfflinePlayback = isOfflinePlayback,
+                            hasRemoteMedia = true,
+                            errorCode = error.errorCode,
+                        )
+                    ) {
+                        _state.update {
+                            it.copy(
+                                isBuffering = false,
+                                isPlaying = false,
+                                error = NETWORK_WAITING_PLAYBACK_MESSAGE,
+                            )
+                        }
+                        return
+                    }
                     val retryAttempt = playbackRetryCount
                     playbackRetryCount += 1
                     val positionAtError = localPlayer.currentPosition
@@ -296,6 +336,7 @@ class PlayerViewModel @Inject constructor(
     private var currentMediaMetadata: MediaMetadata? = null
     private var triedTranscodeFallback = false
     private var playbackRetryCount = 0
+    private var isOfflinePlayback = false
     private var playbackLoadGeneration = 0L
     private var currentUserId: String? = null
     private var hasObservedSession = false
@@ -352,6 +393,17 @@ class PlayerViewModel @Inject constructor(
                     )
                 ) {
                     retryCurrentPlaybackAfterNetworkRestored()
+                }
+                if (!isOnline && !isOfflinePlayback && currentItemId != null && retryJob?.isActive == true) {
+                    retryJob?.cancel()
+                    retryJob = null
+                    _state.update {
+                        it.copy(
+                            isBuffering = false,
+                            isPlaying = false,
+                            error = NETWORK_WAITING_PLAYBACK_MESSAGE,
+                        )
+                    }
                 }
             }
         }
@@ -410,6 +462,7 @@ class PlayerViewModel @Inject constructor(
         sleepTimerJob = null
         player.stop()
         currentItemId = itemId
+        isOfflinePlayback = false
         localPlaybackKey = null
         legacyLocalPlaybackKey = null
         lastLocalPositionPersistedAt = 0L
@@ -490,9 +543,26 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
+            val preferredAudioLanguage = settingsRepository.getPreferredAudioLanguage().first()
+            val preferredSubtitleLanguage = settingsRepository.getPreferredSubtitleLanguage().first()
+            val itemAudioStreams = item.mediaStreams
+                .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
+            val itemSubtitleStreams = item.mediaStreams
+                .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Subtitle }
+            val requestedAudioStreamIndex = requestedPreferredStreamIndex(
+                streams = itemAudioStreams,
+                preferredLanguage = preferredAudioLanguage,
+            )
+            val requestedSubtitleStreamIndex = requestedPreferredStreamIndex(
+                streams = itemSubtitleStreams,
+                preferredLanguage = preferredSubtitleLanguage,
+            )
+
             val playbackInfo = playbackRepository.getPlaybackInfo(
                 itemId = itemId,
                 userId = userId,
+                audioStreamIndex = requestedAudioStreamIndex,
+                subtitleStreamIndex = requestedSubtitleStreamIndex,
                 startTimeTicks = item.userProgress?.playbackPositionTicks,
             ).getOrElse {
                 showLoadError("O servidor não conseguiu preparar esta mídia.", loadGeneration)
@@ -520,8 +590,6 @@ class PlayerViewModel @Inject constructor(
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Subtitle }
             val audioStreams = mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
-            val preferredAudioLanguage = settingsRepository.getPreferredAudioLanguage().first()
-            val preferredSubtitleLanguage = settingsRepository.getPreferredSubtitleLanguage().first()
             val preferredAudioStreamIndex = preferredStreamIndex(
                 streams = audioStreams,
                 preferredLanguage = preferredAudioLanguage,
@@ -681,6 +749,7 @@ class PlayerViewModel @Inject constructor(
         sleepTimerJob = null
         player.stop()
         currentItemId = null
+        isOfflinePlayback = true
         localPlaybackKey = null
         legacyLocalPlaybackKey = null
         viewModelScope.launch {
@@ -787,6 +856,7 @@ class PlayerViewModel @Inject constructor(
     /** Retries the already prepared remote item without discarding its position. */
     fun retryPlayback() {
         val itemId = currentItemId ?: return
+        if (isOfflinePlayback || networkWasOffline) return
         if (localPlayer.currentMediaItem == null) {
             loadMedia(itemId)
             return
@@ -1297,6 +1367,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun retryCurrentPlaybackAfterNetworkRestored() {
         val itemId = currentItemId ?: return
+        if (isOfflinePlayback || networkWasOffline) return
         if (retryJob?.isActive == true) return
         val positionAtError = playbackRetryPosition(
             currentPositionMs = localPlayer.currentPosition,

@@ -1,9 +1,18 @@
 package org.mulletaflix.feature.library
 
 /** Library pages are long-lived on TV and must reconcile server changes while visible. */
-internal const val LIBRARY_AUTO_REFRESH_INTERVAL_MILLIS = 60_000L
+internal const val TV_LIBRARY_AUTO_REFRESH_INTERVAL_MILLIS = 60_000L
 
-internal fun libraryRefreshImmediatelyOnResume(): Boolean = true
+internal fun libraryAutoRefreshIntervalMillis(isTelevision: Boolean): Long =
+    if (isTelevision) TV_LIBRARY_AUTO_REFRESH_INTERVAL_MILLIS else 0L
+
+internal fun libraryRefreshImmediatelyOnResume(isTelevision: Boolean): Boolean = isTelevision
+
+/** Refreshes a library once when connectivity returns after an offline state. */
+internal fun shouldRefreshLibraryOnNetworkReturn(
+    previousOnline: Boolean?,
+    currentOnline: Boolean,
+): Boolean = previousOnline == false && currentOnline
 
 internal const val TV_FAVORITES_REFRESH_INTERVAL_MILLIS = 60_000L
 

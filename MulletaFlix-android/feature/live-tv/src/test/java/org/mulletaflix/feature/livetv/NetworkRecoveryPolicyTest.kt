@@ -16,4 +16,11 @@ class NetworkRecoveryPolicyTest {
         assertFalse(shouldRefreshLiveTvOnNetworkReturn(previousOnline = true, currentOnline = true))
         assertFalse(shouldRefreshLiveTvOnNetworkReturn(previousOnline = false, currentOnline = false))
     }
+
+    @Test
+    fun `foreground timer refreshes only when the live tv request is idle`() {
+        assertTrue(shouldRefreshLiveTvIfIdle(isOffline = false, isLoading = false))
+        assertFalse(shouldRefreshLiveTvIfIdle(isOffline = true, isLoading = false))
+        assertFalse(shouldRefreshLiveTvIfIdle(isOffline = false, isLoading = true))
+    }
 }

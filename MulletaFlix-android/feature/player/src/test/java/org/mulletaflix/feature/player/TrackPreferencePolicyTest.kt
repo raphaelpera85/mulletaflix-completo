@@ -54,6 +54,13 @@ class TrackPreferencePolicyTest {
     }
 
     @Test
+    fun `initial request uses only an explicit matching language`() {
+        assertEquals(5, requestedPreferredStreamIndex(streams, "pt-BR"))
+        assertNull(requestedPreferredStreamIndex(streams, "original"))
+        assertNull(requestedPreferredStreamIndex(streams, "deu"))
+    }
+
+    @Test
     fun `track info keeps technical language separate from display label`() {
         val track = TrackInfo(index = 5, displayName = "Português (Brasil)", language = "pt-BR")
 

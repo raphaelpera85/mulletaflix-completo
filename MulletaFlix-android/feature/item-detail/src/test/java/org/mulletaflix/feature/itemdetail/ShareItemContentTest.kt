@@ -10,7 +10,7 @@ class ShareItemContentTest {
     @Test
     fun `builds encoded detail link and removes trailing slash`() {
         assertEquals(
-            "http://server:8096/web/index.html#!/details?id=movie%2F1+edition",
+            "http://server:8096/web/#/details?id=movie%2F1+edition",
             buildItemShareUrl(" http://server:8096/// ", " movie/1 edition ")
         )
     }
@@ -20,13 +20,13 @@ class ShareItemContentTest {
         val text = buildItemShareText(" O Filme ", "movie-1", "http://server:8096")
 
         assertTrue(text.contains("\"O Filme\""))
-        assertTrue(text.contains("http://server:8096/web/index.html#!/details?id=movie-1"))
+        assertTrue(text.contains("http://server:8096/web/#/details?id=movie-1"))
     }
 
     @Test
     fun `loopback server uses the public MulletaFlix link when sharing`() {
         assertEquals(
-            "http://mulletaflix.duckdns.org:8096/web/index.html#!/details?id=movie-1",
+            "http://mulletaflix.duckdns.org:8096/web/#/details?id=movie-1",
             buildItemShareUrl("http://localhost:8096", "movie-1"),
         )
         assertEquals(

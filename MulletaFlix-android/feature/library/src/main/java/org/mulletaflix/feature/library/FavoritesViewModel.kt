@@ -71,6 +71,17 @@ class FavoritesViewModel @Inject constructor(
         load()
     }
 
+    /**
+     * Used by the TV foreground timer. A periodic reconciliation must not
+     * cancel a slow response that is already bringing the user's list up to
+     * date.
+     */
+    fun refreshIfIdle() {
+        val current = _state.value
+        if (loadInFlight || current.isLoading || current.isRefreshing) return
+        refresh()
+    }
+
     fun loadMore() {
         val current = _state.value
         if (current.isLoading || !current.hasMore || loadInFlight) return
@@ -129,6 +140,5 @@ class FavoritesViewModel @Inject constructor(
 
     private fun isCurrentLoad(generation: Long, userId: String?): Boolean =
         generation == loadGeneration &&
-            !userId.isNullOrBlank() &&
             currentUserId == userId
 }

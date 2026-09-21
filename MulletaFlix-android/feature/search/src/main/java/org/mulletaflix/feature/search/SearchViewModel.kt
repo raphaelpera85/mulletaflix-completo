@@ -7,6 +7,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SearchHistoryRepository
@@ -21,6 +22,7 @@ data class SearchState(
     val results: List<MediaItem> = emptyList(),
     val history: List<String> = emptyList(),
     val error: String? = null,
+    val isOffline: Boolean = false,
 )
 
 @HiltViewModel
@@ -28,6 +30,7 @@ class SearchViewModel @Inject constructor(
     private val searchMediaUseCase: SearchMediaUseCase,
     private val authRepository: AuthRepository,
     private val searchHistoryRepository: SearchHistoryRepository,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SearchState())
@@ -40,6 +43,15 @@ class SearchViewModel @Inject constructor(
     private var historyGeneration = 0L
 
     init {
+        viewModelScope.launch {
+            var previousOnline: Boolean? = null
+            networkMonitor.isOnline.distinctUntilChanged().collect { online ->
+                val recovered = previousOnline == false && online
+                previousOnline = online
+                _state.update { it.copy(isOffline = !online) }
+                if (recovered) refreshSearch()
+            }
+        }
         viewModelScope.launch {
             authRepository.getSavedUserId().distinctUntilChanged().collect { userId ->
                 val userChanged = currentUserId != userId
@@ -163,6 +175,16 @@ class SearchViewModel @Inject constructor(
             return
         }
         if (!isCurrentSearch(query, filter, generation, userId)) return
+        if (_state.value.isOffline) {
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    isRefreshing = false,
+                    error = "Você está offline. A busca será retomada quando a conexão voltar.",
+                )
+            }
+            return
+        }
         _state.update {
             it.copy(
                 isLoading = !isRefresh,

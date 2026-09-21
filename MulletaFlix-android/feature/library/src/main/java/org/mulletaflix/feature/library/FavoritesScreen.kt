@@ -3,6 +3,7 @@ package org.mulletaflix.feature.library
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -69,10 +71,10 @@ fun FavoritesScreen(
         val refreshInterval = favoritesAutoRefreshIntervalMillis(isTelevision)
         if (refreshInterval > 0L) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                viewModel.refresh()
+                viewModel.refreshIfIdle()
                 while (isActive) {
                     delay(refreshInterval)
-                    viewModel.refresh()
+                    viewModel.refreshIfIdle()
                 }
             }
         }
@@ -112,14 +114,37 @@ fun FavoritesScreen(
                     FavoritesGrid(state.items, state.hasMore, state.isLoading, gridColumns, isTelevision, onItemClick, viewModel::loadMore)
             }
             if (state.error != null && state.items.isNotEmpty()) {
-                Card(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                ) {
-                    Text(state.error!!, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer)
-                }
+                FavoritesInlineError(
+                    message = state.error!!,
+                    onRetry = viewModel::refresh,
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                )
             }
         }
+        }
+    }
+}
+
+@Composable
+internal fun FavoritesInlineError(
+    message: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                message,
+                Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            TextButton(onClick = onRetry) { Text("Tentar novamente") }
         }
     }
 }

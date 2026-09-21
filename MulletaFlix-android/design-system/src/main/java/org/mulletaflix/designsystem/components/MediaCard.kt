@@ -120,6 +120,7 @@ fun MediaCard(
     unplayedCount: Int = 0,
     isLive: Boolean = false,
     focusFriendly: Boolean = false,
+    isClickable: Boolean = true,
     onClick: () -> Unit = {}
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -176,7 +177,7 @@ fun MediaCard(
                     Modifier
                 },
             )
-            .clickable(onClick = onClick)
+            .then(if (isClickable) Modifier.clickable(onClick = onClick) else Modifier)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 contentDescription = accessibilityLabel

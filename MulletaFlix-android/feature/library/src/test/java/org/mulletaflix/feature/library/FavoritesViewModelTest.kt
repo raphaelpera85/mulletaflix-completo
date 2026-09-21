@@ -82,6 +82,18 @@ class FavoritesViewModelTest {
     }
 
     @Test
+    fun `missing session finishes loading and exposes reauthentication state`() = runTest {
+        val auth = FakeAuthRepository().apply { userIdState.value = null }
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth)
+
+        advanceUntilIdle()
+
+        assertEquals(false, viewModel.state.value.isLoading)
+        assertEquals(false, viewModel.state.value.isRefreshing)
+        assertEquals("Sessão expirada. Entre novamente.", viewModel.state.value.error)
+    }
+
+    @Test
     fun `repeated load more taps start only one page request`() = runTest {
         val first = MediaItem("one", "One", MediaItemType.Movie)
         val second = MediaItem("two", "Two", MediaItemType.Movie)
@@ -95,6 +107,22 @@ class FavoritesViewModelTest {
         runCurrent()
 
         assertEquals(1, media.pageRequestCountFor(1))
+    }
+
+    @Test
+    fun `idle refresh does not cancel or duplicate an in flight request`() = runTest {
+        val response = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
+        media.responseSequence = ArrayDeque(listOf(response))
+        val viewModel = createViewModel()
+        runCurrent()
+
+        viewModel.refreshIfIdle()
+        viewModel.refreshIfIdle()
+        runCurrent()
+
+        assertEquals(1, media.pageRequestCountFor(0))
+        response.complete(Result.success(emptyList<MediaItem>() to 0))
+        advanceUntilIdle()
     }
 
     @Test

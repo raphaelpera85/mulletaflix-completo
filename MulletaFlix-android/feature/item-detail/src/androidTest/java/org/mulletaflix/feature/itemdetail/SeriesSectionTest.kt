@@ -72,4 +72,31 @@ class SeriesSectionTest {
         composeRule.onNodeWithText("Temporada 2").assertIsDisplayed().assertIsSelected()
         composeRule.onNodeWithText("1x01 Piloto").assertIsDisplayed()
     }
+
+    @Test
+    fun rendersEpisodeErrorAndRetryAction() {
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "sea-1",
+                            "Temporada 1",
+                            org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = emptyList(),
+                    selectedSeasonIndex = 0,
+                    onSeasonSelect = {},
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                    error = "Não foi possível carregar os episódios.",
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Não foi possível carregar os episódios.").assertIsDisplayed()
+        composeRule.onNodeWithText("Tentar novamente").assertIsDisplayed()
+    }
 }

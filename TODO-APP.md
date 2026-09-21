@@ -431,3 +431,32 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Validar o contrato de três colunas no telefone.
 - [x] Validar a grade adaptativa no tablet.
 - [x] Validar a grade densa e o foco remoto na TV.
+
+## 208. Busca adaptativa e histórico focável em tablet/TV (v1.2.35)
+- [x] Limitar e centralizar o conteúdo da busca em tablets e TVs para melhorar a leitura.
+- [x] Tornar cada item do histórico uma ação única de repetir busca navegável pelo controle remoto.
+- [x] Preservar o toque e a densidade originais no celular.
+- [x] Validar a política de largura e o histórico focável com testes unitários e instrumentados em TV e tablet.
+
+## 209. Ordenação transacional da Biblioteca (v1.2.36)
+- [x] Permitir selecionar o campo e a direção Ascendente/Descendente antes de aplicar.
+- [x] Enviar uma única consulta ao servidor para cada decisão completa de ordenação.
+- [x] Persistir campo e direção juntos nas preferências locais.
+- [x] Validar o menu e a consulta combinada com testes unitários e instrumentados em TV e tablet.
+
+## 210. Preferências de faixas na preparação inicial (v1.2.37)
+- [x] Enviar ao servidor o índice da faixa de áudio preferida quando ela estiver disponível nos dados da mídia.
+- [x] Enviar ao servidor o índice da legenda preferida quando ela estiver disponível nos dados da mídia.
+- [x] Preservar o fallback para a resposta de `PlaybackInfo` quando o servidor só fornece os streams na fonte de reprodução.
+- [x] Cobrir a seleção inicial explícita de idioma com teste unitário e manter o lint do player verde.
+
+## 211. Contrato do payload de reprodução (v1.2.38)
+- [x] Verificar o corpo real de `PlaybackInfo` enviado pelo repositório de dados.
+- [x] Cobrir índices de áudio, legenda, posição de retomada e flags de streaming.
+- [x] Confirmar que a integração mantém uma única chamada ao servidor.
+
+## 212. Home sem chamadas durante indisponibilidade de rede (v1.2.39)
+- [x] Impedir chamadas ao servidor na carga inicial quando o dispositivo está offline.
+- [x] Impedir que uma atualização manual offline gere uma requisição desnecessária.
+- [x] Recarregar automaticamente a Home após a reconexão.
+- [x] Cobrir a corrida de inicialização e a recuperação de rede no teste do ViewModel.

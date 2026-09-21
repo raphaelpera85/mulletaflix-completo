@@ -56,11 +56,11 @@ fun LiveTvScreen(
         if (refreshInterval > 0L) {
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 if (refreshLiveTvImmediatelyOnResume(isTelevision)) {
-                    viewModel.refresh()
+                    viewModel.refreshIfIdle()
                 }
                 while (isActive) {
                     delay(refreshInterval)
-                    viewModel.refresh()
+                    viewModel.refreshIfIdle()
                 }
             }
         }

@@ -93,6 +93,15 @@ class LiveTvViewModel @Inject constructor(
     }
 
     fun refresh() {
+        if (_state.value.isOffline) {
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    error = "Você está offline. Os canais serão atualizados quando a conexão voltar.",
+                )
+            }
+            return
+        }
         refreshJob?.cancel()
         val generation = ++refreshGeneration
         val sessionAtRequest = sessionGeneration
@@ -134,7 +143,23 @@ class LiveTvViewModel @Inject constructor(
         }
     }
 
+    /** Used by the TV foreground timer; manual refresh remains destructive. */
+    fun refreshIfIdle() {
+        val current = _state.value
+        if (!shouldRefreshLiveTvIfIdle(current.isOffline, current.isLoading)) return
+        refresh()
+    }
+
     fun loadGuide() {
+        if (_state.value.isOffline) {
+            _state.update {
+                it.copy(
+                    isLoadingGuide = false,
+                    guideError = "Você está offline. O guia será carregado quando a conexão voltar.",
+                )
+            }
+            return
+        }
         guideJob?.cancel()
         val generation = ++guideGeneration
         val sessionAtRequest = sessionGeneration
@@ -162,6 +187,12 @@ class LiveTvViewModel @Inject constructor(
     }
 
     fun scheduleRecording(program: MediaItem) {
+        if (_state.value.isOffline) {
+            _state.update {
+                it.copy(guideError = "Você está offline. Reconecte-se para agendar uma gravação.")
+            }
+            return
+        }
         if (program.id in _state.value.scheduledProgramIds ||
             program.id in _state.value.schedulingProgramIds
         ) return

@@ -74,6 +74,34 @@ class PlaybackRecoveryPolicyTest {
     }
 
     @Test
+    fun `pauses remote retries while offline but leaves local playback alone`() {
+        assertTrue(
+            shouldPausePlaybackForOffline(
+                isOnline = false,
+                isOfflinePlayback = false,
+                hasRemoteMedia = true,
+                errorCode = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            )
+        )
+        assertFalse(
+            shouldPausePlaybackForOffline(
+                isOnline = false,
+                isOfflinePlayback = true,
+                hasRemoteMedia = false,
+                errorCode = PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            )
+        )
+        assertFalse(
+            shouldPausePlaybackForOffline(
+                isOnline = false,
+                isOfflinePlayback = false,
+                hasRemoteMedia = true,
+                errorCode = PlaybackException.ERROR_CODE_DECODING_FAILED,
+            )
+        )
+    }
+
+    @Test
     fun `invalidates a retry when the same title starts a newer load`() {
         assertFalse(isCurrentPlaybackLoad(4L, 5L, "movie", "movie"))
         assertFalse(isCurrentPlaybackLoad(4L, 4L, "movie", "episode"))

@@ -20,6 +20,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Icon
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dagger.hilt.android.AndroidEntryPoint
 import org.mulletaflix.android.navigation.MulletaFlixNavHost
@@ -72,7 +75,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         incomingDeepLinkItemId = extractMediaItemId(intent?.data)
         enableEdgeToEdge()
-        lanServerRecovery.start()
 
         setContent {
             val serverUrl by sessionRepository.getBaseUrl().collectAsStateWithLifecycle(initialValue = "")
@@ -85,9 +87,11 @@ class MainActivity : ComponentActivity() {
             var updateProgress by remember { mutableStateOf(0f) }
             var showUpdateDialog by remember { mutableStateOf(false) }
             var updateError by remember { mutableStateOf<String?>(null) }
+            var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
 
             val coroutineScope = rememberCoroutineScope()
             val context = LocalContext.current
+            val lifecycleOwner = LocalLifecycleOwner.current
 
             LaunchedEffect(Unit) {
                 hasValidSession = combine(
@@ -96,18 +100,23 @@ class MainActivity : ComponentActivity() {
                     sessionRepository.getCurrentUserId(),
                 ) { url, token, userId -> hasUsableSession(url, token, userId) }.first()
                 sessionResolved = true
+            }
 
-                // Check for updates against GitHub Releases
-                try {
-                    val result = checkAppUpdateUseCase(BuildConfig.VERSION_NAME)
-                    result.onSuccess { info ->
-                        if (info.isUpdateAvailable && !info.apkDownloadUrl.isNullOrBlank()) {
+            LaunchedEffect(lifecycleOwner, sessionResolved) {
+                if (!sessionResolved) return@LaunchedEffect
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    // Re-check on every foreground transition so TV devices
+                    // can notice a new APK without being force-stopped.
+                    try {
+                        checkAppUpdateUseCase(BuildConfig.VERSION_NAME).onSuccess { info ->
                             availableUpdate = info
-                            showUpdateDialog = true
+                            if (shouldShowAppUpdateDialog(info, dismissedUpdateVersion)) {
+                                showUpdateDialog = true
+                            }
                         }
+                    } catch (_: Exception) {
+                        // Update checks are intentionally non-blocking.
                     }
-                } catch (_: Exception) {
-                    // Non-blocking background check
                 }
             }
 
@@ -144,6 +153,7 @@ class MainActivity : ComponentActivity() {
                             AlertDialog(
                                 onDismissRequest = {
                                     if (!isDownloadingUpdate) {
+                                        dismissedUpdateVersion = update.latestVersion
                                         showUpdateDialog = false
                                     }
                                 },
@@ -269,7 +279,10 @@ class MainActivity : ComponentActivity() {
                                 },
                                 dismissButton = {
                                     if (!isDownloadingUpdate) {
-                                        TextButton(onClick = { showUpdateDialog = false }) {
+                                        TextButton(onClick = {
+                                            dismissedUpdateVersion = update.latestVersion
+                                            showUpdateDialog = false
+                                        }) {
                                             Text("Depois")
                                         }
                                     }
@@ -287,8 +300,19 @@ class MainActivity : ComponentActivity() {
         // The Wi-Fi network may have changed while the activity was paused;
         // refresh the LAN endpoint before the next playback request.
         if (::lanServerRecovery.isInitialized) {
+            lanServerRecovery.start()
             lanServerRecovery.refresh()
         }
+    }
+
+    override fun onStop() {
+        // LAN discovery is useful only while the player UI is visible. Stop
+        // callbacks and scans in the background to avoid unnecessary network
+        // work and Wi-Fi wakeups while another app is in the foreground.
+        if (::lanServerRecovery.isInitialized) {
+            lanServerRecovery.stop()
+        }
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

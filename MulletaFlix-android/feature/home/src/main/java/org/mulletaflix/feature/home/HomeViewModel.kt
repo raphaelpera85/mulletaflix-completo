@@ -108,6 +108,24 @@ class HomeViewModel @Inject constructor(
     private fun loadHome(refresh: Boolean = false) {
         val generation = ++loadGeneration
         loadJob = viewModelScope.launch {
+            // Do not enqueue a request while the monitor already reports the
+            // device offline. Reading the current value here also closes the
+            // small startup race between the session collector and the
+            // connectivity collector. The network transition collector will
+            // trigger a fresh load when connectivity returns.
+            val online = networkMonitor.isOnline.first()
+            if (!online) {
+                if (isCurrentLoad(generation)) {
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            isOffline = true,
+                        )
+                    }
+                }
+                return@launch
+            }
             val userId = currentUserId ?: sessionRepository.getCurrentUserId().first()
             if (userId.isNullOrBlank()) {
                 if (isCurrentLoad(generation)) {

@@ -34,6 +34,18 @@ internal fun shouldRetryAfterNetworkRestored(
     errorCode != null &&
     isTransientNetworkPlaybackError(errorCode)
 
+/** Prevents Media3 from repeatedly preparing a remote stream while offline. */
+internal fun shouldPausePlaybackForOffline(
+    isOnline: Boolean,
+    isOfflinePlayback: Boolean,
+    hasRemoteMedia: Boolean,
+    errorCode: Int?,
+): Boolean = !isOnline &&
+    !isOfflinePlayback &&
+    hasRemoteMedia &&
+    errorCode != null &&
+    isTransientNetworkPlaybackError(errorCode)
+
 internal fun isCurrentPlaybackLoad(
     expectedGeneration: Long,
     currentGeneration: Long,

@@ -30,6 +30,7 @@ import org.mulletaflix.domain.repository.SettingsRepository
 
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetLibraryItemsUseCase
+import org.mulletaflix.core.common.network.NetworkMonitor
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LibraryViewModelTest {
@@ -49,6 +50,7 @@ class LibraryViewModelTest {
             getItemDetailUseCase = GetItemDetailUseCase(media),
             authRepository = auth,
             settingsRepository = FakeSettingsRepository(),
+            networkMonitor = FakeNetworkMonitor(),
         )
     }
 
@@ -60,6 +62,7 @@ class LibraryViewModelTest {
             getItemDetailUseCase = GetItemDetailUseCase(media),
             authRepository = FakeAuthRepository(),
             settingsRepository = settings,
+            networkMonitor = FakeNetworkMonitor(),
         )
         advanceUntilIdle()
 
@@ -78,6 +81,7 @@ class LibraryViewModelTest {
             getItemDetailUseCase = GetItemDetailUseCase(media),
             authRepository = FakeAuthRepository(),
             settingsRepository = settings,
+            networkMonitor = FakeNetworkMonitor(),
         )
         advanceUntilIdle()
 
@@ -97,6 +101,7 @@ class LibraryViewModelTest {
             getItemDetailUseCase = GetItemDetailUseCase(media),
             authRepository = FakeAuthRepository(),
             settingsRepository = settings,
+            networkMonitor = FakeNetworkMonitor(),
         )
         advanceUntilIdle()
 
@@ -113,6 +118,51 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `combined sort selection sends one query with field and direction`() = runTest {
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(),
+            networkMonitor = FakeNetworkMonitor(),
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        val callsBefore = media.itemCalls
+
+        viewModel.setSort(SortOption.ReleaseDate, SortOrder.Descending)
+        advanceUntilIdle()
+
+        assertEquals(callsBefore + 1, media.itemCalls)
+        assertEquals("PremiereDate", media.lastSort)
+        assertEquals("Descending", media.lastSortOrder)
+    }
+
+    @Test
+    fun `first library request waits for persisted descending order`() = runTest {
+        val settings = FakeSettingsRepository(initialSortOrder = "Descending")
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = settings,
+            networkMonitor = FakeNetworkMonitor(),
+        )
+
+        // Intentionally load immediately, before init collectors have had a
+        // chance to emit their saved values.
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals("Descending", media.lastSortOrder)
+        assertEquals(SortOrder.Descending, viewModel.state.value.sortOrder)
+    }
+
+    @Test
     fun `refreshIfIdle does not cancel an active library request`() = runTest {
         val responseRelease = CompletableDeferred<Unit>()
         media.blockLibraryId = "library-1"
@@ -122,6 +172,7 @@ class LibraryViewModelTest {
             getItemDetailUseCase = GetItemDetailUseCase(media),
             authRepository = FakeAuthRepository(),
             settingsRepository = FakeSettingsRepository(),
+            networkMonitor = FakeNetworkMonitor(),
         )
         advanceUntilIdle()
 
@@ -135,6 +186,59 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `network recovery refreshes the loaded library once`() = runTest {
+        val network = FakeNetworkMonitor(initialOnline = false)
+        media.itemsByLibrary["library-1"] = listOf(MediaItem("item-1", "Item", MediaItemType.Movie)) to 2
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(),
+            networkMonitor = network,
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        val callsBeforeRecovery = media.detailCalls
+
+        network.setOnline(true)
+        advanceUntilIdle()
+
+        assertEquals(callsBeforeRecovery + 1, media.detailCalls)
+        assertEquals(false, viewModel.state.value.isOffline)
+    }
+
+    @Test
+    fun `refreshIfIdle does not poll the library while offline`() = runTest {
+        val network = FakeNetworkMonitor(initialOnline = false)
+        media.itemsByLibrary["library-1"] = emptyList<MediaItem>() to 0
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(),
+            networkMonitor = network,
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        val callsWhileOffline = media.detailCalls
+        val itemCallsWhileOffline = media.itemCalls
+        assertEquals(-1, media.lastStartIndex)
+
+        viewModel.refreshIfIdle("library-1")
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(callsWhileOffline, media.detailCalls)
+        assertEquals(itemCallsWhileOffline, media.itemCalls)
+        assertEquals(-1, media.lastStartIndex)
+        assertTrue(viewModel.state.value.isOffline)
+    }
+
+    @Test
     fun `library filters are restored from and saved to local settings`() = runTest {
         val settings = FakeSettingsRepository(
             initialFilters = setOf(LibraryViewModel.FILTER_PLAYED, LibraryViewModel.FILTER_FAVORITES, "desconhecido"),
@@ -144,6 +248,7 @@ class LibraryViewModelTest {
             getItemDetailUseCase = GetItemDetailUseCase(media),
             authRepository = FakeAuthRepository(),
             settingsRepository = settings,
+            networkMonitor = FakeNetworkMonitor(),
         )
         advanceUntilIdle()
 
@@ -297,16 +402,20 @@ class LibraryViewModelTest {
         var lastIsPlayed: Boolean? = null
         var lastIsFavorite: Boolean? = null
         var lastIncludeItemTypes: String? = null
+        var lastSort: String? = null
         var lastSortOrder: String? = null
         var lastStartIndex: Int = -1
         var libraryCollectionType: String? = null
         var detailCalls: Int = 0
+        var itemCalls: Int = 0
         var blockedLibraryRelease = CompletableDeferred<Unit>()
         override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> =
             (itemsByLibrary[parentId]?.let { Result.success(it) } ?: pages[startIndex]).also {
+                itemCalls++
                 lastIsPlayed = isPlayed
                 lastIsFavorite = isFavorite
                 lastIncludeItemTypes = includeItemTypes
+                lastSort = sortBy
                 lastSortOrder = sortOrder
                 lastStartIndex = startIndex
             } ?: Result.success(emptyList<MediaItem>() to 0)
@@ -339,6 +448,15 @@ class LibraryViewModelTest {
         override suspend fun getSuggestions(userId: String, itemId: String) = Result.success(emptyList<MediaItem>())
         override fun observeFavorites(userId: String): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
         override fun observeRecentlyWatched(userId: String): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
+    }
+
+    private class FakeNetworkMonitor(initialOnline: Boolean = true) : NetworkMonitor {
+        private val online = MutableStateFlow(initialOnline)
+        override val isOnline: Flow<Boolean> = online
+
+        fun setOnline(value: Boolean) {
+            online.value = value
+        }
     }
 
     private class FakeSettingsRepository(

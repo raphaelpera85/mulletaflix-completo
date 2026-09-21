@@ -26,7 +26,18 @@ class MediaDeepLinkTest {
     @Test
     fun `rejects unrelated hosts and malformed links`() {
         assertNull(extractMediaItemId("https://example.com/web/#/details?id=movie-123"))
+        assertNull(extractMediaItemId("https://mulletaflix.duckdns.org:8096/website/#/details?id=movie-123"))
         assertNull(extractMediaItemId("mulletaflix://details"))
         assertNull(extractMediaItemId(null as String?))
+    }
+
+    @Test
+    fun `accepts the official web root without requiring a trailing slash`() {
+        assertEquals(
+            "movie-789",
+            extractMediaItemId(
+                "https://mulletaflix.duckdns.org/web#/details?id=movie-789",
+            ),
+        )
     }
 }

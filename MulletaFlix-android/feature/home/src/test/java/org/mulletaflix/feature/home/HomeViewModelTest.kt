@@ -128,6 +128,54 @@ class HomeViewModelTest {
         assertTrue(viewModel.state.value.isOffline)
     }
 
+    @Test fun `home does not request content offline and reloads after reconnect`() = runTest {
+        val networkMonitor = FakeNetworkMonitor(initialOnline = false)
+        var feedCalls = 0
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                feedCalls++
+                return Result.success(emptyList())
+            }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ) = Result.success(emptyList<MediaItem>() to 0)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            networkMonitor,
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+
+        assertEquals(0, feedCalls)
+        assertTrue(viewModel.state.value.isOffline)
+        assertFalse(viewModel.state.value.isLoading)
+
+        networkMonitor.setOnline(true)
+        advanceUntilIdle()
+
+        assertEquals(1, feedCalls)
+        assertFalse(viewModel.state.value.isOffline)
+        assertFalse(viewModel.state.value.isLoading)
+    }
+
     @Test fun `refreshIfIdle does not cancel an active TV refresh`() = runTest {
         val responseRelease = CompletableDeferred<Unit>()
         var resumeCalls = 0

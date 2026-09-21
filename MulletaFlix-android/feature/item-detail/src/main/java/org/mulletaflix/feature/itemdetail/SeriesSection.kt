@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,8 @@ fun SeriesSection(
     onEpisodePlay: (String) -> Unit,
     onEpisodeClick: (String) -> Unit,
     isLoading: Boolean = false,
+    error: String? = null,
+    onRetry: () -> Unit = {},
 ) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         // Season covers, like the web client's season row. The previous tab row
@@ -87,6 +90,10 @@ fun SeriesSection(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).size(24.dp),
                     strokeWidth = 2.dp,
                 )
+                error != null -> Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(error, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = onRetry) { Text("Tentar novamente") }
+                }
                 seasons.isEmpty() -> SeriesSectionMessage("Nenhuma temporada disponível")
                 else -> SeriesSectionMessage("Nenhum episódio disponível")
             }

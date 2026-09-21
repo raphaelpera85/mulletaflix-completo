@@ -122,7 +122,9 @@ fun ItemDetailScreen(
                         onSeasonSelect = viewModel::selectSeason,
                         onEpisodePlay = onPlay,
                         onEpisodeClick = onItemClick,
-                        isLoading = state.isLoadingSeasons
+                        isLoading = state.isLoadingSeasons,
+                        error = state.seasonError,
+                        onRetry = viewModel::retrySeriesContext,
                     )
                 }
 

@@ -9,6 +9,9 @@ import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import androidx.media3.exoplayer.offline.DownloadService as Media3DownloadService
 import org.mulletaflix.core.api.OfflineDownloadCache
 import org.mulletaflix.android.R
+import org.mulletaflix.feature.player.MEDIA_CONNECT_TIMEOUT_MS
+import org.mulletaflix.feature.player.MEDIA_READ_TIMEOUT_MS
+import java.util.concurrent.Executors
 
 private const val CHANNEL_ID = "mulletaflix_downloads"
 private const val NOTIFICATION_ID = 101
@@ -44,6 +47,9 @@ class DownloadService : Media3DownloadService(
 @UnstableApi
 object DownloadManagerSingleton {
     private var downloadManager: DownloadManager? = null
+    private val executor = Executors.newFixedThreadPool(
+        downloadExecutorThreadCount(Runtime.getRuntime().availableProcessors()),
+    )
 
     @Synchronized
     fun get(context: Context): DownloadManager {
@@ -51,7 +57,10 @@ object DownloadManagerSingleton {
             val databaseProvider = androidx.media3.database.StandaloneDatabaseProvider(context)
             val downloadCache = OfflineDownloadCache.get(context)
             val upstreamFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-            DownloadManager(context, databaseProvider, downloadCache, upstreamFactory, Runnable::run).also {
+                .setConnectTimeoutMs(MEDIA_CONNECT_TIMEOUT_MS)
+                .setReadTimeoutMs(MEDIA_READ_TIMEOUT_MS)
+                .setAllowCrossProtocolRedirects(true)
+            DownloadManager(context, databaseProvider, downloadCache, upstreamFactory, executor).also {
                 downloadManager = it
             }
         }

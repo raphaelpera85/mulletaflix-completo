@@ -19,9 +19,10 @@ internal fun extractMediaItemId(rawUri: String?): String? {
 
     val scheme = parsed.scheme?.lowercase()
     val isMulletaFlixScheme = scheme == "mulletaflix"
+    val webPath = parsed.path
     val isOfficialWebLink = scheme in setOf("http", "https") &&
         parsed.host?.equals(OFFICIAL_SERVER_HOST, ignoreCase = true) == true &&
-        parsed.path?.startsWith("/web") == true
+        (webPath == "/web" || webPath?.startsWith("/web/") == true)
     if (!isMulletaFlixScheme && !isOfficialWebLink) return null
 
     val directId = queryParameter(parsed.rawQuery, "id")

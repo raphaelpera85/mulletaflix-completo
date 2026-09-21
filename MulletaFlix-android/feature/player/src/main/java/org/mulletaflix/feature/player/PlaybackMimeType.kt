@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
+
 package org.mulletaflix.feature.player
 
 import androidx.media3.common.MimeTypes

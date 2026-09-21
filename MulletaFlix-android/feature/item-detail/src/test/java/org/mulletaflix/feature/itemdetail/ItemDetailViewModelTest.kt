@@ -257,6 +257,47 @@ class ItemDetailViewModelTest {
     }
 
     @Test
+    fun `episode failure stops loading and retry recovers without reloading details`() = runTest {
+        val series = MediaItem(id = "s1", name = "Test Series", type = MediaItemType.Series)
+        val seasons = listOf(MediaItem(id = "sea-1", name = "Season 1", type = MediaItemType.Season))
+        val episode = MediaItem(id = "ep-1", name = "Episode 1", type = MediaItemType.Episode)
+        var shouldFail = true
+        var detailsRequests = 0
+
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
+                detailsRequests++
+                return Result.success(series)
+            }
+
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> =
+                Result.success(seasons)
+
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> =
+                if (shouldFail) Result.failure(IllegalStateException("episódios indisponíveis"))
+                else Result.success(listOf(episode))
+        }
+        val viewModel = createViewModel(mediaRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem("s1")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoadingSeasons)
+        assertEquals("Não foi possível carregar os episódios.", viewModel.state.value.seasonError)
+        assertEquals(1, detailsRequests)
+
+        shouldFail = false
+        viewModel.retrySeriesContext()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoadingSeasons)
+        assertNull(viewModel.state.value.seasonError)
+        assertEquals("Episode 1", viewModel.state.value.episodes.single().name)
+        assertEquals(1, detailsRequests)
+    }
+
+    @Test
     fun `selectSeason updates season index and loads episodes for chosen season`() = runTest {
         val series = MediaItem(id = "s1", name = "Test Series", type = MediaItemType.Series)
         val seasons = listOf(

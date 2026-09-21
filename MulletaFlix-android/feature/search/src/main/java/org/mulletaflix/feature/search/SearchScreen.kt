@@ -9,6 +9,8 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -29,6 +31,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.designsystem.components.MediaCard
@@ -100,7 +107,14 @@ fun SearchScreen(
         else voiceError = voiceSearchErrorMessage(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val contentMaxWidth = searchContentMaxWidthDp(maxWidth.value.toInt(), isTelevision).dp
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = contentMaxWidth)
+                .align(Alignment.TopCenter),
+        ) {
 
         // ── Search field ───────────────────────────────────────────────────
         SearchBar(
@@ -184,6 +198,34 @@ fun SearchScreen(
             }
         }
 
+        if (state.isOffline) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.CloudOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        text = "Sem conexão. A busca será atualizada quando a rede voltar.",
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+        }
+
         // ── Results ─────────────────────────────────────────────────────────
         if (state.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -218,6 +260,7 @@ fun SearchScreen(
                 onItemClick = viewModel::search,
                 onRemoveItem = viewModel::removeHistoryItem,
                 onClearHistory = { showClearHistoryConfirmation = true },
+                focusFriendly = isTelevision,
             )
         } else if (state.results.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -294,6 +337,7 @@ fun SearchScreen(
             }
             }
         }
+        }
     }
 
     if (showClearHistoryConfirmation) {
@@ -340,11 +384,12 @@ private fun beginVoiceSearch(context: Context, recognizer: SpeechRecognizer?) {
 }
 
 @Composable
-private fun SearchHistory(
+internal fun SearchHistory(
     history: List<String>,
     onItemClick: (String) -> Unit,
     onRemoveItem: (String) -> Unit,
     onClearHistory: () -> Unit,
+    focusFriendly: Boolean = false,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -372,10 +417,31 @@ private fun SearchHistory(
             }
         } else {
             items(history, key = { it }) { query ->
+                var isFocused by remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onItemClick(query) }
+                        .then(
+                            if (focusFriendly) {
+                                Modifier
+                                    .onFocusChanged { isFocused = it.isFocused }
+                                    .focusable()
+                                    .clickable { onItemClick(query) }
+                                    .semantics {
+                                        role = Role.Button
+                                        contentDescription = "Pesquisar novamente por $query"
+                                    }
+                            } else {
+                                Modifier.clickable { onItemClick(query) }
+                            },
+                        )
+                        .then(
+                            if (focusFriendly && isFocused) {
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium)
+                            } else {
+                                Modifier
+                            },
+                        )
                         .padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

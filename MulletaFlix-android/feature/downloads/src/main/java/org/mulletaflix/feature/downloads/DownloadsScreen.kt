@@ -1,6 +1,10 @@
 package org.mulletaflix.feature.downloads
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -14,6 +18,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
@@ -37,6 +47,8 @@ fun DownloadsScreen(
     val actionMessage by viewModel.actionMessage.collectAsStateWithLifecycle()
     val serverUrl = LocalMulletaFlixServerUrl.current
     val accessToken = LocalMulletaFlixAccessToken.current
+    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf(DownloadStatusFilter.All) }
     val filteredDownloads = remember(downloads, searchQuery, statusFilter) {
@@ -73,17 +85,24 @@ fun DownloadsScreen(
             )
         }
     ) { padding ->
-        Box(
+        BoxWithConstraints(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
+            val contentMaxWidth = downloadsContentMaxWidthDp(
+                availableWidthDp = maxWidth.value.toInt(),
+                isTelevision = isTelevision,
+            ).dp
             if (downloads.isEmpty()) {
                 EmptyDownloads(onExploreClick = onExploreClick)
             } else {
                 LazyColumn(
-                    Modifier.fillMaxSize(),
+                    Modifier
+                        .fillMaxSize()
+                        .widthIn(max = contentMaxWidth)
+                        .align(Alignment.TopCenter),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -129,6 +148,7 @@ fun DownloadsScreen(
                         DownloadRow(
                             entry = entry,
                             imageModel = resolveMediaUrl(serverUrl, entry.imageUrl, accessToken),
+                            focusFriendly = isTelevision,
                             onPlay = { onItemClick(entry) },
                             onRetry = { viewModel.retry(entry) },
                             onRemove = { itemPendingDeletion = entry },
@@ -407,15 +427,39 @@ internal fun OfflineSummary(
 }
 
 @Composable
-private fun DownloadRow(
+internal fun DownloadRow(
     entry: DownloadEntry,
     imageModel: String?,
+    focusFriendly: Boolean = false,
     onPlay: () -> Unit,
     onRetry: () -> Unit,
     onRemove: () -> Unit
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    val canPlay = entry.state == DownloadState.Completed
+    val remotePlayModifier = if (focusFriendly && canPlay) {
+        Modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .clickable(onClick = onPlay)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = "Reproduzir ${entry.title} offline"
+            }
+    } else {
+        Modifier
+    }
+    val focusBorderModifier = if (focusFriendly && canPlay && isFocused) {
+        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium)
+    } else {
+        Modifier
+    }
+
     Card(
-        Modifier.fillMaxWidth(),
+        Modifier
+            .fillMaxWidth()
+            .then(remotePlayModifier)
+            .then(focusBorderModifier),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -449,7 +493,7 @@ private fun DownloadRow(
                     )
                 }
             }
-            if (entry.state == DownloadState.Completed) {
+            if (entry.state == DownloadState.Completed && !focusFriendly) {
                 IconButton(onClick = onPlay) {
                     Icon(Icons.Default.PlayArrow, "Reproduzir offline")
                 }

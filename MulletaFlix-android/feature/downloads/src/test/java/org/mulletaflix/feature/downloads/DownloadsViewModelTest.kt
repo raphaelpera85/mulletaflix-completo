@@ -13,6 +13,13 @@ import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 
 class DownloadsViewModelTest {
     @Test
+    fun `downloads content width adapts to phone tablet and tv`() {
+        assertEquals(411, downloadsContentMaxWidthDp(411, isTelevision = false))
+        assertEquals(960, downloadsContentMaxWidthDp(800, isTelevision = false))
+        assertEquals(1200, downloadsContentMaxWidthDp(1920, isTelevision = true))
+    }
+
+    @Test
     fun `download search is case insensitive and keeps repository order`() {
         val downloads = listOf(
             DownloadEntry("1", "A Viagem", "uri-1", org.mulletaflix.domain.repository.DownloadState.Completed, 100),

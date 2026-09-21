@@ -3,6 +3,7 @@ package org.mulletaflix.feature.auth
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -116,6 +117,84 @@ class AuthViewModelTest {
             "Quick Connect está desativado neste servidor. Use usuário e senha.",
             viewModel.state.value.error,
         )
+    }
+
+    @Test
+    fun `changing server cancels quick connect polling and clears its state`() = runTest {
+        var pollCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                pollCalls++
+                return Result.success(null)
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        runCurrent()
+        assertTrue(viewModel.state.value.isWaitingForQuickConnect)
+
+        viewModel.connectToServer("http://192.168.1.99:8096", onSuccess = {})
+        advanceUntilIdle()
+
+        assertEquals(0, pollCalls)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectSecret)
+        assertNull(viewModel.state.value.quickConnectSecondsRemaining)
+    }
+
+    @Test
+    fun `changing server invalidates quick connect initiation still in flight`() = runTest {
+        var pollCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun initiateQuickConnect(): Result<QuickConnectState> {
+                withContext(NonCancellable) { delay(100) }
+                return Result.success(QuickConnectState("654321", "stale-secret", false))
+            }
+
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                pollCalls++
+                return Result.success(null)
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        runCurrent()
+        viewModel.connectToServer("http://192.168.1.88:8096", onSuccess = {})
+        advanceUntilIdle()
+
+        assertEquals(0, pollCalls)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectSecret)
+    }
+
+    @Test
+    fun `late quick connect availability from previous server is ignored`() = runTest {
+        coEvery { discovery.discover(any()) } returns emptyList()
+        val oldAvailability = CompletableDeferred<Result<Boolean>>()
+        val newAvailability = CompletableDeferred<Result<Boolean>>()
+        var availabilityCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun isQuickConnectEnabled(): Result<Boolean> = when (++availabilityCalls) {
+                1 -> oldAvailability.await()
+                else -> newAvailability.await()
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        runCurrent()
+
+        viewModel.connectToServer("http://new-server:8096", onSuccess = {})
+        runCurrent()
+        newAvailability.complete(Result.success(true))
+        runCurrent()
+        oldAvailability.complete(Result.success(false))
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.state.value.isQuickConnectAvailable)
+        assertEquals("http://new-server:8096", viewModel.state.value.serverUrl)
     }
 
     @Test

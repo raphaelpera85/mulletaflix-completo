@@ -2,6 +2,9 @@ package org.mulletaflix.feature.player
 
 import androidx.media3.common.PlaybackException
 
+internal const val NETWORK_WAITING_PLAYBACK_MESSAGE =
+    "Conexão perdida. A reprodução continuará quando a rede voltar."
+
 /** Converts low-level Media3 failures into actionable messages for viewers. */
 internal fun userFacingPlaybackError(errorCode: Int, fallback: String?): String = when (errorCode) {
     PlaybackException.ERROR_CODE_TIMEOUT,

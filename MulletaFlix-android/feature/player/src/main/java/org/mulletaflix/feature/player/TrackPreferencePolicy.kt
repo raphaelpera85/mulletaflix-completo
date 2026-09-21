@@ -19,19 +19,41 @@ fun preferredStreamIndex(
         ?.let(::canonicalLanguage)
         ?.takeIf { it.isNotBlank() && it != "original" }
 
-    if (normalizedPreference != null) {
-        streams.firstOrNull { stream ->
-            val language = stream.language?.let(::canonicalLanguage)
-            val displayLanguage = stream.displayLanguage?.let(::canonicalLanguage)
-            language == normalizedPreference || displayLanguage == normalizedPreference ||
-                language?.startsWith("$normalizedPreference-") == true
-        }?.let { return it.index }
-    }
+    matchingStreamIndex(streams, normalizedPreference)?.let { return it }
 
     serverDefaultIndex?.let { defaultIndex ->
         if (streams.any { it.index == defaultIndex }) return defaultIndex
     }
     return streams.firstOrNull { it.isDefault }?.index ?: streams.firstOrNull()?.index
+}
+
+/** Returns only an explicit language match suitable for the initial server request. */
+fun requestedPreferredStreamIndex(
+    streams: List<MediaStream>,
+    preferredLanguage: String?,
+): Int? {
+    if (preferredLanguage.equals("off", ignoreCase = true) ||
+        preferredLanguage.equals("none", ignoreCase = true)
+    ) {
+        return null
+    }
+
+    val normalizedPreference = preferredLanguage
+        ?.trim()
+        ?.let(::canonicalLanguage)
+        ?.takeIf { it.isNotBlank() && it != "original" }
+
+    return matchingStreamIndex(streams, normalizedPreference)
+}
+
+private fun matchingStreamIndex(streams: List<MediaStream>, normalizedPreference: String?): Int? {
+    if (normalizedPreference == null) return null
+    return streams.firstOrNull { stream ->
+        val language = stream.language?.let(::canonicalLanguage)
+        val displayLanguage = stream.displayLanguage?.let(::canonicalLanguage)
+        language == normalizedPreference || displayLanguage == normalizedPreference ||
+            language?.startsWith("$normalizedPreference-") == true
+    }?.index
 }
 
 private fun canonicalLanguage(value: String): String {

@@ -6,8 +6,26 @@ import org.junit.Test
 
 class LibraryRefreshPolicyTest {
     @Test
-    fun `library refreshes immediately and periodically while visible`() {
-        assertTrue(libraryRefreshImmediatelyOnResume())
-        assertEquals(60_000L, LIBRARY_AUTO_REFRESH_INTERVAL_MILLIS)
+    fun `refreshes once when an offline library becomes online`() {
+        assertTrue(shouldRefreshLibraryOnNetworkReturn(previousOnline = false, currentOnline = true))
+    }
+
+    @Test
+    fun `does not refresh on initial or unchanged network states`() {
+        assertEquals(false, shouldRefreshLibraryOnNetworkReturn(previousOnline = null, currentOnline = true))
+        assertEquals(false, shouldRefreshLibraryOnNetworkReturn(previousOnline = true, currentOnline = true))
+        assertEquals(false, shouldRefreshLibraryOnNetworkReturn(previousOnline = false, currentOnline = false))
+    }
+
+    @Test
+    fun `television refreshes immediately and periodically while visible`() {
+        assertTrue(libraryRefreshImmediatelyOnResume(isTelevision = true))
+        assertEquals(60_000L, libraryAutoRefreshIntervalMillis(isTelevision = true))
+    }
+
+    @Test
+    fun `phone and tablet keep explicit refresh behavior`() {
+        assertEquals(false, libraryRefreshImmediatelyOnResume(isTelevision = false))
+        assertEquals(0L, libraryAutoRefreshIntervalMillis(isTelevision = false))
     }
 }

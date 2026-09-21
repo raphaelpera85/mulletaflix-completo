@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.media.AudioManager
 import android.os.Build
 import android.view.WindowManager
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
@@ -54,8 +56,12 @@ import kotlin.math.roundToInt
 internal const val CAST_ACTION_CONTENT_DESCRIPTION = "Transmitir para dispositivo compatível"
 internal const val PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION = "Ações do player; deslize horizontalmente para ver mais"
 internal const val PLAYBACK_STATS_CONTENT_DESCRIPTION = "Dados técnicos da mídia; deslize verticalmente para ver mais"
+internal const val PLAYER_OSD_AUTO_HIDE_MILLIS = 3000L
 private const val NOTIFICATION_PROMPT_PREFERENCES = "player_notification_preferences"
 private const val NOTIFICATION_PROMPT_DISMISSED_KEY = "permission_prompt_dismissed"
+
+internal fun shouldAutoHidePlayerOsd(isTelevision: Boolean, isPlaying: Boolean): Boolean =
+    !isTelevision && isPlaying
 
 /**
  * Full-screen video player screen using Media3 / ExoPlayer.
@@ -84,6 +90,9 @@ fun VideoPlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isTelevision = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
     val state by viewModel.state.collectAsStateWithLifecycle()
     val notificationPreferences = remember(context) {
         context.getSharedPreferences(NOTIFICATION_PROMPT_PREFERENCES, Context.MODE_PRIVATE)
@@ -157,9 +166,9 @@ fun VideoPlayerScreen(
 
     // OSD visibility auto-hide
     var osdVisible by remember { mutableStateOf(true) }
-    LaunchedEffect(osdVisible, state.isPlaying) {
-        if (osdVisible && state.isPlaying) {
-            delay(3000)
+    LaunchedEffect(osdVisible, state.isPlaying, isTelevision) {
+        if (osdVisible && shouldAutoHidePlayerOsd(isTelevision, state.isPlaying)) {
+            delay(PLAYER_OSD_AUTO_HIDE_MILLIS)
             osdVisible = false
         }
     }

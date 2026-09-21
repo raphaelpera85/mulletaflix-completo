@@ -5,6 +5,13 @@ import org.junit.Test
 
 class DiscoveryProbePolicyTest {
     @Test
+    fun `bounds discovery windows to protect battery and wifi lock`() {
+        assertEquals(0, boundedDiscoveryTimeoutMs(-1))
+        assertEquals(2_500, boundedDiscoveryTimeoutMs(2_500))
+        assertEquals(10_000, boundedDiscoveryTimeoutMs(60_000))
+    }
+
+    @Test
     fun `schedules repeated probes inside discovery window`() {
         assertEquals(
             listOf(0, 750, 1500, 2250),

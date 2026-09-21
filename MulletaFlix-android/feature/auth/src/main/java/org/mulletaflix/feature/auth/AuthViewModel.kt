@@ -9,6 +9,7 @@ import retrofit2.HttpException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.usecase.LoginUseCase
@@ -70,6 +71,9 @@ class AuthViewModel @Inject constructor(
     val state: StateFlow<AuthState> = _state.asStateFlow()
 
     private var quickConnectPollingJob: Job? = null
+    private var quickConnectGeneration = 0L
+    private var quickConnectAvailabilityJob: Job? = null
+    private var quickConnectAvailabilityGeneration = 0L
     private var usersLoadJob: Job? = null
     private var discoveryJob: Job? = null
     private var connectionJob: Job? = null
@@ -90,7 +94,7 @@ class AuthViewModel @Inject constructor(
                         )
                     }
                     loadAvailableUsers(url)
-                    loadQuickConnectAvailability()
+                    loadQuickConnectAvailability(_state.value.serverUrl ?: url)
                 }
             }
         }
@@ -170,9 +174,12 @@ class AuthViewModel @Inject constructor(
         _state.update { it.copy(availableUsers = emptyList()) }
     }
 
-    private fun loadQuickConnectAvailability() {
-        viewModelScope.launch {
+    private fun loadQuickConnectAvailability(serverUrl: String) {
+        quickConnectAvailabilityJob?.cancel()
+        val generation = ++quickConnectAvailabilityGeneration
+        quickConnectAvailabilityJob = viewModelScope.launch {
             authRepository.isQuickConnectEnabled().onSuccess { available ->
+                if (generation != quickConnectAvailabilityGeneration || _state.value.serverUrl != serverUrl) return@onSuccess
                 _state.update { it.copy(isQuickConnectAvailable = available) }
             }
         }
@@ -224,6 +231,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun connectToServer(url: String, onSuccess: () -> Unit, onFailure: () -> Unit = {}) {
+        cancelQuickConnectPolling()
         connectionJob?.cancel()
         val generation = ++connectionGeneration
         connectionJob = viewModelScope.launch {
@@ -271,7 +279,7 @@ class AuthViewModel @Inject constructor(
                     // the user picker so it can never show users from a previous
                     // server after a LAN/public endpoint switch.
                     loadAvailableUsers(cleanUrl)
-                    loadQuickConnectAvailability()
+                    loadQuickConnectAvailability(cleanUrl)
                     onSuccess()
                 }
                 .onFailure { err ->
@@ -358,15 +366,19 @@ class AuthViewModel @Inject constructor(
 
     fun initiateQuickConnect() {
         if (_state.value.isQuickConnectAvailable == false) {
+            cancelQuickConnectPolling()
             _state.update {
                 it.copy(error = "Quick Connect está desativado neste servidor. Use usuário e senha.")
             }
             return
         }
-        viewModelScope.launch {
+        cancelQuickConnectPolling()
+        val generation = quickConnectGeneration
+        quickConnectPollingJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             authRepository.initiateQuickConnect()
                 .onSuccess { qc ->
+                    if (!isActive || generation != quickConnectGeneration) return@onSuccess
                     _state.update {
                         it.copy(
                             isLoading = false,
@@ -376,78 +388,84 @@ class AuthViewModel @Inject constructor(
                             isWaitingForQuickConnect = true,
                         )
                     }
-                    startQuickConnectPolling(qc.secret)
+                    pollQuickConnect(qc.secret, generation)
                 }
                 .onFailure { err ->
-                    _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Falha ao iniciar Quick Connect") }
+                    if (isActive && generation == quickConnectGeneration) {
+                        _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Falha ao iniciar Quick Connect") }
+                    }
                 }
         }
     }
 
-    private fun startQuickConnectPolling(secret: String) {
+    private fun cancelQuickConnectPolling() {
+        quickConnectGeneration += 1
         quickConnectPollingJob?.cancel()
-        quickConnectPollingJob = viewModelScope.launch {
-            var attempts = 0
-            while (isActive && attempts < QUICK_CONNECT_MAX_POLL_ATTEMPTS) {
-                delay(3000)
-                attempts++
-                _state.update {
-                    it.copy(quickConnectSecondsRemaining = quickConnectRemainingSeconds(attempts))
-                }
-                authRepository.checkQuickConnect(secret).fold(
-                    onSuccess = { session ->
-                        if (session != null) {
-                            _state.update {
-                                it.copy(
-                                    isWaitingForQuickConnect = false,
-                                    quickConnectSecondsRemaining = null,
-                                    isAuthenticated = true,
-                                )
-                            }
-                            return@launch
-                        }
-                    },
-                    onFailure = { error ->
-                        quickConnectTerminalErrorMessage(error)?.let { message ->
-                            _state.update {
-                                it.copy(
-                                    isWaitingForQuickConnect = false,
-                                    quickConnectPin = null,
-                                    quickConnectSecret = null,
-                                    quickConnectSecondsRemaining = null,
-                                    error = message,
-                                )
-                            }
-                            return@launch
-                        }
-                    },
-                )
-            }
+        quickConnectPollingJob = null
+        _state.update {
+            it.copy(
+                quickConnectPin = null,
+                quickConnectSecret = null,
+                quickConnectSecondsRemaining = null,
+                isWaitingForQuickConnect = false,
+            )
+        }
+    }
 
-            if (isActive) {
-                _state.update {
-                    it.copy(
-                        isWaitingForQuickConnect = false,
-                        quickConnectPin = null,
-                        quickConnectSecret = null,
-                        quickConnectSecondsRemaining = null,
-                        error = "O código Quick Connect expirou. Gere um novo código.",
-                    )
-                }
+    private suspend fun pollQuickConnect(secret: String, generation: Long) {
+        var attempts = 0
+        while (currentCoroutineContext().isActive && generation == quickConnectGeneration && attempts < QUICK_CONNECT_MAX_POLL_ATTEMPTS) {
+            delay(3000)
+            if (!currentCoroutineContext().isActive || generation != quickConnectGeneration) return
+            attempts++
+            _state.update {
+                it.copy(quickConnectSecondsRemaining = quickConnectRemainingSeconds(attempts))
+            }
+            authRepository.checkQuickConnect(secret).fold(
+                onSuccess = { session ->
+                    if (generation == quickConnectGeneration && session != null) {
+                        _state.update {
+                            it.copy(
+                                isWaitingForQuickConnect = false,
+                                quickConnectSecondsRemaining = null,
+                                isAuthenticated = true,
+                            )
+                        }
+                        return
+                    }
+                },
+                onFailure = { error ->
+                    if (generation == quickConnectGeneration) quickConnectTerminalErrorMessage(error)?.let { message ->
+                        _state.update {
+                            it.copy(
+                                isWaitingForQuickConnect = false,
+                                quickConnectPin = null,
+                                quickConnectSecret = null,
+                                quickConnectSecondsRemaining = null,
+                                error = message,
+                            )
+                        }
+                        return
+                    }
+                },
+            )
+        }
+
+        if (currentCoroutineContext().isActive && generation == quickConnectGeneration) {
+            _state.update {
+                it.copy(
+                    isWaitingForQuickConnect = false,
+                    quickConnectPin = null,
+                    quickConnectSecret = null,
+                    quickConnectSecondsRemaining = null,
+                    error = "O código Quick Connect expirou. Gere um novo código.",
+                )
             }
         }
     }
 
     fun cancelQuickConnect() {
-        quickConnectPollingJob?.cancel()
-        _state.update {
-            it.copy(
-                isWaitingForQuickConnect = false,
-                quickConnectPin = null,
-                quickConnectSecret = null,
-                quickConnectSecondsRemaining = null,
-            )
-        }
+        cancelQuickConnectPolling()
     }
 }
 

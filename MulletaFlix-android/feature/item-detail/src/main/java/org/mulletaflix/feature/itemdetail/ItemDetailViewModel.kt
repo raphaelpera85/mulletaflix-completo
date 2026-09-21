@@ -30,6 +30,7 @@ data class ItemDetailState(
     val specialFeatures: List<MediaItem> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingSeasons: Boolean = false,
+    val seasonError: String? = null,
     val error: String? = null,
     val downloadMessage: String? = null,
     val interactionMessage: String? = null,
@@ -123,6 +124,7 @@ class ItemDetailViewModel @Inject constructor(
                     specialFeatures = emptyList(),
                     isLoading = true,
                     isLoadingSeasons = false,
+                    seasonError = null,
                     error = null,
                     downloadMessage = null,
                     interactionMessage = null,
@@ -204,7 +206,7 @@ class ItemDetailViewModel @Inject constructor(
         currentSeriesId = seriesId
         val requestSessionGeneration = sessionGeneration
         seasonLoadJob = viewModelScope.launch {
-            _state.update { it.copy(isLoadingSeasons = true) }
+            _state.update { it.copy(isLoadingSeasons = true, seasonError = null) }
             mediaRepository.getSeasons(userId, seriesId)
                 .onSuccess { seasonsList ->
                     if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onSuccess
@@ -214,18 +216,33 @@ class ItemDetailViewModel @Inject constructor(
                             seasons = seasonsList,
                             selectedSeasonIndex = selectedIndex,
                             isLoadingSeasons = false,
+                            seasonError = null,
                         )
                     }
                     val seasonId = seasonsList.getOrNull(selectedIndex)?.id
                     mediaRepository.getEpisodes(userId, seriesId, seasonId)
                         .onSuccess { eps ->
                             if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onSuccess
-                            _state.update { it.copy(episodes = eps) }
+                            _state.update { it.copy(episodes = eps, seasonError = null) }
+                        }
+                        .onFailure {
+                            if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onFailure
+                            _state.update {
+                                it.copy(
+                                    isLoadingSeasons = false,
+                                    seasonError = "Não foi possível carregar os episódios.",
+                                )
+                            }
                         }
                 }
-                .onFailure {
+                .onFailure { error ->
                     if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onFailure
-                    _state.update { it.copy(isLoadingSeasons = false) }
+                    _state.update {
+                        it.copy(
+                            isLoadingSeasons = false,
+                            seasonError = error.localizedMessage ?: "Não foi possível carregar as temporadas.",
+                        )
+                    }
                 }
         }
     }
@@ -239,20 +256,39 @@ class ItemDetailViewModel @Inject constructor(
         seasonLoadJob?.cancel()
         val requestGeneration = ++seasonRequestGeneration
         val requestSessionGeneration = sessionGeneration
-        _state.update { it.copy(selectedSeasonIndex = index, isLoadingSeasons = true) }
+        _state.update {
+            it.copy(
+                selectedSeasonIndex = index,
+                episodes = emptyList(),
+                isLoadingSeasons = true,
+                seasonError = null,
+            )
+        }
         val season = seasons[index]
 
         seasonLoadJob = viewModelScope.launch {
             mediaRepository.getEpisodes(userId, seriesId, season.id)
                 .onSuccess { eps ->
                     if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onSuccess
-                    _state.update { it.copy(episodes = eps, isLoadingSeasons = false) }
+                    _state.update { it.copy(episodes = eps, isLoadingSeasons = false, seasonError = null) }
                 }
-                .onFailure {
+                .onFailure { error ->
                     if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration, seasonRequestGeneration)) return@onFailure
-                    _state.update { it.copy(isLoadingSeasons = false) }
+                    _state.update {
+                        it.copy(
+                            isLoadingSeasons = false,
+                            seasonError = error.localizedMessage ?: "Não foi possível carregar os episódios.",
+                        )
+                    }
                 }
         }
+    }
+
+    fun retrySeriesContext() {
+        val userId = currentUserId ?: return
+        val seriesId = currentSeriesId ?: return
+        val seasonId = _state.value.seasons.getOrNull(_state.value.selectedSeasonIndex)?.id
+        loadSeriesContext(userId, seriesId, seasonId)
     }
 
     fun toggleFavorite() {

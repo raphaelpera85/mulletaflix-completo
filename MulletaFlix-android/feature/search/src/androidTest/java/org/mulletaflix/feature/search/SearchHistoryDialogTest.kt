@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import org.junit.Rule
 import org.junit.Test
@@ -36,5 +37,24 @@ class SearchHistoryDialogTest {
 
         composeRule.onNodeWithText("Limpar").performClick()
         check(confirmed)
+    }
+
+    @Test
+    fun televisionHistoryEntryIsAReplayFocusTarget() {
+        var replayed = false
+        composeRule.setContent {
+            MaterialTheme {
+                SearchHistory(
+                    history = listOf("Matrix"),
+                    onItemClick = { replayed = true },
+                    onRemoveItem = {},
+                    onClearHistory = {},
+                    focusFriendly = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Pesquisar novamente por Matrix").performClick()
+        check(replayed)
     }
 }

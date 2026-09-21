@@ -9,6 +9,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -152,5 +153,32 @@ class DownloadsSearchTest {
         )
         composeRule.waitForIdle()
         composeRule.onAllNodesWithText("Limpar falhas (1)").assertCountEquals(0)
+    }
+
+    @Test
+    fun completedDownloadUsesSingleTvFocusTargetForPlayback() {
+        var played = false
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadRow(
+                    entry = DownloadEntry(
+                        id = "done",
+                        title = "Filme",
+                        uri = "https://server/done",
+                        state = DownloadState.Completed,
+                        percent = 100,
+                    ),
+                    imageModel = null,
+                    focusFriendly = true,
+                    onPlay = { played = true },
+                    onRetry = {},
+                    onRemove = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Reproduzir Filme offline").performClick()
+
+        composeRule.runOnIdle { check(played) }
     }
 }

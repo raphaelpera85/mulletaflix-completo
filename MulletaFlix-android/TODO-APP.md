@@ -1449,3 +1449,186 @@ Pendências relacionadas:
 - [x] Exibir uma mensagem clara quando o recurso estiver desativado no servidor.
 - [x] Reconsultar a disponibilidade ao trocar de endpoint LAN/internet.
 - [x] Cobrir o contrato Retrofit e o bloqueio no ViewModel.
+
+## 213. Recuperação automática da busca ao voltar a rede (v1.2.3)
+- [x] Reexecutar a busca ativa uma única vez quando a conectividade retornar.
+- [x] Exibir aviso não bloqueante enquanto a busca estiver offline.
+- [x] Preservar query, filtro e resultados atuais durante a oscilação.
+- [x] Cobrir a transição offline/online sem refresh duplicado.
+
+## 214. Recuperação de episódios na tela de detalhes (v1.2.4)
+- [x] Encerrar o carregamento quando a API de episódios falhar.
+- [x] Exibir erro localizado dentro da seção de temporadas/episódios.
+- [x] Permitir tentar novamente sem recarregar todos os detalhes da mídia.
+- [x] Limpar episódios antigos ao trocar de temporada.
+
+## 215. Acessibilidade da ordenação da biblioteca (v1.2.5)
+- [x] Anunciar o critério e a direção atuais no botão de ordenação.
+- [x] Cobrir as opções Ascendente e Descendente em teste Compose.
+
+## 216. Recuperação inline da Minha Lista (v1.2.6)
+- [x] Exibir ação “Tentar novamente” quando a atualização falhar com títulos já carregados.
+- [x] Cobrir a ação de retry no aviso inline com teste Compose.
+
+## 217. Estado de sessão expirado na Minha Lista (v1.2.7)
+- [x] Encerrar corretamente o carregamento quando não houver usuário salvo.
+- [x] Exibir a mensagem de reautenticação sem deixar o refresh preso.
+- [x] Cobrir o estado sem sessão em teste unitário.
+
+## 218. Atualização automática da biblioteca na Android TV
+- [x] Atualizar a biblioteca imediatamente ao voltar ao primeiro plano na TV.
+- [x] Reconciliar alterações do servidor a cada minuto enquanto a biblioteca estiver visível na TV.
+- [x] Manter celular e tablet com atualização explícita/pull-to-refresh, sem timer em segundo plano.
+- [x] Cobrir as políticas de TV e dispositivos móveis em teste unitário.
+
+## 219. Recuperação da biblioteca após retorno da rede
+- [x] Observar a transição offline/online no ViewModel da biblioteca.
+- [x] Atualizar a biblioteca carregada uma única vez quando a rede retornar.
+- [x] Não duplicar a requisição se outra atualização já estiver em andamento.
+- [x] Cobrir a política e o fluxo de recuperação em testes unitários.
+
+## 220. Indicador offline recuperável na biblioteca
+- [x] Informar visualmente quando a biblioteca está sem conexão.
+- [x] Manter a grade/rolagem disponível durante a indisponibilidade da rede.
+- [x] Oferecer retry acessível e compatível com foco da Android TV.
+- [x] Cobrir o banner e a ação de retry em teste Compose.
+
+## 221. Polling da biblioteca suspenso sem rede
+- [x] Evitar novas chamadas periódicas da Android TV enquanto o dispositivo estiver offline.
+- [x] Preservar a atualização automática única quando a conectividade retornar.
+- [x] Cobrir a proteção contra polling offline no teste do ViewModel.
+
+## 222. Cancelamento de Quick Connect ao trocar de servidor
+- [x] Cancelar o polling ativo antes de verificar novo endpoint.
+- [x] Invalidar também a coroutine que ainda inicia o polling.
+- [x] Ignorar respostas em voo do endpoint anterior.
+- [x] Limpar PIN, segredo e contador do fluxo anterior.
+- [x] Cobrir troca de servidor sem chamadas ao endpoint antigo.
+
+## 223. Paginação da biblioteca respeita estado offline
+- [x] Bloquear carregamento de páginas adicionais sem rede.
+- [x] Manter paginação disponível após recuperação da conectividade.
+- [x] Cobrir sentinel offline no teste do ViewModel.
+
+## 224. Respostas de rede obsoletas isoladas (v1.2.12)
+- [x] Não iniciar carregamento de biblioteca quando a rede já estiver offline.
+- [x] Ignorar disponibilidade do Quick Connect retornada por endpoint anterior.
+- [x] Cobrir chamadas offline e troca de servidor com testes de regressão.
+
+## 225. Foco remoto no modo lista (v1.2.13)
+- [x] Tornar a linha inteira da biblioteca um único alvo de clique e foco na Android TV.
+- [x] Remover o clique aninhado do card usado dentro da linha.
+- [x] Cobrir o card não clicável e a navegação instrumentada na TV.
+
+## 226. OSD acessível por controle remoto na TV (v1.2.14)
+- [x] Manter os controles do player acessíveis durante a reprodução na Android TV.
+- [x] Preservar o auto-ocultamento de 3 segundos em celulares.
+- [x] Cobrir a política de visibilidade em teste unitário.
+
+## 227. Buffer adaptativo e transporte resiliente no player (v1.2.15)
+- [x] Configurar buffer maior para streaming remoto e buffer menor para reprodução offline.
+- [x] Aumentar os timeouts HTTP para redes internet/LAN com latência variável.
+- [x] Permitir redirecionamentos entre HTTP/HTTPS usados pelo servidor ou proxy.
+- [x] Cobrir os limites da política em testes unitários.
+
+## 228. Transporte resiliente nos downloads (v1.2.16)
+- [x] Aplicar os mesmos timeouts HTTP resilientes ao DownloadManager do APK.
+- [x] Permitir que downloads acompanhem redirecionamentos HTTP/HTTPS do servidor ou proxy.
+- [x] Confirmar por busca que não restou caminho de mídia com a configuração antiga.
+
+## 229. Política de transporte Media3 compartilhada (v1.2.17)
+- [x] Expor uma única política de timeout para player e downloads do APK.
+- [x] Remover a duplicação dos valores de transporte entre módulos Android.
+- [x] Cobrir os valores compartilhados no teste unitário da política de streaming.
+
+## 230. Indicador de rota LAN/internet no perfil (v1.2.18)
+- [x] Classificar a URL ativa como LAN, Internet ou servidor remoto.
+- [x] Exibir a rota atual ao lado do status do servidor conectado.
+- [x] Cobrir IPs privados, hostnames `.local`, DuckDNS e entradas inválidas.
+
+## 231. Cópia da URL ativa no perfil (v1.2.19)
+- [x] Adicionar ação acessível para copiar a URL efetivamente usada pelo APK.
+- [x] Exibir confirmação não bloqueante após a cópia.
+- [x] Cobrir a seleção e normalização do endpoint ativo em teste unitário.
+
+## 232. Links compartilhados no formato oficial do web player (v1.2.20)
+- [x] Gerar links de mídia com `/web/#/details?id=...` no compartilhamento do APK.
+- [x] Preservar a substituição segura de endpoints de loopback pelo endereço público.
+- [x] Atualizar os testes de URL e texto compartilhado para o formato oficial.
+
+## 233. Validação estrita de links oficiais no APK (v1.2.21)
+- [x] Aceitar somente o caminho oficial `/web` e seus subcaminhos.
+- [x] Rejeitar caminhos parecidos, como `/website`, para evitar capturas indevidas.
+- [x] Cobrir a validação com testes JVM de deep link.
+
+## 234. Executor assíncrono e limitado para downloads (v1.2.22)
+- [x] Remover o executor direto que podia executar operações do DownloadManager no thread chamador.
+- [x] Usar pool adaptativo de 2 a 4 workers para celular, tablet e Android TV.
+- [x] Cobrir os limites da política de concorrência com testes JVM.
+
+## 235. Janela limitada para descoberta LAN (v1.2.23)
+- [x] Limitar a descoberta automática a uma janela máxima de 10 segundos.
+- [x] Preservar timeout zero para desativação imediata da varredura.
+- [x] Cobrir valores negativos, padrão e excessivos com teste unitário.
+
+## 236. Carga imediata da Biblioteca na TV (v1.2.24)
+- [x] Carregar a biblioteca imediatamente ao entrar na tela.
+- [x] Evitar que a primeira atualização dependa do intervalo automático de 60 segundos da TV.
+- [x] Preservar o refresh ao retornar ao primeiro plano e o refresh manual em dispositivos móveis.
+- [x] Encerrar a árvore do emulador criada pelo wrapper após o teste.
+
+## 237. Refresh não destrutivo de Minha Lista na TV (v1.2.25)
+- [x] Não cancelar uma requisição de Minha Lista que ainda esteja em andamento.
+- [x] Evitar requisições duplicadas no refresh periódico da TV.
+- [x] Cobrir o comportamento com teste unitário de concorrência.
+
+## 238. Descoberta LAN limitada ao foreground (v1.2.26)
+- [x] Iniciar a recuperação LAN quando a Activity entra no foreground.
+- [x] Interromper callbacks e varreduras ao deixar o aplicativo em segundo plano.
+- [x] Revalidar a rota automaticamente ao retornar ao aplicativo.
+
+## 239. Preferências de ordenação aplicadas na primeira carga (v1.2.27)
+- [x] Aguardar sort, direção e filtros persistidos antes da primeira consulta da biblioteca.
+- [x] Evitar que a abertura rápida da tela substitua temporariamente a preferência do usuário.
+- [x] Cobrir a primeira requisição com ordenação descendente em teste unitário.
+
+## 240. Verificação de atualização ao retornar ao foreground (v1.2.28)
+- [x] Verificar novas releases do APK a cada retorno ao foreground.
+- [x] Não bloquear a navegação quando o GitHub ou a rede estiverem indisponíveis.
+- [x] Evitar reapresentar a mesma versão dispensada durante a sessão.
+- [x] Cobrir disponibilidade, URL de download e versão dispensada em testes unitários.
+
+## 241. Retry do player condicionado à conectividade (v1.2.29)
+- [x] Pausar retries automáticos de streams remotos enquanto o dispositivo estiver offline.
+- [x] Retomar a reprodução automaticamente após o retorno da rede.
+- [x] Preservar reprodução local/offline sem depender de conectividade.
+- [x] Cobrir a política de pausa para erros transitórios e codecs permanentes.
+
+## 242. Busca sem chamadas enquanto offline (v1.2.30)
+- [x] Evitar chamadas ao servidor durante pesquisa digitada sem conectividade.
+- [x] Exibir mensagem recuperável na tela de busca.
+- [x] Retomar a pesquisa automaticamente após a reconexão.
+- [x] Cobrir ausência de chamada offline e execução após reconectar.
+
+## 243. TV ao vivo sem polling offline (v1.2.31)
+- [x] Bloquear refresh periódico dos canais enquanto não houver conexão.
+- [x] Bloquear carregamento do guia e agendamento de gravações offline.
+- [x] Atualizar os canais automaticamente após a reconexão.
+- [x] Cobrir a ausência de chamadas offline e o refresh pós-rede.
+
+## 244. Refresh não destrutivo da TV ao vivo (v1.2.32)
+- [x] Evitar que o timer de foreground cancele uma resposta lenta de canais.
+- [x] Manter o refresh manual destrutivo disponível no botão Atualizar.
+- [x] Cobrir o comportamento ocioso, carregando e offline em teste de política.
+
+## 245. Downloads com foco remoto na Android TV (v1.2.33)
+- [x] Transformar download concluído em alvo único de foco e reprodução pelo controle remoto.
+- [x] Exibir contorno visual no item focado na TV.
+- [x] Manter Play separado no celular e retry/remoção disponíveis para falhas.
+- [x] Cobrir clique do alvo remoto em teste Compose executado na Android TV.
+
+## 246. Layout adaptativo de Downloads para tablet e TV (v1.2.34)
+- [x] Limitar largura do conteúdo em tablets para melhorar leitura e navegação.
+- [x] Usar largura máxima maior e centralizada na Android TV.
+- [x] Manter largura total em celulares.
+- [x] Cobrir os três perfis de largura em teste unitário.

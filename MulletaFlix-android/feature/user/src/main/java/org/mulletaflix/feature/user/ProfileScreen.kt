@@ -17,6 +17,8 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +38,8 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.userAvatarPath
 import org.mulletaflix.domain.repository.AvailableUser
+import android.content.ClipData
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,9 +51,14 @@ fun ProfileScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val serverBaseUrl = LocalMulletaFlixServerUrl.current
+    val activeUrl = activeServerUrl(state.serverUrl, serverBaseUrl)
+    val clipboardManager = LocalContext.current.getSystemService(android.content.ClipboardManager::class.java)
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
     var showLogoutConfirmDialog by remember { mutableStateOf(false) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Meu Perfil", fontWeight = FontWeight.Bold) },
@@ -190,13 +199,31 @@ fun ProfileScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
                     )
-                    Text(
-                        text = state.serverUrl.ifBlank { serverBaseUrl },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = activeUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(
+                            onClick = {
+                                if (activeUrl.isNotBlank()) {
+                                    clipboardManager?.setPrimaryClip(
+                                        ClipData.newPlainText("URL do servidor", activeUrl),
+                                    )
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("URL do servidor copiada")
+                                    }
+                                }
+                            },
+                            enabled = activeUrl.isNotBlank(),
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copiar URL do servidor")
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
@@ -220,6 +247,12 @@ fun ProfileScreen(
                             )
                         }
                     }
+                    Text(
+                        text = "Rota: ${serverConnectionModeLabel(classifyServerConnection(activeUrl))}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
             }
 

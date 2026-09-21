@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.LibraryBrowseTypes
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
@@ -16,6 +17,7 @@ import javax.inject.Inject
 
 data class LibraryState(
     val libraryName: String = "Biblioteca",
+    val isOffline: Boolean = false,
     val isGridView: Boolean = true,
     val gridDensity: String = LIBRARY_GRID_DENSITY_COMFORTABLE,
     val isLoading: Boolean = false,
@@ -36,6 +38,7 @@ class LibraryViewModel @Inject constructor(
     private val getItemDetailUseCase: GetItemDetailUseCase,
     private val authRepository: AuthRepository,
     private val settingsRepository: SettingsRepository,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LibraryState())
@@ -50,6 +53,10 @@ class LibraryViewModel @Inject constructor(
     private var totalItems = 0
     private var loadJob: Job? = null
     private var requestGeneration: Long = 0L
+    private var sortPreferenceReady = false
+    private var sortOrderPreferenceReady = false
+    private var filtersPreferenceReady = false
+    private val libraryQueryPreferencesReady = MutableStateFlow(false)
 
     companion object {
         const val FILTER_FAVORITES = "Favoritos"
@@ -59,6 +66,16 @@ class LibraryViewModel @Inject constructor(
     }
 
     init {
+        viewModelScope.launch {
+            var previousOnline: Boolean? = null
+            networkMonitor.isOnline.distinctUntilChanged().collect { online ->
+                _state.update { it.copy(isOffline = !online) }
+                if (shouldRefreshLibraryOnNetworkReturn(previousOnline, online)) {
+                    currentLibraryId?.let(::refreshIfIdle)
+                }
+                previousOnline = online
+            }
+        }
         viewModelScope.launch {
             authRepository.getSavedUserId().collect { userId ->
                 val userChanged = hasObservedUser && currentUserId != userId
@@ -97,6 +114,8 @@ class LibraryViewModel @Inject constructor(
                 val sort = SortOption.values().firstOrNull { it.apiValue.equals(sortValue, ignoreCase = true) }
                     ?: SortOption.Name
                 _state.update { it.copy(sortBy = sort) }
+                sortPreferenceReady = true
+                updateLibraryQueryPreferencesReady()
             }
         }
         viewModelScope.launch {
@@ -104,11 +123,15 @@ class LibraryViewModel @Inject constructor(
                 val order = SortOrder.values().firstOrNull { it.apiValue.equals(orderValue, ignoreCase = true) }
                     ?: SortOrder.Ascending
                 _state.update { it.copy(sortOrder = order) }
+                sortOrderPreferenceReady = true
+                updateLibraryQueryPreferencesReady()
             }
         }
         viewModelScope.launch {
             settingsRepository.getDefaultLibraryFilters().collect { filters ->
                 _state.update { it.copy(activeFilters = orderedFilters(filters)) }
+                filtersPreferenceReady = true
+                updateLibraryQueryPreferencesReady()
             }
         }
     }
@@ -118,7 +141,16 @@ class LibraryViewModel @Inject constructor(
         val requestGeneration = ++this.requestGeneration
         currentLibraryId = libraryId
         currentStartIndex = 0
+        if (_state.value.isOffline) {
+            _state.update { it.copy(isLoading = false, isRefreshing = false) }
+            return
+        }
         loadJob = viewModelScope.launch {
+            // Compose can request the library immediately after the screen is
+            // created. Wait until persisted sort/order/filter preferences have
+            // been read so the first server request is already consistent with
+            // the user's selection.
+            libraryQueryPreferencesReady.filter { it }.first()
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
                 _state.update { it.copy(isLoading = false, isRefreshing = false, error = "Sessão expirada. Entre novamente.") }
                 return@launch
@@ -169,11 +201,12 @@ class LibraryViewModel @Inject constructor(
      */
     fun refreshIfIdle(libraryId: String) {
         val current = _state.value
-        if (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing)) return
+        if (current.isOffline || (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))) return
         loadLibrary(libraryId)
     }
 
     fun loadMore() {
+        if (_state.value.isOffline) return
         val libId = currentLibraryId ?: run {
             if (currentUserId == null) {
                 _state.update {
@@ -291,6 +324,22 @@ class LibraryViewModel @Inject constructor(
         currentLibraryId?.let { loadLibrary(it) }
     }
 
+    /** Applies the sort field and direction as one library query. */
+    fun setSort(option: SortOption, order: SortOrder) {
+        _state.update {
+            it.copy(
+                sortBy = option,
+                sortOrder = order,
+                showSortMenu = false,
+            )
+        }
+        viewModelScope.launch {
+            settingsRepository.setDefaultLibrarySort(option.apiValue)
+            settingsRepository.setDefaultLibrarySortOrder(order.apiValue)
+        }
+        currentLibraryId?.let { loadLibrary(it) }
+    }
+
     fun removeFilter(filter: String) {
         val nextFilters = _state.value.activeFilters - filter
         _state.update { it.copy(activeFilters = nextFilters) }
@@ -328,4 +377,10 @@ class LibraryViewModel @Inject constructor(
         generation == requestGeneration &&
             currentUserId == userId &&
             currentLibraryId == libraryId
+
+    private fun updateLibraryQueryPreferencesReady() {
+        if (sortPreferenceReady && sortOrderPreferenceReady && filtersPreferenceReady) {
+            libraryQueryPreferencesReady.value = true
+        }
+    }
 }

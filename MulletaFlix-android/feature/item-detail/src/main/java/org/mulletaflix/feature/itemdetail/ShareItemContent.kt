@@ -12,7 +12,7 @@ internal fun buildItemShareUrl(serverUrl: String, itemId: String): String? {
     if (baseUrl.isBlank() || normalizedId.isBlank()) return null
 
     val encodedId = URLEncoder.encode(normalizedId, Charsets.UTF_8.name())
-    return "$baseUrl/web/index.html#!/details?id=$encodedId"
+    return "$baseUrl/web/#/details?id=$encodedId"
 }
 
 /**
