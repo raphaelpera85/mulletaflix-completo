@@ -388,7 +388,14 @@ class AuthViewModel @Inject constructor(
                             isWaitingForQuickConnect = true,
                         )
                     }
-                    pollQuickConnect(qc.secret, generation)
+                    if (qc.isAuthorized) {
+                        // Some server versions authorize the code during the
+                        // initiate call. Authenticate immediately instead of
+                        // making the user wait for the first polling interval.
+                        checkQuickConnect(qc.secret, generation)
+                    } else {
+                        pollQuickConnect(qc.secret, generation)
+                    }
                 }
                 .onFailure { err ->
                     if (isActive && generation == quickConnectGeneration) {
@@ -421,34 +428,7 @@ class AuthViewModel @Inject constructor(
             _state.update {
                 it.copy(quickConnectSecondsRemaining = quickConnectRemainingSeconds(attempts))
             }
-            authRepository.checkQuickConnect(secret).fold(
-                onSuccess = { session ->
-                    if (generation == quickConnectGeneration && session != null) {
-                        _state.update {
-                            it.copy(
-                                isWaitingForQuickConnect = false,
-                                quickConnectSecondsRemaining = null,
-                                isAuthenticated = true,
-                            )
-                        }
-                        return
-                    }
-                },
-                onFailure = { error ->
-                    if (generation == quickConnectGeneration) quickConnectTerminalErrorMessage(error)?.let { message ->
-                        _state.update {
-                            it.copy(
-                                isWaitingForQuickConnect = false,
-                                quickConnectPin = null,
-                                quickConnectSecret = null,
-                                quickConnectSecondsRemaining = null,
-                                error = message,
-                            )
-                        }
-                        return
-                    }
-                },
-            )
+            if (checkQuickConnect(secret, generation)) return
         }
 
         if (currentCoroutineContext().isActive && generation == quickConnectGeneration) {
@@ -462,6 +442,44 @@ class AuthViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /** Returns true when the current Quick Connect attempt reached a terminal state. */
+    private suspend fun checkQuickConnect(secret: String, generation: Long): Boolean {
+        var terminal = false
+        authRepository.checkQuickConnect(secret).fold(
+            onSuccess = { session ->
+                if (generation == quickConnectGeneration && session != null) {
+                    _state.update {
+                        it.copy(
+                            isWaitingForQuickConnect = false,
+                            quickConnectPin = null,
+                            quickConnectSecret = null,
+                            quickConnectSecondsRemaining = null,
+                            isAuthenticated = true,
+                        )
+                    }
+                    terminal = true
+                }
+            },
+            onFailure = { error ->
+                if (generation == quickConnectGeneration) {
+                    quickConnectTerminalErrorMessage(error)?.let { message ->
+                        _state.update {
+                            it.copy(
+                                isWaitingForQuickConnect = false,
+                                quickConnectPin = null,
+                                quickConnectSecret = null,
+                                quickConnectSecondsRemaining = null,
+                                error = message,
+                            )
+                        }
+                        terminal = true
+                    }
+                }
+            },
+        )
+        return terminal
     }
 
     fun cancelQuickConnect() {

@@ -460,3 +460,9 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Impedir que uma atualização manual offline gere uma requisição desnecessária.
 - [x] Recarregar automaticamente a Home após a reconexão.
 - [x] Cobrir a corrida de inicialização e a recuperação de rede no teste do ViewModel.
+
+## 213. Quick Connect autorizado na resposta inicial (v1.2.40)
+- [x] Autenticar imediatamente quando o servidor retornar `authenticated=true` ao iniciar o código.
+- [x] Manter o polling de três segundos para códigos ainda pendentes.
+- [x] Limpar PIN e secret após a autenticação imediata.
+- [x] Cobrir o caminho autorizado com teste do ViewModel.

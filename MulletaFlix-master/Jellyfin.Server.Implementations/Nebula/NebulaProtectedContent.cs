@@ -15,8 +15,8 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// Regra única do Nebula para o conteúdo que forma o cache local de exibição:
 /// capas, imagens (poster/fanart/logo/thumb), NFO/XML de metadados e legendas.
 /// Esse conteúdo nunca é excluído do disco nem do catálogo, porque é ele que
-/// mantém a biblioteca instantânea no web e no aplicativo; o envio ao Telegram
-/// é apenas a cópia de segurança.
+/// mantém a biblioteca instantânea no web e no aplicativo; esse conteúdo não
+/// participa da fila nem é enviado ao Telegram.
 /// </summary>
 internal static class NebulaProtectedContent
 {

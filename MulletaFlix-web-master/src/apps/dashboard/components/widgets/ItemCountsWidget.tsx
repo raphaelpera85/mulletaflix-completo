@@ -9,7 +9,7 @@ import Grid from '@mui/material/Grid2';
 import SvgIcon from '@mui/material/SvgIcon';
 import React, { useMemo } from 'react';
 
-import { useItemCounts } from 'apps/dashboard/features/metrics/api/useItemCounts';
+import { useLibraryItemCounts } from 'apps/dashboard/features/metrics/api/useLibraryItemCounts';
 import MetricCard, { type MetricCardProps } from 'apps/dashboard/features/metrics/components/MetricCard';
 import globalize from 'lib/globalize';
 import Box from '@mui/material/Box';
@@ -56,7 +56,7 @@ const ItemCountsWidget = () => {
     const {
         data: counts,
         isPending
-    } = useItemCounts();
+    } = useLibraryItemCounts();
 
     const cards: MetricCardProps[] = useMemo(() => {
         return CARD_DEFINITIONS

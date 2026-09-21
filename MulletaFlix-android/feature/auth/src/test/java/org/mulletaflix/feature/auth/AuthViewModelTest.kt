@@ -120,6 +120,30 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `already authorized quick connect authenticates without polling delay`() = runTest {
+        var checkCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun initiateQuickConnect(): Result<QuickConnectState> =
+                Result.success(QuickConnectState("123456", "authorized-secret", true))
+
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                checkCalls++
+                return Result.success(UserSession("u1", "Raphael", "token", "server-1"))
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(1, checkCalls)
+        assertTrue(viewModel.state.value.isAuthenticated)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectSecret)
+    }
+
+    @Test
     fun `changing server cancels quick connect polling and clears its state`() = runTest {
         var pollCalls = 0
         val authRepo = object : FakeAuthRepository() {

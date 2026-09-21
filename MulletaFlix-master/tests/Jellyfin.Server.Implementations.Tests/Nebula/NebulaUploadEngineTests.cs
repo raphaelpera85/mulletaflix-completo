@@ -624,12 +624,12 @@ public class NebulaUploadEngineTests
     [InlineData("movie.mp4", true)]
     [InlineData("movie.avi", true)]
     [InlineData("movie.ts", true)]
-    [InlineData("subtitle.srt", true)]
-    [InlineData("poster.nfo", true)]
-    [InlineData("poster.jpg", true)]
+    [InlineData("subtitle.srt", false)]
+    [InlineData("poster.nfo", false)]
+    [InlineData("poster.jpg", false)]
     [InlineData("movie.strm", false)]
     [InlineData("movie.txt", false)]
-    public void MetadataExport_OnlyMediaAndSidecarsAreUploadable(string fileName, bool expected)
+    public void MetadataExport_OnlyMediaPayloadsAreUploadable(string fileName, bool expected)
     {
         Assert.Equal(expected, NebulaMetadataExportService.IsUploadablePath(fileName));
     }

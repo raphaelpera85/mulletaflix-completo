@@ -357,6 +357,24 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             return false;
         }
 
+        // Sidecars antigos que ainda estejam registrados na fila não podem
+        // chegar à API do Telegram. Remova somente o registro da fila; o arquivo
+        // permanece intacto no cache local do servidor.
+        if (NebulaProtectedContent.IsProtectedPath(localFilePath))
+        {
+            if (_mongoContext != null)
+            {
+                var sidecar = await _mongoContext.FindFileForUploadAsync(targetFileName, parentId, localFilePath, cancellationToken).ConfigureAwait(false);
+                if (sidecar != null && sidecar.TryGetValue("_id", out var sidecarId) && sidecarId.IsObjectId)
+                {
+                    await _mongoContext.DeleteByIdAsync(sidecarId.AsObjectId.ToString(), cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            _logger.LogInformation("[NEBULA-UPLOAD] Sidecar ignorado: {Path}. NFO e imagens permanecem somente no servidor.", localFilePath);
+            return true;
+        }
+
         await _concurrencySemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {

@@ -60,16 +60,38 @@ public sealed class NebulaHostedService : IHostedService
                         return;
                     }
 
-                    _logger.LogInformation("[NEBULA-STARTUP] Servidor MulletaFlix inicializado com sucesso. Iniciando modo Envio do Nebula...");
+                    _logger.LogInformation("[NEBULA-STARTUP] Servidor MulletaFlix inicializado. Iniciando Envio, Downloader e montagem do disco N em sequência...");
 
                     var envioStarted = await _nebulaManager.StartEnvioAsync(streamOnly: false, startupCancellationToken).ConfigureAwait(false);
                     if (envioStarted)
                     {
                         _logger.LogInformation("[NEBULA-STARTUP] Modo Envio iniciado com sucesso.");
+
+                        // Start the downloader in the same server lifecycle. The
+                        // manager reuses the Mongo/Telegram runtime created by
+                        // StartEnvioAsync and its own lock prevents duplicates.
+                        var downloaderStarted = await _nebulaManager.StartDownloaderAsync(startupCancellationToken).ConfigureAwait(false);
+                        if (downloaderStarted)
+                        {
+                            _logger.LogInformation("[NEBULA-STARTUP] Downloader STRM iniciado com sucesso.");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[NEBULA-STARTUP] Downloader STRM não foi iniciado. Verifique as pastas de monitoramento configuradas.");
+                        }
+
                         if (config.UseMappedDrive)
                         {
                             _logger.LogInformation("[NEBULA-STARTUP] UseMappedDrive=true: montando disco N: em sequência...");
-                            await _nebulaManager.MountDriveNAsync(startupCancellationToken).ConfigureAwait(false);
+                            var mounted = await _nebulaManager.MountDriveNAsync(startupCancellationToken).ConfigureAwait(false);
+                            if (mounted)
+                            {
+                                _logger.LogInformation("[NEBULA-STARTUP] Disco N: montado e acessível.");
+                            }
+                            else
+                            {
+                                _logger.LogWarning("[NEBULA-STARTUP] Disco N: não foi montado. O envio e o Downloader continuam ativos.");
+                            }
                         }
                         else
                         {

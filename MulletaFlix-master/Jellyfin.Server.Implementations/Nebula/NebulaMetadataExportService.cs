@@ -118,7 +118,15 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, scheduled.Token);
             await Task.Delay(TimeSpan.FromSeconds(10), linked.Token).ConfigureAwait(false);
-            await ExportAsync(item, linked.Token).ConfigureAwait(false);
+
+        // The item event may arrive before Jellyfin finishes local metadata
+        // discovery. Refresh only when the primary image is still missing.
+            if (!item.GetImages(ImageType.Primary).Any())
+            {
+                await item.RefreshMetadata(linked.Token).ConfigureAwait(false);
+            }
+
+            _logger.LogDebug("[NEBULA-METADATA] Metadados de {Path} permanecem somente no cache local; nenhum NFO ou imagem será enviado ao Telegram.", item.Path);
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested || scheduled.IsCancellationRequested)
         {
@@ -134,9 +142,6 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
             DisposeRootCancellationSourceIfIdle();
         }
     }
-
-    private async Task ExportAsync(BaseItem item, CancellationToken cancellationToken)
-        => await ExportAsync(item, stageDirectory: null, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Refreshes the item recognized by Jellyfin for a STRM path and exports its
@@ -163,19 +168,14 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
             return false;
         }
 
-        Directory.CreateDirectory(targetDirectory);
-        File.WriteAllText(Path.Combine(targetDirectory, PendingMarkerFileName), "pending");
         try
         {
             await item.RefreshMetadata(cancellationToken).ConfigureAwait(false);
-            await ExportAsync(item, targetDirectory, cancellationToken).ConfigureAwait(false);
+            _logger.LogDebug("[NEBULA-METADATA] Metadados de {Path} atualizados somente no servidor; nenhum sidecar será preparado para upload.", strmPath);
             return true;
         }
         catch
         {
-            // Never leave a stale marker behind when recognition/export did not
-            // complete. A stale marker would block every sidecar in this folder.
-            RemovePendingMarker(targetDirectory);
             throw;
         }
     }
@@ -192,92 +192,6 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         {
             RemovePendingMarker(dir);
         }
-    }
-
-    private async Task ExportAsync(BaseItem item, string? stageDirectory, CancellationToken cancellationToken)
-    {
-        // O conteúdo enviado acompanha a mídia. Se a mídia já está no Telegram, suas
-        // capas, imagens e NFO também já foram enviados: eles permanecem no cache
-        // local do servidor e nunca voltam ao staging para serem enviados de novo.
-        if (await IsMediaAlreadyUploadedAsync(item, cancellationToken).ConfigureAwait(false))
-        {
-            _logger.LogInformation(
-                "[NEBULA-METADATA] Mídia '{Media}' já enviada ao Telegram; capas/NFO preservados somente no cache local (sem novo staging).",
-                Path.GetFileName(item.Path));
-            return;
-        }
-
-        var automaticExport = string.IsNullOrWhiteSpace(stageDirectory);
-        if (string.IsNullOrWhiteSpace(stageDirectory))
-        {
-            var sourceRoot = GetConfiguredNebulaSourceRoot(item.Path!) ?? GetNebulaDriveRoot();
-            var relativePath = Path.GetRelativePath(sourceRoot, item.Path!);
-            var routedDirectory = GetAutomaticStageRelativeDirectory(relativePath, Path.GetFileName(item.Path));
-            if (string.IsNullOrWhiteSpace(routedDirectory))
-            {
-                return;
-            }
-
-            // Automatic recognition and the downloader must resolve to the same
-            // staging directory. Otherwise the recognition event can leave an
-            // orphan NFO/cover tree outside the directory containing the media.
-            stageDirectory = Path.Combine(GetStageRoot(), routedDirectory);
-        }
-
-        Directory.CreateDirectory(stageDirectory);
-
-        // Recognition can happen before the downloader reaches this item. Keep
-        // sidecars in staging until the actual media payload is present, so the
-        // watcher cannot upload metadata without its corresponding video.
-        // It must NOT set a pending marker if the item is already on the Nebula remote drive (N:),
-        // because its media is already on Telegram and won't be downloaded to stage.
-        var isAlreadyOnNebulaDrive = IsPathWithinRoot(item.Path ?? string.Empty, GetNebulaDriveRoot());
-        if (automaticExport && !isAlreadyOnNebulaDrive)
-        {
-            EnsurePendingMarkerWhenMediaIsMissing(stageDirectory);
-        }
-
-        await ExportNfoAsync(item, stageDirectory, cancellationToken).ConfigureAwait(false);
-
-        foreach (var imageType in ExportedImageTypes)
-        {
-            var index = 0;
-            foreach (var image in item.GetImages(imageType))
-            {
-                if (File.Exists(image.Path))
-                {
-                    var targetName = GetImageFileName(item, imageType, index, image.Path);
-                    await CopyAtomicallyAsync(image.Path, Path.Combine(stageDirectory, targetName), cancellationToken).ConfigureAwait(false);
-                }
-
-                index++;
-            }
-        }
-
-        // Se nenhum arquivo real de metadados foi exportado (ou o diretório só contém o marcador pendente ou está vazio),
-        // remove o marcador e remove o diretório para nunca deixar uma pasta vazia residual no stage!
-        var hasRealFiles = Directory.Exists(stageDirectory) && Directory.EnumerateFiles(stageDirectory, "*", SearchOption.AllDirectories)
-            .Any(f => !string.Equals(Path.GetFileName(f), PendingMarkerFileName, StringComparison.OrdinalIgnoreCase));
-
-        if (!hasRealFiles)
-        {
-            RemovePendingMarker(stageDirectory);
-            try
-            {
-                if (Directory.Exists(stageDirectory) && !Directory.EnumerateFileSystemEntries(stageDirectory).Any())
-                {
-                    Directory.Delete(stageDirectory, true);
-                    _logger.LogDebug("[NEBULA-METADATA] Diretório vazio de staging sem metadados removido: {Directory}", stageDirectory);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[NEBULA-METADATA] Falha ao remover diretório vazio de staging: {Directory}", stageDirectory);
-            }
-            return;
-        }
-
-        _logger.LogInformation("[NEBULA-METADATA] Sidecars exportados para {Directory}", stageDirectory);
     }
 
     private static void EnsurePendingMarkerWhenMediaIsMissing(string stageDirectory)
@@ -375,7 +289,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
             && VideoExtensions.Contains(Path.GetExtension(path));
 
     internal static bool IsUploadablePath(string path)
-        => IsMediaPayloadPath(path) || IsMetadataSidecarPath(path);
+        => IsMediaPayloadPath(path);
 
     internal static bool IsOrphanPendingMarkerDirectory(string directory)
     {

@@ -1644,7 +1644,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     };
 
     /// <summary>
-    /// Exclui arquivos sidecars (.nfo, .xml, .srt, imagens, etc.) associados a uma mídia que já foi concluída no Telegram.
+    /// Mantido por compatibilidade com versões anteriores; sidecars nunca são
+    /// excluídos do cache local do servidor.
     /// </summary>
     private void DeleteAssociatedSidecars(string mediaPath, string stem)
     {
