@@ -17,10 +17,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import android.content.pm.PackageManager
+import android.widget.Toast
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
 
 /**
@@ -38,9 +42,14 @@ fun ServerSelectionScreen(
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val hasCamera = remember {
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+    }
     var manualUrl by remember { mutableStateOf(DEFAULT_MULLETAFLIX_SERVER_URL) }
     var manuallyEdited by remember { mutableStateOf(false) }
     var automaticConnectionStarted by remember { mutableStateOf(false) }
+    var isScanningQr by remember { mutableStateOf(false) }
 
     // A discovered LAN server has priority over the public fallback. Do not
     // overwrite an address while the user is actively editing the field.
@@ -131,6 +140,41 @@ fun ServerSelectionScreen(
                 } else {
                     Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                     Text("Conectar")
+                }
+            }
+
+            if (hasCamera) {
+                OutlinedButton(
+                    onClick = {
+                        isScanningQr = true
+                        GmsBarcodeScanning.getClient(context).startScan()
+                            .addOnSuccessListener { barcode ->
+                                val scannedUrl = serverUrlFromQrPayload(barcode.rawValue)
+                                if (scannedUrl != null) {
+                                    manualUrl = scannedUrl
+                                    manuallyEdited = true
+                                    Toast.makeText(context, "URL do servidor preenchida", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "QR inválido: informe uma URL HTTP ou HTTPS", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                            .addOnFailureListener {
+                                Toast.makeText(context, "Não foi possível ler o QR", Toast.LENGTH_SHORT).show()
+                            }
+                            .addOnCompleteListener { isScanningQr = false }
+                    },
+                    enabled = !state.isLoading && !isScanningQr,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
+                ) {
+                    if (isScanningQr) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (isScanningQr) "Lendo QR…" else "Ler QR do servidor")
                 }
             }
 

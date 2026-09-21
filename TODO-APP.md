@@ -394,3 +394,9 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Permitir copiar o PIN com uma ação acessível.
 - [x] Limpar o contador ao autorizar, cancelar ou expirar.
 - [x] Cobrir duração, decremento e limite inferior do contador.
+
+## 202. Leitura de QR para conexão ao servidor (v1.1.93)
+- [x] Ler QR usando o Google Code Scanner quando o dispositivo possuir câmera.
+- [x] Aceitar URL HTTP/HTTPS direta e payload `mulletaflix://server?url=...`.
+- [x] Validar o payload antes de preencher a URL e ocultar a ação em TV sem câmera.
+- [x] Cobrir URLs diretas, URLs codificadas e payloads inválidos.
