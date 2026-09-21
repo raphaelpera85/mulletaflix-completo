@@ -49,6 +49,7 @@ data class AuthState(
     val availableUsers: List<AuthUser> = emptyList(),
     val quickConnectPin: String? = null,
     val quickConnectSecret: String? = null,
+    val quickConnectSecondsRemaining: Int? = null,
     val isWaitingForQuickConnect: Boolean = false,
     val discoveredServers: List<ServerInfo> = emptyList(),
     val isDiscovering: Boolean = false,
@@ -353,6 +354,7 @@ class AuthViewModel @Inject constructor(
                             isLoading = false,
                             quickConnectPin = qc.code,
                             quickConnectSecret = qc.secret,
+                            quickConnectSecondsRemaining = quickConnectDurationSeconds(),
                             isWaitingForQuickConnect = true,
                         )
                     }
@@ -371,10 +373,19 @@ class AuthViewModel @Inject constructor(
             while (isActive && attempts < QUICK_CONNECT_MAX_POLL_ATTEMPTS) {
                 delay(3000)
                 attempts++
+                _state.update {
+                    it.copy(quickConnectSecondsRemaining = quickConnectRemainingSeconds(attempts))
+                }
                 authRepository.checkQuickConnect(secret).fold(
                     onSuccess = { session ->
                         if (session != null) {
-                            _state.update { it.copy(isWaitingForQuickConnect = false, isAuthenticated = true) }
+                            _state.update {
+                                it.copy(
+                                    isWaitingForQuickConnect = false,
+                                    quickConnectSecondsRemaining = null,
+                                    isAuthenticated = true,
+                                )
+                            }
                             return@launch
                         }
                     },
@@ -385,6 +396,7 @@ class AuthViewModel @Inject constructor(
                                     isWaitingForQuickConnect = false,
                                     quickConnectPin = null,
                                     quickConnectSecret = null,
+                                    quickConnectSecondsRemaining = null,
                                     error = message,
                                 )
                             }
@@ -400,6 +412,7 @@ class AuthViewModel @Inject constructor(
                         isWaitingForQuickConnect = false,
                         quickConnectPin = null,
                         quickConnectSecret = null,
+                        quickConnectSecondsRemaining = null,
                         error = "O código Quick Connect expirou. Gere um novo código.",
                     )
                 }
@@ -414,12 +427,20 @@ class AuthViewModel @Inject constructor(
                 isWaitingForQuickConnect = false,
                 quickConnectPin = null,
                 quickConnectSecret = null,
+                quickConnectSecondsRemaining = null,
             )
         }
     }
 }
 
 internal const val QUICK_CONNECT_MAX_POLL_ATTEMPTS = 100
+internal const val QUICK_CONNECT_POLL_INTERVAL_SECONDS = 3
+
+internal fun quickConnectDurationSeconds(): Int =
+    QUICK_CONNECT_MAX_POLL_ATTEMPTS * QUICK_CONNECT_POLL_INTERVAL_SECONDS
+
+internal fun quickConnectRemainingSeconds(attempt: Int): Int =
+    (quickConnectDurationSeconds() - attempt * QUICK_CONNECT_POLL_INTERVAL_SECONDS).coerceAtLeast(0)
 
 internal fun quickConnectTerminalErrorMessage(error: Throwable): String? = when {
     error is HttpException && error.code() == 404 ->

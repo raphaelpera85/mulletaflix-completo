@@ -388,3 +388,9 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Encerrar polling após expiração, erro 401/404 ou orçamento de cinco minutos.
 - [x] Manter falhas transitórias de rede elegíveis para retry.
 - [x] Cobrir estado, troca de autenticação e política de polling nos testes.
+
+## 201. Quick Connect com validade visível e cópia do PIN (v1.1.92)
+- [x] Mostrar o tempo restante do código durante a autorização.
+- [x] Permitir copiar o PIN com uma ação acessível.
+- [x] Limpar o contador ao autorizar, cancelar ou expirar.
+- [x] Cobrir duração, decremento e limite inferior do contador.

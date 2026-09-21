@@ -10,6 +10,15 @@ class QuickConnectPolicyTest {
     @Test
     fun `polling has finite five minute budget`() {
         assertEquals(100, QUICK_CONNECT_MAX_POLL_ATTEMPTS)
+        assertEquals(300, quickConnectDurationSeconds())
+    }
+
+    @Test
+    fun `remaining time is bounded and decreases by polling interval`() {
+        assertEquals(300, quickConnectRemainingSeconds(0))
+        assertEquals(297, quickConnectRemainingSeconds(1))
+        assertEquals(0, quickConnectRemainingSeconds(100))
+        assertEquals(0, quickConnectRemainingSeconds(101))
     }
 
     @Test

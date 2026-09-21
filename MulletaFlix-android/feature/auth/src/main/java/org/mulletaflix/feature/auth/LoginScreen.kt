@@ -148,9 +148,15 @@ fun LoginScreen(
                         pin = state.quickConnectPin,
                         isLoading = state.isLoading,
                         isWaiting = state.isWaitingForQuickConnect,
+                        secondsRemaining = state.quickConnectSecondsRemaining,
                         error = state.error,
                         onInitiate = { viewModel.initiateQuickConnect() },
                         onCancel = { viewModel.cancelQuickConnect() },
+                        onCopyPin = { pin ->
+                            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                            clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Código Quick Connect", pin))
+                            Toast.makeText(context, "Código copiado", Toast.LENGTH_SHORT).show()
+                        },
                     )
                 }
             }
@@ -371,9 +377,11 @@ private fun QuickConnectForm(
     pin: String?,
     isLoading: Boolean,
     isWaiting: Boolean,
+    secondsRemaining: Int?,
     error: String?,
     onInitiate: () -> Unit,
     onCancel: () -> Unit,
+    onCopyPin: (String) -> Unit,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -388,9 +396,21 @@ private fun QuickConnectForm(
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 8.sp
             )
+            OutlinedButton(onClick = { onCopyPin(pin) }) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Copiar código")
+            }
             if (isWaiting) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
                 Text("Aguardando autorização...", color = Color.White.copy(0.7f))
+                secondsRemaining?.let { remaining ->
+                    Text(
+                        text = "Expira em ${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}",
+                        color = Color.White.copy(0.7f),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
             }
             OutlinedButton(onClick = onCancel) { Text("Cancelar") }
         } else {
