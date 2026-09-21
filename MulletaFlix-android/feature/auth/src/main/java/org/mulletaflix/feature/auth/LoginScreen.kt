@@ -148,6 +148,7 @@ fun LoginScreen(
                         pin = state.quickConnectPin,
                         isLoading = state.isLoading,
                         isWaiting = state.isWaitingForQuickConnect,
+                        isAvailable = state.isQuickConnectAvailable != false,
                         secondsRemaining = state.quickConnectSecondsRemaining,
                         error = state.error,
                         onInitiate = { viewModel.initiateQuickConnect() },
@@ -375,6 +376,7 @@ internal fun RegisterDialog(
 @Composable
 private fun QuickConnectForm(
     pin: String?,
+    isAvailable: Boolean,
     isLoading: Boolean,
     isWaiting: Boolean,
     secondsRemaining: Int?,
@@ -413,8 +415,11 @@ private fun QuickConnectForm(
                 }
             }
             OutlinedButton(onClick = onCancel) { Text("Cancelar") }
-        } else {
+        } else if (!isAvailable) {
             Icon(Icons.Default.QrCode2, contentDescription = "Quick Connect", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(64.dp))
+            Text("Quick Connect está desativado neste servidor.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            Text("Use a aba Entrar para acessar com usuário e senha.", color = Color.White.copy(0.8f), style = MaterialTheme.typography.bodySmall)
+        } else {
             Text("Gera um código de 6 dígitos para entrar sem senha.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(0.8f))
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Button(onClick = onInitiate, enabled = !isLoading, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp)) {

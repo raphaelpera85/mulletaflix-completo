@@ -32,7 +32,9 @@ const ResponsiveDrawer: FC<PropsWithChildren<ResponsiveDrawerProps>> = ({
                 '& .MuiDrawer-paper': {
                     width: DRAWER_WIDTH,
                     paddingBottom: '4.2rem', // Padding for now playing bar
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    height: '100vh',
+                    overflowY: 'auto'
                 }
             }}
             variant='permanent'
@@ -48,7 +50,8 @@ const ResponsiveDrawer: FC<PropsWithChildren<ResponsiveDrawerProps>> = ({
             sx={{
                 '& .MuiDrawer-paper': {
                     paddingBottom: '4.2rem', // Padding for now playing bar
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    overflowY: 'auto'
                 }
             }}
             onClose={onClose}

@@ -49,7 +49,7 @@ data class SettingsState(
     val subtitleFontSize: Int = 100,
     val subtitleColor: String = "Branco",
     val libraryGridDensity: String = "Confortável",
-    val librarySort: String = "Nome A-Z",
+    val librarySort: String = "Nome",
     val librarySortOrder: String = "Ascendente",
     val downloadPath: String = "Armazenamento Interno",
     val downloadStorageGb: Int = 0,
@@ -550,7 +550,7 @@ class SettingsViewModel @Inject constructor(
         LIBRARY_SORT_RELEASE_DATE -> "Data de lançamento"
         LIBRARY_SORT_RUNTIME -> "Duração"
         LIBRARY_SORT_RATING -> "Avaliação"
-        else -> "Nome A-Z"
+        else -> "Nome"
     }
 
     private fun librarySortCode(label: String): String = when (label) {

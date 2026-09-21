@@ -3,7 +3,8 @@ import React from 'react';
 import {
     RouterProvider,
     createHashRouter,
-    Outlet
+    Outlet,
+    useLocation
 } from 'react-router-dom';
 
 import { DASHBOARD_APP_ROUTES } from 'apps/dashboard/routes/routes';
@@ -51,6 +52,9 @@ export default function RootAppRouter() {
  * NOTE: The app will crash if these get removed from the DOM.
  */
 function RootAppLayout() {
+    const location = useLocation();
+    const isWizardRoute = location.pathname.startsWith('/wizard');
+
     return (
         <ThemeProvider
             theme={appTheme}
@@ -60,9 +64,11 @@ function RootAppLayout() {
             <Backdrop />
             <AppHeader isHidden />
 
-            <AppBody>
-                <Outlet />
-            </AppBody>
+            {isWizardRoute ? (
+                <AppBody>
+                    <Outlet />
+                </AppBody>
+            ) : <Outlet />}
         </ThemeProvider>
     );
 }

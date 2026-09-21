@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -116,7 +117,7 @@ fun SettingsScreen(
                     onClick = { showGridDensityDialog = true },
                 )
                 SettingsItem(
-                    icon = Icons.Default.List,
+                    icon = Icons.AutoMirrored.Filled.List,
                     title = "Ordenação da Biblioteca",
                     subtitle = "${state.librarySort} • ${state.librarySortOrder}",
                     onClick = { showLibrarySortDialog = true },
@@ -146,7 +147,7 @@ fun SettingsScreen(
                 if (showLibrarySortDialog) {
                     ChoiceDialog(
                         title = "Ordenação padrão da biblioteca",
-                        options = listOf("Nome A-Z", "Data de adição", "Data de lançamento", "Duração", "Avaliação"),
+                        options = listOf("Nome", "Data de adição", "Data de lançamento", "Duração", "Avaliação"),
                         selected = state.librarySort,
                         onSelect = { viewModel.setLibrarySort(it); showLibrarySortDialog = false },
                         onDismiss = { showLibrarySortDialog = false },

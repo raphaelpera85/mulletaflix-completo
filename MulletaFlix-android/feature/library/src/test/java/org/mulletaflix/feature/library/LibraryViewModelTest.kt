@@ -113,6 +113,28 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `refreshIfIdle does not cancel an active library request`() = runTest {
+        val responseRelease = CompletableDeferred<Unit>()
+        media.blockLibraryId = "library-1"
+        media.blockedLibraryRelease = responseRelease
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(),
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        runCurrent()
+        viewModel.refreshIfIdle("library-1")
+
+        assertEquals(1, media.detailCalls)
+        responseRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
     fun `library filters are restored from and saved to local settings`() = runTest {
         val settings = FakeSettingsRepository(
             initialFilters = setOf(LibraryViewModel.FILTER_PLAYED, LibraryViewModel.FILTER_FAVORITES, "desconhecido"),
@@ -272,13 +294,14 @@ class LibraryViewModelTest {
         val pages = mutableMapOf<Int, Result<Pair<List<MediaItem>, Int>>>()
         val itemsByLibrary = mutableMapOf<String, Pair<List<MediaItem>, Int>>()
         var blockLibraryId: String? = null
-        private var blockedLibraryRelease = CompletableDeferred<Unit>()
         var lastIsPlayed: Boolean? = null
         var lastIsFavorite: Boolean? = null
         var lastIncludeItemTypes: String? = null
         var lastSortOrder: String? = null
         var lastStartIndex: Int = -1
         var libraryCollectionType: String? = null
+        var detailCalls: Int = 0
+        var blockedLibraryRelease = CompletableDeferred<Unit>()
         override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> =
             (itemsByLibrary[parentId]?.let { Result.success(it) } ?: pages[startIndex]).also {
                 lastIsPlayed = isPlayed
@@ -288,6 +311,7 @@ class LibraryViewModelTest {
                 lastStartIndex = startIndex
             } ?: Result.success(emptyList<MediaItem>() to 0)
         override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
+            detailCalls++
             if (itemId == blockLibraryId) {
                 withContext(NonCancellable) { blockedLibraryRelease.await() }
             }

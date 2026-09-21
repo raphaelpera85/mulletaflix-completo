@@ -54,11 +54,11 @@ fun LibraryScreen(
     LaunchedEffect(libraryId, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             if (libraryRefreshImmediatelyOnResume()) {
-                viewModel.loadLibrary(libraryId)
+                viewModel.refreshIfIdle(libraryId)
             }
             while (isActive) {
                 delay(LIBRARY_AUTO_REFRESH_INTERVAL_MILLIS)
-                viewModel.loadLibrary(libraryId)
+                viewModel.refreshIfIdle(libraryId)
             }
         }
     }
@@ -348,7 +348,7 @@ private fun SortDropdown(
 }
 
 enum class SortOption(val label: String, val apiValue: String) {
-    Name("Nome A-Z", "SortName"),
+    Name("Nome", "SortName"),
     DateAdded("Data de Adição", "DateCreated"),
     ReleaseDate("Data de Lançamento", "PremiereDate"),
     Runtime("Duração", "Runtime"),

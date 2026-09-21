@@ -84,6 +84,10 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun isQuickConnectEnabled(): Result<Boolean> = runCatching {
+        api.isQuickConnectEnabled()
+    }
+
     override suspend fun initiateQuickConnect(): Result<QuickConnectState> = runCatching {
         val res = api.initiateQuickConnect()
         QuickConnectState(

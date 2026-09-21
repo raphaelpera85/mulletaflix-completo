@@ -3,7 +3,7 @@
 compileSdk = "37"
 targetSdk = "36"
 minSdk = "24"
-appVersion = "1.1.99"
+appVersion = "1.2.2"
 
 # Kotlin & AGP
 agp = "9.3.2"

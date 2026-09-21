@@ -2533,7 +2533,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 AddServerLog($"[SUPABASE] {result.Message}");
                 CompleteMaintenanceOperation("succeeded");
                 config.SupabaseLastBackupTime = DateTime.UtcNow;
-                config.SupabaseLastBackupStatus = $"Backup realizado com sucesso ({result.FilesBackedUp} arquivos) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
+                config.SupabaseLastBackupStatus = $"Backup de usuários realizado com sucesso ({result.UsersBackedUp} usuários) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
             }
             else
             {
@@ -2600,7 +2600,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             };
         }
 
-        AddServerLog("[SUPABASE-RESTORE] Iniciando restauração do acervo a partir do Supabase (Nativo C#)...");
+        AddServerLog("[SUPABASE-RESTORE] Iniciando restauração de usuários a partir do Supabase (Nativo C#)...");
         await _maintenanceLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         if (await TryGetOperationReplayAsync<NebulaSupabaseRestoreResultDto>("supabase-restore", idempotencyKey, cancellationToken).ConfigureAwait(false))
         {
@@ -3134,7 +3134,6 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
         try
         {
-            var fileCount = await _mongoContext.CountFilesAsync(cancellationToken).ConfigureAwait(false);
             var userCount = await _mongoContext.CountUsersAsync(cancellationToken).ConfigureAwait(false);
             var appUserCount = _supabaseSyncService == null
                 ? 0
@@ -3142,18 +3141,18 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             var appUserBackupCount = _supabaseSyncService == null
                 ? 0
                 : await _supabaseSyncService.GetMulletaFlixUserBackupCountAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
-            if (fileCount == 0 || userCount == 0 || appUserCount == 0 || appUserBackupCount > appUserCount)
+            if (userCount == 0 || appUserCount == 0 || appUserBackupCount > appUserCount)
             {
-                logAction?.Invoke($"[DATABASE-INIT] Dados locais incompletos detectados (arquivos: {fileCount}, usuários FTP: {userCount}, usuários MulletaFlix: {appUserCount}/{appUserBackupCount} no backup). Verificando Supabase...");
-                _logger.LogInformation("[DATABASE-INIT] Dados locais incompletos detectados (arquivos: {Files}, usuários FTP: {FtpUsers}, usuários MulletaFlix: {AppUsers}/{BackupUsers}). Iniciando auto-restauração a partir do Supabase ({Url})...", fileCount, userCount, appUserCount, appUserBackupCount, config.SupabaseUrl);
+                logAction?.Invoke($"[DATABASE-INIT] Usuários locais incompletos detectados (usuários FTP: {userCount}, usuários MulletaFlix: {appUserCount}/{appUserBackupCount} no backup). Verificando Supabase...");
+                _logger.LogInformation("[DATABASE-INIT] Usuários locais incompletos detectados (FTP: {FtpUsers}, MulletaFlix: {AppUsers}/{BackupUsers}). Iniciando auto-restauração de usuários a partir do Supabase ({Url})...", userCount, appUserCount, appUserBackupCount, config.SupabaseUrl);
 
                 _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
                 var restoreResult = await _supabaseSyncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);
 
                 if (restoreResult.Success && (restoreResult.FilesRestored > 0 || restoreResult.UsersRestored > 0))
                 {
-                    logAction?.Invoke($"[DATABASE-INIT] Auto-restauração concluída! {restoreResult.FilesRestored} arquivos e {restoreResult.UsersRestored} usuários recuperados do Supabase.");
-                    _logger.LogInformation("[DATABASE-INIT] Auto-restauração concluída: {Files} arquivos e {Users} usuários restaurados.", restoreResult.FilesRestored, restoreResult.UsersRestored);
+                    logAction?.Invoke($"[DATABASE-INIT] Auto-restauração de usuários concluída! {restoreResult.UsersRestored} usuários recuperados do Supabase.");
+                    _logger.LogInformation("[DATABASE-INIT] Auto-restauração de usuários concluída: {Users} usuários restaurados.", restoreResult.UsersRestored);
                 }
                 else if (restoreResult.Success)
                 {

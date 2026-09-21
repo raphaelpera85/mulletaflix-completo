@@ -11,6 +11,17 @@ import retrofit2.http.Body
 
 class QuickConnectApiContractTest {
     @Test
+    fun `availability uses the server GET contract`() {
+        val method = MulletaFlixApiService::class.java.methods.single {
+            it.name == "isQuickConnectEnabled"
+        }
+        val get = method.getAnnotation(GET::class.java)
+
+        assertNotNull(get)
+        assertEquals("QuickConnect/Enabled", get!!.value)
+    }
+
+    @Test
     fun `initiation uses the server POST contract`() {
         val method = MulletaFlixApiService::class.java.methods.single {
             it.name == "initiateQuickConnect"

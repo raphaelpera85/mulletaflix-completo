@@ -148,7 +148,7 @@ const BackupRestorePage = () => {
             <Stack spacing={3} sx={{ p: { xs: 2, md: 3 }, maxWidth: 1000, mx: 'auto' }}>
                 <Box>
                     <Typography variant='h1'>Backup &amp; Restore</Typography>
-                    <Typography color='text.secondary'>Backup dos usuários e do acervo do servidor para restauração manual após uma reinstalação.</Typography>
+                    <Typography color='text.secondary'>Backup somente dos usuários para restauração manual após uma reinstalação. Mídias, NFOs, imagens e cache não são incluídos.</Typography>
                 </Box>
 
                 {statusQuery.isError && <Alert severity='error'>Não foi possível consultar o status: {getErrorMessage(statusQuery.error)}</Alert>}
@@ -174,12 +174,12 @@ const BackupRestorePage = () => {
                             <Typography variant='h2' component='h2' sx={{ fontSize: '1.25rem' }}>Sincronização automática</Typography>
                             <Chip label={status?.IsConnected ? 'Conectado' : 'Não conectado'} color={status?.IsConnected ? 'success' : 'default'} size='small' />
                         </Stack>
-                        <Typography variant='body2' color='text.secondary'>O servidor executa um backup delta automaticamente a cada 24 horas. Usuários removidos localmente pelo administrador também são removidos do backup remoto.</Typography>
+                        <Typography variant='body2' color='text.secondary'>O servidor executa um backup delta de usuários automaticamente a cada 24 horas. Usuários removidos localmente pelo administrador também são removidos do backup remoto.</Typography>
                         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 1.5 }}>
                             <Typography variant='body2'>Intervalo: <strong>24 horas</strong></Typography>
                             <Typography variant='body2'>Último backup: <strong>{formatDate(status?.LastBackupTime)}</strong></Typography>
                             <Typography variant='body2'>Status: <strong>{status?.LastBackupStatus || 'Aguardando execução'}</strong></Typography>
-                            <Typography variant='body2'>Arquivos remotos: <strong>{status?.TotalRemoteFiles ?? 0}</strong></Typography>
+                            <Typography variant='body2'>Mídia incluída: <strong>Não</strong></Typography>
                         </Box>
                     </Stack>
                 </Paper>
@@ -187,7 +187,7 @@ const BackupRestorePage = () => {
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
                     <Stack spacing={2}>
                         <Typography variant='h2' component='h2' sx={{ fontSize: '1.25rem' }}>Ações manuais</Typography>
-                        <Typography variant='body2' color='text.secondary'>Use o backup delta para sincronizar alterações agora. Após reinstalar o servidor, use o restore completo para recuperar usuários, permissões, licenças, tokens e registros do Nebula.</Typography>
+                        <Typography variant='body2' color='text.secondary'>Use o backup delta para sincronizar usuários agora. Após reinstalar o servidor, use o restore completo para recuperar usuários, permissões, licenças e tokens. O acervo permanece local.</Typography>
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                             <Button variant='contained' startIcon={<Backup />} disabled={isBusy || !status?.IsConfigured} onClick={startBackup}>
                                 {backupMutation.isPending ? 'Iniciando backup...' : 'Executar backup delta'}

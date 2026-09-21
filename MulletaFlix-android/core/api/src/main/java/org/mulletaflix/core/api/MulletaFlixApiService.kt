@@ -24,6 +24,9 @@ interface MulletaFlixApiService {
     @POST("QuickConnect/Initiate")
     suspend fun initiateQuickConnect(): QuickConnectResultDto
 
+    @GET("QuickConnect/Enabled")
+    suspend fun isQuickConnectEnabled(): Boolean
+
     @POST("QuickConnect/Authorize")
     suspend fun authorizeQuickConnect(@Query("code") code: String): Boolean
 

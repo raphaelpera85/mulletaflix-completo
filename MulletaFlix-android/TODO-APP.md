@@ -1432,3 +1432,20 @@ Pendências relacionadas:
 - [x] Exibir a direção atual junto da ordenação padrão.
 - [x] Permitir escolher Ascendente ou Descendente nas Configurações.
 - [x] Persistir e restaurar a direção com teste unitário.
+
+## 210. Rótulo neutro para o critério de nome (v1.2.0)
+- [x] Separar o critério “Nome” da direção Ascendente/Descendente.
+- [x] Evitar o texto contraditório “Nome A-Z” quando Descendente estiver ativo.
+- [x] Cobrir a preferência de direção nas Configurações.
+
+## 211. Refresh de foreground resiliente na TV (v1.2.1)
+- [x] Evitar que o timer de atualização cancele uma carga de Home ou Biblioteca ainda em andamento.
+- [x] Atualizar imediatamente ao retornar ao foreground sem duplicar requisições.
+- [x] Cobrir a proteção contra refresh concorrente em testes de ViewModel.
+- [x] Remover o uso de ícone Compose obsoleto na tela de Configurações.
+
+## 212. Quick Connect alinhado à disponibilidade do servidor (v1.2.2)
+- [x] Consultar `QuickConnect/Enabled` antes de oferecer a ação de autenticação.
+- [x] Exibir uma mensagem clara quando o recurso estiver desativado no servidor.
+- [x] Reconsultar a disponibilidade ao trocar de endpoint LAN/internet.
+- [x] Cobrir o contrato Retrofit e o bloqueio no ViewModel.

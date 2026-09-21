@@ -26,6 +26,7 @@ interface AuthRepository {
     suspend fun register(username: String, password: String): Result<RegistrationResult>
     suspend fun login(username: String, password: String): Result<UserSession>
     suspend fun getAvailableUsers(): Result<List<AvailableUser>>
+    suspend fun isQuickConnectEnabled(): Result<Boolean> = Result.success(true)
     suspend fun initiateQuickConnect(): Result<QuickConnectState>
     suspend fun checkQuickConnect(secret: String): Result<UserSession?>
     suspend fun logout(): Result<Unit>

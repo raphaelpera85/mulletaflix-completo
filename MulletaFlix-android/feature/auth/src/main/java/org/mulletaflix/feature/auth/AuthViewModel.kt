@@ -51,6 +51,7 @@ data class AuthState(
     val quickConnectSecret: String? = null,
     val quickConnectSecondsRemaining: Int? = null,
     val isWaitingForQuickConnect: Boolean = false,
+    val isQuickConnectAvailable: Boolean? = null,
     val discoveredServers: List<ServerInfo> = emptyList(),
     val isDiscovering: Boolean = false,
     val isRegistering: Boolean = false,
@@ -89,6 +90,7 @@ class AuthViewModel @Inject constructor(
                         )
                     }
                     loadAvailableUsers(url)
+                    loadQuickConnectAvailability()
                 }
             }
         }
@@ -168,6 +170,14 @@ class AuthViewModel @Inject constructor(
         _state.update { it.copy(availableUsers = emptyList()) }
     }
 
+    private fun loadQuickConnectAvailability() {
+        viewModelScope.launch {
+            authRepository.isQuickConnectEnabled().onSuccess { available ->
+                _state.update { it.copy(isQuickConnectAvailable = available) }
+            }
+        }
+    }
+
     fun discoverLocalServers() {
         discoveryJob?.cancel()
         _state.update { it.copy(isDiscovering = true, error = null) }
@@ -228,6 +238,7 @@ class AuthViewModel @Inject constructor(
             // Do not keep showing users from the previous server while this
             // endpoint is being verified or when its verification fails.
             invalidateAvailableUsersForEndpoint()
+            _state.update { it.copy(isQuickConnectAvailable = null) }
             verifyServerUseCase(cleanUrl)
                 .onSuccess { verification ->
                     if (generation != connectionGeneration) return@onSuccess
@@ -260,6 +271,7 @@ class AuthViewModel @Inject constructor(
                     // the user picker so it can never show users from a previous
                     // server after a LAN/public endpoint switch.
                     loadAvailableUsers(cleanUrl)
+                    loadQuickConnectAvailability()
                     onSuccess()
                 }
                 .onFailure { err ->
@@ -345,6 +357,12 @@ class AuthViewModel @Inject constructor(
     }
 
     fun initiateQuickConnect() {
+        if (_state.value.isQuickConnectAvailable == false) {
+            _state.update {
+                it.copy(error = "Quick Connect está desativado neste servidor. Use usuário e senha.")
+            }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             authRepository.initiateQuickConnect()

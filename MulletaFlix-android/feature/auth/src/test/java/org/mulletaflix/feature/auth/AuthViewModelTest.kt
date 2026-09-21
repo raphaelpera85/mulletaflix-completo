@@ -101,6 +101,24 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `quick connect availability is exposed and disabled servers get a clear message`() = runTest {
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun isQuickConnectEnabled(): Result<Boolean> = Result.success(false)
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals(false, viewModel.state.value.isQuickConnectAvailable)
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(
+            "Quick Connect está desativado neste servidor. Use usuário e senha.",
+            viewModel.state.value.error,
+        )
+    }
+
+    @Test
     fun `connectToServer verifies and saves server`() = runTest {
         var serverSet: String? = null
         var savedServer: SavedServer? = null
@@ -344,6 +362,7 @@ class AuthViewModelTest {
         override suspend fun register(username: String, password: String): Result<RegistrationResult> = Result.success(RegistrationResult(true))
         override suspend fun login(username: String, password: String): Result<UserSession> = Result.success(UserSession("u1", username, "token", "s1"))
         override suspend fun getAvailableUsers(): Result<List<AvailableUser>> = Result.success(emptyList())
+        override suspend fun isQuickConnectEnabled(): Result<Boolean> = Result.success(true)
         override suspend fun initiateQuickConnect(): Result<QuickConnectState> = Result.success(QuickConnectState("123456", "secret", false))
         override suspend fun checkQuickConnect(secret: String): Result<UserSession?> = Result.success(null)
         override suspend fun logout(): Result<Unit> = Result.success(Unit)

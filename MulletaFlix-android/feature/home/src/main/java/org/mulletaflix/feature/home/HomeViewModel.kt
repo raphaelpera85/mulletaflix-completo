@@ -94,6 +94,17 @@ class HomeViewModel @Inject constructor(
         loadHome(refresh = true)
     }
 
+    /**
+     * Reconciles the TV home feed without interrupting the initial load or a
+     * refresh already in flight. The foreground timer calls this method so a
+     * slow server response cannot be cancelled by the next tick.
+     */
+    fun refreshIfIdle() {
+        val current = _state.value
+        if (current.isLoading || current.isRefreshing) return
+        refresh()
+    }
+
     private fun loadHome(refresh: Boolean = false) {
         val generation = ++loadGeneration
         loadJob = viewModelScope.launch {

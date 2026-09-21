@@ -128,6 +128,36 @@ class HomeViewModelTest {
         assertTrue(viewModel.state.value.isOffline)
     }
 
+    @Test fun `refreshIfIdle does not cancel an active TV refresh`() = runTest {
+        val responseRelease = CompletableDeferred<Unit>()
+        var resumeCalls = 0
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                resumeCalls++
+                responseRelease.await()
+                return Result.success(emptyList())
+            }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        runCurrent()
+
+        viewModel.refreshIfIdle()
+
+        assertEquals(1, resumeCalls)
+        responseRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
     @Test fun `a late refresh cannot overwrite a newer home response`() = runTest {
         val firstResponse = CompletableDeferred<Unit>()
         val repository = object : FakeMediaRepository() {

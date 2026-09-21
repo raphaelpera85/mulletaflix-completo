@@ -128,9 +128,38 @@ if (Test-Path -LiteralPath $resolvedAssetsDirectory -PathType Container) {
     }
 }
 
-$assets = $assetCandidates | Sort-Object -Unique
+$releaseVersion = $Tag.TrimStart('v')
+$assets = $assetCandidates |
+    Sort-Object -Unique |
+    Where-Object {
+        # Do not mix an installer/package from another server release into the
+        # current release when dist contains leftovers from a previous build.
+        $candidateName = [System.IO.Path]::GetFileName($_)
+        if ($candidateName -match '(?i)(?:^|_)(\d+\.\d+\.\d+)(?:_|-)') {
+            return $matches[1] -eq $releaseVersion
+        }
+
+        return $true
+    }
 if ($assets.Count -eq 0) {
     throw "Nenhum artefato de servidor encontrado para anexar à release."
+}
+
+# Remove versioned server artifacts from an older release left on the same tag.
+# Keep unversioned cross-platform packages because they may have been built elsewhere.
+if ($release.assets) {
+    foreach ($existingAsset in @($release.assets)) {
+        $existingVersion = $null
+        $existingAssetName = [System.IO.Path]::GetFileName($existingAsset.name)
+        if ($existingAssetName -match '(?i)(?:^|_)(\d+\.\d+\.\d+)(?:_|-)') {
+            $existingVersion = $matches[1]
+        }
+
+        if ($existingVersion -and $existingVersion -ne $releaseVersion) {
+            Write-Host "Removendo asset de versão antiga $($existingAsset.name)..." -ForegroundColor Yellow
+            Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/assets/$($existingAsset.id)" -Method Delete -Headers $headers | Out-Null
+        }
+    }
 }
 
 $contentTypes = @{

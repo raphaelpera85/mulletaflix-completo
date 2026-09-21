@@ -162,6 +162,17 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Refreshes a visible library only when no request is already active.
+     * This is used by the TV foreground timer to avoid cancelling a slow
+     * catalog response and replacing it with another request.
+     */
+    fun refreshIfIdle(libraryId: String) {
+        val current = _state.value
+        if (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing)) return
+        loadLibrary(libraryId)
+    }
+
     fun loadMore() {
         val libId = currentLibraryId ?: run {
             if (currentUserId == null) {

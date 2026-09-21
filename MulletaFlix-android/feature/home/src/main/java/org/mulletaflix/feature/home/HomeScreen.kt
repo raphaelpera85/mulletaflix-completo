@@ -84,11 +84,11 @@ fun HomeScreen(
                     if (refreshHomeImmediatelyOnResume(isTelevision)) {
                         // Do not wait for the first interval when a TV is
                         // opened or returns from standby/another app.
-                        viewModel.refresh()
+                        viewModel.refreshIfIdle()
                     }
                     while (isActive) {
                         delay(refreshInterval)
-                        viewModel.refresh()
+                        viewModel.refreshIfIdle()
                     }
                 }
             }
