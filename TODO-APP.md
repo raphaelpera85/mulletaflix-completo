@@ -406,3 +406,28 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Ajustar o tamanho mínimo da grade de bibliotecas para equilibrar densidade e legibilidade em TV.
 - [x] Preservar o destaque visual do item focado pelo controle remoto.
 - [x] Cobrir o contrato responsivo de TV com testes unitários.
+- [x] Atualizar a Home imediatamente ao abrir ou retornar ao primeiro plano na TV.
+
+## 204. Atualização imediata da Biblioteca em TV (v1.1.95)
+- [x] Recarregar a Biblioteca assim que a tela entra em `RESUMED`.
+- [x] Continuar atualizando a lista automaticamente a cada 60 segundos enquanto visível.
+- [x] Evitar carga inicial duplicada ao combinar o ciclo de visibilidade com o refresh periódico.
+- [x] Cobrir a política de atualização com teste unitário.
+
+## 205. Atualização automática da TV ao vivo (v1.1.96)
+- [x] Atualizar canais e gravações imediatamente ao abrir ou retornar à tela na Android TV.
+- [x] Atualizar a grade de TV ao vivo a cada 60 segundos enquanto visível.
+- [x] Preservar o refresh manual em telefone e tablet.
+- [x] Cobrir os intervalos e o comportamento por dispositivo com testes unitários.
+
+## 206. Minha Lista adaptativa para TV (v1.1.97)
+- [x] Trocar a grade fixa de três colunas por uma grade adaptativa em tablet e TV.
+- [x] Aplicar foco visual e navegação remota aos cards da TV.
+- [x] Atualizar Minha Lista imediatamente e a cada 60 segundos enquanto visível na TV.
+- [x] Preservar três colunas e refresh manual no telefone.
+- [x] Cobrir colunas e política de refresh com testes unitários.
+
+## 207. Verificação instrumentada da Minha Lista (v1.1.97)
+- [x] Validar o contrato de três colunas no telefone.
+- [x] Validar a grade adaptativa no tablet.
+- [x] Validar a grade densa e o foco remoto na TV.

@@ -141,6 +141,22 @@ public sealed class NebulaMongoContext : IDisposable
 
         try
         {
+            // A fila pode ser alimentada pelo downloader, pelo watcher e pelo
+            // scanner ao mesmo tempo. Esta chave torna o registro idempotente
+            // mesmo quando dois desses caminhos chegam juntos.
+            await _filesCollection.Indexes.CreateOneAsync(
+                new CreateIndexModel<BsonDocument>(
+                    Builders<BsonDocument>.IndexKeys.Ascending("queue_identity"),
+                    new CreateIndexOptions { Name = "queue_identity_1", Unique = true, Sparse = true, Background = true }),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-MONGO] Índice único da fila já existe ou não pôde ser criado.");
+        }
+
+        try
+        {
             await _botTokensCollection.Indexes.CreateOneAsync(
                 new CreateIndexModel<BsonDocument>(
                     Builders<BsonDocument>.IndexKeys.Ascending("enabled").Ascending("index"),
@@ -650,6 +666,47 @@ public sealed class NebulaMongoContext : IDisposable
         }
 
         await _filesCollection.InsertOneAsync(doc!, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Insere um arquivo apenas uma vez, mesmo com chamadas concorrentes.
+    /// Retorna false quando outro produtor já registrou o mesmo caminho.
+    /// </summary>
+    public async Task<bool> InsertFileDocIfAbsentAsync(BsonDocument doc, CancellationToken cancellationToken = default)
+    {
+        if (doc == null)
+        {
+            return false;
+        }
+
+        if (!doc.Contains("modified_at") || doc["modified_at"].IsBsonNull)
+        {
+            doc["modified_at"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        }
+
+        if (!doc.TryGetValue("local_path", out var localPath) || !localPath.IsString || string.IsNullOrWhiteSpace(localPath.AsString))
+        {
+            await _filesCollection.InsertOneAsync(doc, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        doc["queue_identity"] = NormalizeQueueIdentity(localPath.AsString);
+        var insertFields = new BsonDocument(doc.Where(static pair => pair.Name != "_id"));
+        var result = await _filesCollection.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.Eq("queue_identity", doc["queue_identity"]),
+            new BsonDocumentUpdateDefinition<BsonDocument>(new BsonDocument("$setOnInsert", insertFields)),
+            new UpdateOptions { IsUpsert = true },
+            cancellationToken).ConfigureAwait(false);
+
+        return result.UpsertedId != null;
+    }
+
+    private static string NormalizeQueueIdentity(string path)
+    {
+        var fullPath = Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        return OperatingSystem.IsWindows() ? fullPath.ToUpperInvariant() : fullPath;
     }
 
     /// <summary>
@@ -1941,6 +1998,16 @@ public sealed class NebulaMongoContext : IDisposable
                             continue;
                         }
 
+                        // Um registro failed também pode ser um upload que já
+                        // recebeu partes do Telegram antes da queda. Nunca o
+                        // reative nesse caso, pois isso duplica a mídia.
+                        if (HasTelegramParts(existing))
+                        {
+                            RemoveCompletedStagingFile(fileInfo, stageRoot, existing.GetValue("name", fileName).AsString);
+                            _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
+                            continue;
+                        }
+
                         // Se estava failed, reativa para queued
                         var reactivate = Builders<BsonDocument>.Update
                             .Set("status", "queued")
@@ -1986,8 +2053,14 @@ public sealed class NebulaMongoContext : IDisposable
                             { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
                         };
 
-                        await _filesCollection.InsertOneAsync(newDoc, cancellationToken: cancellationToken).ConfigureAwait(false);
-                        _logger.LogInformation("[NEBULA-MONGO] Novo arquivo detectado no stage e enfileirado: {File}", fileName);
+                        if (await InsertFileDocIfAbsentAsync(newDoc, cancellationToken).ConfigureAwait(false))
+                        {
+                            _logger.LogInformation("[NEBULA-MONGO] Novo arquivo detectado no stage e enfileirado: {File}", fileName);
+                        }
+                        else
+                        {
+                            _logger.LogDebug("[NEBULA-MONGO] Arquivo já enfileirado por outro produtor: {File}", fileName);
+                        }
                         _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
                     }
                 }

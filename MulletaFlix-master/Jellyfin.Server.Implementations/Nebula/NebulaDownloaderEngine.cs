@@ -1307,8 +1307,14 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
         };
 
-        await _mongoContext.InsertFileDocAsync(nodeDoc, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("[NEBULA-FEEDER] Mídia {Name} enfileirada no MongoDB com sucesso.", fileName);
+        if (await _mongoContext.InsertFileDocIfAbsentAsync(nodeDoc, cancellationToken).ConfigureAwait(false))
+        {
+            _logger.LogInformation("[NEBULA-FEEDER] Mídia {Name} enfileirada no MongoDB com sucesso.", fileName);
+        }
+        else
+        {
+            _logger.LogDebug("[NEBULA-FEEDER] Mídia {Name} já foi enfileirada por outro produtor; ignorando duplicata.", fileName);
+        }
     }
 
     private async Task<(string? ParentId, string VirtualPath)> EnsureDirectoryStructureInMongoAsync(string relDir, CancellationToken cancellationToken)

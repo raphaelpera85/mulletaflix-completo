@@ -31,6 +31,8 @@ private const val LIBRARY_SORT_DATE_ADDED = "DateCreated"
 private const val LIBRARY_SORT_RELEASE_DATE = "PremiereDate"
 private const val LIBRARY_SORT_RUNTIME = "Runtime"
 private const val LIBRARY_SORT_RATING = "CommunityRating"
+private const val LIBRARY_SORT_ORDER_ASCENDING = "Ascending"
+private const val LIBRARY_SORT_ORDER_DESCENDING = "Descending"
 
 data class SettingsState(
     val serverUrl: String? = null,
@@ -48,6 +50,7 @@ data class SettingsState(
     val subtitleColor: String = "Branco",
     val libraryGridDensity: String = "Confortável",
     val librarySort: String = "Nome A-Z",
+    val librarySortOrder: String = "Ascendente",
     val downloadPath: String = "Armazenamento Interno",
     val downloadStorageGb: Int = 0,
     val downloadQuality: String = "1080p (Original)",
@@ -174,6 +177,11 @@ class SettingsViewModel @Inject constructor(
                 _state.update { it.copy(librarySort = librarySortLabel(sortBy)) }
             }
         }
+        viewModelScope.launch {
+            settingsRepository.getDefaultLibrarySortOrder().collect { sortOrder ->
+                _state.update { it.copy(librarySortOrder = librarySortOrderLabel(sortOrder)) }
+            }
+        }
     }
 
     fun refreshStorageInfo() {
@@ -269,6 +277,12 @@ class SettingsViewModel @Inject constructor(
         val normalized = librarySortCode(label)
         _state.update { it.copy(librarySort = librarySortLabel(normalized)) }
         viewModelScope.launch { settingsRepository.setDefaultLibrarySort(normalized) }
+    }
+
+    fun setLibrarySortOrder(label: String) {
+        val normalized = librarySortOrderCode(label)
+        _state.update { it.copy(librarySortOrder = librarySortOrderLabel(normalized)) }
+        viewModelScope.launch { settingsRepository.setDefaultLibrarySortOrder(normalized) }
     }
 
     fun logout() {
@@ -546,4 +560,10 @@ class SettingsViewModel @Inject constructor(
         "Avaliação" -> LIBRARY_SORT_RATING
         else -> LIBRARY_SORT_NAME
     }
+
+    private fun librarySortOrderLabel(value: String?): String =
+        if (value?.trim().equals(LIBRARY_SORT_ORDER_DESCENDING, ignoreCase = true)) "Descendente" else "Ascendente"
+
+    private fun librarySortOrderCode(label: String): String =
+        if (label == "Descendente") LIBRARY_SORT_ORDER_DESCENDING else LIBRARY_SORT_ORDER_ASCENDING
 }

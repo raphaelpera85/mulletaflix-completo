@@ -63,6 +63,10 @@ interface SettingsRepository {
     fun getDefaultLibrarySort(): Flow<String>
     suspend fun setDefaultLibrarySort(sortBy: String)
 
+    /** Jellyfin-compatible ordering direction for library browsing. */
+    fun getDefaultLibrarySortOrder(): Flow<String> = flowOf("Ascending")
+    suspend fun setDefaultLibrarySortOrder(sortOrder: String) = Unit
+
     fun getDefaultLibraryFilters(): Flow<Set<String>>
     suspend fun setDefaultLibraryFilters(filters: Set<String>)
 }

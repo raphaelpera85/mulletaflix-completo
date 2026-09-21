@@ -566,7 +566,12 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
                     };
 
-                    await _mongoContext.InsertFileDocAsync(initialDoc, cancellationToken).ConfigureAwait(false);
+                    var inserted = await _mongoContext.InsertFileDocIfAbsentAsync(initialDoc, cancellationToken).ConfigureAwait(false);
+                    if (!inserted)
+                    {
+                        _logger.LogWarning("[NEBULA-UPLOAD] Upload duplicado bloqueado para '{Name}'.", targetFileName);
+                        return false;
+                    }
                 }
             }
 

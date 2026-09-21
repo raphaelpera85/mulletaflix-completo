@@ -16,4 +16,10 @@ class HomeRefreshPolicyTest {
     fun `phone and tablet keep explicit refresh behavior`() {
         assertEquals(0L, homeAutoRefreshIntervalMillis(isTelevision = false))
     }
+
+    @Test
+    fun `television refreshes immediately when returning to foreground`() {
+        assertEquals(true, refreshHomeImmediatelyOnResume(isTelevision = true))
+        assertEquals(false, refreshHomeImmediatelyOnResume(isTelevision = false))
+    }
 }

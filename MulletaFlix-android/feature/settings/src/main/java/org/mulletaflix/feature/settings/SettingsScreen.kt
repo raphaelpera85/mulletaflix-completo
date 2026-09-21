@@ -102,6 +102,7 @@ fun SettingsScreen(
                 var showThemeDialog by remember { mutableStateOf(false) }
                 var showGridDensityDialog by remember { mutableStateOf(false) }
                 var showLibrarySortDialog by remember { mutableStateOf(false) }
+                var showLibrarySortOrderDialog by remember { mutableStateOf(false) }
                 SettingsItem(
                     icon = Icons.Default.Palette,
                     title = "Tema",
@@ -115,10 +116,16 @@ fun SettingsScreen(
                     onClick = { showGridDensityDialog = true },
                 )
                 SettingsItem(
-                icon = Icons.Default.List,
+                    icon = Icons.Default.List,
                     title = "Ordenação da Biblioteca",
-                    subtitle = state.librarySort,
+                    subtitle = "${state.librarySort} • ${state.librarySortOrder}",
                     onClick = { showLibrarySortDialog = true },
+                )
+                SettingsItem(
+                    icon = Icons.Default.SwapVert,
+                    title = "Direção da Ordenação",
+                    subtitle = state.librarySortOrder,
+                    onClick = { showLibrarySortOrderDialog = true },
                 )
                 if (showThemeDialog) {
                     ThemePickerDialog(
@@ -143,6 +150,15 @@ fun SettingsScreen(
                         selected = state.librarySort,
                         onSelect = { viewModel.setLibrarySort(it); showLibrarySortDialog = false },
                         onDismiss = { showLibrarySortDialog = false },
+                    )
+                }
+                if (showLibrarySortOrderDialog) {
+                    ChoiceDialog(
+                        title = "Direção padrão da biblioteca",
+                        options = listOf("Ascendente", "Descendente"),
+                        selected = state.librarySortOrder,
+                        onSelect = { viewModel.setLibrarySortOrder(it); showLibrarySortOrderDialog = false },
+                        onDismiss = { showLibrarySortOrderDialog = false },
                     )
                 }
             }

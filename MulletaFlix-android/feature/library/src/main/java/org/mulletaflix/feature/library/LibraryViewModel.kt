@@ -27,6 +27,7 @@ data class LibraryState(
     val showSortMenu: Boolean = false,
     val showFilterMenu: Boolean = false,
     val sortBy: SortOption = SortOption.Name,
+    val sortOrder: SortOrder = SortOrder.Ascending,
 )
 
 @HiltViewModel
@@ -99,6 +100,13 @@ class LibraryViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            settingsRepository.getDefaultLibrarySortOrder().collect { orderValue ->
+                val order = SortOrder.values().firstOrNull { it.apiValue.equals(orderValue, ignoreCase = true) }
+                    ?: SortOrder.Ascending
+                _state.update { it.copy(sortOrder = order) }
+            }
+        }
+        viewModelScope.launch {
             settingsRepository.getDefaultLibraryFilters().collect { filters ->
                 _state.update { it.copy(activeFilters = orderedFilters(filters)) }
             }
@@ -129,6 +137,7 @@ class LibraryViewModel @Inject constructor(
                 libraryId = libraryId,
                 includeItemTypes = currentIncludeItemTypes,
                 sortBy = _state.value.sortBy.apiValue,
+                sortOrder = _state.value.sortOrder.apiValue,
                 startIndex = 0,
                 limit = pageSize,
                 isPlayed = playedFilter(_state.value.activeFilters),
@@ -192,6 +201,7 @@ class LibraryViewModel @Inject constructor(
                 libraryId = libId,
                 includeItemTypes = currentIncludeItemTypes,
                 sortBy = _state.value.sortBy.apiValue,
+                sortOrder = _state.value.sortOrder.apiValue,
                 startIndex = requestedStartIndex,
                 limit = pageSize,
                 isPlayed = playedFilter(_state.value.activeFilters),
@@ -261,6 +271,12 @@ class LibraryViewModel @Inject constructor(
     fun setSortBy(option: SortOption) {
         _state.update { it.copy(sortBy = option, showSortMenu = false) }
         viewModelScope.launch { settingsRepository.setDefaultLibrarySort(option.apiValue) }
+        currentLibraryId?.let { loadLibrary(it) }
+    }
+
+    fun setSortOrder(order: SortOrder) {
+        _state.update { it.copy(sortOrder = order, showSortMenu = false) }
+        viewModelScope.launch { settingsRepository.setDefaultLibrarySortOrder(order.apiValue) }
         currentLibraryId?.let { loadLibrary(it) }
     }
 

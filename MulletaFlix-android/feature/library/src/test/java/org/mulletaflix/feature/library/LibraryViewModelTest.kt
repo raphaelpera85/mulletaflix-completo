@@ -89,6 +89,30 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `library sort order is restored saved and sent to the server`() = runTest {
+        val settings = FakeSettingsRepository(initialSortOrder = "Descending")
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = settings,
+        )
+        advanceUntilIdle()
+
+        assertEquals(SortOrder.Descending, viewModel.state.value.sortOrder)
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        assertEquals("Descending", media.lastSortOrder)
+
+        viewModel.setSortOrder(SortOrder.Ascending)
+        advanceUntilIdle()
+        assertEquals(SortOrder.Ascending, viewModel.state.value.sortOrder)
+        assertEquals("Ascending", settings.sortOrder)
+        assertEquals("Ascending", media.lastSortOrder)
+    }
+
+    @Test
     fun `library filters are restored from and saved to local settings`() = runTest {
         val settings = FakeSettingsRepository(
             initialFilters = setOf(LibraryViewModel.FILTER_PLAYED, LibraryViewModel.FILTER_FAVORITES, "desconhecido"),
@@ -252,6 +276,7 @@ class LibraryViewModelTest {
         var lastIsPlayed: Boolean? = null
         var lastIsFavorite: Boolean? = null
         var lastIncludeItemTypes: String? = null
+        var lastSortOrder: String? = null
         var lastStartIndex: Int = -1
         var libraryCollectionType: String? = null
         override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> =
@@ -259,6 +284,7 @@ class LibraryViewModelTest {
                 lastIsPlayed = isPlayed
                 lastIsFavorite = isFavorite
                 lastIncludeItemTypes = includeItemTypes
+                lastSortOrder = sortOrder
                 lastStartIndex = startIndex
             } ?: Result.success(emptyList<MediaItem>() to 0)
         override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
@@ -294,10 +320,12 @@ class LibraryViewModelTest {
     private class FakeSettingsRepository(
         initialGridView: Boolean = true,
         initialSort: String = "SortName",
+        initialSortOrder: String = "Ascending",
         initialFilters: Set<String> = emptySet(),
     ) : SettingsRepository {
         var gridView = initialGridView
         var sort = initialSort
+        var sortOrder = initialSortOrder
         var filters = initialFilters
         override fun getTheme() = MutableStateFlow(AppThemeSetting.Dark)
         override suspend fun setTheme(theme: AppThemeSetting) = Unit
@@ -326,6 +354,8 @@ class LibraryViewModelTest {
         override suspend fun setLibraryGridViewEnabled(enabled: Boolean) { gridView = enabled }
         override fun getDefaultLibrarySort() = MutableStateFlow(sort)
         override suspend fun setDefaultLibrarySort(sortBy: String) { sort = sortBy }
+        override fun getDefaultLibrarySortOrder() = MutableStateFlow(sortOrder)
+        override suspend fun setDefaultLibrarySortOrder(sortOrder: String) { this.sortOrder = sortOrder }
         override fun getDefaultLibraryFilters() = MutableStateFlow(filters)
         override suspend fun setDefaultLibraryFilters(filters: Set<String>) { this.filters = filters }
     }

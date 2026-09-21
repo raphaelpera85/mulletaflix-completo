@@ -9,3 +9,6 @@ internal const val TV_HOME_REFRESH_INTERVAL_MILLIS = 60_000L
 
 internal fun homeAutoRefreshIntervalMillis(isTelevision: Boolean): Long =
     if (isTelevision) TV_HOME_REFRESH_INTERVAL_MILLIS else 0L
+
+/** A TV must reconcile stale catalog data as soon as the app becomes visible. */
+internal fun refreshHomeImmediatelyOnResume(isTelevision: Boolean): Boolean = isTelevision

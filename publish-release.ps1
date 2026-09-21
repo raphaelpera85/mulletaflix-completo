@@ -2,7 +2,9 @@
 param(
     [string]$Tag = "v12.0.9",
     [string]$Title = "MulletaFlix Server v12.0.9",
-    [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip"
+    [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip",
+    [string[]]$AssetPath = @(),
+    [string]$AssetsDirectory = "dist"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -85,33 +87,84 @@ if ($existingRelease) {
     Write-Host "Release criada com sucesso! ID: $($release.id)" -ForegroundColor Green
 }
 
-# 3. Upload zip asset
+# 3. Upload all server artifacts for this release.
+# Builds from other platforms can place their installers/packages in dist or pass
+# them explicitly with -AssetPath. Android APKs and evidence images are excluded.
+$resolvedAssetsDirectory = if ([System.IO.Path]::IsPathRooted($AssetsDirectory)) { $AssetsDirectory } else { Join-Path $projectRoot $AssetsDirectory }
+$assetCandidates = [System.Collections.Generic.List[string]]::new()
+
+if ($AssetPath.Count -gt 0) {
+    foreach ($path in $AssetPath) {
+        $resolved = if ([System.IO.Path]::IsPathRooted($path)) { $path } else { Join-Path $projectRoot $path }
+        if (Test-Path -LiteralPath $resolved -PathType Leaf) {
+            $assetCandidates.Add((Get-Item -LiteralPath $resolved).FullName)
+        } else {
+            throw "Asset informado não encontrado: $resolved"
+        }
+    }
+}
+
+# Preserve the existing -ZipPath contract and always include the update package.
 $resolvedZipPath = if ([System.IO.Path]::IsPathRooted($ZipPath)) { $ZipPath } else { Join-Path $projectRoot $ZipPath }
-if (Test-Path -LiteralPath $resolvedZipPath) {
-    $zipItem = Get-Item -LiteralPath $resolvedZipPath
-    $assetName = "mulletaflix-update-win-x64.zip"
+if (Test-Path -LiteralPath $resolvedZipPath -PathType Leaf) {
+    $assetCandidates.Add((Get-Item -LiteralPath $resolvedZipPath).FullName)
+}
+
+$serverAssetPatterns = @(
+    'mulletaflix-update-*.zip',
+    'MulletaFlix_*_windows-*.exe',
+    'mulletaflix_*_windows-*.exe',
+    'MulletaFlix_*_linux-*',
+    'mulletaflix_*_linux-*',
+    'MulletaFlix_*_macos-*',
+    'mulletaflix_*_macos-*',
+    '*.deb', '*.rpm', '*.tar.gz', '*.tar.xz', '*.AppImage', '*.dmg', '*.pkg', '*.msi'
+)
+
+if (Test-Path -LiteralPath $resolvedAssetsDirectory -PathType Container) {
+    foreach ($pattern in $serverAssetPatterns) {
+        Get-ChildItem -LiteralPath $resolvedAssetsDirectory -File -Filter $pattern -ErrorAction SilentlyContinue |
+            ForEach-Object { $assetCandidates.Add($_.FullName) }
+    }
+}
+
+$assets = $assetCandidates | Sort-Object -Unique
+if ($assets.Count -eq 0) {
+    throw "Nenhum artefato de servidor encontrado para anexar à release."
+}
+
+$contentTypes = @{
+    '.zip' = 'application/zip'; '.exe' = 'application/vnd.microsoft.portable-executable';
+    '.deb' = 'application/vnd.debian.binary-package'; '.rpm' = 'application/x-rpm';
+    '.gz' = 'application/gzip'; '.xz' = 'application/x-xz'; '.appimage' = 'application/octet-stream';
+    '.dmg' = 'application/x-apple-diskimage'; '.pkg' = 'application/octet-stream'; '.msi' = 'application/x-msi'
+}
+
+foreach ($assetPath in $assets) {
+    $asset = Get-Item -LiteralPath $assetPath
+    $assetName = $asset.Name
+    $extension = [System.IO.Path]::GetExtension($assetName).ToLowerInvariant()
+    $contentType = if ($contentTypes.ContainsKey($extension)) { $contentTypes[$extension] } else { 'application/octet-stream' }
 
     if ($release.assets) {
-        foreach ($asset in $release.assets) {
-            if ($asset.name -eq $assetName) {
-                Write-Host "Removendo asset antigo $($asset.name) (ID: $($asset.id))..." -ForegroundColor Yellow
-                Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/assets/$($asset.id)" -Method Delete -Headers $headers | Out-Null
+        foreach ($existingAsset in @($release.assets)) {
+            if ($existingAsset.name -eq $assetName) {
+                Write-Host "Removendo asset antigo $($existingAsset.name) (ID: $($existingAsset.id))..." -ForegroundColor Yellow
+                Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/assets/$($existingAsset.id)" -Method Delete -Headers $headers | Out-Null
             }
         }
     }
 
-    Write-Host "Enviando arquivo $assetName ($([Math]::Round($zipItem.Length / 1MB, 2)) MB) para o GitHub Releases..." -ForegroundColor Cyan
-    $uploadUrl = $release.upload_url -replace '\{\?name,label\}', "?name=$assetName"
+    Write-Host "Enviando asset $assetName ($([Math]::Round($asset.Length / 1MB, 2)) MB)..." -ForegroundColor Cyan
+    $uploadUrl = $release.upload_url -replace '\{\?name,label\}', "?name=$([uri]::EscapeDataString($assetName))"
     $uploadHeaders = @{
         "Authorization" = "Bearer $token"
-        "Content-Type" = "application/zip"
+        "Content-Type" = $contentType
         "User-Agent" = "MulletaFlix-Release-Script"
     }
 
-    $uploadResult = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $uploadHeaders -InFile $resolvedZipPath
-    Write-Host "Asset zip enviado com sucesso! Download URL: $($uploadResult.browser_download_url)" -ForegroundColor Green
-} else {
-    Write-Warning "Arquivo zip de atualização não encontrado em: $resolvedZipPath"
+    $uploadResult = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $uploadHeaders -InFile $asset.FullName
+    Write-Host "Asset enviado: $($uploadResult.browser_download_url)" -ForegroundColor Green
 }
 
 

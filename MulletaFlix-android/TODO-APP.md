@@ -1423,3 +1423,12 @@ Pendências relacionadas:
 - [x] Usar colunas previsíveis e amigáveis ao controle remoto na TV.
 - [x] Atualizar a biblioteca automaticamente enquanto a tela estiver em primeiro plano.
 - [x] Cobrir a densidade e o cálculo de colunas com testes unitários.
+## 208. Ordenação ascendente e descendente (v1.1.98)
+- [x] Adicionar direção Ascendente/Descendente ao menu de ordenação da biblioteca.
+- [x] Enviar `SortOrder` ao servidor e persistir a preferência localmente.
+- [x] Cobrir restauração, persistência e requisição com teste unitário.
+
+## 209. Direção da ordenação nas Configurações (v1.1.99)
+- [x] Exibir a direção atual junto da ordenação padrão.
+- [x] Permitir escolher Ascendente ou Descendente nas Configurações.
+- [x] Persistir e restaurar a direção com teste unitário.

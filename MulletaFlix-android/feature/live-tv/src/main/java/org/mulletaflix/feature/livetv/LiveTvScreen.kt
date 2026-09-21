@@ -14,6 +14,11 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -41,9 +46,25 @@ fun LiveTvScreen(
     viewModel: LiveTvViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
     var showGuide by remember { mutableStateOf(false) }
+
+    LaunchedEffect(lifecycleOwner, isTelevision) {
+        val refreshInterval = liveTvAutoRefreshIntervalMillis(isTelevision)
+        if (refreshInterval > 0L) {
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                if (refreshLiveTvImmediatelyOnResume(isTelevision)) {
+                    viewModel.refresh()
+                }
+                while (isActive) {
+                    delay(refreshInterval)
+                    viewModel.refresh()
+                }
+            }
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(

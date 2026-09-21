@@ -81,6 +81,11 @@ fun HomeScreen(
             val refreshInterval = homeAutoRefreshIntervalMillis(isTelevision)
             if (refreshInterval > 0L) {
                 lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    if (refreshHomeImmediatelyOnResume(isTelevision)) {
+                        // Do not wait for the first interval when a TV is
+                        // opened or returns from standby/another app.
+                        viewModel.refresh()
+                    }
                     while (isActive) {
                         delay(refreshInterval)
                         viewModel.refresh()

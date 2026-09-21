@@ -106,10 +106,14 @@ if (-not $generatedInstaller) {
 
 Copy-Item -LiteralPath $generatedInstaller.FullName -Destination $outputDir -Force
 $installer = Join-Path $outputDir $generatedInstaller.Name
+$releaseAssetsDir = Join-Path $projectRoot 'dist'
+New-Item -ItemType Directory -Force -Path $releaseAssetsDir | Out-Null
+Copy-Item -LiteralPath $installer -Destination (Join-Path $releaseAssetsDir $generatedInstaller.Name) -Force
 
 Write-Host ""
 Write-Host '==================================================' -ForegroundColor Green
 Write-Host 'Installer build completed successfully!' -ForegroundColor Green
 Write-Host "Output: $installer" -ForegroundColor Green
+Write-Host "Release asset: $(Join-Path $releaseAssetsDir $generatedInstaller.Name)" -ForegroundColor Green
 Write-Host "Size: $([Math]::Round((Get-Item -LiteralPath $installer).Length / 1MB, 2)) MB" -ForegroundColor Green
 Write-Host '==================================================' -ForegroundColor Green

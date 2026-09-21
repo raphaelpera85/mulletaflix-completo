@@ -143,6 +143,13 @@ class SettingsViewModelTest {
 
         assertEquals("Avaliação", viewModel.state.value.librarySort)
         assertEquals("CommunityRating", settingsRepo.librarySort)
+        settingsRepo.librarySortOrder = "Descending"
+        val directionViewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
+        advanceUntilIdle()
+        assertEquals("Descendente", directionViewModel.state.value.librarySortOrder)
+        directionViewModel.setLibrarySortOrder("Ascendente")
+        advanceUntilIdle()
+        assertEquals("Ascending", settingsRepo.librarySortOrder)
     }
 
     @Test
@@ -450,6 +457,9 @@ class SettingsViewModelTest {
         override suspend fun setLibraryGridDensity(density: String) { gridDensity = density }
         override fun getDefaultLibrarySort(): Flow<String> = MutableStateFlow(librarySort)
         override suspend fun setDefaultLibrarySort(sortBy: String) { librarySort = sortBy }
+        var librarySortOrder: String = "Ascending"
+        override fun getDefaultLibrarySortOrder(): Flow<String> = MutableStateFlow(librarySortOrder)
+        override suspend fun setDefaultLibrarySortOrder(sortOrder: String) { librarySortOrder = sortOrder }
         override fun getDefaultLibraryFilters(): Flow<Set<String>> = MutableStateFlow(emptySet())
         override suspend fun setDefaultLibraryFilters(filters: Set<String>) = Unit
     }

@@ -51,11 +51,13 @@ fun LibraryScreen(
     val loadError = state.error
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(libraryId) { viewModel.loadLibrary(libraryId) }
     LaunchedEffect(libraryId, lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            if (libraryRefreshImmediatelyOnResume()) {
+                viewModel.loadLibrary(libraryId)
+            }
             while (isActive) {
-                delay(60_000)
+                delay(LIBRARY_AUTO_REFRESH_INTERVAL_MILLIS)
                 viewModel.loadLibrary(libraryId)
             }
         }
@@ -207,7 +209,9 @@ fun LibraryScreen(
             if (state.showSortMenu) {
                 SortDropdown(
                     current = state.sortBy,
+                    currentOrder = state.sortOrder,
                     onSelect = viewModel::setSortBy,
+                    onSelectOrder = viewModel::setSortOrder,
                     onDismiss = viewModel::hideSortMenu
                 )
             }
@@ -311,13 +315,33 @@ private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> 
 }
 
 @Composable
-private fun SortDropdown(current: SortOption, onSelect: (SortOption) -> Unit, onDismiss: () -> Unit) {
+private fun SortDropdown(
+    current: SortOption,
+    currentOrder: SortOrder,
+    onSelect: (SortOption) -> Unit,
+    onSelectOrder: (SortOrder) -> Unit,
+    onDismiss: () -> Unit,
+) {
     DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
         SortOption.values().forEach { option ->
             DropdownMenuItem(
                 text = { Text(option.label) },
                 leadingIcon = { if (current == option) Icon(Icons.Default.Check, contentDescription = null) },
                 onClick = { onSelect(option); onDismiss() }
+            )
+        }
+        HorizontalDivider()
+        SortOrder.values().forEach { order ->
+            DropdownMenuItem(
+                text = { Text(order.label) },
+                leadingIcon = {
+                    Icon(
+                        if (order == SortOrder.Ascending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                        contentDescription = null,
+                    )
+                },
+                trailingIcon = { if (currentOrder == order) Icon(Icons.Default.Check, contentDescription = null) },
+                onClick = { onSelectOrder(order); onDismiss() },
             )
         }
     }
@@ -332,6 +356,11 @@ enum class SortOption(val label: String, val apiValue: String) {
     Random("Aleatório", "Random"),
     PlayCount("Mais Assistidos", "PlayCount"),
     LastPlayed("Assistido Recentemente", "DatePlayed"),
+}
+
+enum class SortOrder(val label: String, val apiValue: String) {
+    Ascending("Ascendente", "Ascending"),
+    Descending("Descendente", "Descending"),
 }
 
 @Composable

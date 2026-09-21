@@ -35,6 +35,7 @@ class SettingsRepositoryImpl @Inject constructor(
         val LIBRARY_GRID_VIEW_ENABLED = booleanPreferencesKey("library_grid_view_enabled")
         val LIBRARY_GRID_DENSITY = stringPreferencesKey("library_grid_density")
         val DEFAULT_LIBRARY_SORT = stringPreferencesKey("default_library_sort")
+        val DEFAULT_LIBRARY_SORT_ORDER = stringPreferencesKey("default_library_sort_order")
         val DEFAULT_LIBRARY_FILTERS = stringSetPreferencesKey("default_library_filters")
     }
 
@@ -167,6 +168,19 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setDefaultLibrarySort(sortBy: String) {
         context.settingsDataStore.edit { it[Keys.DEFAULT_LIBRARY_SORT] = sortBy.trim().ifBlank { "SortName" } }
+    }
+
+    override fun getDefaultLibrarySortOrder(): Flow<String> =
+        context.settingsDataStore.data.map {
+            it[Keys.DEFAULT_LIBRARY_SORT_ORDER]
+                ?.trim()
+                ?.takeIf { value -> value.equals("Descending", ignoreCase = true) }
+                ?: "Ascending"
+        }
+
+    override suspend fun setDefaultLibrarySortOrder(sortOrder: String) {
+        val normalized = if (sortOrder.equals("Descending", ignoreCase = true)) "Descending" else "Ascending"
+        context.settingsDataStore.edit { it[Keys.DEFAULT_LIBRARY_SORT_ORDER] = normalized }
     }
 
     override fun getDefaultLibraryFilters(): Flow<Set<String>> =

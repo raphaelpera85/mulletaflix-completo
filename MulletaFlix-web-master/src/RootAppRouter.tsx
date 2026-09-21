@@ -11,6 +11,7 @@ import { EXPERIMENTAL_APP_ROUTES } from 'apps/experimental/routes/routes';
 import { STABLE_APP_ROUTES } from 'apps/stable/routes/routes';
 import { WIZARD_APP_ROUTES } from 'apps/wizard/routes/routes';
 import AppHeader from 'components/AppHeader';
+import AppBody from 'components/AppBody';
 import Backdrop from 'components/Backdrop';
 import layoutManager from 'components/layoutManager';
 import Loading from 'components/loading/LoadingComponent';
@@ -59,7 +60,9 @@ function RootAppLayout() {
             <Backdrop />
             <AppHeader isHidden />
 
-            <Outlet />
+            <AppBody>
+                <Outlet />
+            </AppBody>
         </ThemeProvider>
     );
 }

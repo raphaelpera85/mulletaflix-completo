@@ -30,11 +30,18 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import android.content.res.Configuration
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.domain.model.MediaItem
@@ -52,6 +59,24 @@ fun FavoritesScreen(
     viewModel: FavoritesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val configuration = LocalConfiguration.current
+    val isTelevision = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
+    val gridColumns = favoritesGridColumns(configuration.screenWidthDp, isTelevision)
+
+    LaunchedEffect(lifecycleOwner, isTelevision) {
+        val refreshInterval = favoritesAutoRefreshIntervalMillis(isTelevision)
+        if (refreshInterval > 0L) {
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                viewModel.refresh()
+                while (isActive) {
+                    delay(refreshInterval)
+                    viewModel.refresh()
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -84,7 +109,7 @@ fun FavoritesScreen(
                 state.items.isEmpty() ->
                     EmptyFavoritesState()
                 else ->
-                    FavoritesGrid(state.items, state.hasMore, state.isLoading, onItemClick, viewModel::loadMore)
+                    FavoritesGrid(state.items, state.hasMore, state.isLoading, gridColumns, isTelevision, onItemClick, viewModel::loadMore)
             }
             if (state.error != null && state.items.isNotEmpty()) {
                 Card(
@@ -104,11 +129,13 @@ private fun FavoritesGrid(
     items: List<MediaItem>,
     hasMore: Boolean,
     isLoading: Boolean,
+    gridColumns: Int,
+    isTelevision: Boolean,
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        columns = GridCells.Fixed(gridColumns),
         contentPadding = PaddingValues(8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -124,12 +151,13 @@ private fun FavoritesGrid(
                 isFavorite = true,
                 unplayedCount = item.unplayedItemCount ?: 0,
                 qualityBadge = when { item.has4K -> "4K"; item.hasHD -> "HD"; else -> null },
+                focusFriendly = isTelevision,
                 onClick = { onItemClick(item.id) },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
         if (hasMore) {
-            item(span = { GridItemSpan(3) }) {
+            item(span = { GridItemSpan(gridColumns) }) {
                 LaunchedEffect(items.size) { if (!isLoading) onLoadMore() }
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.padding(16.dp).size(28.dp))
