@@ -400,3 +400,9 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Aceitar URL HTTP/HTTPS direta e payload `mulletaflix://server?url=...`.
 - [x] Validar o payload antes de preencher a URL e ocultar a ação em TV sem câmera.
 - [x] Cobrir URLs diretas, URLs codificadas e payloads inválidos.
+
+## 203. Grade de TV compacta e focável (v1.1.94)
+- [x] Reduzir a escala dos cards nas fileiras da Home para mostrar mais títulos simultaneamente.
+- [x] Ajustar o tamanho mínimo da grade de bibliotecas para equilibrar densidade e legibilidade em TV.
+- [x] Preservar o destaque visual do item focado pelo controle remoto.
+- [x] Cobrir o contrato responsivo de TV com testes unitários.

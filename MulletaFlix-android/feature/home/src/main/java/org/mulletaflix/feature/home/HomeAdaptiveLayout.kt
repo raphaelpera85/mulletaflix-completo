@@ -40,7 +40,9 @@ internal fun homeLayoutSpec(deviceClass: HomeDeviceClass): HomeLayoutSpec = when
         contentMaxWidthDp = 1600,
         horizontalPaddingDp = 56,
         heroHeightDp = 620,
-        cardScale = 1.35f,
+        // Keep cards compact on a 10-foot surface so more titles remain
+        // visible at once; focus feedback still enlarges the selected card.
+        cardScale = 0.9f,
         usesFocusFriendlySpacing = true,
     )
 }

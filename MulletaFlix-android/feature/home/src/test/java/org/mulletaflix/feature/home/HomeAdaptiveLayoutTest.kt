@@ -28,6 +28,7 @@ class HomeAdaptiveLayoutTest {
         val spec = homeLayoutSpec(HomeDeviceClass.TV)
         assertTrue(spec.usesFocusFriendlySpacing)
         assertEquals(56, spec.horizontalPaddingDp)
-        assertTrue(spec.cardScale > homeLayoutSpec(HomeDeviceClass.TABLET).cardScale)
+        assertTrue(spec.cardScale < homeLayoutSpec(HomeDeviceClass.TABLET).cardScale)
+        assertEquals(0.9f, spec.cardScale)
     }
 }
