@@ -330,6 +330,20 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         return Ok(result);
     }
 
+    [HttpPost("Supabase/Users/Backup")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<NebulaSupabaseBackupResultDto>> BackupSupabaseUsers(CancellationToken cancellationToken = default)
+    {
+        return Ok(await _nebulaManager.BackupUsersToSupabaseAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    [HttpPost("Supabase/Users/Restore")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<NebulaSupabaseRestoreResultDto>> RestoreSupabaseUsers(CancellationToken cancellationToken = default)
+    {
+        return Ok(await _nebulaManager.RestoreUsersFromSupabaseAsync(cancellationToken).ConfigureAwait(false));
+    }
+
     [HttpGet("Supabase/SqlScript")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<string> GetSupabaseSqlScript()

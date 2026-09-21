@@ -44,7 +44,11 @@ public interface INebulaFtpManager
 
     Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(string? idempotencyKey = null, bool forceFull = false, CancellationToken cancellationToken = default);
 
+    Task<NebulaSupabaseBackupResultDto> BackupUsersToSupabaseAsync(CancellationToken cancellationToken = default);
+
     Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(string? idempotencyKey = null, bool forceFull = false, CancellationToken cancellationToken = default);
+
+    Task<NebulaSupabaseRestoreResultDto> RestoreUsersFromSupabaseAsync(CancellationToken cancellationToken = default);
 
     string GetSupabaseSqlScript();
 

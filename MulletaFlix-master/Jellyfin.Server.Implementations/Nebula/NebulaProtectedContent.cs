@@ -14,9 +14,8 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// <summary>
 /// Regra única do Nebula para o conteúdo que forma o cache local de exibição:
 /// capas, imagens (poster/fanart/logo/thumb), NFO/XML de metadados e legendas.
-/// Esse conteúdo nunca é excluído do disco nem do catálogo, porque é ele que
-/// mantém a biblioteca instantânea no web e no aplicativo; esse conteúdo não
-/// participa da fila nem é enviado ao Telegram.
+/// Esse conteúdo nunca é excluído do armazenamento local do servidor. Ele não
+/// participa do catálogo montado, da fila nem é enviado ao Telegram.
 /// </summary>
 internal static class NebulaProtectedContent
 {
@@ -31,7 +30,7 @@ internal static class NebulaProtectedContent
     /// Indica se o caminho (ou nome de arquivo) pertence ao conteúdo protegido.
     /// </summary>
     /// <param name="path">Caminho ou nome de arquivo.</param>
-    /// <returns><see langword="true"/> quando o conteúdo nunca pode ser excluído.</returns>
+    /// <returns><see langword="true"/> quando o conteúdo é protegido no armazenamento local.</returns>
     internal static bool IsProtectedPath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -44,7 +43,7 @@ internal static class NebulaProtectedContent
     }
 
     /// <summary>
-    /// Indica se o documento do catálogo representa conteúdo protegido.
+    /// Indica se o documento representa conteúdo protegido local.
     /// </summary>
     /// <param name="doc">Documento da coleção <c>files</c>.</param>
     /// <returns><see langword="true"/> quando o documento nunca pode ser excluído.</returns>
@@ -64,12 +63,13 @@ internal static class NebulaProtectedContent
     }
 
     /// <summary>
-    /// Filtro que remove do resultado os documentos de conteúdo protegido, para uso
-    /// em operações de exclusão em massa no catálogo.
+    /// Filtro que exclui documentos de conteúdo protegido do catálogo montado.
     /// </summary>
     /// <returns>Filtro do MongoDB.</returns>
     internal static FilterDefinition<BsonDocument> NotProtected()
-        => Builders<BsonDocument>.Filter.Not(Builders<BsonDocument>.Filter.Regex("name", ProtectedNameExpression));
+        => Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Not(Builders<BsonDocument>.Filter.Regex("name", ProtectedNameExpression)),
+            Builders<BsonDocument>.Filter.Not(Builders<BsonDocument>.Filter.Regex("local_path", ProtectedNameExpression)));
 
     private static string BuildNamePattern()
     {

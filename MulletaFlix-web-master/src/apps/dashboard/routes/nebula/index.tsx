@@ -796,7 +796,7 @@ const NebulaPage = () => {
                                     <Stack spacing={1}>
                                         <TextField label='Nova senha FTP' type='password' value={ftpPassword} onChange={handleFtpPasswordChange} autoComplete='new-password' size='small' fullWidth />
                                         <TextField label='Novo token HTTP' type='password' value={httpStreamToken} onChange={handleHttpStreamTokenChange} autoComplete='new-password' size='small' fullWidth />
-                                        <TextField label='Nova chave Supabase' type='password' value={supabaseKey} onChange={handleSupabaseKeyChange} autoComplete='new-password' size='small' fullWidth />
+                                        <TextField label='Nova Secret key do Supabase (service_role)' type='password' value={supabaseKey} onChange={handleSupabaseKeyChange} autoComplete='new-password' size='small' fullWidth helperText='Use sb_secret_... ou uma chave JWT com role service_role. Não use publishable/anon.' />
                                         <TextField label='Novo API hash do Telegram (32 caracteres)' type='password' value={apiHash} onChange={handleApiHashChange} autoComplete='new-password' size='small' fullWidth slotProps={{ htmlInput: { maxLength: 32 } }} />
                                         <Button type='submit' variant='outlined' disabled={isBusy} sx={{ alignSelf: 'flex-start' }}>
                                             {credentialsMutation.isPending ? 'Rotacionando...' : 'Rotacionar credenciais'}
@@ -854,7 +854,7 @@ const NebulaPage = () => {
                                         aria-busy={backupMutation.isPending}
                                         onClick={startBackup}
                                     >
-                                        {backupMutation.isPending ? 'Executando backup...' : 'Backup Supabase'}
+                                        {backupMutation.isPending ? 'Executando backup MongoDB...' : 'Backup MongoDB → Supabase'}
                                     </Button>
                                     <Button
                                         variant='outlined'
@@ -863,7 +863,7 @@ const NebulaPage = () => {
                                         aria-busy={restoreMutation.isPending}
                                         onClick={openRestoreDialog}
                                     >
-                                        {restoreMutation.isPending ? 'Restaurando...' : 'Restore Supabase'}
+                                        {restoreMutation.isPending ? 'Restaurando MongoDB...' : 'Restore Supabase → MongoDB'}
                                     </Button>
                                 </Stack>
                             </Stack>

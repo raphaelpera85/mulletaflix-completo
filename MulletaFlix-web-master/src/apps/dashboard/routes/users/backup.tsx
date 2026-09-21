@@ -115,7 +115,7 @@ const BackupRestorePage = () => {
         onError: error => toast(`Erro ao provisionar Supabase: ${getErrorMessage(error)}`)
     });
     const backupMutation = useMutation({
-        mutationFn: () => postAction('NebulaFtp/Supabase/Backup'),
+        mutationFn: () => postAction('NebulaFtp/Supabase/Users/Backup'),
         onSuccess: result => {
             toast(result.Message || 'Backup delta iniciado.');
             void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
@@ -123,7 +123,7 @@ const BackupRestorePage = () => {
         onError: error => toast(`Erro ao iniciar backup: ${getErrorMessage(error)}`)
     });
     const restoreMutation = useMutation({
-        mutationFn: () => postAction('NebulaFtp/Supabase/Restore?forceFull=true'),
+        mutationFn: () => postAction('NebulaFtp/Supabase/Users/Restore'),
         onSuccess: result => {
             toast(result.Success === false ? `Restore não concluído: ${result.Message || 'erro desconhecido'}` : result.Message || 'Restore concluído.');
             void queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
@@ -157,7 +157,7 @@ const BackupRestorePage = () => {
                 <Paper variant='outlined' sx={{ p: 2.5 }}>
                     <Stack spacing={2}>
                         <Typography variant='h2' component='h2' sx={{ fontSize: '1.25rem' }}>Provisionamento automático do Supabase</Typography>
-                        <Typography variant='body2' color='text.secondary'>Na primeira instalação, informe o Project ID e um token escopado da Management API com permissão de banco. O servidor executará o schema completo de forma idempotente e removerá o token da configuração após o sucesso.</Typography>
+                        <Typography variant='body2' color='text.secondary'>Na primeira instalação, informe o Project ID e um token escopado da Management API com permissão de banco. O servidor executará o schema completo de forma idempotente e removerá o token da configuração após o sucesso. Para o backup diário, a configuração do Nebula deve usar a Secret key do Supabase (service_role), nunca a chave publishable/anon.</Typography>
                         <TextField label='Project ID' value={projectRef} onChange={updateProjectRef} placeholder='ex.: abcdefghijklmnopqrst' fullWidth size='small' />
                         <TextField label='Token da Management API' value={managementToken} onChange={updateManagementToken} placeholder='sbp_fc_...' type='password' fullWidth size='small' autoComplete='new-password' />
                         <Alert severity='info'>Use um token escopado somente para este projeto, com Database write. Ele não será usado nos backups diários.</Alert>

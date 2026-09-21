@@ -14,7 +14,7 @@ android {
         applicationId = "org.mulletaflix.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 244
+        versionCode = 249
         versionName = libs.versions.appVersion.get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -110,6 +110,10 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
+    // Artwork goes through the same authenticated client as the API, so the
+    // server can identify the device and does not throttle the poster grid.
+    implementation(libs.coil.compose)
+    implementation(libs.okhttp)
 
     // Hilt
     implementation(libs.hilt.android)

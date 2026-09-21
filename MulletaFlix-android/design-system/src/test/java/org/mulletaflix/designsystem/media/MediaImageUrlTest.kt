@@ -73,4 +73,48 @@ class MediaImageUrlTest {
         assertNull(userAvatarPath("user-1", null))
         assertNull(userAvatarPath("user-1", "  "))
     }
+
+    @Test
+    fun `artwork carries the session token so the server does not see it as anonymous`() {
+        // A cover grid that reaches the server as anonymous is throttled by the
+        // server's RateLimitMiddleware (30 requests / 10 s) and loads slowly.
+        val url = resolveMediaUrl(
+            baseUrl = "http://192.168.15.9:8096",
+            path = "Items/movie-1/Images/Primary",
+            accessToken = "session-token",
+        )
+        assertEquals(
+            "http://192.168.15.9:8096/Items/movie-1/Images/Primary?api_key=session-token",
+            url,
+        )
+    }
+
+    @Test
+    fun `token without an image path still yields no url`() {
+        assertNull(resolveMediaUrl("http://server", null, "session-token"))
+        assertNull(resolveMediaUrl("http://server", "  ", "session-token"))
+    }
+
+    @Test
+    fun `diagnostics never print the token`() {
+        val redacted = redactToken(
+            "http://server/Items/x/Images/Primary?tag=t&api_key=super-secret-token",
+        )
+        assertEquals(
+            "http://server/Items/x/Images/Primary?tag=t&api_key=<redacted>",
+            redacted,
+        )
+        org.junit.Assert.assertFalse(redacted.contains("super-secret-token"))
+    }
+
+    @Test
+    fun `diagnostics redact every token spelling the server accepts`() {
+        listOf("api_key", "ApiKey", "X-Emby-Token").forEach { parameter ->
+            val redacted = redactToken("http://server/Items/x?$parameter=abc123&tag=t")
+            assertEquals(
+                "http://server/Items/x?$parameter=<redacted>&tag=t",
+                redacted,
+            )
+        }
+    }
 }

@@ -312,9 +312,13 @@ object MulletaFlixRoute {
     fun itemDetail(itemId: String) = "detail/$itemId"
     fun videoPlayer(itemId: String) = "player/video/$itemId"
     fun offlinePlayer(itemId: String, uri: String, title: String): String {
-        val encodedId = java.net.URLEncoder.encode(itemId, "UTF-8")
-        val encodedUri = java.net.URLEncoder.encode(uri, "UTF-8")
-        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+        // `encodeRouteQueryArgument`, not `URLEncoder`. Navigation decodes query
+        // arguments with `Uri.getQueryParameters`, which follows RFC 3986 and
+        // does **not** turn `+` back into a space, so `URLEncoder` made every
+        // offline title containing a space render as `O+Retorno+de+Jedi`.
+        val encodedId = encodeRouteQueryArgument(itemId)
+        val encodedUri = encodeRouteQueryArgument(uri)
+        val encodedTitle = encodeRouteQueryArgument(title)
         return "player/offline/$encodedId?uri=$encodedUri&title=$encodedTitle"
     }
 }

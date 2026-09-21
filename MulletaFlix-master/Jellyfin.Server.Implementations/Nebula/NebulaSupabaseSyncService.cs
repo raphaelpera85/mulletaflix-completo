@@ -32,6 +32,8 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaSupabaseSyncService : IDisposable
 {
+    public const string ServiceRoleKeyRequiredMessage = "O backup e a restauração exigem a Secret key do Supabase (sb_secret_... ou chave JWT com role service_role). Não use a chave publishable/anon e não conceda permissões de escrita à role anon.";
+
     private readonly ILogger<NebulaSupabaseSyncService> _logger;
     private readonly NebulaMongoContext _mongoContext;
     private readonly IDbContextFactory<UsersDbContext>? _usersDbProvider;
@@ -52,6 +54,58 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// Obtém a data e hora UTC da última restauração bem-sucedida realizada nesta sessão.
     /// </summary>
     public DateTime? LastSuccessfulRestoreTime => _lastSuccessfulRestoreTime;
+
+    /// <summary>
+    /// Verifica se a chave pode ser usada pelo backend para acessar tabelas protegidas por RLS.
+    /// Chaves publishable/anon nunca devem receber permissões de escrita.
+    /// </summary>
+    public static bool IsServiceRoleKey(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+
+        var value = key.Trim();
+        if (value.StartsWith("sb_secret_", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (value.StartsWith("sb_publishable_", StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith("sb_anon_", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Chaves JWT legadas carregam o papel no payload. Só service_role pode
+        // operar as tabelas de backup com as políticas atuais.
+        var parts = value.Split('.');
+        if (parts.Length == 3)
+        {
+            try
+            {
+                var payload = parts[1].Replace('-', '+').Replace('_', '/');
+                payload += new string('=', (4 - (payload.Length % 4)) % 4);
+                using var document = JsonDocument.Parse(Convert.FromBase64String(payload));
+                if (document.RootElement.TryGetProperty("role", out var role) && role.ValueKind == JsonValueKind.String)
+                {
+                    return string.Equals(role.GetString(), "service_role", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch (FormatException)
+            {
+                // Chave não-JWT: mantém compatibilidade e deixa o Supabase validar.
+            }
+            catch (JsonException)
+            {
+                // Chave não-JWT: mantém compatibilidade e deixa o Supabase validar.
+            }
+        }
+
+        // Formatos privados antigos podem não expor o papel localmente.
+        return true;
+    }
 
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaSupabaseSyncService"/>.
@@ -404,16 +458,34 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             return result;
         }
 
+        if (!IsServiceRoleKey(supabaseKey))
+        {
+            result.Success = false;
+            result.Message = ServiceRoleKeyRequiredMessage;
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
+            return result;
+        }
+
         await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Esta tela é exclusiva de usuários. Nunca leia ou envie nebula_files:
-            // mídia, NFO, imagens, fila e cache pertencem ao fluxo do NebulaFTP.
-            var syncedFiles = 0;
-            _logger.LogInformation("[SUPABASE-SYNC] Backup de usuários iniciado; arquivos de mídia ignorados.");
-            progressAction?.Invoke("[SUPABASE-SYNC] Backup de usuários iniciado; mídia ignorada.");
+            // Este é o fluxo do Nebula: MongoDB (arquivos, usuários FTP e tokens).
+            // Usuários do aplicativo ficam exclusivamente na tela Usuários > Backup & Restore.
+            _logger.LogInformation("[SUPABASE-SYNC] Backup do MongoDB iniciado; usuários do aplicativo ignorados.");
+            progressAction?.Invoke("[SUPABASE-SYNC] Backup do MongoDB iniciado; mídia e usuários FTP incluídos.");
 
-            // 2. Sincroniza usuários FTP
+            var remoteCutoff = forceFullSync ? null : await GetLastRemoteFileTimestampAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+            var fileDocs = remoteCutoff.HasValue
+                ? await _mongoContext.GetSyncDeltaAsync(remoteCutoff.Value, cancellationToken).ConfigureAwait(false)
+                : await _mongoContext.GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+            var fileRecords = fileDocs.Select(ConvertBsonDocToSupabaseRecord).ToList();
+            foreach (var batch in fileRecords.Chunk(100))
+            {
+                await SendSupabaseBatchWithRetryAsync(supabaseUrl, supabaseKey, "nebula_files?on_conflict=id", batch, cancellationToken).ConfigureAwait(false);
+            }
+            var syncedFiles = fileRecords.Count;
+
+            // Usuários FTP do MongoDB
             var allUsers = await _mongoContext.GetAllUsersForSyncAsync(cancellationToken).ConfigureAwait(false);
             var syncedUsers = 0;
             if (allUsers.Count > 0)
@@ -441,23 +513,18 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 }
             }
 
-            // 3. Sincroniza usuários do aplicativo MulletaFlix
-            var appUsersBackedUp = await BackupMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
-
-            // 4. O backup é espelho dos usuários atuais: contas removidas pelo
-            // administrador local também devem deixar de existir no Supabase.
+            // O backup é espelho dos usuários FTP atuais. Usuários do app têm outro fluxo.
             var deletedFtpUsers = await RemoveDeletedNebulaUsersAsync(supabaseUrl, supabaseKey, allUsers, cancellationToken).ConfigureAwait(false);
-            var deletedAppUsers = await RemoveDeletedMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
 
             // 5. Registra log na tabela nebula_backups
-            var syncModeName = forceFullSync ? "users_full_sync" : "users_delta_sync";
+            var syncModeName = forceFullSync ? "mongo_full_sync" : "mongo_delta_sync";
             var backupLog = new
             {
                 backup_type = syncModeName,
                 status = "success",
                 total_files = 0,
-                total_users = syncedUsers + appUsersBackedUp,
-                details = $"Backup de usuários concluído com {syncedUsers} usuários FTP e {appUsersBackedUp} usuários do MulletaFlix; {deletedFtpUsers + deletedAppUsers} usuários removidos do backup. Mídia não incluída."
+                total_users = syncedUsers,
+                details = $"Backup do MongoDB concluído com {syncedFiles} arquivos e {syncedUsers} usuários FTP; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
             };
 
             try
@@ -482,9 +549,9 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             _lastSuccessfulBackupTime = DateTime.UtcNow;
             result.Success = true;
             result.FilesBackedUp = syncedFiles;
-            result.UsersBackedUp = syncedUsers + appUsersBackedUp;
+            result.UsersBackedUp = syncedUsers;
             result.ElapsedSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
-            result.Message = $"Backup de usuários concluído! ({syncedUsers + appUsersBackedUp} usuários em {result.ElapsedSeconds:F1}s; mídia não incluída)";
+            result.Message = $"Backup do MongoDB concluído! ({syncedFiles} arquivos e {syncedUsers} usuários FTP em {result.ElapsedSeconds:F1}s; usuários do aplicativo não incluídos)";
             _logger.LogInformation("[SUPABASE-SYNC] {Message}", result.Message);
             progressAction?.Invoke($"[SUPABASE] {result.Message}");
             return result;
@@ -544,6 +611,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         {
             result.Success = false;
             result.Message = "Supabase URL e API Key são obrigatórios.";
+            return result;
+        }
+
+        if (!IsServiceRoleKey(supabaseKey))
+        {
+            result.Success = false;
+            result.Message = ServiceRoleKeyRequiredMessage;
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
             return result;
         }
 
@@ -719,6 +794,103 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         };
     }
 
+    /// <summary>
+    /// Fluxo separado da tela Usuários: somente usuários relacionais do MulletaFlix.
+    /// </summary>
+    public async Task<NebulaSupabaseBackupResultDto> PerformUsersBackupAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new NebulaSupabaseBackupResultDto();
+        var started = DateTime.UtcNow;
+        if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(supabaseKey))
+        {
+            result.Message = "Supabase URL e API Key são obrigatórios.";
+            return result;
+        }
+
+        if (!IsServiceRoleKey(supabaseKey))
+        {
+            result.Message = ServiceRoleKeyRequiredMessage;
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
+            return result;
+        }
+
+        await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            progressAction?.Invoke("[SUPABASE-USERS] Backup de usuários iniciado; MongoDB e mídia ignorados.");
+            var count = await BackupMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+            var removed = await RemoveDeletedMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+            result.Success = true;
+            result.UsersBackedUp = count;
+            result.ElapsedSeconds = (DateTime.UtcNow - started).TotalSeconds;
+            result.Message = $"Backup de usuários concluído! ({count} usuários; {removed} removidos do backup; mídia não incluída)";
+            progressAction?.Invoke($"[SUPABASE-USERS] {result.Message}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.Message = $"Erro: {ex.Message}";
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
+            return result;
+        }
+        finally
+        {
+            _backupGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Fluxo separado da tela Usuários: restaura somente usuários relacionais.
+    /// </summary>
+    public async Task<NebulaSupabaseRestoreResultDto> PerformUsersRestoreAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        Action<string>? progressAction = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new NebulaSupabaseRestoreResultDto();
+        var started = DateTime.UtcNow;
+        if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(supabaseKey))
+        {
+            result.Message = "Supabase URL e API Key são obrigatórios.";
+            return result;
+        }
+
+        if (!IsServiceRoleKey(supabaseKey))
+        {
+            result.Message = ServiceRoleKeyRequiredMessage;
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
+            return result;
+        }
+
+        await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            progressAction?.Invoke("[SUPABASE-USERS] Restauração de usuários iniciada; MongoDB e mídia não serão alterados.");
+            var count = await RestoreMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
+            result.Success = true;
+            result.UsersRestored = count;
+            result.ElapsedSeconds = (DateTime.UtcNow - started).TotalSeconds;
+            result.Message = $"Restauração de usuários concluída! ({count} usuários; mídia não alterada)";
+            progressAction?.Invoke($"[SUPABASE-USERS] {result.Message}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.Message = $"Erro: {ex.Message}";
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
+            return result;
+        }
+        finally
+        {
+            _backupGate.Release();
+        }
+    }
+
     private async Task SendSupabaseBatchWithRetryAsync<T>(
         string supabaseUrl,
         string supabaseKey,
@@ -845,9 +1017,17 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 CreatedAt = user.License.CreatedAt,
                 UpdatedAt = user.License.UpdatedAt
             }
-        }).ToList();
+        })
+        // Supabase has a unique index on normalized_username. Keep one local
+        // record per normalized name before sending the batch.
+        .Where(record => !string.IsNullOrWhiteSpace(record.NormalizedUsername))
+        .GroupBy(record => record.NormalizedUsername, StringComparer.OrdinalIgnoreCase)
+        .Select(group => group.First())
+        .ToList();
 
-        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?on_conflict=id";
+        // Conflict target must match the remote unique index. Using only id
+        // caused HTTP 409 when a stale row kept the same username.
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?on_conflict=normalized_username";
         using var request = new HttpRequestMessage(HttpMethod.Post, uri)
         {
             Content = new StringContent(JsonSerializer.Serialize(records), Encoding.UTF8, "application/json")

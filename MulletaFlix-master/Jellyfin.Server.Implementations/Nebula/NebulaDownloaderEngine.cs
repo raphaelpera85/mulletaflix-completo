@@ -632,38 +632,6 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 return;
             }
 
-            // Move sidecars que estejam na mesma pasta da mídia de origem
-            var parentDir = Path.GetDirectoryName(mediaPath);
-            if (!string.IsNullOrWhiteSpace(parentDir) && Directory.Exists(parentDir) && !isAlreadyInStage)
-            {
-                try
-                {
-                    foreach (var sidecar in Directory.EnumerateFiles(parentDir))
-                    {
-                        var sidecarExt = Path.GetExtension(sidecar);
-                        if (SupportedSidecarExtensions.Contains(sidecarExt))
-                        {
-                            var destSidecar = Path.Combine(targetStageDir, Path.GetFileName(sidecar));
-                            try
-                            {
-                                if (!File.Exists(destSidecar))
-                                {
-                                    File.Move(sidecar, destSidecar, true);
-                                    LogInfo($"Sidecar movido para Stage: {Path.GetFileName(sidecar)}");
-                                }
-                            }
-                            catch (Exception scEx)
-                            {
-                                _logger.LogWarning(scEx, "[NEBULA-DOWNLOADER] Erro ao mover sidecar {Path}", sidecar);
-                            }
-                        }
-                    }
-                }
-                catch (Exception scDirEx)
-                {
-                    _logger.LogWarning(scDirEx, "[NEBULA-DOWNLOADER] Erro ao enumerar sidecars em {Dir}", parentDir);
-                }
-            }
         }
 
         // 4. Registra no MongoDB com status 'queued' e delete_source=true
@@ -680,26 +648,6 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 LogError($"Erro ao enfileirar mídia física {mediaFileName}: {ex.Message}");
                 _failureTracker.RecordFailure(mediaPath, ex.Message);
                 return;
-            }
-
-            // Enfileira sidecars também no MongoDB para que subam juntos
-            if (Directory.Exists(targetStageDir))
-            {
-                try
-                {
-                    foreach (var sidecar in Directory.EnumerateFiles(targetStageDir))
-                    {
-                        var sidecarExt = Path.GetExtension(sidecar);
-                        if (SupportedSidecarExtensions.Contains(sidecarExt))
-                        {
-                            await EnqueueFileInMongoAsync(sidecar, relPath, cancellationToken).ConfigureAwait(false);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "[NEBULA-DOWNLOADER] Erro ao enfileirar sidecars do Stage: {Dir}", targetStageDir);
-                }
             }
 
             // Limpa pastas pai vazias na origem

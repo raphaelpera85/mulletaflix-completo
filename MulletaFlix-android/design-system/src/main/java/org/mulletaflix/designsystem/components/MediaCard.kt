@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.role
@@ -229,7 +230,21 @@ fun MediaCard(
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(6.dp)
+                        // This fallback draws the title inside the artwork area,
+                        // and the card draws it again underneath. Both labels end
+                        // up in the merged node's `Text` property, so an
+                        // accessibility service read the title twice.
+                        //
+                        // `invisibleToUser()` was not enough: it only marks the
+                        // node invisible to services while its text still reaches
+                        // the merged property (measured on device). The fallback is
+                        // purely decorative — the card's own `contentDescription`
+                        // already carries the title and the playback state — so its
+                        // semantics are cleared entirely, which keeps the visible
+                        // drawing identical.
+                        modifier = Modifier
+                            .padding(6.dp)
+                            .clearAndSetSemantics { }
                     ) {
                         val icon = if (isLive) {
                             Icons.Default.LiveTv

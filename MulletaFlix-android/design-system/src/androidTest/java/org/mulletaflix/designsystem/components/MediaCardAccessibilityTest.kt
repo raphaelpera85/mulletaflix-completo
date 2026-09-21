@@ -108,24 +108,19 @@ class MediaCardAccessibilityTest {
     }
 
     /**
-     * Documents a known, accepted duplication.
+     * The broken-artwork fallback draws the title inside the image area, and the
+     * card draws it again underneath. Both labels reach the merged node's `Text`
+     * property, so an accessibility service read the title twice — measured on
+     * the device as `Text = '[Filme único, 4K, Filme único]'`.
      *
-     * When the artwork fails to load, [MediaCard] draws its title inside the
-     * image area and again underneath it. Both labels land in the merged
-     * node's `Text` property, so an accessibility service reads the title
-     * twice — measured on the device as:
-     *
-     *     Text = '[Filme único, 4K, Filme único]'
-     *
-     * `invisibleToUser()` on the fallback column does **not** remove it from
-     * the merged `Text` property, so there is no cheap fix; it was tried and
-     * measured. The card's own `contentDescription` is correct and singular,
-     * which is what the assertions above protect. Removing the repetition
-     * needs a visible design change (stop drawing the title on the fallback
-     * artwork) and is a product decision.
+     * `invisibleToUser()` on the fallback was tried and measured first: it did
+     * **not** remove the text from the merged property, because it only hides a
+     * node from services. Clearing the fallback's semantics does remove it, and
+     * the visible drawing is unchanged — the fallback is decoration, and the
+     * card's own `contentDescription` already carries the title.
      */
     @Test
-    fun mediaCardFallbackRepeatsTheTitleInTheMergedTextProperty() {
+    fun mediaCardAnnouncesItsTitleOnceWhenArtworkFailsToLoad() {
         composeRule.setContent {
             MediaCard(
                 title = "Filme único",
@@ -134,19 +129,29 @@ class MediaCardAccessibilityTest {
             )
         }
 
-        val mergedText = composeRule
+        val node = composeRule
             .onNodeWithContentDescription("Abrir Filme único", substring = true)
             .fetchSemanticsNode()
-            .config
+
+        val mergedText = node.config
             .getOrNull(SemanticsProperties.Text)
             .orEmpty()
             .map { it.text }
 
         assertEquals(
-            "if this now reads 1, the fallback stopped repeating the title and " +
-                "this documentation test can be deleted",
-            2,
+            "the fallback must not repeat the title in the accessibility tree",
+            1,
             mergedText.count { it == "Filme único" },
+        )
+        assertEquals(
+            "the card's own label must still carry the title",
+            1,
+            node.config
+                .getOrNull(SemanticsProperties.ContentDescription)
+                .orEmpty()
+                .single()
+                .windowed("Filme único".length)
+                .count { it == "Filme único" },
         )
     }
 

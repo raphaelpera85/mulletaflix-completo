@@ -50,7 +50,10 @@ import org.mulletaflix.core.common.update.AppUpdateDownloader
 import org.mulletaflix.core.common.update.AppUpdateInstaller
 import org.mulletaflix.core.common.update.DownloadState
 import org.mulletaflix.domain.model.AppUpdateInfo
+import org.mulletaflix.domain.repository.AppThemeSetting
+import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
+import org.mulletaflix.feature.settings.toThemeVariant
 
 /**
  * Single-Activity entry point for the MulletaFlix Android app.
@@ -68,6 +71,7 @@ class MainActivity : ComponentActivity() {
     private var deepLinkSequence = 0L
 
     @Inject lateinit var sessionRepository: SessionRepository
+    @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var lanServerRecovery: LanServerRecovery
     @Inject lateinit var checkAppUpdateUseCase: CheckAppUpdateUseCase
     @Inject lateinit var appUpdateDownloader: AppUpdateDownloader
@@ -128,7 +132,13 @@ class MainActivity : ComponentActivity() {
                 LocalMulletaFlixAccessToken provides accessToken,
                 LocalMulletaFlixServerId provides serverId,
             ) {
-                MulletaFlixTheme {
+                // The theme is read here, at the root, so the choice made in
+                // Settings actually paints the app. It used to be saved and
+                // displayed but never applied, because this call omitted the
+                // variant and therefore always used the Dark default.
+                val theme by settingsRepository.getTheme()
+                    .collectAsStateWithLifecycle(initialValue = AppThemeSetting.Dark)
+                MulletaFlixTheme(variant = theme.toThemeVariant()) {
                     if (!sessionResolved) {
                         Box(
                             modifier = Modifier.fillMaxSize().background(Color.Black),

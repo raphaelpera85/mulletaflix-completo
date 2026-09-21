@@ -67,3 +67,22 @@ class ClientIdentityInterceptor @Inject constructor(
         return chain.proceed(request)
     }
 }
+
+/**
+ * Builds the OkHttp client used to fetch artwork.
+ *
+ * Kept next to the interceptors instead of inline in the Application so its
+ * contract is unit-testable: every artwork request must reach the server with
+ * the same `Authorization` and `User-Agent` as an API call, otherwise the server
+ * sees the cover grid as anonymous traffic and throttles it to 30 requests per
+ * 10 s per IP.
+ */
+fun buildAuthenticatedImageClient(
+    serverUrlInterceptor: Interceptor,
+    clientIdentityInterceptor: Interceptor,
+): okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
+    .addInterceptor(serverUrlInterceptor)
+    .addInterceptor(clientIdentityInterceptor)
+    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+    .build()

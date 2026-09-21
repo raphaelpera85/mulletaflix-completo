@@ -91,7 +91,11 @@ class SessionRepositoryImpl @Inject constructor(
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SERVER_URL] = serverUrl.trimEnd('/')
             preferences[PreferencesKeys.ACCESS_TOKEN] = token
-            preferences[PreferencesKeys.USER_ID] = userId
+            // Normalized on write as well as on read. This id is embedded in the
+            // Media3 download request id (`<userId>::<itemId>`), and the reader
+            // trims before stripping that prefix, so storing a padded value would
+            // make the two sides disagree and leak the scoped id as a media id.
+            preferences[PreferencesKeys.USER_ID] = userId.trim()
             if (!userName.isNullOrBlank()) {
                 preferences[PreferencesKeys.USER_NAME] = userName
             } else {

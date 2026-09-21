@@ -179,14 +179,33 @@ class Media3DownloadRepository @Inject constructor(
         return try {
             buildList {
                 while (cursor.moveToNext()) {
-                cursor.download.takeIf { belongsToCurrentUser(it.request.id) }?.let { add(it.toEntry()) }
+                    val download = cursor.download
+                    val requestId = download.request.id
+                    val owner = metadata.getString("owner:$requestId", null)
+                    // Entries from releases that predate per-account scoping are
+                    // adopted by the signed-in account the first time they are
+                    // seen. Without this they stay filtered out forever: never
+                    // listed, never removable, never reclaimed by "clear".
+                    if (isLegacyUnscopedDownload(requestId, owner)) {
+                        metadata.edit()
+                            .putString("owner:$requestId", currentUserId.orEmpty())
+                            .putString("item:$requestId", requestId)
+                            .apply()
+                        // Resolve the id explicitly: `toEntry` reads the keys
+                        // written above, and depending on when the SharedPreferences
+                        // edit becomes visible would make this entry's id racy.
+                        add(download.toEntry(itemIdOverride = requestId))
+                    } else if (belongsToCurrentUser(requestId)) {
+                        add(download.toEntry())
+                    }
                 }
             }.sortedBy { it.title.lowercase() }
         } finally { cursor.close() }
     }
 
-    private fun Download.toEntry() = DownloadEntry(
-        id = metadata.getString("item:${request.id}", null)
+    private fun Download.toEntry(itemIdOverride: String? = null) = DownloadEntry(
+        id = itemIdOverride
+            ?: metadata.getString("item:${request.id}", null)
             ?: publicDownloadItemId(request.id, currentUserId.orEmpty()),
         title = titles[request.id] ?: metadata.getString("title:${request.id}", request.id).orEmpty(),
         imageUrl = metadata.getString("image:${request.id}", null),

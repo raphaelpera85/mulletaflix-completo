@@ -707,58 +707,17 @@ private fun PlayerOsd(
         }
 
         // ── Center controls ──────────────────────────────────────────────────
-        Row(
+        PlayerTransportControls(
             modifier = Modifier.align(Alignment.Center),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { onSeekBy(-10_000L) }, modifier = Modifier.size(44.dp)) {
-                Icon(
-                    Icons.Default.Replay10,
-                    contentDescription = "Voltar 10 segundos",
-                    tint = Color.White,
-                    modifier = Modifier.size(34.dp),
-                )
-            }
-            if (state.chapters.isNotEmpty()) {
-                IconButton(onClick = onPreviousChapter, modifier = Modifier.size(44.dp)) {
-                    Icon(Icons.Default.FastRewind, contentDescription = "Capítulo Anterior", tint = Color.White, modifier = Modifier.size(30.dp))
-                }
-            }
-            IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.SkipPrevious, contentDescription = "Anterior", tint = Color.White, modifier = Modifier.size(36.dp))
-            }
-            // Play / Pause
-            IconButton(
-                onClick = onPlayPause,
-                modifier = Modifier
-                    .size(72.dp)
-                    .background(Color.White.copy(alpha = 0.2f), shape = androidx.compose.foundation.shape.CircleShape)
-            ) {
-                Icon(
-                    if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (state.isPlaying) "Pausar" else "Reproduzir",
-                    tint = Color.White,
-                    modifier = Modifier.size(48.dp)
-                )
-            }
-            IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.SkipNext, contentDescription = "Próximo", tint = Color.White, modifier = Modifier.size(36.dp))
-            }
-            if (state.chapters.isNotEmpty()) {
-                IconButton(onClick = onNextChapter, modifier = Modifier.size(44.dp)) {
-                    Icon(Icons.Default.FastForward, contentDescription = "Próximo Capítulo", tint = Color.White, modifier = Modifier.size(30.dp))
-                }
-            }
-            IconButton(onClick = { onSeekBy(10_000L) }, modifier = Modifier.size(44.dp)) {
-                Icon(
-                    Icons.Default.Forward10,
-                    contentDescription = "Avançar 10 segundos",
-                    tint = Color.White,
-                    modifier = Modifier.size(34.dp),
-                )
-            }
-        }
+            isPlaying = state.isPlaying,
+            hasChapters = state.chapters.isNotEmpty(),
+            onSeekBy = onSeekBy,
+            onPrevious = onPrevious,
+            onPlayPause = onPlayPause,
+            onNext = onNext,
+            onPreviousChapter = onPreviousChapter,
+            onNextChapter = onNextChapter,
+        )
 
         // ── Bottom seek bar + time ────────────────────────────────────────────
         Column(
@@ -879,6 +838,91 @@ private fun PlayerOsd(
                 onCopy = onCopyStats,
                 onShare = onShareStats,
                 onDismiss = { showStatsDialog = false }
+            )
+        }
+    }
+}
+
+/**
+ * Center transport controls of the player OSD.
+ *
+ * The controls deliberately carry **no** explicit `.size(...)`, so the tappable
+ * area comes from Material 3's `minimumInteractiveComponentSize()` and only the
+ * icon glyph is sized.
+ *
+ * A measured note, because it was investigated and the first assumption was
+ * wrong: an explicit `.size(44.dp)` on an `IconButton` does **not** shrink the
+ * touch target below 48 dp — Material still supplies the minimum. Verified on
+ * the Android TV AVD during the v1.2.45 round by rendering the control with
+ * `size(44.dp)` and with `size(30.dp)`: neither dropped the tappable bounds
+ * under 48 dp. So there was no touch-target defect here to fix, and no test was
+ * kept for it — a test that passes with and without the change proves nothing.
+ * What remains valuable is the extraction itself: these controls are now a
+ * standalone `internal` composable instead of being buried in the ~350-line
+ * `PlayerOsd`, so they can be exercised directly in the future.
+ */
+@Composable
+internal fun PlayerTransportControls(
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = false,
+    hasChapters: Boolean = false,
+    onSeekBy: (Long) -> Unit = {},
+    onPrevious: () -> Unit = {},
+    onPlayPause: () -> Unit = {},
+    onNext: () -> Unit = {},
+    onPreviousChapter: () -> Unit = {},
+    onNextChapter: () -> Unit = {},
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = { onSeekBy(-10_000L) }) {
+            Icon(
+                Icons.Default.Replay10,
+                contentDescription = "Voltar 10 segundos",
+                tint = Color.White,
+                modifier = Modifier.size(34.dp),
+            )
+        }
+        if (hasChapters) {
+            IconButton(onClick = onPreviousChapter) {
+                Icon(Icons.Default.FastRewind, contentDescription = "Capítulo Anterior", tint = Color.White, modifier = Modifier.size(30.dp))
+            }
+        }
+        IconButton(onClick = onPrevious) {
+            Icon(Icons.Default.SkipPrevious, contentDescription = "Anterior", tint = Color.White, modifier = Modifier.size(36.dp))
+        }
+        // Play / Pause keeps its larger visual circle without capping the
+        // tappable area.
+        IconButton(
+            onClick = onPlayPause,
+            modifier = Modifier
+                .size(72.dp)
+                .background(Color.White.copy(alpha = 0.2f), shape = androidx.compose.foundation.shape.CircleShape)
+        ) {
+            Icon(
+                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (isPlaying) "Pausar" else "Reproduzir",
+                tint = Color.White,
+                modifier = Modifier.size(48.dp)
+            )
+        }
+        IconButton(onClick = onNext) {
+            Icon(Icons.Default.SkipNext, contentDescription = "Próximo", tint = Color.White, modifier = Modifier.size(36.dp))
+        }
+        if (hasChapters) {
+            IconButton(onClick = onNextChapter) {
+                Icon(Icons.Default.FastForward, contentDescription = "Próximo Capítulo", tint = Color.White, modifier = Modifier.size(30.dp))
+            }
+        }
+        IconButton(onClick = { onSeekBy(10_000L) }) {
+            Icon(
+                Icons.Default.Forward10,
+                contentDescription = "Avançar 10 segundos",
+                tint = Color.White,
+                modifier = Modifier.size(34.dp),
             )
         }
     }

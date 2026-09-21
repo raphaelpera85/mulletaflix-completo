@@ -8,9 +8,9 @@ import coil.memory.MemoryCache
 import com.google.android.gms.cast.framework.CastContext
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
-import okhttp3.OkHttpClient
 import org.mulletaflix.core.api.ClientIdentityInterceptor
-import org.mulletaflix.core.api.di.ServerUrlInterceptor
+import org.mulletaflix.core.api.buildAuthenticatedImageClient
+import org.mulletaflix.core.api.ServerUrlInterceptor
 
 /**
  * Application entry point for MulletaFlix Android.
@@ -42,10 +42,12 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .okHttpClient(
-            OkHttpClient.Builder()
-                .addInterceptor(serverUrlInterceptor)
-                .addInterceptor(clientIdentityInterceptor)
-                .build(),
+            // Same session interceptors as the API client, so artwork is
+            // authenticated and identified instead of looking anonymous.
+            buildAuthenticatedImageClient(
+                serverUrlInterceptor = serverUrlInterceptor,
+                clientIdentityInterceptor = clientIdentityInterceptor,
+            ),
         )
         .memoryCache {
             MemoryCache.Builder(this)

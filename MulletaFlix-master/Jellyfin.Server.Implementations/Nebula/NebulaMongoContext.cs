@@ -195,8 +195,30 @@ public sealed class NebulaMongoContext : IDisposable
         }
 
         await CleanupStrmRootDirectoryAsync(cancellationToken).ConfigureAwait(false);
+        await RemoveProtectedContentAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("[NEBULA-MONGO] Índices do MongoDB verificados com sucesso.");
+    }
+
+    /// <summary>
+    /// Remove do catálogo remoto registros de NFO, imagens e legendas.
+    /// Esses arquivos permanecem no armazenamento local do servidor e não
+    /// participam do catálogo montado nem da fila do Telegram.
+    /// </summary>
+    public async Task<long> RemoveProtectedContentAsync(CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<BsonDocument>.Filter.Or(
+            Builders<BsonDocument>.Filter.Regex("name", NebulaProtectedContent.NameExpression),
+            Builders<BsonDocument>.Filter.Regex("local_path", NebulaProtectedContent.NameExpression));
+        var result = await _filesCollection.DeleteManyAsync(filter, cancellationToken).ConfigureAwait(false);
+        if (result.DeletedCount > 0)
+        {
+            _logger.LogInformation(
+                "[NEBULA-MONGO] {Count} registros de NFO, imagens e legendas removidos do catálogo montado.",
+                result.DeletedCount);
+        }
+
+        return result.DeletedCount;
     }
 
     /// <summary>
@@ -786,7 +808,8 @@ public sealed class NebulaMongoContext : IDisposable
     {
         var filter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Ne("type", "dir"),
-            Builders<BsonDocument>.Filter.Eq("status", "completed"));
+            Builders<BsonDocument>.Filter.Eq("status", "completed"),
+            NebulaProtectedContent.NotProtected());
 
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -803,7 +826,8 @@ public sealed class NebulaMongoContext : IDisposable
             Builders<BsonDocument>.Filter.Ne("type", "dir"),
             Builders<BsonDocument>.Filter.In(
                 "status",
-                new[] { "completed", "staging", "queued", "uploading" }));
+                new[] { "completed", "staging", "queued", "uploading" }),
+            NebulaProtectedContent.NotProtected());
 
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -884,7 +908,7 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     public async Task<List<BsonDocument>> GetAllFilesForSyncAsync(CancellationToken cancellationToken = default)
     {
-        using var cursor = await _filesCollection.FindAsync(Builders<BsonDocument>.Filter.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
+        using var cursor = await _filesCollection.FindAsync(NebulaProtectedContent.NotProtected(), cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -906,6 +930,7 @@ public sealed class NebulaMongoContext : IDisposable
             Builders<BsonDocument>.Filter.Gte("uploaded_at", sinceEpoch),
             Builders<BsonDocument>.Filter.Gte("_id", minOid),
             Builders<BsonDocument>.Filter.In("status", NotUploadedStatuses));
+        filter = Builders<BsonDocument>.Filter.And(filter, NebulaProtectedContent.NotProtected());
 
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);

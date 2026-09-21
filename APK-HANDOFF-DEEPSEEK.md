@@ -50,19 +50,286 @@ Fable: intenção/aceite
 
 ## Estado confirmado
 
-- Versão atual do APK: **1.2.43**.
-- `versionCode`: **244**.
-- Última release: [app-v1.2.43](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.43) (ID 393107153).
-- APK: [mulletaflix-app-v1.2.43.apk](https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.2.43/mulletaflix-app-v1.2.43.apk).
+- Versão atual do APK: **1.2.47**.
+- `versionCode`: **248**.
+- Última release: [app-v1.2.47](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.47) (ID 393201907).
+- APK: [mulletaflix-app-v1.2.47.apk](https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.2.47/mulletaflix-app-v1.2.47.apk).
 - Tamanho confirmado local/remoto: **7.324.749 bytes**.
-- SHA-256 confirmado local/remoto: `B2264737FC9B6C2BFC11C0B041CDCC4DAC0E4C9D7A1866015730C2B2C85752A1`.
-- Release anterior conferida antes do pacote: [app-v1.2.42](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.42) — 7.324.745 bytes, `sha256:fb5e323b82249dd9673df18501f7ddd5e38c0fe5e703b36b07fe543e8666c268`.
-- Quality Bar desta rodada: **582 testes unitários, 0 falhas**; **43 testes instrumentados** na AVD `MulletaflixTvApi34` (9 no design-system + 34 nos demais módulos), 0 falhas; `:app:lintDebug` código 0; `:app:assembleRelease` código 0.
-- O APK final foi instalado (`Success`) e conferido no dispositivo como `versionCode=244 / versionName=1.2.43`.
+- SHA-256 confirmado local/remoto: `855749A2276B1F89522F9CE4B395625F160C6E7C63532B01BC764621BBAA431B`.
+- Release anterior conferida antes do pacote: [app-v1.2.46](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.46) — 7.324.749 bytes, `sha256:d6bb5dc636b1364634f8f58dc7ee927ffbbb642c056019d0a3c840fbe25c55c7`.
+- Quality Bar desta rodada: **593 testes unitários, 0 falhas**; **45 testes instrumentados** na AVD `MulletaflixTvApi34`, 0 falhas; `:app:lintDebug` código 0; `:app:assembleRelease` código 0; conferida por `aapt2` como `versionCode=248 / versionName=1.2.47`.
 - Nenhum emulador permaneceu aberto (`emulator=0`, `qemu=0`).
+- **A API do GitHub limita requisições anônimas.** Na rodada 9 a verificação do digest remoto falhou com `API rate limit exceeded` até usar o token do Git Credential Manager. Para conferir o artefato remoto, sempre autenticar a chamada (o `publish-app-release.ps1` já faz isso).
+- **O servidor MulletaFlix voltou ao ar na rodada 7** (`127.0.0.1:8096` → 200 e DuckDNS → 200). A confirmação do 429 nas capas continua pendente: o servidor não expõe usuários públicos (`/Users/Public` responde `[]`) e não há conta sem senha, então não é possível autenticar sem a credencial do usuário.
+
+> Diagnóstico do 429 — evidência indireta que ficou mais forte (rodada 7): no log do
+> servidor, **todos** os avisos `Rate limit exceeded for anonymous requests` de
+> `192.168.15.10` se concentram em duas janelas (13:12–13:13 e 13:19:37–13:19:38) e
+> **nenhum** aparece depois das 13:20, apesar de o servidor seguir ativo às 15:14.
+> Isso é consistente com a correção de identidade, mas **não a prova**: o app pode
+> simplesmente não ter aberto a biblioteca nesse intervalo, e a versão instalada
+> durante aquelas janelas era a v1.2.44 ou anterior. Confirmar com uma sessão real.
+>
+> Um dado que reforça o diagnóstico: os avisos apareciam enquanto o *catálogo*
+> carregava normalmente. Como o `RateLimitMiddleware` só conta requisições com
+> `IsAuthenticated == false`, as chamadas de API (que já mandavam o cabeçalho)
+> passavam e **só as capas** eram contadas como anônimas — exatamente o que a
+> correção da v1.2.44 endereça.
 
 > Histórico: a v1.2.40 foi a última release antes desta rodada e foi instalada no
 > Android TV com `Success`.
+
+## Rodada v1.2.47 — deep link verificado no aparelho e consistência do escopo de downloads
+
+### Deep link verificado nos três caminhos (rodada 9)
+
+Os caminhos de deep link foram exercitados no APK de release instalado na Android
+TV, com os dados do app limpos:
+
+| Caminho | Comando | Resultado |
+|---|---|---|
+| App fechado (cold start) | `mulletaflix://details?id=movie-123` | MainActivity iniciada, sem crash |
+| App aberto (`onNewIntent`) | `mulletaflix://details?id=movie-456` | Intent entregue à instância ativa, sem crash |
+| Link oficial do servidor | `http://mulletaflix.duckdns.org:8096/web/#/details?id=movie-789&serverId=srv-1` | Aceito pelo filtro do manifesto, sem crash |
+
+O logcat confirmou `START ... cmp=org.mulletaflix.android/.MainActivity` e o
+processo permaneceu vivo nos três casos. **O que isso não prova**: que a tela de
+detalhe abre com o item certo. Sem sessão autenticada o app para no login, e a
+navegação até o detalhe depende de estar logado. A navegação em si está coberta
+pelos testes unitários de `MediaDeepLink` e `DeepLinkNavigationPolicy`.
+
+### Consistência do escopo de downloads (rodada 9)
+
+O id de requisição do Media3 é montado como `<conta>::<mídia>`.
+`scopedDownloadRequestId` normalizava a conta com `trim()`, mas
+`publicDownloadItemId` removia o prefixo **sem** normalizar. Com uma conta
+contendo espaços, o prefixo ficaria no lugar e o método devolveria o id completo
+como se fosse o id da mídia — falha silenciosa em vez de erro visível.
+
+Corrigido dos dois lados, e `saveSession` passa a gravar o id da conta já
+normalizado. O teste `the scope contract trims the account id on both sides`
+reprova com o código antigo (`expected:<[]movie-1> but was:<[user-1::]movie-1>`).
+
+**Classificação honesta:** é endurecimento defensivo, não um bug observado. O id
+da conta vem do servidor como GUID, então o caso com espaços provavelmente não
+ocorre na prática — a inconsistência era real no contrato, mas eu não a vi
+disparar. Registro assim para não inflar a correção.
+
+### Armadilha: a API do GitHub limita requisições anônimas
+
+A verificação do digest remoto falhou com `API rate limit exceeded` até a chamada
+usar o token do Git Credential Manager. Vale para qualquer script que consulte o
+GitHub: autenticar sempre.
+
+## Rodada v1.2.46 — título duplicado no leitor de tela, e duas verificações sem defeito
+
+### Verificação do APK de release em execução (rodada 8)
+
+O APK v1.2.46 foi instalado na AVD `MulletaflixTvApi34` **junto com o pacote
+release** (não o debug) e executado. Isso importa porque as mudanças recentes
+tocaram a classe `Application` e adicionaram Coil ao caminho de imagens — o R8
+roda no release e poderia ter quebrado algo que o build de debug esconde.
+
+- App subiu e permaneceu em execução (`pidof` retornou processo vivo).
+- **Nenhum crash** no logcat (`FATAL EXCEPTION` ausente).
+- Tela de login renderizada corretamente (ver `artifacts/v1.2.46-release-run.png`).
+
+### A URL `127.0.0.1` na primeira execução era estado antigo, não bug
+
+Na primeira execução o app mostrou `http://127.0.0.1:8096` em vez do padrão
+DuckDNS. Investiguei antes de tratar como defeito:
+
+- Não existe `127.0.0.1` como URL padrão em nenhum ponto do código de produção
+  (só nas listas de loopback para classificação de host).
+- Limpando os dados do app (`pm clear`) e abrindo de novo, a tela mostrou
+  `http://mulletaflix.duckdns.org:8096`, o padrão correto
+  (`artifacts/v1.2.46-fresh-install.png`).
+
+Conclusão: era estado persistido de sessões anteriores, não um bug. **Não
+consegui determinar qual caminho gravou esse valor** — registro isso como
+incerteza em vez de inventar uma explicação. O comportamento em instalação limpa
+está correto.
+
+### O guarda de diagnóstico de imagem funciona no release
+
+O rótulo `MulletaFlixImage` **sobrevive ao R8** (está no `classes.dex` do APK de
+release), porque o app não é minificado a ponto de removê-lo. Isso levantou a
+dúvida legítima: o log de URL de imagem poderia escapar em produção?
+
+Medido no APK de release instalado:
+
+- `run-as` responde `package not debuggable` e `dumpsys` mostra `flags=0x0`
+  (sem `DEBUGGABLE`) — o APK é uma release de verdade.
+- Com o app iniciado, **0 linhas** com `MulletaFlixImage` no logcat.
+
+O guarda por `ApplicationInfo.FLAG_DEBUGGABLE` está correto. O custo é o rótulo
+permanecer no binário; a alternativa (propagar `BuildConfig.DEBUG` para o
+design-system) foi considerada e não vale a mudança agora, já que o
+comportamento está medido.
+
+### Auditoria do player (rodada 7): sem defeito de rótulo
+
+Antes de mexer, auditei os rótulos das ações do player, porque há 39 `Icon(...)`
+com `contentDescription = null` espalhados pelas telas e o risco real seria um
+`IconButton` sem rótulo (anunciado apenas como "botão").
+
+Resultado da auditoria: **as ações do player estão todas rotuladas** —
+"Proporção", "Áudio", "Legendas", "Qualidade", "Velocidade", "Estatísticas",
+"Bloquear/Desbloquear controles", "Voltar", além dos controles de transporte.
+Os `contentDescription = null` são de ícones **decorativos** (leading icons de
+campo, ícones dentro de linhas já rotuladas), que é o uso correto.
+
+Nada foi alterado aqui, e nenhum teste foi mantido: cheguei a escrever um teste
+de auditoria, mas ele usava um composable "sonda" próprio e passava sempre — um
+teste que não olha o código real não é evidência, então foi removido.
+
+**Fica como pendência verificável**: as telas fora do player (Home, Biblioteca,
+Downloads, Live TV, Perfil) ainda não tiveram os rótulos auditados deste jeito.
+O caminho honesto é inspecionar a árvore de semântica de cada tela com o app
+autenticado, não presumir a partir de `grep`.
+
+### O defeito corrigido
+
+### O defeito e o que o resolveu
+
+Na rodada v1.2.43 eu tinha deixado isto documentado como "aceito, precisa de
+decisão de produto". Não precisava: existe correção sem mudar nada do que é
+desenhado.
+
+Quando a capa falha ao carregar, o `MediaCard` desenha o título dentro da área da
+arte e de novo embaixo. Os dois textos chegam à propriedade `Text` do nó
+mesclado, então o leitor de tela lia o título duas vezes. Medido no aparelho:
+
+```
+ContentDescription = '[Abrir Filme único, assistido, na Minha Lista, 4K]'
+Text = '[Filme único, 4K, Filme único]'
+```
+
+- `invisibleToUser()` no fallback: **tentado e medido** — não resolve, porque só
+  esconde o nó dos serviços, sem remover o texto do nó mesclado.
+- `clearAndSetSemantics { }` no fallback: **resolve**. A semântica do bloco é
+  limpa por completo e o desenho visível continua idêntico.
+
+O fallback é puramente decorativo: a `contentDescription` do cartão já leva o
+título e o estado de reprodução. O teste
+`mediaCardAnnouncesItsTitleOnceWhenArtworkFailsToLoad` reprova se a duplicação
+voltar — verificado revertendo para `invisibleToUser()`, quando ele falha.
+
+### Lição repetida nesta rodada
+
+Duas vezes seguidas o caminho foi: hipótese razoável → medir → hipótese errada.
+Em v1.2.43 foi a área de toque do player (não havia defeito); aqui foi o
+`invisibleToUser`, que parecia resolver mas não removia o texto. Medir antes de
+declarar continua sendo o que separa correção de suposição.
+
+## Rodada v1.2.45 — contrato do cliente de capas e uma hipótese refutada
+
+### Investigação registrada: área de toque do player NÃO era defeito
+
+Ainda sobre tamanhos de toque (item P1 do backlog), investiguei os controles
+centrais do player, que tinham `.size(44.dp)` e `.size(40.dp)` explícitos em
+`IconButton`. A hipótese era que isso reduziria a área tocável abaixo dos 48 dp
+exigidos. **Medido no AVD, a hipótese estava errada:** um `IconButton` com
+`.size(44.dp)` — e até com `.size(30.dp)` — continua recebendo o
+`minimumInteractiveComponentSize()` do Material 3, e a área de toque **não** cai
+abaixo de 48 dp.
+
+Consequência prática registrada para não repetir o trabalho:
+
+- Não havia defeito de tamanho de toque nesses botões, e **nenhum teste foi
+  mantido** para isso. Cheguei a escrever um, mas ele passava com e sem a
+  mudança — um teste que não distingue não é evidência, então foi removido em vez
+  de ficar no repositório dando falsa segurança.
+- O que ficou de útil é a extração: os controles centrais saíram de dentro do
+  `PlayerOsd` (função de ~350 linhas) para o composable `internal`
+  `PlayerTransportControls`, com o mesmo código. Agora podem ser exercitados
+  diretamente no futuro.
+- Fica o alerta de método: antes de afirmar um defeito de acessibilidade, medir
+  o comportamento real do framework. Nesta rodada a suposição custou mais que a
+  medição.
+
+### O que falta confirmar (honestamente)
+
+O diagnóstico em logcat não produziu nenhuma linha porque o emulador está sem
+sessão autenticada — a tela de login não carrega capas. Portanto:
+
+- **Não está confirmado** que o 429 desapareceu; isso exige entrar com uma conta
+  real e observar o log do servidor.
+- O `api_key` na URL das capas continua existindo e é uma segunda via de
+  autenticação. Como não consegui medir o que o servidor recebia antes, não
+  afirmo que o 429 vinha do `api_key`; afirmo que as capas agora carregam a
+  identidade do cliente, que era o que faltava para o servidor nomear o app.
+
+### v1.2.45 — o contrato do cliente de capas virou teste
+
+O que dava para verificar sem sessão foi verificado: o cliente entregue ao Coil
+foi extraído para `buildAuthenticatedImageClient(...)` em `core:api`, e
+`ArtworkClientIdentityTest` faz uma **requisição HTTP real** (MockWebServer) por
+esse mesmo cliente e afirma o que o servidor receberia:
+
+- `Authorization` com `Client`, `Device`, `DeviceId` e `Token`;
+- `User-Agent: MulletaFlix-Android/<versão>`;
+- **um único valor** de `Authorization` mesmo se o interceptor rodar duas vezes
+  — reintroduzindo `addHeader`, o teste falha com `expected:<1> but was:<2>`,
+  então a regressão do cabeçalho duplicado não passa despercebida;
+- sessão encerrada continua identificando o cliente e **não** envia token.
+
+O que continua sem verificação é apenas o comportamento do servidor real com uma
+conta logada (o 429).
+
+### Como confirmar na próxima sessão
+
+1. Instalar a v1.2.45 e entrar com uma conta real.
+2. Abrir Home e Biblioteca com uma biblioteca grande.
+3. Observar o log do servidor (`%LOCALAPPDATA%\MulletaFlix\log\log_<data>.log`):
+   não deve mais aparecer `Rate limit exceeded for anonymous requests` para o IP
+   do dispositivo.
+4. Se ainda aparecer, capturar em logcat com
+   `adb logcat -s MulletaFlixImage` — a build de debug registra a URL de cada
+   capa com o token **redigido**, o que mostra se o `api_key` está presente e
+   qual host está sendo usado.
+
+## Rodada v1.2.44 — capas lentas e servidor vendo o app como anônimo
+
+### Relato do usuário
+
+Com o APK atualizado, as capas demoram muito para carregar, e o log do servidor
+mostra repetidamente:
+
+```
+Rate limit exceeded for anonymous requests from IP 192.168.15.10
+```
+
+Ou seja: o servidor **não identifica o app nem o dispositivo** nessas requisições.
+
+### Causa encontrada no código
+
+1. O `AuthInterceptor` do app autenticava as chamadas de **API** com
+   `Authorization: MediaBrowser Token=...`, mas **as imagens não passam por ele**.
+2. As capas são carregadas pelo **Coil**, que usava o próprio cliente OkHttp
+   interno. A única autenticação que sobrava era o `?api_key=<token>` que
+   `resolveMediaUrl` acrescenta à URL.
+3. Como as capas iam para o servidor sem a identidade do cliente, o
+   `RateLimitMiddleware` as contava como **anônimas** (30 requisições / 10 s por
+   IP). Uma grade de capas estoura esse limite com facilidade, recebe HTTP 429 e
+   as capas carregam devagar — exatamente o sintoma relatado.
+4. Bug adicional encontrado: o `AuthInterceptor` usava `addHeader`, que
+   **acrescenta** um segundo valor em vez de substituir. Um retry que reentrasse
+   no interceptor poderia enviar o cabeçalho duplicado.
+
+### Correção aplicada
+
+- Novo `ClientIdentityInterceptor` (`core:api`) envia em toda requisição o
+  `Authorization: MediaBrowser Token=..., Client=..., Device=..., DeviceId=...,
+  Version=...` **e** um `User-Agent: MulletaFlix-Android/<versão>`, usando
+  `header()` para nunca duplicar valores. Ele substitui o `AuthInterceptor`
+  antigo, que foi removido.
+- `MulletaFlixApp` agora implementa `ImageLoaderFactory` e entrega ao Coil um
+  `OkHttpClient` com os mesmos interceptores de sessão, então **as capas passam a
+  ser autenticadas e identificadas** como o resto do app.
+- Diagnóstico temporário de URLs de imagem com token **redigido**
+  (`redactToken`, testes incluídos), útil para confirmar o que é pedido sem
+  vazar segredo.
 
 ## Rodada v1.2.43 — acessibilidade do cartão de mídia e reconhecimento do que NÃO foi corrigido
 

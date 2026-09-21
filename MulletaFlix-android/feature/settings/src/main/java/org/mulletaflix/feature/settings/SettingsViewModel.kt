@@ -104,17 +104,9 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsRepository.getTheme().collect { domainTheme ->
-                val variant = when (domainTheme) {
-                    AppThemeSetting.Dark -> MulletaFlixThemeVariant.Dark
-                    AppThemeSetting.Light -> MulletaFlixThemeVariant.Light
-                    AppThemeSetting.Netflix -> MulletaFlixThemeVariant.Netflix
-                    AppThemeSetting.PurpleHaze -> MulletaFlixThemeVariant.PurpleHaze
-                    AppThemeSetting.BlueRadiance -> MulletaFlixThemeVariant.BlueRadiance
-                    AppThemeSetting.Wmc -> MulletaFlixThemeVariant.WMC
-                    AppThemeSetting.AppleTv -> MulletaFlixThemeVariant.AppleTV
-                    AppThemeSetting.DynamicColor -> MulletaFlixThemeVariant.System
-                }
-                _state.update { it.copy(theme = variant) }
+                // Shared with the app root, which owns the actual theming. A
+                // private copy here is how the two drifted apart before.
+                _state.update { it.copy(theme = domainTheme.toThemeVariant()) }
             }
         }
         viewModelScope.launch {
@@ -194,17 +186,7 @@ class SettingsViewModel @Inject constructor(
     fun setTheme(theme: MulletaFlixThemeVariant) {
         _state.update { it.copy(theme = theme) }
         viewModelScope.launch {
-            val domainTheme = when (theme) {
-                MulletaFlixThemeVariant.System -> AppThemeSetting.DynamicColor
-                MulletaFlixThemeVariant.Dark -> AppThemeSetting.Dark
-                MulletaFlixThemeVariant.Light -> AppThemeSetting.Light
-                MulletaFlixThemeVariant.Netflix -> AppThemeSetting.Netflix
-                MulletaFlixThemeVariant.PurpleHaze -> AppThemeSetting.PurpleHaze
-                MulletaFlixThemeVariant.BlueRadiance -> AppThemeSetting.BlueRadiance
-                MulletaFlixThemeVariant.WMC -> AppThemeSetting.Wmc
-                MulletaFlixThemeVariant.AppleTV -> AppThemeSetting.AppleTv
-            }
-            settingsRepository.setTheme(domainTheme)
+            settingsRepository.setTheme(theme.toAppThemeSetting())
         }
     }
 

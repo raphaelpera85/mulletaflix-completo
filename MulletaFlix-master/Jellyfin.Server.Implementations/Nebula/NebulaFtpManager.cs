@@ -972,7 +972,17 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         if (!await _envioLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
             AddServerLog("[NEBULA] Inicialização do Envio já está em andamento. Aguarde a autenticação dos bots...");
-            return true;
+            // Never report success while another startup still owns the lock.
+            // Mount/watchdog callers must wait for the real FTP startup result.
+            await _envioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return _isEnvioRunning && _ftpServerHost?.IsRunning == true;
+            }
+            finally
+            {
+                _envioLock.Release();
+            }
         }
 
         var createdMongoContext = false;
@@ -1357,7 +1367,16 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         if (!await _downloaderLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
             AddDownloaderLog("[NEBULA] Inicialização do Downloader já está em andamento.");
-            return true;
+            // Do not claim success before the existing startup has finished.
+            await _downloaderLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return _isDownloaderRunning && _downloaderEngine?.IsRunning == true;
+            }
+            finally
+            {
+                _downloaderLock.Release();
+            }
         }
 
         NebulaFtpConfiguration config;
@@ -1385,22 +1404,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         // StartEnvioAsync and StartDownloaderAsync share the Mongo context and
         // Telegram pool. Serialize their startup paths so both cannot create
         // duplicate shared resources at the same time.
-        bool runtimeLockAcquired;
         try
         {
-            runtimeLockAcquired = _envioLock.Wait(0, cancellationToken);
+            await _envioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
             _downloaderLock.Release();
             throw;
-        }
-
-        if (!runtimeLockAcquired)
-        {
-            _downloaderLock.Release();
-            AddDownloaderLog("[NEBULA] Inicialização do Envio já está em andamento. Aguarde e tente o Downloader novamente.");
-            return true;
         }
 
         try
@@ -1764,7 +1775,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
                 // Watchdog: Auto-monta N: apenas se UseMappedDrive=true (compatibilidade legada)
                 var cfg = NormalizeRuntimeConfiguration(Config);
-                if (cfg.UseMappedDrive && (_isEnvioRunning || _isDownloaderRunning || _telegramPool != null) && !IsDriveNAccessible())
+                // Telegram pool is created early during startup. It is not proof
+                // that FTP/upload/download services are ready. Waiting for the
+                // explicit running flags prevents the watchdog from mounting N:
+                // while StartEnvioAsync still authenticates bots.
+                if (cfg.UseMappedDrive && (_isEnvioRunning || _isDownloaderRunning) && !IsDriveNAccessible())
                 {
                     var nowTicks = DateTime.UtcNow.Ticks;
                     var nextAttemptTicks = Interlocked.Read(ref _nextAutomaticMountAttemptUtcTicks);
@@ -2285,6 +2300,16 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             };
         }
 
+        if (!NebulaSupabaseSyncService.IsServiceRoleKey(key))
+        {
+            return new NebulaSupabaseTestResponseDto
+            {
+                Success = false,
+                Message = NebulaSupabaseSyncService.ServiceRoleKeyRequiredMessage,
+                StatusCode = 403
+            };
+        }
+
         try
         {
             using var httpClient = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(12) };
@@ -2533,7 +2558,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 AddServerLog($"[SUPABASE] {result.Message}");
                 CompleteMaintenanceOperation("succeeded");
                 config.SupabaseLastBackupTime = DateTime.UtcNow;
-                config.SupabaseLastBackupStatus = $"Backup de usuários realizado com sucesso ({result.UsersBackedUp} usuários) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
+                config.SupabaseLastBackupStatus = $"Backup do MongoDB realizado com sucesso ({result.FilesBackedUp} arquivos, {result.UsersBackedUp} usuários FTP) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
             }
             else
             {
@@ -2582,6 +2607,42 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
     }
 
+    public async Task<NebulaSupabaseBackupResultDto> BackupUsersToSupabaseAsync(CancellationToken cancellationToken = default)
+    {
+        var config = NormalizeRuntimeConfiguration(Config);
+        if (_supabaseSyncService == null)
+        {
+            return new NebulaSupabaseBackupResultDto { Success = false, Message = "Serviço de sincronização do Supabase indisponível." };
+        }
+
+        AddServerLog("[SUPABASE-USERS] Iniciando backup exclusivo dos usuários do MulletaFlix...");
+        var result = await _supabaseSyncService.PerformUsersBackupAsync(
+            config.SupabaseUrl,
+            config.SupabaseKey,
+            AddServerLog,
+            cancellationToken).ConfigureAwait(false);
+        AddServerLog(result.Success ? $"[SUPABASE-USERS] {result.Message}" : $"[SUPABASE-USERS-ERRO] {result.Message}");
+        return result;
+    }
+
+    public async Task<NebulaSupabaseRestoreResultDto> RestoreUsersFromSupabaseAsync(CancellationToken cancellationToken = default)
+    {
+        var config = NormalizeRuntimeConfiguration(Config);
+        if (_supabaseSyncService == null)
+        {
+            return new NebulaSupabaseRestoreResultDto { Success = false, Message = "Serviço de sincronização do Supabase indisponível." };
+        }
+
+        AddServerLog("[SUPABASE-USERS] Iniciando restauração exclusiva dos usuários do MulletaFlix...");
+        var result = await _supabaseSyncService.PerformUsersRestoreAsync(
+            config.SupabaseUrl,
+            config.SupabaseKey,
+            AddServerLog,
+            cancellationToken).ConfigureAwait(false);
+        AddServerLog(result.Success ? $"[SUPABASE-USERS] {result.Message}" : $"[SUPABASE-USERS-ERRO] {result.Message}");
+        return result;
+    }
+
     public async Task<NebulaSupabaseRestoreResultDto> RestoreSupabaseToMongoAsync(string? idempotencyKey = null, bool forceFull = false, CancellationToken cancellationToken = default)
     {
         if (await TryGetOperationReplayAsync<NebulaSupabaseRestoreResultDto>("supabase-restore", idempotencyKey, cancellationToken).ConfigureAwait(false))
@@ -2600,7 +2661,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             };
         }
 
-        AddServerLog("[SUPABASE-RESTORE] Iniciando restauração de usuários a partir do Supabase (Nativo C#)...");
+        AddServerLog("[SUPABASE-RESTORE] Iniciando restauração do MongoDB a partir do Supabase (Nativo C#)...");
         await _maintenanceLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         if (await TryGetOperationReplayAsync<NebulaSupabaseRestoreResultDto>("supabase-restore", idempotencyKey, cancellationToken).ConfigureAwait(false))
         {
@@ -2985,7 +3046,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     {
         try
         {
-            StopOwnedRcloneProcess();
+            // O servidor pode estar sendo reinstalado ou ter herdado uma
+            // montagem de uma sessão anterior. Encerra também rclone órfão.
+            StopAllRcloneProcesses(includeForeignProcesses: true);
 
             if (_supabaseSyncService != null)
             {
@@ -3380,7 +3443,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     {
         try
         {
-            StopAllRcloneProcesses();
+            // A desmontagem é o ponto de parada do Disco N. Limpa o processo
+            // proprietário e qualquer rclone órfão antes de liberar a letra.
+            StopAllRcloneProcesses(includeForeignProcesses: true);
 
             for (var i = 0; i < 6; i++)
             {
@@ -3647,6 +3712,27 @@ idle_timeout = 15s
                     }
                     catch (Exception)
                     {
+                    }
+
+                    // Fallback equivalente ao taskkill para processos que não
+                    // puderam ser enumerados/encerrados pelo Process API.
+                    try
+                    {
+                        var taskkill = new ProcessStartInfo
+                        {
+                            FileName = "taskkill.exe",
+                            Arguments = "/F /T /IM rclone.exe",
+                            CreateNoWindow = true,
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true
+                        };
+                        using var killProcess = Process.Start(taskkill);
+                        killProcess?.WaitForExit(3000);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Não foi possível executar o taskkill do rclone");
                     }
                 }
             }
