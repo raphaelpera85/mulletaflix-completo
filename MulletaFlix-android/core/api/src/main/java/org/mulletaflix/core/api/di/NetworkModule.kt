@@ -8,8 +8,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
-import org.mulletaflix.core.api.AuthInterceptor
 import org.mulletaflix.core.api.ApiRetryInterceptor
+import org.mulletaflix.core.api.ClientIdentityInterceptor
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.ServerUrlInterceptor
 import retrofit2.Retrofit
@@ -30,13 +30,13 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(
-        authInterceptor: AuthInterceptor,
+        clientIdentityInterceptor: ClientIdentityInterceptor,
         apiRetryInterceptor: ApiRetryInterceptor,
         serverUrlInterceptor: ServerUrlInterceptor,
     ): OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(serverUrlInterceptor)   // replaces base URL dynamically
-        .addInterceptor(authInterceptor)         // injects Bearer token
-        .addInterceptor(apiRetryInterceptor)     // recovers safe transient API failures
+        .addInterceptor(serverUrlInterceptor)     // replaces base URL dynamically
+        .addInterceptor(clientIdentityInterceptor) // names the client/device and adds the token
+        .addInterceptor(apiRetryInterceptor)       // recovers safe transient API failures
         // Do not log bodies, Authorization headers, or playback URLs. Media
         // URLs may contain api_key tokens even when the app is a debug build.
         .addInterceptor(HttpLoggingInterceptor().apply {

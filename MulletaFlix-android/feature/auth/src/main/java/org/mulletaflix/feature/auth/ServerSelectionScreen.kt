@@ -26,6 +26,7 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
+import org.mulletaflix.designsystem.theme.readableTextOn
 
 /**
  * Server selection screen — shown before login.
@@ -89,7 +90,7 @@ fun ServerSelectionScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(colors = listOf(Color(0xFF1A0507), Color(0xFF080808))))
+            .background(Brush.verticalGradient(colors = listOf(AuthBackdropTop, AuthBackdropBottom)))
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -109,7 +110,12 @@ fun ServerSelectionScreen(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 12.dp),
             )
-            Text("Player conectado ao servidor remoto", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.5f), modifier = Modifier.padding(bottom = 32.dp))
+            Text(
+                "Player conectado ao servidor remoto",
+                style = MaterialTheme.typography.bodySmall,
+                color = readableTextOn(Color.White.copy(0.5f), AuthBackdropTop),
+                modifier = Modifier.padding(bottom = 32.dp),
+            )
 
             // Manual URL entry
             OutlinedTextField(

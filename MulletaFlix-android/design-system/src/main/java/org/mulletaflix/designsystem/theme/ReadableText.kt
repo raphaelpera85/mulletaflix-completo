@@ -6,14 +6,22 @@ import androidx.compose.ui.graphics.Color
  * Lifts semi-transparent text until it is readable on [background].
  *
  * MulletaFlix dims secondary copy with hand-picked alphas (`0.4f`, `0.5f`,
- * `0.6f`, `0.7f`). On the cinematic surfaces those composite to measurably
- * unreadable greys — `white at 0.4` only reaches 3.09:1 on `#141414` and
- * `onSurface at 0.5` reaches 3.03:1, against the WCAG 2.2 AA floor of 4.5:1
- * for normal text.
+ * `0.6f`, `0.7f`). On the cinematic surfaces some of those composite to
+ * measurably unreadable greys. Measured through [contrastRatio]:
+ *
+ * | colour | alpha | on `DarkSurface` | on `DarkSurfaceContainerHigh` |
+ * |---|---|---:|---:|
+ * | `White` | 0.4 | 3.83:1 | 3.58:1 |
+ * | `onSurface` | 0.4 | 3.21:1 | 3.03:1 |
+ * | `onSurface` | 0.5 | 4.29:1 | 3.89:1 |
+ *
+ * All are below the WCAG 2.2 AA floor of 4.5:1 for normal text, while
+ * `White at 0.5` (5.34:1) and everything at `0.6` or above already pass.
  *
  * Instead of replacing each alpha by a new guessed one, this keeps the colour
  * and the *intent* (still dimmer than the primary text) and raises only the
- * alpha until the composited result clears the floor.
+ * alpha until the composited result clears the floor. Combinations that
+ * already pass are returned untouched.
  *
  * @param foreground the dimmed colour, usually a colour with `alpha < 1`
  * @param background the surface behind it, expected to be opaque
@@ -22,7 +30,7 @@ import androidx.compose.ui.graphics.Color
  * @return a colour with the same RGB channels and the smallest alpha that
  *   clears [minimum]
  */
-internal fun readableOnBackground(
+fun readableTextOn(
     foreground: Color,
     background: Color,
     minimum: Double = 4.5,

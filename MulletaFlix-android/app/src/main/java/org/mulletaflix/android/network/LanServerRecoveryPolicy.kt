@@ -1,6 +1,5 @@
 package org.mulletaflix.android.network
 
-import java.net.URI
 import org.mulletaflix.feature.auth.ServerInfo
 
 /** A LAN endpoint is preferred only when it is a real, different endpoint. */
@@ -39,19 +38,14 @@ internal fun selectAuthenticatedLanServer(
     }
 }
 
-/** Returns true only for hosts that are unambiguously local/private. */
-internal fun isLocalServerUrl(url: String): Boolean {
-    val host = runCatching { URI(url.trim()).host?.lowercase() }.getOrNull() ?: return false
-    if (host == "localhost" || host == "127.0.0.1" || host == "::1") return true
-    val octets = host.split('.')
-    if (octets.size != 4 || octets.any { it.toIntOrNull() == null }) return false
-    val first = octets[0].toInt()
-    val second = octets[1].toInt()
-    return first == 10 ||
-        (first == 172 && second in 16..31) ||
-        (first == 192 && second == 168) ||
-        (first == 169 && second == 254)
-}
+/**
+ * Returns true only for hosts that are unambiguously local/private.
+ *
+ * The classification now lives in the shared design-system module so link
+ * sharing applies exactly the same rule.
+ */
+internal fun isLocalServerUrl(url: String): Boolean =
+    org.mulletaflix.designsystem.media.isLocalServerUrl(url)
 
 /** Switches back to the public server only after a previous LAN endpoint fails discovery. */
 internal fun publicFallbackAfterLanLoss(

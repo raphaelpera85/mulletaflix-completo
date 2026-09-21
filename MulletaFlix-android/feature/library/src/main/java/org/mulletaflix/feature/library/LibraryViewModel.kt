@@ -47,10 +47,8 @@ class LibraryViewModel @Inject constructor(
     private var currentLibraryId: String? = null
     private var currentUserId: String? = null
     private var hasObservedUser = false
-    private var currentStartIndex: Int = 0
     private var currentIncludeItemTypes: String = LibraryBrowseTypes.DEFAULT
     private val pageSize = 40
-    private var totalItems = 0
     private var loadJob: Job? = null
     private var requestGeneration: Long = 0L
     private var sortPreferenceReady = false
@@ -85,8 +83,6 @@ class LibraryViewModel @Inject constructor(
                     loadJob?.cancel()
                     ++requestGeneration
                     currentLibraryId = null
-                    currentStartIndex = 0
-                    totalItems = 0
                     _state.update {
                         it.copy(
                             items = emptyList(),
@@ -139,11 +135,24 @@ class LibraryViewModel @Inject constructor(
     fun loadLibrary(libraryId: String) {
         loadJob?.cancel()
         val requestGeneration = ++this.requestGeneration
+        val switchedLibrary = currentLibraryId != null && currentLibraryId != libraryId
         currentLibraryId = libraryId
-        currentStartIndex = 0
         if (_state.value.isOffline) {
             _state.update { it.copy(isLoading = false, isRefreshing = false) }
             return
+        }
+        // Switching libraries must drop the previous catalog. Keeping it would
+        // let a failed first page for the new library leave `hasMore` true over
+        // the old items, so the next page would be requested at an offset that
+        // skips the new library's first items.
+        if (switchedLibrary) {
+            _state.update {
+                it.copy(
+                    items = emptyList(),
+                    hasMore = false,
+                    error = null,
+                )
+            }
         }
         loadJob = viewModelScope.launch {
             // Compose can request the library immediately after the screen is
@@ -176,12 +185,11 @@ class LibraryViewModel @Inject constructor(
                 isFavorite = favoriteFilter(_state.value.activeFilters),
             ).onSuccess { (items, total) ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
-                totalItems = total
                 _state.update {
                     it.copy(
                         libraryName = libName,
                         items = items,
-                        hasMore = items.size < total,
+                        hasMore = hasMoreLibraryPages(items.size, items.size, total),
                         isLoading = false,
                         isRefreshing = false,
                         error = null,
@@ -253,11 +261,10 @@ class LibraryViewModel @Inject constructor(
             ).onSuccess { (newItems, total) ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onSuccess
                 val combined = _state.value.items + newItems
-                currentStartIndex = requestedStartIndex
                 _state.update {
                     it.copy(
                         items = combined,
-                        hasMore = combined.size < total,
+                        hasMore = hasMoreLibraryPages(combined.size, newItems.size, total),
                         isLoading = false,
                         error = null,
                     )

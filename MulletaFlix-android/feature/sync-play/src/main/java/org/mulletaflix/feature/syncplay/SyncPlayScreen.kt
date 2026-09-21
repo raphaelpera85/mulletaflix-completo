@@ -10,6 +10,9 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
@@ -21,10 +24,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun SyncPlayScreen(onJoinGroup: (String?) -> Unit = {}, onBack: () -> Unit = {}, viewModel: SyncPlayViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle(); var showCreateDialog by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            delay(5_000)
-            viewModel.refresh(isBackground = true)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        // A 5 s poll must stop when the screen is not visible, otherwise the
+        // app keeps hitting the server from the background.
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                delay(5_000)
+                viewModel.refresh(isBackground = true)
+            }
         }
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Salas SyncPlay") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } }, actions = { IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) { Icon(Icons.Default.Refresh, "Atualizar salas") }; IconButton(onClick = { showCreateDialog = true }, enabled = !state.isSubmitting) { Icon(Icons.Default.Add, "Criar sala") } }) }) { padding ->

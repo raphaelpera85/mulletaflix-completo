@@ -117,7 +117,10 @@ class FavoritesViewModel @Inject constructor(
                                 isLoading = false,
                                 isRefreshing = false,
                                 items = merged,
-                                hasMore = merged.size < total,
+                                // An empty page against a stale total must stop
+                                // pagination instead of keeping the sentinel
+                                // loading and re-requesting the same offset.
+                                hasMore = hasMoreLibraryPages(merged.size, items.size, total),
                                 error = null,
                             )
                         }

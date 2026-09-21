@@ -34,8 +34,31 @@ val DarkSurfaceContainerHigh = Color(0xFF2A2A2A)
 val DarkOnBackground = Color(0xFFE8E8E8)
 val DarkOnSurface = Color(0xFFE0E0E0)
 val DarkOnSurfaceVariant = Color(0xFF9E9E9E)
-val DarkOutline = Color(0xFF424242)
-val DarkOutlineVariant = Color(0xFF323232)
+
+/**
+ * Boundary colour for inputs (outlined fields) and other component outlines.
+ *
+ * WCAG 2.2 SC 1.4.11 asks for 3:1 against the adjacent colour, because the
+ * border is what identifies the input. The previous #424242 measured only
+ * 1.83:1 on [DarkSurface] and 1.43:1 on [DarkSurfaceContainerHigh] — under the
+ * 1x non-text minimum of 3:1 an outlined field is effectively invisible.
+ * Measured through [contrastRatio], #808080 gives:
+ *
+ * | surface | ratio |
+ * |---|---:|
+ * | [DarkSurface] | 4.66:1 |
+ * | [DarkBackground] | 5.07:1 |
+ * | [DarkSurfaceContainer] | 4.22:1 |
+ * | [DarkSurfaceVariant] | 3.88:1 |
+ * | [DarkSurfaceContainerHigh] | 3.63:1 |
+ */
+val DarkOutline = Color(0xFF808080)
+
+/**
+ * Hairline dividers between rows. Decorative, so it stays subtle — the
+ * component-boundary requirement above is carried by [DarkOutline].
+ */
+val DarkOutlineVariant = Color(0xFF424242)
 
 // Light theme surfaces
 val LightBackground = Color(0xFFF5F5F5)

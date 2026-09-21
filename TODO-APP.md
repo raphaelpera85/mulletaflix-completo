@@ -474,3 +474,52 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Manter o indicador de aba e os botões preenchidos com o vermelho vívido, onde o texto branco sobre ele mede 4,79:1.
 - [x] Cobrir a política com testes de contraste WCAG 2.2 por tema.
 - [x] Registrar a verificação instrumentada de 39 testes na Android TV contra o servidor real.
+
+## 215. Contraste de texto secundário e limites de componente (v1.2.42)
+- [x] Medir, pela própria implementação, o contraste de cada alpha reduzido sobre as cinco superfícies escuras.
+- [x] Elevar apenas os alphas que reprovam (branco 0,4; `onSurface` 0,4 e 0,5), preservando os que já passam (branco 0,5 e tudo em 0,6+).
+- [x] Corrigir `DarkOutline` de `#424242` (1,83:1) para `#808080` (4,66:1), atendendo o mínimo de 3:1 do SC 1.4.11 para a borda de campos de texto.
+- [x] Aplicar a correção em `ProfileScreen` e `ServerSelectionScreen` e centralizar o fundo do fluxo de autenticação.
+- [x] Cobrir a política com testes que reprovam os alphas antigos e aprovam os limites de componente.
+
+## 216. Guia EPG travado após atualização de canais (v1.2.42)
+- [x] Corrigir `refresh()` da TV ao vivo, que incrementava `guideGeneration` sem limpar `isLoadingGuide`, deixando o guia com spinner infinito e o botão "Guia EPG" desabilitado até reiniciar o app.
+- [x] Cancelar o job do guia ao invalidá-lo, para não desperdiçar uma resposta já obsoleta.
+- [x] Corrigir o transporte falso do teste, que usava `NonCancellable` e mascarava o requisito.
+- [x] Provar que o teste reprova sem a correção (16 testes, 1 falha) e passa com ela.
+
+## 217. Deep link: servidor de destino, id fantasma e entrega repetida (v1.2.42)
+- [x] Ler `serverId` do link (query ou fragmento) e expor `MediaLink(itemId, serverId)`.
+- [x] Deixar de interpretar o segmento de rota `web` como id de mídia, que abria `detail/web` com erro.
+- [x] Entregar deep links por sequência em vez de por id, para que abrir o mesmo link duas vezes navegue nas duas vezes.
+- [x] Limpar o link pendente ao consumi-lo, para que sair e entrar novamente não reabra o detalhe antigo.
+
+## 218. Compartilhamento utilizável fora da rede local (v1.2.42)
+- [x] Trocar qualquer endereço privado (loopback e faixas 10/172.16-31/192.168/169.254) pelo endpoint público ao gerar o link.
+- [x] Incluir `serverId` no link compartilhado, para o destinatário resolver o item no servidor correto.
+- [x] Mover a classificação de host local para o design-system, usada por LAN e compartilhamento com a mesma regra.
+- [x] Enviar também `EXTRA_SUBJECT` e cobrir cada tipo de mídia com seu próprio id.
+
+## 219. Paginação da biblioteca (v1.2.42)
+- [x] Encerrar a paginação quando o servidor devolve página vazia, mesmo com total maior, evitando sentinela carregando para sempre.
+- [x] Descartar o catálogo anterior ao trocar de biblioteca, evitando pular os primeiros itens quando a primeira página falha.
+- [x] Remover os campos write-only `currentStartIndex` e `totalItems`, resíduo da paginação antiga.
+- [x] Aplicar a mesma política em Minha Lista.
+
+## 220. Auditoria de logs e polling em segundo plano (v1.2.42)
+- [x] Confirmar que não há nenhuma chamada de log nos 195 arquivos de produção e que `HttpLoggingInterceptor` está em `Level.NONE` incondicional.
+- [x] Adicionar teste-guarda que reprova o build se surgir `Log.`, `println`, `Timber.`, `printStackTrace` ou `System.out/err` no módulo de API, e se o nível do logger deixar de ser `NONE`.
+- [x] Provar que o guarda reprova com uma chamada de log injetada.
+- [x] Fazer o polling de Configurações (30 s) e SyncPlay (5 s) rodar somente com a tela em `RESUMED`.
+
+## 221. Anúncio único do cartão de mídia (v1.2.43)
+- [x] Inspecionar a árvore de semântica no próprio aparelho (`printToLog` + `adb logcat`) em vez de presumir o comportamento do merge.
+- [x] Tornar decorativos (capa, selos, overlay, barra de progresso) os elementos que entravam como nós próprios dentro do nó mesclado.
+- [x] Impedir que o selo `AO VIVO` seja concatenado em texto cru na descrição falada.
+- [x] Unificar o `contentDescription` duplicado do ícone de favorito (parâmetro e bloco `semantics`).
+- [x] Documentar por teste a repetição ainda presente no fallback de capa quebrada, com a medição real e a condição para remover o teste.
+- [x] Avaliar casting/espelhamento: o botão funciona, mas nada envia mídia para a sessão; implementar exigiria receptor próprio e teste com hardware real.
+- [x] Confirmar que não há nenhuma chamada de log nos 195 arquivos de produção e que `HttpLoggingInterceptor` está em `Level.NONE` incondicional.
+- [x] Adicionar teste-guarda que reprova o build se surgir `Log.`, `println`, `Timber.`, `printStackTrace` ou `System.out/err` no módulo de API, e se o nível do logger deixar de ser `NONE`.
+- [x] Provar que o guarda reprova com uma chamada de log injetada.
+- [x] Fazer o polling de Configurações (30 s) e SyncPlay (5 s) rodar somente com a tela em `RESUMED`.

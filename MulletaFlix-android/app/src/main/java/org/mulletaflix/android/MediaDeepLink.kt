@@ -7,13 +7,31 @@ import java.nio.charset.StandardCharsets
 
 private const val OFFICIAL_SERVER_HOST = "mulletaflix.duckdns.org"
 
+/**
+ * Segments that are part of the route rather than an item id.
+ *
+ * Without this, `http://mulletaflix.duckdns.org/web` parsed the literal
+ * segment `web` as the item id and the app navigated to `detail/web`.
+ */
+private val RESERVED_PATH_SEGMENTS = setOf("web", "details", "item")
+
+/** A media link shared by the server or the APK. */
+internal data class MediaLink(
+    val itemId: String,
+    /** Server the link was generated for, when the link carries one. */
+    val serverId: String? = null,
+)
+
 /** Extracts a Jellyfin/MulletaFlix item id from links shared by the server or APK. */
-internal fun extractMediaItemId(uri: Uri?): String? {
-    return uri?.toString()?.let(::extractMediaItemId)
-}
+internal fun extractMediaItemId(uri: Uri?): String? = extractMediaLink(uri)?.itemId
 
 /** String overload keeps the parser deterministic in JVM tests and Android intent handling. */
-internal fun extractMediaItemId(rawUri: String?): String? {
+internal fun extractMediaItemId(rawUri: String?): String? = extractMediaLink(rawUri)?.itemId
+
+/** Extracts the item id together with the server the link targets. */
+internal fun extractMediaLink(uri: Uri?): MediaLink? = uri?.toString()?.let(::extractMediaLink)
+
+internal fun extractMediaLink(rawUri: String?): MediaLink? {
     rawUri ?: return null
     val parsed = runCatching { URI(rawUri) }.getOrNull() ?: return null
 
@@ -25,20 +43,25 @@ internal fun extractMediaItemId(rawUri: String?): String? {
         (webPath == "/web" || webPath?.startsWith("/web/") == true)
     if (!isMulletaFlixScheme && !isOfficialWebLink) return null
 
-    val directId = queryParameter(parsed.rawQuery, "id")
-    val fragmentId = parsed.rawFragment
-        ?.substringAfter('?', "")
-        ?.let { queryParameter(it, "id") }
+    val fragmentQuery = parsed.rawFragment?.substringAfter('?', "")?.takeIf(String::isNotBlank)
+    val directId = queryParameter(parsed.rawQuery, "id") ?: queryParameter(fragmentQuery, "id")
     val pathId = parsed.path
         ?.split('/')
         ?.filter(String::isNotBlank)
-        ?.dropWhile { it.equals("details", ignoreCase = true) || it.equals("item", ignoreCase = true) }
+        ?.filterNot { segment -> RESERVED_PATH_SEGMENTS.any { it.equals(segment, ignoreCase = true) } }
         ?.firstOrNull()
 
-    return listOf(directId, fragmentId, pathId)
+    val itemId = listOf(directId, pathId)
         .firstOrNull { !it.isNullOrBlank() }
         ?.trim()
         ?.takeIf { it.length <= 128 }
+        ?: return null
+
+    val serverId = (queryParameter(parsed.rawQuery, "serverId") ?: queryParameter(fragmentQuery, "serverId"))
+        ?.trim()
+        ?.takeIf { it.isNotBlank() && it.length <= 128 }
+
+    return MediaLink(itemId = itemId, serverId = serverId)
 }
 
 private fun queryParameter(encodedQuery: String?, key: String): String? =

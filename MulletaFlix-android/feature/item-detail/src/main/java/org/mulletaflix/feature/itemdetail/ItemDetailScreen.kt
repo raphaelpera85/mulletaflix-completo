@@ -32,6 +32,7 @@ import org.mulletaflix.domain.model.*
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
+import org.mulletaflix.designsystem.media.LocalMulletaFlixServerId
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
@@ -55,6 +56,7 @@ fun ItemDetailScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val serverUrl = LocalMulletaFlixServerUrl.current
+    val serverId = LocalMulletaFlixServerId.current
 
     LaunchedEffect(itemId) { viewModel.loadItem(itemId) }
 
@@ -82,10 +84,11 @@ fun ItemDetailScreen(
                      isWatchedUpdating = state.isWatchedUpdating,
                     onPlaylist = { viewModel.openPlaylistPicker() },
                     onShare = {
-                        val text = buildItemShareText(item.name, item.id, serverUrl)
+                        val text = buildItemShareText(item.name, item.id, serverUrl, serverId)
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TEXT, text)
+                            putExtra(Intent.EXTRA_SUBJECT, item.name)
                             putExtra(Intent.EXTRA_TITLE, item.name)
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "Compartilhar título"))

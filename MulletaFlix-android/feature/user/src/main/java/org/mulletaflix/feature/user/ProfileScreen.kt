@@ -37,6 +37,7 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.userAvatarPath
+import org.mulletaflix.designsystem.theme.readableTextOn
 import org.mulletaflix.domain.repository.AvailableUser
 import android.content.ClipData
 import kotlinx.coroutines.launch
@@ -243,7 +244,10 @@ fun ProfileScreen(
                             Text(
                                 text = " • v$ver",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                color = readableTextOn(
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                    MaterialTheme.colorScheme.surface,
+                                ),
                             )
                         }
                     }
@@ -494,8 +498,24 @@ private fun ProfileOptionItem(
         Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = tint)
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = readableTextOn(
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    MaterialTheme.colorScheme.surface,
+                ),
+            )
         }
-        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f), modifier = Modifier.size(20.dp))
+        Icon(
+            Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = readableTextOn(
+                foreground = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                background = MaterialTheme.colorScheme.surface,
+                minimum = 3.0,
+            ),
+            modifier = Modifier.size(20.dp),
+        )
     }
 }

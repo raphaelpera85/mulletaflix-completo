@@ -107,7 +107,13 @@ class LiveTvViewModel @Inject constructor(
         val sessionAtRequest = sessionGeneration
         // A new channel snapshot invalidates any guide request based on the
         // previous snapshot, even when the transport ignores cancellation.
+        // The invalidated request returns before it can clear its own loading
+        // flag (it checks `generation != guideGeneration` first), so the flag
+        // has to be cleared here — otherwise the EPG dialog spins forever and
+        // the "Guia EPG" action stays disabled.
         guideGeneration++
+        guideJob?.cancel()
+        _state.update { it.copy(isLoadingGuide = false) }
         refreshJob = viewModelScope.launch {
             val userId = currentUserId ?: sessionRepository.getCurrentUserId().first()
             if (userId.isNullOrBlank()) {

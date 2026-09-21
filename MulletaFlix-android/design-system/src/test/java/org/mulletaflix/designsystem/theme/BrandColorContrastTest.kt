@@ -138,25 +138,25 @@ class BrandColorContrastTest {
 
     @Test
     fun `the hand picked dim alphas are measurably unreadable`() {
-        // Documents why readableOnBackground exists. These are the exact pairs
-        // the app used before this policy.
+        // Documents why readableTextOn exists. The values were measured through
+        // contrastRatio, not estimated: white at 0.5 (5.34:1) and everything at
+        // 0.6+ already clear AA, so only these fail.
         val combinations = listOf(
             Color.White.copy(alpha = 0.4f) to DarkSurface,
-            Color.White.copy(alpha = 0.5f) to DarkSurface,
+            Color.White.copy(alpha = 0.4f) to DarkBackground,
             DarkOnSurface.copy(alpha = 0.4f) to DarkSurface,
             DarkOnSurface.copy(alpha = 0.5f) to DarkSurface,
-            Color.White.copy(alpha = 0.5f) to DarkBackground,
+            DarkOnSurface.copy(alpha = 0.5f) to DarkSurfaceContainerHigh,
         )
         combinations.forEach { (foreground, background) ->
-            val composited = compositeOver(foreground, background)
-            val ratio = contrastRatio(composited, background)
+            val ratio = contrastRatio(compositeOver(foreground, background), background)
             assertTrue(
                 "expected the raw alpha to fail AA (was ${"%.2f".format(ratio)}:1)",
                 ratio < aaNormalText,
             )
             assertContrast(
                 "lifted $foreground",
-                compositeOver(readableOnBackground(foreground, background), background),
+                compositeOver(readableTextOn(foreground, background), background),
                 background,
                 aaNormalText,
             )
@@ -164,8 +164,42 @@ class BrandColorContrastTest {
     }
 
     @Test
+    fun `dim alphas that already pass are left alone`() {
+        listOf(
+            Color.White.copy(alpha = 0.5f) to DarkSurface,
+            Color.White.copy(alpha = 0.6f) to DarkSurface,
+            DarkOnSurface.copy(alpha = 0.6f) to DarkSurface,
+        ).forEach { (foreground, background) ->
+            assertEquals(
+                "an already readable alpha must not be changed",
+                foreground,
+                readableTextOn(foreground, background),
+            )
+        }
+    }
+
+    @Test
+    fun `component outlines clear the three to one non text floor`() {
+        // WCAG 2.2 SC 1.4.11: the border is what identifies an outlined input.
+        listOf(
+            DarkSurface,
+            DarkBackground,
+            DarkSurfaceContainer,
+            DarkSurfaceVariant,
+            DarkSurfaceContainerHigh,
+        ).forEach { surface ->
+            assertContrast("outline on $surface", DarkOutline, surface, aaLargeTextAndUi)
+        }
+        // The previous value must be recorded as failing so nobody reverts it.
+        assertTrue(
+            "the old outline value now passes — the calibration can be revisited",
+            contrastRatio(Color(0xFF424242), DarkSurface) < aaLargeTextAndUi,
+        )
+    }
+
+    @Test
     fun `lifting keeps the colour identity and only raises the alpha`() {
-        val lifted = readableOnBackground(Color.White.copy(alpha = 0.4f), DarkSurface)
+        val lifted = readableTextOn(Color.White.copy(alpha = 0.4f), DarkSurface)
         assertEquals(Color.White, lifted.copy(alpha = 1f))
         assertTrue(
             "the lifted alpha must stay below fully opaque (was ${lifted.alpha})",
@@ -180,12 +214,12 @@ class BrandColorContrastTest {
     @Test
     fun `an already readable dim colour is returned untouched`() {
         val alreadyReadable = Color.White.copy(alpha = 0.9f)
-        assertEquals(alreadyReadable, readableOnBackground(alreadyReadable, DarkSurface))
+        assertEquals(alreadyReadable, readableTextOn(alreadyReadable, DarkSurface))
     }
 
     @Test
     fun `non text ui only needs the three to one floor`() {
-        val icon = readableOnBackground(
+        val icon = readableTextOn(
             foreground = DarkOnSurface.copy(alpha = 0.4f),
             background = DarkSurface,
             minimum = aaLargeTextAndUi,
@@ -198,7 +232,7 @@ class BrandColorContrastTest {
         )
         assertTrue(
             "a 3:1 icon must not be lifted as far as 4.5:1 text",
-            icon.alpha <= readableOnBackground(DarkOnSurface.copy(alpha = 0.4f), DarkSurface).alpha,
+            icon.alpha <= readableTextOn(DarkOnSurface.copy(alpha = 0.4f), DarkSurface).alpha,
         )
     }
 

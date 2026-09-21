@@ -17,6 +17,9 @@ import androidx.compose.runtime.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,11 +55,17 @@ fun SettingsScreen(
     var showClearAllDataDialog by remember { mutableStateOf(false) }
     var showClearImageCacheDialog by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            viewModel.refreshStorageInfo()
-            delay(30_000L)
+    LaunchedEffect(lifecycleOwner) {
+        // Poll only while the screen is actually visible: a plain
+        // `LaunchedEffect(Unit)` keeps ticking after the user navigates away,
+        // waking the device for a storage figure nobody is looking at.
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (isActive) {
+                viewModel.refreshStorageInfo()
+                delay(30_000L)
+            }
         }
     }
 

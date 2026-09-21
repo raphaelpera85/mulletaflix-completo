@@ -9,7 +9,7 @@ import org.mulletaflix.core.api.dto.*
  * Maps all 70 confirmed controllers from Jellyfin.Api/Controllers/ to Kotlin suspend functions.
  * Base URL is injected at runtime from the saved server URL in DataStore.
  *
- * Auth: Bearer token added via [AuthInterceptor] on every request.
+ * Auth: Bearer token added via [ClientIdentityInterceptor] on every request.
  */
 interface MulletaFlixApiService {
 

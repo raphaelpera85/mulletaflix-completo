@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import coil.compose.AsyncImagePainter
@@ -190,12 +191,19 @@ fun MediaCard(
             .clip(RoundedCornerShape(cornerRadius))
             .background(MaterialTheme.colorScheme.surfaceVariant)
       ) {
-        // Poster image with loading placeholder & error fallback
+        // Single TalkBack announcement (see mediaCardAccessibilityLabel).
+        //
+        // The column sets `mergeDescendants = true` with an explicit
+        // `contentDescription`, and Compose concatenates every descendant
+        // description into that merged node. So each visual layer below is
+        // marked decorative: the artwork (whose description was the raw title,
+        // announced a second time) and the overlays, whose visible text is
+        // already folded into the label above.
         SubcomposeAsyncImage(
             model = resolvedImageUrl,
-            contentDescription = title,
+            contentDescription = null,
             contentScale = mediaCardContentScale(shape),
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().semantics { invisibleToUser() },
         ) {
             val state = painter.state
             if (state is AsyncImagePainter.State.Loading) {
@@ -276,6 +284,7 @@ fun MediaCard(
                     .height(3.dp)
                     .align(Alignment.BottomCenter)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .semantics { invisibleToUser() }
             ) {
                 Box(
                     modifier = Modifier
@@ -302,11 +311,12 @@ fun MediaCard(
             )
         }
 
-        // Badges row (top-start)
+        // Badges row (top-start); their text is part of the merged label.
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(4.dp),
+                .padding(4.dp)
+                .semantics { invisibleToUser() },
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (isLive) {
@@ -320,24 +330,22 @@ fun MediaCard(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp),
+                    .padding(4.dp)
+                    .semantics { invisibleToUser() },
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (isFavorite) {
                     androidx.compose.material3.Icon(
                         imageVector = Icons.Default.Favorite,
-                        contentDescription = "Favorito",
+                        contentDescription = null,
                         tint = MulletaFlixRed,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .semantics { contentDescription = "Adicionado à Minha Lista" },
+                        modifier = Modifier.size(24.dp),
                     )
                 }
                 if (unplayedCount > 0) {
                     Box(
                         modifier = Modifier
-                            .semantics { contentDescription = "$unplayedCount episódios não assistidos" }
                             .background(MulletaFlixRed, RoundedCornerShape(12.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {

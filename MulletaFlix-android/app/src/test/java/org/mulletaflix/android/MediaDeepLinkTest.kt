@@ -40,4 +40,51 @@ class MediaDeepLinkTest {
             ),
         )
     }
+
+    @Test
+    fun `does not read a route segment as an item id`() {
+        // The /web root used to fall through to the literal segment "web",
+        // which navigated to `detail/web` and showed "Erro ao carregar
+        // detalhes" instead of doing nothing.
+        assertNull(extractMediaItemId("http://mulletaflix.duckdns.org:8096/web"))
+        assertNull(extractMediaItemId("http://mulletaflix.duckdns.org:8096/web/"))
+        assertNull(extractMediaItemId("http://mulletaflix.duckdns.org:8096/web/details"))
+        assertNull(extractMediaItemId("http://mulletaflix.duckdns.org:8096/web/item"))
+    }
+
+    @Test
+    fun `reads the target server id from the link`() {
+        assertEquals(
+            MediaLink(itemId = "movie-123", serverId = "server-1"),
+            extractMediaLink(
+                "http://mulletaflix.duckdns.org:8096/web/#/details?id=movie-123&serverId=server-1",
+            ),
+        )
+    }
+
+    @Test
+    fun `reads the target server id when it arrives before the item id`() {
+        assertEquals(
+            MediaLink(itemId = "movie-123", serverId = "server-1"),
+            extractMediaLink(
+                "mulletaflix://details?serverId=server-1&id=movie-123",
+            ),
+        )
+    }
+
+    @Test
+    fun `a link without a server id still yields the item`() {
+        assertEquals(
+            MediaLink(itemId = "movie-123", serverId = null),
+            extractMediaLink("mulletaflix://details?id=movie-123"),
+        )
+    }
+
+    @Test
+    fun `still resolves the id from the path form`() {
+        assertEquals(
+            MediaLink(itemId = "movie-555"),
+            extractMediaLink("mulletaflix://details/movie-555"),
+        )
+    }
 }

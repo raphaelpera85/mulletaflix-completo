@@ -1,8 +1,11 @@
 package org.mulletaflix.android.navigation
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mulletaflix.android.MediaDeepLinkRequest
 
 class DeepLinkNavigationPolicyTest {
 
@@ -58,5 +61,61 @@ class DeepLinkNavigationPolicyTest {
     @Test
     fun `does not mark another destination handled`() {
         assertFalse(shouldMarkMediaDeepLinkHandled("movie-123", "episode-456"))
+    }
+
+    @Test
+    fun `delivers a request that was never handled`() {
+        assertTrue(
+            shouldDeliverMediaDeepLink(
+                requestSequence = 1L,
+                handledSequence = null,
+                itemId = "movie-123",
+            ),
+        )
+    }
+
+    @Test
+    fun `does not deliver the same request twice`() {
+        assertFalse(
+            shouldDeliverMediaDeepLink(
+                requestSequence = 7L,
+                handledSequence = 7L,
+                itemId = "movie-123",
+            ),
+        )
+    }
+
+    @Test
+    fun `delivers the same link again when it is opened a second time`() {
+        // This is the defect the sequence fixes: keyed by item id alone, the
+        // second tap on an identical link was silently ignored.
+        assertTrue(
+            shouldDeliverMediaDeepLink(
+                requestSequence = 8L,
+                handledSequence = 7L,
+                itemId = "movie-123",
+            ),
+        )
+    }
+
+    @Test
+    fun `does not deliver a missing or empty request`() {
+        assertFalse(shouldDeliverMediaDeepLink(null, null, "movie-123"))
+        assertFalse(shouldDeliverMediaDeepLink(3L, null, "  "))
+        assertFalse(shouldDeliverMediaDeepLink(3L, null, null))
+    }
+
+    @Test
+    fun `a pending request routes to its own detail destination`() {
+        val request = MediaDeepLinkRequest(itemId = "movie-123", sequence = 1L)
+        assertEquals(MulletaFlixRoute.itemDetail("movie-123"), request.detailRoute)
+    }
+
+    @Test
+    fun `two deliveries of the same link are distinct requests`() {
+        val first = MediaDeepLinkRequest(itemId = "movie-123", sequence = 1L)
+        val second = MediaDeepLinkRequest(itemId = "movie-123", sequence = 2L)
+        assertNotEquals(first, second)
+        assertTrue(shouldDeliverMediaDeepLink(second.sequence, first.sequence, second.itemId))
     }
 }

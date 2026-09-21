@@ -50,21 +50,168 @@ Fable: intenção/aceite
 
 ## Estado confirmado
 
-- Versão atual do APK: **1.2.41**.
-- `versionCode`: **242**.
-- Última release: [app-v1.2.41](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.41) (ID 393025500).
-- APK: [mulletaflix-app-v1.2.41.apk](https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.2.41/mulletaflix-app-v1.2.41.apk).
+- Versão atual do APK: **1.2.43**.
+- `versionCode`: **244**.
+- Última release: [app-v1.2.43](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.43) (ID 393107153).
+- APK: [mulletaflix-app-v1.2.43.apk](https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.2.43/mulletaflix-app-v1.2.43.apk).
 - Tamanho confirmado local/remoto: **7.324.749 bytes**.
-- SHA-256 confirmado local/remoto: `7EF34D8E7E82B765F8B7FD67B32F52049B9A8DA0977B87B8515D7FE94C4D0A2F`.
-- Release anterior conferida antes do pacote: [app-v1.2.40](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.40) — 7.324.745 bytes, `sha256:2b6af192a9e6c7a7c785e5db599ff081b8e2b8760c65879a51a7675ccc3a8106`.
-- A v1.2.39 (conferida antes da v1.2.40) media 7.324.745 bytes, SHA-256 `E3AFAAD66048BAB755AA8DA86CCFBEAF5301CC981F0DC0F167E6D07678E3C920`.
-- O APK v1.2.41 é assinado com o certificado de depuração do projeto (sha256 `224f9a6bd12690e1114ace649bbfa778d3e7e99dae608ff711ddf9131e036273`), igual às releases anteriores, porque `KEYSTORE_PATH` não está definido no ambiente. A verificação com `apksigner verify` retorna `EXIT=0`.
-- Último Quality Bar verde desta rodada: `testDebugUnitTest` com **456 tarefas** (código 0), `:app:lintDebug` (código 0) e `:app:assembleRelease` com **662 tarefas executadas** (código 0).
-- Verificação instrumentada: **41 testes** na AVD `MulletaflixTvApi34`, 0 falhas; o APK final foi instalado (`Success`), exercitado na TV e conferido no dispositivo como `versionCode=242 / versionName=1.2.41`.
-- Nenhum emulador permaneceu aberto em nenhum ponto da rodada (`emulator=0`, `qemu=0`).
+- SHA-256 confirmado local/remoto: `B2264737FC9B6C2BFC11C0B041CDCC4DAC0E4C9D7A1866015730C2B2C85752A1`.
+- Release anterior conferida antes do pacote: [app-v1.2.42](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.42) — 7.324.745 bytes, `sha256:fb5e323b82249dd9673df18501f7ddd5e38c0fe5e703b36b07fe543e8666c268`.
+- Quality Bar desta rodada: **582 testes unitários, 0 falhas**; **43 testes instrumentados** na AVD `MulletaflixTvApi34` (9 no design-system + 34 nos demais módulos), 0 falhas; `:app:lintDebug` código 0; `:app:assembleRelease` código 0.
+- O APK final foi instalado (`Success`) e conferido no dispositivo como `versionCode=244 / versionName=1.2.43`.
+- Nenhum emulador permaneceu aberto (`emulator=0`, `qemu=0`).
 
 > Histórico: a v1.2.40 foi a última release antes desta rodada e foi instalada no
 > Android TV com `Success`.
+
+## Rodada v1.2.43 — acessibilidade do cartão de mídia e reconhecimento do que NÃO foi corrigido
+
+### O que mudou
+
+O cartão de mídia (`MediaCard`) é o componente mais reutilizado do app (Home,
+Biblioteca, Busca, Minha Lista, Detalhes). A árvore de semântica foi inspecionada
+**no aparelho** com `printToLog`, e não presumida:
+
+- A capa, os selos e o overlay entravam como nós próprios dentro do nó mesclado,
+  além da `contentDescription` que o cartão já define. Os elementos decorativos
+  agora são `invisibleToUser()`, então o cartão se anuncia uma única vez.
+- O selo `AO VIVO` era concatenado em texto cru na descrição; permanece apenas na
+  forma falada (`ao vivo`), que é o que o leitor de tela deve dizer.
+- O ícone de favorito tinha `contentDescription` definido duas vezes no mesmo nó
+  (parâmetro **e** bloco `semantics`); unificado em um só lugar.
+
+### Correção que tentei, medi e reverti
+
+Havia uma segunda suspeita: a capa tinha `contentDescription = title` enquanto o
+cartão já anuncia `Abrir <título>`. Troquei por `null` — e o teste que escrevi
+para provar a duplicação **passou nos dois estados**, ou seja, não provava nada.
+Medindo a árvore real no aparelho, a verdade apareceu:
+
+```
+ContentDescription = '[Abrir Filme único, assistido, na Minha Lista, 4K]'
+Text = '[Filme único, 4K, Filme único]'
+```
+
+A duplicação real está no **fallback de capa quebrada**, que desenha o título
+dentro da área da imagem, e no rótulo visível embaixo. Tentei
+`invisibleToUser()` no fallback e **medi de novo**: continuou 2. A propriedade
+`Text` mesclada não é afetada por `invisibleToUser()`, então reverti a mudança
+ineficaz em vez de deixar código que não faz o que promete.
+
+O comportamento atual está documentado por um teste
+(`mediaCardFallbackRepeatsTheTitleInTheMergedTextProperty`) que afirma **2** e
+diz explicitamente que, se um dia passar com 1, o teste pode ser apagado. Remover
+a repetição exige mudança visual (parar de desenhar o título sobre a arte) e é
+decisão de produto.
+
+### Lição registrada
+
+Teste que passa com e sem a correção **não é evidência**. Dois dos meus testes
+desta rodada estavam nesse estado; só medi-los no aparelho revelou o que era
+real. Antes de afirmar um defeito de acessibilidade, inspecionar a árvore de
+semântica com `printToLog` + `adb logcat`.
+
+### Casting/espelhamento: avaliado e NÃO implementado
+
+Investigação do estado atual:
+
+- O app inicializa o Cast (`CastContext.getSharedInstance`) e o `PlayerViewModel`
+  observa sessões (`SessionManagerListener`), alimentando `isCasting`.
+- O botão em uso é o `MediaRouteButton` **do Media3** (`androidx.media3.cast`),
+  que é um composable autocontido — não precisa de
+  `CastButtonFactory.setUpMediaRouteButton`.
+- **O que falta:** nada envia mídia para a sessão. Não existe `RemoteMediaClient`
+  em lugar nenhum, então estabelecer uma sessão não reproduz nada. O receptor é o
+  `DEFAULT_MEDIA_RECEIVER_APPLICATION_ID`.
+- **Por que não implementei:** o receptor padrão carrega a URL de mídia a partir
+  do Chromecast, e o servidor MulletaFlix está numa rede privada. Fazer isso
+  funcionar exige receptor próprio, token de acesso e teste com hardware real —
+  que não existe nesta máquina. Implementar sem poder testar contraria a regra do
+  handoff ("não chamar de concluído sem teste real").
+
+## Rodada v1.2.42 — bugs confirmados por auditoria, contraste de texto secundário e guarda de logs
+
+Esta rodada começou por uma auditoria independente dos itens P1 do backlog. Quatro
+auditorias (paginação, refresh/polling, logs e deep link/compartilhamento) foram
+executadas em paralelo, somente leitura, e cada achado abaixo foi confirmado por
+leitura de código **e** por teste que reprova sem a correção.
+
+### Bugs corrigidos
+
+| Bug | Onde | Efeito observável |
+|---|---|---|
+| Refresh de canais invalidava o guia em voo sem limpar `isLoadingGuide` | `LiveTvViewModel.refresh()` | Spinner eterno no guia EPG e botão "Guia EPG" desabilitado até reiniciar o app |
+| `serverId` do deep link nunca era lido | `MediaDeepLink.kt` | Link de outro servidor abria o item no servidor errado |
+| Segmento de rota `web` lido como id de mídia | `MediaDeepLink.kt` | `…/web` abria `detail/web` com "Erro ao carregar detalhes" |
+| Deep link entregue por id, não por requisição | `MulletaFlixNavHost.kt` | Abrir o mesmo link duas vezes não navegava na segunda |
+| Link pendente nunca era limpo | `MainActivity.kt` | Sair e entrar de novo reabria o detalhe antigo |
+| Endereço privado vazava para o link compartilhado | `ShareItemContent.kt` | Link inútil fora de casa (estado normal: sessão em IP de LAN) |
+| Link compartilhado sem `serverId` | `ShareItemContent.kt` | Destinatário resolvia o id na própria biblioteca |
+| Página vazia com total maior mantinha `hasMore` | `LibraryViewModel`, `FavoritesViewModel` | Sentinela carregando para sempre e nova requisição no mesmo offset |
+| Troca de biblioteca preservava o catálogo anterior | `LibraryViewModel.loadLibrary` | Se a 1ª página da nova biblioteca falhasse, a próxima era pedida em offset que pulava os primeiros itens |
+| Polling em segundo plano | `SettingsScreen` (30 s), `SyncPlayScreen` (5 s) | Requisições continuavam com a tela invisível |
+
+Cada correção tem teste que **reprova sem ela**:
+
+- `LiveTvViewModelTest`: revertendo as duas linhas do fix, a suíte fica com **16 testes e 1 falha** (`refresh() must not leave the guide flag stuck while a request is in flight`); com o fix, 11/11 verdes.
+- `MediaDeepLinkTest`: `…/web`, `…/web/details` e `…/web/item` agora retornam nulo; `serverId` é lido do query e do fragmento.
+- `DeepLinkNavigationPolicyTest`: mesma requisição não é entregue duas vezes; requisições com sequências diferentes para o mesmo id **são**.
+- `ShareItemContentTest`: 192.168/10/172.16-31/169.254 viram o endpoint público; `serverId` presente; cada tipo de mídia usa o próprio id.
+- `LibraryPaginationPolicyTest` e `LibraryViewModelTest`: página vazia encerra a paginação; troca de biblioteca descarta o catálogo anterior.
+- `ApiLayerLoggingGuardTest`: injetando um `println` em `AuthInterceptor.kt`, a suíte fica com **2 testes e 1 falha**.
+
+### Contraste: segunda passada
+
+A primeira rodada corrigiu o **acento**. Esta corrige o **texto secundário** e os
+**limites de componente**, usando números medidos pela própria implementação
+(`contrastRatio`) em vez de estimativa — a estimativa manual inicial estava
+errada e o próprio teste a desmentiu.
+
+- Só os alphas que reprovam são elevados: branco 0,4 (3,83:1), `onSurface` 0,4
+  (3,21:1) e `onSurface` 0,5 (4,29:1). Branco 0,5 (5,34:1) e tudo em 0,6+ já
+  passavam e foram **preservados**.
+- `DarkOutline` foi de `#424242` (1,83:1) para `#808080`, atendendo o mínimo de
+  3:1 do SC 1.4.11 para a borda de campos de texto. Confirmado no pixel
+  renderizado da TV: `#808080` sobre `#141414` = **4,66:1**.
+- `outlineVariant` continua reservado para divisórias decorativas.
+
+### Auditoria de logs: sem vazamento
+
+195 arquivos de produção, **zero** chamadas de log (`Log.*`, `println`,
+`Timber`, `printStackTrace`, `System.out/err`), confirmado por duas ferramentas
+independentes. `HttpLoggingInterceptor` está em `Level.NONE` **incondicional**
+(não depende de `BuildConfig.DEBUG`), o que importa porque URLs de imagem
+carregam `api_key` e o Quick Connect carrega o secret na query string. A guarda
+automatizada existe para que isso não regrida em um commit.
+
+### Achado NÃO corrigido (decisão do usuário)
+
+`app/build.gradle.kts`: quando `KEYSTORE_PATH` e as demais variáveis de ambiente
+de assinatura não estão definidas, a build de **release** cai silenciosamente
+para a chave de depuração (`initWith(getByName("debug"))`). Isso permite publicar
+uma release assinada com chave debug — todas as releases até a v1.2.42 estão
+nessa situação. Trocar isso para falhar o build interromperia o fluxo atual de
+release; a decisão é do usuário.
+
+### Auditorias sem achado (para não repetir)
+
+- **Paginação por offset**: o defeito de "offset avança pelo limite pedido" **não
+  existe**; foi corrigido no commit `e963a541` e o offset vem de
+  `_state.value.items.size`.
+- **Refresh automático duplicado**: `repeatOnLifecycle(RESUMED)` cancela e espera
+  o bloco antes de relançar, e todo timer passa por `refreshIfIdle` com guarda
+  síncrona. O único job redundante é benigno (mata antes de qualquer HTTP).
+- **Deep link não é perdido no login nem ignorado no cold start**; temporada e
+  episódio compartilham o próprio id, não o da série.
+
+### O que continua NÃO validado
+
+- Login com conta real, Quick Connect autorizado, seleção de usuário e logout:
+  exigem credencial ou autorização do PIN no servidor.
+- Descoberta LAN preferindo o endereço local: sem sessão o app para no login.
+- Reprodução real, capas, faixas de áudio/legenda e casting.
+- TalkBack e tamanhos de toque.
+- Casting/espelhamento continua não implementado (item P1 do backlog).
 
 ## Rodada v1.2.41 — acessibilidade de contraste + verificação instrumentada
 

@@ -18,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.media3.common.util.UnstableApi
 import android.net.Uri
+import org.mulletaflix.android.MediaDeepLinkRequest
 import org.mulletaflix.feature.auth.LoginScreen
 import org.mulletaflix.feature.auth.ServerSelectionScreen
 import org.mulletaflix.feature.home.HomeScreen
@@ -53,25 +54,36 @@ import org.mulletaflix.feature.syncplay.SyncPlayScreen
 fun MulletaFlixNavHost(
     navController: NavHostController = rememberNavController(),
     startDestination: String = MulletaFlixRoute.SERVER_SELECTION,
-    deepLinkItemId: String? = null,
+    deepLinkRequest: MediaDeepLinkRequest? = null,
+    onDeepLinkConsumed: () -> Unit = {},
 ) {
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     val currentItemId = currentBackStackEntry?.arguments?.getString("itemId")
-    var handledDeepLinkItemId by remember { mutableStateOf<String?>(null) }
+    // Keyed by request sequence rather than by item id, so a second intent for
+    // the same media is a new delivery instead of a duplicate.
+    var handledDeepLinkSequence by remember { mutableStateOf<Long?>(null) }
+    val deepLinkItemId = deepLinkRequest?.itemId
 
-    LaunchedEffect(deepLinkItemId, currentRoute, currentItemId) {
-        if (deepLinkItemId.isNullOrBlank() || handledDeepLinkItemId == deepLinkItemId) return@LaunchedEffect
-        if (shouldMarkMediaDeepLinkHandled(currentItemId, deepLinkItemId)) {
-            handledDeepLinkItemId = deepLinkItemId
+    LaunchedEffect(deepLinkRequest, currentRoute, currentItemId) {
+        if (!shouldDeliverMediaDeepLink(deepLinkRequest?.sequence, handledDeepLinkSequence, deepLinkItemId)) {
             return@LaunchedEffect
         }
-        val targetRoute = MulletaFlixRoute.itemDetail(deepLinkItemId)
-        if (shouldNavigateToMediaDeepLink(currentRoute, currentItemId, deepLinkItemId)) {
+        val request = deepLinkRequest ?: return@LaunchedEffect
+        val targetItemId = request.itemId
+        if (shouldMarkMediaDeepLinkHandled(currentItemId, targetItemId)) {
+            // The destination is already visible; the link is satisfied.
+            handledDeepLinkSequence = request.sequence
+            onDeepLinkConsumed()
+            return@LaunchedEffect
+        }
+        val targetRoute = MulletaFlixRoute.itemDetail(targetItemId)
+        if (shouldNavigateToMediaDeepLink(currentRoute, currentItemId, targetItemId)) {
             navController.navigate(targetRoute) {
                 launchSingleTop = true
             }
-            handledDeepLinkItemId = deepLinkItemId
+            handledDeepLinkSequence = request.sequence
+            onDeepLinkConsumed()
         }
     }
 
@@ -113,6 +125,8 @@ fun MulletaFlixNavHost(
         composable(MulletaFlixRoute.LOGIN) {
             LoginScreen(
                 onLoginSuccess = {
+                    // The pending link survives the login detour and is cleared
+                    // by the LaunchedEffect once its destination is reached.
                     val destination = deepLinkItemId?.let(MulletaFlixRoute::itemDetail)
                         ?: MulletaFlixRoute.HOME
                     navController.navigate(destination) {

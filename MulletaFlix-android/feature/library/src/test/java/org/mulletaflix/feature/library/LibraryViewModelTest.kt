@@ -395,6 +395,63 @@ class LibraryViewModelTest {
         assertEquals(false, viewModel.state.value.isLoading)
     }
 
+    @Test
+    fun `empty page stops pagination instead of spinning the sentinel`() = runTest {
+        val first = MediaItem("first", "First", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(first) to 10)
+        val viewModel = createViewModel()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        assertTrue("expected a second page to be pending", viewModel.state.value.hasMore)
+
+        // The server reports a larger total but hands back nothing.
+        media.pages[1] = Result.success(emptyList<MediaItem>() to 10)
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(
+            "an empty page against a stale total must end pagination",
+            false,
+            viewModel.state.value.hasMore,
+        )
+        assertEquals(listOf(first), viewModel.state.value.items)
+    }
+
+    @Test
+    fun `switching library drops the previous catalog before the first page fails`() = runTest {
+        // If the previous library's items survive, a failed first page for the
+        // new library leaves hasMore true over them and the next page is
+        // requested at an offset that skips the new library's first items.
+        val oldItems = List(40) { MediaItem("old-$it", "Antigo $it", MediaItemType.Movie) }
+        media.itemsByLibrary["old-library"] = oldItems to 100
+        media.itemsByLibrary["new-library"] = emptyList<MediaItem>() to 100
+        val viewModel = createViewModel()
+
+        viewModel.loadLibrary("old-library")
+        advanceUntilIdle()
+        assertEquals(40, viewModel.state.value.items.size)
+        assertTrue(viewModel.state.value.hasMore)
+
+        // Point the new library at a failure by removing its entry and using
+        // the page map, then load it.
+        media.itemsByLibrary.remove("new-library")
+        media.pages.clear()
+        media.pages[0] = Result.failure(IllegalStateException("falha simulada"))
+        viewModel.loadLibrary("new-library")
+        advanceUntilIdle()
+
+        assertTrue(
+            "the previous library's catalog must not survive the switch",
+            viewModel.state.value.items.isEmpty(),
+        )
+        assertEquals(
+            "a failed first page must not leave pagination pending",
+            false,
+            viewModel.state.value.hasMore,
+        )
+    }
+
     private class FakeMediaRepository : MediaRepository {
         val pages = mutableMapOf<Int, Result<Pair<List<MediaItem>, Int>>>()
         val itemsByLibrary = mutableMapOf<String, Pair<List<MediaItem>, Int>>()

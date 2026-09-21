@@ -29,6 +29,7 @@ import org.mulletaflix.android.navigation.MulletaFlixNavHost
 import org.mulletaflix.designsystem.theme.MulletaFlixTheme
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
+import org.mulletaflix.designsystem.media.LocalMulletaFlixServerId
 import org.mulletaflix.designsystem.components.ReleaseNotesText
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.android.network.LanServerRecovery
@@ -63,7 +64,8 @@ import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
 @UnstableApi
 class MainActivity : ComponentActivity() {
 
-    private var incomingDeepLinkItemId by mutableStateOf<String?>(null)
+    private var incomingDeepLink by mutableStateOf<MediaDeepLinkRequest?>(null)
+    private var deepLinkSequence = 0L
 
     @Inject lateinit var sessionRepository: SessionRepository
     @Inject lateinit var lanServerRecovery: LanServerRecovery
@@ -73,12 +75,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        incomingDeepLinkItemId = extractMediaItemId(intent?.data)
+        incomingDeepLink = mediaDeepLinkRequest(intent, ++deepLinkSequence)
         enableEdgeToEdge()
 
         setContent {
             val serverUrl by sessionRepository.getBaseUrl().collectAsStateWithLifecycle(initialValue = "")
             val accessToken by sessionRepository.getAccessToken().collectAsStateWithLifecycle(initialValue = null)
+            val serverId by sessionRepository.getServerId().collectAsStateWithLifecycle(initialValue = null)
             var sessionResolved by remember { mutableStateOf(false) }
             var hasValidSession by remember { mutableStateOf(false) }
 
@@ -123,6 +126,7 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(
                 LocalMulletaFlixServerUrl provides serverUrl,
                 LocalMulletaFlixAccessToken provides accessToken,
+                LocalMulletaFlixServerId provides serverId,
             ) {
                 MulletaFlixTheme {
                     if (!sessionResolved) {
@@ -140,12 +144,16 @@ class MainActivity : ComponentActivity() {
                     } else {
                         MulletaFlixNavHost(
                             startDestination = if (hasValidSession) {
-                                incomingDeepLinkItemId?.let(org.mulletaflix.android.navigation.MulletaFlixRoute::itemDetail)
+                                incomingDeepLink?.detailRoute
                                     ?: org.mulletaflix.android.navigation.MulletaFlixRoute.HOME
                             } else {
                                 org.mulletaflix.android.navigation.MulletaFlixRoute.SERVER_SELECTION
                             },
-                            deepLinkItemId = incomingDeepLinkItemId,
+                            deepLinkRequest = incomingDeepLink,
+                            // The request is cleared once its destination is on
+                            // screen: otherwise a later logout and login would
+                            // reopen a detail page the user had already left.
+                            onDeepLinkConsumed = { incomingDeepLink = null },
                         )
 
                         if (showUpdateDialog && availableUpdate != null) {
@@ -318,8 +326,10 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        extractMediaItemId(intent.data)?.let { itemId ->
-            incomingDeepLinkItemId = itemId
+        // Every delivered intent gets a fresh sequence, so tapping the same
+        // link again is a new request instead of a silently ignored one.
+        mediaDeepLinkRequest(intent, ++deepLinkSequence)?.let { request ->
+            incomingDeepLink = request
         }
     }
 

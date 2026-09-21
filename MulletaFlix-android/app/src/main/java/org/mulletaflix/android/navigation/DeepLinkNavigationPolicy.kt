@@ -25,3 +25,19 @@ internal fun shouldMarkMediaDeepLinkHandled(
     currentItemId: String?,
     targetItemId: String?,
 ): Boolean = !targetItemId.isNullOrBlank() && currentItemId == targetItemId
+
+/**
+ * Decides whether a delivered request still needs to be acted on.
+ *
+ * Delivery is keyed by [requestSequence], not by the item id: re-opening the
+ * same link while the app is already running must navigate again, and only the
+ * *same* request may be ignored. An id-keyed check silently dropped the second
+ * tap on the same link.
+ */
+internal fun shouldDeliverMediaDeepLink(
+    requestSequence: Long?,
+    handledSequence: Long?,
+    itemId: String?,
+): Boolean = requestSequence != null &&
+    !itemId.isNullOrBlank() &&
+    handledSequence != requestSequence

@@ -173,6 +173,70 @@ class LiveTvViewModelTest {
         assertTrue(viewModel.state.value.channels.isNotEmpty())
     }
 
+    @Test fun `channel refresh does not leave the guide loading forever`() = runTest {
+        // The channel timer (every 60 s) and the RESUMED transition both call
+        // refresh(), which bumps guideGeneration to invalidate the guide in
+        // flight. That invalidated request returns before clearing its own
+        // flag, so refresh() has to clear it. Without that, the EPG dialog
+        // spins forever and the "Guia EPG" action stays disabled.
+        val guideResponse = CompletableDeferred<Result<List<MediaItem>>>()
+        repository.channels = listOf(MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel))
+        repository.guideResponses.add(guideResponse)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadGuide()
+        runCurrent()
+        assertTrue("expected the guide to be loading", viewModel.state.value.isLoadingGuide)
+
+        viewModel.refresh()
+        runCurrent()
+
+        assertTrue(
+            "refresh() must not leave the guide flag stuck while a request is in flight",
+            !viewModel.state.value.isLoadingGuide,
+        )
+
+        guideResponse.complete(Result.success(listOf(testProgram("stale-guide"))))
+        advanceUntilIdle()
+
+        assertTrue(
+            "the invalidated guide response must not be applied",
+            viewModel.state.value.programs.isEmpty(),
+        )
+        assertTrue(
+            "the guide must still be loadable after the response lands",
+            !viewModel.state.value.isLoadingGuide,
+        )
+    }
+
+    @Test fun `idle refresh does not cancel an in flight channel request`() = runTest {
+        // The TV foreground timer must not tear down a request it did not
+        // start; that is the whole point of refreshIfIdle().
+        val inFlight = CompletableDeferred<Result<List<MediaItem>>>()
+        val channel = MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(channel)
+        repository.channelResponses.add(inFlight)
+        repository.channelResponses.add(CompletableDeferred())
+        val viewModel = createViewModel()
+
+        runCurrent()
+        assertTrue("expected the initial channel request to be in flight", repository.channelResponses.isNotEmpty())
+
+        viewModel.refreshIfIdle()
+        runCurrent()
+
+        inFlight.complete(Result.success(listOf(channel)))
+        advanceUntilIdle()
+
+        assertEquals(listOf(channel), viewModel.state.value.channels)
+        assertEquals(
+            "refreshIfIdle must not issue a second channel request while one is loading",
+            1,
+            repository.channelRequests,
+        )
+    }
+
     private fun testProgram(id: String) = MediaItem(
         id = id,
         name = "Filme teste",
@@ -194,11 +258,29 @@ class LiveTvViewModelTest {
         var recordingRequests = 0
         val scheduledIds = mutableListOf<String>()
         val guideResponses = mutableListOf<CompletableDeferred<Result<List<MediaItem>>>>()
-        override suspend fun getChannels(userId: String): Result<List<MediaItem>> { channelRequests++; return Result.success(channels) }
-        override suspend fun getPrograms(channelIds: List<String>, minStartDate: String?, maxEndDate: String?): Result<List<MediaItem>> =
-            withContext(NonCancellable) {
-                guideResponses.removeFirstOrNull()?.await() ?: Result.success(emptyList())
+        val channelResponses = mutableListOf<CompletableDeferred<Result<List<MediaItem>>>>()
+        override suspend fun getChannels(userId: String): Result<List<MediaItem>> {
+            channelRequests++
+            return withContext(NonCancellable) {
+                channelResponses.removeFirstOrNull()?.await() ?: Result.success(channels)
             }
+        }
+        override suspend fun getPrograms(channelIds: List<String>, minStartDate: String?, maxEndDate: String?): Result<List<MediaItem>> {
+            val response = guideResponses.removeFirstOrNull()
+            if (response == null) return Result.success(emptyList())
+            // A transport that ignores cancellation still has to *finish* its
+            // in-flight response; it just does not let the caller's cancel
+            // stop work already on the wire. `withContext(NonCancellable)`
+            // would be wrong here: it also swallows the cancellation of this
+            // job, which no real client does, and it would hide the fact that
+            // refresh() must clear the guide flag itself.
+            return try {
+                response.await()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                response.complete(Result.success(emptyList()))
+                throw cancelled
+            }
+        }
         override suspend fun getRecordings(userId: String): Result<List<MediaItem>> { recordingRequests++; return Result.success(recordings) }
         override suspend fun scheduleRecording(program: MediaItem): Result<Unit> {
             scheduledIds += program.id
