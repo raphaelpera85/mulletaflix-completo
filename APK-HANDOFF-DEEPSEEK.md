@@ -52,12 +52,16 @@ Fable: intenção/aceite
 
 - Versão atual do APK: **1.2.41**.
 - `versionCode`: **242**.
+- Última release: [app-v1.2.41](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.41) (ID 393025500).
+- APK: [mulletaflix-app-v1.2.41.apk](https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.2.41/mulletaflix-app-v1.2.41.apk).
+- Tamanho confirmado local/remoto: **7.324.749 bytes**.
+- SHA-256 confirmado local/remoto: `7EF34D8E7E82B765F8B7FD67B32F52049B9A8DA0977B87B8515D7FE94C4D0A2F`.
 - Release anterior conferida antes do pacote: [app-v1.2.40](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.40) — 7.324.745 bytes, `sha256:2b6af192a9e6c7a7c785e5db599ff081b8e2b8760c65879a51a7675ccc3a8106`.
-- Tamanho do APK v1.2.41: **7.324.749 bytes**.
-- SHA-256 local v1.2.41: `A10392DC0B36F5E9936BB605292B5344262E44C17EF23EF626F25D83D1C3B6CA`.
-- A v1.2.40 anterior também foi conferida em rodada anterior: a v1.2.39 media 7.324.745 bytes, SHA-256 `E3AFAAD66048BAB755AA8DA86CCFBEAF5301CC981F0DC0F167E6D07678E3C920`.
-- Último Quality Bar verde desta rodada: `testDebugUnitTest` com **456 tarefas** (código 0), `:app:lintDebug` (código 0) e `:app:assembleRelease` (código 0) — sequência executada depois da última alteração de código.
-- Nenhum emulador permaneceu aberto em nenhum ponto da rodada.
+- A v1.2.39 (conferida antes da v1.2.40) media 7.324.745 bytes, SHA-256 `E3AFAAD66048BAB755AA8DA86CCFBEAF5301CC981F0DC0F167E6D07678E3C920`.
+- O APK v1.2.41 é assinado com o certificado de depuração do projeto (sha256 `224f9a6bd12690e1114ace649bbfa778d3e7e99dae608ff711ddf9131e036273`), igual às releases anteriores, porque `KEYSTORE_PATH` não está definido no ambiente. A verificação com `apksigner verify` retorna `EXIT=0`.
+- Último Quality Bar verde desta rodada: `testDebugUnitTest` com **456 tarefas** (código 0), `:app:lintDebug` (código 0) e `:app:assembleRelease` com **662 tarefas executadas** (código 0).
+- Verificação instrumentada: **41 testes** na AVD `MulletaflixTvApi34`, 0 falhas; o APK final foi instalado (`Success`), exercitado na TV e conferido no dispositivo como `versionCode=242 / versionName=1.2.41`.
+- Nenhum emulador permaneceu aberto em nenhum ponto da rodada (`emulator=0`, `qemu=0`).
 
 > Histórico: a v1.2.40 foi a última release antes desta rodada e foi instalada no
 > Android TV com `Success`.
@@ -87,8 +91,10 @@ Correção aplicada: o vermelho passa a ter dois papéis.
   superfície mais desfavorável (`surface`, `background`, `surfaceVariant`).
 - O tema Light troca `primary` para `MulletaFlixRedDark` (`#B20710`) porque o
   rótulo branco sobre o vermelho vívido media 4,40:1.
-- O `LightColorScheme` foi o único tema em que o acento não mudou de valor: ele
-  já nascia legível.
+- Só o `LightColorScheme` manteve o `secondary` padrão do Material 3 (o teste
+  `every theme accent is readable on its own surfaces after lifting` confirma que
+  ele já é legível nas três superfícies claras); nos demais temas o acento foi
+  derivado a partir do vermelho da marca.
 
 Evidência automatizada (`:design-system:testDebugUnitTest` e teste instrumentado
 de pixel em `design-system/src/androidTest`):
@@ -98,8 +104,11 @@ de pixel em `design-system/src/androidTest`):
   duas correções adicionais: calibrar pelo `surfaceVariant` (o acento media
   4,21:1 nele) e corrigir o `primary` do tema Light (4,40:1).
 - `AccessibleAccentRenderTest` renderiza o tema no dispositivo, captura o pixel
-  e prova que o acento entregue ao `MaterialTheme` é o vermelho acessível e que
-  o preenchimento continua sendo o vermelho vívido.
+  do acento e mede o contraste do que foi realmente desenhado. Ele afirma o
+  **contraste medido** (`>= 4,5:1`) e não um hexadecimal fixo, porque o
+  emulador compõe a cor (`#FF3333` chega ao framebuffer como `#FF4545`, que
+  mede 5,85:1). O segundo teste prova que um preenchimento continua sendo o
+  vermelho vívido e não o vermelho de texto.
 
 ### Verificação instrumentada contra o servidor real
 
@@ -123,6 +132,19 @@ O emulador foi encerrado ao final (0 processos `emulator`/`qemu-system-x86_64`).
 - Reprodução real, capas, faixas de áudio/legenda e casting: não executados.
 - TalkBack e tamanhos de toque: pendentes; apenas contraste foi tratado.
 
+### Armadilha registrada: o APK não é reproduzível byte a byte
+
+Dois `assembleRelease` do mesmo código-fonte geraram tamanho idêntico
+(7.324.749 bytes) mas SHA-256 diferente:
+`A10392DC…3B6CA` antes e `7EF34D8E…D0A2F` depois de um `--rerun-tasks`. O carimbo
+de assinatura muda a cada build. Portanto:
+
+- Sempre medir o digest do APK que será publicado, nunca reutilizar o digest de
+  uma build anterior do mesmo código.
+- Instalar e exercitar exatamente o arquivo que foi para `dist/`, e só então
+  publicar. A release v1.2.41 foi publicada com o arquivo cujo digest remoto
+  confere com o local.
+
 ## Regras que o próximo agente deve respeitar
 
 1. Tratar esta conversa como APK-only. Não executar nem publicar servidor.
@@ -135,12 +157,22 @@ O emulador foi encerrado ao final (0 processos `emulator`/`qemu-system-x86_64`).
 8. Emuladores devem ser iniciados somente durante o teste e encerrados ao final pelo wrapper.
 9. A versão segue SemVer: depois de `1.2.99`, usar `1.3.0`; nunca criar `1.2.100`.
 10. Cada tarefa de código deve seguir Builder → testes/lint → Evaluator/Gauntlet → release APK, quando concluída.
+11. Existe um processo externo que faz `git commit` automático no repositório. Durante a rodada v1.2.41 ele criou o commit `fbe35724 chore/feat: implement IntroSkipper database maintenance and Android theme enhancements`, que incluiu as alterações do APK **e** alterações de servidor que já estavam no worktree. Verifique o estado do repositório antes e depois de trabalhar; `main` ficou 1 commit à frente de `origin/main` e **nada foi enviado ao remoto** por esta sessão.
 
 ## Backlog priorizado
 
 ### P0 — validar antes de considerar o APK pronto para uso real
 
 - [ ] Executar smoke test instrumentado no servidor ativo com a conta de teste, sem registrar a senha em arquivos.
+  - Parcial: a suíte instrumentada existente (**39 testes** em `app`, `design-system`, `auth`, `downloads`, `home`, `item-detail`, `library`, `player`, `search` e `settings`) foi executada com o servidor ativo em `192.168.15.9:8096` e passou 39/39. Ela cobre boot, branding e telas sem sessão; **o login com a conta de teste continua pendente** porque exige a credencial.
+  - Comando usado:
+    ```powershell
+    .\gradlew.bat :design-system:connectedDebugAndroidTest :feature:auth:connectedDebugAndroidTest `
+      :feature:home:connectedDebugAndroidTest :feature:library:connectedDebugAndroidTest `
+      :feature:item-detail:connectedDebugAndroidTest :feature:player:connectedDebugAndroidTest `
+      :feature:search:connectedDebugAndroidTest :feature:settings:connectedDebugAndroidTest `
+      :feature:downloads:connectedDebugAndroidTest :app:connectedDebugAndroidTest --no-daemon --no-parallel --console=plain
+    ```
 - [ ] Validar login tradicional, botão **Criar conta**, seleção de usuário e logout em celular, tablet e Android TV.
 - [ ] Validar Quick Connect contra o servidor real: gerar PIN, autorizar, autenticar, expirar e trocar de servidor.
 - [ ] Validar descoberta LAN real: servidor na mesma rede deve ser escolhido automaticamente; fora da LAN deve cair para DuckDNS.
@@ -166,10 +198,11 @@ O emulador foi encerrado ao final (0 processos `emulator`/`qemu-system-x86_64`).
 - [ ] Implementar e testar espelhamento/casting para dispositivos compatíveis. Avaliar separadamente Google Cast/Media3 Cast, Android MediaProjection e reprodução remota compatível com o servidor; não chamar de concluído sem teste real.
 - [ ] Validar deep link oficial `/web/#/details?id=...&serverId=...` com endpoint público, sem gerar `localhost`.
 - [ ] Validar compartilhamento de filme, série, temporada e episódio com título, capa e metadados corretos.
-- [ ] Confirmar ícone não redondo seguindo o contorno externo do logo correto e wordmark com `MULLETA` vermelho e `FLIX` branco.
-- [ ] Confirmar tema preto predominante com detalhes vermelhos em login, cards, foco remoto, player, estados de erro e telas vazias.
+- [x] ~~Confirmar ícone não redondo seguindo o contorno externo do logo correto e wordmark com `MULLETA` vermelho e `FLIX` branco.~~ Confirmado no APK v1.2.41 instalado na TV: o launcher não recorta o logo octogonal em círculo (o manifesto usa `@drawable/ic_mulletaflix_logo`, não o `mipmap-anydpi-v26`), o wordmark renderiza `MULLETA` em `#E50914` e `FLIX` em branco sobre fundo preto. Ver `artifacts/tv-v1.2.41-final.png`.
+- [x] ~~Confirmar tema preto predominante com detalhes vermelhos em login, cards, foco remoto, player, estados de erro e telas vazias.~~ Confirmado no login renderizado na TV. Em v1.2.41 o contraste do vermelho como texto foi corrigido (ver seção da rodada).
 - [ ] Testar atualização do APK a partir do Centro de Atualizações e confirmar que uma versão dispensada não reaparece durante a sessão.
-- [ ] Verificar suporte de acessibilidade: TalkBack, contraste, content descriptions, foco visível e tamanhos de toque.
+- [ ] Verificar suporte de acessibilidade: TalkBack, content descriptions, foco visível e tamanhos de toque.
+- [x] ~~Verificar suporte de acessibilidade: contraste.~~ Contraste AA tratado e coberto por testes unitários e por teste instrumentado de pixel. **Pendências remanescentes:** rótulos secundários com `Color.White.copy(alpha = 0.4f/0.5f)` e `onSurface.copy(alpha = 0.4f/0.5f)` medem entre 3,1:1 e 3,5:1 sobre as superfícies escuras (ex.: `ProfileScreen.kt`, `ServerSelectionScreen.kt`) e ainda precisam de tratamento; `outline` (`#424242`) tem 1,83:1 sobre a surface e reprova o mínimo de 3:1 para limites de componente.
 
 ### P2 — melhorias de produto e qualidade
 

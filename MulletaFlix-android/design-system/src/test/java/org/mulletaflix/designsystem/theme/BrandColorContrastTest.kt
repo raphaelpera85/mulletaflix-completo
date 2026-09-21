@@ -137,6 +137,72 @@ class BrandColorContrastTest {
     }
 
     @Test
+    fun `the hand picked dim alphas are measurably unreadable`() {
+        // Documents why readableOnBackground exists. These are the exact pairs
+        // the app used before this policy.
+        val combinations = listOf(
+            Color.White.copy(alpha = 0.4f) to DarkSurface,
+            Color.White.copy(alpha = 0.5f) to DarkSurface,
+            DarkOnSurface.copy(alpha = 0.4f) to DarkSurface,
+            DarkOnSurface.copy(alpha = 0.5f) to DarkSurface,
+            Color.White.copy(alpha = 0.5f) to DarkBackground,
+        )
+        combinations.forEach { (foreground, background) ->
+            val composited = compositeOver(foreground, background)
+            val ratio = contrastRatio(composited, background)
+            assertTrue(
+                "expected the raw alpha to fail AA (was ${"%.2f".format(ratio)}:1)",
+                ratio < aaNormalText,
+            )
+            assertContrast(
+                "lifted $foreground",
+                compositeOver(readableOnBackground(foreground, background), background),
+                background,
+                aaNormalText,
+            )
+        }
+    }
+
+    @Test
+    fun `lifting keeps the colour identity and only raises the alpha`() {
+        val lifted = readableOnBackground(Color.White.copy(alpha = 0.4f), DarkSurface)
+        assertEquals(Color.White, lifted.copy(alpha = 1f))
+        assertTrue(
+            "the lifted alpha must stay below fully opaque (was ${lifted.alpha})",
+            lifted.alpha < 1f,
+        )
+        assertTrue(
+            "the lifted alpha must be above the original",
+            lifted.alpha > 0.4f,
+        )
+    }
+
+    @Test
+    fun `an already readable dim colour is returned untouched`() {
+        val alreadyReadable = Color.White.copy(alpha = 0.9f)
+        assertEquals(alreadyReadable, readableOnBackground(alreadyReadable, DarkSurface))
+    }
+
+    @Test
+    fun `non text ui only needs the three to one floor`() {
+        val icon = readableOnBackground(
+            foreground = DarkOnSurface.copy(alpha = 0.4f),
+            background = DarkSurface,
+            minimum = aaLargeTextAndUi,
+        )
+        assertContrast(
+            "lifted icon",
+            compositeOver(icon, DarkSurface),
+            DarkSurface,
+            aaLargeTextAndUi,
+        )
+        assertTrue(
+            "a 3:1 icon must not be lifted as far as 4.5:1 text",
+            icon.alpha <= readableOnBackground(DarkOnSurface.copy(alpha = 0.4f), DarkSurface).alpha,
+        )
+    }
+
+    @Test
     fun `light scheme keeps the brand red readable as a filled container`() {
         assertContrast(
             "light onPrimary on light primary",
