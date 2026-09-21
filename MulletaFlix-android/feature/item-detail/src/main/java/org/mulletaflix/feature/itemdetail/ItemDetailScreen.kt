@@ -34,6 +34,7 @@ import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
+import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 /**
  * Item detail screen covering all content types:
@@ -283,7 +284,7 @@ private fun DetailHero(
                 Button(
                     onClick = onPlay,
                     enabled = playEnabled,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed)
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(4.dp))

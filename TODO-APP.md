@@ -466,3 +466,11 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Manter o polling de três segundos para códigos ainda pendentes.
 - [x] Limpar PIN e secret após a autenticação imediata.
 - [x] Cobrir o caminho autorizado com teste do ViewModel.
+
+## 214. Contraste acessível do vermelho da marca (v1.2.41)
+- [x] Medir o contraste real do vermelho vívido `#E50914` sobre as superfícies escuras: 3,84:1 na surface e 4,18:1 no background, abaixo do mínimo AA de 4,5:1 para texto normal.
+- [x] Separar o vermelho em dois papéis: preenchimento/anel de foco (`MulletaFlixRed`) e texto/ícone (`colorScheme.secondary`).
+- [x] Elevar automaticamente o acento de todos os temas (Dark, Netflix, Purple Haze, Blue Radiance) até 4,5:1 antes de entregar ao `MaterialTheme`.
+- [x] Manter o indicador de aba e os botões preenchidos com o vermelho vívido, onde o texto branco sobre ele mede 4,79:1.
+- [x] Cobrir a política com testes de contraste WCAG 2.2 por tema.
+- [x] Registrar a verificação instrumentada de 39 testes na Android TV contra o servidor real.

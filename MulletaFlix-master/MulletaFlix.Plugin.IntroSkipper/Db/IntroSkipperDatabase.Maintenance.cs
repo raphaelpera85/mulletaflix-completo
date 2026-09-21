@@ -105,11 +105,14 @@ internal sealed partial class IntroSkipperDatabase
             // since lost) that only a projection heals. Erases are explicit user
             // actions over bounded id sets, so the extra markers cost one no-op sync each.
             var removedSegments = await db.Segments
-                .Where(s => EF.Parameter(ids).Contains(s.ItemId))
+                // Keep the array as an ordinary enumerable. EF.Parameter(ids) can
+                // bind Contains to ReadOnlySpan<Guid>, which EF cannot translate
+                // when ExecuteDeleteAsync compiles the query.
+                .Where(s => ids.Contains(s.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
             await db.AnalyzedItems
-                .Where(a => EF.Parameter(ids).Contains(a.ItemId))
+                .Where(a => ids.Contains(a.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
             await EnqueueProjectionsAsync(db, ids, cancellationToken).ConfigureAwait(false);

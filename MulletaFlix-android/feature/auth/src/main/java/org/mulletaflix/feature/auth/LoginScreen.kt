@@ -41,6 +41,7 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
+import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 internal const val REGISTER_DIALOG_CONTENT_DESCRIPTION = "Conteúdo do cadastro; deslize verticalmente para ver mais"
 
@@ -114,7 +115,7 @@ fun LoginScreen(
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.secondary,
                 indicator = {
-                    TabRowDefaults.PrimaryIndicator(color = MaterialTheme.colorScheme.secondary)
+                    TabRowDefaults.PrimaryIndicator(color = MulletaFlixRed)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -267,7 +268,8 @@ private fun PasswordLoginForm(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed),
         ) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)

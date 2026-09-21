@@ -42,7 +42,7 @@ fun MulletaFlixTheme(
     val context = LocalContext.current
     val isDarkSystem = isSystemInDarkTheme()
 
-    val colorScheme = when (variant) {
+    val baseScheme = when (variant) {
         MulletaFlixThemeVariant.System -> {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (isDarkSystem) dynamicDarkColorScheme(context)
@@ -60,6 +60,11 @@ fun MulletaFlixTheme(
         MulletaFlixThemeVariant.WMC -> DarkColorScheme
         MulletaFlixThemeVariant.AppleTV -> DarkColorScheme
     }
+
+    // Every accent label, icon and outline must stay readable on its own
+    // surface, so the accent roles are lifted to WCAG AA once, here, instead
+    // of relying on each screen to pick a contrast-safe red.
+    val colorScheme = baseScheme.withAccessibleAccent()
 
     CompositionLocalProvider(LocalMulletaFlixThemeVariant provides variant) {
         MaterialTheme(

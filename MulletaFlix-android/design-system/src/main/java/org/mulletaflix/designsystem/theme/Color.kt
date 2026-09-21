@@ -11,7 +11,17 @@ import androidx.compose.ui.graphics.Color
 
 // Brand
 val MulletaFlixBlack = Color(0xFF0F0F0F)
+
+/** Vivid brand red. Only for fills, focus rings and artwork — see [MulletaFlixBrand]. */
 val MulletaFlixRed = Color(0xFFE50914)
+
+/**
+ * The same brand red lifted until it clears WCAG 2.2 AA (4.5:1) as *text* on
+ * the dark surfaces (5.06:1 on [DarkSurface], 5.51:1 on [DarkBackground]).
+ * Never use it as a container behind white text (3.64:1).
+ */
+val MulletaFlixRedAccessible = Color(0xFFFF3333)
+
 val MulletaFlixRedDark = Color(0xFFB20710)
 val MulletaFlixRedLight = Color(0xFFFF5A60)
 

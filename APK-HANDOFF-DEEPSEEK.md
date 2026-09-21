@@ -3,6 +3,11 @@
 Atualizado em: 21/09/2026  
 Escopo desta conversa: **somente o APK Android**.
 
+> Nota desta rodada: as evidências abaixo foram coletadas em 21/09/2026 pelo agente
+> DeepSeek. O servidor real (MulletaFlix 12.0.27) respondeu em
+> `http://192.168.15.9:8096` e via `http://mulletaflix.duckdns.org:8096`; nenhum
+> script de release do servidor foi executado.
+
 ## Skills e metodologias utilizadas
 
 Estas são as skills efetivamente usadas para orientar o desenvolvimento, testes, revisão e handoff deste projeto. O próximo agente deve manter a mesma combinação; skills adicionais podem ser incluídas quando uma tarefa exigir, mas não devem substituir as regras abaixo.
@@ -45,15 +50,78 @@ Fable: intenção/aceite
 
 ## Estado confirmado
 
-- Versão atual do APK: **1.2.40**.
-- `versionCode`: **241**.
-- Última release: [app-v1.2.40](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.40).
-- APK: [mulletaflix-app-v1.2.40.apk](https://github.com/raphaelpera85/mulletaflix-completo/releases/download/app-v1.2.40/mulletaflix-app-v1.2.40.apk).
-- Tamanho confirmado local/remoto: **7.324.745 bytes**.
-- SHA-256 confirmado local/remoto: `2B6AF192A9E6C7A7C785E5DB599FF081B8E2B8760C65879A51A7675CCC3A8106`.
-- A v1.2.39 anterior também foi conferida antes da v1.2.40: 7.324.745 bytes, SHA-256 `E3AFAAD66048BAB755AA8DA86CCFBEAF5301CC981F0DC0F167E6D07678E3C920`.
-- A v1.2.40 foi instalada no Android TV com `Success`; nenhum emulador permaneceu aberto.
-- Último Quality Bar verde: `testDebugUnitTest` com **456 tarefas**, lint do APK e `assembleRelease`.
+- Versão atual do APK: **1.2.41**.
+- `versionCode`: **242**.
+- Release anterior conferida antes do pacote: [app-v1.2.40](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.40) — 7.324.745 bytes, `sha256:2b6af192a9e6c7a7c785e5db599ff081b8e2b8760c65879a51a7675ccc3a8106`.
+- Tamanho do APK v1.2.41: **7.324.749 bytes**.
+- SHA-256 local v1.2.41: `A10392DC0B36F5E9936BB605292B5344262E44C17EF23EF626F25D83D1C3B6CA`.
+- A v1.2.40 anterior também foi conferida em rodada anterior: a v1.2.39 media 7.324.745 bytes, SHA-256 `E3AFAAD66048BAB755AA8DA86CCFBEAF5301CC981F0DC0F167E6D07678E3C920`.
+- Último Quality Bar verde desta rodada: `testDebugUnitTest` com **456 tarefas** (código 0), `:app:lintDebug` (código 0) e `:app:assembleRelease` (código 0) — sequência executada depois da última alteração de código.
+- Nenhum emulador permaneceu aberto em nenhum ponto da rodada.
+
+> Histórico: a v1.2.40 foi a última release antes desta rodada e foi instalada no
+> Android TV com `Success`.
+
+## Rodada v1.2.41 — acessibilidade de contraste + verificação instrumentada
+
+### Defeito encontrado e corrigido
+
+Medido na tela real de login renderizada na Android TV (`adb exec-out screencap`) e
+confirmado pelos valores de tema: o vermelho vívido da marca `#E50914` era usado
+como **texto** sobre as superfícies escuras e não atingia o mínimo AA.
+
+| Par vermelho/texto | Contraste medido | Mínimo WCAG 2.2 AA |
+|---|---:|---:|
+| `#E50914` sobre `#141414` (surface) | 3,84:1 | 4,5:1 |
+| `#E50914` sobre `#080808` (background) | 4,18:1 | 4,5:1 |
+| `#E50914` sobre `#1F1F1F` (Netflix surface) | 3,44:1 | 4,5:1 |
+| `#9C27B0` sobre `#1D1028` (Purple Haze) | 2,88:1 | 4,5:1 |
+| `#1565C0` sobre `#0D1628` (Blue Radiance) | 3,14:1 | 4,5:1 |
+
+Correção aplicada: o vermelho passa a ter dois papéis.
+
+- `MulletaFlixRed` (`#E50914`) continua em preenchimentos, anel de foco, indicador
+  de aba e arte — onde o texto branco por cima mede 4,79:1 e passa.
+- O acento do tema (`colorScheme.secondary`) passa a ser calculado por
+  `accessibleAccent(...)`, que eleva o vermelho de cada tema até 4,5:1 usando a
+  superfície mais desfavorável (`surface`, `background`, `surfaceVariant`).
+- O tema Light troca `primary` para `MulletaFlixRedDark` (`#B20710`) porque o
+  rótulo branco sobre o vermelho vívido media 4,40:1.
+- O `LightColorScheme` foi o único tema em que o acento não mudou de valor: ele
+  já nascia legível.
+
+Evidência automatizada (`:design-system:testDebugUnitTest` e teste instrumentado
+de pixel em `design-system/src/androidTest`):
+
+- `BrandColorContrastTest` mede o contraste WCAG 2.2 de todos os temas antes de
+  aceitar o acento. Ele **reprovou duas vezes** durante esta rodada e obrigou
+  duas correções adicionais: calibrar pelo `surfaceVariant` (o acento media
+  4,21:1 nele) e corrigir o `primary` do tema Light (4,40:1).
+- `AccessibleAccentRenderTest` renderiza o tema no dispositivo, captura o pixel
+  e prova que o acento entregue ao `MaterialTheme` é o vermelho acessível e que
+  o preenchimento continua sendo o vermelho vívido.
+
+### Verificação instrumentada contra o servidor real
+
+Executada na AVD `MulletaflixTvApi34` (porta 5556) com o servidor ativo em
+`192.168.15.9:8096`: **39 testes instrumentados, 0 falhas, 0 erros**, distribuídos
+em `app` (1), `design-system` (3), `feature:auth` (2), `feature:downloads` (6),
+`feature:home` (3), `feature:item-detail` (4), `feature:library` (6),
+`feature:player` (10), `feature:search` (3) e `feature:settings` (1).
+
+Também confirmado visualmente na TV: o app abre direto no login com o servidor
+já reconhecido, logo octogonal não recortado em círculo pelo launcher, wordmark
+com `MULLETA` vermelho e `FLIX` branco, fundo preto e detalhes vermelhos.
+O emulador foi encerrado ao final (0 processos `emulator`/`qemu-system-x86_64`).
+
+### O que esta rodada NÃO validou
+
+- Login com conta real, Quick Connect autorizado, seleção de usuário e logout:
+  exigem credencial ou autorização do PIN no servidor e **não foram executados**.
+- Descoberta LAN preferindo o endereço local: sem sessão autenticada o app para
+  na tela de login, então a preferência LAN → DuckDNS não pôde ser exercitada.
+- Reprodução real, capas, faixas de áudio/legenda e casting: não executados.
+- TalkBack e tamanhos de toque: pendentes; apenas contraste foi tratado.
 
 ## Regras que o próximo agente deve respeitar
 

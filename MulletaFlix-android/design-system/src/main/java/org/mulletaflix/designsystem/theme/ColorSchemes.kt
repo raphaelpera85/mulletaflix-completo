@@ -6,11 +6,15 @@ import androidx.compose.ui.graphics.Color
 
 /** Default dark theme — preto cinematográfico com vermelho MulletaFlix */
 val DarkColorScheme = darkColorScheme(
+    // `primary` stays the cinematic black used by neutral containers.
     primary = MulletaFlixBlack,
     onPrimary = Color.White,
     primaryContainer = MulletaFlixRedDark,
     onPrimaryContainer = Color.White,
-    secondary = MulletaFlixRed,
+    // The theme accent is the accessible red so every label, icon and outline
+    // that reads the accent colour from the theme clears WCAG AA on dark.
+    // Fills that need white text on top keep [MulletaFlixRed] explicitly.
+    secondary = MulletaFlixRedAccessible,
     onSecondary = Color.White,
     secondaryContainer = MulletaFlixRedDark,
     onSecondaryContainer = Color.White,
@@ -28,9 +32,16 @@ val DarkColorScheme = darkColorScheme(
     onErrorContainer = MulletaFlixOnErrorContainer,
 )
 
-/** Light theme */
+/**
+ * Light theme.
+ *
+ * `primary` is the darker brand red on purpose: a white label on the vivid
+ * #E50914 only reaches 4.40:1 (4.79:1 is measured against the dark surface
+ * where the same red is used as a fill), so the light theme uses the darker
+ * brand red to clear AA on white.
+ */
 val LightColorScheme = lightColorScheme(
-    primary = MulletaFlixRed,
+    primary = MulletaFlixRedDark,
     onPrimary = LightBackground,
     primaryContainer = MulletaFlixRedLight,
     onPrimaryContainer = MulletaFlixRedDark,

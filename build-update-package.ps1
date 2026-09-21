@@ -10,13 +10,27 @@
 
 [CmdletBinding()]
 param(
-    [string]$Version = "12.0.8",
+    [string]$Version,
     [string]$OutputDir,
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$sharedVersionPath = Join-Path $projectRoot 'MulletaFlix-master\SharedVersion.cs'
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    if (-not (Test-Path -LiteralPath $sharedVersionPath)) {
+        throw "SharedVersion.cs not found: $sharedVersionPath"
+    }
+
+    $versionMatch = Select-String -LiteralPath $sharedVersionPath -Pattern 'AssemblyFileVersion\("([^\"]+)"\)' | Select-Object -First 1
+    if (-not $versionMatch) {
+        throw "Could not determine the server version from $sharedVersionPath"
+    }
+
+    $Version = $versionMatch.Matches[0].Groups[1].Value
+}
+
 if (-not $OutputDir) {
     $OutputDir = Join-Path $projectRoot 'dist'
 }
@@ -32,7 +46,6 @@ Write-Host "   MulletaFlix In-Place Update Package Builder    " -ForegroundColor
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # 0. Sync version to SharedVersion.cs and Directory.Build.props
-$sharedVersionPath = Join-Path $projectRoot 'MulletaFlix-master\SharedVersion.cs'
 if (Test-Path -LiteralPath $sharedVersionPath) {
     $sharedVersionContent = @"
 using System.Reflection;

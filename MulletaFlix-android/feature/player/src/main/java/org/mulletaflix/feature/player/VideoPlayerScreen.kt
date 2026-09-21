@@ -52,6 +52,7 @@ import androidx.media3.ui.CaptionStyleCompat
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 internal const val CAST_ACTION_CONTENT_DESCRIPTION = "Transmitir para dispositivo compatível"
 internal const val PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION = "Ações do player; deslize horizontalmente para ver mais"
@@ -425,7 +426,7 @@ fun VideoPlayerScreen(
         ) {
             Button(
                 onClick = { viewModel.skipSegment() },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed)
             ) {
                 Text("Pular Introdução")
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
@@ -451,7 +452,7 @@ fun VideoPlayerScreen(
         ) {
             Button(
                 onClick = { viewModel.skipSegment() },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed)
             ) {
                 Text("Pular Créditos")
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.padding(start = 4.dp))
