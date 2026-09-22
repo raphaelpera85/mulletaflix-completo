@@ -18,7 +18,7 @@ namespace Emby.Server.Implementations
             { FfmpegProbeSizeKey, "1G" },
             { FfmpegAnalyzeDurationKey, "200M" },
             { BindToUnixSocketKey, bool.FalseString },
-            { SqliteCacheSizeKey, "20000" },
+            { DatabaseCacheSizeKey, "20000" },
             { FfmpegSkipValidationKey, bool.FalseString },
             { FfmpegImgExtractPerfTradeoffKey, bool.FalseString },
             { DetectNetworkChangeKey, bool.TrueString }

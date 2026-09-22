@@ -5,16 +5,14 @@
 
 using System.Text.Json;
 using IntroSkipper.Data;
-using Microsoft.Data.Sqlite;
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Plugin segment database (<c>introskipper-v2.db</c>). The schema is owned by EF
-/// migrations (a single baseline; later changes are plain migrations on top); data from
-/// the legacy <c>introskipper.db</c> is carried over once by <see cref="LegacyDatabaseImporter"/>.
+/// Plugin segment database stored in the server MariaDB schema.
 /// </summary>
 public class IntroSkipperDbContext : DbContext
 {
@@ -24,8 +22,6 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     internal const int SaveBatchSize = 1000;
 
-    // SQLite stores DateTime without a kind; every stored timestamp is UTC, so reads
-    // must come back marked as such or comparisons silently use local time.
     private static readonly ValueConverter<DateTime, DateTime> _utcDateTimeConverter =
         new(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
 
@@ -35,7 +31,7 @@ public class IntroSkipperDbContext : DbContext
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
     /// </summary>
-    /// <param name="options">The options, configured through <see cref="SqlitePragmas.Configure"/>.</param>
+    /// <param name="options">The options configured by the server MariaDB provider.</param>
     public IntroSkipperDbContext(DbContextOptions<IntroSkipperDbContext> options) : base(options)
     {
     }
@@ -93,7 +89,7 @@ public class IntroSkipperDbContext : DbContext
             // sync of its item at the Jellyfin write boundary.
             entity.ToTable("Segments", table => table.HasCheckConstraint(
                 "CK_Segments_Range",
-                "\"EndTicks\" > \"StartTicks\" AND \"StartTicks\" >= 0"));
+                "`EndTicks` > `StartTicks` AND `StartTicks` >= 0"));
             entity.HasKey(s => s.Id);
 
             // Ids are always supplied by the plugin (Guid v7) so they can be shared
@@ -211,19 +207,19 @@ public class IntroSkipperDbContext : DbContext
     }
 
     /// <summary>
-    /// Asynchronously rebuilds the database while attempting to preserve segments,
-    /// season state, analysis records, disabled items and the legacy-import marker. When no marker exists
-    /// (the legacy import never succeeded) none is written, so the next start retries the
-    /// import; the importer skips rows the restored data already holds.
+    /// Asynchronously rebuilds the plugin tables while attempting to preserve segments,
+    /// season state, analysis records, disabled items and the legacy-import marker. When
+    /// no marker exists (the legacy import never succeeded) none is written, so the next
+    /// start retries the import; the importer skips rows the restored data already holds.
     /// </summary>
     /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
     /// <param name="forceCleanOnBackupFailure">
-    /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
+    /// When <c>true</c>, rebuild proceeds with empty tables if the backup read fails.
     /// When <c>false</c>, the rebuild aborts to avoid data loss.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the database file is untouched.</exception>
+    /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the plugin rows are untouched.</exception>
     internal async Task RebuildDatabaseAsync(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
         var segments = new List<DbSegment>();
@@ -234,7 +230,6 @@ public class IntroSkipperDbContext : DbContext
         var disabledItems = new List<DbDisabledItem>();
         var projectionQueue = new List<DbProjectionQueueItem>();
         var projectionExternalOperations = new List<DbProjectionExternalOperation>();
-        var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
         try
@@ -273,21 +268,20 @@ public class IntroSkipperDbContext : DbContext
         {
             throw; // Don't swallow cancellation
         }
-        catch (Exception ex) when (ex is SqliteException or DbUpdateException or JsonException or FormatException or InvalidCastException)
+        catch (Exception ex) when (ex is DbException or DbUpdateException or JsonException or FormatException or InvalidCastException)
         {
             // FormatException/InvalidCastException cover corrupted TEXT in the
             // materialized Guid/DateTime columns, which surfaces during row
-            // materialization rather than as a SqliteException.
+            // materialization rather than as a provider exception.
             if (!forceCleanOnBackupFailure)
             {
                 throw new DatabaseRebuildBackupException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
             }
 
             // Explicit clean-rebuild fallback requested by the caller.
-            backupFailed = true;
         }
 
-        // Sanitize the salvage before the old file is destroyed: rebuild targets
+        // Sanitize the salvage before the old rows are destroyed: rebuild targets
         // corrupted databases, whose readable rows can still violate the fresh schema's
         // CHECK constraint, unique index or primary keys — and the restore below is
         // all-or-nothing, so a single such row must not turn a salvageable database
@@ -306,16 +300,10 @@ public class IntroSkipperDbContext : DbContext
         disabledItems = [.. disabledItems.DistinctBy(d => d.ItemId)];
         projectionQueue = [.. projectionQueue.DistinctBy(q => q.ItemId)];
 
-        if (backupFailed)
-        {
-            DeleteDatabaseFiles();
-        }
-        else
-        {
-            await Database.EnsureDeletedAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+        // The plugin owns tables inside the shared MariaDB database. Never drop the
+        // database itself during a rebuild; clear only IntroSkipper rows and recreate
+        // missing tables through EnsureCreated.
+        await Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
 
         // Auto-increment keys must not be restored verbatim into the fresh table. The
         // external operations were read ordered by Id, so re-insertion in list order
@@ -338,6 +326,9 @@ public class IntroSkipperDbContext : DbContext
             var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             await using (transaction.ConfigureAwait(false))
             {
+                await db.Database.ExecuteSqlRawAsync(
+                    "DELETE FROM `ProjectionExternalOperations`; DELETE FROM `ProjectionQueue`; DELETE FROM `DisabledItems`; DELETE FROM `ImportHistory`; DELETE FROM `AnalyzedItems`; DELETE FROM `SeasonAnalysisOverrides`; DELETE FROM `SeasonStates`; DELETE FROM `Segments`;",
+                    cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
                 await AddInBatchesAsync(db, db.SeasonAnalysisOverrides, seasonAnalysisOverrides, cancellationToken).ConfigureAwait(false);
@@ -417,50 +408,4 @@ public class IntroSkipperDbContext : DbContext
         }
     }
 
-    private void DeleteDatabaseFiles()
-    {
-        var dbPath = GetDatabaseFilePath();
-        if (string.IsNullOrEmpty(dbPath))
-        {
-            throw new InvalidOperationException("Cannot delete a database file when the context was created without a configured database path.");
-        }
-
-        // Close this context's own connection before clearing pools, so nothing holds a lock.
-        Database.CloseConnection();
-        SqliteConnection.ClearAllPools();
-
-        // Attempt to delete all files, collecting failures so one locked file doesn't prevent the rest.
-        List<(string Path, Exception Exception)>? failures = null;
-        foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" }.Where(File.Exists))
-        {
-            try
-            {
-                File.Delete(path);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                failures ??= [];
-                failures.Add((path, ex));
-            }
-        }
-
-        if (failures is { Count: > 0 })
-        {
-            throw new AggregateException(
-                $"Failed to delete {failures.Count} database file(s): {string.Join(", ", failures.Select(f => f.Path))}",
-                failures.Select(f => f.Exception));
-        }
-    }
-
-    internal string? GetDatabaseFilePath()
-    {
-        var connectionString = Database.GetConnectionString();
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            return null;
-        }
-
-        var builder = new SqliteConnectionStringBuilder(connectionString);
-        return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
-    }
 }

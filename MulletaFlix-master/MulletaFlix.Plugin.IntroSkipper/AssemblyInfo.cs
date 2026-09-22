@@ -5,4 +5,8 @@
 
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("IntroSkipper.Tests")]
+[assembly: InternalsVisibleTo("IntroSkipper.Integration.Tests")]
+
+// The migration tool restores the file version recorded in a pre-MariaDB database, which
+// only the migration path may write through a tracked entity.
+[assembly: InternalsVisibleTo("mulletaflix-introskipper-migrate")]

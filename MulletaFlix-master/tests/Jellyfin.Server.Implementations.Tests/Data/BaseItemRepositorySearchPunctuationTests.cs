@@ -9,12 +9,12 @@ using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Data
 {
-    public class SearchPunctuationTests
+    public class BaseItemRepositorySearchPunctuationTests
     {
         private readonly IFixture _fixture;
         private readonly BaseItemRepository _repo;
 
-        public SearchPunctuationTests()
+        public BaseItemRepositorySearchPunctuationTests()
         {
             var appHost = new Mock<MediaBrowser.Controller.IServerApplicationHost>();
             appHost.Setup(x => x.ExpandVirtualPath(It.IsAny<string>()))
@@ -24,11 +24,11 @@ namespace MulletaFlix.Server.Implementations.Tests.Data
 
             var configSection = new Mock<IConfigurationSection>();
             configSection
-                .SetupGet(x => x[It.Is<string>(s => s == MediaBrowser.Controller.Extensions.ConfigurationExtensions.SqliteCacheSizeKey)])
+                .SetupGet(x => x[It.Is<string>(s => s == MediaBrowser.Controller.Extensions.ConfigurationExtensions.DatabaseCacheSizeKey)])
                 .Returns("0");
             var config = new Mock<IConfiguration>();
             config
-                .Setup(x => x.GetSection(It.Is<string>(s => s == MediaBrowser.Controller.Extensions.ConfigurationExtensions.SqliteCacheSizeKey)))
+                .Setup(x => x.GetSection(It.Is<string>(s => s == MediaBrowser.Controller.Extensions.ConfigurationExtensions.DatabaseCacheSizeKey)))
                 .Returns(configSection.Object);
 
             _fixture = new Fixture().Customize(new AutoMoqCustomization { ConfigureMembers = true });

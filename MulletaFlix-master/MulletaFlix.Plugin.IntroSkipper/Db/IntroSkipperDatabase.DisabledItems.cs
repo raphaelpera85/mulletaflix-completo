@@ -15,8 +15,8 @@ internal sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
-        var ids = itemIds.Distinct().ToArray();
-        if (ids.Length == 0)
+        IReadOnlySet<Guid> ids = itemIds.ToHashSet();
+        if (ids.Count == 0)
         {
             return new HashSet<Guid>();
         }
@@ -26,7 +26,7 @@ internal sealed partial class IntroSkipperDatabase
 
         return await db.DisabledItems
             .AsNoTracking()
-            .Where(e => EF.Parameter(ids).Contains(e.ItemId))
+            .Where(e => ids.Contains(e.ItemId))
             .Select(e => e.ItemId)
             .ToHashSetAsync(cancellationToken)
             .ConfigureAwait(false);

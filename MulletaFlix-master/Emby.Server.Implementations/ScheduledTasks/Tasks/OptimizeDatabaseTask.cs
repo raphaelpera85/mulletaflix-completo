@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,7 +10,8 @@ using Microsoft.Extensions.Logging;
 namespace Emby.Server.Implementations.ScheduledTasks.Tasks;
 
 /// <summary>
-/// Optimizes MulletaFlix's database by issuing a VACUUM command.
+/// Optimizes MulletaFlix's database through the configured provider: MariaDB runs
+/// <c>ANALYZE TABLE</c> over the main tables. There is no local database file to vacuum.
 /// </summary>
 public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
 {
@@ -68,7 +69,7 @@ public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Optimizing and vacuuming MulletaFlix.db...");
+        _logger.LogInformation("Optimizing the MulletaFlix database...");
 
         try
         {
@@ -76,7 +77,7 @@ public class OptimizeDatabaseTask : IScheduledTask, IConfigurableScheduledTask
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Error while optimizing MulletaFlix.db");
+            _logger.LogError(e, "Error while optimizing the MulletaFlix database");
         }
     }
 }

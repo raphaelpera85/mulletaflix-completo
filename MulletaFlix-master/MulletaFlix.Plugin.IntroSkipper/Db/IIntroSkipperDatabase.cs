@@ -8,10 +8,10 @@ using IntroSkipper.SegmentChanges;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Cohesive facade over the segment database (<c>introskipper-v2.db</c>).
+/// Cohesive facade over the segment database (the plugin's own MariaDB schema).
 /// Owns every read and write against <see cref="IntroSkipperDbContext"/> — segments,
 /// season state, disabled items and database maintenance — as well as the database lifecycle
-/// (EF migrations, one-time legacy import and salvage rebuild).
+/// (schema creation and salvage rebuild).
 /// All domain rules that guard writes (user-provided precedence, tombstone
 /// suppression, credits/intro overlap) live inside this facade; callers never see a
 /// <c>DbContext</c>. Boundaries are ticks internally; analysis writes accept seconds
@@ -20,8 +20,8 @@ namespace IntroSkipper.Db;
 public interface IIntroSkipperDatabase
 {
     /// <summary>
-    /// Ensures the database is initialized (EF migrations + one-time legacy import).
-    /// Concurrent callers share one attempt and successful initialization is cached.
+    /// Ensures the plugin tables exist. Concurrent callers share one attempt and
+    /// successful initialization is cached.
     /// A failed attempt propagates to its callers and the next operation retries before
     /// touching the database, so calling this method eagerly is an optimization, not a requirement.
     /// </summary>
@@ -328,18 +328,18 @@ public interface IIntroSkipperDatabase
     Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Rebuilds the database while attempting to preserve segments, season state,
+    /// Rebuilds the plugin tables while attempting to preserve segments, season state,
     /// analysis records, disabled items and the legacy-import marker. Runs even when
-    /// initialization fails (it recreates the schema itself), so a database whose
-    /// migrations no longer apply can still be recovered.
+    /// initialization fails (it recreates the schema itself), so a schema whose shape no
+    /// longer matches the model can still be recovered.
     /// </summary>
     /// <param name="forceCleanOnBackupFailure">
-    /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
+    /// When <c>true</c>, rebuild proceeds with empty tables if the backup read fails.
     /// When <c>false</c>, the rebuild aborts to avoid data loss.
     /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the database file is untouched.</exception>
+    /// <exception cref="DatabaseRebuildBackupException">The backup read failed and <paramref name="forceCleanOnBackupFailure"/> is <c>false</c>; the plugin rows are untouched.</exception>
     Task RebuildDatabaseAsync(bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default);
 
     // Projection journal, consumed by the segment-change coordinator: read pending

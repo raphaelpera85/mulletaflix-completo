@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>MulletaFlix.Tools.IntroSkipperMigration</RootNamespace>
+    <AssemblyName>mulletaflix-introskipper-migrate</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The plugin's own model is the target schema: reusing the entities guarantees the
+         migrated rows match what the plugin reads, with no second definition to drift. -->
+    <ProjectReference Include="..\..\MulletaFlix.Plugin.IntroSkipper\MulletaFlix.Plugin.IntroSkipper.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Read-only access to the legacy SQLite files this tool exists to read. This is the
+         only place in the repository that depends on SQLite, and it is a manual migration
+         tool: the server runtime never loads it. The version is pinned centrally; 9.0.0
+         pulls SQLitePCLRaw 2.1.10, which carries GHSA-2m69-gcr7-jv3q. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The integration tests drive the migration directly, against a SQLite file they
+         build and the MariaDB instance, so the tool's own paths are what gets proven. -->
+    <InternalsVisibleTo Include="IntroSkipper.Integration.Tests" />
+  </ItemGroup>
+
+</Project>

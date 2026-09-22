@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 
 namespace IntroSkipper.Db;
 
@@ -562,8 +562,9 @@ internal sealed partial class IntroSkipperDatabase
 
             if (derivedItemIds.Length > 0)
             {
+                IReadOnlySet<Guid> derivedIds = derivedItemIds.ToHashSet();
                 await db.AnalyzedItems
-                    .Where(a => a.Type == AnalysisMode.Credits && EF.Parameter(derivedItemIds).Contains(a.ItemId))
+                    .Where(a => a.Type == AnalysisMode.Credits && derivedIds.Contains(a.ItemId))
                     .ExecuteDeleteAsync(cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -578,8 +579,8 @@ internal sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<int> ClearCreditsDerivedPreviewsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
-        Guid[] ids = [.. itemIds.Distinct()];
-        if (ids.Length == 0)
+        IReadOnlySet<Guid> ids = itemIds.ToHashSet();
+        if (ids.Count == 0)
         {
             return 0;
         }
@@ -590,7 +591,7 @@ internal sealed partial class IntroSkipperDatabase
         await using (transaction.ConfigureAwait(false))
         {
             var doomedRows = db.Segments.Where(s =>
-                EF.Parameter(ids).Contains(s.ItemId)
+                ids.Contains(s.ItemId)
                 && s.Type == AnalysisMode.Preview
                 && s.Source == SegmentSource.CreditsDerived
                 && s.State == SegmentState.Active);
@@ -613,13 +614,7 @@ internal sealed partial class IntroSkipperDatabase
         }
     }
 
-    // The extended result codes cover the Id primary key and the (ItemId, Type,
-    // StartTicks, EndTicks) unique index; the primary code SQLITE_CONSTRAINT would also
-    // swallow NOT NULL and CHECK violations, which do not mean an equivalent row
-    // already exists.
+    // MariaDB error 1062 is duplicate key; other database errors must remain visible.
     private static bool IsUniqueConstraintViolation(DbUpdateException exception)
-        => exception.InnerException is SqliteException
-        {
-            SqliteExtendedErrorCode: SQLitePCL.raw.SQLITE_CONSTRAINT_PRIMARYKEY or SQLitePCL.raw.SQLITE_CONSTRAINT_UNIQUE
-        };
+        => exception.InnerException is MySqlException { Number: 1062 };
 }

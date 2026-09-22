@@ -67,8 +67,9 @@ internal sealed partial class IntroSkipperDatabase
 
         if (processedOperationIds.Count > 0)
         {
+            IReadOnlySet<long> processedIds = processedOperationIds.ToHashSet();
             await db.ProjectionExternalOperations
-                .Where(o => o.ItemId == itemId && EF.Parameter(processedOperationIds).Contains(o.Id))
+                .Where(o => o.ItemId == itemId && processedIds.Contains(o.Id))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }

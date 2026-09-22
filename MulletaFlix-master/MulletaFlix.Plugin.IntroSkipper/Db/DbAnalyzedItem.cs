@@ -60,4 +60,13 @@ public sealed class DbAnalyzedItem
     /// Jellyfin held no write time. Written only by the facade's set-based statements.
     /// </summary>
     public long? FileVersion { get; private set; }
+
+    /// <summary>
+    /// Restores the file version read from a pre-MariaDB database during migration.
+    /// The value is written before the row is added to a context, so the normal write
+    /// paths (which use set-based statements) stay the only ones that change it on live
+    /// data.
+    /// </summary>
+    /// <param name="fileVersion">The recorded version, or null when the legacy row had none.</param>
+    internal void RestoreFileVersion(long? fileVersion) => FileVersion = fileVersion;
 }

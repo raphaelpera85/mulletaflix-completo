@@ -1,26 +1,32 @@
-﻿# How to run EFCore migrations
+# How to run EFCore migrations
 
-This shall provide context on how to work with entity frameworks multi provider migration feature.
+This shall provide context on how to work with the migrations of the database layer.
 
-MulletaFlix will support multiple database providers in the future, namely SQLite as its default and the experimental PostgreSQL.
+MulletaFlix runs on a single provider: MariaDB/MySQL (`MulletaFlix-MySQL`). SQLite was
+removed — the server never creates a local database file, so every schema operation has
+to be expressed in SQL that MariaDB accepts and that Pomelo can translate.
 
-Each provider has its own set of migrations, as they contain provider specific instructions to migrate the specific changes to their respective systems.
-
-When creating a new migration, you always have to create migrations for all providers. This is supported via the following syntax:
-
-```cmd
-dotnet ef migrations add MIGRATION_NAME --project "PATH_TO_PROJECT" -- --provider PROVIDER_KEY
-```
-
-with SQLite currently being the only supported provider, you need to run the Entity Framework tool with the correct project to tell EFCore where to store the migrations and the correct provider key to tell MulletaFlix to load that provider.
-
-The example is made from the root folder of the project e.g for codespaces `/workspaces/MulletaFlix`
+The provider registers its models through `MySqlDatabaseProvider`, and the design-time
+factory lives in `Migrations/MySqlDesignTimeMulletaFlixDbFactory.cs`. When creating a new
+migration, run the Entity Framework tool with the provider key so EFCore stores the
+migration in the right assembly:
 
 ```cmd
-dotnet ef migrations add {MIGRATION_NAME} --project "src/MulletaFlix.Database/MulletaFlix.Database.Providers.Sqlite" --output-dir Migrations -- --migration-provider MulletaFlix-SQLite
+dotnet ef migrations add MIGRATION_NAME --project "src/Jellyfin.Database/Jellyfin.Database.Implementations" -- --migration-provider MulletaFlix-MySQL
 ```
 
-If you get the error: `Run "dotnet tool restore" to make the "dotnet-ef" command available.` Run `dotnet restore`.
+The example is made from the root folder of the repository.
 
-in the event that you get the error: `System.UnauthorizedAccessException: Access to the path '/src/MulletaFlix.Database' is denied.` you have to restore as sudo and then run `ef migrations` as sudo too.
+If you get the error: `Run "dotnet tool restore" to make the "dotnet-ef" command available.` run `dotnet restore`.
+
+If you get `System.UnauthorizedAccessException: Access to the path '...' is denied.` restore as sudo and then run `ef migrations` as sudo too.
+
+## Plugin schemas
+
+Plugins that keep their own tables do not own a database file. They receive the server's
+provider and must point it at their own schema; IntroSkipper does this in
+`PluginServiceRegistrator.WithIntroSkipperDatabase`, which overrides only the `database`
+option. Because more than one context can share one schema, a plugin must not rely on
+`Database.EnsureCreated()` alone: EF creates tables only when the schema is completely
+empty. `IntroSkipper.Db.IntroSkipperSchema` shows the ordering-independent pattern.
 

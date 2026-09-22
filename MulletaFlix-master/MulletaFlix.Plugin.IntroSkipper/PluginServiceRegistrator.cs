@@ -15,12 +15,15 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Controller.Configuration;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using MulletaFlix.Database.Implementations;
+using MulletaFlix.Database.Implementations.DbConfiguration;
 
 namespace IntroSkipper
 {
@@ -32,13 +35,22 @@ namespace IntroSkipper
         /// <inheritdoc />
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
-            // Database layer. Non-pooled factories: the plugin's query rate is far too low
-            // for pooling to matter, and pooling would forbid the string-path constructor
-            // that the design-time factory, the rebuild flow and the tests rely on.
+            // Database layer. IntroSkipper shares the server's MariaDB provider. It must
+            // not create a private file or a second local database lifecycle.
             serviceCollection.AddDbContextFactory<IntroSkipperDbContext>((serviceProvider, options) =>
-                SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetSegmentDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
+            {
+                var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
+                var databaseConfiguration = serviceProvider.GetRequiredService<IServerConfigurationManager>()
+                    .GetConfiguration<DatabaseConfigurationOptions>("database");
+                provider.Initialise(options, WithIntroSkipperDatabase(databaseConfiguration));
+            });
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
-                SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
+            {
+                var provider = serviceProvider.GetRequiredService<IMulletaFlixDatabaseProvider>();
+                var databaseConfiguration = serviceProvider.GetRequiredService<IServerConfigurationManager>()
+                    .GetConfiguration<DatabaseConfigurationOptions>("database");
+                provider.Initialise(options, WithIntroSkipperDatabase(databaseConfiguration));
+            });
             // The facades own database initialization via their internal retryable
             // gates; every consumer goes through a facade.
             serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
@@ -105,6 +117,29 @@ namespace IntroSkipper
             {
                 options.Conventions.Add(new MediaSegmentsFilterConvention());
             });
+        }
+
+        private static DatabaseConfigurationOptions WithIntroSkipperDatabase(DatabaseConfigurationOptions source)
+        {
+            var sourceOptions = source.CustomProviderOptions
+                ?? throw new InvalidOperationException("MariaDB configuration is missing provider options.");
+            if (!source.DatabaseType.Equals("MulletaFlix-MySQL", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("IntroSkipper requires the MariaDB provider (MulletaFlix-MySQL).");
+            }
+            var options = new CustomDatabaseOptions
+            {
+                PluginName = sourceOptions.PluginName,
+                PluginAssembly = sourceOptions.PluginAssembly,
+                ConnectionString = sourceOptions.ConnectionString,
+                Options = [.. sourceOptions.Options.Where(option => !option.Key.Equals("database", StringComparison.OrdinalIgnoreCase)), new CustomDatabaseOption { Key = "database", Value = "mulletaflix_introskipper" }]
+            };
+            return new DatabaseConfigurationOptions
+            {
+                DatabaseType = source.DatabaseType,
+                LockingBehavior = source.LockingBehavior,
+                CustomProviderOptions = options
+            };
         }
     }
 }

@@ -7,9 +7,10 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Cohesive facade over the detection cache database (<c>introskipper-cache.db</c>).
+/// Cohesive facade over the detection cache database (the <c>DetectionCache</c> table in
+/// the plugin's MariaDB schema).
 /// Owns every read and write against <see cref="DetectionCacheDbContext"/> as well as the
-/// schema lifecycle (<c>EnsureCreated</c> with delete-and-recreate corruption recovery).
+/// schema lifecycle (creation, and recovery of a broken table).
 /// The synchronous members mirror the synchronous call patterns of the analysis pipeline.
 /// Initialization failures make the cache temporarily unavailable; operations return neutral
 /// results and retry initialization on the next call. Deletes are best-effort: the cache is
@@ -69,8 +70,8 @@ public interface IDetectionCacheDatabase
 
     /// <summary>
     /// Returns the distinct item IDs present in the cache that are not part of
-    /// <paramref name="validItemIds"/>. The valid set is bound as a single JSON
-    /// parameter (<c>json_each</c>), so the query is safe for arbitrarily large libraries.
+    /// <paramref name="validItemIds"/>. The valid set is bound as a set parameter, so the
+    /// query is safe for arbitrarily large libraries.
     /// </summary>
     /// <param name="validItemIds">Item IDs that are still valid.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -79,7 +80,7 @@ public interface IDetectionCacheDatabase
 
     /// <summary>
     /// Deletes all cache entries for the given items in a single statement; the ID set
-    /// is bound as one JSON parameter, so the item count is unbounded.
+    /// is bound as one parameter, so the item count is unbounded.
     /// </summary>
     /// <param name="itemIds">Item IDs whose cache entries should be removed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -89,8 +90,8 @@ public interface IDetectionCacheDatabase
     /// <summary>
     /// Deletes every cache entry whose configuration hash is non-empty, does not start
     /// with <paramref name="acceptedHashPrefix"/>, and is not in
-    /// <paramref name="acceptedConfigHashes"/>. The accepted set is bound as a single
-    /// JSON parameter (<c>json_each</c>), so its size is unbounded.
+    /// <paramref name="acceptedConfigHashes"/>. The accepted set is bound as one
+    /// parameter, so its size is unbounded.
     /// </summary>
     /// <param name="acceptedConfigHashes">Configuration hashes whose entries are kept.</param>
     /// <param name="acceptedHashPrefix">Hash prefix whose entries are kept.</param>

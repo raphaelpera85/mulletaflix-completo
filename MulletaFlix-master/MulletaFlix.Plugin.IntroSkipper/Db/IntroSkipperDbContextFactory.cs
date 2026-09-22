@@ -5,6 +5,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Pomelo.EntityFrameworkCore.MySql;
 
 namespace IntroSkipper.Db;
 
@@ -17,7 +18,9 @@ public class IntroSkipperDbContextFactory : IDesignTimeDbContextFactory<IntroSki
     public IntroSkipperDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<IntroSkipperDbContext>();
-        SqlitePragmas.Configure(optionsBuilder, "introskipper-v2.db");
+        optionsBuilder.UseMySql(
+            "Server=127.0.0.1;Port=3306;User ID=root;Password=;Database=mulletaflix;",
+            new MariaDbServerVersion(new Version(11, 4, 2)));
 
         return new IntroSkipperDbContext(optionsBuilder.Options);
     }

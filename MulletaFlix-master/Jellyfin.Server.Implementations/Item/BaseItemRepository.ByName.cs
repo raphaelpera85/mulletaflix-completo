@@ -133,7 +133,7 @@ public sealed partial class BaseItemRepository
         });
 
         // Keep this as an IQueryable sub-select. Materializing to a list would inline one
-        // bound parameter per CleanValue and hit SQLite's variable cap on libraries with
+        // bound parameter per CleanValue and blow up the statement on libraries with
         // high-cardinality value types (e.g. tens of thousands of artists).
         var matchingCleanValues = context.ItemValuesMap
             .Where(ivm => itemValueTypes.Contains(ivm.ItemValue.Type))
@@ -272,7 +272,8 @@ public sealed partial class BaseItemRepository
         var musicArtistTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.MusicArtist];
         var audioTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.Audio];
         var trailerTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.Trailer];
-        // Rewrite query to avoid SelectMany on navigation properties (which requires SQL APPLY, not supported on SQLite)
+        // Rewrite query to avoid SelectMany on navigation properties (which requires SQL APPLY,
+        // which MariaDB does not support).
         // Instead, start from ItemValueMaps and join with itemCountQuery
         return context.ItemValuesMap
             .Where(ivm => itemValueTypes.Contains(ivm.ItemValue.Type))

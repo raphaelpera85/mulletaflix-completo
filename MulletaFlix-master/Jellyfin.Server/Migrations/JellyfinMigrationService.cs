@@ -443,11 +443,14 @@ internal class MulletaFlixMigrationService
 
         if (backupInstruction.LegacyLibraryDb)
         {
-            logger.LogInformation("A migration will attempt to modify the library.db, will attempt to backup the file now.");
-            // for legacy migrations that still operates on the library.db
+            // Legacy migrations used to operate on the SQLite library file. The server runs
+            // on MariaDB and creates no such file, so this only ever finds something on an
+            // installation old enough to still carry one; a missing file is expected, not
+            // an error.
             var libraryDbPath = Path.Combine(_applicationPaths.DataPath, DbFilename);
             if (File.Exists(libraryDbPath))
             {
+                logger.LogInformation("A migration will attempt to modify {Library}, will attempt to backup the file now.", DbFilename);
                 for (int i = 1; ; i++)
                 {
                     var bakPath = string.Format(CultureInfo.InvariantCulture, "{0}.bak{1}", libraryDbPath, i);
@@ -473,7 +476,7 @@ internal class MulletaFlixMigrationService
             }
             else
             {
-                logger.LogError("Cannot make a backup of {Library} at path {BackupPath} because file could not be found at {LibraryPath}", DbFilename, libraryDbPath, _applicationPaths.DataPath);
+                logger.LogDebug("Legacy {Library} not present at {LibraryPath}; nothing to back up (the server uses MariaDB).", DbFilename, libraryDbPath);
             }
         }
 

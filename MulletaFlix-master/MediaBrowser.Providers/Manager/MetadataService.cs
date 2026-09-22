@@ -1004,7 +1004,10 @@ namespace MediaBrowser.Providers.Manager
                 return [];
             }
 
-            // Filter images that need downloading before launching parallel tasks.
+            // Filter images that need downloading before queueing them. Do not
+            // download every provider image in parallel: TMDB/other providers
+            // may throttle the burst, leaving items with only a poster or no
+            // image at all.
             var imagesToDownload = result.RemoteImages
                 .Where(img => !item.ImageInfos.Any(x => x.Type == img.Type) || options.IsReplacingImage(img.Type))
                 .ToList();
@@ -1014,30 +1017,51 @@ namespace MediaBrowser.Providers.Manager
                 return [];
             }
 
-            var foundImageTypes = new System.Collections.Concurrent.ConcurrentBag<ImageType>();
+            var foundImageTypes = new List<ImageType>();
 
-            // Download all remote images concurrently — each is an independent HTTP request.
-            var downloadTasks = imagesToDownload.Select(async remoteImage =>
+            foreach (var remoteImage in imagesToDownload)
             {
-                try
+                var saved = false;
+                for (var attempt = 1; attempt <= 3 && !saved; attempt++)
                 {
-                    await ProviderManager.SaveImage(item, remoteImage.Url, remoteImage.Type, null, cancellationToken).ConfigureAwait(false);
-                    foundImageTypes.Add(remoteImage.Type);
+                    try
+                    {
+                        await ProviderManager.SaveImage(item, remoteImage.Url, remoteImage.Type, null, cancellationToken).ConfigureAwait(false);
+                        foundImageTypes.Add(remoteImage.Type);
+                        saved = true;
+                    }
+                    catch (HttpRequestException ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested)
+                    {
+                        Logger.LogWarning(
+                            ex,
+                            "Retrying {ImageType} image from {Provider} ({Attempt}/3): {Url}",
+                            Enum.GetName(remoteImage.Type),
+                            providerName,
+                            attempt,
+                            remoteImage.Url);
+                        await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogWarning(
+                            ex,
+                            "Could not save {ImageType} image from {Provider}: {Url}",
+                            Enum.GetName(remoteImage.Type),
+                            providerName,
+                            remoteImage.Url);
+                        break;
+                    }
                 }
-                catch (HttpRequestException ex)
+
+                // Keep a small gap between provider requests to avoid rate-limit
+                // bursts while still completing all image types in one refresh.
+                if (!cancellationToken.IsCancellationRequested)
                 {
-                    Logger.LogError(
-                        ex,
-                        "Could not save {ImageType} image from {Provider}: {Url}",
-                        Enum.GetName(remoteImage.Type),
-                        providerName,
-                        remoteImage.Url);
+                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
                 }
-            });
+            }
 
-            await Task.WhenAll(downloadTasks).ConfigureAwait(false);
-
-            return [.. foundImageTypes];
+            return foundImageTypes;
         }
 
         private void MergeNewData(TItemType source, TIdType lookupInfo)
@@ -1416,4 +1440,3 @@ namespace MediaBrowser.Providers.Manager
         }
     }
 }
-

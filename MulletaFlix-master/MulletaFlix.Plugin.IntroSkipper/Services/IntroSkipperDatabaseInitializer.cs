@@ -9,10 +9,10 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Services;
 
 /// <summary>
-/// Eagerly initializes both plugin databases at server startup so migrations and the
-/// one-time legacy import run before regular traffic. This is an optimization only:
-/// correctness is guaranteed by the initialization gate inside the database facades,
-/// which every operation awaits before touching the database.
+/// Eagerly initializes both plugin schemas at server startup so the plugin's tables exist
+/// before regular traffic. This is an optimization only: correctness is guaranteed by the
+/// initialization gate inside the database facades, which every operation awaits before
+/// touching the database.
 /// </summary>
 internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
 {
@@ -47,7 +47,7 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
 
         // Segment initialization can fail and must not abort Jellyfin startup. Cancellation
         // or the timeout only abandons this wait; the shared initialization task keeps
-        // running so the legacy import or a migration is never interrupted halfway through.
+        // running so a schema being created is never interrupted halfway through.
         try
         {
             if (!await WaitForStartupInitializationAsync(
@@ -74,8 +74,7 @@ internal sealed partial class IntroSkipperDatabaseInitializer : IHostedService
             return;
         }
 
-        // The cache init is synchronous SQLite I/O (schema creation, possibly a
-        // corrupt-file rebuild); run it on the thread pool so the startup thread
+        // The cache schema initialization is synchronous; run it on the thread pool so the startup thread
         // never blocks on it. Cancellation only abandons the wait so recovery is
         // never interrupted halfway through.
         try

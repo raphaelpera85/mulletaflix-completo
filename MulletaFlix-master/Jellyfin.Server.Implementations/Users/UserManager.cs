@@ -694,221 +694,125 @@ namespace MulletaFlix.Server.Implementations.Users
         private static async Task EnsureUserSchemaTablesAsync(UsersDbContext dbContext)
         {
             var providerName = dbContext.Database.ProviderName ?? string.Empty;
-            var supportsSqlite = providerName.Contains("Sqlite", StringComparison.OrdinalIgnoreCase);
             var supportsMySql = providerName.Contains("MySql", StringComparison.OrdinalIgnoreCase) ||
                                 providerName.Contains("MariaDb", StringComparison.OrdinalIgnoreCase);
-
-            string[] statements = supportsSqlite
-                ? [
-                    """
-                    CREATE TABLE IF NOT EXISTS "Users" (
-                        "Id" TEXT NOT NULL CONSTRAINT "PK_Users" PRIMARY KEY,
-                        "Username" TEXT NOT NULL,
-                        "NormalizedUsername" TEXT NOT NULL,
-                        "Password" TEXT NULL,
-                        "PhoneNumber" TEXT NULL,
-                        "MustUpdatePassword" INTEGER NOT NULL,
-                        "AudioLanguagePreference" TEXT NULL,
-                        "AuthenticationProviderId" TEXT NOT NULL,
-                        "PasswordResetProviderId" TEXT NOT NULL,
-                        "InvalidLoginAttemptCount" INTEGER NOT NULL,
-                        "LastActivityDate" TEXT NULL,
-                        "LastLoginDate" TEXT NULL,
-                        "LoginAttemptsBeforeLockout" INTEGER NULL,
-                        "MaxActiveSessions" INTEGER NOT NULL,
-                        "SubtitleMode" INTEGER NOT NULL,
-                        "PlayDefaultAudioTrack" INTEGER NOT NULL,
-                        "SubtitleLanguagePreference" TEXT NULL,
-                        "DisplayMissingEpisodes" INTEGER NOT NULL,
-                        "DisplayCollectionsView" INTEGER NOT NULL,
-                        "EnableLocalPassword" INTEGER NOT NULL,
-                        "HidePlayedInLatest" INTEGER NOT NULL,
-                        "RememberAudioSelections" INTEGER NOT NULL,
-                        "RememberSubtitleSelections" INTEGER NOT NULL,
-                        "EnableNextEpisodeAutoPlay" INTEGER NOT NULL,
-                        "EnableAutoLogin" INTEGER NOT NULL,
-                        "EnableUserPreferenceAccess" INTEGER NOT NULL,
-                        "MaxParentalRatingScore" INTEGER NULL,
-                        "MaxParentalRatingSubScore" INTEGER NULL,
-                        "RemoteClientBitrateLimit" INTEGER NULL,
-                        "InternalId" INTEGER NOT NULL,
-                        "SyncPlayAccess" INTEGER NOT NULL,
-                        "CastReceiverId" TEXT NULL,
-                        "RowVersion" INTEGER NOT NULL,
-                        CONSTRAINT "AK_Users_Username" UNIQUE ("Username"),
-                        CONSTRAINT "AK_Users_NormalizedUsername" UNIQUE ("NormalizedUsername")
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS "ImageInfo" (
-                        "Id" INTEGER NOT NULL CONSTRAINT "PK_ImageInfo" PRIMARY KEY AUTOINCREMENT,
-                        "UserId" TEXT NULL,
-                        "Path" TEXT NOT NULL,
-                        "LastModified" TEXT NOT NULL,
-                        CONSTRAINT "AK_ImageInfo_UserId" UNIQUE ("UserId"),
-                        CONSTRAINT "FK_ImageInfo_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS "Permissions" (
-                        "Id" INTEGER NOT NULL CONSTRAINT "PK_Permissions" PRIMARY KEY AUTOINCREMENT,
-                        "UserId" TEXT NULL,
-                        "Kind" INTEGER NOT NULL,
-                        "Value" INTEGER NOT NULL,
-                        "RowVersion" INTEGER NOT NULL,
-                        CONSTRAINT "FK_Permissions_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
-                        CONSTRAINT "AK_Permissions_UserId_Kind" UNIQUE ("UserId", "Kind")
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS "Preferences" (
-                        "Id" INTEGER NOT NULL CONSTRAINT "PK_Preferences" PRIMARY KEY AUTOINCREMENT,
-                        "UserId" TEXT NULL,
-                        "Kind" INTEGER NOT NULL,
-                        "Value" TEXT NOT NULL,
-                        "RowVersion" INTEGER NOT NULL,
-                        CONSTRAINT "FK_Preferences_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
-                        CONSTRAINT "AK_Preferences_UserId_Kind" UNIQUE ("UserId", "Kind")
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS "AccessSchedules" (
-                        "Id" INTEGER NOT NULL CONSTRAINT "PK_AccessSchedules" PRIMARY KEY AUTOINCREMENT,
-                        "UserId" TEXT NOT NULL,
-                        "DayOfWeek" INTEGER NOT NULL,
-                        "StartHour" REAL NOT NULL,
-                        "EndHour" REAL NOT NULL,
-                        CONSTRAINT "FK_AccessSchedules_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS "UserLicenses" (
-                        "Id" INTEGER NOT NULL CONSTRAINT "PK_UserLicenses" PRIMARY KEY AUTOINCREMENT,
-                        "UserId" TEXT NOT NULL,
-                        "StartDate" TEXT NOT NULL,
-                        "DurationHours" INTEGER NULL,
-                        "ExpirationDate" TEXT NULL,
-                        "IsUnlimited" INTEGER NOT NULL,
-                        "AdminNotes" TEXT NULL,
-                        "GrantedByUserId" TEXT NULL,
-                        "CreatedAt" TEXT NOT NULL,
-                        "UpdatedAt" TEXT NOT NULL,
-                        CONSTRAINT "AK_UserLicenses_UserId" UNIQUE ("UserId"),
-                        CONSTRAINT "FK_UserLicenses_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
-                    );
-                    """
-                ]
-                : supportsMySql
-                    ? [
-                        """
-                        CREATE TABLE IF NOT EXISTS `users` (
-                            `Id` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
-                            `Username` varchar(255) NOT NULL,
-                            `NormalizedUsername` varchar(255) NOT NULL,
-                            `Password` longtext NULL,
-                            `PhoneNumber` varchar(20) NULL,
-                            `MustUpdatePassword` tinyint(1) NOT NULL,
-                            `AudioLanguagePreference` varchar(255) NULL,
-                            `AuthenticationProviderId` varchar(255) NOT NULL,
-                            `PasswordResetProviderId` varchar(255) NOT NULL,
-                            `InvalidLoginAttemptCount` int NOT NULL,
-                            `LastActivityDate` datetime(6) NULL,
-                            `LastLoginDate` datetime(6) NULL,
-                            `LoginAttemptsBeforeLockout` int NULL,
-                            `MaxActiveSessions` int NOT NULL,
-                            `SubtitleMode` int NOT NULL,
-                            `PlayDefaultAudioTrack` tinyint(1) NOT NULL,
-                            `SubtitleLanguagePreference` varchar(255) NULL,
-                            `DisplayMissingEpisodes` tinyint(1) NOT NULL,
-                            `DisplayCollectionsView` tinyint(1) NOT NULL,
-                            `EnableLocalPassword` tinyint(1) NOT NULL,
-                            `HidePlayedInLatest` tinyint(1) NOT NULL,
-                            `RememberAudioSelections` tinyint(1) NOT NULL,
-                            `RememberSubtitleSelections` tinyint(1) NOT NULL,
-                            `EnableNextEpisodeAutoPlay` tinyint(1) NOT NULL,
-                            `EnableAutoLogin` tinyint(1) NOT NULL,
-                            `EnableUserPreferenceAccess` tinyint(1) NOT NULL,
-                            `MaxParentalRatingScore` int NULL,
-                            `MaxParentalRatingSubScore` int NULL,
-                            `RemoteClientBitrateLimit` int NULL,
-                            `InternalId` bigint NOT NULL,
-                            `SyncPlayAccess` int NOT NULL,
-                            `CastReceiverId` varchar(32) NULL,
-                            `RowVersion` int unsigned NOT NULL,
-                            CONSTRAINT `PK_Users` PRIMARY KEY (`Id`),
-                            CONSTRAINT `AK_Users_Username` UNIQUE (`Username`),
-                            CONSTRAINT `AK_Users_NormalizedUsername` UNIQUE (`NormalizedUsername`)
-                        );
-                        """,
-                        """
-                        CREATE TABLE IF NOT EXISTS `ImageInfo` (
-                            `Id` int NOT NULL AUTO_INCREMENT,
-                            `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
-                            `Path` varchar(512) NOT NULL,
-                            `LastModified` datetime(6) NOT NULL,
-                            CONSTRAINT `PK_ImageInfo` PRIMARY KEY (`Id`),
-                            CONSTRAINT `AK_ImageInfo_UserId` UNIQUE (`UserId`),
-                            CONSTRAINT `FK_ImageInfo_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
-                        );
-                        """,
-                        """
-                        CREATE TABLE IF NOT EXISTS `permissions` (
-                            `Id` int NOT NULL AUTO_INCREMENT,
-                            `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
-                            `Kind` int NOT NULL,
-                            `Value` tinyint(1) NOT NULL,
-                            `RowVersion` int unsigned NOT NULL,
-                            CONSTRAINT `PK_mulletaflix_users_permissions` PRIMARY KEY (`Id`),
-                            CONSTRAINT `AK_mulletaflix_users_permissions_UserId_Kind` UNIQUE (`UserId`, `Kind`),
-                            CONSTRAINT `FK_mulletaflix_users_permissions_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
-                        );
-                        """,
-                        """
-                        CREATE TABLE IF NOT EXISTS `preferences` (
-                            `Id` int NOT NULL AUTO_INCREMENT,
-                            `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
-                            `Kind` int NOT NULL,
-                            `Value` longtext NOT NULL,
-                            `RowVersion` int unsigned NOT NULL,
-                            CONSTRAINT `PK_mulletaflix_users_preferences` PRIMARY KEY (`Id`),
-                            CONSTRAINT `AK_mulletaflix_users_preferences_UserId_Kind` UNIQUE (`UserId`, `Kind`),
-                            CONSTRAINT `FK_mulletaflix_users_preferences_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
-                        );
-                        """,
-                        """
-                        CREATE TABLE IF NOT EXISTS `accessschedules` (
-                            `Id` int NOT NULL AUTO_INCREMENT,
-                            `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
-                            `DayOfWeek` int NOT NULL,
-                            `StartHour` double NOT NULL,
-                            `EndHour` double NOT NULL,
-                            CONSTRAINT `PK_mulletaflix_users_accessschedules` PRIMARY KEY (`Id`),
-                            CONSTRAINT `FK_mulletaflix_users_accessschedules_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
-                        );
-                        """,
-                        """
-                        CREATE TABLE IF NOT EXISTS `userlicenses` (
-                            `Id` int NOT NULL AUTO_INCREMENT,
-                            `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
-                            `StartDate` datetime(6) NOT NULL,
-                            `DurationHours` int NULL,
-                            `ExpirationDate` datetime(6) NULL,
-                            `IsUnlimited` tinyint(1) NOT NULL,
-                            `AdminNotes` varchar(1024) NULL,
-                            `GrantedByUserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
-                            `CreatedAt` datetime(6) NOT NULL,
-                            `UpdatedAt` datetime(6) NOT NULL,
-                            CONSTRAINT `PK_mulletaflix_users_userlicenses` PRIMARY KEY (`Id`),
-                            CONSTRAINT `AK_mulletaflix_users_userlicenses_UserId` UNIQUE (`UserId`),
-                            CONSTRAINT `FK_mulletaflix_users_userlicenses_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
-                        );
-                        """
-                    ]
-                    : throw new InvalidOperationException($"User management does not support provider '{providerName}'.");
-
-            foreach (var statement in statements)
+            if (supportsMySql)
             {
-                await dbContext.Database.ExecuteSqlRawAsync(statement, CancellationToken.None).ConfigureAwait(false);
+                string[] statements =
+                [
+                    """
+                    CREATE TABLE IF NOT EXISTS `users` (
+                        `Id` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+                        `Username` varchar(255) NOT NULL,
+                        `NormalizedUsername` varchar(255) NOT NULL,
+                        `Password` longtext NULL,
+                        `PhoneNumber` varchar(20) NULL,
+                        `MustUpdatePassword` tinyint(1) NOT NULL,
+                        `AudioLanguagePreference` varchar(255) NULL,
+                        `AuthenticationProviderId` varchar(255) NOT NULL,
+                        `PasswordResetProviderId` varchar(255) NOT NULL,
+                        `InvalidLoginAttemptCount` int NOT NULL,
+                        `LastActivityDate` datetime(6) NULL,
+                        `LastLoginDate` datetime(6) NULL,
+                        `LoginAttemptsBeforeLockout` int NULL,
+                        `MaxActiveSessions` int NOT NULL,
+                        `SubtitleMode` int NOT NULL,
+                        `PlayDefaultAudioTrack` tinyint(1) NOT NULL,
+                        `SubtitleLanguagePreference` varchar(255) NULL,
+                        `DisplayMissingEpisodes` tinyint(1) NOT NULL,
+                        `DisplayCollectionsView` tinyint(1) NOT NULL,
+                        `EnableLocalPassword` tinyint(1) NOT NULL,
+                        `HidePlayedInLatest` tinyint(1) NOT NULL,
+                        `RememberAudioSelections` tinyint(1) NOT NULL,
+                        `RememberSubtitleSelections` tinyint(1) NOT NULL,
+                        `EnableNextEpisodeAutoPlay` tinyint(1) NOT NULL,
+                        `EnableAutoLogin` tinyint(1) NOT NULL,
+                        `EnableUserPreferenceAccess` tinyint(1) NOT NULL,
+                        `MaxParentalRatingScore` int NULL,
+                        `MaxParentalRatingSubScore` int NULL,
+                        `RemoteClientBitrateLimit` int NULL,
+                        `InternalId` bigint NOT NULL,
+                        `SyncPlayAccess` int NOT NULL,
+                        `CastReceiverId` varchar(32) NULL,
+                        `RowVersion` int unsigned NOT NULL,
+                        CONSTRAINT `PK_Users` PRIMARY KEY (`Id`),
+                        CONSTRAINT `AK_Users_Username` UNIQUE (`Username`),
+                        CONSTRAINT `AK_Users_NormalizedUsername` UNIQUE (`NormalizedUsername`)
+                    );
+                    """,
+                    """
+                    CREATE TABLE IF NOT EXISTS `ImageInfo` (
+                        `Id` int NOT NULL AUTO_INCREMENT,
+                        `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
+                        `Path` varchar(512) NOT NULL,
+                        `LastModified` datetime(6) NOT NULL,
+                        CONSTRAINT `PK_ImageInfo` PRIMARY KEY (`Id`),
+                        CONSTRAINT `AK_ImageInfo_UserId` UNIQUE (`UserId`),
+                        CONSTRAINT `FK_ImageInfo_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                    );
+                    """,
+                    """
+                    CREATE TABLE IF NOT EXISTS `permissions` (
+                        `Id` int NOT NULL AUTO_INCREMENT,
+                        `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
+                        `Kind` int NOT NULL,
+                        `Value` tinyint(1) NOT NULL,
+                        `RowVersion` int unsigned NOT NULL,
+                        CONSTRAINT `PK_mulletaflix_users_permissions` PRIMARY KEY (`Id`),
+                        CONSTRAINT `AK_mulletaflix_users_permissions_UserId_Kind` UNIQUE (`UserId`, `Kind`),
+                        CONSTRAINT `FK_mulletaflix_users_permissions_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                    );
+                    """,
+                    """
+                    CREATE TABLE IF NOT EXISTS `preferences` (
+                        `Id` int NOT NULL AUTO_INCREMENT,
+                        `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
+                        `Kind` int NOT NULL,
+                        `Value` longtext NOT NULL,
+                        `RowVersion` int unsigned NOT NULL,
+                        CONSTRAINT `PK_mulletaflix_users_preferences` PRIMARY KEY (`Id`),
+                        CONSTRAINT `AK_mulletaflix_users_preferences_UserId_Kind` UNIQUE (`UserId`, `Kind`),
+                        CONSTRAINT `FK_mulletaflix_users_preferences_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                    );
+                    """,
+                    """
+                    CREATE TABLE IF NOT EXISTS `accessschedules` (
+                        `Id` int NOT NULL AUTO_INCREMENT,
+                        `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+                        `DayOfWeek` int NOT NULL,
+                        `StartHour` double NOT NULL,
+                        `EndHour` double NOT NULL,
+                        CONSTRAINT `PK_mulletaflix_users_accessschedules` PRIMARY KEY (`Id`),
+                        CONSTRAINT `FK_mulletaflix_users_accessschedules_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                    );
+                    """,
+                    """
+                    CREATE TABLE IF NOT EXISTS `userlicenses` (
+                        `Id` int NOT NULL AUTO_INCREMENT,
+                        `UserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+                        `StartDate` datetime(6) NOT NULL,
+                        `DurationHours` int NULL,
+                        `ExpirationDate` datetime(6) NULL,
+                        `IsUnlimited` tinyint(1) NOT NULL,
+                        `AdminNotes` varchar(1024) NULL,
+                        `GrantedByUserId` char(36) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
+                        `CreatedAt` datetime(6) NOT NULL,
+                        `UpdatedAt` datetime(6) NOT NULL,
+                        CONSTRAINT `PK_mulletaflix_users_userlicenses` PRIMARY KEY (`Id`),
+                        CONSTRAINT `AK_mulletaflix_users_userlicenses_UserId` UNIQUE (`UserId`),
+                        CONSTRAINT `FK_mulletaflix_users_userlicenses_Users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE
+                    );
+                    """
+                ];
+
+                foreach (var statement in statements)
+                {
+                    await dbContext.Database.ExecuteSqlRawAsync(statement, CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException($"User management does not support provider '{providerName}'.");
             }
 
             // Compatibility section for legacy schema-prefixed tables is no longer needed.
@@ -921,7 +825,6 @@ namespace MulletaFlix.Server.Implementations.Users
             {
                 var message = current.Message;
                 if (message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase) ||
-                    message.Contains("no such table", StringComparison.OrdinalIgnoreCase) ||
                     message.Contains("unknown table", StringComparison.OrdinalIgnoreCase))
                 {
                     return true;

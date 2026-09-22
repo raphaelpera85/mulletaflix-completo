@@ -132,7 +132,7 @@ public class NextUpService : INextUpService
 
             // Use an explicit Join (INNER JOIN) instead of SelectMany on a collection navigation.
             // SelectMany on UserData with a correlated Where would translate to APPLY,
-            // which SQLite does not support.
+            // which MariaDB does not support.
             var playedWithDates = lastWatchedByDateBase
                 .Join(
                     context.UserData

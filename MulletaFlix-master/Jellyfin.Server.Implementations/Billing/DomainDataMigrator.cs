@@ -54,32 +54,21 @@ public static class DomainDataMigrator
             }
 
             var providerName = legacy.Database.ProviderName ?? string.Empty;
-            var command = connection.CreateCommand();
-
-            if (providerName.Contains("MySql", StringComparison.OrdinalIgnoreCase))
+            if (!providerName.Contains("MySql", StringComparison.OrdinalIgnoreCase)
+                && !providerName.Contains("MariaDb", StringComparison.OrdinalIgnoreCase))
             {
-                command.CommandText = """
-                    SELECT COUNT(*)
-                    FROM information_schema.tables
-                    WHERE table_schema = DATABASE()
-                      AND table_name = 'BaseItems'
-                    """;
-            }
-            else if (providerName.Contains("Sqlite", StringComparison.OrdinalIgnoreCase))
-            {
-                command.CommandText = """
-                    SELECT COUNT(*)
-                    FROM sqlite_master
-                    WHERE type = 'table'
-                      AND name = 'BaseItems'
-                    """;
-            }
-            else
-            {
-                // Fallback: if the provider is not one of the supported relational backends,
-                // keep startup resilient and skip the legacy migration instead of crashing boot.
+                // Only MariaDB is supported; anything else means the legacy database
+                // cannot be read, so skip the migration instead of crashing boot.
                 return false;
             }
+
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'BaseItems'
+                """;
 
             var result = await command.ExecuteScalarAsync(ct).ConfigureAwait(false);
             return Convert.ToInt64(result, CultureInfo.InvariantCulture) > 0;

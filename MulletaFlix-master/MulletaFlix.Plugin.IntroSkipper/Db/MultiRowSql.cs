@@ -8,14 +8,13 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// Composes parameterized multi-row <c>VALUES</c> statements for the bulk per-item
 /// writes (projection markers, analysis records), so a library-wide write costs a
-/// handful of statements instead of one per item while holding SQLite's write lock.
+/// handful of statements instead of one per item while holding a database transaction.
 /// Every value is bound as a parameter; nothing is spliced into SQL text.
 /// </summary>
 internal static class MultiRowSql
 {
     /// <summary>
-    /// Rows per statement. SQLite binds at most 32766 parameters per statement; rows
-    /// of a few columns stay far below that at this size.
+    /// Rows per statement. The chunk keeps MariaDB parameter counts bounded.
     /// </summary>
     public const int ChunkSize = 500;
 

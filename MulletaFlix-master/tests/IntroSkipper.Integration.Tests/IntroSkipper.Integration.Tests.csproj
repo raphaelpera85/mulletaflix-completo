@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ProjectGuid is only included as a requirement for SonarQube analysis -->
+  <PropertyGroup>
+    <ProjectGuid>{7C1E5D44-9A6B-4F2B-9E4D-3B5F0A7C8D21}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>IntroSkipper.Integration.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector" />
+    <!-- Pinned to the same version the migration tool publishes, so the SQLite file the
+         tests build is written by the provider the released executable actually carries. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Jellyfin.Server.Implementations\Jellyfin.Server.Implementations.csproj" />
+    <ProjectReference Include="..\..\MulletaFlix.Plugin.IntroSkipper\MulletaFlix.Plugin.IntroSkipper.csproj" />
+    <ProjectReference Include="..\..\src\Jellyfin.Database\Jellyfin.Database.Implementations\Jellyfin.Database.Implementations.csproj" />
+    <!-- The migration tool under test. It is the only SQLite dependency in the tree. -->
+    <ProjectReference Include="..\..\tools\MulletaFlix.IntroSkipperMigration\MulletaFlix.IntroSkipperMigration.csproj" />
+  </ItemGroup>
+
+</Project>

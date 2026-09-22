@@ -27,15 +27,15 @@ internal sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var ids = itemIds.Distinct().ToArray();
+        IReadOnlySet<Guid> ids = itemIds.ToHashSet();
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            var completed = db.AnalyzedItems.Where(a => EF.Parameter(ids).Contains(a.ItemId)
+            var completed = db.AnalyzedItems.Where(a => ids.Contains(a.ItemId)
                 && a.Type == mode && a.ConfigHash == previousHash);
 
             await db.Segments
-                .Where(s => EF.Parameter(ids).Contains(s.ItemId)
+                .Where(s => ids.Contains(s.ItemId)
                     && completed.Any(a => a.ItemId == s.ItemId)
                     && s.State == SegmentState.Active
                     && s.Source != SegmentSource.User
@@ -68,9 +68,9 @@ internal sealed partial class IntroSkipperDatabase
             item => [item.ItemId, item.FileVersion],
             p => $"({p[0]}, {{0}}, {{1}}, {p[1]})",
             values => $"""
-                INSERT INTO "AnalyzedItems" ("ItemId", "Type", "ConfigHash", "FileVersion")
+                INSERT INTO `AnalyzedItems` (`ItemId`, `Type`, `ConfigHash`, `FileVersion`)
                 VALUES {values}
-                ON CONFLICT("ItemId", "Type") DO UPDATE SET "ConfigHash" = excluded."ConfigHash", "FileVersion" = excluded."FileVersion"
+                ON DUPLICATE KEY UPDATE `ConfigHash` = VALUES(`ConfigHash`), `FileVersion` = VALUES(`FileVersion`)
                 """,
             (int)mode,
             configHash);
@@ -85,18 +85,24 @@ internal sealed partial class IntroSkipperDatabase
             return Task.CompletedTask;
         }
 
-        // A VALUES table exposes its columns as column1, column2 in SQLite, in the order
-        // the row lambda binds them.
-        var statements = MultiRowSql.Statements(
-            fileVersionsByItem,
-            item => [item.Key, item.Value],
-            p => $"({p[0]}, {p[1]})",
-            values => $"""
-                UPDATE "AnalyzedItems" SET "FileVersion" = "v"."column2"
-                FROM (VALUES {values}) AS "v"
-                WHERE "AnalyzedItems"."ItemId" = "v"."column1" AND "AnalyzedItems"."FileVersion" IS NULL
-                """);
-        return ExecuteInTransactionAsync(statements, cancellationToken);
+        return BackfillFileVersionsCoreAsync(fileVersionsByItem, cancellationToken);
+    }
+
+    private async Task BackfillFileVersionsCoreAsync(IReadOnlyDictionary<Guid, long> fileVersionsByItem, CancellationToken cancellationToken)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        IReadOnlySet<Guid> ids = fileVersionsByItem.Keys.ToHashSet();
+        var rows = await db.AnalyzedItems.Where(a => ids.Contains(a.ItemId) && a.FileVersion == null).Select(a => a.ItemId).ToListAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var itemId in rows)
+        {
+            if (fileVersionsByItem.TryGetValue(itemId, out var version))
+            {
+                await db.AnalyzedItems.Where(a => a.ItemId == itemId && a.FileVersion == null)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.FileVersion, version), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>

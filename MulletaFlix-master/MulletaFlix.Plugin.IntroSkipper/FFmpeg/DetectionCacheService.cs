@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.FFmpeg;
 
 /// <summary>
-/// Manages reading and writing detection results to/from the SQLite cache.
+/// Manages reading and writing detection results to/from the MariaDB cache.
 /// Serialization, compression and configuration-hash policy live here; all database
 /// access is delegated to <see cref="IDetectionCacheDatabase"/>.
 /// </summary>
@@ -29,7 +29,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
     /// <summary>
-    /// Tries to read a cached detection result from the SQLite DB.
+    /// Tries to read a cached detection result from MariaDB.
     /// </summary>
     /// <typeparam name="T">The element type of the cached result array.</typeparam>
     /// <param name="itemId">The media item ID.</param>
@@ -97,7 +97,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <summary>
-    /// Writes a detection result to the SQLite cache. A failed write is logged and swallowed:
+    /// Writes a detection result to the MariaDB cache. A failed write is logged and swallowed:
     /// the cache is an optimization and must never discard a valid analysis result.
     /// </summary>
     /// <typeparam name="T">The element type of the result array to cache.</typeparam>

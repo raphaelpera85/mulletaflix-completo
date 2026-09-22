@@ -6,19 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="Emby.Server.Implementations">
-      <HintPath>Emby.Server.Implementations.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-
-  <ItemGroup>
+    <ProjectReference Include="../../Emby.Server.Implementations/Emby.Server.Implementations.csproj" />
     <ProjectReference Include="../../MediaBrowser.Controller/MediaBrowser.Controller.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AutoFixture" />
-    <PackageReference Include="AutoFixture.AutoMoq" />
-    <PackageReference Include="Moq" />
     <PackageReference Include="SharpFuzz" />
   </ItemGroup>
 

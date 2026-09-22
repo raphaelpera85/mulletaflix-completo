@@ -1,4 +1,4 @@
-﻿#pragma warning disable MT1013 // Releasing lock without guarantee of execution
+#pragma warning disable MT1013 // Releasing lock without guarantee of execution
 #pragma warning disable MT1012 // Acquiring lock without guarantee of releasing
 #pragma warning disable CA1873
 
@@ -15,7 +15,7 @@ using Microsoft.Extensions.Logging;
 namespace MulletaFlix.Database.Implementations.Locking;
 
 /// <summary>
-/// A locking behavior that will always block any operation while a write is requested. Mimicks the old SqliteRepository behavior.
+/// A locking behavior that will always block any operation while a write is requested.
 /// </summary>
 public class PessimisticLockBehavior : IEntityFrameworkCoreLockingBehavior
 {

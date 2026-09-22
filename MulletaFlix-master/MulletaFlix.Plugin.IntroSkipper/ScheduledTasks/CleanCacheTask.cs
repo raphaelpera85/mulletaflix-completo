@@ -142,7 +142,7 @@ public partial class CleanCacheTask(
                 .ConfigureAwait(false);
         }
 
-        // Identify episode IDs in the SQLite cache whose items are gone.
+        // Identify episode IDs in the MariaDB cache whose items are gone.
         var invalidEpisodeIds = (await _cacheDatabase
             .GetStaleItemIdsAsync(enabledLibraryEpisodeIds, cancellationToken)
             .ConfigureAwait(false))

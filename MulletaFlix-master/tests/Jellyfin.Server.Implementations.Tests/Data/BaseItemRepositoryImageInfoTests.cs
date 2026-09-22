@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using AutoFixture;
 using AutoFixture.AutoMoq;
@@ -14,15 +14,15 @@ using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Data
 {
-    public class SqliteItemRepositoryTests
+    public class BaseItemRepositoryImageInfoTests
     {
         public const string VirtualMetaDataPath = "%MetadataPath%";
         public const string MetaDataPath = "/meta/data/path";
 
         private readonly IFixture _fixture;
-        private readonly BaseItemRepository _sqliteItemRepository;
+        private readonly BaseItemRepository _repository;
 
-        public SqliteItemRepositoryTests()
+        public BaseItemRepositoryImageInfoTests()
         {
             var appHost = new Mock<IServerApplicationHost>();
             appHost.Setup(x => x.ExpandVirtualPath(It.IsAny<string>()))
@@ -32,17 +32,17 @@ namespace MulletaFlix.Server.Implementations.Tests.Data
 
             var configSection = new Mock<IConfigurationSection>();
             configSection
-                .SetupGet(x => x[It.Is<string>(s => s == MediaBrowser.Controller.Extensions.ConfigurationExtensions.SqliteCacheSizeKey)])
+                .SetupGet(x => x[It.Is<string>(s => s == MediaBrowser.Controller.Extensions.ConfigurationExtensions.DatabaseCacheSizeKey)])
                 .Returns("0");
             var config = new Mock<IConfiguration>();
             config
-                .Setup(x => x.GetSection(It.Is<string>(s => s == MediaBrowser.Controller.Extensions.ConfigurationExtensions.SqliteCacheSizeKey)))
+                .Setup(x => x.GetSection(It.Is<string>(s => s == MediaBrowser.Controller.Extensions.ConfigurationExtensions.DatabaseCacheSizeKey)))
                 .Returns(configSection.Object);
 
             _fixture = new Fixture().Customize(new AutoMoqCustomization { ConfigureMembers = true });
             _fixture.Inject(appHost);
             _fixture.Inject(config);
-            _sqliteItemRepository = _fixture.Create<BaseItemRepository>();
+            _repository = _fixture.Create<BaseItemRepository>();
         }
 
         public static TheoryData<string, ItemImageInfo> ItemImageInfoFromValueString_Valid_TestData()
@@ -185,4 +185,3 @@ namespace MulletaFlix.Server.Implementations.Tests.Data
         }
     }
 }
-

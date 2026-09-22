@@ -64,7 +64,7 @@ public sealed partial class BaseItemRepository
     {
         // Collapse duplicates sharing a presentation key (e.g. alternate versions) by picking
         // the min Id per group. Keep the grouped ids as an IQueryable sub-select; materializing
-        // to a List would inline one bound parameter per id and hit SQLite's variable cap.
+        // to a List would inline one bound parameter per id and blow up the statement.
         var enableGroupByPresentationUniqueKey = EnableGroupByPresentationUniqueKey(filter);
         if (enableGroupByPresentationUniqueKey && filter.GroupBySeriesPresentationUniqueKey)
         {

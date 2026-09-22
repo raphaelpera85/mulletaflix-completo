@@ -11,6 +11,7 @@ using MulletaFlix.Database.Implementations.DbConfiguration;
 using MulletaFlix.Database.Implementations.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MySqlConnector;
 
 namespace MulletaFlix.Database.Implementations;
 
@@ -77,12 +78,14 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
         }
         _backupDir = GetOption(opts, "backup-dir", e => e, () => string.Empty);
 
+        var databaseName = GetOption(opts, "database", e => e, () => DatabaseNames.Main);
+        EnsureDatabaseExists(databaseName);
         var connString = opts is not null
             ? $"Server={_server};Port={_port};User ID={_user};Password={_password};CharSet=utf8mb4;Pooling=True;Minimum Pool Size=0;Maximum Pool Size=200;Connection Idle Timeout=300;Connection Lifetime=1800;Default Command Timeout=120;"
             : DefaultConnectionString;
 
-        connString = ApplySchema(connString, DatabaseNames.Main);
-        _logger.LogInformation("MySQL database: {Database}", DatabaseNames.Main);
+        connString = ApplySchema(connString, databaseName);
+        _logger.LogInformation("MySQL database: {Database}", databaseName);
 
         var versionStr = GetOption(opts, "server-version", e => e, () => "11.4.2");
         var serverVersion = new MariaDbServerVersion(new Version(versionStr));
@@ -106,6 +109,26 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
             }
         }
         return $"{connString.TrimEnd(';')};Database={schema};";
+    }
+
+    private void EnsureDatabaseExists(string databaseName)
+    {
+        if (databaseName.Equals(DatabaseNames.Main, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (databaseName.Any(ch => !(char.IsAsciiLetterOrDigit(ch) || ch == '_')))
+        {
+            throw new InvalidOperationException($"Invalid MariaDB database name '{databaseName}'.");
+        }
+
+        var connectionString = $"Server={_server};Port={_port};User ID={_user};Password={_password};CharSet=utf8mb4;SslMode=None;";
+        using var connection = new MySqlConnection(connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE IF NOT EXISTS `{databaseName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+        command.ExecuteNonQuery();
     }
 
     public static T GetOption<T>(ICollection<CustomDatabaseOption>? options, string key, Func<string, T> converter, Func<T>? defaultValue = null)

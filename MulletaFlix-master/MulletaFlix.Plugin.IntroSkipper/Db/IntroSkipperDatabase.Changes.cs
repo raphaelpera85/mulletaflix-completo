@@ -1,4 +1,4 @@
-﻿// SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
@@ -93,9 +93,9 @@ internal sealed partial class IntroSkipperDatabase
             itemIds.Distinct(),
             id => $"({id}, 1, 0, NULL, NULL)",
             rows => $"""
-                INSERT INTO "ProjectionQueue" ("ItemId", "Version", "AttemptCount", "NextAttemptAt", "Failure")
+                INSERT INTO `ProjectionQueue` (`ItemId`, `Version`, `AttemptCount`, `NextAttemptAt`, `Failure`)
                 VALUES {rows}
-                ON CONFLICT("ItemId") DO UPDATE SET "Version" = "Version" + 1, "NextAttemptAt" = NULL
+                ON DUPLICATE KEY UPDATE `Version` = `Version` + 1, `NextAttemptAt` = NULL
                 """);
         foreach (var statement in statements)
         {
@@ -124,9 +124,9 @@ internal sealed partial class IntroSkipperDatabase
             return (0, []);
         }
 
-        var doomedIds = doomed.Select(d => d.Id).ToArray();
+        IReadOnlySet<Guid> doomedIds = doomed.Select(d => d.Id).ToHashSet();
         var removed = await db.Segments
-            .Where(s => EF.Parameter(doomedIds).Contains(s.Id))
+            .Where(s => doomedIds.Contains(s.Id))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
         var itemIds = doomed.Select(d => d.ItemId).Distinct().ToArray();

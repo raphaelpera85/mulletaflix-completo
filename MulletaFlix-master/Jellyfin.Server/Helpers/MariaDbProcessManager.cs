@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
@@ -92,6 +93,16 @@ namespace MulletaFlix.Server.Helpers
                         startInfo.ArgumentList.Add("--console");
                         startInfo.ArgumentList.Add("--skip-log-bin");
                         startInfo.ArgumentList.Add("--bind-address=127.0.0.1");
+
+                        // Concurrency and throughput tuning for the embedded engine. These are
+                        // the values the server has to work under, so they travel with it
+                        // instead of depending on a my.ini the operator may never create.
+                        // Only applied to the instance this process starts: an external
+                        // MariaDB belongs to whoever runs it.
+                        foreach (var argument in BuildTuningArguments())
+                        {
+                            startInfo.ArgumentList.Add(argument);
+                        }
 
                         _mariaDbProcess = new Process { StartInfo = startInfo };
 
@@ -238,6 +249,55 @@ namespace MulletaFlix.Server.Helpers
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Server arguments that make the embedded engine cope with the concurrency the
+        /// application actually produces.
+        /// <para>
+        /// Measured on a live library: 78k items and 500 MB of data while MariaDB ran with
+        /// stock defaults — a 128 MB buffer pool (too small for the hot tables, so scans
+        /// spilled to disk), <c>innodb_io_capacity</c> 200 (a spinning-disk default on an
+        /// NVMe drive) and <c>max_connections</c> 151, below the 200 the server's own
+        /// connection pool is allowed to open.
+        /// </para>
+        /// <para>
+        /// The memory settings stay deliberately small. The host is memory-constrained (a
+        /// 15 GB machine committing ~39 GB, so it pages), and MariaDB reserves the buffer
+        /// pool and the redo log at startup: growing them by hundreds of megabytes would
+        /// trade database disk reads for system-wide paging, which is the worse of the two
+        /// stalls. The zero-memory settings below are where the win is.
+        /// </para>
+        /// </summary>
+        /// <returns>The arguments to append to the mysqld command line.</returns>
+        private static IEnumerable<string> BuildTuningArguments()
+        {
+            // Double the stock pool: the largest hot table is ~300 MB, so this still cannot
+            // hold everything, but it keeps the frequently read pages resident at a
+            // guaranteed +128 MB instead of the +384 MB a full working set would need.
+            yield return "--innodb-buffer-pool-size=256M";
+
+            // Redo headroom for bulk metadata writes (library scans). +32 MB over the 96 MB
+            // default reduces checkpoint frequency during a scan without a large reserve.
+            yield return "--innodb-log-file-size=128M";
+
+            // The data directory lives on an SSD. 200 is the spinning-disk default; leaving
+            // it there throttles flush and purge work far below the device's ability. This
+            // costs no memory.
+            yield return "--innodb-io-capacity=2000";
+
+            // Above the 200 the application's connection pool may open, so a burst can never
+            // be rejected with "Too many connections". Peak observed: 71 concurrent threads.
+            // Idle connections cost little; the per-connection buffers are what matter.
+            yield return "--max-connections=300";
+
+            // Descriptors for the index and table set of a library this size.
+            yield return "--table-open-cache=4096";
+
+            // 50s is the default and the worst case for a stalled request: a thread waits
+            // most of a minute before the application's retry can run. 25s keeps the retry
+            // useful while still absorbing ordinary scan contention.
+            yield return "--innodb-lock-wait-timeout=25";
         }
 
         private static async Task<bool> IsPortOpenAsync(int port, CancellationToken cancellationToken)

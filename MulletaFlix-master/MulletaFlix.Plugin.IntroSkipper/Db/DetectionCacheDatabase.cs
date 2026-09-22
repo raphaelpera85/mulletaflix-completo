@@ -76,17 +76,19 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             return;
         }
 
-        // ON CONFLICT targets the unique (ItemId, Mode, Type, Start, End) index, so the
-        // existing BLOB is never read back just to be replaced.
         using var db = _contextFactory.CreateDbContext();
-        db.Database.ExecuteSql(
-            $"""
-            INSERT INTO "DetectionCache" ("ItemId", "Mode", "Type", "Start", "End", "Data", "ConfigHash")
-            VALUES ({itemId}, {(int)mode}, {(int)type}, {start}, {end}, {data}, {configHash})
-            ON CONFLICT("ItemId", "Mode", "Type", "Start", "End") DO UPDATE SET
-                "Data" = excluded."Data",
-                "ConfigHash" = excluded."ConfigHash"
-            """);
+        var existing = db.DetectionCache.FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+        if (existing is null)
+        {
+            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end, configHash));
+        }
+        else
+        {
+            existing.Data = data;
+            existing.ConfigHash = configHash;
+        }
+
+        db.SaveChanges();
     }
 
     /// <inheritdoc/>
@@ -116,7 +118,7 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public async Task<IReadOnlyCollection<Guid>> GetStaleItemIdsAsync(IReadOnlySet<Guid> validItemIds, CancellationToken cancellationToken = default)
     {
-        var validIds = validItemIds.ToArray();
+        IReadOnlySet<Guid> validIds = validItemIds.ToHashSet();
 
         if (!TryInitialize())
         {
@@ -125,13 +127,13 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         using var db = _contextFactory.CreateDbContext();
 
-        // EF.Parameter binds the valid set as a single JSON parameter (json_each), so
-        // the NOT-IN is safe for arbitrarily large libraries.
+        // The valid set is a set variable, so Pomelo translates the NOT IN directly;
+        // the query is safe for arbitrarily large libraries.
         return await db.DetectionCache
             .AsNoTracking()
             .Select(e => e.ItemId)
             .Distinct()
-            .Where(id => !EF.Parameter(validIds).Contains(id))
+            .Where(id => !validIds.Contains(id))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
@@ -139,28 +141,26 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public async Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
     {
-        var ids = itemIds.Distinct().ToArray();
-        if (ids.Length == 0)
+        IReadOnlySet<Guid> ids = itemIds.ToHashSet();
+        if (ids.Count == 0)
         {
             return 0;
         }
 
-        // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
-        // delete is one statement regardless of the item count.
-        return await DeleteWhereAsync(e => EF.Parameter(ids).Contains(e.ItemId), cancellationToken).ConfigureAwait(false);
+        // Set variable: one DELETE regardless of the item count.
+        return await DeleteWhereAsync(e => ids.Contains(e.ItemId), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public async Task<int> DeleteEntriesWithUnknownConfigHashAsync(IReadOnlyCollection<string> acceptedConfigHashes, string acceptedHashPrefix, CancellationToken cancellationToken = default)
     {
-        var hashes = acceptedConfigHashes.Distinct().ToArray();
+        IReadOnlySet<string> hashes = acceptedConfigHashes.ToHashSet();
 
-        // EF.Parameter binds the accepted set as a single JSON parameter (json_each), so
-        // the delete is one statement regardless of how many hashes are accepted.
+        // One DELETE regardless of how many hashes are accepted.
         return await DeleteWhereAsync(
             e => e.ConfigHash != string.Empty
                 && !e.ConfigHash.StartsWith(acceptedHashPrefix)
-                && !EF.Parameter(hashes).Contains(e.ConfigHash),
+                && !hashes.Contains(e.ConfigHash),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -193,7 +193,6 @@ internal sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         using var db = _contextFactory.CreateDbContext();
 
         db.EnsureSchema();
-        SqlitePragmas.EnforceWal(db.Database);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Detection cache database initialization failed; the next database operation will retry")]

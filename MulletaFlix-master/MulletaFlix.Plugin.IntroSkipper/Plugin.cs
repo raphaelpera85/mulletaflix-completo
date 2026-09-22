@@ -64,9 +64,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
-        // Creates the plugin data directory when missing.
-        IntroSkipperDatabasePaths.GetPluginDirectory(applicationPaths);
-
         Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID

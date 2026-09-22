@@ -67,7 +67,7 @@ namespace MediaBrowser.Controller.Extensions
         /// <summary>
         /// The cache size of the SQL database, see cache_size.
         /// </summary>
-        public const string SqliteCacheSizeKey = "sqlite:cacheSize";
+        public const string DatabaseCacheSizeKey = "database:cacheSize";
 
         /// <summary>
         /// The key for a setting that indicates whether the application should detect network status change.
@@ -138,13 +138,5 @@ namespace MediaBrowser.Controller.Extensions
         /// <returns>The unix socket permissions.</returns>
         public static string? GetUnixSocketPermissions(this IConfiguration configuration)
             => configuration[UnixSocketPermissionsKey];
-
-        /// <summary>
-        /// Gets the cache_size from the <see cref="IConfiguration" />.
-        /// </summary>
-        /// <param name="configuration">The configuration to read the setting from.</param>
-        /// <returns>The sqlite cache size.</returns>
-        public static int? GetSqliteCacheSize(this IConfiguration configuration)
-            => configuration.GetValue<int?>(SqliteCacheSizeKey);
     }
 }

@@ -55,12 +55,12 @@ internal sealed partial class IntroSkipperDatabase
 
         await db.Database.ExecuteSqlAsync(
             $"""
-            INSERT INTO "SeasonAnalysisOverrides" ("SeasonId", "AnalysisPercent", "AnalysisLengthLimit", "PreviewFromCreditsEnd")
+            INSERT INTO `SeasonAnalysisOverrides` (`SeasonId`, `AnalysisPercent`, `AnalysisLengthLimit`, `PreviewFromCreditsEnd`)
             VALUES ({seasonId}, {analysisPercent}, {analysisLengthLimit}, {previewFromCreditsEnd})
-            ON CONFLICT("SeasonId") DO UPDATE SET
-                "AnalysisPercent" = excluded."AnalysisPercent",
-                "AnalysisLengthLimit" = excluded."AnalysisLengthLimit",
-                "PreviewFromCreditsEnd" = excluded."PreviewFromCreditsEnd"
+            ON DUPLICATE KEY UPDATE
+                `AnalysisPercent` = VALUES(`AnalysisPercent`),
+                `AnalysisLengthLimit` = VALUES(`AnalysisLengthLimit`),
+                `PreviewFromCreditsEnd` = VALUES(`PreviewFromCreditsEnd`)
             """,
             cancellationToken).ConfigureAwait(false);
     }
@@ -80,9 +80,9 @@ internal sealed partial class IntroSkipperDatabase
             {
                 await db.Database.ExecuteSqlAsync(
                     $"""
-                    INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "SettledReanalysisEpisodeIds")
+                    INSERT INTO `SeasonStates` (`SeasonId`, `Type`, `Action`, `SettledReanalysisEpisodeIds`)
                     VALUES ({seasonId}, {(int)mode}, {(int)action}, '[]')
-                    ON CONFLICT("SeasonId", "Type") DO UPDATE SET "Action" = excluded."Action"
+                    ON DUPLICATE KEY UPDATE `Action` = VALUES(`Action`)
                     """,
                     cancellationToken).ConfigureAwait(false);
             }
@@ -137,10 +137,10 @@ internal sealed partial class IntroSkipperDatabase
         {
             await db.Database.ExecuteSqlAsync(
                 $"""
-                INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "SettledReanalysisEpisodeIds")
+                INSERT INTO `SeasonStates` (`SeasonId`, `Type`, `Action`, `SettledReanalysisEpisodeIds`)
                 VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {settledEpisodeIds})
-                ON CONFLICT("SeasonId", "Type") DO UPDATE SET
-                    "SettledReanalysisEpisodeIds" = excluded."SettledReanalysisEpisodeIds"
+                ON DUPLICATE KEY UPDATE
+                    `SettledReanalysisEpisodeIds` = VALUES(`SettledReanalysisEpisodeIds`)
                 """,
                 cancellationToken).ConfigureAwait(false);
         }
