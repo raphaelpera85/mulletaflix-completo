@@ -18,7 +18,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.media3.common.util.UnstableApi
 import android.net.Uri
-import android.widget.Toast
 import org.mulletaflix.android.MediaDeepLinkRequest
 import org.mulletaflix.feature.auth.LoginScreen
 import org.mulletaflix.feature.auth.ServerSelectionScreen
@@ -62,7 +61,6 @@ fun MulletaFlixNavHost(
     val currentRoute = currentBackStackEntry?.destination?.route
     val currentItemId = currentBackStackEntry?.arguments?.getString("itemId")
     val currentServerId = org.mulletaflix.designsystem.media.LocalMulletaFlixServerId.current
-    val context = androidx.compose.ui.platform.LocalContext.current
     // Keyed by request sequence rather than by item id, so a second intent for
     // the same media is a new delivery instead of a duplicate.
     var handledDeepLinkSequence by remember { mutableStateOf<Long?>(null) }
@@ -80,18 +78,15 @@ fun MulletaFlixNavHost(
         }
         val request = deepLinkRequest ?: return@LaunchedEffect
         val targetItemId = request.itemId
-        if (!shouldOpenLinkOnCurrentServer(request.serverId, currentServerId)) {
-            // The id is only meaningful on the server that issued the link.
-            // Opening it here resolved it against this library and showed an
-            // unrelated item (or "erro ao carregar detalhes"), so the link is
-            // refused and the user is told why.
-            Toast.makeText(
-                context,
-                "Este link pertence a outro servidor. Troque de servidor para abri-lo.",
-                Toast.LENGTH_LONG,
-            ).show()
-            handledDeepLinkSequence = request.sequence
-            onDeepLinkConsumed()
+        if (shouldRedirectToServerSelectionForDeepLinkMismatch(currentRoute, request.serverId, currentServerId)) {
+            // Keep the request alive. Server selection verifies the endpoint,
+            // clears the old session when its server id differs, and the login
+            // callback then resumes this exact item id.
+            switchingServer = true
+            navController.navigate(MulletaFlixRoute.SERVER_SELECTION) {
+                popUpTo(MulletaFlixRoute.HOME) { inclusive = true }
+                launchSingleTop = true
+            }
             return@LaunchedEffect
         }
         if (shouldMarkMediaDeepLinkHandled(currentItemId, targetItemId)) {

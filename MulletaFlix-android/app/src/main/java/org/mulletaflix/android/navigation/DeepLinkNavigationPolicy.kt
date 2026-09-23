@@ -62,3 +62,16 @@ internal fun shouldOpenLinkOnCurrentServer(
     if (link.isEmpty() || session.isEmpty()) return true
     return link.equals(session, ignoreCase = true)
 }
+
+/**
+ * A link from another server needs the existing server-switch/login flow.
+ * Auth routes are left alone so the pending request survives until login.
+ */
+internal fun shouldRedirectToServerSelectionForDeepLinkMismatch(
+    currentRoute: String?,
+    linkServerId: String?,
+    sessionServerId: String?,
+): Boolean {
+    if (shouldOpenLinkOnCurrentServer(linkServerId, sessionServerId)) return false
+    return currentRoute != MulletaFlixRoute.SERVER_SELECTION && currentRoute != MulletaFlixRoute.LOGIN
+}

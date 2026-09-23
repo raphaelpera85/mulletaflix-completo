@@ -2,6 +2,7 @@ package org.mulletaflix.android
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import coil.annotation.ExperimentalCoilApi
 import coil.intercept.Interceptor
 import coil.request.ImageRequest
 import coil.request.ImageResult
@@ -28,6 +29,7 @@ import org.junit.runner.RunWith
  * torna a falsificação honesta em vez de uma simulação da biblioteca.
  */
 @RunWith(AndroidJUnit4::class)
+@OptIn(ExperimentalCoilApi::class)
 class ArtworkCacheKeyInterceptorTest {
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext

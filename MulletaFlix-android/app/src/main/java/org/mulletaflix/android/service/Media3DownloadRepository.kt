@@ -30,7 +30,7 @@ import javax.inject.Singleton
 @UnstableApi
 @Singleton
 class Media3DownloadRepository @Inject constructor(
-    @ApplicationContext private val appContext: Context,
+    @param:ApplicationContext private val appContext: Context,
     private val sessionRepository: SessionRepository,
 ) : DownloadRepository {
     private val manager = DownloadManagerSingleton.get(appContext)

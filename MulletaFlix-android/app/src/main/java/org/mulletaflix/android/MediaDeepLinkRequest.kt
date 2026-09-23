@@ -12,6 +12,7 @@ import org.mulletaflix.android.navigation.MulletaFlixRoute
  * notifies its observers and the second tap is silently dropped. A monotonic
  * [sequence] makes every delivered request distinct.
  */
+@ConsistentCopyVisibility
 data class MediaDeepLinkRequest internal constructor(
     val itemId: String,
     val sequence: Long,

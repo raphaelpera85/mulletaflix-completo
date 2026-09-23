@@ -544,3 +544,19 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Impedir que `::` seja usado como endpoint discável mesmo sendo um endereço local de escuta.
 - [x] Fazer o status do perfil reutilizar a mesma política de classificação da recuperação LAN.
 - [x] Cobrir IPv6 na política de recuperação e na apresentação do perfil.
+
+## 226. Compatibilidade futura do Kotlin (v1.2.92)
+- [x] Remover o aviso de visibilidade futura do `copy()` em `MediaDeepLinkRequest` com `ConsistentCopyVisibility`.
+- [x] Fixar o alvo da anotação `@ApplicationContext` no parâmetro do repositório de downloads.
+- [x] Confirmar testes, lint, pacote, instalação na TV e release após a atualização de versão.
+
+## 227. Deep link troca automaticamente para o servidor correto (v1.2.93)
+- [x] Redirecionar links com `serverId` diferente para a tela de seleção de servidor.
+- [x] Preservar o item pendente durante a troca de servidor e autenticação.
+- [x] Não interromper o fluxo quando o usuário já estiver em seleção/login.
+- [x] Cobrir a decisão de redirecionamento com testes unitários.
+
+## 228. Suíte instrumentada do app no Android TV (v1.2.94)
+- [x] Executar os 13 testes instrumentados do módulo `app` no AVD `MulletaflixTvApi34`.
+- [x] Declarar explicitamente o opt-in da API experimental do Coil usada pela cadeia falsa do teste de cache.
+- [x] Confirmar build instrumentado sem falhas e fechamento automático do emulador.

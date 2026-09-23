@@ -141,4 +141,33 @@ class DeepLinkNavigationPolicyTest {
         assertTrue(shouldOpenLinkOnCurrentServer("server-A", null))
         assertTrue(shouldOpenLinkOnCurrentServer("  ", "server-A"))
     }
+
+    @Test
+    fun `mismatched server redirects from media routes to server selection`() {
+        assertTrue(
+            shouldRedirectToServerSelectionForDeepLinkMismatch(
+                currentRoute = MulletaFlixRoute.HOME,
+                linkServerId = "server-B",
+                sessionServerId = "server-A",
+            ),
+        )
+    }
+
+    @Test
+    fun `mismatched server does not interrupt auth routes`() {
+        assertFalse(
+            shouldRedirectToServerSelectionForDeepLinkMismatch(
+                currentRoute = MulletaFlixRoute.LOGIN,
+                linkServerId = "server-B",
+                sessionServerId = "server-A",
+            ),
+        )
+        assertFalse(
+            shouldRedirectToServerSelectionForDeepLinkMismatch(
+                currentRoute = MulletaFlixRoute.SERVER_SELECTION,
+                linkServerId = "server-B",
+                sessionServerId = "server-A",
+            ),
+        )
+    }
 }

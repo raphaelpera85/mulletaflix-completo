@@ -6,7 +6,7 @@ também exige a geração/publicação da release do servidor ao concluir qualqu
 essa exigência foi aplicada nesta rodada.
 
 > Nota desta rodada: as evidências de build e publicação foram coletadas em 23/09/2026.
-> O servidor permanece na versão publicada `12.0.76`; a release Android nesta rodada é a versão `1.2.90`.
+> O servidor permanece na versão publicada `12.0.76`; a release Android nesta rodada é a versão `1.2.94`.
 
 ## Skills e metodologias utilizadas
 
@@ -52,11 +52,11 @@ Fable: intenção/aceite
 
 ## Estado confirmado
 
-- Versão atual do APK (local e publicada): **1.2.90**. `versionCode`: **291**.
-- **Release Android publicada: [app-v1.2.90](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.90)** — 7.336.683 bytes, sha256 `90394E6EAFF873E98B2992C60B4FDCC19C202E1215C8B81754AC8C52A48C45FE`.
+- Versão atual do APK (local e publicada): **1.2.94**. `versionCode`: **295**.
+- **Release Android publicada: [app-v1.2.94](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.94)** — 7.336.679 bytes, sha256 `9E97245CFC7D3C58D162F35811A86C0E780DF0EA85C9F490BD00450B7D73A98C`.
 - **Release do servidor confirmada: [v12.0.76](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.0.76)** — API do GitHub confirmou `mulletaflix-update-win-x64.zip` 370.545.524 bytes e `mulletaflix_12.0.76_windows-x64.exe` 405.477.990 bytes; SHA-256 local respectivamente `BC111F80E42B1CD7E47B1E864977E27C20CC50D50ACE15097887000A1FF85D40` e `34DE942FB72AC884696D38459683E7F6A0382CAAEA61D45CD2373591971652DE`.
 - **Atenção (v1.2.81 … v1.2.85): cinco builds com o MESMO tamanho** — 7.320.299 bytes em v1.2.81, v1.2.82, v1.2.84 e v1.2.85, com quatro digests diferentes. A v1.2.86 finalmente mudou de tamanho (7.336.683), o que é a prova barata de que o número não serve para identificar build — só SHA-256 + `versionCode`.
-- Quality Bar desta rodada: testes direcionados de `:core:api`/`:data` e `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` passaram com código 0 (`BUILD SUCCESSFUL`, 1414 tarefas); o pacote Android foi instalado e aberto no AVD `MulletaflixTvApi34`, com `versionCode=291 versionName=1.2.90` conferidos e nenhum `FATAL EXCEPTION` do pacote `org.mulletaflix.android` após logcat limpo; `publish-app-release.ps1` anexou o APK; emuladores encerrados (`emulator=0`, `qemu=0`). O novo `build-update-package.ps1` não concluiu porque o servidor já falha em `ShortMaxSeriesProvider.cs` (`GetProviderId`/`SetProviderId` ausentes); nenhum código do servidor foi alterado nesta conversa APK-only.
+- Quality Bar desta rodada: `:app:connectedDebugAndroidTest` executou **13 testes instrumentados aprovados** no AVD `MulletaflixTvApi34`; o opt-in explícito da API experimental do Coil removeu o aviso do teste de cache; `:app:assembleRelease` passou com código 0 (662 tarefas); o APK v1.2.94 foi instalado e aberto no mesmo ciclo do wrapper, com `am start` sem erro; `publish-app-release.ps1` anexou o APK; emuladores encerrados (`emulator=0`, `qemu=0`). O servidor não foi alterado nem publicado nesta conversa APK-only; o build do servidor segue bloqueado pelo erro existente em `ShortMaxSeriesProvider.cs` (`GetProviderId`/`SetProviderId` ausentes).
 - **Alvos de toque: a lista está fechada.** O último item (o `MediaRouteButton` de 40 dp) foi **medido** na v1.2.84 e **não tinha defeito**: alvo de toque 48,0 dp × 48,0 dp, layout 40,0 dp. Ver a rodada — inclusive o erro de método que quase transformou isso num conserto desnecessário.
 - **Método que passou a valer (v1.2.83):** revisar o próprio trabalho é a forma mais fraca de verificação. Depois de duas rodadas seguidas de mudanças minhas, uma **auditoria adversarial independente** (subagente, read-only, instruído a procurar defeito e não elogiar) comparou as mudanças com `HEAD` e achou **dois defeitos reais que eu tinha acabado de introduzir** — ambos corrigidos na v1.2.83. Repetir esse passo depois de qualquer bloco de mudanças próprias: ele também **refutou** duas hipóteses minhas (o que é tão útil quanto achar defeito) e deixou dois suspeitos registrados, em vez de "corrigidos às cegas".
 - **Prova de que o cache morto saiu do pacote (medida, não deduzida):** varredura dos `classes*.dex` dentro dos dois APKs — na v1.2.80 as strings `androidx/room/RoomDatabase`, `mulletaflix.db` e `MediaItemEntity` aparecem **1, 1 e 3 vezes**; na v1.2.81 aparecem **0, 0 e 0**. O APK encolheu de 7.357.517 para 7.320.299 bytes (**−37.218**).
@@ -66,7 +66,7 @@ Fable: intenção/aceite
 - **Atenção 16:** nome de teste com crase (`` fun `frase com espaços`() ``) funciona em teste **unitário** e **quebra o build** de teste instrumentado: o D8 recusa `Space characters in SimpleName ... are not allowed prior to DEX version 040` (o `minSdk` 24 fixa uma versão de DEX anterior à 040). Em `src/androidTest` use `camelCase`, como os testes que já existiam.
 - **Atenção 15:** o `build-app-package.ps1` pode falhar com `FileSystemException: ...classes.jar: O arquivo já está sendo usado por outro processo` logo depois de outra tarefa Gradle (o lint, por exemplo). É lock de arquivo do Windows, não erro de código: repetir o comando resolve — aconteceu na v1.2.71 e passou na segunda tentativa sem mudança alguma. Na v1.2.72 não aconteceu.
 - **Atenção 14:** `java.time` **não** está disponível abaixo da API 26 neste projeto (minSdk 24, sem core library desugaring). Formatação de data usa `SimpleDateFormat` com `TimeZone` explícito.
-- **Atenção 11:** `@ApplicationContext` na linha 33 de `Media3DownloadRepository.kt` gera um aviso do Kotlin 2.3 sobre alvo da anotação (`KT-73255`). É anterior a estas rodadas e o lint segue com 0 erros; silenciar com `@param:ApplicationContext` se alguém mexer ali.
+- **Atenção 11 (resolvida na v1.2.92):** `@ApplicationContext` na linha 33 de `Media3DownloadRepository.kt` gerava um aviso do Kotlin 2.3 sobre alvo da anotação (`KT-73255`); o parâmetro agora usa explicitamente `@param:ApplicationContext`.
 - **Atenção 12:** o lint é um portão real, não decorativo: ele reprovou a v1.2.68 com 3 erros de `UnsafeOptInUsageError` enquanto o `assembleRelease` passava. Sempre rodar `:app:lintDebug` antes de publicar.
 - **Atenção 13:** não usar `Get-Content`/`Set-Content` para editar fontes Kotlin: o `-replace` do PowerShell opera sobre o array de linhas e o `Set-Content -NoNewline` junta tudo numa linha só. Aconteceu nesta rodada com um arquivo de teste; foi reescrito. Editar com as ferramentas de edição.
 - **Atenção 9:** `logcat -b crash` no AVD de TV contém um crash **do YouTube TV** (`com.google.android.youtube.tv`), não do app. Filtrar por `org.mulletaflix` antes de tratar um crash como regressão.
@@ -101,6 +101,113 @@ Fable: intenção/aceite
 
 > Histórico: a v1.2.40 foi a última release antes desta rodada e foi instalada no
 > Android TV com `Success`.
+
+## Rodada v1.2.94 — Suíte instrumentada do app no Android TV
+
+Vigésima nona rodada. `versionCode` 295. A release Android foi publicada em
+[app-v1.2.94](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.94).
+
+### O que mudou
+
+- A suíte instrumentada do módulo `app` foi executada no AVD `MulletaflixTvApi34`.
+- O teste `ArtworkCacheKeyInterceptorTest` passou a declarar explicitamente o opt-in
+  `ExperimentalCoilApi`, eliminando o aviso de API experimental durante a compilação.
+- A versão do APK foi atualizada para `1.2.94` (`versionCode` 295).
+
+### Evidências
+
+- `:app:connectedDebugAndroidTest`: **13 testes aprovados** no Android TV.
+- `:app:assembleRelease`: **BUILD SUCCESSFUL**, 662 tarefas.
+- APK: `dist/mulletaflix-app-v1.2.94.apk`, 7.336.679 bytes, SHA-256
+  `9E97245CFC7D3C58D162F35811A86C0E780DF0EA85C9F490BD00450B7D73A98C`.
+- A release anterior `app-v1.2.93` foi verificada pela API antes do empacotamento.
+- Instalação e `MainActivity` foram executadas no mesmo ciclo do wrapper do AVD, sem erro;
+  os emuladores foram encerrados automaticamente.
+- Apenas a release do APK foi publicada. Nenhum código ou release do servidor foi alterado.
+
+## Rodada v1.2.93 — Deep link troca para o servidor correto
+
+Vigésima oitava rodada. `versionCode` 294. A release Android foi publicada em
+[app-v1.2.93](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.93).
+
+### O que mudou
+
+- Links oficiais que contêm `serverId` diferente do servidor autenticado agora encaminham
+  automaticamente para a seleção de servidor, em vez de apenas exibir um Toast e descartar
+  o link.
+- O pedido de deep link permanece pendente durante a troca de servidor e o login; após a
+  autenticação, o mesmo item é retomado no servidor correto.
+- O fluxo não interfere quando a Activity já está em seleção ou login.
+- Adicionados testes unitários para a decisão de redirecionamento.
+
+### Evidências
+
+- `:app:testDebugUnitTest` + `:app:lintDebug`: **BUILD SUCCESSFUL**, 648 tarefas.
+- `:app:assembleRelease`: **BUILD SUCCESSFUL**, 662 tarefas.
+- APK: `dist/mulletaflix-app-v1.2.93.apk`, 7.336.683 bytes, SHA-256
+  `416CE6AB62F092E67573CD5D4C0DDE9304CC130060A74A6784F5F36683196AFF`.
+- A release anterior `app-v1.2.92` foi verificada na API antes da publicação.
+- No AVD `MulletaflixTvApi34`, instalação e `MainActivity` foram executadas no mesmo
+  ciclo do wrapper, sem erro de `am start`; emulador encerrado ao final.
+- Nenhuma alteração ou release do servidor foi feita; o bloqueio existente de
+  `ShortMaxSeriesProvider.cs` permanece fora do escopo APK-only.
+
+## Rodada v1.2.92 — Compatibilidade futura do Kotlin
+
+Vigésima sétima rodada. `versionCode` 293. A release Android foi publicada em
+[app-v1.2.92](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.92).
+
+### O que mudou
+
+- `MediaDeepLinkRequest` foi anotado com `ConsistentCopyVisibility`, removendo o aviso
+  de visibilidade futura do `copy()` gerado pelo Kotlin.
+- `Media3DownloadRepository` agora fixa `@ApplicationContext` no parâmetro, evitando a
+  mudança futura de alvo da anotação.
+- A versão do APK avançou para `1.2.92` / `versionCode` 293.
+
+### Evidências
+
+- `testDebugUnitTest`: **BUILD SUCCESSFUL**, 456 tarefas.
+- `:app:testDebugUnitTest :app:lintDebug`: **BUILD SUCCESSFUL**, 648 tarefas.
+- `:app:assembleRelease`: **BUILD SUCCESSFUL**, 662 tarefas.
+- APK: `dist/mulletaflix-app-v1.2.92.apk`, 7.336.683 bytes, SHA-256
+  `0EEF5B978515A4C76333419BE4849E67E161D3FE938D2498A6A6B62B133DCA20`.
+- A release anterior `app-v1.2.91` foi verificada na API antes da publicação; a nova
+  release foi confirmada com o asset `mulletaflix-app-v1.2.92.apk`.
+- No AVD `MulletaflixTvApi34`, instalação e `MainActivity` foram executadas no mesmo
+  ciclo do wrapper; emulador encerrado ao final.
+- Nenhuma alteração ou release do servidor foi feita; o bloqueio existente de
+  `ShortMaxSeriesProvider.cs` permanece fora do escopo APK-only.
+
+## Rodada v1.2.91 — Descoberta LAN IPv6 consistente
+
+Vigésima sexta rodada. `versionCode` 292. A release Android foi publicada em
+[app-v1.2.91](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.91).
+
+### O que mudou
+
+- `ServerHost` passou a normalizar hosts IPv6 com colchetes e reconhecer endereços ULA,
+  link-local, site-local e loopback como servidores locais.
+- O endereço não especificado `::` continua sendo local para classificação, mas não é
+  considerado um endpoint discável.
+- A apresentação do perfil reutiliza a mesma política compartilhada da recuperação LAN,
+  evitando que o mesmo servidor seja classificado como remoto em uma tela e local em outra.
+- Foram adicionados testes para IPv6 na política de recuperação LAN e na apresentação do perfil.
+
+### Evidências
+
+- `:design-system:testDebugUnitTest`, `:app:testDebugUnitTest` e
+  `:feature:user:testDebugUnitTest`: **passaram**.
+- A execução completa de testes/lint passou antes de o reempacotamento encontrar um artefato
+  APK incremental corrompido; após remover somente esse artefato gerado, `:app:assembleRelease`
+  passou com código 0 e 662 tarefas.
+- APK: `dist/mulletaflix-app-v1.2.91.apk`, 7.336.683 bytes, SHA-256
+  `587F5E40A9DD497CA8629E28B4F356D8F24420FCE8182D75067133DF3E8E879E`.
+- Smoke test no AVD `MulletaflixTvApi34`: instalação e abertura bem-sucedidas;
+  `versionCode=292`, `versionName=1.2.91`, sem crash do pacote; emulador encerrado ao final.
+- A release Android foi conferida na API do GitHub e publicada separadamente.
+- A release do servidor não foi reconstruída nesta rodada: o build permanece bloqueado pelo
+  erro existente de `ShortMaxSeriesProvider.cs`; o escopo desta conversa é APK-only.
 
 ## Rodada v1.2.90 — Contrato JSON das faixas padrão
 
