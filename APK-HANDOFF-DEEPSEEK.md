@@ -1,12 +1,12 @@
 # MulletaFlix Android — handoff para continuidade com DeepSeek
 
-Atualizado em: 21/09/2026  
-Escopo desta conversa: **somente o APK Android**.
+Atualizado em: 23/09/2026
+Escopo principal desta conversa: **APK Android**. O `AGENTS.md` atual do repositório
+também exige a geração/publicação da release do servidor ao concluir qualquer alteração;
+essa exigência foi aplicada nesta rodada.
 
-> Nota desta rodada: as evidências abaixo foram coletadas em 21/09/2026 pelo agente
-> DeepSeek. O servidor real (MulletaFlix 12.0.27) respondeu em
-> `http://192.168.15.9:8096` e via `http://mulletaflix.duckdns.org:8096`; nenhum
-> script de release do servidor foi executado.
+> Nota desta rodada: as evidências de build e publicação foram coletadas em 23/09/2026.
+> O servidor permanece na versão publicada `12.0.76`; a release Android nesta rodada é a versão `1.2.90`.
 
 ## Skills e metodologias utilizadas
 
@@ -34,7 +34,9 @@ Estas são as skills efetivamente usadas para orientar o desenvolvimento, testes
 2. **Gauntlet Loop — Builder vs. Evaluator**: o agente que altera o código não pode ser a única validação. O Evaluator deve executar testes, lint, build, instalação e, quando aplicável, teste visual/real contra o servidor.
 3. **Caveman + Cavecrew**: manter o trabalho simples, rastreável e econômico em contexto; registrar o que foi aprendido e delegar investigações independentes quando necessário.
 4. **Android profissional por camadas**: preservar separação entre `domain`, `data`, `core`, `design-system`, `feature` e `app`; mudanças de UI devem ter teste de política/Compose proporcional ao risco.
-5. **Release APK-only nesta conversa**: servidor e APK têm releases separadas; alterações do APK só geram pacote/publicação Android.
+5. **Releases separadas por sistema**: servidor e APK continuam tendo tags e assets
+   independentes, mas o `AGENTS.md` atual exige executar ambos os fluxos quando uma
+   alteração é concluída.
 
 ### Ordem operacional recomendada
 
@@ -45,20 +47,20 @@ Fable: intenção/aceite
   → Cavecrew: revisão especializada quando necessário
   → Fable Judge + Gauntlet Evaluator: testes reais/lint/build/UI
   → Caveman Compress/Learn: registrar evidências e aprendizado
-  → release somente do APK, se a tarefa estiver concluída
+  → pacote/publicação do servidor e do APK em releases separadas
 ```
 
 ## Estado confirmado
 
-- Versão atual do APK (local): **1.2.86**. `versionCode`: **287**.
-- **Última release publicada: [app-v1.2.80](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.80) (ID 394138299)** — 7.357.517 bytes, sha256 `58C4798C39EDDB2FF6787B3146BDE415760E64EDE425685C87B449F4FC437BDA`. As v1.2.81 … v1.2.86 **não foram publicadas** (cadência de 10 versões; a próxima publicação é a **v1.2.90**).
-- APK v1.2.86 (local, **não publicado**): `dist/mulletaflix-app-v1.2.86.apk`, **7.336.683 bytes**, sha256 `4DD25A19FCB8D6D10539B682A925B52D38B24B9DF9DA06B23ECDB26DDB1B289F`.
+- Versão atual do APK (local e publicada): **1.2.90**. `versionCode`: **291**.
+- **Release Android publicada: [app-v1.2.90](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.90)** — 7.336.683 bytes, sha256 `90394E6EAFF873E98B2992C60B4FDCC19C202E1215C8B81754AC8C52A48C45FE`.
+- **Release do servidor confirmada: [v12.0.76](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.0.76)** — API do GitHub confirmou `mulletaflix-update-win-x64.zip` 370.545.524 bytes e `mulletaflix_12.0.76_windows-x64.exe` 405.477.990 bytes; SHA-256 local respectivamente `BC111F80E42B1CD7E47B1E864977E27C20CC50D50ACE15097887000A1FF85D40` e `34DE942FB72AC884696D38459683E7F6A0382CAAEA61D45CD2373591971652DE`.
 - **Atenção (v1.2.81 … v1.2.85): cinco builds com o MESMO tamanho** — 7.320.299 bytes em v1.2.81, v1.2.82, v1.2.84 e v1.2.85, com quatro digests diferentes. A v1.2.86 finalmente mudou de tamanho (7.336.683), o que é a prova barata de que o número não serve para identificar build — só SHA-256 + `versionCode`.
-- Quality Bar desta rodada: **903 testes unitários, 0 falhas** (eram 895; +8: 5 de paginação no ViewModel, 1 do aviso, 1 do UseCase, 1 do repositório); `:feature:search` instrumentado **8/8 no AVD de TV** (era 6 — "carregar mais" oferecido e não-clicável durante o carregamento); os demais módulos instrumentados não mudaram (`:feature:player` 14, `:feature:settings` 11, `:design-system` 30, `:feature:item-detail` 14, `:feature:user` 3, `:feature:downloads` 9, `:feature:library` 7); `:app:lintDebug` **0 erros**; `:app:assembleRelease` código 0; APK v1.2.86 instalado e iniciado no AVD `MulletaflixTvApi34` (`Success`, PID 2487, **0 linhas de crash do app**, `versionCode=287 versionName=1.2.86` conferidos no pacote instalado); emuladores encerrados (`emulator=0`, `qemu=0`).
+- Quality Bar desta rodada: testes direcionados de `:core:api`/`:data` e `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` passaram com código 0 (`BUILD SUCCESSFUL`, 1414 tarefas); o pacote Android foi instalado e aberto no AVD `MulletaflixTvApi34`, com `versionCode=291 versionName=1.2.90` conferidos e nenhum `FATAL EXCEPTION` do pacote `org.mulletaflix.android` após logcat limpo; `publish-app-release.ps1` anexou o APK; emuladores encerrados (`emulator=0`, `qemu=0`). O novo `build-update-package.ps1` não concluiu porque o servidor já falha em `ShortMaxSeriesProvider.cs` (`GetProviderId`/`SetProviderId` ausentes); nenhum código do servidor foi alterado nesta conversa APK-only.
 - **Alvos de toque: a lista está fechada.** O último item (o `MediaRouteButton` de 40 dp) foi **medido** na v1.2.84 e **não tinha defeito**: alvo de toque 48,0 dp × 48,0 dp, layout 40,0 dp. Ver a rodada — inclusive o erro de método que quase transformou isso num conserto desnecessário.
 - **Método que passou a valer (v1.2.83):** revisar o próprio trabalho é a forma mais fraca de verificação. Depois de duas rodadas seguidas de mudanças minhas, uma **auditoria adversarial independente** (subagente, read-only, instruído a procurar defeito e não elogiar) comparou as mudanças com `HEAD` e achou **dois defeitos reais que eu tinha acabado de introduzir** — ambos corrigidos na v1.2.83. Repetir esse passo depois de qualquer bloco de mudanças próprias: ele também **refutou** duas hipóteses minhas (o que é tão útil quanto achar defeito) e deixou dois suspeitos registrados, em vez de "corrigidos às cegas".
 - **Prova de que o cache morto saiu do pacote (medida, não deduzida):** varredura dos `classes*.dex` dentro dos dois APKs — na v1.2.80 as strings `androidx/room/RoomDatabase`, `mulletaflix.db` e `MediaItemEntity` aparecem **1, 1 e 3 vezes**; na v1.2.81 aparecem **0, 0 e 0**. O APK encolheu de 7.357.517 para 7.320.299 bytes (**−37.218**).
-- **ATENÇÃO — conflito de instruções, resolvido pelo usuário:** o `AGENTS.md` do repositório foi alterado na v1.2.76 e passou a exigir, para toda alteração, **também** a release do servidor (`build-update-package.ps1` + `publish-release.ps1`, com zip **e** instalador). As regras 1 e 2 deste handoff proíbem exatamente esses dois scripts. O conflito foi levado ao usuário em 22/09/2026 e a decisão foi **continuar somente com o APK**: o servidor permanece intocado, incluindo as alterações dele que já estão no worktree. Se a decisão mudar, este é o ponto a revisar antes de qualquer rodada.
+- **ATENÇÃO — releases:** o `AGENTS.md` atual exige, para toda alteração concluída, `build-update-package.ps1` sem `-SkipInstaller`, `build-app-package.ps1`, `publish-release.ps1` e `publish-app-release.ps1`, com conferência da API do GitHub. O handoff antigo registrava APK-only e cadência de 10 versões; essa anotação está supersedida pelas regras atuais do repositório.
 - **Onde as coisas moram agora:** cores, faixa de tamanho e matemática de legenda em `:domain` (`SubtitleStylePolicy`); regras de paginação em `:domain/paging/PagingPolicy`; política de qualidade em `:domain/model/PlaybackQuality.kt`; política de URL de mídia em `:design-system/media/MediaImageUrl.kt` (`resolveMediaUrl`, `redactToken`, `retargetMediaUrl`, `canonicalImageCacheKey` — a regra de "o que é um token" tem **uma** definição); decisão de repontar o player em `:feature:player/StreamRetargetPolicy.kt` (`shouldRetargetPreparedStream`, `retargetPreparedStreamUrl`) e a ordem dos passos em `:feature:player/PreparedStreamRetarget.kt`; chave de cache do Coil em `artworkCacheKeyInterceptor` (`MulletaFlixApp.kt`); pedido de download em `downloadRequestFor` (`Media3DownloadRepository.kt`); mapeamento de tema em `staticColorSchemeFor` (`MulletaFlixTheme.kt`) — é ele que o `ThemeVariantsTest` lê, de propósito; catálogos dos diálogos de Ajustes e a lista rolável em `SettingsOptionLists.kt` / `ChoiceDialogOptions` (`SettingsScreen.kt`); o que a busca devolve e se ela está truncada em `:domain/repository/SearchRepository.kt` (`SearchResults`) e em `:feature:search/SearchTruncationNotice.kt` (`searchTruncationNotice`), com a frase desenhada por `SearchTruncationBanner` (`SearchScreen.kt`).
 - **Atenção 17:** substituição de texto por script sobre fonte Kotlin **quebra em silêncio** quando o trecho tem interpolação ou quebra de linha. Na v1.2.77, restaurar uma reversão com `[System.IO.File]::ReadAllText` + `.Replace` deixou **duas** cópias de um comentário no `DownloadsScreen.kt` e **apagou** a linha `modifier = Modifier.semantics { selected = … }` do `LibraryScreen.kt` (o `old_string` tinha crases de interpolação e o PowerShell as interpretou). Nos dois casos a compilação passou — só a releitura do trecho pegou. **Depois de qualquer substituição por script, leia o trecho de volta**; ou use a ferramenta de edição, que falha quando o alvo não casa. **Atenção 17b (v1.2.80):** a ferramenta de edição também cola linhas se o `old_string` terminar em quebra de linha e o `new_string` não — `) {` seguido de `    AlertDialog(` virou `) {    AlertDialog(` no `SearchScreen.kt`. A compilação passou de novo; só a releitura pegou. Regra prática: incluir a linha seguinte (ou não incluir a quebra) quando o alvo é o fim de uma assinatura.
 - **Atenção 16:** nome de teste com crase (`` fun `frase com espaços`() ``) funciona em teste **unitário** e **quebra o build** de teste instrumentado: o D8 recusa `Space characters in SimpleName ... are not allowed prior to DEX version 040` (o `minSdk` 24 fixa uma versão de DEX anterior à 040). Em `src/androidTest` use `camelCase`, como os testes que já existiam.
@@ -99,6 +101,125 @@ Fable: intenção/aceite
 
 > Histórico: a v1.2.40 foi a última release antes desta rodada e foi instalada no
 > Android TV com `Success`.
+
+## Rodada v1.2.90 — Contrato JSON das faixas padrão
+
+Vigésima quinta rodada. `versionCode` 291. A release Android foi publicada em
+[app-v1.2.90](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.90).
+
+### O que mudou
+
+- Adicionado `MediaSourceApiContractTest`, que desserializa um payload JSON com
+  `DefaultAudioStreamIndex=7` e `DefaultSubtitleStreamIndex=-1` usando Moshi.
+- Adicionado teste de compatibilidade para payloads antigos sem esses campos, mantendo
+  ambos como `null` quando o servidor não os envia.
+
+### Evidências
+
+- `:core:api:testDebugUnitTest` e `:data:testDebugUnitTest`: **passaram**.
+- `testDebugUnitTest :app:lintDebug :app:assembleRelease`: **BUILD SUCCESSFUL**, 1414
+  tarefas, sem erros de lint.
+- APK: `dist/mulletaflix-app-v1.2.90.apk`, 7.336.683 bytes, SHA-256
+  `90394E6EAFF873E98B2992C60B4FDCC19C202E1215C8B81754AC8C52A48C45FE`.
+- Smoke test no AVD `MulletaflixTvApi34`: instalação e abertura bem-sucedidas;
+  `versionCode=291`, `versionName=1.2.90`, sem crash do pacote após logcat limpo;
+  emulador encerrado ao final.
+- A release de servidor não foi reconstruída nesta rodada: o build falhou no código
+  existente de `ShortMaxSeriesProvider.cs`, que usa `GetProviderId`/`SetProviderId`
+  ausentes. O APK foi publicado separadamente, conforme o escopo desta conversa.
+
+## Rodada v1.2.89 — Índices de áudio e legendas preservados do servidor
+
+Vigésima quarta rodada. `versionCode` 290. A release Android foi publicada em
+[app-v1.2.89](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.89).
+
+### O que mudou
+
+- `MediaSourceDto` agora desserializa `DefaultAudioStreamIndex` e
+  `DefaultSubtitleStreamIndex`, e `MediaMapper` os encaminha para o domínio.
+- O valor `-1` de legenda é preservado como escolha explícita de legendas desativadas;
+  ele não é confundido com `IsDefault` das faixas.
+- Foi incluído teste unitário do mapper com índice de áudio `7` e legenda `-1`.
+
+### Quality Bar e validação
+
+- `:data:testDebugUnitTest`, `:feature:player:testDebugUnitTest` e
+  `:core:api:testDebugUnitTest`: **passaram**.
+- `testDebugUnitTest :app:lintDebug :app:assembleRelease`: **BUILD SUCCESSFUL**, 1414
+  tarefas, sem erros de lint.
+- APK: `dist/mulletaflix-app-v1.2.89.apk`, 7.336.683 bytes, SHA-256
+  `DAAB511A56AEC8603CEB5EAB50272866DF77FAE9B3487407D0051CE2A828F812`.
+- Smoke test no AVD `MulletaflixTvApi34`: instalação e abertura bem-sucedidas;
+  `versionCode=290`, `versionName=1.2.89`, sem `FATAL EXCEPTION` após limpar o logcat;
+  emulador encerrado ao final.
+- A tentativa de autenticação real no servidor retornou HTTP 400; por isso a reprodução
+  E2E com mídia autenticada não foi declarada como validada. O contrato do servidor e o
+  mapeamento local estão cobertos, mas a sessão real continua pendente.
+
+## Rodada v1.2.88 — Os dois fluxos de atualização passam a dividir a decisão de instalação
+
+Vigésima terceira rodada. `versionCode` 289 (o salto v1.2.48 → v1.2.87 veio no commit
+multi-recursos ainda não empurrado; este é o primeiro incremento depois dele).
+**Publicada** em [app-v1.2.88](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.88).
+
+Fecha o item do backlog que estava aberto: os **dois fluxos de atualização do app** — a checagem
+automática da `MainActivity` e a manual do Centro de Atualizações — mantinham cópias separadas do
+laço "baixar → instalar → classificar o resultado", com as mesmas duas mensagens escritas duas
+vezes, palavra por palavra. Regra de atualização mudando = dois lugares para mexer. Agora é um.
+
+### O que mudou
+
+- A classificação do resultado da instalação saiu para `:core:common/update/AppUpdateInstallOutcome.kt`:
+  `Started` / `Rejected` (o instalador respondeu `false` — falta permissão de fontes desconhecidas) /
+  `Failed(detalhe?)`, com as duas mensagens canônicas como constantes e `errorMessageOrNull()`
+  dando o texto visível de cada desfecho. O `install` entra como lambda — é o que permite teste de JVM.
+- `AppUpdateViewModel.downloadUpdate` e `SettingsViewModel.downloadAndInstallUpdate` usam a política.
+  O que cada tela faz com o resultado **não mudou**: a automática fecha o diálogo ao abrir o instalador;
+  o Centro de Atualizações mostra "Download concluído. Iniciando instalação...".
+- `SettingsViewModel.downloadAndInstallUpdate` trocou `context: Context` por `install: (File) -> Boolean`
+  (o `SettingsScreen` passa `AppUpdateInstaller.installApk`), igualando o padrão que o
+  `AppUpdateViewModel` já tinha — e destravando a cobertura que faltava.
+
+### Cobertura que esta rodada criou
+
+- `AppUpdateInstallOutcomeTest` (5 testes): os três desfechos, o instalador chamado exatamente uma
+  vez, e as duas mensagens presas como **literais** — a primeira versão comparava com a constante, e a
+  prova por reversão 2 mostrou que isso não pega quem edita o texto.
+- `SettingsViewModelTest` ganhou 3 testes do ramo `Completed`, que até aqui só era verificado por
+  compilação: sucesso fecha o diálogo e anuncia o status; recusa mantém o diálogo com a mensagem de
+  permissão; exceção preserva o detalhe como erro.
+
+### Provas por reversão (executadas)
+
+| reversão | testes que falham |
+|---|---|
+| `Rejected` vira `Started` (installer `false`) | 2 de 22 em `AppUpdateInstallOutcomeTest` |
+| `FAILED_MESSAGE` troca de texto | `an installer exception without detail falls back to the generic message` (1 de 22) |
+| sucesso deixa `showUpdateDialog = true` na `SettingsViewModel` | `a completed download closes the dialog and reports the install start` (1 de 25) |
+
+### Ressalva honesta
+
+A **auditoria adversarial independente** desta vez não rodou como subagente: o harness desta sessão
+não expõe tipos de subagente utilizáveis, e nenhum dos identificadores testados foi aceito. A revisão
+foi feita inline, caminho a caminho contra o `git diff` (as 4 combinações sucesso/recusa/exceção com
+e sem detalhe têm estado final idêntico ao anterior, em ambos os ViewModels), e a lacuna que ela
+achou — o ramo `Completed` da `SettingsViewModel` sem teste — foi coberta nesta mesma rodada. Fica o
+aviso do método: revisão do próprio trabalho é a forma mais fraca de verificação; reexecutar com
+auditor independente quando o harness permitir.
+
+### Quality Bar
+
+- `gradlew testDebugUnitTest` — **BUILD SUCCESSFUL**, 456 tarefas executadas/atualizadas no
+  ciclo completo desta rodada; os testes direcionados de `:core:common`, `:feature:settings` e
+  `:app` também passaram.
+- `gradlew :app:lintDebug :app:assembleRelease` — **BUILD SUCCESSFUL**, lint sem erros.
+- Após a cobertura nova: 924 XMLs de `testDebugUnitTest`, 0 falhas/erros; SARIF do lint com 0 erros.
+- APK release montado e empacotado (`dist/mulletaflix-app-v1.2.88.apk`, 7.336.683 bytes,
+  SHA-256 `E4E2F277E78EA64A488867C9A2BF7D2FFD1ED980F5E186D28613BE0E147EC8C1`).
+- O servidor também foi empacotado sem `-SkipInstaller` e publicado em `v12.0.75`, com ZIP
+  e instalador anexados; o APK foi publicado em `app-v1.2.88`.
+- O AVD `MulletaflixTvApi34` instalou e abriu o APK; após limpar o logcat, não houve crash
+  do pacote do aplicativo. Nenhum emulador ficou aberto ao final.
 
 ## Rodada v1.2.86 — "Mostrando 30 de 412": agora dá para ver os outros 382
 

@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.core.api.dto.BaseItemDto
+import org.mulletaflix.core.api.dto.MediaSourceDto
 import org.mulletaflix.core.api.dto.MediaStreamDto
 import org.mulletaflix.domain.model.ImageType
 import org.mulletaflix.domain.model.MediaItemType
@@ -57,5 +58,19 @@ class MediaMapperTest {
         assertEquals("p-b-id", domain.parentBackdropItemId)
         assertEquals(listOf("pb-tag-1"), domain.parentBackdropImageTags)
         assertEquals(listOf("b-tag-1"), domain.backdropImageTags)
+    }
+
+    @Test
+    fun `preserves server-selected audio and subtitle stream indices`() {
+        val domain = MediaSourceDto(
+            id = "source-1",
+            defaultAudioStreamIndex = 7,
+            defaultSubtitleStreamIndex = -1,
+        ).toDomain()
+
+        assertEquals(7, domain.defaultAudioStreamIndex)
+        // -1 is the server's explicit "subtitles disabled" choice; it must not
+        // become null and accidentally fall back to a container default.
+        assertEquals(-1, domain.defaultSubtitleStreamIndex)
     }
 }

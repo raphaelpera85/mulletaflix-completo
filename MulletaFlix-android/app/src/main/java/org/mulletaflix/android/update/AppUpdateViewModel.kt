@@ -11,7 +11,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.mulletaflix.android.shouldShowAppUpdateDialog
 import org.mulletaflix.core.common.update.AppUpdateDownloader
+import org.mulletaflix.core.common.update.AppUpdateInstallOutcome
 import org.mulletaflix.core.common.update.DownloadState
+import org.mulletaflix.core.common.update.errorMessageOrNull
+import org.mulletaflix.core.common.update.installDownloadedApk
 import org.mulletaflix.domain.model.AppUpdateInfo
 import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
 import java.io.File
@@ -126,24 +129,15 @@ class AppUpdateViewModel @Inject constructor(
 
                     is DownloadState.Completed -> {
                         _state.update { it.copy(isDownloading = false) }
-                        val installationStarted = runCatching { install(downloadState.file) }
-                            .getOrElse { error ->
-                                _state.update {
-                                    it.copy(
-                                        error = error.localizedMessage
-                                            ?: "Não foi possível abrir o instalador do APK.",
-                                    )
-                                }
-                                false
-                            }
-                        if (installationStarted) {
-                            _state.update { it.copy(isDialogVisible = false) }
-                        } else if (_state.value.error == null) {
-                            _state.update {
-                                it.copy(
-                                    error = "Permita a instalação de fontes desconhecidas e tente novamente.",
-                                )
-                            }
+                        // A classificação do resultado (abriu, recusou, explodiu) e as
+                        // mensagens estão em `installDownloadedApk`, compartilhadas com o
+                        // Centro de Atualizações — aqui só se decide o que a tela mostra.
+                        when (val outcome = installDownloadedApk(downloadState.file, install)) {
+                            AppUpdateInstallOutcome.Started ->
+                                _state.update { it.copy(isDialogVisible = false) }
+
+                            else ->
+                                _state.update { it.copy(error = outcome.errorMessageOrNull()) }
                         }
                     }
 

@@ -103,6 +103,7 @@ using MediaBrowser.Providers.Plugins.ListenBrainz;
 using MediaBrowser.Providers.Plugins.ListenBrainz.Api;
 using MediaBrowser.Providers.Plugins.NartoDrama;
 using MediaBrowser.Providers.Plugins.NetShort;
+using MediaBrowser.Providers.Plugins.ShortMax;
 using MediaBrowser.Providers.Plugins.Tmdb;
 using MediaBrowser.Providers.Plugins.Tmdb.Movies;
 using MediaBrowser.Providers.Plugins.Tmdb.TV;
@@ -517,6 +518,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<DramaFindsClient>();
             serviceCollection.AddSingleton<GoodShortClient>();
             serviceCollection.AddSingleton<NetShortClient>();
+            serviceCollection.AddSingleton<ShortMaxClient>();
             serviceCollection.AddSingleton<NartoDramaClient>();
 
             serviceCollection.AddSingleton(NetManager);

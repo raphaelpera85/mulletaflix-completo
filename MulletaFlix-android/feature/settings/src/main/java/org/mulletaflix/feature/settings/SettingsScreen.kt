@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import org.mulletaflix.core.common.update.AppUpdateInstaller
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.designsystem.components.ReleaseNotesText
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
@@ -483,7 +484,11 @@ fun SettingsScreen(
                     },
                     confirmButton = {
                         Button(
-                            onClick = { viewModel.downloadAndInstallUpdate(context) },
+                            onClick = {
+                                viewModel.downloadAndInstallUpdate { file ->
+                                    AppUpdateInstaller.installApk(context, file)
+                                }
+                            },
                             enabled = !state.isDownloadingUpdate && !update.apkDownloadUrl.isNullOrBlank()
                         ) {
                             Text(

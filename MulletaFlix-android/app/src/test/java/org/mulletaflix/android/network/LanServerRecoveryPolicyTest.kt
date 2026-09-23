@@ -86,6 +86,15 @@ class LanServerRecoveryPolicyTest {
     }
 
     @Test
+    fun `recognizes private IPv6 LAN addresses and keeps unspecified address non dialable`() {
+        assertTrue(isLocalServerUrl("http://[fd12:3456::20]:8096"))
+        assertTrue(isLocalServerUrl("http://[fe80::20]:8096"))
+        assertTrue(isLocalServerUrl("http://[::]:8096"))
+        assertFalse(isDialableServerUrl("http://[::]:8096"))
+        assertTrue(isDialableServerUrl("http://[fd12:3456::20]:8096"))
+    }
+
+    @Test
     fun `selects the authenticated server when multiple LAN servers advertise`() {
         val other = ServerInfo("Outro", "http://192.168.1.10:8096", serverId = "other")
         val expected = ServerInfo("MulletaFlix", "http://192.168.1.20:8096", serverId = "mulletaflix")

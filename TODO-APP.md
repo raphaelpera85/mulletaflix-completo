@@ -523,3 +523,24 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Adicionar teste-guarda que reprova o build se surgir `Log.`, `println`, `Timber.`, `printStackTrace` ou `System.out/err` no módulo de API, e se o nível do logger deixar de ser `NONE`.
 - [x] Provar que o guarda reprova com uma chamada de log injetada.
 - [x] Fazer o polling de Configurações (30 s) e SyncPlay (5 s) rodar somente com a tela em `RESUMED`.
+
+## 222. Política única de instalação da atualização (v1.2.88)
+- [x] Extrair a classificação do resultado da instalação (abriu, recusou, explodiu) e as mensagens canônicas para `:core:common/update/AppUpdateInstallOutcome.kt`.
+- [x] Usar a política compartilhada nos dois fluxos de atualização (aviso da `MainActivity` e Centro de Atualizações), mantendo o comportamento observável de cada tela.
+- [x] Injetar a instalação como lambda no `SettingsViewModel`, como já era no `AppUpdateViewModel`, para cobrir o ramo de instalação em testes de JVM.
+- [x] Cobrir sucesso, recusa e exceção nos testes do `SettingsViewModel` e os três desfechos (com mensagens literais) nos testes da política, incluindo provas por reversão.
+
+## 223. Índices de faixas padrão vindos do servidor (v1.2.89)
+- [x] Mapear `DefaultAudioStreamIndex` e `DefaultSubtitleStreamIndex` de `MediaSourceDto` para `MediaSource`.
+- [x] Preservar `-1` como escolha explícita de legendas desativadas.
+- [x] Cobrir o mapper com teste unitário; a reprodução E2E com uma mídia autenticada real continua pendente porque a sessão de teste retornou HTTP 400.
+
+## 224. Contrato JSON das faixas padrão (v1.2.90)
+- [x] Validar a desserialização real de `DefaultAudioStreamIndex` e `DefaultSubtitleStreamIndex` com Moshi.
+- [x] Preservar compatibilidade com payloads antigos que não possuem esses campos.
+
+## 225. Descoberta LAN IPv6 consistente (v1.2.91)
+- [x] Reconhecer endereços IPv6 privados, link-local e loopback na regra compartilhada de servidor local.
+- [x] Impedir que `::` seja usado como endpoint discável mesmo sendo um endereço local de escuta.
+- [x] Fazer o status do perfil reutilizar a mesma política de classificação da recuperação LAN.
+- [x] Cobrir IPv6 na política de recuperação e na apresentação do perfil.

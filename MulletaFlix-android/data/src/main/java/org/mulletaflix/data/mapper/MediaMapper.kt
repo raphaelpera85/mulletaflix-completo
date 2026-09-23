@@ -168,6 +168,8 @@ fun MediaSourceDto.toDomain(): MediaSource {
         supportsDirectStream = supportsDirectStream,
         supportsTranscoding = supportsTranscoding,
         mediaStreams = mediaStreams?.map { it.toDomain() } ?: emptyList(),
+        defaultAudioStreamIndex = defaultAudioStreamIndex,
+        defaultSubtitleStreamIndex = defaultSubtitleStreamIndex,
     )
 }
 

@@ -15,6 +15,7 @@ class ServerConnectionModeTest {
         assertEquals(ServerConnectionMode.Lan, classifyServerConnection("http://192.168.1.20:8096"))
         assertEquals(ServerConnectionMode.Lan, classifyServerConnection("http://mulletaflix.local:8096"))
         assertEquals(ServerConnectionMode.Lan, classifyServerConnection("http://10.0.0.4:8096"))
+        assertEquals(ServerConnectionMode.Lan, classifyServerConnection("http://[fd12:3456::20]:8096"))
     }
 
     @Test

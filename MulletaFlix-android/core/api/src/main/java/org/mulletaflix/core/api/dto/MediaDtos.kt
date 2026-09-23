@@ -88,6 +88,11 @@ data class MediaSourceDto(
     @Json(name = "SupportsDirectPlay") val supportsDirectPlay: Boolean = true,
     @Json(name = "SupportsDirectStream") val supportsDirectStream: Boolean = true,
     @Json(name = "SupportsTranscoding") val supportsTranscoding: Boolean = true,
+    // The server chooses these indices after applying the user's profile and the
+    // media source policy. Keeping them is different from the `IsDefault` flag on
+    // each stream: that flag is only one input to the server's selector.
+    @Json(name = "DefaultAudioStreamIndex") val defaultAudioStreamIndex: Int? = null,
+    @Json(name = "DefaultSubtitleStreamIndex") val defaultSubtitleStreamIndex: Int? = null,
     @Json(name = "MediaStreams") val mediaStreams: List<MediaStreamDto>? = null,
     @Json(name = "Bitrate") val bitrate: Int? = null,
     // A tuner channel arrives closed: `RequiresOpening` is true and `LiveStreamId` is

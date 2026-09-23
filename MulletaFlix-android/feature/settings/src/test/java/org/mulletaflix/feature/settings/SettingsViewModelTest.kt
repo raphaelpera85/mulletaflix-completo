@@ -538,13 +538,93 @@ class SettingsViewModelTest {
         advanceUntilIdle()
         viewModel.checkForUpdates("1.0.0")
         advanceUntilIdle()
-
-        viewModel.downloadAndInstallUpdate(context)
-        viewModel.downloadAndInstallUpdate(context)
+        viewModel.downloadAndInstallUpdate { true }
+        viewModel.downloadAndInstallUpdate { true }
         advanceUntilIdle()
 
         coVerify(exactly = 1) { downloader.downloadApk(any(), any(), any()) }
         assertTrue(viewModel.state.value.isDownloadingUpdate)
+    }
+
+    @Test
+    fun `a completed download closes the dialog and reports the install start`() = runTest {
+        val viewModel = viewModelWithCompletedDownload()
+        viewModel.checkForUpdates("1.0.0")
+        advanceUntilIdle()
+
+        viewModel.downloadAndInstallUpdate { true }
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertFalse(state.isDownloadingUpdate)
+        assertFalse(state.showUpdateDialog)
+        assertEquals("Download concluído. Iniciando instalação...", state.updateStatusMessage)
+        assertEquals(null, state.updateErrorMessage)
+    }
+
+    @Test
+    fun `a refused install keeps the dialog and explains the permission step`() = runTest {
+        // `false` não é falha: é a resposta do sistema quando falta a permissão de
+        // fontes desconhecidas — a tela precisa dizer isso, e não fingir sucesso.
+        val viewModel = viewModelWithCompletedDownload()
+        viewModel.checkForUpdates("1.0.0")
+        advanceUntilIdle()
+
+        viewModel.downloadAndInstallUpdate { false }
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertFalse(state.isDownloadingUpdate)
+        assertTrue(state.showUpdateDialog)
+        assertEquals(
+            "Permita a instalação de fontes desconhecidas e tente novamente.",
+            state.updateErrorMessage,
+        )
+    }
+
+    @Test
+    fun `an installer exception surfaces its detail as the error`() = runTest {
+        val viewModel = viewModelWithCompletedDownload()
+        viewModel.checkForUpdates("1.0.0")
+        advanceUntilIdle()
+
+        viewModel.downloadAndInstallUpdate { throw IllegalStateException("sem fileprovider") }
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertFalse(state.isDownloadingUpdate)
+        assertTrue(state.showUpdateDialog)
+        assertEquals("sem fileprovider", state.updateErrorMessage)
+    }
+
+    /** ViewModel com uma atualização disponível e um download que já terminou. */
+    @Suppress("SameParameterValue")
+    private fun viewModelWithCompletedDownload(): SettingsViewModel {
+        val updateRepository = object : AppUpdateRepository {
+            override suspend fun checkForUpdate(currentVersion: String): Result<AppUpdateInfo> =
+                Result.success(
+                    AppUpdateInfo(
+                        isUpdateAvailable = true,
+                        currentVersion = currentVersion,
+                        latestVersion = "9.9.9",
+                        apkDownloadUrl = "https://example.invalid/app.apk",
+                    ),
+                )
+        }
+        val downloader = mockk<AppUpdateDownloader>().apply {
+            every { downloadApk(any(), any(), any()) } returns
+                flowOf(DownloadState.Completed(File("mulletaflix-app-v9.9.9.apk")))
+        }
+        val authRepo = FakeAuthRepository()
+        return SettingsViewModel(
+            context,
+            FakeSettingsRepository(),
+            authRepo,
+            LogoutUseCase(authRepo),
+            checkAppUpdateUseCase = CheckAppUpdateUseCase(updateRepository),
+            appUpdateDownloader = downloader,
+            ioDispatcher = dispatcher,
+        )
     }
 
     @Test

@@ -12,8 +12,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.common.dispatcher.IoDispatcher
 import org.mulletaflix.core.common.update.AppUpdateDownloader
-import org.mulletaflix.core.common.update.AppUpdateInstaller
+import org.mulletaflix.core.common.update.AppUpdateInstallOutcome
 import org.mulletaflix.core.common.update.DownloadState
+import org.mulletaflix.core.common.update.errorMessageOrNull
+import org.mulletaflix.core.common.update.installDownloadedApk
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.domain.model.AppUpdateInfo
 import org.mulletaflix.domain.model.LibrarySortField
@@ -419,7 +421,7 @@ class SettingsViewModel @Inject constructor(
         _state.update { it.copy(updateStatusMessage = null, updateErrorMessage = null) }
     }
 
-    fun downloadAndInstallUpdate(context: Context) {
+    fun downloadAndInstallUpdate(install: (java.io.File) -> Boolean) {
         // O botão já fica desabilitado enquanto baixa, mas isso é lido na composição:
         // dois toques no mesmo frame passam os dois. E o segundo download apaga o
         // arquivo que o primeiro já abriu (`AppUpdateDownloader`), então o resultado é
@@ -445,32 +447,28 @@ class SettingsViewModel @Inject constructor(
                         _state.update { it.copy(updateDownloadProgress = downloadState.progress) }
                     }
                     is DownloadState.Completed -> {
-                        val installationStarted = runCatching {
-                            AppUpdateInstaller.installApk(context, downloadState.file)
-                        }.getOrElse { error ->
-                            _state.update {
-                                it.copy(
-                                    isDownloadingUpdate = false,
-                                    updateErrorMessage = error.localizedMessage
-                                        ?: "Não foi possível abrir o instalador do APK.",
-                                )
+                        // A instalação é classificada pela política compartilhada
+                        // (`installDownloadedApk`), a mesma da checagem automática da
+                        // `MainActivity`; o que esta tela faz com o resultado — fechar o
+                        // diálogo e anunciar o status — é dela.
+                        when (val outcome = installDownloadedApk(downloadState.file, install)) {
+                            AppUpdateInstallOutcome.Started -> {
+                                _state.update {
+                                    it.copy(
+                                        isDownloadingUpdate = false,
+                                        showUpdateDialog = false,
+                                        updateStatusMessage = "Download concluído. Iniciando instalação...",
+                                    )
+                                }
                             }
-                            false
-                        }
-                        if (installationStarted) {
-                            _state.update {
-                                it.copy(
-                                    isDownloadingUpdate = false,
-                                    showUpdateDialog = false,
-                                    updateStatusMessage = "Download concluído. Iniciando instalação...",
-                                )
-                            }
-                        } else if (_state.value.updateErrorMessage == null) {
-                            _state.update {
-                                it.copy(
-                                    isDownloadingUpdate = false,
-                                    updateErrorMessage = "Permita a instalação de fontes desconhecidas e tente novamente.",
-                                )
+
+                            else -> {
+                                _state.update {
+                                    it.copy(
+                                        isDownloadingUpdate = false,
+                                        updateErrorMessage = outcome.errorMessageOrNull(),
+                                    )
+                                }
                             }
                         }
                     }
