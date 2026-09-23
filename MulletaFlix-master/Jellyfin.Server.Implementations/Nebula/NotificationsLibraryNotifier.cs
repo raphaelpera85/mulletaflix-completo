@@ -23,6 +23,18 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
 {
     private sealed record WorkItem(string MessageHtml, string? ImagePath);
 
+    /// <summary>How long an item's cover and nfo are given to stabilise before giving up.</summary>
+    private const int MetadataWaitSeconds = 180;
+
+    /// <summary>
+    /// How many items may be awaited at the same time. A scan can add thousands of items at once,
+    /// and each waiter repeatedly reloads its item and stats its files.
+    /// </summary>
+    private const int MaxConcurrentMetadataWaits = 24;
+
+    private static readonly TimeSpan InitialAttemptDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan MaxAttemptDelay = TimeSpan.FromSeconds(10);
+
     private readonly ILibraryManager _libraryManager;
     private readonly INebulaFtpManager _nebulaManager;
     private readonly IServerApplicationHost _applicationHost;
@@ -31,6 +43,7 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _scheduled = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Channel<WorkItem> _queue = Channel.CreateUnbounded<WorkItem>();
+    private readonly SemaphoreSlim _metadataWaitSlots = new(MaxConcurrentMetadataWaits, MaxConcurrentMetadataWaits);
     private Task? _workerTask;
 
     public NotificationsLibraryNotifier(
@@ -107,13 +120,23 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
 
     private async Task WaitForMetadataAndQueueAsync(Guid itemId, CancellationTokenSource scheduled)
     {
+        var slotAcquired = false;
         try
         {
+            // Bound how many items are polled at the same time. A library scan that adds a thousand
+            // items used to start a thousand concurrent polling loops, each one reloading the item
+            // from the database and stat'ing its cover and nfo files on every attempt.
+            await _metadataWaitSlots.WaitAsync(scheduled.Token).ConfigureAwait(false);
+            slotAcquired = true;
+
             BaseItem? ready = null;
             string? previousSnapshot = null;
-            for (var attempt = 0; attempt < 180 && !_cts.IsCancellationRequested; attempt++)
+            var deadline = DateTime.UtcNow.AddSeconds(MetadataWaitSeconds);
+            var delay = InitialAttemptDelay;
+
+            while (DateTime.UtcNow < deadline && !_cts.IsCancellationRequested)
             {
-                await Task.Delay(TimeSpan.FromSeconds(attempt == 0 ? 2 : 1), scheduled.Token).ConfigureAwait(false);
+                await Task.Delay(delay, scheduled.Token).ConfigureAwait(false);
                 var current = _libraryManager.GetItemById(itemId);
                 if (!IsNotifiableMedia(current))
                 {
@@ -128,11 +151,16 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
                 }
 
                 previousSnapshot = snapshot;
+
+                // The delay grows instead of staying at one second. That keeps the same 180 second
+                // budget for metadata to stabilise while cutting the number of reloads and file
+                // stats per item from 180 to roughly 21.
+                delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 1.5, MaxAttemptDelay.TotalSeconds));
             }
 
             if (ready is null)
             {
-                _logger.LogWarning("[NOTIFICATIONS] Capa/NFO da mídia {ItemId} não estabilizaram em 180 segundos; nenhuma notificação foi enviada.", itemId);
+                _logger.LogWarning("[NOTIFICATIONS] Capa/NFO da mídia {ItemId} não estabilizaram em {Seconds} segundos; nenhuma notificação foi enviada.", itemId, MetadataWaitSeconds);
                 return;
             }
 
@@ -159,6 +187,11 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
         }
         finally
         {
+            if (slotAcquired)
+            {
+                _metadataWaitSlots.Release();
+            }
+
             if (_scheduled.TryGetValue(itemId, out var current) && ReferenceEquals(current, scheduled))
             {
                 _scheduled.TryRemove(itemId, out _);
@@ -302,5 +335,6 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
         _cts.Cancel();
         _queue.Writer.TryComplete();
         _cts.Dispose();
+        _metadataWaitSlots.Dispose();
     }
 }

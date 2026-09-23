@@ -149,6 +149,21 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         "series", "serie", "série"
     };
 
+    private static readonly HashSet<string> NovelaRootSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "novelas", "novela", "telenovelas", "telenovela"
+    };
+
+    /// <summary>
+    /// Segmentos de pasta que declaram animação (animes e animação ocidental).
+    /// A pasta monitorada pode trazer 'Animações', 'Animação' ou 'Anime'.
+    /// </summary>
+    private static readonly HashSet<string> AnimacaoRootSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "animacao", "animação", "animacoes", "animações",
+        "animation", "animations", "anime", "animes"
+    };
+
     /// <summary>
     /// Segmentos de pasta que declaram conteúdo adulto.
     /// </summary>
@@ -164,6 +179,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     {
         "filmes", "filme", "movies", "movie",
         "series", "serie", "série",
+        "novelas", "novela", "telenovelas", "telenovela",
+        "animacao", "animação", "animacoes", "animações", "animation", "animations", "anime", "animes",
         "porno", "porn", "adulto", "hentai", "erotico", "erótico", "xxx",
         "strm", "nebula"
     };
@@ -174,6 +191,19 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     private static readonly System.Text.RegularExpressions.Regex SeriesFolderSegmentPattern = new(
         @"(?i)^(season|temporada|anime|novela|dorama|series?|série)\s*\d{0,2}$",
         System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Diz se o nome de pasta é uma raiz de categoria visível no acervo
+    /// (Filmes, Animações, Series, Novelas, Porno). Pastas assim são mantidas mesmo
+    /// vazias na pasta monitorada, porque servem de destino para mídia nova.
+    /// </summary>
+    /// <param name="name">Nome da pasta (sem caminho).</param>
+    /// <returns><c>true</c> quando é uma raiz de categoria.</returns>
+    internal static bool IsVisibleCategoryRoot(string? name)
+        => !string.IsNullOrWhiteSpace(name)
+           && !name.Equals("strm", StringComparison.OrdinalIgnoreCase)
+           && !name.Equals("nebula", StringComparison.OrdinalIgnoreCase)
+           && CategoryRootSegments.Contains(name.Trim());
 
     /// <summary>
     /// Divide um caminho relativo em segmentos, aceitando separadores Windows e POSIX.
@@ -203,7 +233,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// mais próximo da mídia vence (ex.: 'Series\Filmes\X' declara filme para o que está em X).
     /// </summary>
     /// <param name="segments">Segmentos do diretório relativo.</param>
-    /// <returns>'FILME', 'SERIE', 'PORNO' ou null quando a pasta não declara categoria.</returns>
+    /// <returns>'FILME', 'SERIE', 'NOVELA', 'ANIMACAO' ou 'PORNO' quando a pasta declara categoria.</returns>
     internal static string? DeclaredCategoryFromPath(IEnumerable<string> segments)
     {
         string? declared = null;
@@ -212,6 +242,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             if (MovieRootSegments.Contains(segment))
             {
                 declared = "FILME";
+            }
+            else if (IsNovelaSegment(segment))
+            {
+                declared = "NOVELA";
+            }
+            else if (IsAnimacaoSegment(segment))
+            {
+                declared = "ANIMACAO";
             }
             else if (SeriesRootSegments.Contains(segment))
             {
@@ -227,7 +265,44 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
-    /// Classifica deterministicamente o tipo da mídia: 'SERIE', 'PORNO' ou 'FILME'.
+    /// Diz se o segmento de pasta declara uma novela.
+    /// </summary>
+    /// <param name="segment">Segmento normalizado do caminho.</param>
+    /// <returns><c>true</c> quando o segmento é um marcador de novela.</returns>
+    /// <remarks>
+    /// A pasta costuma trazer a categoria e o título juntos, como em 'Series\Novela Avenida Brasil'.
+    /// Casar só o segmento inteiro deixava esse caso cair no marcador 'Series' e a novela era
+    /// classificada como série, por isso o prefixo de palavra também vale. O espaço obrigatório
+    /// depois do marcador mantém a regra restrita: um título que apenas contenha 'novela' no meio
+    /// não passa a declarar categoria.
+    /// </remarks>
+    private static bool IsNovelaSegment(string segment)
+        => NovelaRootSegments.Contains(segment)
+           || segment.StartsWith("novela ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("novelas ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("telenovela ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("telenovelas ", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Diz se o segmento de pasta declara uma animação.
+    /// </summary>
+    /// <param name="segment">Segmento normalizado do caminho.</param>
+    /// <returns><c>true</c> quando o segmento é um marcador de animação.</returns>
+    /// <remarks>
+    /// Vale o segmento inteiro ('Animações', 'Animação', 'Anime') e também a categoria
+    /// junto do título ('Animação Bob Esponja'), pelo mesmo motivo que a novela aceita
+    /// 'Novela Avenida Brasil'. O prefixo 'anime ' fica de fora de propósito: títulos
+    /// como 'Anime Crimes Division' são séries comuns e não podem virar animação.
+    /// </remarks>
+    private static bool IsAnimacaoSegment(string segment)
+        => AnimacaoRootSegments.Contains(segment)
+           || segment.StartsWith("animacao ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("animacoes ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("animação ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("animações ", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Classifica deterministicamente o tipo da mídia: 'SERIE', 'NOVELA', 'ANIMACAO', 'PORNO' ou 'FILME'.
     /// A árvore de pastas declarada manda mais que as palavras do título: um filme guardado
     /// em 'Series\Filmes\O Show dos Muppets (2026)' é FILME, um filme com ano no nome
     /// ('Temporada de Sangue (2025)') não vira série, e um título com 'Sex' ou 'Adult' no
@@ -246,12 +321,17 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         // 1. Marcador explícito de episódio no nome do arquivo vence qualquer pasta.
         if (SeasonEpisodePattern.IsMatch(stem))
         {
-            return "SERIE";
+            if (segments.Any(segment => NovelaRootSegments.Contains(segment)))
+            {
+                return "NOVELA";
+            }
+
+            return segments.Any(segment => AnimacaoRootSegments.Contains(segment)) ? "ANIMACAO" : "SERIE";
         }
 
         // 2. Categoria declarada pela própria árvore de pastas.
         var declared = DeclaredCategoryFromPath(segments);
-        if (declared == "SERIE" && hasMovieYear)
+        if ((declared == "SERIE" || declared == "NOVELA") && hasMovieYear)
         {
             // Título com ano de lançamento dentro de uma raiz de séries é filme.
             declared = "FILME";
@@ -278,6 +358,18 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             return "SERIE";
         }
 
+        if (segments.Any(segment => NovelaRootSegments.Contains(segment)
+            || segment.Contains("novela", StringComparison.OrdinalIgnoreCase)
+            || segment.Contains("telenovela", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "NOVELA";
+        }
+
+        if (segments.Any(IsAnimacaoSegment))
+        {
+            return "ANIMACAO";
+        }
+
         if (segments.Any(segment => SeriesFolderSegmentPattern.IsMatch(segment)))
         {
             return "SERIE";
@@ -289,7 +381,9 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// <summary>
     /// Roteia e padroniza a estrutura de diretórios relativos para cada tipo de mídia:
     /// - FILMES: ficam sob a pasta raiz 'Filmes'
+    /// - ANIMACOES: ficam sob a pasta raiz 'Animações'
     /// - SERIES: ficam sob a pasta raiz 'Series', preservando todas as suas subpastas (ex: Temporada, Série)
+    /// - NOVELAS: ficam sob a pasta raiz 'Novelas'
     /// - PORNO: ficam diretamente na pasta raiz 'Porno', sem subpastas.
     /// Toda mídia termina sob exatamente uma raiz de categoria, independente da árvore
     /// de origem ter vindo de outra raiz (ex.: filmes guardados dentro de 'Series\Filmes').
@@ -304,7 +398,13 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             return "Porno";
         }
 
-        var root = mediaType == "SERIE" ? "Series" : "Filmes";
+        var root = mediaType switch
+        {
+            "SERIE" => "Series",
+            "NOVELA" => "Novelas",
+            "ANIMACAO" => "Animações",
+            _ => "Filmes"
+        };
         var segments = NormalizeMediaPathSegments(relativeDir);
 
         return segments.Count == 0 ? root : $"{root}/{string.Join('/', segments)}";
@@ -318,6 +418,37 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     {
         var sizeMb = totalSize > 0 ? (totalSize / (1024.0 * 1024.0)) : 0.0;
         return $"[NEBULA] TIPO: {mediaType} | MIDIA: {filename} | PARTE: {partNum + 1}/{totalParts} | UUID: {fileUuid} | TAM: {sizeMb.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}MB";
+    }
+
+    /// <summary>
+    /// Constrói o documento BSON de uma parte enviada, usado tanto no progresso incremental
+    /// quanto na persistência final do arquivo.
+    /// </summary>
+    private static BsonDocument BuildPartDocument(
+        NebulaFilePart part,
+        string mediaType,
+        string targetFileName,
+        int totalParts,
+        string fileUuid,
+        long mediaTotalSize)
+    {
+        return new BsonDocument
+        {
+            { "part_number", part.PartNumber },
+            { "part_id", part.PartNumber },
+            { "size", part.Size },
+            { "file_size", part.Size },
+            { "bot_index", part.BotIndex },
+            { "tg_file_id", part.TgFileId },
+            { "tg_file", part.TgFileId },
+            { "tg_message_id", part.TgMessageId },
+            { "tg_message", part.TgMessageId },
+            { "tg_chat_id", part.TgChatId },
+            { "status", part.Status },
+            { "chunk_name", $"{fileUuid}.part_{part.PartNumber:000}" },
+            { "caption", BuildPartCaption(mediaType, targetFileName, part.PartNumber, totalParts, fileUuid, mediaTotalSize) },
+            { "uploaded_at", part.UploadedAt }
+        };
     }
 
     /// <summary>
@@ -646,7 +777,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
             using (var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, true))
             {
-                var buffer = new byte[_logicalChunkSizeBytes];
+                // Accumulated resume state: the parts array and byte total grow with each uploaded
+                // part so MongoDB progress updates never have to rebuild the whole document array.
+                var currentPartDocs = new BsonArray();
+                long uploadedBytes = 0;
+
                 for (int partNum = resumePart; partNum < totalParts; partNum++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -656,10 +791,15 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                     var remaining = totalSize - offset;
                     var bytesToRead = (int)Math.Min(_logicalChunkSizeBytes, remaining);
+
+                    // Read the part straight into the array that is handed to the Telegram client.
+                    // Previously this allocated a 16 MiB read buffer *plus* a second 16 MiB copy per
+                    // part, so a single-part upload generated ~32 MiB of large-object-heap garbage.
+                    var chunkData = new byte[bytesToRead];
                     var bytesRead = 0;
                     while (bytesRead < bytesToRead)
                     {
-                        var read = await fileStream.ReadAsync(buffer.AsMemory(bytesRead, bytesToRead - bytesRead), cancellationToken).ConfigureAwait(false);
+                        var read = await fileStream.ReadAsync(chunkData.AsMemory(bytesRead, bytesToRead - bytesRead), cancellationToken).ConfigureAwait(false);
                         if (read <= 0)
                         {
                             break;
@@ -671,6 +811,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     if (bytesRead <= 0)
                     {
                         break;
+                    }
+
+                    if (bytesRead < chunkData.Length)
+                    {
+                        Array.Resize(ref chunkData, bytesRead);
                     }
 
                     // Uma mídia pode usar até três bots. Isso permite distribuir
@@ -687,8 +832,6 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     var caption = BuildPartCaption(mediaType, targetFileName, partNum, totalParts, fileUuid, totalSize);
                     var chunkName = $"{fileUuid}.part_{partNum:000}";
 
-                    var chunkData = new byte[bytesRead];
-                    Buffer.BlockCopy(buffer, 0, chunkData, 0, bytesRead);
                     NebulaTelegramUploadResult? tgMsg = null;
                     var botIndex = -1;
                     var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -724,7 +867,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                     LogServer("INFO", $"[UPLOAD] W{workerId} parte={partNum + 1} bot=#{botIndex + 1} concluida em {durationSec.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s ({speedMbS.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)} MB/s)");
 
-                    parts.Add(new NebulaFilePart
+                    var uploadedPart = new NebulaFilePart
                     {
                         PartNumber = partNum,
                         Size = bytesRead,
@@ -734,34 +877,19 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         TgChatId = tgMsg.ChatId,
                         Status = "completed",
                         UploadedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
-                    });
+                    };
 
-                    // 3. Atualiza progresso no MongoDB a cada parte enviada para persistir retomada
+                    parts.Add(uploadedPart);
+
+                    // 3. Atualiza progresso no MongoDB a cada parte enviada para persistir retomada.
+                    // The document for this part is appended to a running array instead of rebuilding
+                    // every previously uploaded part on each iteration (that was O(n^2) BSON documents
+                    // for an n-part upload).
+                    uploadedBytes += bytesRead;
+                    currentPartDocs.Add(BuildPartDocument(uploadedPart, mediaType, targetFileName, totalParts, fileUuid, totalSize));
+
                     if (_mongoContext != null)
                     {
-                        var currentPartDocs = new BsonArray();
-                        foreach (var part in parts)
-                        {
-                            currentPartDocs.Add(new BsonDocument
-                            {
-                                { "part_number", part.PartNumber },
-                                { "part_id", part.PartNumber },
-                                { "size", part.Size },
-                                { "file_size", part.Size },
-                                { "bot_index", part.BotIndex },
-                                { "tg_file_id", part.TgFileId },
-                                { "tg_file", part.TgFileId },
-                                { "tg_message_id", part.TgMessageId },
-                                { "tg_message", part.TgMessageId },
-                                { "tg_chat_id", part.TgChatId },
-                                { "status", part.Status },
-                                { "chunk_name", $"{fileUuid}.part_{part.PartNumber:000}" },
-                                { "caption", BuildPartCaption(mediaType, targetFileName, part.PartNumber, totalParts, fileUuid, totalSize) },
-                                { "uploaded_at", part.UploadedAt }
-                            });
-                        }
-
-                        var uploadedBytes = parts.Sum(p => p.Size);
                         var ownsUpload = await _mongoContext.UpdateUploadProgressAsync(nodeId, currentPartDocs, uploadedBytes, botIndex, workerKey, cancellationToken).ConfigureAwait(false);
                         if (!ownsUpload)
                         {
@@ -784,23 +912,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             var finalPartDocs = new BsonArray();
             foreach (var part in parts)
             {
-                finalPartDocs.Add(new BsonDocument
-                {
-                    { "part_number", part.PartNumber },
-                    { "part_id", part.PartNumber },
-                    { "size", part.Size },
-                    { "file_size", part.Size },
-                    { "bot_index", part.BotIndex },
-                    { "tg_file_id", part.TgFileId },
-                    { "tg_file", part.TgFileId },
-                    { "tg_message_id", part.TgMessageId },
-                    { "tg_message", part.TgMessageId },
-                    { "tg_chat_id", part.TgChatId },
-                    { "status", part.Status },
-                    { "chunk_name", $"{fileUuid}.part_{part.PartNumber:000}" },
-                    { "caption", BuildPartCaption(mediaType, targetFileName, part.PartNumber, totalParts, fileUuid, totalSize) },
-                    { "uploaded_at", part.UploadedAt }
-                });
+                finalPartDocs.Add(BuildPartDocument(part, mediaType, targetFileName, totalParts, fileUuid, totalSize));
             }
 
             var firstPart = parts[0];

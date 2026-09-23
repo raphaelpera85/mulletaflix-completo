@@ -1019,6 +1019,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             await _mongoContext.EnsureIndexesAsync(cancellationToken).ConfigureAwait(false);
 
+            var novelaMigration = await _mongoContext.ScanAndMoveNovelasAsync(cancellationToken).ConfigureAwait(false);
+            EmitServerLog(
+                novelaMigration.Success ? "INFO" : "WARNING",
+                $"[NEBULA-NOVELAS] {novelaMigration.Message}");
+
             // 1.1 Sincronizador com Supabase e verificação de prioridade do banco (restauração se Mongo estiver vazio)
             if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
             {
@@ -1729,6 +1734,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
     }
 
+    public async Task<NebulaNovelaMigrationResult> ScanAndMoveNovelasAsync(CancellationToken cancellationToken = default)
+    {
+        var mongo = _mongoContext;
+        if (mongo == null)
+        {
+            return new NebulaNovelaMigrationResult
+            {
+                Success = false,
+                Message = "O MongoDB do Nebula ainda não está inicializado. Inicie o envio e tente novamente."
+            };
+        }
+
+        return await mongo.ScanAndMoveNovelasAsync(cancellationToken).ConfigureAwait(false);
+    }
+
 
     private void StartContinuousCleanup(NebulaFtpConfiguration config)
     {
@@ -1753,7 +1773,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         EmitCleanupLog("MongoDB: configurado (URI ocultada por segurança)");
         EmitCleanupLog("Database: ftp");
         EmitCleanupLog($"Fontes monitoradas: [{sourceListStr}]");
-        EmitCleanupLog("Modo: Contínuo (a cada 30s)");
+        EmitCleanupLog("Modo: Contínuo (a cada 15 min)");
         EmitCleanupLog("Dry-run: False");
         EmitCleanupLog("===========================================");
         EmitCleanupLog(string.Empty);
@@ -1767,7 +1787,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+                // A cleanup cycle walks every monitored source recursively AND materialises the full
+                // set of completed documents from Mongo just to build a path HashSet. At the previous
+                // 30 second interval that was 2,880 full library walks plus 2,880 full BSON result
+                // sets per day, which was the largest single driver of the host's page-file pressure
+                // on a 15.7 GB machine. Leftovers only need to be reclaimed eventually, so a much
+                // longer interval costs nothing real.
+                await Task.Delay(TimeSpan.FromMinutes(15), cancellationToken).ConfigureAwait(false);
                 if (_mongoContext != null && !_streamOnly)
                 {
                     await RunCleanupCycleAsync(sources, cancellationToken).ConfigureAwait(false);

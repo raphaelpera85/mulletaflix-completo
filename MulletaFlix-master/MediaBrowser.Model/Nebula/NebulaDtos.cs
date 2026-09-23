@@ -3,6 +3,15 @@ using System.Collections.Generic;
 
 namespace MediaBrowser.Model.Nebula;
 
+public sealed class NebulaNovelaMigrationResult
+{
+    public bool Success { get; set; }
+    public int Scanned { get; set; }
+    public int Moved { get; set; }
+    public int AlreadyInNovelas { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
 public class NebulaStatusDto
 {
     public bool IsEnvioRunning { get; set; }

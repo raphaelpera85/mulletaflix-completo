@@ -27,6 +27,21 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
 {
     internal const string PendingMarkerFileName = ".nebula-metadata-pending";
 
+    /// <summary>
+    /// How many recognition follow-ups may probe and refresh at the same time.
+    /// </summary>
+    /// <remarks>
+    /// A scan raises <c>ItemAdded</c>/<c>ItemUpdated</c> once per indexed file, so a scan of a few
+    /// thousand series used to start a few thousand concurrent 10 second timers, each one then
+    /// running a full <c>RefreshMetadata</c> — a second full metadata pass over items the scan had
+    /// just written. That burst is what pushed the MariaDB pool to its ceiling and produced
+    /// "Connect Timeout expired. All pooled connections are in use." plus a stream of
+    /// "Falha ao exportar metadados" for unrelated items. Gating the whole follow-up — the cover
+    /// probe included — also means an item whose cover the scan already fetched costs nothing when
+    /// its turn arrives, because the probe is re-evaluated under the slot.
+    /// </remarks>
+    internal const int MaxConcurrentExports = 4;
+
     internal static readonly HashSet<string> MetadataSidecarExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".nfo", ".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".bmp",
@@ -55,6 +70,7 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
     private readonly ILogger<NebulaMetadataExportService> _logger;
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _scheduled = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly SemaphoreSlim _exportSlots = new(MaxConcurrentExports, MaxConcurrentExports);
     private readonly object _lookupSync = new();
     private NebulaMongoContext? _uploadLookup;
     private string? _uploadLookupConnectionString;
@@ -119,12 +135,17 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, scheduled.Token);
             await Task.Delay(TimeSpan.FromSeconds(10), linked.Token).ConfigureAwait(false);
 
-        // The item event may arrive before Jellyfin finishes local metadata
-        // discovery. Refresh only when the primary image is still missing.
-            if (!item.GetImages(ImageType.Primary).Any())
-            {
-                await item.RefreshMetadata(linked.Token).ConfigureAwait(false);
-            }
+            await RunGuardedExportAsync(
+                async token =>
+                {
+                    // The item event may arrive before Jellyfin finishes local metadata
+                    // discovery. Refresh only when the primary image is still missing.
+                    if (!item.GetImages(ImageType.Primary).Any())
+                    {
+                        await item.RefreshMetadata(token).ConfigureAwait(false);
+                    }
+                },
+                linked.Token).ConfigureAwait(false);
 
             _logger.LogDebug("[NEBULA-METADATA] Metadados de {Path} permanecem somente no cache local; nenhum NFO ou imagem será enviado ao Telegram.", item.Path);
         }
@@ -140,6 +161,25 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
             _scheduled.TryRemove(new KeyValuePair<Guid, CancellationTokenSource>(item.Id, scheduled));
             scheduled.Dispose();
             DisposeRootCancellationSourceIfIdle();
+        }
+    }
+
+    /// <summary>
+    /// Runs a recognition follow-up while holding one of the bounded export slots.
+    /// </summary>
+    /// <param name="export">The follow-up to run.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>A task that completes when the follow-up finished.</returns>
+    internal async Task RunGuardedExportAsync(Func<CancellationToken, Task> export, CancellationToken cancellationToken)
+    {
+        await _exportSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await export(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _exportSlots.Release();
         }
     }
 
@@ -511,6 +551,8 @@ public sealed class NebulaMetadataExportService : IHostedService, IDisposable
         {
             pending.Cancel();
         }
+
+        _exportSlots.Dispose();
 
         DisposeRootCancellationSourceIfIdle();
 

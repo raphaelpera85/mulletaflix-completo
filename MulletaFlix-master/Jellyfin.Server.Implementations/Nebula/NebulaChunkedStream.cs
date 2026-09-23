@@ -1,7 +1,9 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -62,7 +64,17 @@ public sealed class NebulaStreamPart
 public sealed class NebulaChunkedStream : Stream
 {
     private const int ChunkSize = 1024 * 1024; // 1 MB por bloco (idêntico ao GETFILE_CHUNK_SIZE do Nebula Python)
-    private const int MaxCachedChunks = 64;    // 64 MB máximo de buffer LRU por stream ativo (suporta prefetch e seeking sem I/O errors)
+
+    // Anteriormente 64, ou seja 64 MB de Large Object Heap *por stream ativo*. Como o
+    // NebulaHttpStreamServer aceita até 32 conexões simultâneas, isso podia chegar perto de 2 GB, e
+    // no p95 medido (12 concorrentes) ficava em ~768 MB. Em um host com ~1,9 GB de RAM livre e 3,9 GB
+    // de pagefile em uso, esse era um dos maiores contribuintes dos congelamentos de 50-100 s
+    // observados no log (o processo ficava dezenas de segundos sem executar nada enquanto paginava).
+    // 8 blocos ainda dão 4x de folga sobre o PrefetchAheadChunks de 2, cobrindo prefetch e seek
+    // sequencial, com 1/8 da memória. O custo aceito é que um scrub longo pode precisar rebaixar
+    // blocos do Telegram em vez de achá-los no LRU — troca deliberada de banda por memória, porque a
+    // banda já era o recurso abundante (uploads a 5-6 MB/s) e a memória é o recurso que faltava.
+    private const int MaxCachedChunks = 8;
     private const int PrefetchAheadChunks = 2; // Número de chunks à frente para pré-carregar em segundo plano
 
     private readonly NebulaTelegramPool? _telegramPool;
@@ -172,7 +184,77 @@ public sealed class NebulaChunkedStream : Stream
     /// <inheritdoc />
     public override int Read(byte[] buffer, int offset, int count)
     {
-        return ReadAsync(buffer, offset, count, CancellationToken.None).GetAwaiter().GetResult();
+        EnsureNotDisposed();
+        ArgumentNullException.ThrowIfNull(buffer);
+        if (offset < 0 || count < 0 || buffer.Length - offset < count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(count));
+        }
+
+        // Paths that stream Nebula media use ReadAsync/ReadAsync(Memory) directly (the HTTP
+        // stream server and the downloader both read asynchronously). This synchronous override
+        // only exists to satisfy consumers that insist on Stream.Read; it mirrors FileStream.Read
+        // semantics (blocking until the chunk is fetched) instead of spinning a thread through
+        // GetAwaiter().GetResult() on an already-running async state machine.
+        if (_disposed || _position >= _totalLength || count == 0 || _parts.Count == 0)
+        {
+            return 0;
+        }
+
+        _lock.Wait();
+        try
+        {
+            if (_disposed)
+            {
+                return 0;
+            }
+
+            var part = FindPartForPosition(_position);
+            if (part is null)
+            {
+                throw new IOException($"Layout de partes Nebula inconsistente no offset {_position}.");
+            }
+
+            var offsetInPart = _position - part.FileOffset;
+            var chunkIndex = (int)(offsetInPart / ChunkSize);
+            var chunkOffset = (int)(offsetInPart % ChunkSize);
+
+            // Fast path: serve from the LRU cache without touching the network.
+            var cacheKey = $"{part.PartIndex}:{chunkIndex}";
+            if (_chunkCache.TryGetValue(cacheKey, out var chunkData))
+            {
+                _lruOrder.Remove(cacheKey);
+                _lruOrder.AddFirst(cacheKey);
+                var availableInChunk = chunkData.Length - chunkOffset;
+                var bytesToCopy = Math.Min(availableInChunk, count);
+                if (bytesToCopy <= 0)
+                {
+                    return 0;
+                }
+
+                Buffer.BlockCopy(chunkData, chunkOffset, buffer, offset, bytesToCopy);
+                _position += bytesToCopy;
+                return bytesToCopy;
+            }
+
+            // Cache miss: perform a blocking fetch. This is the same behaviour as a synchronous
+            // disk read and is not on the hot path of the streaming servers.
+            var fetched = GetChunkAsync(part, chunkIndex, CancellationToken.None).GetAwaiter().GetResult();
+            if (chunkOffset >= fetched.Length)
+            {
+                return 0;
+            }
+
+            var fetchedAvailable = fetched.Length - chunkOffset;
+            var fetchedToCopy = Math.Min(fetchedAvailable, count);
+            Buffer.BlockCopy(fetched, chunkOffset, buffer, offset, fetchedToCopy);
+            _position += fetchedToCopy;
+            return fetchedToCopy;
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
 
     /// <inheritdoc />
@@ -256,6 +338,37 @@ public sealed class NebulaChunkedStream : Stream
             catch (ObjectDisposedException)
             {
             }
+        }
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        if (MemoryMarshal.TryGetArray<byte>(buffer, out var segment))
+        {
+            return new ValueTask<int>(ReadAsync(segment.Array!, segment.Offset, segment.Count, cancellationToken));
+        }
+
+        // Non-array-backed Memory (rare): rent an array to avoid a synchronous fallback.
+        var rented = ArrayPool<byte>.Shared.Rent(buffer.Length);
+        return ReadAsyncRentedAsync(buffer, rented, cancellationToken);
+    }
+
+    private async ValueTask<int> ReadAsyncRentedAsync(Memory<byte> buffer, byte[] rented, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var read = await ReadAsync(rented, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+            if (read > 0)
+            {
+                rented.AsMemory(0, read).CopyTo(buffer);
+            }
+
+            return read;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
         }
     }
 

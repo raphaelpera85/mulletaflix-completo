@@ -41,7 +41,9 @@ public sealed class NebulaStrmGenerator
     /// <summary>
     /// Roteia a pasta de destino do arquivo .strm garantindo a estrutura padrão:
     /// - Filmes: Nebula\Filmes\Nome do Filme (Ano).
+    /// - Animações: Nebula\Animações\Nome da Animação\Season ##.
     /// - Séries: Nebula\Series\Nome da Série\Season ##.
+    /// - Novelas: Nebula\Novelas\Nome da Novela\Season ##.
     /// - Pornô:  Nebula\Porno.
     /// </summary>
     /// <param name="relativeDir">Diretório relativo original.</param>
@@ -57,10 +59,10 @@ public sealed class NebulaStrmGenerator
         }
 
         // A normalização remove artefatos de montagem e as raízes de categoria do início
-        // do caminho, garantindo uma única raiz por mídia (Filmes, Series ou Porno).
+        // do caminho, garantindo uma única raiz por mídia (Filmes, Animações, Series ou Porno).
         var rawParts = NebulaUploadEngine.NormalizeMediaPathSegments(relativeDir);
 
-        if (mediaType == "SERIE")
+        if (mediaType is "SERIE" or "NOVELA" or "ANIMACAO")
         {
             string seriesName;
             string seasonFolder;
@@ -123,7 +125,14 @@ public sealed class NebulaStrmGenerator
                 }
             }
 
-            return Path.Combine("Nebula", "Series", seriesName, seasonFolder);
+            var rootFolder = mediaType switch
+            {
+                "NOVELA" => "Novelas",
+                "ANIMACAO" => "Animações",
+                _ => "Series"
+            };
+
+            return Path.Combine("Nebula", rootFolder, seriesName, seasonFolder);
         }
 
         // Caso FILME: a raiz 'Filmes' já foi removida pela normalização dos segmentos.

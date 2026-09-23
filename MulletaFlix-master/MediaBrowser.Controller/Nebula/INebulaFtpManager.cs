@@ -28,6 +28,8 @@ public interface INebulaFtpManager
 
     Task<bool> PruneCompletedAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);
 
+    Task<NebulaNovelaMigrationResult> ScanAndMoveNovelasAsync(CancellationToken cancellationToken = default);
+
     System.Collections.Generic.List<NebulaBotDto> GetBots();
 
     System.Collections.Generic.List<NebulaBotDto> SaveBot(NebulaSaveBotRequest request);

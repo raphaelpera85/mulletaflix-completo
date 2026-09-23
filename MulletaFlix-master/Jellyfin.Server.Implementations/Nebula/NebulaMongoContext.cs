@@ -913,6 +913,150 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Varre a árvore virtual do Nebula e move grupos identificados como novelas
+    /// de Series para Novelas. Somente o campo parent é alterado: IDs, partes do
+    /// Telegram, local_path e arquivos físicos permanecem intactos.
+    /// </summary>
+    public async Task<NebulaNovelaMigrationResult> ScanAndMoveNovelasAsync(CancellationToken cancellationToken = default)
+    {
+        var result = new NebulaNovelaMigrationResult { Success = false };
+        var documents = await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+        result.Scanned = documents.Count;
+
+        var byId = documents
+            .Where(d => d.Contains("_id"))
+            .ToDictionary(d => d.GetValue("_id").ToString(), StringComparer.OrdinalIgnoreCase);
+
+        static string ParentKey(BsonDocument doc)
+            => doc.TryGetValue("parent", out var parent) && !parent.IsBsonNull ? parent.ToString() : string.Empty;
+
+        static bool SameParent(BsonDocument left, BsonDocument right)
+            => string.Equals(ParentKey(left), ParentKey(right), StringComparison.OrdinalIgnoreCase);
+
+        string ResolvePath(BsonDocument doc)
+        {
+            var parts = new Stack<string>();
+            var current = doc;
+            var guard = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (current != null && current.Contains("name") && guard.Add(current.GetValue("_id").ToString()))
+            {
+                parts.Push(current.GetValue("name", string.Empty).AsString);
+                var parent = ParentKey(current);
+                if (string.IsNullOrEmpty(parent))
+                {
+                    break;
+                }
+
+                if (!byId.TryGetValue(parent, out current!))
+                {
+                    // Legacy documents store the virtual parent as a path.
+                    var legacy = parent.Replace('\\', '/').Trim('/');
+                    if (!string.IsNullOrEmpty(legacy))
+                    {
+                        foreach (var segment in legacy.Split('/', StringSplitOptions.RemoveEmptyEntries).Reverse())
+                        {
+                            parts.Push(segment);
+                        }
+                    }
+
+                    break;
+                }
+            }
+
+            return string.Join('/', parts);
+        }
+
+        static bool IsNovela(BsonDocument doc, string path)
+        {
+            var values = new[] { path, doc.GetValue("name", string.Empty).AsString }
+                .Concat(new[] { "media_type", "category", "media_category", "content_type" }
+                    .Select(field => doc.GetValue(field, string.Empty).ToString()));
+            return values.Any(value => value.Contains("novela", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("telenovela", StringComparison.OrdinalIgnoreCase));
+        }
+
+        var seriesRoots = documents.Where(d =>
+            d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+            && d.GetValue("name", string.Empty).AsString.Equals("Series", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        foreach (var series in seriesRoots)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var novelaRoot = documents.FirstOrDefault(d =>
+                d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                && d.GetValue("name", string.Empty).AsString.Equals("Novelas", StringComparison.OrdinalIgnoreCase)
+                && SameParent(d, series));
+
+            if (novelaRoot == null)
+            {
+                novelaRoot = new BsonDocument
+                {
+                    { "_id", ObjectId.GenerateNewId() },
+                    { "name", "Novelas" },
+                    { "type", "dir" },
+                    { "is_directory", true },
+                    { "status", "completed" },
+                    { "parent", series.GetValue("parent", BsonNull.Value) },
+                    { "created_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
+                    { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
+                };
+                await InsertFileDocAsync(novelaRoot, cancellationToken).ConfigureAwait(false);
+                documents.Add(novelaRoot);
+                byId[novelaRoot.GetValue("_id").ToString()] = novelaRoot;
+            }
+
+            var seriesPath = ResolvePath(series);
+            var directChildren = documents.Where(d =>
+                !d.GetValue("_id").Equals(series.GetValue("_id"))
+                && ParentKey(d).Equals(series.GetValue("_id").ToString(), StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrEmpty(seriesPath) && ParentKey(d).TrimEnd('/').Equals(seriesPath, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var child in directChildren)
+            {
+                var childPath = ResolvePath(child);
+                if (IsNovela(child, childPath))
+                {
+                    candidates.Add(child.GetValue("_id").ToString());
+                }
+            }
+
+            foreach (var candidateId in candidates)
+            {
+                var candidate = byId[candidateId];
+                var update = Builders<BsonDocument>.Update
+                    .Set("parent", novelaRoot.GetValue("_id"))
+                    .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                var updateResult = await _filesCollection.UpdateOneAsync(
+                    Builders<BsonDocument>.Filter.Eq("_id", candidate.GetValue("_id")), update, new UpdateOptions(), cancellationToken).ConfigureAwait(false);
+                if (updateResult.ModifiedCount > 0)
+                {
+                    result.Moved++;
+                }
+
+                // Legacy descendants carry virtual parent strings instead of ObjectId.
+                var oldPrefix = $"{seriesPath}/{candidate.GetValue("name", string.Empty).AsString}".Trim('/');
+                var newPrefix = $"{ResolvePath(novelaRoot)}/{candidate.GetValue("name", string.Empty).AsString}".Trim('/');
+                foreach (var descendant in documents.Where(d => ParentKey(d).Replace('\\', '/').Trim('/').StartsWith(oldPrefix + "/", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await _filesCollection.UpdateOneAsync(
+                        Builders<BsonDocument>.Filter.Eq("_id", descendant.GetValue("_id")),
+                        Builders<BsonDocument>.Update.Set("parent", ParentKey(descendant).Replace('\\', '/').Trim('/')[oldPrefix.Length..].Insert(0, newPrefix)),
+                        new UpdateOptions(),
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        result.AlreadyInNovelas = documents.Count(d => ResolvePath(d).Contains("Novelas", StringComparison.OrdinalIgnoreCase));
+        result.Success = true;
+        result.Message = $"Varredura concluída: {result.Moved} grupo(s) de novela movido(s) para Novelas.";
+        _logger.LogInformation("[NEBULA-MONGO] {Message}", result.Message);
+        return result;
+    }
+
+    /// <summary>
     /// Obtém o delta de sincronização do catálogo: documentos criados ou modificados
     /// a partir de uma data UTC, mais os arquivos que ainda não foram enviados
     /// (fila, staging, envio em andamento ou falha). A coleção inteira nunca é devolvida.
@@ -2367,7 +2511,11 @@ public sealed class NebulaMongoContext : IDisposable
                     if (!string.IsNullOrEmpty(pStr))
                     {
                         var folderName = Path.GetFileName(pStr);
-                        if (!string.IsNullOrEmpty(folderName) && !folderName.Equals("Filmes", StringComparison.OrdinalIgnoreCase) && !folderName.Equals("Series", StringComparison.OrdinalIgnoreCase))
+                        if (!string.IsNullOrEmpty(folderName)
+                            && !folderName.Equals("Filmes", StringComparison.OrdinalIgnoreCase)
+                            && !folderName.Equals("Series", StringComparison.OrdinalIgnoreCase)
+                            && !folderName.Equals("Novelas", StringComparison.OrdinalIgnoreCase)
+                            && !folderName.Equals("Animações", StringComparison.OrdinalIgnoreCase))
                         {
                             var normFolder = NormalizeCleanupString(folderName);
                             if (!string.IsNullOrEmpty(normFolder))

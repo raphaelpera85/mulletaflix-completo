@@ -244,30 +244,33 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                             continue;
                         }
 
-                        var allCandidateFiles = Directory.EnumerateFiles(src, "*.*", SearchOption.AllDirectories)
-                            .Where(f =>
+                        // Single streaming pass straight into mediaFiles. This used to materialise
+                        // every candidate path in the tree first (allCandidateFiles), then a second
+                        // subset list of media (mediaList), and finally the projected and ordered
+                        // prioritizedList — three full copies of the path set alive at once, rebuilt
+                        // every 60 seconds on a host that was paging. Only mediaFiles and
+                        // prioritizedList remain. An error mid-enumeration now keeps what was already
+                        // found for this source instead of discarding the whole source.
+                        foreach (var f in Directory.EnumerateFiles(src, "*.*", SearchOption.AllDirectories))
+                        {
+                            var name = Path.GetFileName(f);
+                            if (string.IsNullOrWhiteSpace(name) || name.StartsWith('.'))
                             {
-                                var name = Path.GetFileName(f);
-                                if (string.IsNullOrWhiteSpace(name) || name.StartsWith('.'))
-                                {
-                                    return false;
-                                }
+                                continue;
+                            }
 
-                                if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ||
-                                    name.EndsWith(".download", StringComparison.OrdinalIgnoreCase) ||
-                                    name.Contains(".part", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    return false;
-                                }
+                            if (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ||
+                                name.EndsWith(".download", StringComparison.OrdinalIgnoreCase) ||
+                                name.Contains(".part", StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
 
-                                return true;
-                            })
-                            .ToList();
-
-                        var mediaList = allCandidateFiles
-                            .Where(f => SupportedMediaExtensions.Contains(Path.GetExtension(f)))
-                            .ToList();
-                        mediaFiles.AddRange(mediaList);
+                            if (SupportedMediaExtensions.Contains(Path.GetExtension(f)))
+                            {
+                                mediaFiles.Add(f);
+                            }
+                        }
 
                         // Metadados e arquivos sidecars (.nfo, .xml, capas, posters, fanarts, legendas) são preservados
                         // no servidor permanentemente como cópia de trabalho e cache para exibição instantânea.
@@ -279,17 +282,24 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     }
                 }
 
-                // Ordenar arquivos por categoria (Filmes -> Porno -> Series -> Outros) e por ano decrescente (2026 -> 2025 -> ...)
+                // Ordenar arquivos por categoria (Filmes -> Animações -> Series -> Novelas -> Porno -> Outros) e por ano decrescente (2026 -> 2025 -> ...)
                 var prioritizedList = mediaFiles
-                    .Select(path => new
+                    .Select(path =>
                     {
-                        Path = path,
-                        Category = GetCategoryPriority(path),
-                        CategoryName = GetCategoryDisplayName(GetCategoryPriority(path)),
-                        Year = ExtractMediaYear(Path.GetFileName(path), Path.GetDirectoryName(path) ?? string.Empty),
-                        IsStrm = string.Equals(Path.GetExtension(path), ".strm", StringComparison.OrdinalIgnoreCase)
+                        // Computed once. This used to call GetCategoryPriority twice per path — once
+                        // for the sort key and once for the display name — for every file, every
+                        // cycle.
+                        var category = GetCategoryPriority(path);
+                        return new
+                        {
+                            Path = path,
+                            Category = category,
+                            CategoryName = GetCategoryDisplayName(category),
+                            Year = ExtractMediaYear(Path.GetFileName(path), Path.GetDirectoryName(path) ?? string.Empty),
+                            IsStrm = string.Equals(Path.GetExtension(path), ".strm", StringComparison.OrdinalIgnoreCase)
+                        };
                     })
-                    .OrderBy(x => x.Category) // 1. Filmes -> 2. Porno -> 3. Series -> 4. Outros
+                    .OrderBy(x => x.Category) // 1. Filmes -> 2. Anima\u00e7\u00f5es -> 3. Series -> 4. Novelas -> 5. Porno -> 6. Outros
                     .ThenByDescending(x => x.Year) // Ano decrescente (2026 -> 2025 -> ...)
                     .ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
                     .ToList();
@@ -1009,31 +1019,52 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                                 var buf = new byte[64 * 1024];
                                 int r;
                                 long partBytesRead = 0;
+                                var lastProgressReport = DateTime.MinValue;
                                 while ((r = await stream.ReadAsync(buf, 0, buf.Length, readCts.Token).ConfigureAwait(false)) > 0)
                                 {
                                     readCts.CancelAfter(TimeSpan.FromSeconds(45));
                                     await fs.WriteAsync(buf, 0, r, cancellationToken).ConfigureAwait(false);
                                     partBytesRead += r;
+
+                                    // This task owns exactly this index, so the counter stays accurate
+                                    // without the lock. Everything expensive — Sum over the part array,
+                                    // two FormatBytes calls, three interpolated strings and the UI
+                                    // event — used to run inside the global progressLock on every 64 KB
+                                    // read, with up to 32 part tasks serializing on it. A 10 GB download
+                                    // meant ~160,000 lock acquisitions and ~160,000 event invocations
+                                    // competing with the download threads themselves. Reporting on a
+                                    // time cadence keeps the display useful and removes that contention.
+                                    partDownloadedAmounts[index] = partBytesRead;
+
+                                    var now = DateTime.UtcNow;
+                                    if (now - lastProgressReport < TimeSpan.FromMilliseconds(250))
+                                    {
+                                        continue;
+                                    }
+
+                                    lastProgressReport = now;
+
+                                    long currentDownloaded;
                                     lock (progressLock)
                                     {
-                                        partDownloadedAmounts[index] = partBytesRead;
-                                        var currentDownloaded = partDownloadedAmounts.Sum();
-                                        var elapsed = Math.Max(0.1, (DateTime.UtcNow - startTime).TotalSeconds);
-                                        var speedMb = (currentDownloaded / (1024.0 * 1024.0)) / elapsed;
-                                        var percent = (currentDownloaded * 100.0) / totalSize;
+                                        currentDownloaded = partDownloadedAmounts.Sum();
+                                    }
 
-                                        status.DoneMb = Math.Round(currentDownloaded / (1024.0 * 1024.0), 2);
-                                        status.Percentage = Math.Round(percent, 1);
-                                        status.Speed = $"{speedMb:F1} MB/s";
-                                        status.DetailText = $"{status.Percentage:F1}% ({FormatBytes(currentDownloaded)}/{FormatBytes(totalSize)}) - {status.Speed}";
-                                        OnProgressChanged?.Invoke(status);
+                                    var elapsed = Math.Max(0.1, (now - startTime).TotalSeconds);
+                                    var speedMb = (currentDownloaded / (1024.0 * 1024.0)) / elapsed;
+                                    var percent = (currentDownloaded * 100.0) / totalSize;
 
-                                        if (percent >= nextPercent || (currentDownloaded - lastLoggedBytes) >= 25 * 1024 * 1024)
-                                        {
-                                            LogInfo($"Baixando {fileName}: {status.DoneMb:F1} MB / {status.TotalMb:F1} MB ({(int)percent}%) - Vel: {speedMb:F1} MB/s");
-                                            nextPercent = (int)percent + 1;
-                                            lastLoggedBytes = currentDownloaded;
-                                        }
+                                    status.DoneMb = Math.Round(currentDownloaded / (1024.0 * 1024.0), 2);
+                                    status.Percentage = Math.Round(percent, 1);
+                                    status.Speed = $"{speedMb:F1} MB/s";
+                                    status.DetailText = $"{status.Percentage:F1}% ({FormatBytes(currentDownloaded)}/{FormatBytes(totalSize)}) - {status.Speed}";
+                                    OnProgressChanged?.Invoke(status);
+
+                                    if (percent >= nextPercent || (currentDownloaded - lastLoggedBytes) >= 25 * 1024 * 1024)
+                                    {
+                                        LogInfo($"Baixando {fileName}: {status.DoneMb:F1} MB / {status.TotalMb:F1} MB ({(int)percent}%) - Vel: {speedMb:F1} MB/s");
+                                        nextPercent = (int)percent + 1;
+                                        lastLoggedBytes = currentDownloaded;
                                     }
                                 }
 
@@ -1568,7 +1599,13 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         return 0;
     }
 
-    private static int GetCategoryPriority(string path)
+    /// <summary>
+    /// Ordem de prioridade do alimentador: Filmes, Animações, Series, Novelas,
+    /// Porno e demais conteúdos.
+    /// </summary>
+    /// <param name="path">Caminho completo do arquivo de mídia.</param>
+    /// <returns>Prioridade (menor valor é processado antes).</returns>
+    internal static int GetCategoryPriority(string path)
     {
         var mediaType = NebulaUploadEngine.ClassifyMediaType(
             Path.GetDirectoryName(path),
@@ -1577,17 +1614,21 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         return mediaType switch
         {
             "FILME" => 1,
-            "PORNO" => 2,
+            "ANIMACAO" => 2,
             "SERIE" => 3,
-            _ => 4
+            "NOVELA" => 4,
+            "PORNO" => 5,
+            _ => 6
         };
     }
 
     private static string GetCategoryDisplayName(int categoryPriority) => categoryPriority switch
     {
         1 => "FILMES",
-        2 => "PORNO",
+        2 => "ANIMAÇÕES",
         3 => "SERIES",
+        4 => "NOVELAS",
+        5 => "PORNO",
         _ => "OUTROS"
     };
 
@@ -1729,7 +1770,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 CleanDirectoryRecursive(sub);
             }
 
-            if (Directory.Exists(dir))
+            if (Directory.Exists(dir) && !NebulaUploadEngine.IsVisibleCategoryRoot(Path.GetFileName(dir)))
             {
                 var hasFiles = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Any();
                 if (!hasFiles)
@@ -1935,6 +1976,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     reason = $"{info.Error} (Tentativas: {info.Count}, Cooldown ativo)";
                     return true;
                 }
+
+                // Past its cooldown the entry is dead weight. It used to be left in place forever,
+                // so a path that failed once and was later deleted or renamed kept its full path and
+                // error string resident for the whole process lifetime.
+                _failures.TryRemove(filePath, out _);
             }
 
             return false;

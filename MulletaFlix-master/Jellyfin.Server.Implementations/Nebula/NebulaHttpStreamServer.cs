@@ -1,6 +1,7 @@
 #pragma warning disable CA1707 // Identifiers should not contain underscores
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -26,6 +27,9 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
 {
     private static readonly TimeSpan StreamRequestTimeout = TimeSpan.FromHours(2);
     private static readonly TimeSpan ControlRequestTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>The copy buffer size used while streaming a response body.</summary>
+    private const int StreamBufferSize = 128 * 1024;
     private static readonly Counter RequestCounter = Metrics.CreateCounter(
         "nebula_http_requests_total",
         "Total de requisições processadas pelo servidor HTTP Nebula.",
@@ -477,20 +481,29 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         await using var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger);
         stream.Seek(start, SeekOrigin.Begin);
 
-        var buffer = new byte[128 * 1024];
-        long remaining = contentLength;
-
-        while (remaining > 0 && !cancellationToken.IsCancellationRequested)
+        // Rented instead of allocated: a fresh 128 KB array per request means roughly one gigabyte of
+        // garbage for every gigabyte streamed, on a component whose whole job is streaming.
+        var buffer = ArrayPool<byte>.Shared.Rent(StreamBufferSize);
+        try
         {
-            var toRead = (int)Math.Min(buffer.Length, remaining);
-            var read = await stream.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
-            if (read <= 0)
-            {
-                break;
-            }
+            long remaining = contentLength;
 
-            await response.OutputStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-            remaining -= read;
+            while (remaining > 0 && !cancellationToken.IsCancellationRequested)
+            {
+                var toRead = (int)Math.Min(StreamBufferSize, remaining);
+                var read = await stream.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                await response.OutputStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                remaining -= read;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
 
         response.Close();

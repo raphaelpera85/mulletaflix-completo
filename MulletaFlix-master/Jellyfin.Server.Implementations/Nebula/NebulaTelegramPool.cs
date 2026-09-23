@@ -41,6 +41,16 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     private int _uploadRoundRobinCursor;
     private readonly ConcurrentDictionary<int, ConcurrentDictionary<long, long>> _dynamicChannelAccessHashes = new();
     private readonly ConcurrentDictionary<string, (Document Doc, DateTime ExpiresAt)> _documentCache = new();
+
+    /// <summary>
+    /// Upper bound on retained Telegram document references. Every streamed part used to stay
+    /// resident forever (the entry has an ExpiresAt, but it was only ever checked on lookup, so a
+    /// key that was never requested again was never removed). Each entry holds a WTelegram
+    /// <c>Document</c> graph, so on a large Telegram-backed library this grew without bound on a
+    /// host that already pages.
+    /// </summary>
+    private const int MaxDocumentCacheEntries = 4096;
+
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromMinutes(10) };
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly Mutex _processLock;
@@ -759,6 +769,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 if (message?.media is MessageMediaDocument { document: Document freshDoc })
                 {
                     _documentCache[cacheKey] = (freshDoc, DateTime.UtcNow.AddHours(2));
+                    PruneDocumentCache();
 
                     cancellationToken.ThrowIfCancellationRequested();
                     var location = freshDoc.ToFileLocation();
@@ -849,6 +860,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 if (message?.media is MessageMediaDocument { document: Document freshDoc })
                 {
                     _documentCache[cacheKey] = (freshDoc, DateTime.UtcNow.AddHours(2));
+                    PruneDocumentCache();
 
                     cancellationToken.ThrowIfCancellationRequested();
                     await client.DownloadFileAsync(freshDoc, output).ConfigureAwait(false);
@@ -1432,15 +1444,36 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     return ParseUploadResultForBot(responseJson, botIndex);
                 }
 
-                if ((int)response.StatusCode == 429 || (int)response.StatusCode >= 500)
+                if ((int)response.StatusCode == 429)
                 {
-                    var ex = new HttpRequestException($"Telegram Bot API retornou HTTP {(int)response.StatusCode}.");
-                    if ((int)response.StatusCode == 429 && TryReadRetryAfter(responseJson, out var retryAfter))
+                    // Deliberately NOT retried on the same bot. A Telegram flood-wait must be waited
+                    // out on that bot while its exclusive lease is held, so retrying here cost up to
+                    // 3 x retry_after seconds and blocked every other worker from using the bot. That
+                    // is what produced the measured bimodal upload speed: a ~19 s flood-wait became
+                    // ~57 s per part (the observed 56-59 s slow mode) against 2.4 s in the fast mode.
+                    // Returning null hands control back to NebulaUploadEngine, which rotates to the
+                    // next candidate bot immediately; if every candidate is throttled the part fails
+                    // and the existing MarkUploadFailedAsync retry path re-queues it.
+                    if (TryReadRetryAfter(responseJson, out var retryAfter))
                     {
-                        ex.Data["retry_after"] = retryAfter;
+                        _logger.LogWarning(
+                            "[NEBULA-TG] Bot [{BotIndex}] em flood-wait por {RetryAfter}s; liberando o bot e rotacionando.",
+                            botIndex,
+                            retryAfter);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "[NEBULA-TG] Bot [{BotIndex}] retornou HTTP 429; liberando o bot e rotacionando.",
+                            botIndex);
                     }
 
-                    throw ex;
+                    return null;
+                }
+
+                if ((int)response.StatusCode >= 500)
+                {
+                    throw new HttpRequestException($"Telegram Bot API retornou HTTP {(int)response.StatusCode}.");
                 }
 
                 _logger.LogError(
@@ -1709,6 +1742,43 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     public void Dispose()
     {
         DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Keeps <see cref="_documentCache"/> bounded. Expired entries are removed first; if the cache
+    /// is still above the cap, the entries closest to expiry are dropped. Called on insert so the
+    /// trim cost is amortised across the same requests that grow the cache.
+    /// </summary>
+    private void PruneDocumentCache()
+    {
+        if (_documentCache.Count <= MaxDocumentCacheEntries)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var entry in _documentCache)
+        {
+            if (entry.Value.ExpiresAt <= now)
+            {
+                _documentCache.TryRemove(entry.Key, out _);
+            }
+        }
+
+        var overflow = _documentCache.Count - MaxDocumentCacheEntries;
+        if (overflow <= 0)
+        {
+            return;
+        }
+
+        foreach (var key in _documentCache
+            .OrderBy(entry => entry.Value.ExpiresAt)
+            .Take(overflow)
+            .Select(entry => entry.Key)
+            .ToArray())
+        {
+            _documentCache.TryRemove(key, out _);
+        }
     }
 
     private sealed class BotApiUploadResponse

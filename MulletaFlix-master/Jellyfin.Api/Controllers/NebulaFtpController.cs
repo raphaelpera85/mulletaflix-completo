@@ -237,6 +237,13 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         return Ok(ok);
     }
 
+    [HttpPost("Actions/ScanNovelas")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<NebulaNovelaMigrationResult>> ScanNovelas(CancellationToken cancellationToken)
+    {
+        return Ok(await _nebulaManager.ScanAndMoveNovelasAsync(cancellationToken).ConfigureAwait(false));
+    }
+
     [HttpGet("Bots")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<System.Collections.Generic.List<NebulaBotDto>> GetBots()

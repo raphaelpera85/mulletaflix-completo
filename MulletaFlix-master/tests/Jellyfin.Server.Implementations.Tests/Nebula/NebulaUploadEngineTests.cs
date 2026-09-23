@@ -195,10 +195,59 @@ public class NebulaUploadEngineTests
     // Séries continuam sendo séries por marcador de episódio ou pasta de temporada
     [InlineData(@"Series\Series\BoJack Horseman\Season 03", "BoJack Horseman - S03E11.mkv", "SERIE")]
     [InlineData("Fuzuê/Temporada 1", "Fuzuê - Ep 12.mkv", "SERIE")]
+    [InlineData("Novelas/Chiquititas/Temporada 1", "Chiquititas S01E01.mkv", "NOVELA")]
+    [InlineData("Series/Novela Avenida Brasil", "Avenida Brasil - Ep 01.mkv", "NOVELA")]
+    // Animações têm categoria própria (pasta monitorada 'Animações') e vencem a raiz de séries
+    [InlineData("Animações/Dragon Ball Z/Season 01", "Dragon Ball Z - S01E01.mkv", "ANIMACAO")]
+    [InlineData(@"Series\Animações\Dragon Ball Z\Season 01", "Dragon Ball Z - S01E01.mkv", "ANIMACAO")]
+    [InlineData("Animação/Bob Esponja/Temporada 1", "Bob Esponja - S01E01.mkv", "ANIMACAO")]
+    [InlineData("Anime/Dragon Ball Z", "Dragon Ball Z - Ep 01.mkv", "ANIMACAO")]
+    [InlineData("Animações/Toy Story (1995)", "Toy Story (1995).mkv", "ANIMACAO")]
+    // 'Anime' como prefixo de título não declara categoria
+    [InlineData("Anime Crimes Division/Season 01", "Anime Crimes Division - S01E01.mkv", "SERIE")]
     public void UploadEngine_ClassifyMediaType_ClassifiesProperly(string? parent, string filename, string expectedType)
     {
         var actual = NebulaUploadEngine.ClassifyMediaType(parent, filename);
         Assert.Equal(expectedType, actual);
+    }
+
+    /// <summary>
+    /// O alimentador processa as categorias na ordem definida: Filmes, Animações,
+    /// Series, Novelas, Porno e demais conteúdos.
+    /// </summary>
+    [Theory]
+    [InlineData("Filmes", "Matrix (1999).mkv", 1)]
+    [InlineData("Animações", "Dragon Ball Z - S01E01.mkv", 2)]
+    [InlineData(@"D:\midias2\Animações\Dragon Ball Z\Season 01", "Dragon Ball Z - S01E01.mkv", 2)]
+    [InlineData("Series", "Breaking Bad - S01E01.mkv", 3)]
+    [InlineData("Novelas", "Avenida Brasil - Ep 01.mkv", 4)]
+    [InlineData("Porno", "cena.mp4", 5)]
+    public void NebulaDownloaderEngine_CategoryPriority_FollowsRequestedOrder(string parent, string filename, int expected)
+    {
+        var path = Path.Combine(parent, filename);
+
+        Assert.Equal(expected, NebulaDownloaderEngine.GetCategoryPriority(path));
+    }
+
+    /// <summary>
+    /// As pastas de categoria do monitorado (Filmes, Animações, Series, Novelas) são
+    /// reconhecidas e preservadas mesmo vazias, porque servem de destino para mídia nova.
+    /// </summary>
+    [Theory]
+    [InlineData("Filmes", true)]
+    [InlineData("Animações", true)]
+    [InlineData("Animação", true)]
+    [InlineData("Anime", true)]
+    [InlineData("Series", true)]
+    [InlineData("Novelas", true)]
+    [InlineData("Porno", true)]
+    [InlineData("strm", false)]
+    [InlineData("nebula", false)]
+    [InlineData("Dragon Ball Z", false)]
+    [InlineData("", false)]
+    public void UploadEngine_IsVisibleCategoryRoot_RecognizesDropFolders(string name, bool expected)
+    {
+        Assert.Equal(expected, NebulaUploadEngine.IsVisibleCategoryRoot(name));
     }
 
     [Fact]
@@ -987,6 +1036,12 @@ public class NebulaUploadEngineTests
     [InlineData("Breaking Bad/Season 01", "S01E01.mkv", "Series/Breaking Bad/Season 01")]
     [InlineData("Series/Game of Thrones/Temporada 2", "GOT 2x01.mp4", "Series/Game of Thrones/Temporada 2")]
     [InlineData("strm/Series/Dark/Season 1", "Dark.S01E01.mkv", "Series/Dark/Season 1")]
+    [InlineData("Novelas/Chiquititas/Temporada 1", "Chiquititas S01E01.mkv", "Novelas/Chiquititas/Temporada 1")]
+    // Animações vão para a raiz Animações, qualquer que seja a origem
+    [InlineData("Animações/Dragon Ball Z/Season 01", "Dragon Ball Z - S01E01.mkv", "Animações/Dragon Ball Z/Season 01")]
+    [InlineData(@"Series\Animações\Dragon Ball Z\Season 01", "Dragon Ball Z - S01E01.mkv", "Animações/Dragon Ball Z/Season 01")]
+    [InlineData("strm/Animações/Dragon Ball Z/Season 1", "DBZ.S01E01.mkv", "Animações/Dragon Ball Z/Season 1")]
+    [InlineData("Anime/Dragon Ball Z/Season 01", "Dragon Ball Z - S01E01.mkv", "Animações/Dragon Ball Z/Season 01")]
     [InlineData(null, "Lost.S01E01.mkv", "Series")]
     // Porno vai SEMPRE diretamente para Porno sem nenhuma subpasta
     [InlineData("Atriz XYZ/Subpasta1/Subpasta2", "video_xxx.mp4", "Porno")]
@@ -1020,6 +1075,12 @@ public class NebulaUploadEngineTests
     // Porno sob Nebula/Porno
     [InlineData("Porno/Cena", "video_xxx.mp4", "Nebula", "Porno", null, null)]
     [InlineData("Adulto", "video.mp4", "Nebula", "Porno", null, null)]
+    // Animações sob Nebula/Animações/NomeDaAnimacao/Season ##
+    [InlineData("Animações/Dragon Ball Z/Season 01", "Dragon Ball Z - S01E01.mkv", "Nebula", "Animações", "Dragon Ball Z", "Season 01")]
+    [InlineData(@"Series\Animações\Dragon Ball Z\Season 01", "Dragon Ball Z - S01E01.mkv", "Nebula", "Animações", "Dragon Ball Z", "Season 01")]
+    [InlineData("Anime/Dragon Ball Z", "Dragon Ball Z - Ep 01.mkv", "Nebula", "Animações", "Dragon Ball Z", "Season 01")]
+    // Novelas sob Nebula/Novelas/NomeDaNovela/Season ##
+    [InlineData("Novelas/Chiquititas/Temporada 1", "Chiquititas S01E01.mkv", "Nebula", "Novelas", "Chiquititas", "Season 01")]
     // Mesma árvore de destino para a mesma mídia, qualquer que seja a origem
     [InlineData(@"Series\Filmes\O Show dos Muppets (2026)", "O Show dos Muppets (2026).mkv", "Nebula", "Filmes", "O Show dos Muppets (2026)")]
     [InlineData(@"Series\Series\BoJack Horseman\Season 03", "BoJack Horseman - S03E11.mkv", "Nebula", "Series", "BoJack Horseman", "Season 03")]

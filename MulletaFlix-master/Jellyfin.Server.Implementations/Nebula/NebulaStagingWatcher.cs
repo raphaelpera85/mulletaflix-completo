@@ -315,11 +315,13 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         {
             if (_pendingFiles.TryDequeue(out var item))
             {
+                var requeued = false;
                 try
                 {
                     if (IsMetadataSidecar(item.FilePath) && HasPendingMetadataMarker(item.FilePath))
                     {
                         _pendingFiles.Enqueue(item);
+                        requeued = true;
                         await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
                         continue;
                     }
@@ -366,6 +368,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                     {
                         // Arquivo ainda em gravação no disco: reinsere na fila com delay
                         _pendingFiles.Enqueue(item);
+                        requeued = true;
                         await Task.Delay(2000, cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -375,9 +378,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 }
                 finally
                 {
-                    var fullPath = Path.GetFullPath(item.FilePath);
-                    _queuedFiles.TryRemove(fullPath, out _);
-                    _activeFiles.TryRemove(fullPath, out _);
+                    ReleaseDequeuedItem(_queuedFiles, _activeFiles, item.FilePath, requeued);
                 }
             }
             else
@@ -392,6 +393,37 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Releases the bookkeeping for one dequeued item.
+    /// </summary>
+    /// <remarks>
+    /// The queue dedupe key must survive when the item goes back into the queue. The previous code
+    /// removed it unconditionally from the <c>finally</c>, including on the two paths that re-enqueue
+    /// the very same item (a metadata sidecar waiting for its marker, and a file still being written).
+    /// Clearing the key there let the watcher enqueue that path a second time while the first copy was
+    /// still pending, so the same file could be uploaded twice.
+    /// The in-memory claim is always released: for files without a NodeId it is the only mutual
+    /// exclusion between workers, and holding it across a requeue would deadlock the item.
+    /// </remarks>
+    /// <param name="queuedFiles">The queue dedupe map.</param>
+    /// <param name="activeFiles">The in-memory claim map.</param>
+    /// <param name="filePath">The dequeued file path.</param>
+    /// <param name="requeued">Whether the item was put back into the queue.</param>
+    private static void ReleaseDequeuedItem(
+        ConcurrentDictionary<string, byte> queuedFiles,
+        ConcurrentDictionary<string, byte> activeFiles,
+        string filePath,
+        bool requeued)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        if (!requeued)
+        {
+            queuedFiles.TryRemove(fullPath, out _);
+        }
+
+        activeFiles.TryRemove(fullPath, out _);
     }
 
     private static async Task<bool> IsFileReadyAsync(string filename, CancellationToken cancellationToken)
@@ -530,13 +562,22 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                         var hasMedia = files.Any(NebulaMetadataExportService.IsMediaPayloadPath);
                         var hasActiveDownloads = files.Any(f => f.EndsWith(".part", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".download", StringComparison.OrdinalIgnoreCase));
 
+                        // Computed from the same array instead of re-enumerating the whole sub-tree a
+                        // second time. The old code called GetFiles(dir, AllDirectories) again here,
+                        // which doubled the filesystem calls of a routine that is O(dirs x files) and
+                        // runs at startup and every 10 minutes on a staging volume holding a large
+                        // library. "No files besides the pending marker" is the same predicate as the
+                        // original "files.Length == 0 || all files are the marker".
+                        var filesExcludingMarker = files
+                            .Where(f => !string.Equals(Path.GetFileName(f), NebulaMetadataExportService.PendingMarkerFileName, StringComparison.OrdinalIgnoreCase))
+                            .ToArray();
+
                         if (!hasMedia && !hasActiveDownloads)
                         {
                             NebulaMetadataExportService.RemovePendingMarker(dir);
                         }
 
-                        files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
-                        if (files.Length == 0 || files.All(f => string.Equals(Path.GetFileName(f), NebulaMetadataExportService.PendingMarkerFileName, StringComparison.OrdinalIgnoreCase)))
+                        if (filesExcludingMarker.Length == 0)
                         {
                             NebulaMetadataExportService.RemovePendingMarker(dir);
                             if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
