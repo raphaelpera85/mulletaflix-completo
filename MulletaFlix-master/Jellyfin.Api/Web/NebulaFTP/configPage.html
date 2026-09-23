@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NebulaFTP Hub</title>
+</head>
+<body>
+    <div id="nebulaFtpHubPage" data-role="page" class="page type-interior pluginConfigurationPage configPage nebulaHubPage" data-require="emby-input,emby-button,emby-checkbox,emby-select" data-controller="__plugin/NebulaFTP-config">
+        <style>
+            :root {
+                --nebula-bg: #0b0e14;
+                --nebula-surface: rgba(18, 23, 34, 0.75);
+                --nebula-surface-elevated: rgba(25, 32, 48, 0.85);
+                --nebula-border: rgba(255, 255, 255, 0.08);
+                --nebula-border-hover: rgba(96, 165, 250, 0.35);
+                --nebula-text-primary: #f8fafc;
+                --nebula-text-secondary: #94a3b8;
+                --nebula-text-muted: #64748b;
+                --nebula-accent: #38bdf8;
+                --nebula-accent-gradient: linear-gradient(135deg, #38bdf8 0%, #6366f1 100%);
+                --nebula-success: #10b981;
+                --nebula-success-gradient: linear-gradient(135deg, #059669 0%, #10b981 100%);
+                --nebula-danger: #f43f5e;
+                --nebula-danger-gradient: linear-gradient(135deg, #e11d48 0%, #f43f5e 100%);
+                --nebula-warning: #f59e0b;
+                --nebula-stream: #0ea5e9;
+                --nebula-stream-gradient: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+                --nebula-radius-sm: 8px;
+                --nebula-radius-md: 12px;
+                --nebula-radius-lg: 16px;
+                --nebula-font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', Consolas, monospace;
+            }
+
+            .nebulaHubPage {
+                background: radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.06) 0%, transparent 40%),
+                            radial-gradient(circle at 90% 90%, rgba(99, 102, 241, 0.05) 0%, transparent 45%),
+                            var(--nebula-bg) !important;
+                color: var(--nebula-text-primary) !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                padding: 20px 32px 40px !important;
+                box-sizing: border-box;
+                min-height: 100vh;
+            }
+
+            /* Header Card */
+            .nebula-header-card {
+                background: var(--nebula-surface);
+                backdrop-filter: blur(20px);
+                -webkit-backdrop-filter: blur(20px);
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-lg);
+                padding: 16px 24px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 18px;
+                box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            }
+
+            .nebula-title-area {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+            }
+
+            .nebula-title {
+                font-size: 1.6rem;
+                font-weight: 800;
+                letter-spacing: -0.02em;
+                background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #93c5fd 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                margin: 0;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .nebula-global-status {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+
+            .nebula-status-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 14px;
+                border-radius: 20px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                letter-spacing: 0.02em;
+                background: rgba(15, 23, 42, 0.7);
+                border: 1px solid var(--nebula-border);
+                color: var(--nebula-text-secondary);
+                transition: all 0.2s ease;
+            }
+
+            .nebula-status-chip.chip-active {
+                background: rgba(16, 185, 129, 0.12);
+                border-color: rgba(16, 185, 129, 0.35);
+                color: #34d399;
+                box-shadow: 0 0 16px -4px rgba(16, 185, 129, 0.3);
+            }
+
+            .nebula-status-chip.chip-idle {
+                background: rgba(148, 163, 184, 0.08);
+                border-color: rgba(148, 163, 184, 0.2);
+                color: #94a3b8;
+            }
+
+            .nebula-status-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #94a3b8;
+            }
+
+            .chip-active .nebula-status-dot {
+                background: #10b981;
+                box-shadow: 0 0 8px #10b981;
+                animation: nebula-pulse 2s infinite ease-in-out;
+            }
+
+            @keyframes nebula-pulse {
+                0%, 100% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.5; transform: scale(0.85); }
+            }
+
+            /* Tab Navigation Bar */
+            .nebula-tab-bar {
+                display: flex;
+                gap: 6px;
+                margin-bottom: 20px;
+                background: rgba(15, 23, 42, 0.65);
+                backdrop-filter: blur(16px);
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-md);
+                padding: 6px;
+                width: fit-content;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+            }
+
+            .nebula-tab-btn {
+                background: transparent;
+                color: var(--nebula-text-secondary);
+                border: none;
+                border-radius: var(--nebula-radius-sm);
+                padding: 10px 22px;
+                font-size: 0.92rem;
+                font-weight: 600;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .nebula-tab-btn:hover {
+                color: #ffffff;
+                background: rgba(255, 255, 255, 0.06);
+            }
+
+            .nebula-tab-btn.active {
+                background: var(--nebula-accent-gradient);
+                color: #ffffff;
+                box-shadow: 0 4px 18px rgba(56, 189, 248, 0.35);
+            }
+
+            .nebula-tab-btn #tabBotCount {
+                background: rgba(255, 255, 255, 0.2);
+                color: #ffffff;
+                font-size: 0.78rem;
+                padding: 2px 7px;
+                border-radius: 10px;
+                font-weight: 700;
+            }
+
+            .nebula-tab-content {
+                display: none;
+                animation: nebula-fade-in 0.3s ease;
+            }
+
+            .nebula-tab-content.active {
+                display: block;
+            }
+
+            @keyframes nebula-fade-in {
+                from { opacity: 0; transform: translateY(6px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+
+            /* Action Bars */
+            .nebula-actions-bar {
+                background: var(--nebula-surface);
+                backdrop-filter: blur(16px);
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-md);
+                padding: 12px 18px;
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 12px;
+                margin-bottom: 16px;
+                box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.3);
+            }
+
+            .nebula-btn {
+                border: none;
+                border-radius: var(--nebula-radius-sm);
+                padding: 9px 20px;
+                font-size: 0.9rem;
+                font-weight: 600;
+                cursor: pointer;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                letter-spacing: 0.01em;
+                transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .nebula-btn:hover {
+                transform: translateY(-2px);
+                filter: brightness(1.1);
+            }
+
+            .nebula-btn:active {
+                transform: translateY(0);
+                filter: brightness(0.95);
+            }
+
+            .nebula-btn:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+                transform: none;
+                filter: none;
+                box-shadow: none;
+            }
+
+            .btn-start {
+                background: var(--nebula-success-gradient);
+                color: #ffffff;
+                box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+            }
+
+            .btn-stream {
+                background: var(--nebula-stream-gradient);
+                color: #ffffff;
+                box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);
+            }
+
+            .btn-stop {
+                background: var(--nebula-danger-gradient);
+                color: #ffffff;
+                box-shadow: 0 4px 14px rgba(244, 63, 94, 0.35);
+            }
+
+            .btn-secondary {
+                background: rgba(255, 255, 255, 0.07);
+                color: var(--nebula-text-primary);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .btn-secondary:hover {
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.2);
+            }
+
+            .btn-accent {
+                background: var(--nebula-accent-gradient);
+                color: #ffffff;
+                box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
+            }
+
+            /* Options Row */
+            .nebula-options-row {
+                background: var(--nebula-surface);
+                backdrop-filter: blur(16px);
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-md);
+                padding: 12px 20px;
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                margin-bottom: 18px;
+                font-size: 0.92rem;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+            }
+
+            .nebula-checkbox-label {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                cursor: pointer;
+                user-select: none;
+                font-weight: 500;
+                color: var(--nebula-text-primary);
+            }
+
+            .nebula-checkbox-label input[type="checkbox"] {
+                width: 18px;
+                height: 18px;
+                accent-color: var(--nebula-accent);
+                cursor: pointer;
+            }
+
+            .nebula-spin-input {
+                background: #080a0f;
+                border: 1px solid var(--nebula-border);
+                color: #38bdf8;
+                border-radius: var(--nebula-radius-sm);
+                padding: 6px 10px;
+                width: 60px;
+                text-align: center;
+                font-family: var(--nebula-font-mono);
+                font-weight: 700;
+                font-size: 0.9rem;
+                transition: border-color 0.2s ease;
+            }
+
+            .nebula-spin-input:focus {
+                outline: none;
+                border-color: var(--nebula-accent);
+                box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+            }
+
+            #lblQuickBotsLink {
+                margin-left: auto;
+                background: rgba(56, 189, 248, 0.12);
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                color: #38bdf8;
+                padding: 6px 14px;
+                border-radius: 20px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            #lblQuickBotsLink:hover {
+                background: rgba(56, 189, 248, 0.22);
+                border-color: #38bdf8;
+                box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+                transform: translateY(-1px);
+            }
+
+            /* Split Grid: Uploads + Logs */
+            .nebula-split-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 18px;
+                min-height: 520px;
+            }
+
+            @media (max-width: 1080px) {
+                .nebula-split-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+
+            .nebula-panel {
+                background: var(--nebula-surface);
+                backdrop-filter: blur(20px);
+                -webkit-backdrop-filter: blur(20px);
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-lg);
+                padding: 18px;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+            }
+
+            .nebula-panel-title {
+                font-size: 1.05rem;
+                font-weight: 700;
+                color: var(--nebula-text-primary);
+                margin: 0 0 14px 0;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                letter-spacing: -0.01em;
+            }
+
+            /* Uploads Card List */
+            .nebula-uploads-list {
+                flex: 1;
+                overflow-y: auto;
+                max-height: 500px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                padding-right: 6px;
+            }
+
+            .nebula-upload-card {
+                background: var(--nebula-surface-elevated);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-left: 4px solid var(--nebula-accent);
+                border-radius: var(--nebula-radius-sm);
+                padding: 12px 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                transition: all 0.2s ease;
+            }
+
+            .nebula-upload-card:hover {
+                background: rgba(30, 41, 62, 0.85);
+                border-color: var(--nebula-border-hover);
+                transform: translateX(2px);
+            }
+
+            .nebula-upload-card.completed {
+                border-left-color: var(--nebula-success);
+            }
+
+            .nebula-upload-card.queued {
+                border-left-color: var(--nebula-warning);
+                opacity: 0.85;
+            }
+
+            .nebula-upload-card-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+
+            .nebula-upload-card-title {
+                font-size: 0.94rem;
+                font-weight: 600;
+                color: #ffffff;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 70%;
+            }
+
+            .nebula-upload-tags {
+                display: flex;
+                gap: 6px;
+                align-items: center;
+                flex-wrap: wrap;
+            }
+
+            .nebula-tag {
+                font-size: 0.72rem;
+                font-weight: 600;
+                padding: 2px 8px;
+                border-radius: 6px;
+                background: rgba(255, 255, 255, 0.08);
+                color: var(--nebula-text-secondary);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+            }
+
+            .nebula-tag.tag-worker {
+                background: rgba(56, 189, 248, 0.15);
+                color: #38bdf8;
+                border-color: rgba(56, 189, 248, 0.3);
+            }
+
+            .nebula-tag.tag-bots {
+                background: rgba(168, 85, 247, 0.15);
+                color: #c084fc;
+                border-color: rgba(168, 85, 247, 0.3);
+            }
+
+            .nebula-tag.tag-uploading {
+                background: rgba(16, 185, 129, 0.15);
+                color: #34d399;
+                border-color: rgba(16, 185, 129, 0.3);
+            }
+
+            .nebula-pbar-container {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .nebula-pbar-bg {
+                flex: 1;
+                height: 10px;
+                background: #080a0f;
+                border-radius: 6px;
+                overflow: hidden;
+                border: 1px solid rgba(255, 255, 255, 0.04);
+            }
+
+            .nebula-pbar-fill {
+                height: 100%;
+                background: var(--nebula-accent-gradient);
+                border-radius: 6px;
+                transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+            }
+
+            .nebula-pbar-fill.success {
+                background: var(--nebula-success-gradient);
+                box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+            }
+
+            .nebula-pbar-pct {
+                font-family: var(--nebula-font-mono);
+                font-size: 0.88rem;
+                font-weight: 700;
+                color: #38bdf8;
+                width: 60px;
+                text-align: right;
+            }
+
+            .nebula-empty-text {
+                color: var(--nebula-text-muted);
+                text-align: center;
+                padding: 60px 16px;
+                font-style: italic;
+                font-size: 0.95rem;
+            }
+
+            /* Log Terminals */
+            .nebula-log-terminal {
+                flex: 1;
+                background: #080a0f;
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: var(--nebula-radius-sm);
+                padding: 14px 16px;
+                font-family: var(--nebula-font-mono);
+                font-size: 0.82rem;
+                line-height: 1.55;
+                color: #cbd5e1;
+                overflow-y: auto;
+                max-height: 500px;
+                min-height: 420px;
+                white-space: pre-wrap;
+                word-break: break-all;
+                box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+            }
+
+            .nebula-log-terminal::-webkit-scrollbar,
+            .nebula-uploads-list::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
+
+            .nebula-log-terminal::-webkit-scrollbar-thumb,
+            .nebula-uploads-list::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 4px;
+            }
+
+            .nebula-log-terminal::-webkit-scrollbar-thumb:hover,
+            .nebula-uploads-list::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.28);
+            }
+
+            .nebula-log-actions {
+                display: flex;
+                gap: 8px;
+            }
+
+            .nebula-log-mini-btn {
+                background: rgba(255, 255, 255, 0.06);
+                color: var(--nebula-text-secondary);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                padding: 4px 12px;
+                font-size: 0.78rem;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+
+            .nebula-log-mini-btn:hover {
+                background: rgba(255, 255, 255, 0.14);
+                color: #ffffff;
+                border-color: rgba(255, 255, 255, 0.25);
+            }
+
+            /* Tab 2: STRM Downloader Card */
+            .nebula-strm-config-card {
+                background: var(--nebula-surface);
+                backdrop-filter: blur(20px);
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-lg);
+                padding: 18px 22px;
+                margin-bottom: 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 14px;
+                box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+            }
+
+            .nebula-section-label {
+                font-size: 0.98rem;
+                font-weight: 700;
+                color: #ffffff;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .strm-blue { color: #38bdf8; }
+            .strm-green { color: #34d399; }
+
+            .nebula-inline-input-group {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+
+            .nebula-text-input {
+                flex: 1;
+                background: #080a0f;
+                border: 1px solid var(--nebula-border);
+                color: #f8fafc;
+                border-radius: var(--nebula-radius-sm);
+                padding: 9px 14px;
+                font-family: var(--nebula-font-mono);
+                font-size: 0.9rem;
+                transition: border-color 0.2s ease;
+            }
+
+            .nebula-text-input:focus {
+                outline: none;
+                border-color: var(--nebula-accent);
+                box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+            }
+
+            .nebula-list-container {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+            }
+
+            .nebula-select-list {
+                flex: 1;
+                background: #080a0f;
+                border: 1px solid var(--nebula-border);
+                color: #e2e8f0;
+                border-radius: var(--nebula-radius-sm);
+                padding: 8px 12px;
+                font-family: var(--nebula-font-mono);
+                font-size: 0.88rem;
+                min-height: 70px;
+            }
+
+            .nebula-select-list option {
+                padding: 6px 8px;
+                border-radius: 4px;
+            }
+
+            .nebula-disk-space-line {
+                font-size: 0.88rem;
+                color: #34d399;
+                font-weight: 500;
+                padding-top: 4px;
+            }
+
+            .nebula-badge-info {
+                background: rgba(56, 189, 248, 0.12);
+                color: #38bdf8;
+                border: 1px solid rgba(56, 189, 248, 0.3);
+                border-radius: var(--nebula-radius-sm);
+                padding: 7px 14px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                margin-left: auto;
+            }
+
+            .nebula-dl-current-card {
+                background: var(--nebula-surface-elevated);
+                border: 1px solid var(--nebula-border);
+                border-left: 4px solid var(--nebula-accent);
+                border-radius: var(--nebula-radius-md);
+                padding: 18px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+            }
+
+            .nebula-dl-current-title {
+                font-size: 1.1rem;
+                font-weight: 700;
+                color: #ffffff;
+            }
+
+            .nebula-dl-current-step {
+                font-size: 0.9rem;
+                color: var(--nebula-text-secondary);
+            }
+
+            /* Settings Drawer/Modal */
+            .nebula-settings-drawer {
+                display: none;
+                background: rgba(15, 20, 31, 0.95);
+                backdrop-filter: blur(24px);
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-lg);
+                padding: 24px;
+                margin-bottom: 20px;
+                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+                animation: nebula-fade-in 0.3s ease;
+            }
+
+            .nebula-settings-drawer.open {
+                display: block;
+            }
+
+            /* Bots Management Styles */
+            .nebula-bots-header-bar {
+                background: var(--nebula-surface);
+                backdrop-filter: blur(16px);
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-md);
+                padding: 14px 20px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 14px;
+                margin-bottom: 18px;
+            }
+
+            .nebula-bots-stats {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-size: 1.05rem;
+                font-weight: 700;
+                color: var(--nebula-text-primary);
+            }
+
+            .nebula-bots-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                gap: 16px;
+                padding-right: 4px;
+            }
+
+            .nebula-bot-card {
+                background: var(--nebula-surface);
+                backdrop-filter: blur(16px);
+                border-radius: var(--nebula-radius-md);
+                padding: 18px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                border: 1px solid var(--nebula-border);
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+                transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+            }
+
+            .nebula-bot-card:hover {
+                transform: translateY(-3px);
+                border-color: var(--nebula-accent);
+                box-shadow: 0 8px 24px -4px rgba(56, 189, 248, 0.25);
+            }
+
+            .nebula-bot-card-top {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+            }
+
+            .nebula-bot-name {
+                font-size: 1rem;
+                font-weight: 700;
+                color: #ffffff;
+            }
+
+            .nebula-bot-session-badge {
+                font-size: 0.75rem;
+                padding: 3px 10px;
+                border-radius: 12px;
+                font-weight: 600;
+            }
+
+            .nebula-bot-session-badge.active {
+                background: rgba(16, 185, 129, 0.15);
+                color: #34d399;
+                border: 1px solid rgba(16, 185, 129, 0.35);
+            }
+
+            .nebula-bot-session-badge.new {
+                background: rgba(168, 85, 247, 0.15);
+                color: #c084fc;
+                border: 1px solid rgba(168, 85, 247, 0.35);
+            }
+
+            .nebula-bot-token-box {
+                background: #080a0f;
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-sm);
+                padding: 8px 12px;
+                font-family: var(--nebula-font-mono);
+                font-size: 0.8rem;
+                color: var(--nebula-text-secondary);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                overflow: hidden;
+            }
+
+            .nebula-bot-token-text {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .nebula-bot-card-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                margin-top: 4px;
+            }
+
+            /* Modal Overlay */
+            .nebula-modal-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.75);
+                backdrop-filter: blur(8px);
+                z-index: 10000;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .nebula-modal-overlay.open {
+                display: flex;
+            }
+
+            .nebula-modal-card {
+                background: #111624;
+                border: 1px solid var(--nebula-border);
+                border-radius: var(--nebula-radius-lg);
+                width: 90%;
+                max-width: 540px;
+                padding: 24px;
+                box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .nebula-modal-title {
+                font-size: 1.25rem;
+                font-weight: 700;
+                color: #ffffff;
+                margin: 0;
+            }
+
+            .nebula-modal-body {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .nebula-modal-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 10px;
+                margin-top: 8px;
+            }
+
+            .nebula-form-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 14px;
+            }
+
+            .nebula-form-group {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .nebula-form-group.full-width {
+                grid-column: 1 / -1;
+            }
+
+            .nebula-form-group label {
+                font-size: 0.88rem;
+                font-weight: 600;
+                color: var(--nebula-text-primary);
+            }
+
+            @media (max-width: 768px) {
+                .nebulaHubPage { padding: 14px !important; }
+                .nebula-header-card { flex-direction: column; align-items: flex-start; gap: 14px; }
+                .nebula-title { font-size: 1.35rem; }
+                .nebula-tab-bar { width: 100%; overflow-x: auto; }
+                .nebula-tab-btn { white-space: nowrap; padding: 8px 14px; }
+                .nebula-form-grid { grid-template-columns: 1fr; }
+                .nebula-bots-grid { grid-template-columns: 1fr; }
+            }
+        </style>
+
+        <div data-role="content">
+            <div class="content-primary">
+                <!-- Top Header Card -->
+                <div class="nebula-header-card">
+                    <div class="nebula-title-area">
+                        <h1 class="nebula-title">🚀 NebulaFTP Hub</h1>
+                        <button type="button" class="nebula-btn btn-secondary" id="btnToggleSettings" style="padding: 4px 12px; font-size: 0.82rem;">⚙ Configurações Técnicas</button>
+                    </div>
+                    <div class="nebula-global-status" id="globalStatusBadge">Envio: Parado | Download: Parado</div>
+                </div>
+
+                <!-- Settings Collapsible Panel -->
+                <div class="nebula-settings-drawer" id="settingsDrawer">
+                    <h3 style="color: #89b4fa; margin-top: 0; margin-bottom: 12px;">Configurações Avançadas do Servidor Nebula</h3>
+                    <div class="nebula-form-grid">
+                        <div class="nebula-form-group">
+                            <label for="cfgMongoUri">MongoDB URI</label>
+                            <input type="text" class="nebula-text-input" id="cfgMongoUri" />
+                        </div>
+                        <div class="nebula-form-group">
+                            <label for="cfgServerPort">Porta FTP do Servidor</label>
+                            <input type="number" class="nebula-text-input" id="cfgServerPort" />
+                        </div>
+                        <div class="nebula-form-group">
+                            <label for="cfgUsername">Usuário FTP do Nebula</label>
+                            <input type="text" class="nebula-text-input" id="cfgUsername" autocomplete="username" />
+                        </div>
+                        <div class="nebula-form-group">
+                            <label for="cfgPassword">Senha FTP do Nebula</label>
+                            <input type="password" class="nebula-text-input" id="cfgPassword" autocomplete="new-password" placeholder="Deixe vazio para manter a atual" />
+                        </div>
+                        <div class="nebula-form-group">
+                            <label for="cfgApiId">Telegram API ID</label>
+                            <input type="text" class="nebula-text-input" id="cfgApiId" />
+                        </div>
+                        <div class="nebula-form-group">
+                            <label for="cfgApiHash">Telegram API Hash</label>
+                            <input type="text" class="nebula-text-input" id="cfgApiHash" />
+                        </div>
+                        <div class="nebula-form-group full-width">
+                            <label for="cfgChatId">Notifications — IDs dos canais/chats</label>
+                            <input type="text" class="nebula-text-input" id="cfgChatId" />
+                            <small style="display: block; margin-top: 6px; color: #a6adc8;">Separe múltiplos IDs por vírgula. Telegram é o transporte atual; Discord poderá ser adicionado depois.</small>
+                        </div>
+                        <div class="nebula-form-group full-width">
+                            <label for="cfgPublicServerUrl">Notifications — URL pública do servidor</label>
+                            <input type="text" class="nebula-text-input" id="cfgPublicServerUrl" placeholder="http://mulletaflix.duckdns.org:8096" />
+                        </div>
+                        <div class="nebula-form-group full-width">
+                            <label for="cfgBotTokens">Bot Tokens (Separados por vírgula)</label>
+                            <input type="text" class="nebula-text-input" id="cfgBotTokens" />
+                        </div>
+                        <div class="nebula-form-group full-width" style="padding-top: 4px;">
+                            <label class="nebula-checkbox-label">
+                                <input type="checkbox" id="cfgAllowInsecureRemoteFtp" />
+                                <span>Permitir FTP/HTTP sem TLS em host remoto</span>
+                            </label>
+                            <small style="display: block; margin-top: 6px; color: #f9e2af;">
+                                O servidor nativo não oferece FTPS. Habilite somente em uma rede confiável; localhost continua sendo a opção segura.
+                            </small>
+                        </div>
+                        <div class="nebula-form-group full-width">
+                            <label class="nebula-checkbox-label">
+                                <input type="checkbox" id="cfgEmbedFtpCredentialsInStrmUrls" />
+                                <span>Incluir usuário e senha FTP nas URLs STRM</span>
+                            </label>
+                            <small style="display: block; margin-top: 6px; color: #f38ba8;">
+                                Desativado por padrão: credenciais em URLs podem aparecer em logs, histórico do navegador e metadados.
+                            </small>
+                        </div>
+                    </div>
+                    <div style="margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px;">
+                        <button type="button" class="nebula-btn btn-secondary" id="btnCloseSettings">Fechar</button>
+                        <button type="button" class="nebula-btn btn-accent" id="btnSaveConfig">💾 Salvar Configurações</button>
+                    </div>
+                </div>
+
+                <!-- Tab Navigation Bar -->
+                <div class="nebula-tab-bar">
+                    <button type="button" class="nebula-tab-btn active" data-tab="tabNebula">🚀 Nebula (Envio)</button>
+                    <button type="button" class="nebula-tab-btn" data-tab="tabDownload">📥 Download STRM</button>
+                    <button type="button" class="nebula-tab-btn" data-tab="tabBots">🤖 Bots Telegram (<span id="tabBotCount">28</span>)</button>
+                    <button type="button" class="nebula-tab-btn" data-tab="tabSupabase">☁️ Supabase Cloud (Backup)</button>
+                </div>
+
+                <!-- ========================================================================= -->
+                <!-- ABA 1: NEBULA (ENVIO) -->
+                <!-- ========================================================================= -->
+                <div class="nebula-tab-content active" id="tabNebula">
+                    <!-- Actions Bar -->
+                    <div class="nebula-actions-bar">
+                        <button type="button" class="nebula-btn btn-start" id="btnStartEnvio">▶ Iniciar Envio (Nebula)</button>
+                        <button type="button" class="nebula-btn btn-stream" id="btnStartStreamOnly">🌐 Somente Streaming</button>
+                        <button type="button" class="nebula-btn btn-stop" id="btnStopEnvio" disabled>⏹ Parar Envio</button>
+                        <button type="button" class="nebula-btn btn-secondary" id="btnMountDriveN">💾 Montar Disco N:</button>
+                        <button type="button" class="nebula-btn btn-secondary" id="btnUnmountDriveN" style="display: none;">⏏️ Desmontar Disco N:</button>
+                        <button type="button" class="nebula-btn btn-secondary" id="btnGenerateStrm">📄 Gerar Biblioteca STRM</button>
+                    </div>
+
+                    <!-- Turbo Options Row -->
+                    <div class="nebula-options-row">
+                        <label class="nebula-checkbox-label">
+                            <input type="checkbox" id="chkTurboMode" checked />
+                            <span>Modo Turbo quando o PC estiver ocioso</span>
+                        </label>
+                        <span>Ativar após</span>
+                        <input type="number" class="nebula-spin-input" id="spinTurboMinutes" min="1" max="120" value="10" />
+                        <span>minutos</span>
+                        <span style="margin-left: auto; color: #89b4fa; font-weight: 700; font-size: 0.85rem; cursor: pointer;" id="lblQuickBotsLink">🤖 <span id="lblEnvioBotCount">28</span> Bots Ativos no Pool</span>
+                    </div>
+
+                    <!-- Split Panel: Uploads + Logs -->
+                    <div class="nebula-split-grid">
+                        <!-- Left: Active Uploads -->
+                        <div class="nebula-panel">
+                            <div class="nebula-panel-title">
+                                <span>📤 Uploads Ativos</span>
+                                <span id="lblUploadCount" style="font-size: 0.8rem; color: #a6adc8;">0 ativo(s)</span>
+                            </div>
+                            <div class="nebula-uploads-list" id="uploadsListContainer">
+                                <div class="nebula-empty-text">Nenhum upload em andamento no momento.</div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Server Logs -->
+                        <div class="nebula-panel">
+                            <div class="nebula-panel-title">
+                                <span>📋 Logs do Servidor & Upload</span>
+                                <div class="nebula-log-actions">
+                                    <button type="button" class="nebula-log-mini-btn" id="btnClearServerLogs">Limpar</button>
+                                </div>
+                            </div>
+                            <div class="nebula-log-terminal" id="serverLogTerminal">Aguardando início do servidor...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========================================================================= -->
+                <!-- ABA 2: DOWNLOAD STRM -->
+                <!-- ========================================================================= -->
+                <div class="nebula-tab-content" id="tabDownload">
+                    <!-- Config Section: Monitored Folders + Stage Folders -->
+                    <div class="nebula-strm-config-card">
+                        <!-- Section 1: Pasta Mapeada de Monitoramento -->
+                        <div class="nebula-section-label strm-blue">📁 Pasta Mapeada de Monitoramento (Arquivos .strm):</div>
+                        <div class="nebula-inline-input-group">
+                            <input type="text" class="nebula-text-input" id="inputMonitorPath" placeholder="Ex: D:\midias" />
+                            <button type="button" class="nebula-btn btn-secondary" id="btnBrowseMonitorPath">📁 Procurar...</button>
+                            <button type="button" class="nebula-btn btn-accent" id="btnAddMonitorPath">Adicionar</button>
+                        </div>
+                        <div class="nebula-list-container">
+                            <select size="3" class="nebula-select-list" id="listMonitorPaths"></select>
+                            <button type="button" class="nebula-btn btn-secondary" id="btnRemoveMonitorPath">Remover Pasta</button>
+                        </div>
+
+                        <!-- Section 2: Pastas Stage Mapeadas -->
+                        <div class="nebula-section-label strm-green" style="margin-top: 6px;">💾 Pastas Stage Mapeadas pelo Nebula (Destino dos Downloads):</div>
+                        <div class="nebula-inline-input-group">
+                            <input type="text" class="nebula-text-input" id="inputStagePath" placeholder="Ex: E:\NebulaStage" />
+                            <button type="button" class="nebula-btn btn-secondary" id="btnBrowseStagePath">📁 Procurar...</button>
+                            <button type="button" class="nebula-btn btn-accent" id="btnAddStagePath">Adicionar Stage</button>
+                        </div>
+                        <div class="nebula-list-container">
+                            <select size="3" class="nebula-select-list" id="listStagePaths"></select>
+                            <button type="button" class="nebula-btn btn-secondary" id="btnRemoveStagePath">Remover Stage</button>
+                        </div>
+                        <div class="nebula-disk-space-line" id="lblStageDiskSpace">Carregando espaço em disco...</div>
+                    </div>
+
+                    <!-- Downloader Actions Bar -->
+                    <div class="nebula-actions-bar">
+                        <button type="button" class="nebula-btn btn-start" id="btnStartDownloader">▶ Iniciar Downloader STRM</button>
+                        <button type="button" class="nebula-btn btn-stop" id="btnStopDownloader" disabled>⏹ Parar Downloader</button>
+                        <button type="button" class="nebula-btn btn-secondary" id="btnPruneCompleted">🧹 Limpar STRMs Concluídos</button>
+                        <div style="display: flex; align-items: center; gap: 6px; margin-left: 10px;">
+                            <span style="font-size: 0.88rem; font-weight: 600;">Partes:</span>
+                            <input type="number" class="nebula-spin-input" id="spinDownloadParts" min="1" max="64" value="32" />
+                        </div>
+                        <div class="nebula-badge-info">🔒 1 Mídia por Vez | Prioridade: Filmes > Animações > Séries > Novelas (Ano Desc)</div>
+                    </div>
+
+                    <!-- Split Panel: Download Atual + Logs Downloader -->
+                    <div class="nebula-split-grid">
+                        <!-- Left: Download em Andamento -->
+                        <div class="nebula-panel">
+                            <div class="nebula-panel-title">
+                                <span>📥 Download em Andamento (1 Mídia por Vez)</span>
+                            </div>
+                            <div class="nebula-dl-current-card">
+                                <div class="nebula-dl-current-title" id="dlCurrentTitle">Nenhum download em andamento</div>
+                                <div class="nebula-dl-current-step" id="dlCurrentStep">Aguardando início do Downloader...</div>
+                                <div class="nebula-pbar-container" style="margin-top: 6px;">
+                                    <div class="nebula-pbar-bg" style="height: 14px;">
+                                        <div class="nebula-pbar-fill" id="dlPbarFill" style="width: 0%;"></div>
+                                    </div>
+                                    <div class="nebula-pbar-pct" id="dlPbarPct" style="font-size: 0.88rem;">0.0%</div>
+                                </div>
+                                <div class="nebula-dl-stats" id="dlDetailStats" style="font-size: 0.82rem; color: #a6adc8; margin-top: 4px;">0.0%</div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Logs Downloader -->
+                        <div class="nebula-panel">
+                            <div class="nebula-panel-title">
+                                <span>📋 Logs do STRM Downloader</span>
+                                <div class="nebula-log-actions">
+                                    <button type="button" class="nebula-log-mini-btn" id="btnClearDownloaderLogs">Limpar</button>
+                                </div>
+                            </div>
+                            <div class="nebula-log-terminal" id="downloaderLogTerminal">Aguardando início do downloader...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========================================================================= -->
+                <!-- ABA 3: GERENCIAMENTO DE BOTS (TELEGRAM) -->
+                <!-- ========================================================================= -->
+                <div class="nebula-tab-content" id="tabBots">
+                    <!-- Bots Header Bar -->
+                    <div class="nebula-bots-header-bar">
+                        <div class="nebula-bots-stats">
+                            <span>🤖 Pool de Bots: <span id="lblTotalBotsCount" style="color: #a6e3a1;">28</span> bots</span>
+                            <span style="font-weight: normal; color: #a6adc8; font-size: 0.85rem;">(Distribuição paralela e rotação contra FloodWait)</span>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button type="button" class="nebula-btn btn-accent" id="btnOpenAddBotModal">+ Adicionar Novo Bot</button>
+                            <button type="button" class="nebula-btn btn-secondary" id="btnSyncBotsEnv">🔄 Sincronizar Bots do .env</button>
+                        </div>
+                    </div>
+
+                    <!-- Bots Grid -->
+                    <div class="nebula-bots-grid" id="botsGridContainer">
+                        <div class="nebula-empty-text">Carregando bots...</div>
+                    </div>
+                </div>
+
+                <!-- ========================================================================= -->
+                <!-- ABA 4: SUPABASE CLOUD (BACKUP & SINCRONIZAÇÃO) -->
+                <!-- ========================================================================= -->
+                <div class="nebula-tab-content" id="tabSupabase">
+                    <!-- Header Card Supabase -->
+                    <div class="nebula-bots-header-bar" style="border-left: 4px solid #3ecf8e;">
+                        <div class="nebula-bots-stats" style="color: #3ecf8e;">
+                            <span>☁️ Supabase Cloud: <span id="lblSupabaseConnBadge" style="color: #a6adc8; font-weight: 600;">Verificando...</span></span>
+                            <span style="font-weight: normal; color: #a6adc8; font-size: 0.85rem;" id="lblSupabaseSubtext">(Backup de segurança para preservação permanente da biblioteca)</span>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button type="button" class="nebula-btn btn-secondary" id="btnTestSupabase">⚡ Testar Conexão</button>
+                            <button type="button" class="nebula-btn btn-secondary" id="btnOpenSqlModal">📋 Script SQL do Supabase</button>
+                        </div>
+                    </div>
+
+                    <!-- Config Card -->
+                    <div class="nebula-strm-config-card" style="margin-bottom: 12px;">
+                        <div class="nebula-section-label" style="color: #3ecf8e;">🔑 Credenciais do Projeto Supabase:</div>
+                        <div class="nebula-form-grid" style="margin-top: 8px;">
+                            <div class="nebula-form-group full-width">
+                                <label for="inputSupabaseUrl">Project URL (Supabase API URL)</label>
+                                <input type="text" class="nebula-text-input" id="inputSupabaseUrl" placeholder="Ex: https://xyzcompany.supabase.co" />
+                            </div>
+                            <div class="nebula-form-group full-width">
+                                <label for="inputSupabaseKey">Secret key do Supabase</label>
+                                <small style="display: block; color: #a6adc8; margin: 4px 0 6px;">Use a Secret key do projeto (sb_secret_...). Ela é necessária para gravar e restaurar os arquivos com segurança.</small>
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="password" class="nebula-text-input" id="inputSupabaseKey" placeholder="sb_secret_..." />
+                                    <button type="button" class="nebula-btn btn-secondary" id="btnToggleKeyVisibility" style="padding: 4px 12px;">👁</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Auto Backup Options -->
+                        <div class="nebula-options-row" style="margin-top: 10px; padding: 8px 12px; background: #181825; border-radius: 6px;">
+                            <label class="nebula-checkbox-label">
+                                <input type="checkbox" id="chkSupabaseAutoBackup" checked />
+                                <span>Backup Automático em Segundo Plano</span>
+                            </label>
+                            <span>A cada</span>
+                            <input type="number" class="nebula-spin-input" id="spinSupabaseInterval" min="1" max="168" value="6" />
+                            <span>horas</span>
+                            <div style="margin-left: auto; display: flex; gap: 8px;">
+                                <button type="button" class="nebula-btn btn-accent" id="btnSaveSupabaseConfig">💾 Salvar Configurações</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Supabase Actions Bar -->
+                    <div class="nebula-actions-bar" style="background: #1e1e2e; border: 1px solid #313244;">
+                        <button type="button" class="nebula-btn btn-start" id="btnRunSupabaseBackup" style="background: #3ecf8e; color: #11111b;">
+                            🚀 Fazer Backup Agora (MongoDB ➔ Supabase)
+                        </button>
+                        <button type="button" class="nebula-btn btn-stream" id="btnRunSupabaseRestore">
+                            📥 Restaurar do Supabase (Supabase ➔ MongoDB)
+                        </button>
+                        <div style="margin-left: auto; color: #a6adc8; font-size: 0.85rem;" id="lblSupabaseLastBackup">
+                            Último backup: Carregando...
+                        </div>
+                    </div>
+
+                    <!-- Split Panel: Status & Logs Supabase -->
+                    <div class="nebula-split-grid">
+                        <!-- Left: Informações de Backup e Nuvem -->
+                        <div class="nebula-panel">
+                            <div class="nebula-panel-title">
+                                <span>📊 Status da Biblioteca na Nuvem</span>
+                            </div>
+                            <div class="nebula-dl-current-card" style="border-left: 4px solid #3ecf8e;">
+                                <div class="nebula-dl-current-title" id="sbCardTitle">Supabase PostgreSQL</div>
+                                <div class="nebula-dl-current-step" id="sbCardStep">Aguardando dados...</div>
+                                <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: #cdd6f4;">
+                                    <div>📁 <b>Coleções Sincronizadas:</b> <code>files</code> (mídias/partes do Telegram) e <code>users</code></div>
+                                    <div>🛡️ <b>Proteção:</b> Preserva 100% dos IDs, partes do Telegram e metadados contra perda de dados.</div>
+                                    <div>⚡ <b>Recuperação:</b> Em caso de formatação ou falha no MongoDB local, a restauração recupera todo o acervo em segundos.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right: Logs do Supabase / Servidor -->
+                        <div class="nebula-panel">
+                            <div class="nebula-panel-title">
+                                <span>📋 Logs de Sincronização & Backup</span>
+                                <div class="nebula-log-actions">
+                                    <button type="button" class="nebula-log-mini-btn" id="btnClearSupabaseLogs">Limpar</button>
+                                </div>
+                            </div>
+                            <div class="nebula-log-terminal" id="supabaseLogTerminal">Aguardando operações do Supabase...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bot Modal (Add/Edit) -->
+                <div class="nebula-modal-overlay" id="botModalOverlay">
+                    <div class="nebula-modal-card">
+                        <h3 class="nebula-modal-title" id="botModalTitle">Adicionar Bot do Telegram</h3>
+                        <div class="nebula-modal-body">
+                            <input type="hidden" id="modalBotIndex" value="" />
+                            <div class="nebula-form-group">
+                                <label for="inputModalBotToken">Token do Bot (do @BotFather)</label>
+                                <input type="text" class="nebula-text-input" id="inputModalBotToken" placeholder="Ex.: 123456789:token-do-bot" />
+                            </div>
+                            <div style="font-size: 0.8rem; color: #a6adc8;">
+                                O token será adicionado à lista do NebulaFTP e sincronizado no arquivo <code>.env</code>. As sessões do Pyrogram serão criadas automaticamente na primeira conexão.
+                            </div>
+                        </div>
+                        <div class="nebula-modal-actions">
+                            <button type="button" class="nebula-btn btn-secondary" id="btnCancelBotModal">Cancelar</button>
+                            <button type="button" class="nebula-btn btn-start" id="btnSaveBotModal">Salvar Bot</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Supabase SQL Script Modal -->
+                <div class="nebula-modal-overlay" id="sqlModalOverlay">
+                    <div class="nebula-modal-card" style="max-width: 680px;">
+                        <h3 class="nebula-modal-title" style="color: #3ecf8e;">📋 Script SQL de Inicialização do Supabase</h3>
+                        <div class="nebula-modal-body">
+                            <div style="font-size: 0.85rem; color: #cdd6f4;">
+                                Copie o script SQL abaixo e execute no <b>SQL Editor</b> do painel do seu projeto no Supabase para criar as tabelas necessárias:
+                            </div>
+                            <textarea id="txtSqlScript" class="nebula-text-input" style="height: 220px; font-family: Consolas, monospace; font-size: 0.78rem; resize: vertical;" readonly></textarea>
+                        </div>
+                        <div class="nebula-modal-actions">
+                            <button type="button" class="nebula-btn btn-secondary" id="btnCloseSqlModal">Fechar</button>
+                            <button type="button" class="nebula-btn btn-start" id="btnCopySqlScript" style="background: #3ecf8e; color: #11111b;">📋 Copiar SQL</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+
+
+
