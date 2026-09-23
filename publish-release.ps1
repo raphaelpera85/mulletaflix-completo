@@ -5,7 +5,8 @@ param(
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip",
     [string[]]$AssetPath = @(),
     [string]$AssetsDirectory = "dist",
-    [switch]$SkipAssets
+    [switch]$SkipAssets,
+    [switch]$AllowMissingInstaller
 )
 
 $ErrorActionPreference = 'Stop'
@@ -84,14 +85,46 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- **MariaDB como banco unico do servidor**: o SQLite foi removido por completo. O servidor nao cria mais nenhum arquivo `.db` local, e os assemblies do SQLite (Microsoft.Data.Sqlite, Microsoft.EntityFrameworkCore.Sqlite, e_sqlite3) deixaram de ser publicados.
-- **IntroSkipper em MariaDB**: o plugin abandonou `introskipper-v2.db` e `introskipper-cache.db`. Segmentos, estado de temporada, registros de analise, fila de projecao e o cache de deteccao passam a viver no schema `mulletaflix_introskipper`, criado automaticamente pelo provider do servidor.
-- **Criacao de schema deterministica**: o EF so cria tabelas quando o schema esta totalmente vazio, entao os dois contextos do plugin passaram a criar apenas as suas proprias tabelas, em qualquer ordem de inicializacao.
-- **Consultas traduziveis pelo Pomelo**: toda operacao por conjunto de itens (apagar por modo, limpar estado obsoleto, cache) foi reescrita para a forma que o provider MariaDB realmente traduz; sem isso, `ExecuteDelete` falhava em tempo de execucao.
-- **Cobertura de testes**: novo projeto `IntroSkipper.Integration.Tests` roda contra MariaDB real e cobre criacao de schema, apagamento por conjunto, cache e wire-up do plugin; a suite completa segue verde.
-- **Migracao dos dados antigos**: a release `tools-v1.0.0` traz `mulletaflix-introskipper-migration-tool.zip`, a ferramenta que copia segmentos, tombstones, estado de temporada e cache dos arquivos `introskipper-v2.db` / `introskipper-cache.db` para o schema MariaDB. Comece com `--dry-run`.
-- **Banco ajustado para concorrencia**: o MariaDB embutido passa a subir com `max_connections=300` (acima das 200 conexoes que o pool permite abrir), `innodb_io_capacity=2000` (o padrao 200 e de disco mecanico; o diretorio esta em SSD), `innodb_lock_wait_timeout=25` (era 50: o thread travado esperava quase um minuto antes do retry), `innodb_buffer_pool_size=256M` (era 128M) e `innodb_log_file_size=128M` (era 96M). Os valores de memoria sao deliberadamente contidos porque a maquina opera com pouca RAM livre.
-- **Log limpo**: o servidor nao reporta mais erro ao nao encontrar o `library.db` legado (o arquivo e do Jellyfin original e nao existe mais), e a tarefa de otimizacao deixou de dizer que faz VACUUM.
+- **Dois arquivos nesta release**: o instalador executável `mulletaflix_<versao>_windows-x64.exe`, para instalação limpa em uma máquina nova, e o pacote de atualização in-place `mulletaflix-update-win-x64.zip`, para quem já tem o servidor instalado. Desde a 12.0.63 o instalador executável é publicado junto de toda release de servidor.
+- **Varredura de séries não perde mais metadados**: ao regravar um item que já existia e cuja metadata mudou (provedores, campos travados ou trailers), as linhas filhas eram mapeadas apontando de volta para a instância nova do item. O EF seguia essa navegação, tentava rastrear uma segunda instância com o mesmo `Id` de uma linha já carregada do banco e abortava tudo com "cannot be tracked because another instance with the same key value for {'Id'} is already being tracked". O item deixava de ser salvo e a varredura registrava "Error while performing a library operation". A navegação agora é substituída pela chave estrangeira explícita antes da reinserção.
+- **Fim do esgotamento do pool do MariaDB**: cada arquivo indexado disparava uma verificação própria que esperava 10 segundos e depois rodava um `RefreshMetadata` completo. Numa varredura de milhares de séries, isso virava milhares de atualizações simultâneas e o pool batia no teto. O sintoma era "Connect Timeout expired. All pooled connections are in use.". As verificações agora passam por um limite de 4 simultâneas.
+- **Falha transitória de conexão deixa de descartar o item**: erros de conexão do MariaDB (pool esgotado, timeout, socket resetado) agora entram no retry com backoff maior, em vez de descartar o salvamento do item silenciosamente.
+- **MyDramaList para de inundar o log**: o provider agora reporta a primeira recusa 403 uma única vez e fica quieto por 30 minutos, devolvendo resultado vazio sem tocar na rede.
+- **Boot do cliente web quase 2 MB mais leve**: o logo de boot era um PNG de 1.003 KB; virou WebP de 53 KB. Tráfego antes do primeiro render: 4.139 KB → 2.243 KB.
+- **Log do banco corrigido**: o servidor dizia "MySQL database: mulletaflix" na inicialização; o motor é o MariaDB 11.4 embutido.
+
+---
+
+## 🆕 Novidades desta versão
+
+### 🗄️ MariaDB como único banco de dados
+
+- **SQLite removido por completo** do servidor. O MulletaFlix agora roda exclusivamente em MariaDB.
+- Eliminadas todas as referências ao SQLite: provider, NuGet packages, migrações legadas e helpers.
+- **IntroSkipper corrigido para MariaDB**: queries reescritas para `IReadOnlySet` — resolvido erro em produção *"ReadOnlySpan<Guid>.op_Implicit could not be translated"*.
+- **Ferramenta de migração incluída** (`tools/MulletaFlix.IntroSkipperMigration`): importa bancos SQLite legados para o MariaDB. Idempotente, nunca sobrescreve dados existentes.
+- **MariaDB otimizado**: `max_connections 300` · `innodb_io_capacity 2000` · `lock-wait-timeout 25s` · buffer pool 256 MB · redo log 128 MB.
+
+### 📁 Nebula: pastas STRM separadas por categoria
+
+A pasta Nebula agora organiza as mídias em quatro raízes distintas, nesta sequência de download:
+
+| # | Categoria | Pasta STRM |
+|---|-----------|-----------|
+| 1 | Filmes | `Nebula\Filmes\` |
+| 2 | Animações | `Nebula\Animações\` |
+| 3 | Séries | `Nebula\Series\` |
+| 4 | Novelas | `Nebula\Novelas\` |
+
+- **Novelas e Animações ganham raízes próprias** separadas de Séries.
+- **Migração automática no startup**: novelas dentro de `Series` no MongoDB são detectadas e movidas para `Novelas`. Também disponível via `POST /Nebula/Actions/ScanNovelas`.
+- **Ciclo de cleanup ajustado de 30 s → 15 min**: elimina a principal causa de pressão de memória em máquinas com ~16 GB.
+- **Correção: duplo-upload de arquivos**: a chave de dedupe da fila não era removida ao reenfileirar sidecars, permitindo upload duplicado do mesmo arquivo.
+
+### 🧪 Cobertura de testes
+
+- 223 testes unitários Nebula passando (0 falhas).
+- 18 testes de integração IntroSkipper cobrindo registro do plugin e migração SQLite→MariaDB.
 '@
 
 $bodyContent = $bodyContent.Replace('__TAG__', $Tag, [System.StringComparison]::Ordinal)
@@ -181,6 +214,19 @@ $assets = $assetCandidates |
     }
 if ($assets.Count -eq 0) {
     throw "Nenhum artefato de servidor encontrado para anexar à release."
+}
+
+# The Windows installer executable must ship together with the update package.
+# Releases 12.0.46-12.0.62 went out with the update zip only because nothing
+# enforced this step, so the check is fail-closed: an operator who really wants a
+# packaging-only release must say so explicitly with -AllowMissingInstaller.
+$installerAssets = @($assets | Where-Object { [System.IO.Path]::GetFileName($_) -match '(?i)_windows-x64\.exe$' })
+if (-not $AllowMissingInstaller -and $installerAssets.Count -eq 0) {
+    throw ("Nenhum instalador Windows (mulletaflix_{0}_windows-x64.exe) encontrado em '{1}'. Execute `.\build-mulletaflix-installer.ps1 antes de publicar, ou passe -AllowMissingInstaller para publicar sem o instalador de propósito." -f $releaseVersion, $resolvedAssetsDirectory)
+}
+
+foreach ($installerAsset in $installerAssets) {
+    Write-Host "Instalador que será anexado: $([System.IO.Path]::GetFileName($installerAsset))" -ForegroundColor Green
 }
 
 # Remove versioned server artifacts from an older release left on the same tag.
