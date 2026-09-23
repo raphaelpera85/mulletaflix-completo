@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS1591
 
@@ -96,8 +96,13 @@ using MediaBrowser.Model.System;
 using MediaBrowser.Model.Tasks;
 using MediaBrowser.Providers.Lyric;
 using MediaBrowser.Providers.Manager;
+using MediaBrowser.Providers.Plugins.DramaBox;
+using MediaBrowser.Providers.Plugins.DramaFinds;
+using MediaBrowser.Providers.Plugins.GoodShort;
 using MediaBrowser.Providers.Plugins.ListenBrainz;
 using MediaBrowser.Providers.Plugins.ListenBrainz.Api;
+using MediaBrowser.Providers.Plugins.NartoDrama;
+using MediaBrowser.Providers.Plugins.NetShort;
 using MediaBrowser.Providers.Plugins.Tmdb;
 using MediaBrowser.Providers.Plugins.Tmdb.Movies;
 using MediaBrowser.Providers.Plugins.Tmdb.TV;
@@ -501,6 +506,18 @@ namespace Emby.Server.Implementations
 
             serviceCollection.AddSingleton<ListenBrainzLabsClient>();
             serviceCollection.AddSingleton<ListenBrainzSimilarArtistProvider>();
+
+            // Shared by the DramaBox providers: it owns the crawled title index and the HTTP pacing,
+            // so it must be a single instance rather than one per provider.
+            serviceCollection.AddSingleton<DramaBoxClient>();
+
+            // Same reason, for the short drama platforms that do expose a search endpoint: each client
+            // owns its HTTP pacing, its metadata cache and its failure cooldown. Registered as
+            // singletons so the providers and the matching task share one instead of one per consumer.
+            serviceCollection.AddSingleton<DramaFindsClient>();
+            serviceCollection.AddSingleton<GoodShortClient>();
+            serviceCollection.AddSingleton<NetShortClient>();
+            serviceCollection.AddSingleton<NartoDramaClient>();
 
             serviceCollection.AddSingleton(NetManager);
 

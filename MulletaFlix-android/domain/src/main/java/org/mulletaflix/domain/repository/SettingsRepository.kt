@@ -18,9 +18,6 @@ interface SettingsRepository {
     fun getTheme(): Flow<AppThemeSetting>
     suspend fun setTheme(theme: AppThemeSetting)
 
-    fun getMaxBitrate(): Flow<Int>
-    suspend fun setMaxBitrate(bitrate: Int)
-
     fun isPiPEnabled(): Flow<Boolean>
     suspend fun setPiPEnabled(enabled: Boolean)
 

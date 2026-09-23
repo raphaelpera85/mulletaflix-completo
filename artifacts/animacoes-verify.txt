@@ -1,0 +1,6 @@
+Raiz 'Animações'...........: id=6ab323c82875153c5d9ea6c5 parent=/raphael
+Títulos migrados.........: 374/374
+Filhos em Series.........: 2224 documentos / 2217 nomes distintos
+Filhos em Animações........: 374 documentos / 374 nomes distintos
+Descendentes com pai legado apontando para Series: 0
+VERIFICAÇÃO: OK — nenhum problema encontrado.

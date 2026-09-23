@@ -18,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.media3.common.util.UnstableApi
 import android.net.Uri
+import android.widget.Toast
 import org.mulletaflix.android.MediaDeepLinkRequest
 import org.mulletaflix.feature.auth.LoginScreen
 import org.mulletaflix.feature.auth.ServerSelectionScreen
@@ -60,17 +61,39 @@ fun MulletaFlixNavHost(
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     val currentItemId = currentBackStackEntry?.arguments?.getString("itemId")
+    val currentServerId = org.mulletaflix.designsystem.media.LocalMulletaFlixServerId.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     // Keyed by request sequence rather than by item id, so a second intent for
     // the same media is a new delivery instead of a duplicate.
     var handledDeepLinkSequence by remember { mutableStateOf<Long?>(null) }
     val deepLinkItemId = deepLinkRequest?.itemId
+    // True while the user is deliberately changing servers from the profile
+    // screen. Both auth screens auto-advance past themselves when a session
+    // already exists, which is right for the launch destination and wrong here:
+    // the server list sent the user to login, login sent them to Home, and
+    // "Trocar de Servidor" looked like a dead button.
+    var switchingServer by remember { mutableStateOf(false) }
 
-    LaunchedEffect(deepLinkRequest, currentRoute, currentItemId) {
+    LaunchedEffect(deepLinkRequest, currentRoute, currentItemId, currentServerId) {
         if (!shouldDeliverMediaDeepLink(deepLinkRequest?.sequence, handledDeepLinkSequence, deepLinkItemId)) {
             return@LaunchedEffect
         }
         val request = deepLinkRequest ?: return@LaunchedEffect
         val targetItemId = request.itemId
+        if (!shouldOpenLinkOnCurrentServer(request.serverId, currentServerId)) {
+            // The id is only meaningful on the server that issued the link.
+            // Opening it here resolved it against this library and showed an
+            // unrelated item (or "erro ao carregar detalhes"), so the link is
+            // refused and the user is told why.
+            Toast.makeText(
+                context,
+                "Este link pertence a outro servidor. Troque de servidor para abri-lo.",
+                Toast.LENGTH_LONG,
+            ).show()
+            handledDeepLinkSequence = request.sequence
+            onDeepLinkConsumed()
+            return@LaunchedEffect
+        }
         if (shouldMarkMediaDeepLinkHandled(currentItemId, targetItemId)) {
             // The destination is already visible; the link is satisfied.
             handledDeepLinkSequence = request.sequence
@@ -118,17 +141,20 @@ fun MulletaFlixNavHost(
         // Auth flow
         composable(MulletaFlixRoute.SERVER_SELECTION) {
             ServerSelectionScreen(
-                onServerSelected = { navController.navigate(MulletaFlixRoute.LOGIN) }
+                onServerSelected = { navController.navigate(MulletaFlixRoute.LOGIN) },
+                switchingServer = switchingServer,
             )
         }
 
         composable(MulletaFlixRoute.LOGIN) {
             LoginScreen(
+                switchingServer = switchingServer,
                 onLoginSuccess = {
                     // The pending link survives the login detour and is cleared
                     // by the LaunchedEffect once its destination is reached.
                     val destination = deepLinkItemId?.let(MulletaFlixRoute::itemDetail)
                         ?: MulletaFlixRoute.HOME
+                    switchingServer = false
                     navController.navigate(destination) {
                         popUpTo(MulletaFlixRoute.SERVER_SELECTION) { inclusive = true }
                     }
@@ -217,10 +243,10 @@ fun MulletaFlixNavHost(
         }
 
         composable(MulletaFlixRoute.SYNC_PLAY) {
+            // Sem `onJoinGroup`: o servidor não informa o item da sala em
+            // `SyncPlay/List`, então a navegação que existia aqui levava um id
+            // sempre nulo e nunca abria nada.
             SyncPlayScreen(
-                onJoinGroup = { playingItemId ->
-                    playingItemId?.let { navController.navigate(MulletaFlixRoute.videoPlayer(it)) }
-                },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -234,6 +260,7 @@ fun MulletaFlixNavHost(
                     }
                 },
                 onSwitchServer = {
+                    switchingServer = true
                     navController.navigate(MulletaFlixRoute.SERVER_SELECTION)
                 },
             )

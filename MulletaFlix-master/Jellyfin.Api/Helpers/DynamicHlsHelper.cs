@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -121,7 +121,7 @@ public class DynamicHlsHelper
             throw new ResourceNotFoundException(nameof(_httpContextAccessor.HttpContext));
         }
 
-        using var state = await StreamingHelpers.GetStreamingState(
+        await using var state = await StreamingHelpers.GetStreamingState(
                 streamingRequest,
                 _httpContextAccessor.HttpContext,
                 _mediaSourceManager,

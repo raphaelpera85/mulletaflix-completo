@@ -109,13 +109,27 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
 
         using var context = _dbProvider.CreateDbContext();
         using var transaction = context.Database.BeginTransaction();
-        var existingPersons = context.Peoples.Select(e => new
-        {
-            item = e,
-            SelectionKey = e.Name.ToLower() + "-" + e.PersonType
-        })
-            .Where(p => Enumerable.Contains(personKeys, p.SelectionKey))
-            .Select(f => f.item)
+
+        // Filter on the indexed Name column first. The previous form projected a key computed in memory
+        // (lowercased name + "-" + person type) and matched it with Enumerable.Contains, which EF cannot
+        // translate once the compared value is computed rather than a plain column, so every call
+        // materialised the whole Peoples table and filtered it client side. Measured on the production
+        // host during a library scan: one full scan of the ~52.6k row table per second, about 3.16M rows
+        // read per minute, because this runs for every item whose metadata is refreshed.
+        // Name is utf8mb4_general_ci, so the server side IN is case-insensitive and returns a superset of
+        // what the old predicate matched; the key comparison below still decides which rows are kept.
+        //
+        // Enumerable.Contains is spelled out on purpose. Written as `candidateNames.Contains(e.Name)` the
+        // compiler binds to MemoryExtensions.Contains(ReadOnlySpan<string>, string), which EF cannot turn
+        // into a query parameter: it fails while evaluating the parameter expression with
+        // "GenericArguments[1], 'System.ReadOnlySpan`1[System.String]' ... violates the constraint of type
+        // parameter 'TRet'", and every UpdatePeople call threw. All the other 20 call sites in this
+        // assembly already qualify the call for the same reason.
+        var candidateNames = people.Select(e => e.Name).ToArray();
+        var existingPersons = context.Peoples
+            .Where(e => Enumerable.Contains(candidateNames, e.Name))
+            .AsEnumerable()
+            .Where(e => personKeys.Contains(e.Name.ToLower() + "-" + e.PersonType, StringComparer.Ordinal))
             .ToArray();
 
         var toAdd = people

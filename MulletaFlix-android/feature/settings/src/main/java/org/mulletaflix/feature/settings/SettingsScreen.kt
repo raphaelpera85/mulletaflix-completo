@@ -6,6 +6,8 @@ import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,10 +25,12 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.designsystem.components.ReleaseNotesText
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 
 /**
  * Settings screen with categorized preferences.
@@ -75,7 +79,7 @@ fun SettingsScreen(
                 title = { Text("Configurações") },
                 navigationIcon = {
                     if (onBack != null) {
-                        IconButton(onClick = onBack) {
+                        MulletaFlixTopBarAction(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                         }
                     }
@@ -147,7 +151,7 @@ fun SettingsScreen(
                 if (showGridDensityDialog) {
                     ChoiceDialog(
                         title = "Densidade da grade",
-                        options = listOf("Confortável", "Compacta"),
+                        options = libraryGridDensityChoices.map { it.label },
                         selected = state.libraryGridDensity,
                         onSelect = { viewModel.setLibraryGridDensity(it); showGridDensityDialog = false },
                         onDismiss = { showGridDensityDialog = false },
@@ -156,7 +160,7 @@ fun SettingsScreen(
                 if (showLibrarySortDialog) {
                     ChoiceDialog(
                         title = "Ordenação padrão da biblioteca",
-                        options = listOf("Nome", "Data de adição", "Data de lançamento", "Duração", "Avaliação"),
+                        options = librarySortLabels,
                         selected = state.librarySort,
                         onSelect = { viewModel.setLibrarySort(it); showLibrarySortDialog = false },
                         onDismiss = { showLibrarySortDialog = false },
@@ -165,7 +169,7 @@ fun SettingsScreen(
                 if (showLibrarySortOrderDialog) {
                     ChoiceDialog(
                         title = "Direção padrão da biblioteca",
-                        options = listOf("Ascendente", "Descendente"),
+                        options = librarySortOrderChoices.map { it.label },
                         selected = state.librarySortOrder,
                         onSelect = { viewModel.setLibrarySortOrder(it); showLibrarySortOrderDialog = false },
                         onDismiss = { showLibrarySortOrderDialog = false },
@@ -189,7 +193,7 @@ fun SettingsScreen(
                 if (showQualityDialog) {
                     ChoiceDialog(
                         title = "Qualidade padrão",
-                        options = defaultQualityChoices,
+                        options = choicesIncludingCurrent(defaultQualityChoices, state.defaultQuality),
                         selected = state.defaultQuality,
                         onSelect = { viewModel.setDefaultQuality(it); showQualityDialog = false },
                         onDismiss = { showQualityDialog = false },
@@ -210,8 +214,8 @@ fun SettingsScreen(
                 if (showSpeedDialog) {
                     ChoiceDialog(
                         title = "Velocidade padrão",
-                        options = listOf("0.5", "0.75", "1.0", "1.25", "1.5", "2.0"),
-                        selected = state.defaultSpeed.toString(),
+                        options = playbackSpeedChoices.map(::playbackSpeedLabel),
+                        selected = playbackSpeedLabel(state.defaultSpeed),
                         onSelect = { viewModel.setDefaultPlaybackSpeed(it.toFloat()); showSpeedDialog = false },
                         onDismiss = { showSpeedDialog = false },
                     )
@@ -273,8 +277,8 @@ fun SettingsScreen(
                 if (showFontSizeDialog) {
                     ChoiceDialog(
                         title = "Tamanho da legenda",
-                        options = listOf("75", "100", "125", "150", "200"),
-                        selected = state.subtitleFontSize.toString(),
+                        options = subtitleFontSizeChoices.map(::subtitleFontSizeLabel),
+                        selected = subtitleFontSizeLabel(state.subtitleFontSize),
                         onSelect = { viewModel.setSubtitleFontSize(it.toInt()); showFontSizeDialog = false },
                         onDismiss = { showFontSizeDialog = false },
                     )
@@ -289,19 +293,28 @@ fun SettingsScreen(
                 if (showSubtitleColorDialog) {
                     ChoiceDialog(
                         title = "Cor da legenda",
-                        options = listOf("Branco", "Amarelo", "Ciano"),
+                        options = subtitleColorChoices.map { it.label },
                         selected = state.subtitleColor,
                         onSelect = { viewModel.setSubtitleColor(it); showSubtitleColorDialog = false },
                         onDismiss = { showSubtitleColorDialog = false },
                     )
                 }
+                // Neither setting had any feedback until a video was playing.
+                SubtitlePreview(
+                    sizePercent = state.subtitleFontSize,
+                    colorCode = subtitleColorCode(state.subtitleColor),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
             }
 
             // ── Downloads ────────────────────────────────────────────────────
             SettingsGroup(title = "Downloads") {
                 SettingsItem(icon = Icons.Default.Folder, title = "Pasta de Downloads", subtitle = state.downloadPath, enabled = false)
                 SettingsItem(icon = Icons.Default.Storage, title = "Espaço livre para downloads", subtitle = "${state.downloadStorageGb} GB disponíveis", enabled = false)
-                SettingsItem(icon = Icons.Default.Hd, title = "Qualidade de Download", subtitle = state.downloadQuality, enabled = false)
+                // A linha "Qualidade de Download: 1080p (Original)" saiu daqui: era um
+                // literal fabricado, sem chave no repositório e sem ninguém que o
+                // lesse — o download usa a URL que o servidor devolve. Uma tela não
+                // pode afirmar uma preferência que não existe.
             }
 
             // ── Cache ────────────────────────────────────────────────────────
@@ -524,7 +537,7 @@ internal fun openExternalUrl(context: Context, url: String) {
 }
 
 @Composable
-private fun ChoiceDialog(
+internal fun ChoiceDialog(
     title: String,
     options: List<String>,
     selected: String,
@@ -534,20 +547,46 @@ private fun ChoiceDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = {
-            Column {
-                options.forEach { option ->
-                    TextButton(onClick = { onSelect(option) }, modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(option)
-                            if (option == selected) Icon(Icons.Default.Check, contentDescription = "Selecionado")
-                        }
-                    }
-                }
-            }
-        },
+        text = { ChoiceDialogOptions(options, selected, onSelect) },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
     )
+}
+
+/**
+ * A altura máxima da lista de opções de um diálogo.
+ *
+ * A lista de ordenação tem oito linhas e a de idiomas cinco. Numa janela de
+ * diálogo baixa — a de TV, onde ela ainda divide espaço com a barra de botões —
+ * as últimas linhas ficavam compostas fora dos limites da janela: recortadas,
+ * invisíveis e inalcançáveis até com o controle remoto, porque o toque e o foco
+ * também são recortados. O teto é explícito para que a rolagem tenha um viewport
+ * definido mesmo quando a janela oferece altura infinita.
+ */
+private val ChoiceDialogOptionsMaxHeight = 360.dp
+
+@Composable
+internal fun ChoiceDialogOptions(
+    options: List<String>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .heightIn(max = ChoiceDialogOptionsMaxHeight)
+            // `heightIn` vem antes de `verticalScroll` de propósito: na ordem
+            // inversa o modificador de rolagem mede o filho com altura infinita e
+            // devolve o próprio tamanho do filho, então nada rola.
+            .verticalScroll(rememberScrollState()),
+    ) {
+        options.forEach { option ->
+            TextButton(onClick = { onSelect(option) }, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(option)
+                    if (option == selected) Icon(Icons.Default.Check, contentDescription = "Selecionado")
+                }
+            }
+        }
+    }
 }
 
 private fun qualityLabel(value: String): String = if (value == "Auto") "Automático" else value
@@ -571,7 +610,7 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
 }
 
 @Composable
-private fun SettingsItem(
+internal fun SettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
@@ -579,7 +618,12 @@ private fun SettingsItem(
     enabled: Boolean = true,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            // Linha de navegação: sem papel, o leitor de tela a anuncia como texto
+            // e não como algo que se ativa.
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val contentAlpha = if (enabled) 1f else 0.55f
@@ -610,7 +654,7 @@ private fun SettingsToggle(icon: ImageVector, title: String, subtitle: String, c
 }
 
 @Composable
-private fun ThemePickerDialog(
+internal fun ThemePickerDialog(
     current: MulletaFlixThemeVariant,
     onSelect: (MulletaFlixThemeVariant) -> Unit,
     onDismiss: () -> Unit,
@@ -619,13 +663,25 @@ private fun ThemePickerDialog(
         onDismissRequest = onDismiss,
         title = { Text("Escolher Tema") },
         text = {
-            Column {
+            Column(modifier = Modifier.selectableGroup()) {
                 MulletaFlixThemeVariant.values().forEach { theme ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().clickable { onSelect(theme) }.padding(vertical = 8.dp)
+                        // One focus target per option. A `clickable` row holding a
+                        // `RadioButton` with its own `onClick` is two, which measured on
+                        // the TV emulator is exactly the "clicar 2x" defect: the remote
+                        // lands on the row first and only the second press activates it.
+                        // The player's own menus already use this shape.
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = current == theme,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(theme) },
+                            )
+                            .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = current == theme, onClick = { onSelect(theme) })
+                        RadioButton(selected = current == theme, onClick = null)
                         Text(theme.displayName, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -636,23 +692,31 @@ private fun ThemePickerDialog(
 }
 
 @Composable
-private fun SubtitleLanguageDialog(
+internal fun SubtitleLanguageDialog(
     current: String,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val options = listOf("Português (Brasil)", "English", "Idioma original", "Desativadas")
+    val options = choicesIncludingCurrent(subtitleLanguageLabels, current)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Idioma das legendas") },
         text = {
-            Column {
+            Column(modifier = Modifier.selectableGroup()) {
                 options.forEach { option ->
+                    // One focus target per option; see ThemePickerDialog.
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().clickable { onSelect(option) }.padding(vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = current == option,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(option) },
+                            )
+                            .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = current == option, onClick = { onSelect(option) })
+                        RadioButton(selected = current == option, onClick = null)
                         Text(option, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -668,18 +732,26 @@ private fun AudioLanguageDialog(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val options = listOf("Português (Brasil)", "English", "Idioma original")
+    val options = choicesIncludingCurrent(audioLanguageLabels, current)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Idioma do áudio") },
         text = {
-            Column {
+            Column(modifier = Modifier.selectableGroup()) {
                 options.forEach { option ->
+                    // One focus target per option; see ThemePickerDialog.
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().clickable { onSelect(option) }.padding(vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = current == option,
+                                role = Role.RadioButton,
+                                onClick = { onSelect(option) },
+                            )
+                            .padding(vertical = 8.dp),
                     ) {
-                        RadioButton(selected = current == option, onClick = { onSelect(option) })
+                        RadioButton(selected = current == option, onClick = null)
                         Text(option, modifier = Modifier.padding(start = 8.dp))
                     }
                 }

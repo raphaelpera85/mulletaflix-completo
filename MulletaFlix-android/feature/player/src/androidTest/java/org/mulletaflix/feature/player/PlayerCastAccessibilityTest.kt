@@ -1,47 +1,34 @@
 package org.mulletaflix.feature.player
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.material3.Text
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Text
 import org.junit.Rule
 import org.junit.Test
 
+/**
+ * O controle de transmissão e a fileira de ações do player.
+ *
+ * O teste anterior (`castActionExposesAUnifiedDescription`) **reconstruía a
+ * semântica dentro do próprio teste** — ele montava um `Row` com a mesma
+ * `contentDescription` que o app publicava e verificava que ela existia. Não
+ * tocava em código de produção: passaria com o defeito no lugar. A descrição
+ * duplicada saiu do app (ver `PlayerAnnouncementTest` e `castActionLabel`), então
+ * o que resta aqui é a rolagem da fileira.
+ */
 class PlayerCastAccessibilityTest {
 
     @get:Rule
     val composeRule = createComposeRule()
-
-    @Test
-    fun castActionExposesAUnifiedDescription() {
-        composeRule.setContent {
-            MaterialTheme {
-                androidx.compose.foundation.layout.Row(
-                       modifier = androidx.compose.ui.Modifier.semantics(mergeDescendants = true) {
-                           contentDescription = CAST_ACTION_CONTENT_DESCRIPTION
-                    },
-                ) {
-                    androidx.compose.material3.Text("Transmitir")
-                }
-            }
-        }
-
-           composeRule
-               .onAllNodesWithContentDescription(CAST_ACTION_CONTENT_DESCRIPTION)
-               .assertCountEquals(1)
-    }
 
     @Test
     fun topBarActionsCanBeScrolledHorizontallyOnNarrowWindows() {
@@ -56,9 +43,13 @@ class PlayerCastAccessibilityTest {
             }
         }
 
-        composeRule
-            .onNodeWithContentDescription(PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION)
-            .performTouchInput { swipeLeft() }
+        composeRule.onNodeWithTag(PLAYER_TOP_BAR_ACTIONS_TEST_TAG).performTouchInput { swipeLeft() }
         composeRule.onNodeWithText("Ação final").assertIsDisplayed()
     }
+
+    /**
+     * O alvo de toque do controle de transmissão foi para
+     * `PlayerCastControlTouchTargetTest`, que precisa de uma regra `AndroidComposeRule`:
+     * com a variante `v2` o serviço de media router recusa a composição.
+     */
 }

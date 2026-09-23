@@ -3,7 +3,7 @@ import { format, formatDistanceStrict, Locale, parse } from 'date-fns';
 import globalize from 'lib/globalize';
 import { INTERVAL_DURATIONS } from '../constants/intervalDurations';
 
-function getDisplayTime(ticks: number, locale: Locale) {
+function getDisplayTime(ticks: number, locale: Locale | undefined) {
     const ms = ticks / 1e4;
     const now = new Date();
     now.setHours(0, 0, 0, 0);
@@ -11,7 +11,7 @@ function getDisplayTime(ticks: number, locale: Locale) {
     return format(now, 'p', { locale: locale });
 }
 
-export function getTimeOfDayOptions(locale: Locale) {
+export function getTimeOfDayOptions(locale: Locale | undefined) {
     const options = [];
 
     for (let i = 0; i < 86400000; i += 900000) {
@@ -24,7 +24,7 @@ export function getTimeOfDayOptions(locale: Locale) {
     return options;
 }
 
-export function getIntervalOptions(locale: Locale) {
+export function getIntervalOptions(locale: Locale | undefined) {
     const options = [];
 
     for (const ticksDuration of INTERVAL_DURATIONS) {
@@ -56,7 +56,7 @@ function getIntervalTriggerTime(ticks: number) {
     }
 }
 
-function localizeDayOfWeek(dayOfWeek: string | null | undefined, locale: Locale) {
+function localizeDayOfWeek(dayOfWeek: string | null | undefined, locale: Locale | undefined) {
     if (!dayOfWeek) return '';
 
     const parsedDayOfWeek = parse(dayOfWeek, 'cccc', new Date());
@@ -64,7 +64,7 @@ function localizeDayOfWeek(dayOfWeek: string | null | undefined, locale: Locale)
     return format(parsedDayOfWeek, 'cccc', { locale: locale });
 }
 
-export function getTriggerFriendlyName(trigger: TaskTriggerInfo, locale: Locale) {
+export function getTriggerFriendlyName(trigger: TaskTriggerInfo, locale: Locale | undefined) {
     switch (trigger.Type) {
         case 'DailyTrigger':
             return globalize.translate('DailyAt', getDisplayTime(trigger.TimeOfDayTicks || 0, locale));

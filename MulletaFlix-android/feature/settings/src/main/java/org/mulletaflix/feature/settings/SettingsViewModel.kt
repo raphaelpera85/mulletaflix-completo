@@ -17,18 +17,16 @@ import org.mulletaflix.core.common.update.DownloadState
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.domain.model.AppUpdateInfo
 import org.mulletaflix.domain.model.LibrarySortField
+import org.mulletaflix.domain.model.MediaLanguage
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.SearchHistoryRepository
 import org.mulletaflix.domain.repository.SettingsRepository
+import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
 import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
 import org.mulletaflix.domain.usecase.LogoutUseCase
 import org.mulletaflix.domain.usecase.VerifyServerUseCase
 import javax.inject.Inject
-
-private const val LIBRARY_GRID_DENSITY_COMFORTABLE = "COMFORTABLE"
-private const val LIBRARY_GRID_DENSITY_COMPACT = "COMPACT"
-private const val LIBRARY_SORT_ORDER_ASCENDING = "Ascending"
-private const val LIBRARY_SORT_ORDER_DESCENDING = "Descending"
 
 data class SettingsState(
     val serverUrl: String? = null,
@@ -49,7 +47,6 @@ data class SettingsState(
     val librarySortOrder: String = "Ascendente",
     val downloadPath: String = "Armazenamento Interno",
     val downloadStorageGb: Int = 0,
-    val downloadQuality: String = "1080p (Original)",
     val isCheckingUpdate: Boolean = false,
     val updateInfo: AppUpdateInfo? = null,
     val isDownloadingUpdate: Boolean = false,
@@ -71,6 +68,7 @@ class SettingsViewModel @Inject constructor(
     private val checkAppUpdateUseCase: CheckAppUpdateUseCase? = null,
     private val appUpdateDownloader: AppUpdateDownloader? = null,
     private val verifyServerUseCase: VerifyServerUseCase? = null,
+    private val searchHistoryRepository: SearchHistoryRepository? = null,
     @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
@@ -107,12 +105,12 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsRepository.getPreferredAudioLanguage().collect { language ->
-                _state.update { it.copy(audioLanguage = audioLabel(language)) }
+                _state.update { it.copy(audioLanguage = MediaLanguage.label(language)) }
             }
         }
         viewModelScope.launch {
             settingsRepository.getPreferredSubtitleLanguage().collect { language ->
-                _state.update { it.copy(subtitleLanguage = subtitleLabel(language)) }
+                _state.update { it.copy(subtitleLanguage = MediaLanguage.label(language)) }
             }
         }
         viewModelScope.launch {
@@ -147,7 +145,7 @@ class SettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             settingsRepository.getSubtitleFontSize().collect { size ->
-                _state.update { it.copy(subtitleFontSize = normalizeSubtitleFontSize(size)) }
+                _state.update { it.copy(subtitleFontSize = normalizeSubtitleSizePercent(size)) }
             }
         }
         viewModelScope.launch {
@@ -192,16 +190,16 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setSubtitleLanguage(language: String) {
-        _state.update { it.copy(subtitleLanguage = subtitleLabel(language)) }
+        _state.update { it.copy(subtitleLanguage = MediaLanguage.label(language)) }
         viewModelScope.launch {
-            settingsRepository.setPreferredSubtitleLanguage(languageCode(language))
+            settingsRepository.setPreferredSubtitleLanguage(MediaLanguage.code(language))
         }
     }
 
     fun setAudioLanguage(language: String) {
-        _state.update { it.copy(audioLanguage = audioLabel(language)) }
+        _state.update { it.copy(audioLanguage = MediaLanguage.label(language)) }
         viewModelScope.launch {
-            settingsRepository.setPreferredAudioLanguage(audioLanguageCode(language))
+            settingsRepository.setPreferredAudioLanguage(MediaLanguage.code(language))
         }
     }
 
@@ -234,7 +232,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setSubtitleFontSize(size: Int) {
-        val normalized = normalizeSubtitleFontSize(size)
+        val normalized = normalizeSubtitleSizePercent(size)
         _state.update { it.copy(subtitleFontSize = normalized) }
         viewModelScope.launch { settingsRepository.setSubtitleFontSize(normalized) }
     }
@@ -327,6 +325,13 @@ class SettingsViewModel @Inject constructor(
     fun clearAllCache() {
         viewModelScope.launch {
             runCatching {
+                // "Limpar Todos os Dados Locais" tem de limpar o que o aparelho guardou
+                // do usuário. O histórico de busca vive em outro armazenamento
+                // (`mulletaflix_search_history`) e sobrevivia à limpeza: os termos
+                // buscados reapareciam no próximo login do mesmo usuário.
+                val userId = authRepository.getSavedUserId().firstOrNull()
+                searchHistoryRepository?.clear(userId)
+
                 withContext(ioDispatcher) {
                     context.cacheDir.listFiles()
                         ?.let { files ->
@@ -415,12 +420,21 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun downloadAndInstallUpdate(context: Context) {
+        // O botão já fica desabilitado enquanto baixa, mas isso é lido na composição:
+        // dois toques no mesmo frame passam os dois. E o segundo download apaga o
+        // arquivo que o primeiro já abriu (`AppUpdateDownloader`), então o resultado é
+        // uma instalação quebrada. `checkForUpdates` já tinha essa guarda; esta é a
+        // mesma, no irmão que faltava.
+        if (_state.value.isDownloadingUpdate) return
         val downloadUrl = _state.value.updateInfo?.apkDownloadUrl ?: return
         val versionName = _state.value.updateInfo?.latestVersion ?: "update"
         val downloader = appUpdateDownloader ?: return
 
+        // Marcado antes de lançar a corrotina, pelo mesmo motivo dos outros flags deste
+        // app: a janela entre o toque e o primeiro `update` é onde o segundo toque entra.
+        _state.update { it.copy(isDownloadingUpdate = true, updateDownloadProgress = 0f, updateErrorMessage = null) }
+
         viewModelScope.launch {
-            _state.update { it.copy(isDownloadingUpdate = true, updateDownloadProgress = 0f, updateErrorMessage = null) }
             downloader.downloadApk(
                 downloadUrl = downloadUrl,
                 versionName = versionName,
@@ -474,62 +488,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    private fun subtitleLabel(language: String?): String = when (language?.lowercase()) {
-        "por", "pt", "pt-br", "português (brasil)" -> "Português (Brasil)"
-        "eng", "en", "english" -> "English"
-        "off", "none", "desativadas" -> "Desativadas"
-        else -> "Idioma original"
-    }
-
-    private fun audioLabel(language: String?): String = when (language?.lowercase()) {
-        "por", "pt", "pt-br", "português (brasil)" -> "Português (Brasil)"
-        "eng", "en", "english" -> "English"
-        "original", "idioma original" -> "Idioma original"
-        else -> "Idioma original"
-    }
-
-    private fun languageCode(label: String): String = when (label) {
-        "Português (Brasil)" -> "por"
-        "English" -> "eng"
-        "Desativadas" -> "off"
-        else -> "original"
-    }
-
-    private fun audioLanguageCode(label: String): String = when (label) {
-        "Português (Brasil)" -> "por"
-        "English" -> "eng"
-        else -> "original"
-    }
-
-    private fun subtitleColorLabel(color: String?): String = when (color?.trim()?.uppercase()) {
-        "YELLOW" -> "Amarelo"
-        "CYAN" -> "Ciano"
-        else -> "Branco"
-    }
-
-    private fun subtitleColorCode(label: String): String = when (label) {
-        "Amarelo" -> "YELLOW"
-        "Ciano" -> "CYAN"
-        else -> "WHITE"
-    }
-
-    private fun libraryGridDensityLabel(value: String?): String = when (value?.trim()?.uppercase()) {
-        LIBRARY_GRID_DENSITY_COMPACT -> "Compacta"
-        else -> "Confortável"
-    }
-
-    private fun libraryGridDensityCode(label: String): String = when (label) {
-        "Compacta" -> LIBRARY_GRID_DENSITY_COMPACT
-        else -> LIBRARY_GRID_DENSITY_COMFORTABLE
-    }
-
-    private fun librarySortLabel(value: String?): String = LibrarySortField.fromCode(value).label
-
-    private fun librarySortCode(label: String): String = LibrarySortField.fromLabel(label).code
-
-    private fun librarySortOrderLabel(value: String?): String =
-        if (value?.trim().equals(LIBRARY_SORT_ORDER_DESCENDING, ignoreCase = true)) "Descendente" else "Ascendente"
-
-    private fun librarySortOrderCode(label: String): String =
-        if (label == "Descendente") LIBRARY_SORT_ORDER_DESCENDING else LIBRARY_SORT_ORDER_ASCENDING
+    // No label/code tables live here any more. Every one of them used to be a
+    // second copy of a list stored elsewhere — languages, sort fields, grid
+    // densities, subtitle colours — and every drift between the copy and the
+    // catalogue produced the same bug: the screen displayed one value and
+    // stored another. The catalogues in SettingsOptionLists.kt and the domain
+    // models are now the only copies, and SettingsOptionListsTest fails if a
+    // dialog stops offering a value the app can store.
 }
+
+private fun librarySortLabel(value: String?): String = LibrarySortField.fromCode(value).label
+
+private fun librarySortCode(label: String): String = LibrarySortField.fromLabel(label).code

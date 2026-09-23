@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -26,6 +27,7 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.theme.readableTextOn
 
 /**
@@ -40,6 +42,7 @@ import org.mulletaflix.designsystem.theme.readableTextOn
 @Composable
 fun ServerSelectionScreen(
     onServerSelected: () -> Unit,
+    switchingServer: Boolean = false,
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -60,8 +63,8 @@ fun ServerSelectionScreen(
         }
     }
 
-    LaunchedEffect(state.isAuthenticated) {
-        if (state.isAuthenticated) onServerSelected()
+    LaunchedEffect(state.isAuthenticated, switchingServer) {
+        if (shouldAutoAdvanceAuthScreen(state.isAuthenticated, switchingServer)) onServerSelected()
     }
 
     // Verify LAN first; when discovery finds nothing, verify the saved/public
@@ -203,7 +206,7 @@ fun ServerSelectionScreen(
                 if (state.isDiscovering) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else {
-                    Icon(Icons.Default.Refresh, contentDescription = "Procurar servidores na rede")
+                    Icon(Icons.Default.Refresh, contentDescription = null)
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(if (state.isDiscovering) "Procurando na rede…" else "Procurar na rede")
@@ -221,7 +224,7 @@ fun ServerSelectionScreen(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
             ) {
-                Icon(Icons.Default.Cloud, contentDescription = "Conectar ao Servidor Oficial")
+                Icon(Icons.Default.Cloud, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Conectar ao Servidor Oficial (Nuvem)")
             }
@@ -246,6 +249,7 @@ fun ServerSelectionScreen(
                                 onClick = { viewModel.connectToServer(server.url, onSuccess = { onServerSelected() }) },
                                 onRemove = {},
                                 showRemove = false,
+                                origin = ServerCardOrigin.Discovered,
                             )
                         }
                     }
@@ -271,6 +275,21 @@ fun ServerSelectionScreen(
     }
 }
 
+/** De onde o cartão de servidor veio; decide o nome anunciado pelo ícone. */
+internal enum class ServerCardOrigin { Saved, Discovered }
+
+/**
+ * O nome acessível do ícone do cartão.
+ *
+ * Um servidor apenas descoberto não é "salvo": ele aparece sob "Encontrados nesta
+ * rede", e o nome precisa dizer o mesmo que a seção.
+ */
+internal fun serverCardIconDescription(isOfficial: Boolean, origin: ServerCardOrigin): String = when {
+    isOfficial -> "Servidor oficial na nuvem"
+    origin == ServerCardOrigin.Discovered -> "Servidor encontrado nesta rede"
+    else -> "Servidor salvo"
+}
+
 @Composable
 private fun SavedServerCard(
     name: String,
@@ -280,10 +299,18 @@ private fun SavedServerCard(
     onClick: () -> Unit,
     onRemove: () -> Unit,
     showRemove: Boolean = true,
+    /**
+     * De onde o cartão veio: um servidor guardado ou um encontrado na rede agora.
+     *
+     * O cartão era reusado para os dois casos com o mesmo rótulo de ícone, então um
+     * servidor apenas **descoberto** era anunciado como "Servidor salvo" logo abaixo
+     * do título "Encontrados nesta rede" — o nome contradizia a seção.
+     */
+    origin: ServerCardOrigin = ServerCardOrigin.Saved,
 ) {
     val isOfficial = url.trimEnd('/') == DEFAULT_MULLETAFLIX_SERVER_URL.trimEnd('/')
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(role = Role.Button, onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
@@ -292,7 +319,7 @@ private fun SavedServerCard(
         ) {
             Icon(
                 if (isOfficial) Icons.Default.Cloud else Icons.Default.Storage,
-                contentDescription = if (isOfficial) "Servidor oficial na nuvem" else "Servidor salvo",
+                contentDescription = serverCardIconDescription(isOfficial, origin),
                 tint = MaterialTheme.colorScheme.secondary
             )
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -320,7 +347,7 @@ private fun SavedServerCard(
                 }
             }
             if (showRemove && !isOfficial) {
-                IconButton(onClick = onRemove) {
+                MulletaFlixTopBarAction(onClick = onRemove) {
                     Icon(Icons.Default.Close, contentDescription = "Remover servidor", tint = Color.White.copy(0.5f))
                 }
             }

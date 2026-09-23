@@ -41,6 +41,8 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.designsystem.components.remoteFocusRing
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 internal const val REGISTER_DIALOG_CONTENT_DESCRIPTION = "Conteúdo do cadastro; deslize verticalmente para ver mais"
@@ -58,6 +60,7 @@ internal const val REGISTER_DIALOG_CONTENT_DESCRIPTION = "Conteúdo do cadastro;
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
+    switchingServer: Boolean = false,
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -65,8 +68,8 @@ fun LoginScreen(
     val context = LocalContext.current
     var showRegisterDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.isAuthenticated) {
-        if (state.isAuthenticated) onLoginSuccess()
+    LaunchedEffect(state.isAuthenticated, switchingServer) {
+        if (shouldAutoAdvanceAuthScreen(state.isAuthenticated, switchingServer)) onLoginSuccess()
     }
 
     Box(
@@ -121,10 +124,18 @@ fun LoginScreen(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
             ) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    modifier = Modifier.remoteFocusRing(RoundedCornerShape(12.dp)),
+                ) {
                     Text("Entrar", modifier = Modifier.padding(vertical = 12.dp))
                 }
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    modifier = Modifier.remoteFocusRing(RoundedCornerShape(12.dp)),
+                ) {
                     Text("Quick Connect", modifier = Modifier.padding(vertical = 12.dp))
                 }
             }
@@ -234,7 +245,7 @@ private fun PasswordLoginForm(
             label = { Text("Senha") },
             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
             trailingIcon = {
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                MulletaFlixTopBarAction(onClick = { passwordVisible = !passwordVisible }) {
                     Icon(
                         if (passwordVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                         contentDescription = if (passwordVisible) "Ocultar senha" else "Mostrar senha"
@@ -333,7 +344,7 @@ internal fun RegisterDialog(
                     singleLine = true,
                     enabled = !isLoading,
                     trailingIcon = {
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        MulletaFlixTopBarAction(onClick = { passwordVisible = !passwordVisible }) {
                             Icon(
                                 if (passwordVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                                 contentDescription = if (passwordVisible) "Ocultar senha" else "Mostrar senha",
@@ -351,7 +362,7 @@ internal fun RegisterDialog(
                     singleLine = true,
                     enabled = !isLoading,
                     trailingIcon = {
-                        IconButton(onClick = { confirmationVisible = !confirmationVisible }) {
+                        MulletaFlixTopBarAction(onClick = { confirmationVisible = !confirmationVisible }) {
                             Icon(
                                 if (confirmationVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                                 contentDescription = if (confirmationVisible) "Ocultar confirmação" else "Mostrar confirmação",

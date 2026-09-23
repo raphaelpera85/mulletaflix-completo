@@ -38,21 +38,16 @@ import androidx.media3.common.util.UnstableApi
 import javax.inject.Inject
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.CancellationException
 
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
-import kotlinx.coroutines.launch
-import org.mulletaflix.core.common.update.AppUpdateDownloader
+import androidx.hilt.navigation.compose.hiltViewModel
+import org.mulletaflix.android.update.AppUpdateViewModel
 import org.mulletaflix.core.common.update.AppUpdateInstaller
-import org.mulletaflix.core.common.update.DownloadState
-import org.mulletaflix.domain.model.AppUpdateInfo
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.SettingsRepository
-import org.mulletaflix.domain.usecase.CheckAppUpdateUseCase
 import org.mulletaflix.feature.settings.toThemeVariant
 
 /**
@@ -73,8 +68,6 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var sessionRepository: SessionRepository
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var lanServerRecovery: LanServerRecovery
-    @Inject lateinit var checkAppUpdateUseCase: CheckAppUpdateUseCase
-    @Inject lateinit var appUpdateDownloader: AppUpdateDownloader
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -89,14 +82,11 @@ class MainActivity : ComponentActivity() {
             var sessionResolved by remember { mutableStateOf(false) }
             var hasValidSession by remember { mutableStateOf(false) }
 
-            var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
-            var isDownloadingUpdate by remember { mutableStateOf(false) }
-            var updateProgress by remember { mutableStateOf(0f) }
-            var showUpdateDialog by remember { mutableStateOf(false) }
-            var updateError by remember { mutableStateOf<String?>(null) }
-            var dismissedUpdateVersion by remember { mutableStateOf<String?>(null) }
-
-            val coroutineScope = rememberCoroutineScope()
+            // O aviso de atualização — estado **e** download — vive no ViewModel, e não
+            // em `remember`: ver `AppUpdateViewModel` para o defeito que isso corrigia
+            // (uma recriação da Activity matava o download em silêncio).
+            val appUpdateViewModel: AppUpdateViewModel = hiltViewModel()
+            val updateState by appUpdateViewModel.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
             val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -114,16 +104,7 @@ class MainActivity : ComponentActivity() {
                 lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                     // Re-check on every foreground transition so TV devices
                     // can notice a new APK without being force-stopped.
-                    try {
-                        checkAppUpdateUseCase(BuildConfig.VERSION_NAME).onSuccess { info ->
-                            availableUpdate = info
-                            if (shouldShowAppUpdateDialog(info, dismissedUpdateVersion)) {
-                                showUpdateDialog = true
-                            }
-                        }
-                    } catch (_: Exception) {
-                        // Update checks are intentionally non-blocking.
-                    }
+                    appUpdateViewModel.checkForUpdate(BuildConfig.VERSION_NAME)
                 }
             }
 
@@ -166,13 +147,13 @@ class MainActivity : ComponentActivity() {
                             onDeepLinkConsumed = { incomingDeepLink = null },
                         )
 
-                        if (showUpdateDialog && availableUpdate != null) {
-                            val update = availableUpdate!!
+                        if (updateState.isDialogVisible && updateState.available != null) {
+                            val update = updateState.available!!
+                            val isDownloadingUpdate = updateState.isDownloading
                             AlertDialog(
                                 onDismissRequest = {
                                     if (!isDownloadingUpdate) {
-                                        dismissedUpdateVersion = update.latestVersion
-                                        showUpdateDialog = false
+                                        appUpdateViewModel.dismissDialog()
                                     }
                                 },
                                 icon = {
@@ -216,16 +197,16 @@ class MainActivity : ComponentActivity() {
                                         if (isDownloadingUpdate) {
                                             Spacer(modifier = Modifier.height(16.dp))
                                             LinearProgressIndicator(
-                                                progress = { updateProgress },
+                                                progress = { updateState.progress },
                                                 modifier = Modifier.fillMaxWidth(),
                                             )
                                             Text(
-                                                text = "Baixando: ${(updateProgress * 100).toInt()}%",
+                                                text = "Baixando: ${(updateState.progress * 100).toInt()}%",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 modifier = Modifier.padding(top = 4.dp),
                                             )
                                         }
-                                        updateError?.let { error ->
+                                        updateState.error?.let { error ->
                                             Spacer(modifier = Modifier.height(12.dp))
                                             Text(
                                                 text = error,
@@ -238,50 +219,10 @@ class MainActivity : ComponentActivity() {
                                 confirmButton = {
                                     Button(
                                         onClick = {
-                                            val downloadUrl = update.apkDownloadUrl ?: return@Button
-                                            coroutineScope.launch {
-                                                updateError = null
-                                                updateProgress = 0f
-                                                isDownloadingUpdate = true
-                                                try {
-                                                    appUpdateDownloader.downloadApk(
-                                                        downloadUrl = downloadUrl,
-                                                        versionName = update.latestVersion,
-                                                        expectedSha256 = update.apkSha256,
-                                                    ).collect { downloadState ->
-                                                        when (downloadState) {
-                                                            is DownloadState.Downloading -> {
-                                                                updateProgress = downloadState.progress
-                                                            }
-                                                            is DownloadState.Completed -> {
-                                                                isDownloadingUpdate = false
-                                                                val installationStarted = runCatching {
-                                                                    AppUpdateInstaller.installApk(context, downloadState.file)
-                                                                }.getOrElse { error ->
-                                                                    updateError = error.localizedMessage
-                                                                        ?: "Não foi possível abrir o instalador do APK."
-                                                                    false
-                                                                }
-                                                                if (installationStarted) {
-                                                                    showUpdateDialog = false
-                                                                } else if (updateError == null) {
-                                                                    updateError = "Permita a instalação de fontes desconhecidas e tente novamente."
-                                                                }
-                                                            }
-                                                            is DownloadState.Error -> {
-                                                                isDownloadingUpdate = false
-                                                                updateError = downloadState.message
-                                                            }
-                                                            DownloadState.Idle -> Unit
-                                                        }
-                                                    }
-                                                } catch (error: CancellationException) {
-                                                    throw error
-                                                } catch (error: Exception) {
-                                                    isDownloadingUpdate = false
-                                                    updateError = error.localizedMessage
-                                                        ?: "Não foi possível baixar a atualização."
-                                                }
+                                            // O download roda em `viewModelScope`: uma
+                                            // recriação da Activity não o interrompe mais.
+                                            appUpdateViewModel.downloadUpdate { file ->
+                                                AppUpdateInstaller.installApk(context, file)
                                             }
                                         },
                                         enabled = !isDownloadingUpdate && !update.apkDownloadUrl.isNullOrBlank(),
@@ -289,7 +230,7 @@ class MainActivity : ComponentActivity() {
                                         Text(
                                             when {
                                                 isDownloadingUpdate -> "Baixando..."
-                                                updateError != null -> "Tentar novamente"
+                                                updateState.error != null -> "Tentar novamente"
                                                 else -> "Atualizar Agora"
                                             },
                                         )
@@ -297,10 +238,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 dismissButton = {
                                     if (!isDownloadingUpdate) {
-                                        TextButton(onClick = {
-                                            dismissedUpdateVersion = update.latestVersion
-                                            showUpdateDialog = false
-                                        }) {
+                                        TextButton(onClick = { appUpdateViewModel.dismissDialog() }) {
                                             Text("Depois")
                                         }
                                     }

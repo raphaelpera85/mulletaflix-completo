@@ -237,6 +237,221 @@ class LiveTvViewModelTest {
         )
     }
 
+    @Test fun `programmes already scheduled on the server are marked as scheduled`() = runTest {
+        // Reported as a real risk: without this the guide had no idea what was
+        // already recording, so reopening the screen showed "Gravar" for a
+        // programme that was set to record and tapping it created a second timer.
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        repository.scheduledResponse = Result.success(setOf("prog-1", "prog-2"))
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(setOf("prog-1", "prog-2"), viewModel.state.value.scheduledProgramIds)
+        assertTrue(
+            "the server must be asked what is already scheduled",
+            repository.scheduledRequests >= 1,
+        )
+    }
+
+    @Test fun `a programme already scheduled remotely is never scheduled twice`() = runTest {
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        repository.scheduledResponse = Result.success(setOf("prog-duplicate"))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.scheduleRecording(testProgram("prog-duplicate"))
+        advanceUntilIdle()
+
+        assertEquals(
+            "the server already has this recording; a second timer must not be created",
+            emptyList<String>(),
+            repository.scheduledIds,
+        )
+    }
+
+    @Test fun `a failed scheduled lookup keeps the session marks and still loads channels`() = runTest {
+        // Not knowing what is scheduled must never break the channel list, and
+        // must never undo a mark this session already earned.
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        repository.scheduledResponse = Result.failure(IllegalStateException("indisponível"))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.scheduleRecording(testProgram("prog-local"))
+        advanceUntilIdle()
+        assertEquals(listOf("prog-local"), repository.scheduledIds)
+
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(
+            "a failed lookup must not erase what this session already scheduled",
+            setOf("prog-local"),
+            viewModel.state.value.scheduledProgramIds,
+        )
+        assertTrue(viewModel.state.value.error == null)
+    }
+
+    @Test fun `a refresh reloads an open guide instead of stranding it empty`() = runTest {
+        // The dialog was open and its guide still loading when a refresh landed.
+        // `refresh()` invalidates the guide request and clears the loading flag,
+        // so the dialog sat on "Nenhum programa encontrado para as próximas 24
+        // horas." with no request behind it until the user closed and reopened it.
+        val channel = MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(channel)
+        repository.guideResponses.add(CompletableDeferred())
+        repository.guideResponses.add(
+            CompletableDeferred(Result.success(listOf(testProgram("prog-after-refresh")))),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadGuide()
+        runCurrent()
+        assertTrue("the guide must be in flight", viewModel.state.value.isLoadingGuide)
+
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(
+            "the open dialog must get a fresh guide after a refresh",
+            2,
+            repository.guideRequests,
+        )
+        assertEquals(
+            "the reloaded guide must reach the state the dialog reads",
+            listOf(testProgram("prog-after-refresh")),
+            viewModel.state.value.programs,
+        )
+        assertTrue(!viewModel.state.value.isLoadingGuide)
+    }
+
+    @Test fun `a failed recordings request is surfaced instead of looking empty`() = runTest {
+        // A falha era engolida com `getOrDefault(emptyList())`: a seção de gravações
+        // simplesmente desaparecia, indistinguível de "você não tem gravações".
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        repository.recordingsResult = Result.failure(IllegalStateException("Servidor fora do ar"))
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(
+            "Servidor fora do ar",
+            viewModel.state.value.recordingsError,
+        )
+        assertEquals(emptyList<MediaItem>(), viewModel.state.value.recordings)
+        assertEquals("os canais continuam carregando", 1, viewModel.state.value.channels.size)
+    }
+
+    @Test fun `a successful recordings request clears the error`() = runTest {
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        repository.recordingsResult = Result.failure(IllegalStateException("Servidor fora do ar"))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.recordingsError != null)
+
+        val recording = MediaItem("rec-1", "Jornal", org.mulletaflix.domain.model.MediaItemType.Recording)
+        repository.recordingsResult = null
+        repository.recordings = listOf(recording)
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.recordingsError)
+        assertEquals(listOf(recording), viewModel.state.value.recordings)
+    }
+
+    @Test fun `the guide is requested for a 24 hour window`() = runTest {
+        // A janela é de sobreposição: o repositório a traduz para `MinEndDate` +
+        // `MaxStartDate`, que é o que inclui o programa que está no ar agora. Aqui se
+        // fixa o tamanho da janela, para uma mudança de filtro não encurtá-la sem
+        // ninguém notar.
+        val channel = MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(channel)
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.loadGuide()
+        advanceUntilIdle()
+
+        val (startUtc, endUtc) = repository.guideWindows.single()
+        val parser = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        val start = parser.parse(startUtc!!)!!.time
+        val end = parser.parse(endUtc!!)!!.time
+        assertEquals(
+            "o guia deve cobrir exatamente 24 horas",
+            java.util.concurrent.TimeUnit.HOURS.toMillis(24),
+            end - start,
+        )
+        assertTrue(
+            "a janela precisa começar em volta de agora",
+            kotlin.math.abs(start - System.currentTimeMillis()) < java.util.concurrent.TimeUnit.MINUTES.toMillis(5),
+        )
+    }
+
+    @Test fun `a guide from a replaced channel snapshot is dropped`() = runTest {
+        // O guia antigo descrevia canais que não estão mais na tela: com a nova
+        // requisição falhando, o usuário podia agendar um programa de um canal que
+        // sumiu do snapshot.
+        val first = MediaItem("channel-1", "Canal 1", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        val second = MediaItem("channel-2", "Canal 2", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(first)
+        repository.guideResponses.add(
+            CompletableDeferred(Result.success(listOf(testProgram("prog-old")))),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.loadGuide()
+        advanceUntilIdle()
+        assertEquals(listOf(testProgram("prog-old")), viewModel.state.value.programs)
+
+        // O refresh traz outro conjunto de canais e a nova requisição do guia falha.
+        repository.channels = listOf(second)
+        repository.guideResponses.add(CompletableDeferred(Result.failure(IllegalStateException("rede caiu"))))
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(listOf(second), viewModel.state.value.channels)
+        assertTrue(
+            "programas de um snapshot de canais que já mudou não podem continuar na tela",
+            viewModel.state.value.programs.isEmpty(),
+        )
+    }
+
+    @Test fun `a closed guide is not reloaded by a refresh`() = runTest {
+        val channel = MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(channel)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadGuide()
+        advanceUntilIdle()
+        val loadsAfterOpen = repository.guideRequests
+
+        viewModel.closeGuide()
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(
+            "a dismissed dialog must not keep issuing guide requests",
+            loadsAfterOpen,
+            repository.guideRequests,
+        )
+    }
+
     private fun testProgram(id: String) = MediaItem(
         id = id,
         name = "Filme teste",
@@ -254,18 +469,27 @@ class LiveTvViewModelTest {
     private class FakeLiveTvRepository : LiveTvRepository {
         var channels = emptyList<MediaItem>()
         var recordings = emptyList<MediaItem>()
+
+        /** Quando definido, a próxima leitura de gravações devolve este resultado. */
+        var recordingsResult: Result<List<MediaItem>>? = null
         var channelRequests = 0
         var recordingRequests = 0
+        var scheduledRequests = 0
+        var guideRequests = 0
+        var scheduledResponse: Result<Set<String>> = Result.success(emptySet())
         val scheduledIds = mutableListOf<String>()
         val guideResponses = mutableListOf<CompletableDeferred<Result<List<MediaItem>>>>()
         val channelResponses = mutableListOf<CompletableDeferred<Result<List<MediaItem>>>>()
+        val guideWindows = mutableListOf<Pair<String?, String?>>()
         override suspend fun getChannels(userId: String): Result<List<MediaItem>> {
             channelRequests++
             return withContext(NonCancellable) {
                 channelResponses.removeFirstOrNull()?.await() ?: Result.success(channels)
             }
         }
-        override suspend fun getPrograms(channelIds: List<String>, minStartDate: String?, maxEndDate: String?): Result<List<MediaItem>> {
+        override suspend fun getPrograms(channelIds: List<String>, windowStartUtc: String?, windowEndUtc: String?): Result<List<MediaItem>> {
+            guideRequests++
+            guideWindows += windowStartUtc to windowEndUtc
             val response = guideResponses.removeFirstOrNull()
             if (response == null) return Result.success(emptyList())
             // A transport that ignores cancellation still has to *finish* its
@@ -281,7 +505,15 @@ class LiveTvViewModelTest {
                 throw cancelled
             }
         }
-        override suspend fun getRecordings(userId: String): Result<List<MediaItem>> { recordingRequests++; return Result.success(recordings) }
+        override suspend fun getRecordings(userId: String): Result<List<MediaItem>> {
+            recordingRequests++
+            recordingsResult?.let { return it }
+            return Result.success(recordings)
+        }
+        override suspend fun getScheduledProgramIds(): Result<Set<String>> {
+            scheduledRequests++
+            return scheduledResponse
+        }
         override suspend fun scheduleRecording(program: MediaItem): Result<Unit> {
             scheduledIds += program.id
             return Result.success(Unit)

@@ -186,30 +186,42 @@ internal static class PortBindingRecovery
 
     internal static bool CanTerminateProcess(string? currentPath, string? targetPath, string? processName = null)
     {
-        if (!string.IsNullOrWhiteSpace(processName) &&
-            (string.Equals(processName, "MulletaFlix", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(processName, "MulletaFlix.Server", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(processName, "jellyfin", StringComparison.OrdinalIgnoreCase)))
+        // Executable identity is authoritative whenever both sides are readable. Matching on the
+        // process *name* alone is not enough: the server test host is also named after the product
+        // and binds the same ports, so a name-only match let a test run terminate the live server.
+        if (!string.IsNullOrWhiteSpace(currentPath) && !string.IsNullOrWhiteSpace(targetPath))
         {
-            return true;
+            try
+            {
+                return string.Equals(
+                    Path.GetFullPath(currentPath),
+                    Path.GetFullPath(targetPath),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
         }
 
-        if (string.IsNullOrWhiteSpace(currentPath) || string.IsNullOrWhiteSpace(targetPath))
+        // Fallback for targets whose path cannot be read (elevation or bitness mismatch). Only the
+        // server's own executable may use it, otherwise a test host or any unrelated process that
+        // happens to share the name would be allowed to kill a running server.
+        return IsServerExecutableName(Path.GetFileName(currentPath))
+            && IsServerExecutableName(processName ?? Path.GetFileName(targetPath));
+    }
+
+    private static bool IsServerExecutableName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
         {
             return false;
         }
 
-        try
-        {
-            return string.Equals(
-                Path.GetFullPath(currentPath),
-                Path.GetFullPath(targetPath),
-                StringComparison.OrdinalIgnoreCase);
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        return string.Equals(name, "MulletaFlix", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "MulletaFlix.Server", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "jellyfin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<HashSet<int>> GetListeningPidsAsync(HashSet<int> ports)

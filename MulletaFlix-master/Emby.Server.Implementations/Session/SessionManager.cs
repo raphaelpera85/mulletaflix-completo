@@ -772,7 +772,7 @@ namespace Emby.Server.Implementations.Session
             {
                 foreach (var user in users)
                 {
-                    OnPlaybackStart(user, libraryItem);
+                    await OnPlaybackStartAsync(user, libraryItem).ConfigureAwait(false);
                 }
             }
 
@@ -823,7 +823,7 @@ namespace Emby.Server.Implementations.Session
         /// </summary>
         /// <param name="user">The user object.</param>
         /// <param name="item">The item.</param>
-        private void OnPlaybackStart(User user, BaseItem item)
+        private async Task OnPlaybackStartAsync(User user, BaseItem item)
         {
             var data = _userDataManager.GetUserData(user, item);
 
@@ -835,7 +835,7 @@ namespace Emby.Server.Implementations.Session
                 data.Played = true;
             }
 
-            _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.PlaybackStart, CancellationToken.None);
+            await _userDataManager.SaveUserDataAsync(user, item, data, UserDataSaveReason.PlaybackStart, CancellationToken.None).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -906,7 +906,7 @@ namespace Emby.Server.Implementations.Session
             {
                 foreach (var user in users)
                 {
-                    OnPlaybackProgress(user, libraryItem, info);
+                    await OnPlaybackProgressAsync(user, libraryItem, info).ConfigureAwait(false);
                 }
             }
 
@@ -943,7 +943,7 @@ namespace Emby.Server.Implementations.Session
             StartCheckTimers();
         }
 
-        private void OnPlaybackProgress(User user, BaseItem item, PlaybackProgressInfo info)
+        private async Task OnPlaybackProgressAsync(User user, BaseItem item, PlaybackProgressInfo info)
         {
             var data = _userDataManager.GetUserData(user, item);
 
@@ -965,7 +965,11 @@ namespace Emby.Server.Implementations.Session
 
             if (changed)
             {
-                _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.PlaybackProgress, CancellationToken.None);
+                // Async on purpose: this runs on every playback progress report (about every 10
+                // seconds per active client), so the synchronous overload would block a thread-pool
+                // thread on a semaphore plus an EF transaction on the most frequent request path in
+                // the server.
+                await _userDataManager.SaveUserDataAsync(user, item, data, UserDataSaveReason.PlaybackProgress, CancellationToken.None).ConfigureAwait(false);
             }
         }
 
@@ -1099,7 +1103,7 @@ namespace Emby.Server.Implementations.Session
             {
                 foreach (var user in users)
                 {
-                    playedToCompletion = OnPlaybackStopped(user, libraryItem, info.PositionTicks, info.Failed);
+                    playedToCompletion = await OnPlaybackStoppedAsync(user, libraryItem, info.PositionTicks, info.Failed).ConfigureAwait(false);
                 }
             }
 
@@ -1128,7 +1132,7 @@ namespace Emby.Server.Implementations.Session
             EventHelper.QueueEventIfNotNull(PlaybackStopped, this, eventArgs, _logger);
         }
 
-        private bool OnPlaybackStopped(User user, BaseItem item, long? positionTicks, bool playbackFailed)
+        private async Task<bool> OnPlaybackStoppedAsync(User user, BaseItem item, long? positionTicks, bool playbackFailed)
         {
             if (playbackFailed)
             {
@@ -1150,7 +1154,7 @@ namespace Emby.Server.Implementations.Session
                 playedToCompletion = true;
             }
 
-            _userDataManager.SaveUserData(user, item, data, UserDataSaveReason.PlaybackFinished, CancellationToken.None);
+            await _userDataManager.SaveUserDataAsync(user, item, data, UserDataSaveReason.PlaybackFinished, CancellationToken.None).ConfigureAwait(false);
 
             return playedToCompletion;
         }

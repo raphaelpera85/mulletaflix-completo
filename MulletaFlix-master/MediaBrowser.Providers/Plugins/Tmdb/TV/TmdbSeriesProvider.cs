@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -113,8 +113,24 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             IReadOnlyList<SearchTv>? tvSearchResults = null;
             foreach (var searchName in TmdbUtils.BuildSearchNameVariants(searchInfo.Name))
             {
-                tvSearchResults = await _tmdbClientManager.SearchSeriesAsync(searchName, searchInfo.MetadataLanguage, searchInfo.MetadataCountryCode, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
+                // Prefer a year-filtered search. Two shows can share a name and differ only by year
+                // ("A Agencia (2020)" vs "A Agencia (2024)"), and without the filter both folders
+                // resolve to whichever entry TMDb ranks first, which is how two different series ended
+                // up sharing provider ids and therefore a presentation unique key.
+                if (searchInfo.Year.HasValue)
+                {
+                    tvSearchResults = await _tmdbClientManager.SearchSeriesAsync(searchName, searchInfo.MetadataLanguage, searchInfo.MetadataCountryCode, searchInfo.Year.Value, cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                if (tvSearchResults is not { Count: > 0 })
+                {
+                    // Fall back to the unfiltered search so a folder year that disagrees with TMDb
+                    // does not cost the match entirely.
+                    tvSearchResults = await _tmdbClientManager.SearchSeriesAsync(searchName, searchInfo.MetadataLanguage, searchInfo.MetadataCountryCode, cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 if (tvSearchResults is { Count: > 0 })
                 {
                     break;
@@ -212,7 +228,15 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
                 var parsedName = _libraryManager.ParseName(info.Name);
                 foreach (var searchName in TmdbUtils.BuildSearchNameVariants(parsedName.Name))
                 {
-                    var searchResults = await _tmdbClientManager.SearchSeriesAsync(searchName, info.MetadataLanguage, info.MetadataCountryCode, info.Year ?? parsedName.Year ?? 0, cancellationToken).ConfigureAwait(false);
+                    var searchYear = info.Year ?? parsedName.Year;
+                    var searchResults = await _tmdbClientManager.SearchSeriesAsync(searchName, info.MetadataLanguage, info.MetadataCountryCode, searchYear ?? 0, cancellationToken).ConfigureAwait(false);
+
+                    if (searchResults is not { Count: > 0 } && searchYear.HasValue)
+                    {
+                        // Fall back to the unfiltered search so a folder year that disagrees with TMDb
+                        // does not cost the match entirely.
+                        searchResults = await _tmdbClientManager.SearchSeriesAsync(searchName, info.MetadataLanguage, info.MetadataCountryCode, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    }
 
                     if (searchResults?.Count > 0)
                     {

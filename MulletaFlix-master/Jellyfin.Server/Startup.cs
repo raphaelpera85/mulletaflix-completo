@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -32,6 +34,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Localization;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -70,7 +73,34 @@ namespace MulletaFlix.Server
         /// <param name="services">The service collection.</param>
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddResponseCompression();
+            // EnableForHttps is off by default in ASP.NET Core, which meant deployments that
+            // terminate TLS locally served every JSON API response and static asset uncompressed.
+            // MulletaFlix is commonly reached over a local HTTPS bind, so opt in explicitly and
+            // keep Brotli preferred over gzip. Responses that carry secrets are the BREACH concern;
+            // here that is limited to auth endpoints, whose payloads are tiny, while the win is on
+            // the much larger library and metadata JSON.
+            services.AddResponseCompression(options =>
+            {
+                options.EnableForHttps = true;
+                options.Providers.Add<BrotliCompressionProvider>();
+                options.Providers.Add<GzipCompressionProvider>();
+
+                // The ASP.NET Core defaults cover JSON/XML/CSS/HTML but NOT the HLS playlist MIME
+                // types. An m3u8 repeats the full request query string on every segment line, so a
+                // 1200-segment playlist is several hundred KB of highly repetitive text that was
+                // being sent uncompressed. Adding the playlist and WebVTT types compresses them by
+                // roughly 5-10x. Segment and range responses are deliberately left out: they already
+                // carry Content-Range (which the middleware skips) and are not compressible.
+                options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+                [
+                    "application/x-mpegurl",
+                    "application/vnd.apple.mpegurl",
+                    "audio/x-mpegurl",
+                    "text/vtt"
+                ]);
+            });
+            services.Configure<BrotliCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
+            services.Configure<GzipCompressionProviderOptions>(options => options.Level = CompressionLevel.Fastest);
             services.AddHttpContextAccessor();
             services.AddHttpsRedirection(options =>
             {
@@ -229,8 +259,6 @@ namespace MulletaFlix.Server
                     mainApp.UseHsts();
                 }
 
-                mainApp.UseMiddleware<RateLimitMiddleware>();
-
                 mainApp.UseWebSockets();
 
                 mainApp.UseResponseCompression();
@@ -303,7 +331,16 @@ namespace MulletaFlix.Server
                                      || string.Equals(extension, ".css", StringComparison.OrdinalIgnoreCase)
                                      || string.Equals(extension, ".wasm", StringComparison.OrdinalIgnoreCase))
                             {
-                                context.Context.Response.Headers.CacheControl = new StringValues("public, max-age=3600");
+                                // Files under /web/assets carry a content hash in their name, so they
+                                // are immutable by construction. The previous max-age=3600 forced every
+                                // client to revalidate dozens of assets every hour; that is pure request
+                                // volume against a network-bound server. Non-hashed paths keep the
+                                // shorter TTL because their names can be reused across builds.
+                                var isContentHashed = context.Context.Request.Path.StartsWithSegments("/web/assets", StringComparison.Ordinal);
+                                context.Context.Response.Headers.CacheControl = new StringValues(
+                                    isContentHashed
+                                        ? "public, max-age=31536000, immutable"
+                                        : "public, max-age=3600");
                             }
                         }
                     });
@@ -313,6 +350,13 @@ namespace MulletaFlix.Server
 
                 mainApp.UseStaticFiles();
                 mainApp.UseAuthentication();
+
+                // Registered after authentication so it can see the authenticated identity and
+                // exempt authenticated clients from the anonymous bucket. When it ran before
+                // UseAuthentication, every request looked anonymous (30 req / 10 s), throttling
+                // legitimate authenticated clients and amplifying thread-pool churn.
+                mainApp.UseMiddleware<RateLimitMiddleware>();
+
                 mainApp.UseMulletaFlixApiSwagger(_serverConfigurationManager);
                 mainApp.UseQueryStringDecoding();
                 mainApp.UseRouting();

@@ -22,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -35,12 +36,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -53,9 +56,28 @@ import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
+import org.mulletaflix.designsystem.subtitle.SUBTITLE_OUTLINE_COLOR
+import org.mulletaflix.designsystem.subtitle.subtitleForegroundColor
+import org.mulletaflix.domain.model.subtitleFractionalTextSize
 
 internal const val CAST_ACTION_CONTENT_DESCRIPTION = "Transmitir para dispositivo compatível"
 internal const val PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION = "Ações do player; deslize horizontalmente para ver mais"
+
+/** Tag da fileira de ações, para o teste medir a rolagem sem depender da descrição. */
+internal const val PLAYER_TOP_BAR_ACTIONS_TEST_TAG = "player-top-bar-actions"
+
+/**
+ * Tag do controle de transmissão, para o teste **medir o alvo de toque**.
+ *
+ * O `MediaRouteButton` do Media3 é uma `View` clássica envolvida por Compose: o alvo
+ * de toque dele é o próprio tamanho do layout, sem o `minimumInteractiveComponentSize`
+ * que os `IconButton` do Material3 aplicam. Ao lado de botões de 48 dp, ele era o
+ * único de 40 dp — e "medir, não supor" era a pendência registrada desde a v1.2.73.
+ */
+internal const val PLAYER_CAST_CONTROL_TEST_TAG = "player-cast-control"
+
+/** Tamanho visual do ícone de transmissão. O alvo de toque é medido à parte. */
+internal val CAST_CONTROL_VISUAL_SIZE = 40.dp
 internal const val PLAYBACK_STATS_CONTENT_DESCRIPTION = "Dados técnicos da mídia; deslize verticalmente para ver mais"
 internal const val PLAYER_OSD_AUTO_HIDE_MILLIS = 3000L
 private const val NOTIFICATION_PROMPT_PREFERENCES = "player_notification_preferences"
@@ -293,15 +315,15 @@ fun VideoPlayerScreen(
             update = { playerView ->
                 playerView.resizeMode = state.aspectRatio.resizeMode
                 playerView.subtitleView?.setFractionalTextSize(
-                    0.0533f * state.subtitleFontSize.coerceIn(50, 200) / 100f,
+                    subtitleFractionalTextSize(state.subtitleFontSize),
                 )
                 playerView.subtitleView?.setStyle(
                     CaptionStyleCompat(
-                        subtitleForegroundColor(state.subtitleColor),
+                        subtitleForegroundColor(state.subtitleColor).toArgb(),
                         android.graphics.Color.TRANSPARENT,
                         android.graphics.Color.TRANSPARENT,
                         CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                        android.graphics.Color.BLACK,
+                        SUBTITLE_OUTLINE_COLOR.toArgb(),
                         null,
                     )
                 )
@@ -382,21 +404,7 @@ fun VideoPlayerScreen(
             visible = state.isNetworkOffline,
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp),
         ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                tonalElevation = 4.dp,
-                modifier = Modifier.semantics { contentDescription = "Sem conexão. Tentando reconectar." },
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(Icons.Default.WifiOff, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                    Text("Sem conexão — tentando reconectar…", color = MaterialTheme.colorScheme.onSurface)
-                }
-            }
+            PlayerOfflineNotice(visible = state.isNetworkOffline)
         }
 
         AnimatedVisibility(visible = state.error != null, modifier = Modifier.align(Alignment.Center)) {
@@ -465,6 +473,7 @@ fun VideoPlayerScreen(
             hasNextEpisode = true,
             isPlaybackEnded = !state.isPlaying && state.currentPosition > 0 && state.duration > 0 && state.currentPosition >= state.duration - 1500L,
             countdownActive = state.nextEpisodeCountdown != null,
+            dismissed = state.nextEpisodePromptDismissed,
         )
         AnimatedVisibility(
             visible = showNextEpisode,
@@ -639,23 +648,14 @@ private fun PlayerOsd(
             ) {
                 // Official Media3 Cast button. Keep a text label beside it so
                 // the action remains discoverable on mobile and TV layouts.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(end = 4.dp)
-                        .semantics(mergeDescendants = true) {
-                                contentDescription = castActionContentDescription(state.isCasting)
-                        },
-                ) {
-                    MediaRouteButton(
-                        modifier = Modifier.size(40.dp),
-                    )
-                    Text(
-                        text = castActionLabel(state.isCasting),
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
+                //
+                // Sem `semantics(mergeDescendants) { contentDescription = ... }`: a
+                // frase fixa em pt-BR era um **terceiro** nome para o mesmo controle,
+                // junto do rótulo visível "Transmitir" e da descrição localizada que
+                // o próprio `MediaRouteButton` do Media3 já traz (ele conhece o
+                // estado da conexão). O usuário ouvia a mesma ação com duas ou três
+                // palavras diferentes.
+                PlayerCastControl(isCasting = state.isCasting)
                 // Aspect ratio
                 IconButton(onClick = { showAspectRatioMenu = true }) {
                     Icon(Icons.Default.AspectRatio, contentDescription = "Proporção", tint = Color.White)
@@ -806,9 +806,9 @@ private fun PlayerOsd(
 
         if (showSleepTimerMenu) {
             SleepTimerMenu(
+                mode = state.sleepTimerMode,
                 remainingMs = state.sleepTimerRemainingMs,
                 selectedMinutes = state.sleepTimerMinutes,
-                isAtMediaEnd = state.sleepTimerMode == SleepTimerMode.AT_MEDIA_END,
                 onSelect = { minutes ->
                     onSleepTimerSelect(minutes)
                     showSleepTimerMenu = false
@@ -929,9 +929,40 @@ internal fun PlayerTransportControls(
 }
 
 /**
+ * O aviso de "sem conexão" do player.
+ *
+ * Sem `semantics { contentDescription }` no `Surface`: o bloco não mesclava os
+ * descendentes, então o `Text` abaixo continuava sendo um nó próprio com a mesma
+ * frase e o usuário ouvia o aviso duas vezes ao deslizar. Quem fala é o `Text`.
+ */
+@Composable
+internal fun PlayerOfflineNotice(visible: Boolean) {
+    if (!visible) return
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+        tonalElevation = 4.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(Icons.Default.WifiOff, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+            Text("Sem conexão — tentando reconectar…", color = MaterialTheme.colorScheme.onSurface)
+        }
+    }
+}
+
+/**
  * Keeps the player actions reachable on narrow portrait windows and on devices
  * with large font scales. The title remains fixed while this action strip can
  * be explored horizontally.
+ *
+ * A descrição de "deslize horizontalmente" fica: é a **única** frase que diz que a
+ * fileira rola, e nenhum filho repete isso. O que saiu foi a descrição duplicada do
+ * controle de transmissão — ela competia com o rótulo visível e com a descrição
+ * localizada que o `MediaRouteButton` do Media3 já publica.
  */
 @Composable
 internal fun PlayerTopBarActionsRow(
@@ -941,6 +972,7 @@ internal fun PlayerTopBarActionsRow(
     Row(
         modifier = modifier
             .horizontalScroll(rememberScrollState())
+            .testTag(PLAYER_TOP_BAR_ACTIONS_TEST_TAG)
             .semantics {
                 contentDescription = PLAYER_TOP_BAR_ACTIONS_CONTENT_DESCRIPTION
             },
@@ -948,6 +980,44 @@ internal fun PlayerTopBarActionsRow(
         verticalAlignment = Alignment.CenterVertically,
         content = content,
     )
+}
+
+/**
+ * O controle oficial de transmissão do Media3, com o rótulo visível ao lado.
+ *
+ * Extraído da fileira de ações para poder ser **medido**: o alvo de toque é uma
+ * propriedade do layout, e nenhum teste alcançava este bloco enquanto ele era um `Row`
+ * solto dentro do `VideoPlayerScreen`.
+ *
+ * **Resultado da medição (v1.2.84, AVD de celular `MulletaflixApi35`):** o layout tem
+ * 40 dp — o `Modifier.size` que sempre esteve aqui — mas o **alvo de toque** que o
+ * Compose publica é de pelo menos 48 dp, porque a própria fundação expande o alvo
+ * mínimo. Ou seja: o item "medir o alvo de 40 dp" que ficou aberto desde a v1.2.73
+ * fecha **sem defeito**, e nenhum modificador foi acrescentado. O que ficou foi o
+ * teste, que passa a medir isso em vez de alguém supor.
+ */
+@Composable
+internal fun PlayerCastControl(
+    isCasting: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.padding(end = 4.dp),
+    ) {
+        MediaRouteButton(
+            // A tag fica **por fora** de propósito: é este nó que o teste mede, e ele
+            // precisa ser o mesmo que o toque alcança.
+            modifier = Modifier
+                .testTag(PLAYER_CAST_CONTROL_TEST_TAG)
+                .size(CAST_CONTROL_VISUAL_SIZE),
+        )
+        Text(
+            text = castActionLabel(isCasting),
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+        )
+    }
 }
 
 // Helpers
@@ -967,7 +1037,11 @@ internal fun PlayerTrackMenu(
             Column(
                 modifier = Modifier
                     .heightIn(max = 360.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    // Um grupo de rádio precisa se declarar como um: sem isto o
+                    // leitor de tela não sabe que as opções são mutuamente
+                    // exclusivas e anuncia cada uma como um botão solto.
+                    .selectableGroup(),
             ) {
                 if (allowNone) {
                     Row(
@@ -1022,7 +1096,11 @@ internal fun QualityMenu(
             Column(
                 modifier = Modifier
                     .heightIn(max = 360.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    // Um grupo de rádio precisa se declarar como um: sem isto o
+                    // leitor de tela não sabe que as opções são mutuamente
+                    // exclusivas e anuncia cada uma como um botão solto.
+                    .selectableGroup(),
             ) {
                 if (isMetered) {
                     Text(
@@ -1067,7 +1145,11 @@ private fun SpeedMenu(
             Column(
                 modifier = Modifier
                     .heightIn(max = 360.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    // Um grupo de rádio precisa se declarar como um: sem isto o
+                    // leitor de tela não sabe que as opções são mutuamente
+                    // exclusivas e anuncia cada uma como um botão solto.
+                    .selectableGroup(),
             ) {
                 speeds.forEach { speed ->
                     Row(
@@ -1093,9 +1175,9 @@ private fun SpeedMenu(
 
 @Composable
 internal fun SleepTimerMenu(
+    mode: SleepTimerMode,
     remainingMs: Long?,
     selectedMinutes: Int?,
-    isAtMediaEnd: Boolean,
     onSelect: (Int?) -> Unit,
     onSelectAtMediaEnd: () -> Unit,
     onDismiss: () -> Unit,
@@ -1108,7 +1190,11 @@ internal fun SleepTimerMenu(
             Column(
                 modifier = Modifier
                     .heightIn(max = 360.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    // Um grupo de rádio precisa se declarar como um: sem isto o
+                    // leitor de tela não sabe que as opções são mutuamente
+                    // exclusivas e anuncia cada uma como um botão solto.
+                    .selectableGroup(),
             ) {
                 Text(
                     text = sleepTimerLabel(remainingMs) ?: "O player pausará automaticamente.",
@@ -1120,13 +1206,13 @@ internal fun SleepTimerMenu(
                     modifier = Modifier
                         .fillMaxWidth()
                         .selectable(
-                            selected = remainingMs == null,
+                            selected = isSleepTimerOffSelected(mode),
                             role = Role.RadioButton,
                             onClick = { onSelect(null) },
                         )
                         .padding(vertical = 8.dp),
                 ) {
-                    RadioButton(selected = remainingMs == null, onClick = null)
+                    RadioButton(selected = isSleepTimerOffSelected(mode), onClick = null)
                     Text("Desativado", modifier = Modifier.padding(start = 8.dp))
                 }
                 Row(
@@ -1134,13 +1220,13 @@ internal fun SleepTimerMenu(
                     modifier = Modifier
                         .fillMaxWidth()
                         .selectable(
-                            selected = isAtMediaEnd,
+                            selected = isSleepTimerAtMediaEndSelected(mode),
                             role = Role.RadioButton,
                             onClick = onSelectAtMediaEnd,
                         )
                         .padding(vertical = 8.dp),
                 ) {
-                    RadioButton(selected = isAtMediaEnd, onClick = null)
+                    RadioButton(selected = isSleepTimerAtMediaEndSelected(mode), onClick = null)
                     Text("Ao fim da mídia", modifier = Modifier.padding(start = 8.dp))
                 }
                 options.forEach { minutes ->
@@ -1149,13 +1235,13 @@ internal fun SleepTimerMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                         .selectable(
-                            selected = isSleepTimerOptionSelected(selectedMinutes, minutes),
+                            selected = isSleepTimerOptionSelected(mode, selectedMinutes, minutes),
                             role = Role.RadioButton,
                             onClick = { onSelect(minutes) },
                         )
                         .padding(vertical = 8.dp),
                     ) {
-                    RadioButton(selected = isSleepTimerOptionSelected(selectedMinutes, minutes), onClick = null)
+                    RadioButton(selected = isSleepTimerOptionSelected(mode, selectedMinutes, minutes), onClick = null)
                         Text("${minutes} minutos", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
@@ -1178,7 +1264,11 @@ private fun AspectRatioMenu(
             Column(
                 modifier = Modifier
                     .heightIn(max = 360.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    // Um grupo de rádio precisa se declarar como um: sem isto o
+                    // leitor de tela não sabe que as opções são mutuamente
+                    // exclusivas e anuncia cada uma como um botão solto.
+                    .selectableGroup(),
             ) {
                 VideoAspectRatio.values().forEach { ratio ->
                     Row(

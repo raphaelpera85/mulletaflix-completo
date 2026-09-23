@@ -7,6 +7,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.mulletaflix.domain.model.normalizeSubtitleColor
+import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.SettingsRepository
 import javax.inject.Inject
@@ -21,7 +23,6 @@ class SettingsRepositoryImpl @Inject constructor(
 
     private object Keys {
         val THEME = stringPreferencesKey("app_theme")
-        val MAX_BITRATE = intPreferencesKey("max_bitrate")
         val PIP_ENABLED = booleanPreferencesKey("pip_enabled")
         val AUDIO_LANG = stringPreferencesKey("preferred_audio_lang")
         val SUBTITLE_LANG = stringPreferencesKey("preferred_subtitle_lang")
@@ -48,14 +49,6 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setTheme(theme: AppThemeSetting) {
         context.settingsDataStore.edit { it[Keys.THEME] = theme.name }
-    }
-
-    override fun getMaxBitrate(): Flow<Int> {
-        return context.settingsDataStore.data.map { it[Keys.MAX_BITRATE] ?: 120_000_000 }
-    }
-
-    override suspend fun setMaxBitrate(bitrate: Int) {
-        context.settingsDataStore.edit { it[Keys.MAX_BITRATE] = bitrate }
     }
 
     override fun isPiPEnabled(): Flow<Boolean> {
@@ -119,18 +112,25 @@ class SettingsRepositoryImpl @Inject constructor(
     }
 
     override fun getSubtitleFontSize(): Flow<Int> =
-        context.settingsDataStore.data.map { (it[Keys.SUBTITLE_FONT_SIZE] ?: 100).coerceIn(50, 200) }
+        context.settingsDataStore.data.map {
+            // The clamp comes from `:domain` rather than being repeated here. While the
+            // `50..200` bound was written down in this file too, widening the range in
+            // the UI would have left this layer silently truncating what was stored.
+            normalizeSubtitleSizePercent(it[Keys.SUBTITLE_FONT_SIZE] ?: 100)
+        }
 
     override suspend fun setSubtitleFontSize(size: Int) {
-        context.settingsDataStore.edit { it[Keys.SUBTITLE_FONT_SIZE] = size.coerceIn(50, 200) }
+        context.settingsDataStore.edit {
+            it[Keys.SUBTITLE_FONT_SIZE] = normalizeSubtitleSizePercent(size)
+        }
     }
 
     override fun getSubtitleColor(): Flow<String> =
-        context.settingsDataStore.data.map { it[Keys.SUBTITLE_COLOR] ?: "WHITE" }
+        context.settingsDataStore.data.map { normalizeSubtitleColor(it[Keys.SUBTITLE_COLOR]) }
 
     override suspend fun setSubtitleColor(color: String) {
-        val normalized = color.trim().uppercase().takeIf { it in setOf("WHITE", "YELLOW", "CYAN") } ?: "WHITE"
-        context.settingsDataStore.edit { it[Keys.SUBTITLE_COLOR] = normalized }
+        // Same reason: the accepted set is defined once, in `:domain`.
+        context.settingsDataStore.edit { it[Keys.SUBTITLE_COLOR] = normalizeSubtitleColor(color) }
     }
 
     override fun getDefaultAspectRatio(): Flow<String> =

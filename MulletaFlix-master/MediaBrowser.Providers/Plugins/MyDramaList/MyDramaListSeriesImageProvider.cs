@@ -17,8 +17,22 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
 {
     public class MyDramaListSeriesImageProvider : IRemoteImageProvider, IHasOrder
     {
+        /// <summary>
+        /// How long the provider stays quiet after the site refuses a request.
+        /// </summary>
+        /// <remarks>
+        /// Same failure mode already handled in <see cref="MyDramaListSeriesProvider"/>: the site answers
+        /// 403 to this HTTP stack regardless of headers, so retrying per item cannot succeed. It only
+        /// writes one ERROR line per item and burns a round trip. This provider is the latent half of
+        /// that defect — it only runs for items that already carry a MyDramaList id, which is why it has
+        /// not been noisy, but the behaviour would be one ERROR per item as soon as identification works.
+        /// </remarks>
+        public static readonly TimeSpan FailureCooldown = TimeSpan.FromMinutes(30);
+
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<MyDramaListSeriesImageProvider> _logger;
+
+        private long _quietUntilTicks;
 
         public MyDramaListSeriesImageProvider(IHttpClientFactory httpClientFactory, ILogger<MyDramaListSeriesImageProvider> logger)
         {
@@ -31,6 +45,19 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
 
         /// <inheritdoc />
         public int Order => 2;
+
+        /// <summary>
+        /// Gets a value indicating whether the provider is currently quiet because the site refused
+        /// a recent request.
+        /// </summary>
+        internal bool IsInFailureCooldown
+        {
+            get
+            {
+                var quietUntil = Interlocked.Read(ref _quietUntilTicks);
+                return quietUntil != 0 && new DateTime(quietUntil, DateTimeKind.Utc) > DateTime.UtcNow;
+            }
+        }
 
         /// <inheritdoc />
         public bool Supports(BaseItem item)
@@ -56,6 +83,13 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
 
             if (string.IsNullOrEmpty(mdlId))
             {
+                return results;
+            }
+
+            if (IsInFailureCooldown)
+            {
+                // The site is known to be refusing this HTTP stack; skip the request entirely instead
+                // of paying a round trip (and an ERROR line) for every item.
                 return results;
             }
 
@@ -95,10 +129,35 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching MyDramaList images for: {Id}", mdlId);
+                EnterFailureCooldown(ex, "images");
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Arms the quiet period, reporting the reason once instead of once per item.
+        /// </summary>
+        /// <param name="exception">The failure.</param>
+        /// <param name="operation">The operation that failed.</param>
+        private void EnterFailureCooldown(Exception exception, string operation)
+        {
+            var quietUntil = DateTime.UtcNow.Add(FailureCooldown);
+            var previous = Interlocked.Exchange(ref _quietUntilTicks, quietUntil.Ticks);
+
+            if (previous != 0 && new DateTime(previous, DateTimeKind.Utc) > DateTime.UtcNow)
+            {
+                // Already quiet: this failure was expected and was reported by the call that armed the
+                // cooldown. Logging it again is what produced one ERROR line per item.
+                _logger.LogDebug(exception, "MyDramaList is still unavailable while resolving {Operation}.", operation);
+                return;
+            }
+
+            _logger.LogWarning(
+                exception,
+                "MyDramaList refused a request while resolving {Operation}. Pausing image lookups for {Minutes} minutes instead of retrying for every item.",
+                operation,
+                FailureCooldown.TotalMinutes);
         }
 
         /// <inheritdoc />

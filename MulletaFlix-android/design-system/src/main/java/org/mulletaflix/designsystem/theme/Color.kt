@@ -90,6 +90,16 @@ val BlueRadiancePrimary = Color(0xFF1565C0)
 val BlueRadianceBackground = Color(0xFF0A0F1E)
 val BlueRadianceSurface = Color(0xFF0D1628)
 
+// WMC theme — the blue chrome of Windows Media Center, on the cinematic dark base
+val WmcBackground = Color(0xFF060A12)
+val WmcSurface = Color(0xFF0F1622)
+val WmcSurfaceVariant = Color(0xFF1D2836)
+
+// AppleTV theme — tvOS chrome: near-black, slightly cool and a touch lighter
+val AppleTvBackground = Color(0xFF0A0A0C)
+val AppleTvSurface = Color(0xFF17171A)
+val AppleTvSurfaceVariant = Color(0xFF27272C)
+
 // Progress / Badge colors
 val ProgressBarColor = MulletaFlixRed
 val WatchedBadge = Color(0xFF4CAF50)

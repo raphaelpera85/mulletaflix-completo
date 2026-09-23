@@ -502,12 +502,18 @@ public sealed partial class BaseItemRepository
             }
             else
             {
+                // Keep this as a server-side subquery. Materialising it with ToList() pushed every
+                // played item id into a single IN(...) list with one parameter per id (tens of
+                // thousands for a large library), which blew up statement size and plan cache usage.
                 var playedItemIds = context.UserData
                     .Where(ud => ud.UserId == filter.User!.Id && ud.Played)
-                    .Select(ud => ud.ItemId)
-                    .ToList();
-                var isPlayedItem = filter.IsPlayed.Value;
-                baseQuery = baseQuery.Where(e => playedItemIds.Contains(e.Id) == isPlayedItem);
+                    .Select(ud => ud.ItemId);
+
+                // Translate to IN (subquery) / NOT IN (subquery) rather than comparing the Contains
+                // result to a constant, which is the shape EF can push down reliably.
+                baseQuery = filter.IsPlayed.Value
+                    ? baseQuery.Where(e => playedItemIds.Contains(e.Id))
+                    : baseQuery.Where(e => !playedItemIds.Contains(e.Id));
             }
         }
 
@@ -536,29 +542,38 @@ public sealed partial class BaseItemRepository
 
                 // A series is resumable if it has an in-progress episode,
                 // or if it has both played and unplayed episodes (partially watched).
+                // Both operands stay as IQueryable so EF emits IN (subquery) / NOT IN (subquery).
+                // Materializing them with ToList() inlined one bound parameter per series and per
+                // item (SeriesId cardinality is ~2,787 on the live database), which is the same
+                // defect already fixed in the IsPlayed branch above.
                 var resumableSeriesIds = seriesEpisodeStats
                     .Where(s => s.HasInProgress || (s.HasPlayed && s.HasUnplayed))
-                    .Select(s => s.SeriesId)
-                    .ToList();
+                    .Select(s => s.SeriesId);
 
                 // Non-series items: resumable if PlaybackPositionTicks > 0
                 var resumableItemIds = context.UserData
                     .Where(ud => ud.UserId == userId && ud.PlaybackPositionTicks > 0)
-                    .Select(ud => ud.ItemId)
-                    .ToList();
+                    .Select(ud => ud.ItemId);
 
-                baseQuery = baseQuery.Where(e =>
-                    (e.Type == seriesTypeName && resumableSeriesIds.Contains(e.Id) == isResumable)
-                    || (e.Type != seriesTypeName && resumableItemIds.Contains(e.Id) == isResumable));
+                // Split on the boolean rather than comparing Contains(...) == isResumable, because
+                // the comparison form is the shape that forces client-side evaluation.
+                baseQuery = isResumable
+                    ? baseQuery.Where(e =>
+                        (e.Type == seriesTypeName && resumableSeriesIds.Contains(e.Id))
+                        || (e.Type != seriesTypeName && resumableItemIds.Contains(e.Id)))
+                    : baseQuery.Where(e =>
+                        (e.Type == seriesTypeName && !resumableSeriesIds.Contains(e.Id))
+                        || (e.Type != seriesTypeName && !resumableItemIds.Contains(e.Id)));
             }
             else
             {
                 var resumableItemIds = context.UserData
                     .Where(ud => ud.UserId == filter.User!.Id && ud.PlaybackPositionTicks > 0)
-                    .Select(ud => ud.ItemId)
-                    .ToList();
-                var isResumable = filter.IsResumable.Value;
-                baseQuery = baseQuery.Where(e => resumableItemIds.Contains(e.Id) == isResumable);
+                    .Select(ud => ud.ItemId);
+
+                baseQuery = filter.IsResumable.Value
+                    ? baseQuery.Where(e => resumableItemIds.Contains(e.Id))
+                    : baseQuery.Where(e => !resumableItemIds.Contains(e.Id));
             }
         }
 

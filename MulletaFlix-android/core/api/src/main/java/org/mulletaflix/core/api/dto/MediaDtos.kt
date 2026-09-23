@@ -90,6 +90,40 @@ data class MediaSourceDto(
     @Json(name = "SupportsTranscoding") val supportsTranscoding: Boolean = true,
     @Json(name = "MediaStreams") val mediaStreams: List<MediaStreamDto>? = null,
     @Json(name = "Bitrate") val bitrate: Int? = null,
+    // A tuner channel arrives closed: `RequiresOpening` is true and `LiveStreamId` is
+    // empty until something calls `LiveStreams/Open`. The id that call returns is what
+    // the stream route needs to find the feed.
+    @Json(name = "RequiresOpening") val requiresOpening: Boolean = false,
+    @Json(name = "LiveStreamId") val liveStreamId: String? = null,
+    @Json(name = "OpenToken") val openToken: String? = null,
+)
+
+/**
+ * Body of `LiveStreams/Open`.
+ *
+ * The route reads every field from the query string *or* from this body
+ * (`MediaInfoController.OpenLiveStream`), and the official web client sends the user,
+ * the item and the session in the query while the open token and the direct-play flags
+ * travel here.
+ */
+@JsonClass(generateAdapter = true)
+data class OpenLiveStreamDto(
+    @Json(name = "UserId") val userId: String,
+    @Json(name = "ItemId") val itemId: String,
+    @Json(name = "PlaySessionId") val playSessionId: String? = null,
+    @Json(name = "OpenToken") val openToken: String? = null,
+    @Json(name = "StartTimeTicks") val startTimeTicks: Long? = null,
+    @Json(name = "AudioStreamIndex") val audioStreamIndex: Int? = null,
+    @Json(name = "SubtitleStreamIndex") val subtitleStreamIndex: Int? = null,
+    @Json(name = "MaxStreamingBitrate") val maxStreamingBitrate: Int? = null,
+    @Json(name = "EnableDirectPlay") val enableDirectPlay: Boolean = true,
+    @Json(name = "EnableDirectStream") val enableDirectStream: Boolean = true,
+)
+
+/** `LiveStreams/Open` answers with the opened media source. */
+@JsonClass(generateAdapter = true)
+data class LiveStreamResponseDto(
+    @Json(name = "MediaSource") val mediaSource: MediaSourceDto? = null,
 )
 
 @JsonClass(generateAdapter = true)

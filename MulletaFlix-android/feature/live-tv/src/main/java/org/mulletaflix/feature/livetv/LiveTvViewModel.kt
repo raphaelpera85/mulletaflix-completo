@@ -52,6 +52,19 @@ class LiveTvViewModel @Inject constructor(
     private var sessionGeneration = 0L
     private var hasObservedSession = false
 
+    /**
+     * True while the EPG dialog is on screen.
+     *
+     * `refresh()` invalidates any guide request built on the previous channel
+     * snapshot, which is correct — but it also clears `isLoadingGuide`, so a
+     * guide that was still loading when a refresh landed was left with an empty
+     * programme list and no request behind it. The dialog then read "Nenhum
+     * programa encontrado para as próximas 24 horas." even though the guide
+     * worked, and only closing and reopening it recovered. Knowing the dialog is
+     * open lets the refresh reload the guide instead.
+     */
+    private var guideRequested = false
+
     init {
         viewModelScope.launch {
             var previousOnline: Boolean? = null
@@ -127,15 +140,28 @@ class LiveTvViewModel @Inject constructor(
             getLiveTvChannelsUseCase(userId)
                 .onSuccess { guide ->
                     if (generation != refreshGeneration || !isCurrentSession(userId, sessionAtRequest)) return@onSuccess
+                    val channelSetChanged = guide.channels.map { it.id } != _state.value.channels.map { it.id }
                     _state.update {
                         it.copy(
                             channels = guide.channels,
                             recordings = guide.recordings,
+                            // A guide built from a different set of channels describes
+                            // channels that are no longer on screen. Keeping it would let
+                            // the viewer schedule a programme from the previous snapshot
+                            // when the reload fails.
+                            programs = if (channelSetChanged) emptyList() else it.programs,
                             isLoading = false,
                             error = null,
-                            recordingsError = null,
+                            recordingsError = guide.recordingsError,
                         )
                     }
+                    // The guide is fetched separately and must never make the
+                    // channel list wait, so it is a second call in the same job.
+                    reconcileScheduledRecordings(generation, userId, sessionAtRequest)
+                    // The channel snapshot just changed, so whatever the dialog
+                    // was showing is stale. Reloading it keeps an open guide from
+                    // being stranded empty (see `guideRequested`).
+                    if (guideRequested) loadGuide()
                 }
                 .onFailure { e ->
                     if (generation != refreshGeneration || !isCurrentSession(userId, sessionAtRequest)) return@onFailure
@@ -149,6 +175,25 @@ class LiveTvViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Marks every programme the server already has a pending recording for.
+     *
+     * The set is unioned with what this session already knows rather than
+     * replaced: a timer created moments ago may not be visible in this response
+     * yet, and losing the mark would offer "Gravar" again for a programme that is
+     * already set to record — which is how a second timer used to be created. A
+     * failure is ignored on purpose: not knowing what is scheduled must not break
+     * the channel list.
+     */
+    private suspend fun reconcileScheduledRecordings(
+        generation: Long,
+        userId: String,
+        sessionAtRequest: Long,
+    ) {
+        val scheduled = repository.getScheduledProgramIds().getOrNull() ?: return
+        if (generation != refreshGeneration || !isCurrentSession(userId, sessionAtRequest)) return
+        _state.update { it.copy(scheduledProgramIds = it.scheduledProgramIds + scheduled) }
+    }
     /** Used by the TV foreground timer; manual refresh remains destructive. */
     fun refreshIfIdle() {
         val current = _state.value
@@ -156,7 +201,9 @@ class LiveTvViewModel @Inject constructor(
         refresh()
     }
 
+    /** Marks the EPG dialog as open so a later refresh reloads it. */
     fun loadGuide() {
+        guideRequested = true
         if (_state.value.isOffline) {
             _state.update {
                 it.copy(
@@ -180,6 +227,10 @@ class LiveTvViewModel @Inject constructor(
             }
             val startMillis = System.currentTimeMillis()
             val endMillis = startMillis + TimeUnit.HOURS.toMillis(24)
+            // The window is an *overlap* window: the server filters by end date on one
+            // side and start date on the other, so a film that began before "now" and is
+            // still on the air is part of the guide. Asking for programmes that *start*
+            // after now left exactly the one being watched out of the list.
             repository.getPrograms(ids, formatter.format(Date(startMillis)), formatter.format(Date(endMillis)))
                 .onSuccess { programs ->
                     if (generation != guideGeneration || !isCurrentSession(userIdAtRequest, sessionAtRequest)) return@onSuccess
@@ -190,6 +241,11 @@ class LiveTvViewModel @Inject constructor(
                     _state.update { it.copy(isLoadingGuide = false, guideError = e.message ?: "Não foi possível carregar o guia.") }
                 }
         }
+    }
+
+    /** Marks the EPG dialog as closed, so refreshes stop reloading it. */
+    fun closeGuide() {
+        guideRequested = false
     }
 
     fun scheduleRecording(program: MediaItem) {

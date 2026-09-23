@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -82,7 +82,8 @@ public class ChapterImagesTask : IScheduledTask
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var videos = _libraryManager.GetItemList(new InternalItemsQuery
+        const int PageSize = 100;
+        var query = new InternalItemsQuery
         {
             MediaTypes = [MediaType.Video],
             IsFolder = false,
@@ -92,44 +93,65 @@ public class ChapterImagesTask : IScheduledTask
                 EnableImages = false
             },
             SourceTypes = [SourceType.Library],
-            IsVirtualItem = false
-        })
-        .OfType<Video>()
-        .ToList();
+            IsVirtualItem = false,
+            Limit = PageSize
+        };
+
+        // Count first, then page. This used to load every Video entity at once — 77,909 items on
+        // this library — and that peak was one of the largest contributors to the host paging hard
+        // enough to freeze the whole process for 50-100 seconds at a time (measured: 26 log silences
+        // above 20 s, worst 102.6 s, with only ~1.9 GB of RAM free). The sibling tasks
+        // (MediaSegmentExtractionTask, TrickplayImagesTask) already page this way.
+        var numberOfVideos = _libraryManager.GetCount(query);
 
         var numComplete = 0;
 
         var failHistoryPath = Path.Combine(_appPaths.CachePath, "chapter-failures.txt");
 
-        List<string> previouslyFailedImages;
+        // HashSet, not List: this was an O(n) scan per item over a collection that grows with every
+        // failure.
+        HashSet<string> previouslyFailedImages;
 
         if (File.Exists(failHistoryPath))
         {
             try
             {
-                previouslyFailedImages = (await File.ReadAllTextAsync(failHistoryPath, cancellationToken).ConfigureAwait(false))
-                    .Split('|', StringSplitOptions.RemoveEmptyEntries)
-                    .ToList();
+                previouslyFailedImages = new HashSet<string>(
+                    (await File.ReadAllTextAsync(failHistoryPath, cancellationToken).ConfigureAwait(false))
+                        .Split('|', StringSplitOptions.RemoveEmptyEntries),
+                    StringComparer.OrdinalIgnoreCase);
             }
             catch (IOException)
             {
-                previouslyFailedImages = [];
+                previouslyFailedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             }
         }
         else
         {
-            previouslyFailedImages = [];
+            previouslyFailedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
         var directoryService = new DirectoryService(_fileSystem);
 
-        foreach (var video in videos)
+        var startIndex = 0;
+        while (startIndex < numberOfVideos)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            query.StartIndex = startIndex;
+            var videos = _libraryManager.GetItemList(query).OfType<Video>().ToList();
+            if (videos.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var video in videos)
+            {
             cancellationToken.ThrowIfCancellationRequested();
 
             var key = video.Path + video.DateModified.Ticks;
 
-            var extract = !previouslyFailedImages.Contains(key, StringComparison.OrdinalIgnoreCase);
+            var extract = !previouslyFailedImages.Contains(key);
 
             try
             {
@@ -152,8 +174,7 @@ public class ChapterImagesTask : IScheduledTask
                 }
 
                 numComplete++;
-                double percent = numComplete;
-                percent /= videos.Count;
+                double percent = numberOfVideos == 0 ? 100 : (double)numComplete / numberOfVideos;
 
                 progress.Report(100 * percent);
             }
@@ -161,8 +182,11 @@ public class ChapterImagesTask : IScheduledTask
             {
                 // TODO Investigate and properly fix.
                 _logger.LogError(ex, "Object Disposed");
-                break;
+                return;
             }
+            }
+
+            startIndex += PageSize;
         }
     }
 }

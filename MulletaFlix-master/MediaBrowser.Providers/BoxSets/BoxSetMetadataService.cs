@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -86,9 +87,9 @@ public class BoxSetMetadataService : MetadataService<BoxSet, BoxSetInfo>
     }
 
     /// <inheritdoc />
-    protected override ItemUpdateType BeforeSaveInternal(BoxSet item, bool isFullRefresh, ItemUpdateType updateType)
+    protected override async Task<ItemUpdateType> BeforeSaveInternalAsync(BoxSet item, bool isFullRefresh, ItemUpdateType updateType)
     {
-        var updatedType = base.BeforeSaveInternal(item, isFullRefresh, updateType);
+        var updatedType = await base.BeforeSaveInternalAsync(item, isFullRefresh, updateType).ConfigureAwait(false);
 
         var libraryFolderIds = item.GetLibraryFolderIds();
 

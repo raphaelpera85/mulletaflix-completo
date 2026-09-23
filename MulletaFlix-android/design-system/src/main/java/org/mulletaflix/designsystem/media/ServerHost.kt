@@ -29,6 +29,22 @@ fun isLoopbackServerUrl(url: String): Boolean {
     return host in LOOPBACK_HOSTS
 }
 
+/**
+ * True when the URL names a host a client can open a connection to.
+ *
+ * `0.0.0.0` means "any local address" and is only ever valid as a *listen*
+ * address: a server that advertises it in its discovery response cannot be
+ * dialled, so it must never replace the saved endpoint — requests would fail, or
+ * land somewhere unintended, with the Authorization header attached.
+ *
+ * It deliberately stays inside [isLocalServerUrl], because link sharing still has
+ * to recognise it as an address that must be replaced by the public one.
+ */
+fun isDialableServerUrl(url: String): Boolean {
+    val host = runCatching { URI(url.trim()).host?.lowercase() }.getOrNull() ?: return false
+    return host != "0.0.0.0" && host != "::"
+}
+
 private fun isPrivateIpv4(host: String): Boolean {
     val octets = host.split('.')
     if (octets.size != 4 || octets.any { it.toIntOrNull() == null }) return false

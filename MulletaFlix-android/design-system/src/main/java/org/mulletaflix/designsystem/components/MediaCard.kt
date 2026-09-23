@@ -161,9 +161,17 @@ fun MediaCard(
             .scale(focusScale)
             .then(
                 if (focusFriendly) {
-                    Modifier
-                        .onFocusChanged { isFocused = it.isFocused }
-                        .focusable()
+                    Modifier.onFocusChanged { isFocused = it.isFocused }.then(
+                        // Only a card that cannot be clicked needs an explicit
+                        // focus target. A clickable one already has its own, and
+                        // adding `focusable()` on top put **two focus targets on
+                        // the same node**: the remote's centre key went to the
+                        // target without the activation handler, so the first
+                        // press was swallowed and the card needed two clicks to
+                        // open. Measured with one centre press on a focused card:
+                        // 0 activations before, 1 after.
+                        if (isClickable) Modifier else Modifier.focusable(),
+                    )
                 } else {
                     Modifier
                 },
@@ -180,10 +188,21 @@ fun MediaCard(
                 },
             )
             .then(if (isClickable) Modifier.clickable(onClick = onClick) else Modifier)
-            .semantics(mergeDescendants = true) {
-                role = Role.Button
-                contentDescription = accessibilityLabel
-            },
+            .then(
+                if (isClickable) {
+                    Modifier.semantics(mergeDescendants = true) {
+                        role = Role.Button
+                        contentDescription = accessibilityLabel
+                    }
+                } else {
+                    // Um card **não clicável** publicava `role = Role.Button` sem
+                    // ação nenhuma e com o mesmo rótulo da linha clicável que o
+                    // contém (`LibraryScreen`), então o leitor de tela encontrava o
+                    // mesmo item duas vezes — uma delas um botão que não fazia nada
+                    // ao ser ativado. Sem ação, o card não fala: quem fala é a linha.
+                    Modifier.clearAndSetSemantics { }
+                },
+            ),
     ) {
       Box(
         modifier = Modifier

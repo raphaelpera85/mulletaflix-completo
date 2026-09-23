@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,6 +46,7 @@ import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.primaryImageUrl
 import org.mulletaflix.domain.model.playbackProgressFraction
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 
 /**
  * Season selector + episode list used by the item detail screen.
@@ -184,7 +185,7 @@ private fun EpisodeRow(episode: MediaItem, onPlay: () -> Unit, onClick: () -> Un
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -195,7 +196,17 @@ private fun EpisodeRow(episode: MediaItem, onPlay: () -> Unit, onClick: () -> Un
                     Box(modifier = Modifier.fillMaxHeight().fillMaxWidth(progress).background(MaterialTheme.colorScheme.secondary))
                 }
             }
-            IconButton(onClick = onPlay, modifier = Modifier.align(Alignment.Center).size(40.dp).background(Color.Black.copy(0.5f), CircleShape)) {
+            // O alvo interativo tem o mínimo do Material (48 dp). Medido no aparelho: a
+            // área que aceita o toque é a do `clickable` que o componente aplica, então
+            // um `padding` no modificador do chamador encolheria *o alvo* de volta para
+            // 40 dp mesmo com o nó externo maior — o disco tem o mesmo tamanho do alvo.
+            MulletaFlixTopBarAction(
+                onClick = onPlay,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(EPISODE_PLAY_TARGET_DP.dp)
+                    .background(Color.Black.copy(0.5f), CircleShape),
+            ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = "Reproduzir", tint = Color.White)
             }
         }
@@ -208,6 +219,14 @@ private fun EpisodeRow(episode: MediaItem, onPlay: () -> Unit, onClick: () -> Un
 }
 
 private val MediaItem.runtimeMinutes: Int? get() = runtimeTicks?.div(600_000_000L)?.toInt()?.takeIf { it > 0 }
+
+/**
+ * Interactive size of the play button over an episode thumbnail.
+ *
+ * Material's minimum: a 40 dp target is harder to hit with a thumb, and this button sits
+ * on top of artwork that is itself tappable to open the episode.
+ */
+internal const val EPISODE_PLAY_TARGET_DP = 48
 
 /**
  * Episode row title (`1x01 Nome`).

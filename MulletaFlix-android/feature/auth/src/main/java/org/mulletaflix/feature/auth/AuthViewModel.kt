@@ -312,8 +312,15 @@ class AuthViewModel @Inject constructor(
             return
         }
 
+        // O botão "Entrar" fica desabilitado enquanto autentica, mas isso é lido na
+        // composição: dois toques no mesmo frame passam os dois, e o campo de senha
+        // ainda tem um segundo caminho (o "Done" do teclado). Duas autenticações
+        // criam duas sessões no servidor e deixam a última resposta — inclusive uma
+        // falha — sobrescrever a outra. O flag é marcado antes de lançar a corrotina.
+        if (_state.value.isLoading) return
+
+        _state.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
             loginUseCase(username, password)
                 .onSuccess {
                     _state.update {
@@ -347,8 +354,13 @@ class AuthViewModel @Inject constructor(
             }
         }
 
+        // Mesma janela da autenticação, com uma consequência pior: o segundo
+        // cadastro volta do servidor como "usuário já existe" e escreve esse erro
+        // por cima do sucesso que já navegou para a tela seguinte.
+        if (_state.value.isRegistering) return
+
+        _state.update { it.copy(isRegistering = true, error = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isRegistering = true, error = null) }
             registerUseCase(cleanUsername, password)
                 .onSuccess { result ->
                     if (result.success) {
@@ -415,6 +427,15 @@ class AuthViewModel @Inject constructor(
                 quickConnectSecret = null,
                 quickConnectSecondsRemaining = null,
                 isWaitingForQuickConnect = false,
+                // Cancelling invalidates the request that raised this flag, and
+                // both of that request's terminal branches skip the clear once
+                // the generation moved on. `initiateQuickConnect` awaits a call
+                // the repository wraps in `runCatching`, so a cancelled request
+                // surfaces as `onFailure` rather than a cancellation — the
+                // spinner used to stay up forever after "Cancelar", leaving the
+                // "Entrar" and Quick Connect buttons disabled with no way out
+                // short of restarting the app.
+                isLoading = false,
             )
         }
     }

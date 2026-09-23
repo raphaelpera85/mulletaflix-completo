@@ -22,13 +22,33 @@ internal fun preferredServerUrl(
     ?: saved.firstOrNull()?.url
     ?: fallback
 
-/** Returns the endpoint that may be verified automatically during startup. */
+/**
+ * Returns the endpoint that may be verified automatically during startup.
+ *
+ * The automatic path used to take `discoveredServers.firstOrNull()?.url`, which is
+ * the one decision this file exists to avoid: on a network that advertises more
+ * than one Jellyfin-compatible server, the first one to answer took over the app —
+ * including over an install that was already logged in somewhere else. The
+ * identity match that [preferredServerUrl] implements was only applied to the
+ * *displayed* address, not to the endpoint the screen connects to by itself.
+ *
+ * When discovery returns nothing, the saved address still wins, so a first run
+ * with no LAN server keeps verifying the public endpoint.
+ */
 internal fun automaticServerCandidate(
     state: AuthState,
     manuallyEdited: Boolean,
     connectionStarted: Boolean,
 ): String? = if (!manuallyEdited && !connectionStarted && !state.isDiscovering) {
-    state.discoveredServers.firstOrNull()?.url ?: state.serverUrl
+    if (state.discoveredServers.isEmpty()) {
+        state.serverUrl
+    } else {
+        preferredServerUrl(
+            discovered = state.discoveredServers,
+            saved = state.savedServers,
+            fallback = state.serverUrl,
+        )
+    }
 } else {
     null
 }

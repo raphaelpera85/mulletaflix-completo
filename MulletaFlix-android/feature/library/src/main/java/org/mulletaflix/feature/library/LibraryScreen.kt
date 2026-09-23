@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import android.content.res.Configuration
 import kotlin.math.roundToInt
@@ -32,7 +33,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.mulletaflix.designsystem.components.MediaCard
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.MediaCardShape
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.domain.model.*
 
 /**
@@ -87,25 +90,29 @@ fun LibraryScreen(
             TopAppBar(
                 title = { Text(state.libraryName) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
+                    MulletaFlixTopBarAction(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.loadLibrary(libraryId) }, enabled = !state.isLoading) {
+                    MulletaFlixTopBarAction(
+                        onClick = { viewModel.loadLibrary(libraryId) },
+                        busy = state.isLoading,
+                        busyContentDescription = "Atualizar biblioteca",
+                    ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Atualizar biblioteca")
                     }
                     // View toggle (grid / list)
-                    IconButton(onClick = viewModel::toggleView) {
+                    MulletaFlixTopBarAction(onClick = viewModel::toggleView) {
                         Icon(if (state.isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, contentDescription = "Alternar visualização")
                     }
                     // Sort
-                    IconButton(onClick = viewModel::showSortMenu) {
+                    MulletaFlixTopBarAction(onClick = viewModel::showSortMenu) {
                         Icon(
                             Icons.AutoMirrored.Filled.Sort,
                             contentDescription = "Ordenar: ${state.sortBy.label}, ${state.sortOrder.label}",
                         )
                     }
                     // Filter
-                    IconButton(onClick = viewModel::showFilterMenu) {
+                    MulletaFlixTopBarAction(onClick = viewModel::showFilterMenu) {
                         Icon(Icons.Default.FilterList, contentDescription = "Filtrar")
                     }
                 }
@@ -341,9 +348,10 @@ private fun LibraryListRow(item: MediaItem, focusFriendly: Boolean, onClick: () 
             .fillMaxWidth()
             .then(
                 if (focusFriendly) {
-                    Modifier
-                        .onFocusChanged { isFocused = it.isFocused }
-                        .focusable()
+                    // No `focusable()`: the `clickable` below already provides a
+                    // focus target, and a second one on the same node swallowed the
+                    // remote's first press, so a library row needed two clicks.
+                    Modifier.onFocusChanged { isFocused = it.isFocused }
                 } else {
                     Modifier
                 },
@@ -419,6 +427,10 @@ internal fun SortDropdown(
             DropdownMenuItem(
                 text = { Text(option.label) },
                 leadingIcon = { if (selectedOption == option) Icon(Icons.Default.Check, contentDescription = null) },
+                // `DropdownMenuItem` do material3 1.4.0 não tem parâmetro `selected`,
+                // então a única marca do campo ativo era um visto sem descrição: o
+                // leitor de tela lia os nomes e nunca dizia qual estava escolhido.
+                modifier = Modifier.semantics { selected = selectedOption == option },
                 onClick = { selectedOption = option },
             )
         }
@@ -433,6 +445,7 @@ internal fun SortDropdown(
                     )
                 },
                 trailingIcon = { if (selectedOrder == order) Icon(Icons.Default.Check, contentDescription = null) },
+                modifier = Modifier.semantics { selected = selectedOrder == order },
                 onClick = { selectedOrder = order },
             )
         }

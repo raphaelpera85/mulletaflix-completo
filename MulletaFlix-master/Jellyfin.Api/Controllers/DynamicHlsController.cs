@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
@@ -1387,7 +1387,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
 
     private async Task<ActionResult> GetVariantPlaylistInternal(StreamingRequestDto streamingRequest, CancellationTokenSource cancellationTokenSource)
     {
-        using var state = await StreamingHelpers.GetStreamingState(
+        await using var state = await StreamingHelpers.GetStreamingState(
                 streamingRequest,
                 HttpContext,
                 _mediaSourceManager,

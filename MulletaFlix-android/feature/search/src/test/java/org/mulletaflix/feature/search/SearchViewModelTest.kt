@@ -29,6 +29,7 @@ import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.SearchHintItem
 import org.mulletaflix.domain.repository.SearchHistoryRepository
 import org.mulletaflix.domain.repository.SearchRepository
+import org.mulletaflix.domain.repository.SearchResults
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
 import org.mulletaflix.domain.usecase.SearchMediaUseCase
@@ -127,6 +128,119 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `successful search carries the server total into state`() = runTest {
+        searchRepository.totalMatching = 412
+        viewModel.search("matrix")
+        advanceUntilIdle()
+
+        assertEquals(412, viewModel.state.value.totalMatching)
+        assertTrue(viewModel.state.value.isTruncated)
+    }
+
+    @Test
+    fun `a total equal to what arrived is not truncation`() = runTest {
+        searchRepository.totalMatching = 1
+        viewModel.search("matrix")
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.state.value.totalMatching)
+        assertFalse(viewModel.state.value.isTruncated)
+    }
+
+    @Test
+    fun `search without a server total does not claim truncation`() = runTest {
+        searchRepository.totalMatching = null
+        viewModel.search("matrix")
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.totalMatching)
+        assertFalse(viewModel.state.value.isTruncated)
+    }
+
+    @Test
+    fun `clearing the query drops a stale server total`() = runTest {
+        searchRepository.totalMatching = 412
+        viewModel.search("matrix")
+        advanceUntilIdle()
+        assertEquals(412, viewModel.state.value.totalMatching)
+
+        viewModel.onQueryChange("")
+        advanceUntilIdle()
+
+        // Sem isso a tela continuaria dizendo "Mostrando 0 de 412" depois de o campo
+        // ser esvaziado, ao lado do histórico de buscas.
+        assertEquals(null, viewModel.state.value.totalMatching)
+    }
+
+    @Test
+    fun `typing a new query drops the previous server total before the answer arrives`() = runTest {
+        searchRepository.totalMatching = 412
+        viewModel.search("batman")
+        advanceUntilIdle()
+        assertEquals(412, viewModel.state.value.totalMatching)
+
+        // Uma pergunta nova: o 412 respondia a "batman" e não diz nada sobre "zzz".
+        // A lista antiga fica de propósito (evita piscar), mas a contagem não pode.
+        viewModel.onQueryChange("zzz")
+
+        assertEquals(null, viewModel.state.value.totalMatching)
+        assertEquals("zzz", viewModel.state.value.query)
+    }
+
+    @Test
+    fun `offline with a new query drops the previous results and total`() = runTest {
+        searchRepository.totalMatching = 412
+        viewModel.search("batman")
+        advanceUntilIdle()
+        assertEquals(1, viewModel.state.value.results.size)
+
+        networkState.value = false
+        advanceUntilIdle()
+
+        viewModel.search("zzz")
+        advanceUntilIdle()
+
+        // Nada foi perguntado ao servidor: a tela não pode mostrar 30 cartões de
+        // "batman" com "Mostrando 30 de 412" embaixo de "zzz".
+        assertTrue(viewModel.state.value.results.isEmpty())
+        assertEquals(null, viewModel.state.value.totalMatching)
+        assertEquals(
+            "Você está offline. A busca será retomada quando a conexão voltar.",
+            viewModel.state.value.error,
+        )
+    }
+
+    @Test
+    fun `an offline refresh keeps the list and the total it is refreshing`() = runTest {
+        searchRepository.totalMatching = 412
+        viewModel.search("batman")
+        advanceUntilIdle()
+
+        networkState.value = false
+        advanceUntilIdle()
+
+        // Puxar para atualizar é o caso oposto: a intenção é rever a mesma lista, e o
+        // cartão de erro já explica que a atualização não aconteceu.
+        viewModel.refreshSearch()
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.state.value.results.size)
+        assertEquals(412, viewModel.state.value.totalMatching)
+    }
+
+    @Test
+    fun `changing the filter drops the previous server total`() = runTest {
+        searchRepository.totalMatching = 412
+        viewModel.search("batman")
+        advanceUntilIdle()
+        assertEquals(412, viewModel.state.value.totalMatching)
+
+        viewModel.setFilter(SearchFilter.Movies)
+
+        assertEquals(null, viewModel.state.value.totalMatching)
+    }
+
+    @Test
     fun `refreshSearch keeps the current query and completes refresh state`() = runTest {
         val controlledRepository = ControlledSearchRepository()
         viewModel = SearchViewModel(
@@ -201,6 +315,35 @@ class SearchViewModelTest {
         controlledRepository.complete("old", "Old result")
         advanceUntilIdle()
         assertEquals("New result", viewModel.state.value.results.single().name)
+    }
+
+    @Test
+    fun `a search typed into the box is remembered`() = runTest {
+        // O caminho normal de uma busca é digitar, não apertar Enter. Só `search()`
+        // gravava histórico, então "Suas buscas recentes aparecerão aqui." continuava
+        // vazio para quem nunca apertou Enter — mesmo tendo buscado.
+        viewModel.onQueryChange("batman")
+        advanceTimeBy(400)
+        advanceUntilIdle()
+
+        assertTrue("a busca precisa ter ido ao servidor", searchRepository.called)
+        assertEquals(listOf("batman"), viewModel.state.value.history)
+        assertEquals(listOf("batman"), historyRepository.entries)
+    }
+
+    @Test
+    fun `a search that found nothing is not remembered`() = runTest {
+        // Um termo sem resultado é um erro de digitação ou um título que o servidor não
+        // tem; guardá-lo só polui a lista de buscas recentes.
+        searchRepository.shouldFail = false
+        searchRepository.emptyResults = true
+        viewModel.onQueryChange("batmna")
+        advanceTimeBy(400)
+        advanceUntilIdle()
+
+        assertTrue("a busca precisa ter acontecido", searchRepository.called)
+        assertEquals(emptyList<String>(), viewModel.state.value.history)
+        assertEquals(emptyList<String>(), historyRepository.entries)
     }
 
     @Test
@@ -326,6 +469,167 @@ class SearchViewModelTest {
         assertEquals(null, viewModel.state.value.error)
     }
 
+    /** Servidor de mentira que pagina de verdade, com total fixo. */
+    private class PagedSearchRepository(
+        private val total: Int,
+        private val pageSize: Int = 30,
+        /** Itens que a página seguinte repete, para exercitar a deduplicação. */
+        private val repeatFromPreviousPage: Int = 0,
+    ) : SearchRepository {
+        val starts = mutableListOf<Int>()
+        var failNext = false
+
+        override suspend fun searchHints(term: String, userId: String?) =
+            Result.success(emptyList<SearchHintItem>())
+
+        override suspend fun searchItems(
+            term: String,
+            userId: String,
+            itemTypes: String?,
+            startIndex: Int,
+        ): Result<SearchResults> {
+            starts += startIndex
+            if (failNext) {
+                failNext = false
+                return Result.failure(Exception("HTTP 503"))
+            }
+            val end = minOf(startIndex + pageSize, total)
+            val items = (startIndex until end).map {
+                MediaItem("id-$it", "Item $it", MediaItemType.Movie)
+            }
+            val overlap = if (startIndex == 0) emptyList() else {
+                (maxOf(0, startIndex - repeatFromPreviousPage) until startIndex).map {
+                    MediaItem("id-$it", "Item $it", MediaItemType.Movie)
+                }
+            }
+            return Result.success(SearchResults(overlap + items, total))
+        }
+    }
+
+    @Test
+    fun `loadMore appends the next page without dropping what is on screen`() = runTest {
+        val paged = PagedSearchRepository(total = 100)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(paged),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        assertEquals(30, viewModel.state.value.results.size)
+        assertTrue(viewModel.state.value.hasMore)
+
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals("a página nova é anexada, não troca a lista", 60, viewModel.state.value.results.size)
+        assertEquals("o início da segunda página é o tamanho do que já chegou", listOf(0, 30), paged.starts)
+        assertEquals("id-0", viewModel.state.value.results.first().id)
+        assertTrue(viewModel.state.value.hasMore)
+        assertFalse(viewModel.state.value.isLoadingMore)
+    }
+
+    @Test
+    fun `loadMore stops offering more once everything arrived`() = runTest {
+        val paged = PagedSearchRepository(total = 45)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(paged),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(45, viewModel.state.value.results.size)
+        assertFalse("chegou tudo: o botão sai de cena", viewModel.state.value.hasMore)
+        assertFalse(viewModel.state.value.isTruncated)
+    }
+
+    @Test
+    fun `loadMore does not repeat an item the server sent twice`() = runTest {
+        val paged = PagedSearchRepository(total = 60, repeatFromPreviousPage = 2)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(paged),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        val ids = viewModel.state.value.results.map { it.id }
+        assertEquals("a lista não pode ter id repetido", ids.distinct(), ids)
+        assertEquals(60, ids.size)
+    }
+
+    @Test
+    fun `a failed page says so and stops offering more`() = runTest {
+        val paged = PagedSearchRepository(total = 100)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(paged),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        paged.failNext = true
+
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals("o que já estava na tela continua", 30, viewModel.state.value.results.size)
+        assertEquals("Não foi possível carregar mais resultados.", viewModel.state.value.error)
+        assertFalse("o botão não pode virar armadilha de tentar-e-falar", viewModel.state.value.hasMore)
+        assertFalse(viewModel.state.value.isLoadingMore)
+    }
+
+    @Test
+    fun `a new query drops the pagination of the previous one`() = runTest {
+        val paged = PagedSearchRepository(total = 100)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(paged),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        viewModel.loadMore()
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.hasMore)
+
+        // Uma pergunta nova: a paginação da anterior morre **na hora**, antes do debounce.
+        // Se `isLoadingMore` não baixasse aqui, a resposta da página antiga seria
+        // descartada pela geração e o indicador giraria para sempre.
+        viewModel.onQueryChange("b")
+        assertFalse(viewModel.state.value.hasMore)
+        assertFalse(viewModel.state.value.isLoadingMore)
+
+        advanceUntilIdle()
+
+        // E a busca nova recomeça da primeira página, em vez de continuar de onde a
+        // anterior parou.
+        assertEquals(listOf(0, 30, 0), paged.starts)
+        assertEquals(30, viewModel.state.value.results.size)
+    }
+
     private fun createViewModel(): SearchViewModel = SearchViewModel(
         SearchMediaUseCase(searchRepository),
         FakeAuthRepository(),
@@ -339,8 +643,20 @@ class SearchViewModelTest {
         var itemTypes: String? = null
         var calls = 0
         var shouldFail = false
+
+        /** Devolve uma busca bem-sucedida sem resultado. */
+        var emptyResults = false
+
+        /** Total que o servidor informa; nulo = o servidor não contou. */
+        var totalMatching: Int? = null
+
         override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
-        override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> {
+        override suspend fun searchItems(
+            term: String,
+            userId: String,
+            itemTypes: String?,
+            startIndex: Int,
+        ): Result<SearchResults> {
             called = true
             calls++
             this.term = term
@@ -348,18 +664,29 @@ class SearchViewModelTest {
             if (shouldFail) {
                 return Result.failure(Exception("Network error"))
             }
-            return Result.success(listOf(MediaItem("1", "Result", MediaItemType.Movie)))
+            if (emptyResults) return Result.success(SearchResults(emptyList(), totalMatching))
+            return Result.success(
+                SearchResults(
+                    items = listOf(MediaItem("1", "Result", MediaItemType.Movie)),
+                    totalMatching = totalMatching,
+                ),
+            )
         }
     }
 
     private class ControlledSearchRepository : SearchRepository {
-        private val pending = mutableMapOf<String, CompletableDeferred<Result<List<MediaItem>>>>()
+        private val pending = mutableMapOf<String, CompletableDeferred<Result<SearchResults>>>()
         private val users = mutableMapOf<String, String>()
         var failNext = false
 
         override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
 
-        override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> {
+        override suspend fun searchItems(
+            term: String,
+            userId: String,
+            itemTypes: String?,
+            startIndex: Int,
+        ): Result<SearchResults> {
             users[term] = userId
             if (failNext) {
                 failNext = false
@@ -379,7 +706,7 @@ class SearchViewModelTest {
 
         fun complete(term: String, title: String) {
             pending.getOrPut(term) { CompletableDeferred() }
-                .complete(Result.success(listOf(MediaItem(term, title, MediaItemType.Movie))))
+                .complete(Result.success(SearchResults(listOf(MediaItem(term, title, MediaItemType.Movie)))))
         }
     }
 

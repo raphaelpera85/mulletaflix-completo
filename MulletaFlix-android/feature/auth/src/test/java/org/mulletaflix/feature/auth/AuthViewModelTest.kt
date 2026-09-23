@@ -196,6 +196,38 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `cancelling quick connect clears the loading state its request left behind`() = runTest {
+        // Measured defect: "Gerar Código Quick Connect" then "Cancelar" left
+        // `isLoading` true forever. `cancelQuickConnectPolling` invalidated the
+        // request, whose only clearers are guarded by the generation it just
+        // bumped, and the repository's `runCatching` turns the cancellation into
+        // `onFailure` rather than a cancellation. The login buttons are disabled
+        // while `isLoading` is true, so the screen was stuck until an app restart.
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun initiateQuickConnect(): Result<QuickConnectState> {
+                withContext(NonCancellable) { delay(100) }
+                return Result.success(QuickConnectState("654321", "cancelled-secret", false))
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        runCurrent()
+        assertTrue("the initiate request must show progress", viewModel.state.value.isLoading)
+
+        viewModel.cancelQuickConnect()
+        advanceUntilIdle()
+
+        assertFalse(
+            "Cancel must clear the spinner; it invalidates the only request that raised it",
+            viewModel.state.value.isLoading,
+        )
+        assertNull(viewModel.state.value.quickConnectSecret)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+    }
+
+    @Test
     fun `late quick connect availability from previous server is ignored`() = runTest {
         coEvery { discovery.discover(any()) } returns emptyList()
         val oldAvailability = CompletableDeferred<Result<Boolean>>()
@@ -448,6 +480,95 @@ class AuthViewModelTest {
 
         assertEquals("http://new-server:8096", viewModel.state.value.serverUrl)
         assertFalse(viewModel.state.value.savedServers.any { it.url == "http://old-server:8096" })
+    }
+
+    /**
+     * O botão "Entrar" fica desabilitado enquanto autentica, mas isso é lido na
+     * composição: dois toques no mesmo frame passam os dois, e o campo de senha
+     * tem ainda o "Done" do teclado como segundo caminho. Duas autenticações
+     * criam duas sessões no servidor.
+     */
+    @Test
+    fun `two taps in the same frame authenticate once`() = runTest {
+        val gate = CompletableDeferred<Result<UserSession>>()
+        var loginCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun login(username: String, password: String): Result<UserSession> {
+                loginCalls++
+                return gate.await()
+            }
+        }
+        val viewModel = createViewModel(authRepo = authRepo)
+        advanceUntilIdle()
+
+        viewModel.onUsernameChange("raphael")
+        viewModel.onPasswordChange("password123")
+        viewModel.login()
+        viewModel.login()
+
+        gate.complete(Result.success(UserSession("u1", "raphael", "tok", "s1")))
+        advanceUntilIdle()
+
+        assertEquals(1, loginCalls)
+        assertTrue(viewModel.state.value.isAuthenticated)
+    }
+
+    /**
+     * A consequência do cadastro duplicado é pior que a do login duplicado: o
+     * segundo pedido volta como "usuário já existe" e escreve esse erro por cima
+     * do sucesso que já navegou.
+     */
+    @Test
+    fun `two taps in the same frame register once and keep the success`() = runTest {
+        val gate = CompletableDeferred<Result<RegistrationResult>>()
+        var registerCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun register(username: String, password: String): Result<RegistrationResult> {
+                registerCalls++
+                return gate.await()
+            }
+        }
+        val viewModel = createViewModel(authRepo = authRepo)
+        advanceUntilIdle()
+
+        var navigated = 0
+        viewModel.register("raphael", "password123") { navigated++ }
+        viewModel.register("raphael", "password123") { navigated++ }
+
+        gate.complete(Result.success(RegistrationResult(true)))
+        advanceUntilIdle()
+
+        assertEquals(1, registerCalls)
+        assertEquals(1, navigated)
+        assertNull(viewModel.state.value.error)
+    }
+
+    @Test
+    fun `a rejected second tap does not lock the login button`() = runTest {
+        val gate = CompletableDeferred<Result<UserSession>>()
+        var loginCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun login(username: String, password: String): Result<UserSession> {
+                loginCalls++
+                if (loginCalls == 1) return gate.await()
+                return Result.success(UserSession("u1", username, "tok", "s1"))
+            }
+        }
+        val viewModel = createViewModel(authRepo = authRepo)
+        advanceUntilIdle()
+
+        viewModel.onUsernameChange("raphael")
+        viewModel.onPasswordChange("password123")
+        viewModel.login()
+        viewModel.login()
+        gate.complete(Result.failure(IllegalStateException("rede")))
+        advanceUntilIdle()
+
+        // A guarda não pode virar cadeado: depois da resposta o próximo envio volta.
+        assertFalse(viewModel.state.value.isLoading)
+        viewModel.login()
+        advanceUntilIdle()
+        assertEquals(2, loginCalls)
     }
 
     private open class FakeAuthRepository : AuthRepository {

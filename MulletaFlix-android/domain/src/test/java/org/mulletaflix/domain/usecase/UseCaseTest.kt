@@ -1,10 +1,10 @@
 package org.mulletaflix.domain.usecase
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.domain.model.*
@@ -222,6 +222,107 @@ class UseCaseTest {
         assertEquals("S2 Premiere", result.getOrNull()?.name)
     }
 
+    /**
+     * Uma falha ao procurar o próximo episódio **não** é "a série acabou".
+     *
+     * O player esconde o aviso de "Próximo episódio" quando o resultado é `null`, e
+     * as duas buscas de temporada colapsavam a falha em `success(null)`: um 5xx
+     * passageiro encerrava a maratona em silêncio, indistinguível de um final de
+     * série. A primeira busca já propagava; agora as três concordam.
+     */
+    @Test
+    fun `GetNextEpisodeUseCase does not turn a season lookup failure into a series ending`() = runTest {
+        val finale = MediaItem(
+            id = "e2",
+            name = "S1 Finale",
+            type = MediaItemType.Episode,
+            seriesId = "s1",
+            seasonId = "season1",
+            indexNumber = 2,
+            parentIndexNumber = 1,
+        )
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getEpisodes(
+                userId: String,
+                seriesId: String,
+                seasonId: String?,
+            ): Result<List<MediaItem>> = Result.success(listOf(finale))
+
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("HTTP 503"))
+        }
+
+        val result = GetNextEpisodeUseCase(mediaRepo)("u1", finale)
+
+        assertTrue(
+            "\"não consegui olhar\" precisa ser diferente de \"acabou\"",
+            result.isFailure,
+        )
+        assertEquals("HTTP 503", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `GetNextEpisodeUseCase does not turn a next season episode failure into a series ending`() = runTest {
+        val finale = MediaItem(
+            id = "e2",
+            name = "S1 Finale",
+            type = MediaItemType.Episode,
+            seriesId = "s1",
+            seasonId = "season1",
+            indexNumber = 2,
+            parentIndexNumber = 1,
+        )
+        val season1 = MediaItem(id = "season1", name = "Season 1", type = MediaItemType.Season, indexNumber = 1)
+        val season2 = MediaItem(id = "season2", name = "Season 2", type = MediaItemType.Season, indexNumber = 2)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getEpisodes(
+                userId: String,
+                seriesId: String,
+                seasonId: String?,
+            ): Result<List<MediaItem>> = if (seasonId == "season1") {
+                Result.success(listOf(finale))
+            } else {
+                Result.failure(IllegalStateException("HTTP 503"))
+            }
+
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> =
+                Result.success(listOf(season1, season2))
+        }
+
+        val result = GetNextEpisodeUseCase(mediaRepo)("u1", finale)
+
+        assertTrue("a falha da segunda temporada também precisa subir", result.isFailure)
+    }
+
+    @Test
+    fun `GetNextEpisodeUseCase still reports a real series ending as null`() = runTest {
+        val finale = MediaItem(
+            id = "e2",
+            name = "S1 Finale",
+            type = MediaItemType.Episode,
+            seriesId = "s1",
+            seasonId = "season1",
+            indexNumber = 2,
+            parentIndexNumber = 1,
+        )
+        val season1 = MediaItem(id = "season1", name = "Season 1", type = MediaItemType.Season, indexNumber = 1)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getEpisodes(
+                userId: String,
+                seriesId: String,
+                seasonId: String?,
+            ): Result<List<MediaItem>> = Result.success(listOf(finale))
+
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> =
+                Result.success(listOf(season1))
+        }
+
+        val result = GetNextEpisodeUseCase(mediaRepo)("u1", finale)
+
+        assertTrue("sem falha nenhuma, o fim de série continua sendo null", result.isSuccess)
+        assertEquals(null, result.getOrNull())
+    }
+
     @Test
     fun `GetHomeFeedUseCase loads sections and selects hero`() = runTest {
         val resumeItem = MediaItem(id = "r1", name = "Resume Movie", type = MediaItemType.Movie)
@@ -243,6 +344,112 @@ class UseCaseTest {
         assertEquals(listOf(resumeItem), feed.resumeItems)
         assertEquals(listOf(library), feed.libraries)
         assertEquals(listOf(latestMovie), feed.recentlyAddedByLibrary["Filmes"])
+    }
+
+    /**
+     * Uma falha em `/Views` desenhava a Home de quem não tem biblioteca.
+     *
+     * O `getOrDefault(emptyList())` só era desfeito por um `throw` que exigia
+     * *todas* as outras seções vazias. Com "Continuar Assistindo" funcionando, a
+     * Home ficava sem nenhum bloco de biblioteca, sem erro e sem "tentar
+     * novamente" — indistinguível de uma conta sem biblioteca.
+     */
+    @Test
+    fun `GetHomeFeedUseCase surfaces a libraries failure instead of an empty list`() = runTest {
+        val resumeItem = MediaItem(id = "r1", name = "Resume Movie", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(listOf(resumeItem))
+            override suspend fun getLibraries(userId: String): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("HTTP 500"))
+        }
+
+        val result = GetHomeFeedUseCase(mediaRepo)("u1")
+
+        assertTrue(result.isSuccess)
+        val feed = result.getOrThrow()
+        assertEquals(
+            "o erro precisa chegar à tela mesmo com o resto da Home funcionando",
+            "HTTP 500",
+            feed.librariesError,
+        )
+        assertTrue(feed.libraries.isEmpty())
+        assertEquals(listOf(resumeItem), feed.resumeItems)
+    }
+
+    @Test
+    fun `GetHomeFeedUseCase keeps a working libraries call free of error`() = runTest {
+        val library = MediaItem(id = "lib1", name = "Filmes", type = MediaItemType.CollectionFolder)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getLibraries(userId: String) = Result.success(listOf(library))
+        }
+
+        val feed = GetHomeFeedUseCase(mediaRepo)("u1").getOrThrow()
+
+        assertEquals(null, feed.librariesError)
+        assertEquals(listOf(library), feed.libraries)
+    }
+
+    /**
+     * O mesmo defeito das bibliotecas, na seção de TV ao vivo, que sobreviveu à correção
+     * delas: a falha ao buscar `LiveTv/Channels` era achatada em lista vazia e o carrossel
+     * simplesmente não aparecia. Um servidor com TV ao vivo desligada e um servidor que
+     * respondeu 500 davam a mesma Home.
+     */
+    @Test
+    fun `GetHomeFeedUseCase surfaces a live tv failure instead of a silent empty carousel`() = runTest {
+        val resumeItem = MediaItem(id = "r1", name = "Resume Movie", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(listOf(resumeItem))
+            override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("HTTP 500"))
+        }
+
+        val result = GetHomeFeedUseCase(mediaRepo)("u1")
+
+        assertTrue(result.isSuccess)
+        val feed = result.getOrThrow()
+        assertEquals(
+            "a falha da TV ao vivo precisa chegar à tela mesmo com o resto da Home funcionando",
+            "HTTP 500",
+            feed.liveTvError,
+        )
+        assertTrue(feed.liveTvChannels.isEmpty())
+        assertEquals(listOf(resumeItem), feed.resumeItems)
+        assertEquals("bibliotecas não falharam; o aviso é da TV ao vivo", null, feed.librariesError)
+    }
+
+    @Test
+    fun `GetHomeFeedUseCase treats a server without live tv as success, not as failure`() = runTest {
+        // Servidor com TV ao vivo desligada responde **sucesso com zero canais**. Marcar
+        // isso como erro encheria a Home de um aviso para quem simplesmente não usa TV.
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> =
+                Result.success(emptyList())
+        }
+
+        val feed = GetHomeFeedUseCase(mediaRepo)("u1").getOrThrow()
+
+        assertEquals(null, feed.liveTvError)
+        assertTrue(feed.liveTvChannels.isEmpty())
+    }
+
+    @Test
+    fun `GetHomeFeedUseCase still fails outright when nothing at all could be loaded`() = runTest {
+        // A conta sem catálogo nenhum continua com a tela de erro cheia, e não com
+        // um aviso de "bibliotecas" sobre uma Home vazia.
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> =
+                Result.success(emptyList())
+            override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> =
+                Result.success(emptyList())
+            override suspend fun getLibraries(userId: String): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("sem catálogo"))
+        }
+
+        val result = GetHomeFeedUseCase(mediaRepo)("u1")
+
+        assertTrue(result.isFailure)
+        assertEquals("sem catálogo", result.exceptionOrNull()?.message)
     }
 
     @Test
@@ -277,25 +484,54 @@ class UseCaseTest {
     }
 
     @Test
-    fun `SearchMediaUseCase trims query and returns empty list for blank`() = runTest {
+    fun `SearchMediaUseCase trims query and returns empty result for blank`() = runTest {
         var searchedTerm: String? = null
+        var searchedStart = -1
         val searchRepo = object : SearchRepository {
             override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
-            override suspend fun searchItems(term: String, userId: String, itemTypes: String?): Result<List<MediaItem>> {
+            override suspend fun searchItems(
+                term: String,
+                userId: String,
+                itemTypes: String?,
+                startIndex: Int,
+            ): Result<SearchResults> {
                 searchedTerm = term
-                return Result.success(listOf(MediaItem(id = "m1", name = "Search Hit", type = MediaItemType.Movie)))
+                searchedStart = startIndex
+                return Result.success(
+                    SearchResults(
+                        items = listOf(MediaItem(id = "m1", name = "Search Hit", type = MediaItemType.Movie)),
+                        totalMatching = 412,
+                    ),
+                )
             }
         }
         val useCase = SearchMediaUseCase(searchRepo)
 
         val blankResult = useCase("u1", "   ")
         assertTrue(blankResult.isSuccess)
-        assertTrue(blankResult.getOrNull()!!.isEmpty())
+        assertTrue(blankResult.getOrNull()!!.items.isEmpty())
+        // Uma busca em branco não perguntou nada ao servidor, então não pode afirmar
+        // "0 de 0": o total fica nulo e a tela não sugere truncamento.
+        assertNull(blankResult.getOrNull()!!.totalMatching)
 
         val validResult = useCase("u1", "  matrix  ")
         assertTrue(validResult.isSuccess)
         assertEquals("matrix", searchedTerm)
-        assertEquals(1, validResult.getOrNull()!!.size)
+        assertEquals(1, validResult.getOrNull()!!.items.size)
+        // O total que o servidor contou atravessa o UseCase; sem isso a tela nunca
+        // saberia que os 1 item mostrado são 1 de 412.
+        assertEquals(412, validResult.getOrNull()!!.totalMatching)
+        assertTrue(validResult.getOrNull()!!.isTruncated)
+        assertEquals("a primeira página começa no zero", 0, searchedStart)
+
+        // A página seguinte é pedida a partir do que já chegou: é isso que o
+        // "carregar mais" da tela precisa.
+        useCase("u1", "matrix", startIndex = 30)
+        assertEquals(30, searchedStart)
+
+        // Um índice negativo não pode virar `StartIndex=-1` na URL.
+        useCase("u1", "matrix", startIndex = -5)
+        assertEquals(0, searchedStart)
     }
 
     @Test
@@ -333,8 +569,9 @@ class UseCaseTest {
         val recording = MediaItem(id = "rec1", name = "Recording 1", type = MediaItemType.Movie)
         val liveTvRepo = object : LiveTvRepository {
             override suspend fun getChannels(userId: String) = Result.success(listOf(channel))
-            override suspend fun getPrograms(channelIds: List<String>, minStartDate: String?, maxEndDate: String?) = Result.success(emptyList<MediaItem>())
+            override suspend fun getPrograms(channelIds: List<String>, windowStartUtc: String?, windowEndUtc: String?) = Result.success(emptyList<MediaItem>())
             override suspend fun getRecordings(userId: String) = Result.success(listOf(recording))
+            override suspend fun getScheduledProgramIds() = Result.success(emptySet<String>())
             override suspend fun scheduleRecording(program: MediaItem) = Result.success(Unit)
         }
         val useCase = GetLiveTvChannelsUseCase(liveTvRepo)
@@ -384,8 +621,6 @@ class UseCaseTest {
             groupName = "Mulleta Room",
             state = "Playing",
             participants = listOf("u1"),
-            playingItemId = "item1",
-            positionTicks = 0L,
         )
         val repo = object : SyncPlayRepository {
             override suspend fun getGroups() = Result.success(listOf(group))
@@ -526,11 +761,6 @@ class UseCaseTest {
         override suspend fun markAsUnplayed(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
         override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
         override suspend fun unmarkAsFavorite(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
-        override suspend fun search(userId: String, searchTerm: String, limit: Int, includeItemTypes: String?): Result<List<MediaItem>> = Result.success(emptyList())
-        override suspend fun getLiveTvChannels(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
-        override suspend fun getRecordings(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
-        override suspend fun getSuggestions(userId: String, itemId: String): Result<List<MediaItem>> = Result.success(emptyList())
-        override fun observeFavorites(userId: String): Flow<List<MediaItem>> = emptyFlow()
-        override fun observeRecentlyWatched(userId: String): Flow<List<MediaItem>> = emptyFlow()
+        override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
     }
 }

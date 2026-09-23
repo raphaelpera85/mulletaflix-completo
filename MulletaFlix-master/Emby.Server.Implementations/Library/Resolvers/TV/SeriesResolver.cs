@@ -1,4 +1,4 @@
-﻿#nullable disable
+#nullable disable
 
 #pragma warning disable CS1591
 
@@ -69,7 +69,8 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                         return new Series
                         {
                             Path = args.Path,
-                            Name = seriesInfo.Name
+                            Name = seriesInfo.Name,
+                            ProductionYear = seriesInfo.Year
                         };
                     }
                 }
@@ -86,7 +87,8 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                         return new Series
                         {
                             Path = args.Path,
-                            Name = seriesInfo.Name
+                            Name = seriesInfo.Name,
+                            ProductionYear = seriesInfo.Year
                         };
                     }
 
@@ -100,7 +102,8 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                         return new Series
                         {
                             Path = args.Path,
-                            Name = seriesInfo.Name
+                            Name = seriesInfo.Name,
+                            ProductionYear = seriesInfo.Year
                         };
                     }
                 }

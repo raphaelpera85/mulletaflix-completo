@@ -32,6 +32,10 @@ data class HomeState(
     val libraries: List<MediaItem> = emptyList(),
     val userProfile: UserProfile? = null,
     val error: String? = null,
+    /** Não nulo quando só as bibliotecas falharam; o resto da Home pode estar certo. */
+    val librariesError: String? = null,
+    /** Não nulo quando só a TV ao vivo falhou. Zero canais por **sucesso** não é erro. */
+    val liveTvError: String? = null,
 )
 
 @HiltViewModel
@@ -80,6 +84,8 @@ class HomeViewModel @Inject constructor(
                             isLoading = false,
                             isRefreshing = false,
                             error = null,
+                            librariesError = null,
+                            liveTvError = null,
                         )
                     }
                 }
@@ -108,6 +114,12 @@ class HomeViewModel @Inject constructor(
     private fun loadHome(refresh: Boolean = false) {
         val generation = ++loadGeneration
         loadJob = viewModelScope.launch {
+            // Um aviso de seção pertence à carga que o produziu. Sem esta limpeza, uma
+            // falha da TV ao vivo sobrevivia à carga seguinte e aparecia **ao lado** do
+            // erro do feed inteiro — os dois cartões juntos, que é exatamente o que a
+            // `HomeScreen` documenta como impossível. Vale para as três saídas daqui
+            // para baixo: offline, sessão expirada e falha total.
+            _state.update { it.copy(librariesError = null, liveTvError = null) }
             // Do not enqueue a request while the monitor already reports the
             // device offline. Reading the current value here also closes the
             // small startup race between the session collector and the
@@ -183,6 +195,8 @@ class HomeViewModel @Inject constructor(
                             liveTvChannels = feed.liveTvChannels,
                             libraries = feed.libraries,
                             error = null,
+                            librariesError = feed.librariesError,
+                            liveTvError = feed.liveTvError,
                         )
                     }
                 }

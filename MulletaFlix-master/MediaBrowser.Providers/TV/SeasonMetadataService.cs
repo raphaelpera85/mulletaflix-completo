@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -46,9 +47,9 @@ public class SeasonMetadataService : MetadataService<Season, SeasonInfo>
     protected override bool EnableUpdatingPremiereDateFromChildren => true;
 
     /// <inheritdoc />
-    protected override ItemUpdateType BeforeSaveInternal(Season item, bool isFullRefresh, ItemUpdateType updateType)
+    protected override async Task<ItemUpdateType> BeforeSaveInternalAsync(Season item, bool isFullRefresh, ItemUpdateType updateType)
     {
-        var updatedType = base.BeforeSaveInternal(item, isFullRefresh, updateType);
+        var updatedType = await base.BeforeSaveInternalAsync(item, isFullRefresh, updateType).ConfigureAwait(false);
 
         if (item.IndexNumber == 0 && !item.IsLocked && !item.LockedFields.Contains(MetadataField.Name))
         {

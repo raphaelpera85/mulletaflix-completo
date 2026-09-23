@@ -295,6 +295,46 @@ namespace MediaBrowser.Controller.Entities
             return ValidateChildrenInternal(progress, recursive, true, allowRemoveRoot, metadataRefreshOptions, metadataRefreshOptions.DirectoryService, cancellationToken);
         }
 
+        /// <summary>
+        /// Determines whether the freshly resolved image metadata differs from the persisted copy.
+        /// Used to skip the expensive per-image filesystem probe during library scans when both
+        /// sides agree, which is the common case for unchanged children.
+        /// </summary>
+        /// <param name="persisted">The item whose image info is already persisted.</param>
+        /// <param name="resolved">The freshly resolved item from the file system.</param>
+        /// <returns><c>true</c> when the image metadata needs to be reconciled.</returns>
+        private static bool HasImageInfoChanged(BaseItem persisted, BaseItem resolved)
+        {
+            var persistedImages = persisted.ImageInfos;
+            var resolvedImages = resolved.ImageInfos;
+
+            if (persistedImages.Length != resolvedImages.Length)
+            {
+                return true;
+            }
+
+            foreach (var persistedImage in persistedImages)
+            {
+                var match = false;
+                foreach (var resolvedImage in resolvedImages)
+                {
+                    if (string.Equals(resolvedImage.Path, persistedImage.Path, StringComparison.OrdinalIgnoreCase)
+                        && resolvedImage.DateModified == persistedImage.DateModified)
+                    {
+                        match = true;
+                        break;
+                    }
+                }
+
+                if (!match)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private Dictionary<Guid, BaseItem> GetActualChildrenDictionary()
         {
             var dictionary = new Dictionary<Guid, BaseItem>();
@@ -451,8 +491,18 @@ namespace MediaBrowser.Controller.Entities
                         }
                         else
                         {
-                            // metadata is up-to-date; make sure DB has correct images dimensions and hash
-                            await LibraryManager.UpdateImagesAsync(currentChild).ConfigureAwait(false);
+                            // Metadata is up to date. Only reconcile images when the resolved child actually
+                            // carries fresh image info that differs from the persisted copy. The common case is
+                            // that nothing changed, so avoid a per-image filesystem probe for every unchanged
+                            // child on every library scan (it was the dominant per-child cost of the scan).
+                            if (HasImageInfoChanged(currentChild, child))
+                            {
+                                await LibraryManager.UpdateImagesAsync(currentChild).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                LibraryManager.RegisterItem(currentChild);
+                            }
                         }
 
                         continue;

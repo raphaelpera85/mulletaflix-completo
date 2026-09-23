@@ -83,6 +83,10 @@ data class GroupInfoDto(
     @Json(name = "GroupName") val groupName: String,
     @Json(name = "State") val state: String? = null, // "Playing", "Paused", "Idle"
     @Json(name = "Participants") val participants: List<String> = emptyList(),
-    @Json(name = "PlayingItemId") val playingItemId: String? = null,
-    @Json(name = "PositionTicks") val positionTicks: Long = 0,
 )
+
+// `PlayingItemId` and `PositionTicks` used to live here. The server never sends
+// them: `MediaBrowser.Model/SyncPlay/GroupInfoDto.cs` has no such members, and
+// `Group.cs` builds the DTO from GroupId/GroupName/State/Participants/LastUpdatedAt/
+// Ping/Host only. Declaring them made the app compile a playback path that could
+// never run.

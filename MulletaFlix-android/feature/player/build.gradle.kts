@@ -41,6 +41,9 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
+    // O laço de nova tentativa do próximo episódio precisa de tempo virtual: com
+    // `runBlocking` o teste esperaria os 3 s reais entre tentativas.
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(platform(libs.androidx.compose.bom))

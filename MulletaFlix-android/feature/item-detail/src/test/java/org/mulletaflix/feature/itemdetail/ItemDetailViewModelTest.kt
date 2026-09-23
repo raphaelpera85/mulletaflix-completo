@@ -695,12 +695,7 @@ class ItemDetailViewModelTest {
         override suspend fun markAsUnplayed(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
         override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
         override suspend fun unmarkAsFavorite(userId: String, itemId: String): Result<Unit> = Result.success(Unit)
-        override suspend fun search(userId: String, searchTerm: String, limit: Int, includeItemTypes: String?): Result<List<MediaItem>> = Result.success(emptyList())
-        override suspend fun getLiveTvChannels(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
-        override suspend fun getRecordings(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
-        override suspend fun getSuggestions(userId: String, itemId: String): Result<List<MediaItem>> = Result.success(emptyList())
-        override fun observeFavorites(userId: String): Flow<List<MediaItem>> = emptyFlow()
-        override fun observeRecentlyWatched(userId: String): Flow<List<MediaItem>> = emptyFlow()
+        override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
     }
 
     private open class FakePlaybackRepository : PlaybackRepository {

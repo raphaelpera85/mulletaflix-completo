@@ -91,10 +91,16 @@ class SyncPlayViewModel @Inject constructor(
     }
 
     fun createGroup(name: String, onCreated: () -> Unit = {}) {
+        // O botão já fica desabilitado enquanto envia, mas isso é lido na composição:
+        // dois toques no mesmo frame passam os dois, e o servidor cria duas salas com
+        // o mesmo nome. O flag é marcado **antes** de lançar a corrotina, pelo mesmo
+        // motivo da guarda do download de atualização em Ajustes — a janela entre o
+        // toque e o primeiro `update` é onde o segundo toque entra.
+        if (_state.value.isSubmitting) return
         val userId = currentUserId
         val generation = sessionGeneration
+        _state.update { it.copy(isSubmitting = true, error = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isSubmitting = true, error = null) }
             manageSyncPlayUseCase.createGroup(name)
                 .onSuccess {
                     if (!isCurrentSession(userId, generation)) return@onSuccess
@@ -110,17 +116,24 @@ class SyncPlayViewModel @Inject constructor(
         }
     }
 
-    fun joinGroup(groupId: String, onJoined: (SyncPlayGroup?) -> Unit = {}) {
+    /**
+     * Entra na sala no servidor.
+     *
+     * Não recebe mais um callback com "o que está tocando": o servidor não informa
+     * isso em `SyncPlay/List` (ver [SyncPlayGroup]), então o callback só existia
+     * para carregar um id que era sempre nulo. Seguir a reprodução do grupo exige
+     * o WebSocket do SyncPlay, que este app ainda não tem.
+     */
+    fun joinGroup(groupId: String) {
+        if (_state.value.isSubmitting) return
         val userId = currentUserId
         val generation = sessionGeneration
+        _state.update { it.copy(isSubmitting = true, error = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isSubmitting = true, error = null) }
             manageSyncPlayUseCase.joinGroup(groupId)
                 .onSuccess {
                     if (!isCurrentSession(userId, generation)) return@onSuccess
-                    val joinedGroup = _state.value.groups.firstOrNull { it.groupId == groupId }
                     _state.update { it.copy(isSubmitting = false, activeGroupId = groupId) }
-                    onJoined(joinedGroup)
                     refresh()
                 }
                 .onFailure { e ->
@@ -132,10 +145,11 @@ class SyncPlayViewModel @Inject constructor(
     }
 
     fun leaveGroup() {
+        if (_state.value.isSubmitting) return
         val userId = currentUserId
         val generation = sessionGeneration
+        _state.update { it.copy(isSubmitting = true, error = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isSubmitting = true, error = null) }
             manageSyncPlayUseCase.leaveGroup()
                 .onSuccess {
                     if (!isCurrentSession(userId, generation)) return@onSuccess

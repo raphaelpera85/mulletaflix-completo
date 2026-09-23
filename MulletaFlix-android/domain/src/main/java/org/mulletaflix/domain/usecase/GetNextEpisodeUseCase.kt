@@ -10,6 +10,13 @@ import javax.inject.Inject
  * Checks:
  * 1. Next episode within the same season based on indexNumber or list sequence.
  * 2. If at the end of the season, checks if a subsequent season exists and finds its first episode.
+ *
+ * The three lookups now agree on failure: `getEpisodes` already propagated it, but
+ * the season lookups collapsed it into `Result.success(null)`. `null` means "this
+ * series has no next episode", and the player hides the "Próximo episódio" prompt on
+ * `null` — so a transient 5xx during the season lookup ended the binge silently,
+ * indistinguishable from a series finale. The failure now travels; whoever decides
+ * whether to retry can tell the two apart.
  */
 class GetNextEpisodeUseCase @Inject constructor(
     private val mediaRepository: MediaRepository,
@@ -39,8 +46,8 @@ class GetNextEpisodeUseCase @Inject constructor(
 
         // Check if there is a next season
         if (seasonId != null) {
-            val seasonsResult = mediaRepository.getSeasons(userId, seriesId)
-            val seasons = seasonsResult.getOrNull().orEmpty()
+            val seasons = mediaRepository.getSeasons(userId, seriesId)
+                .getOrElse { return Result.failure(it) }
             val currentSeasonIndex = currentItem.parentIndexNumber
             val nextSeason = if (currentSeasonIndex != null) {
                 seasons
@@ -52,15 +59,18 @@ class GetNextEpisodeUseCase @Inject constructor(
             }
 
             if (nextSeason != null) {
-                val nextSeasonEpisodesResult = mediaRepository.getEpisodes(userId, seriesId, nextSeason.id)
-                val nextSeasonEpisodes = nextSeasonEpisodesResult.getOrNull().orEmpty()
-                val firstEp = nextSeasonEpisodes.minByOrNull { it.indexNumber ?: 0 } ?: nextSeasonEpisodes.firstOrNull()
+                val nextSeasonEpisodes = mediaRepository
+                    .getEpisodes(userId, seriesId, nextSeason.id)
+                    .getOrElse { return Result.failure(it) }
+                val firstEp = nextSeasonEpisodes.minByOrNull { it.indexNumber ?: 0 }
+                    ?: nextSeasonEpisodes.firstOrNull()
                 if (firstEp != null) {
                     return Result.success(firstEp)
                 }
             }
         }
 
+        // Chegou aqui sem falha nenhuma: a série realmente acabou.
         return Result.success(null)
     }
 }

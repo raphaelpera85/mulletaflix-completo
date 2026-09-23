@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.DataAnnotations;
@@ -2118,10 +2118,38 @@ public class ImageController : BaseMulletaFlixApiController
         IDictionary<string, string> headers,
         string? tag)
     {
-        var (imagePath, imageContentType, dateImageModified) = await _imageProcessor.ProcessImage(imageProcessingOptions).ConfigureAwait(false);
-
         var disableCaching = Request.Headers[HeaderNames.CacheControl].Contains("no-cache");
         var hasTag = !string.IsNullOrEmpty(tag);
+
+        // Answer conditional requests BEFORE doing any work. The tag is a strong validator the
+        // caller already computed, so a client holding this exact image can be told 304 without
+        // running ProcessImage — which does the supported-image lookup, a StringBuilder + MD5 of the
+        // cache key, two File.Exists and a GetLastWriteTimeUtc, and on a cache miss the actual Skia
+        // encode under the parallel-encoding semaphore. A library grid of 200 posters issues 200
+        // conditional requests per navigation, so this is the whole point of sending an ETag.
+        // The If-Modified-Since fallback stays below because it genuinely needs dateImageModified,
+        // and a stale tag for a replaced or deleted image simply will not match here.
+        if (hasTag && !disableCaching)
+        {
+            var ifNoneMatchEarly = Request.Headers[HeaderNames.IfNoneMatch].ToString();
+            if (!string.IsNullOrEmpty(ifNoneMatchEarly)
+                && (string.Equals(ifNoneMatchEarly, $"\"{tag}\"", StringComparison.Ordinal)
+                    || string.Equals(ifNoneMatchEarly, tag, StringComparison.Ordinal)))
+            {
+                Response.StatusCode = StatusCodes.Status304NotModified;
+                Response.Headers.Append(HeaderNames.ETag, $"\"{tag}\"");
+                Response.Headers.Append(HeaderNames.Vary, HeaderNames.Accept);
+
+                if (cacheDuration.HasValue)
+                {
+                    Response.Headers.Append(HeaderNames.CacheControl, "public, max-age=" + cacheDuration.Value.TotalSeconds + ", immutable");
+                }
+
+                return new ContentResult();
+            }
+        }
+
+        var (imagePath, imageContentType, dateImageModified) = await _imageProcessor.ProcessImage(imageProcessingOptions).ConfigureAwait(false);
 
         foreach (var (key, value) in headers)
         {
@@ -2129,7 +2157,22 @@ public class ImageController : BaseMulletaFlixApiController
         }
 
         Response.ContentType = imageContentType ?? MediaTypeNames.Text.Plain;
-        Response.Headers.Append(HeaderNames.Age, Convert.ToInt64((DateTime.UtcNow - dateImageModified).TotalSeconds).ToString(CultureInfo.InvariantCulture));
+
+        // Age must describe how long the served representation has existed, which is the cache
+        // entry age. dateImageModified is the *source* modification time (often years old), so
+        // using it made the Age header larger than max-age on every response and forced clients
+        // and proxies to treat a perfectly fresh cache entry as already stale.
+        var servedAgeSeconds = Math.Max(0, Convert.ToInt64((DateTime.UtcNow - dateImageModified).TotalSeconds));
+        if (cacheDuration.HasValue)
+        {
+            var maxAgeSeconds = Convert.ToInt64(cacheDuration.Value.TotalSeconds);
+            if (maxAgeSeconds > 0 && servedAgeSeconds > maxAgeSeconds)
+            {
+                servedAgeSeconds = maxAgeSeconds;
+            }
+        }
+
+        Response.Headers.Append(HeaderNames.Age, servedAgeSeconds.ToString(CultureInfo.InvariantCulture));
         Response.Headers.Append(HeaderNames.Vary, HeaderNames.Accept);
 
         Response.Headers.ContentDisposition = "attachment";

@@ -1,11 +1,20 @@
 package org.mulletaflix.feature.player
 
 import androidx.media3.common.PlaybackException
+import org.mulletaflix.designsystem.media.redactToken
 
 internal const val NETWORK_WAITING_PLAYBACK_MESSAGE =
     "Conexão perdida. A reprodução continuará quando a rede voltar."
 
-/** Converts low-level Media3 failures into actionable messages for viewers. */
+/**
+ * Converts low-level Media3 failures into actionable messages for viewers.
+ *
+ * The fallback is whatever Media3 put in `localizedMessage`, and some of its codes
+ * embed the URL they failed on — which for a playback URL carries the session token
+ * as `api_key`. Every code known to do that is mapped to a curated message above, so
+ * the path is unreachable today; the redaction is here so that a code this list has
+ * not learned yet cannot put a token on screen.
+ */
 internal fun userFacingPlaybackError(errorCode: Int, fallback: String?): String = when (errorCode) {
     PlaybackException.ERROR_CODE_TIMEOUT,
     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
@@ -24,6 +33,6 @@ internal fun userFacingPlaybackError(errorCode: Int, fallback: String?): String 
     PlaybackException.ERROR_CODE_DRM_PROVISIONING_FAILED,
     -> "Não foi possível autorizar a reprodução protegida desta mídia."
 
-    else -> fallback?.takeIf(String::isNotBlank)
+    else -> fallback?.takeIf(String::isNotBlank)?.let(::redactToken)
         ?: "Não foi possível reproduzir esta mídia."
 }

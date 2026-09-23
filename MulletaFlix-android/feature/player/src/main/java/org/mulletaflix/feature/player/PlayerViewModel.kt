@@ -26,6 +26,7 @@ import androidx.media3.datasource.cache.CacheDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,9 @@ import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
+import org.mulletaflix.core.common.dispatcher.ApplicationScope
+import org.mulletaflix.domain.model.SUBTITLE_COLOR_WHITE
+import org.mulletaflix.domain.model.normalizeSubtitleColor
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.model.primaryImageUrl
@@ -88,6 +92,15 @@ data class PlayerState(
     val skipTargetPosition: Long? = null,
     val nextEpisode: NextEpisodeInfo? = null,
     val nextEpisodeCountdown: Int? = null,
+    /**
+     * True once the user dismissed the next-episode prompt.
+     *
+     * Cancelling the countdown used to clear only `nextEpisodeCountdown`, while
+     * the prompt's visibility also depends on playback having reached the end —
+     * which stays true. The prompt therefore remained on screen and the cancel
+     * button looked dead.
+     */
+    val nextEpisodePromptDismissed: Boolean = false,
     val error: String? = null,
     val aspectRatio: VideoAspectRatio = VideoAspectRatio.FIT,
     val isControlsLocked: Boolean = false,
@@ -103,6 +116,40 @@ data class PlayerState(
     val isCasting: Boolean = false,
 )
 
+/**
+ * The state an offline playback session starts from.
+ *
+ * Built as a named factory so the settings the session must keep honouring are
+ * spelled out. Constructing `PlayerState(...)` inline reset each of them to its
+ * data-class default, so a downloaded item entered Picture-in-Picture even with
+ * the setting switched off, lost the subtitle font size, and forgot that the
+ * network was metered.
+ */
+internal fun offlinePlaybackState(
+    title: String,
+    isBuffering: Boolean,
+    error: String?,
+    aspectRatio: VideoAspectRatio,
+    subtitleColor: String,
+    subtitleFontSize: Int,
+    pictureInPictureEnabled: Boolean,
+    isNetworkMetered: Boolean,
+    sleepTimer: SleepTimerSelection = SleepTimerSelection.Off,
+): PlayerState = PlayerState(
+    title = title,
+    isBuffering = isBuffering,
+    error = error,
+    isNetworkOffline = false,
+    aspectRatio = aspectRatio,
+    subtitleColor = subtitleColor,
+    subtitleFontSize = subtitleFontSize,
+    pictureInPictureEnabled = pictureInPictureEnabled,
+    isNetworkMetered = isNetworkMetered,
+    sleepTimerRemainingMs = sleepTimer.remainingMs,
+    sleepTimerMinutes = sleepTimer.minutes,
+    sleepTimerMode = sleepTimer.mode,
+)
+
 @HiltViewModel
 @UnstableApi
 class PlayerViewModel @Inject constructor(
@@ -113,6 +160,7 @@ class PlayerViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val getNextEpisodeUseCase: GetNextEpisodeUseCase,
     private val networkMonitor: NetworkMonitor,
+    @param:ApplicationScope private val teardownScope: CoroutineScope,
 ) : ViewModel() {
 
     private val offlinePlaybackPositions = context.getSharedPreferences(
@@ -194,6 +242,11 @@ class PlayerViewModel @Inject constructor(
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                // A download has no server metadata, so its track lists can only
+                // come from the container. Without this the OSD's audio and
+                // subtitle buttons were permanently disabled offline, because
+                // they are enabled from these lists.
+                if (isOfflinePlayback) refreshOfflineTracks(tracks)
                 if (pendingAudioStreamIndex != null) {
                     val index = pendingAudioStreamIndex!!
                     selectTrackByServerIndex(index, C.TRACK_TYPE_AUDIO)
@@ -364,6 +417,15 @@ class PlayerViewModel @Inject constructor(
     /** Global stream indexes required by the server's playback reporting API. */
     private var currentAudioStreamIndex: Int? = null
     private var currentSubtitleStreamIndex: Int? = null
+
+    /**
+     * Server stream indices of each type, in the order the container lists them.
+     *
+     * `selectTrackByServerIndex` needs the position of a server index among its
+     * own type; the container's track id is a different numbering space.
+     */
+    private var currentAudioStreamIndices: List<Int> = emptyList()
+    private var currentSubtitleStreamIndices: List<Int> = emptyList()
     private var localPlaybackKey: String? = null
     private var legacyLocalPlaybackKey: String? = null
     private var lastLocalPositionPersistedAt = 0L
@@ -377,6 +439,15 @@ class PlayerViewModel @Inject constructor(
                 hasObservedSession = true
                 currentUserId = userId
                 if (userChanged) invalidatePlaybackForSessionChange()
+            }
+        }
+        viewModelScope.launch {
+            // The app moves between the LAN address and the public one on its own when
+            // the network disappears, and a prepared stream keeps the address it was
+            // built with. Without this the episode dies the moment the user walks out
+            // of Wi-Fi range and only returns by reopening the title.
+            sessionRepository.getBaseUrl().distinctUntilChanged().collect { baseUrl ->
+                preparedStreamRetarget.onBaseUrlChanged(baseUrl)
             }
         }
         viewModelScope.launch {
@@ -458,8 +529,9 @@ class PlayerViewModel @Inject constructor(
         retryJob?.cancel()
         serverProgressJob?.cancel()
         nextEpisodeCountdownJob?.cancel()
-        sleepTimerJob?.cancel()
-        sleepTimerJob = null
+        // O timer de sono não é cancelado aqui. Ele é da sessão, não do item, e
+        // esta função também é o caminho do avanço automático: cancelá-lo fazia
+        // "pausar em 30 minutos" morrer no primeiro episódio seguinte, sempre.
         player.stop()
         currentItemId = itemId
         isOfflinePlayback = false
@@ -482,21 +554,9 @@ class PlayerViewModel @Inject constructor(
         triedTranscodeFallback = false
         playbackRetryCount = 0
         _state.update {
-            it.copy(
-                title = null,
-                isPlaying = false,
-                isBuffering = true,
-                currentPosition = 0L,
-                duration = 0L,
-                nextEpisode = null,
-                nextEpisodeCountdown = null,
-                error = null,
-                isNetworkOffline = false,
+            it.forNewItem(
                 aspectRatio = defaultAspectRatio,
                 subtitleColor = subtitleColor,
-                sleepTimerRemainingMs = null,
-                sleepTimerMinutes = null,
-                sleepTimerMode = SleepTimerMode.OFF,
             )
         }
         loadJob = viewModelScope.launch {
@@ -527,18 +587,25 @@ class PlayerViewModel @Inject constructor(
 
             // Check for next episode in series
             viewModelScope.launch {
-                getNextEpisodeUseCase(userId, item).onSuccess { next ->
-                    if (next != null && isCurrentPlaybackLoad(loadGeneration, playbackLoadGeneration, itemId, currentItemId, sessionAtLoad, sessionGeneration)) {
-                        _state.update {
-                            it.copy(
-                                nextEpisode = NextEpisodeInfo(
-                                    id = next.id,
-                                    title = next.name,
-                                    episodeNumber = next.indexNumber,
-                                    seasonNumber = next.parentIndexNumber,
-                                )
+                // Uma falha aqui não é "a série acabou": o aviso de "Próximo
+                // episódio" some em `null`, então uma falha transitória precisa de
+                // outra chance antes de a maratona terminar em silêncio.
+                //
+                // A insistência em si mora em `settleNextEpisodeLookup`, que é testável;
+                // aqui ficou só o que é efeito — publicar o episódio encontrado, e só se
+                // esta reprodução ainda for a atual.
+                val result = settleNextEpisodeLookup { getNextEpisodeUseCase(userId, item) }
+                val next = result.getOrNull() ?: return@launch
+                if (isCurrentPlaybackLoad(loadGeneration, playbackLoadGeneration, itemId, currentItemId, sessionAtLoad, sessionGeneration)) {
+                    _state.update {
+                        it.copy(
+                            nextEpisode = NextEpisodeInfo(
+                                id = next.id,
+                                title = next.name,
+                                episodeNumber = next.indexNumber,
+                                seasonNumber = next.parentIndexNumber,
                             )
-                        }
+                        )
                     }
                 }
             }
@@ -569,7 +636,9 @@ class PlayerViewModel @Inject constructor(
                 return@launch
             }
             val mediaSource = playbackInfo.mediaSources.firstOrNull() ?: run {
-                showLoadError("Nenhuma fonte de reprodução está disponível para esta mídia.", loadGeneration)
+                // A frase vem do `PlaybackInfo`: quando o servidor recusou preparar,
+                // ele disse o motivo (`ErrorCode`) e a mensagem específica está lá.
+                showLoadError(playbackInfo.unavailableMessage, loadGeneration)
                 return@launch
             }
             val streamUrl = mediaSource.directStreamUrl
@@ -614,6 +683,13 @@ class PlayerViewModel @Inject constructor(
             playbackSubtitleStreamIndex = recoverySelection.subtitleStreamIndex
             playbackSubtitlesDisabled = recoverySelection.subtitlesDisabled
             pendingSubtitlesDisabled = playbackSubtitlesDisabled
+
+            // Server indices of each type, in container order. Selection maps a
+            // server index to its position here, because the container's own
+            // track id lives in a different numbering space (see
+            // `trackCandidatePosition`).
+            currentAudioStreamIndices = orderedStreamIndices(audioStreams.map { it.index })
+            currentSubtitleStreamIndices = orderedStreamIndices(subtitleStreams.map { it.index })
 
             val subtitleTracks = subtitleStreams
                 .mapIndexed { i, stream ->
@@ -745,8 +821,8 @@ class PlayerViewModel @Inject constructor(
         progressJob?.cancel()
         serverProgressJob?.cancel()
         nextEpisodeCountdownJob?.cancel()
-        sleepTimerJob?.cancel()
-        sleepTimerJob = null
+        // Como em `loadMedia`: o timer pertence à sessão e sobrevive à troca de
+        // item, inclusive para um download.
         player.stop()
         currentItemId = null
         isOfflinePlayback = true
@@ -758,13 +834,16 @@ class PlayerViewModel @Inject constructor(
                 persistedUserId = sessionRepository.getCurrentUserId().first(),
             )
             if (userId == null) {
-                _state.value = PlayerState(
+                _state.value = offlinePlaybackState(
                     title = title,
                     isBuffering = false,
                     error = "Faça login para reproduzir este download.",
-                    isNetworkOffline = false,
                     aspectRatio = defaultAspectRatio,
                     subtitleColor = subtitleColor,
+                    subtitleFontSize = _state.value.subtitleFontSize,
+                    pictureInPictureEnabled = _state.value.pictureInPictureEnabled,
+                    isNetworkMetered = _state.value.isNetworkMetered,
+                    sleepTimer = _state.value.sleepTimerSelection(),
                 )
                 return@launch
             }
@@ -786,13 +865,16 @@ class PlayerViewModel @Inject constructor(
             currentSubtitleStreamIndex = null
             triedTranscodeFallback = true
             playbackRetryCount = 0
-            _state.value = PlayerState(
+            _state.value = offlinePlaybackState(
                 title = title,
                 isBuffering = true,
                 error = null,
-                isNetworkOffline = false,
                 aspectRatio = defaultAspectRatio,
                 subtitleColor = subtitleColor,
+                subtitleFontSize = _state.value.subtitleFontSize,
+                pictureInPictureEnabled = _state.value.pictureInPictureEnabled,
+                isNetworkMetered = _state.value.isNetworkMetered,
+                sleepTimer = _state.value.sleepTimerSelection(),
             )
             player.setMediaItem(
                 Media3Item.Builder()
@@ -855,26 +937,88 @@ class PlayerViewModel @Inject constructor(
 
     /** Retries the already prepared remote item without discarding its position. */
     fun retryPlayback() {
-        val itemId = currentItemId ?: return
-        if (isOfflinePlayback || networkWasOffline) return
-        if (localPlayer.currentMediaItem == null) {
-            loadMedia(itemId)
-            return
-        }
+        // A decisão é uma função pura e testada (PlaybackRetryPlan); aqui só ficam
+        // os efeitos, que são a parte que nenhum teste alcança.
+        val itemId = currentItemId
+        when (
+            val plan = playbackRetryPlan(
+                itemId = itemId,
+                isOfflinePlayback = isOfflinePlayback,
+                isNetworkOffline = networkWasOffline,
+                hasPreparedMedia = localPlayer.currentMediaItem != null,
+                currentPositionMs = localPlayer.currentPosition,
+                positionAtErrorMs = lastPlaybackPositionAtError,
+            )
+        ) {
+            PlaybackRetryPlan.Nothing -> return
 
-        retryJob?.cancel()
-        val generation = playbackLoadGeneration
-        val position = playbackRetryPosition(localPlayer.currentPosition, lastPlaybackPositionAtError)
-        playbackRetryCount = 0
-        _state.update { it.copy(isBuffering = true, error = null, isPlaying = false) }
-        retryJob = viewModelScope.launch {
-            if (!isCurrentPlaybackLoad(generation, playbackLoadGeneration, itemId, currentItemId)) return@launch
-            restoreTrackSelectionOnNextTracksChange = true
-            player.prepare()
-            player.seekTo(position)
-            player.play()
+            PlaybackRetryPlan.WarnOffline -> {
+                // Returning silently made "Tentar novamente" look broken during an
+                // outage. The network collector already retries by itself once the
+                // connection is back, so say that instead of doing nothing.
+                _state.update {
+                    it.copy(
+                        isBuffering = false,
+                        error = "Você está offline. A reprodução reinicia sozinha quando a conexão voltar.",
+                    )
+                }
+                return
+            }
+
+            PlaybackRetryPlan.Reload -> {
+                // `Reload` só é escolhido com itemId não nulo.
+                loadMedia(itemId ?: return)
+                return
+            }
+
+            is PlaybackRetryPlan.Restart -> {
+                val retryItemId = itemId ?: return
+                retryJob?.cancel()
+                val generation = playbackLoadGeneration
+                val position = plan.positionMs
+                playbackRetryCount = 0
+                _state.update { it.copy(isBuffering = true, error = null, isPlaying = false) }
+                retryJob = viewModelScope.launch {
+                    if (!isCurrentPlaybackLoad(generation, playbackLoadGeneration, retryItemId, currentItemId)) return@launch
+                    restoreTrackSelectionOnNextTracksChange = true
+                    player.prepare()
+                    player.seekTo(position)
+                    player.play()
+                }
+            }
         }
     }
+
+    /**
+     * Re-points the stream that is already prepared when the server address changes.
+     *
+     * The steps and their order live in [PreparedStreamRetarget]; this is the adapter
+     * onto the real player, kept as thin as it can be because it is the part no test
+     * can reach.
+     */
+    private val preparedStreamRetarget = PreparedStreamRetarget(
+        stream = object : RetargetableStream {
+            override fun preparedUrl(): String? =
+                localPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
+
+            override fun isOffline(): Boolean = isOfflinePlayback
+
+            override fun positionMs(): Long = localPlayer.currentPosition
+
+            override fun isPlaying(): Boolean = localPlayer.playWhenReady
+
+            override fun replaceSource(url: String, positionMs: Long, resumePlayback: Boolean) {
+                val item = localPlayer.currentMediaItem ?: return
+                // A new media source drops the selected audio and subtitle tracks, so
+                // the same flag the error retry uses to restore them is set here.
+                restoreTrackSelectionOnNextTracksChange = true
+                localPlayer.setMediaItem(item.buildUpon().setUri(url).build(), positionMs)
+                localPlayer.prepare()
+                if (resumePlayback) localPlayer.play()
+            }
+        },
+        accessToken = { sessionRepository.getAccessToken().first() },
+    )
 
     fun seekBy(deltaMs: Long) {
         seekTo(seekPositionByDelta(player.currentPosition, deltaMs, player.duration))
@@ -923,7 +1067,9 @@ class PlayerViewModel @Inject constructor(
         playbackSubtitlesDisabled = false
         selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_TEXT)
         viewModelScope.launch {
-            settingsRepository.setPreferredSubtitleLanguage(track.language)
+            persistableTrackLanguage(track.language)?.let {
+                settingsRepository.setPreferredSubtitleLanguage(it)
+            }
         }
     }
 
@@ -935,7 +1081,9 @@ class PlayerViewModel @Inject constructor(
         playbackAudioStreamIndex = serverIndex
         selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_AUDIO)
         viewModelScope.launch {
-            settingsRepository.setPreferredAudioLanguage(track.language)
+            persistableTrackLanguage(track.language)?.let {
+                settingsRepository.setPreferredAudioLanguage(it)
+            }
         }
     }
 
@@ -949,7 +1097,16 @@ class PlayerViewModel @Inject constructor(
 
     private fun applyQuality(quality: String) {
         val normalizedQuality = normalizeQualityPreference(quality)
-        _state.update { it.copy(selectedQuality = normalizedQuality) }
+        // The stored preference may name a resolution this title does not offer.
+        // Writing it raw made the state claim "4K" while the menu — built from
+        // `qualityMenuOptions(availableQualities)` — showed no row selected at
+        // all, so the control lied about what was playing. `effectiveQualitySelection`
+        // answers "Auto" in that case, which is a value the menu does offer.
+        _state.update {
+            it.copy(
+                selectedQuality = appliedQualitySelection(normalizedQuality, it.availableQualities),
+            )
+        }
         val constraint = videoQualityConstraint(effectivePlaybackQuality(normalizedQuality, networkIsMetered))
         localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
             .buildUpon()
@@ -1003,6 +1160,57 @@ class PlayerViewModel @Inject constructor(
         player.seekTo(player.currentPosition)
     }
 
+    /**
+     * Rebuilds the audio and subtitle lists from the container while playing a
+     * download, and points the position lookup at their own indices.
+     */
+    private fun refreshOfflineTracks(tracks: androidx.media3.common.Tracks) {
+        fun collect(trackType: Int): List<OfflineTrack> = buildList {
+            tracks.groups
+                .filter { it.type == trackType }
+                .forEach { group ->
+                    for (trackIndex in 0 until group.length) {
+                        if (!group.isTrackSupported(trackIndex)) continue
+                        val format = group.getTrackFormat(trackIndex)
+                        add(
+                            OfflineTrack(
+                                language = format.language,
+                                codec = format.sampleMimeType,
+                                channels = format.channelCount.takeIf { it > 0 },
+                                isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
+                                isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                                isSelected = group.isTrackSelected(trackIndex),
+                            ),
+                        )
+                    }
+                }
+        }
+
+        val offlineAudio = collect(C.TRACK_TYPE_AUDIO)
+        val offlineSubtitles = collect(C.TRACK_TYPE_TEXT)
+        if (offlineAudio.isEmpty() && offlineSubtitles.isEmpty()) return
+
+        val audio = offlineTrackInfos(offlineAudio, "Áudio")
+        val subtitles = offlineTrackInfos(offlineSubtitles, "Legenda")
+
+        currentAudioStreamIndices = offlineStreamIndices(audio.size)
+        currentSubtitleStreamIndices = offlineStreamIndices(subtitles.size)
+        _state.update {
+            it.copy(
+                audioTracks = audio,
+                subtitleTracks = subtitles,
+                // Mark what is actually playing, and keep an explicit "no
+                // subtitles" choice from reverting to the container's default.
+                selectedAudioIndex = selectedOfflineTrackIndex(offlineAudio),
+                selectedSubtitleIndex = if (it.selectedSubtitleIndex < 0) {
+                    selectedOfflineTrackIndex(offlineSubtitles)
+                } else {
+                    it.selectedSubtitleIndex
+                },
+            )
+        }
+    }
+
     /** Applies a server-global stream index; UI positions are mapped by callers. */
     private fun selectTrackByServerIndex(index: Int, trackType: Int) {
         if (index < 0) {
@@ -1015,6 +1223,16 @@ class PlayerViewModel @Inject constructor(
             return
         }
 
+        val orderedIndices = when (trackType) {
+            C.TRACK_TYPE_AUDIO -> currentAudioStreamIndices
+            C.TRACK_TYPE_TEXT -> currentSubtitleStreamIndices
+            else -> emptyList()
+        }
+        // The server index is not a container track id and not a track index
+        // inside a group: it is resolved by its position among the streams of the
+        // same type, which the container preserves.
+        val position = trackCandidatePosition(index, orderedIndices) ?: return
+
         val candidates = player.currentTracks.groups
             .filter { it.type == trackType }
             .flatMap { group ->
@@ -1022,10 +1240,7 @@ class PlayerViewModel @Inject constructor(
                     if (group.isTrackSupported(trackIndex)) group to trackIndex else null
                 }
             }
-        val selected = candidates.firstOrNull { (group, trackIndex) ->
-            group.getTrackFormat(trackIndex).id?.toIntOrNull() == index
-        } ?: candidates.firstOrNull { (_, trackIndex) -> trackIndex == index }
-            ?: return
+        val selected = candidates.getOrNull(position) ?: return
         localPlayer.trackSelectionParameters = localPlayer.trackSelectionParameters
             .buildUpon()
             .setTrackTypeDisabled(trackType, false)
@@ -1159,7 +1374,11 @@ class PlayerViewModel @Inject constructor(
         val playSessionIdAtReport = currentPlaySessionId
         val mediaSourceIdAtReport = currentMediaSourceId
         val positionAtReport = player.currentPosition.coerceAtLeast(0L)
-        viewModelScope.launch {
+        // Not `viewModelScope`: `ViewModel.clear()` cancels it *before* calling
+        // `onCleared()`, so this launch never ran its body and the server kept the
+        // session open — the item stayed as "Now Playing" and the transcode the
+        // server had started was never stopped.
+        teardownScope.launch {
             val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
             if (isCurrentPlaybackReport(
                     expectedGeneration = generationAtReport,
@@ -1214,14 +1433,11 @@ class PlayerViewModel @Inject constructor(
                 _state.update { it.copy(sleepTimerRemainingMs = remainingMs) }
             }
             if (isActive) {
+                // O avanço automático já agendado perde para o timer: sem isto a
+                // pausa era desfeita um segundo depois pelo episódio seguinte.
+                nextEpisodeCountdownJob?.cancel()
                 player.pause()
-                _state.update {
-                    it.copy(
-                        sleepTimerRemainingMs = null,
-                        sleepTimerMinutes = null,
-                        sleepTimerMode = SleepTimerMode.OFF,
-                    )
-                }
+                _state.update { it.afterSleepTimerExpiry() }
             }
         }
     }
@@ -1270,7 +1486,10 @@ class PlayerViewModel @Inject constructor(
 
     fun cancelNextEpisodeCountdown() {
         nextEpisodeCountdownJob?.cancel()
-        _state.update { it.copy(nextEpisodeCountdown = null) }
+        // Dismissing the prompt is the point of cancelling: playback has already
+        // reached the end, so `isPlaybackEnded` stays true and would keep the
+        // overlay on screen.
+        _state.update { it.copy(nextEpisodeCountdown = null, nextEpisodePromptDismissed = true) }
     }
 
     override fun onCleared() {
@@ -1327,6 +1546,12 @@ class PlayerViewModel @Inject constructor(
                 showSkipCredits = false,
                 skipTargetPosition = null,
                 playbackStats = null,
+                // A sessão mudou, então o timer não significa mais nada: o job foi
+                // cancelado acima e a barra continuaria anunciando "Pausa em 12min"
+                // para sempre.
+                sleepTimerRemainingMs = null,
+                sleepTimerMinutes = null,
+                sleepTimerMode = SleepTimerMode.OFF,
             )
         }
     }

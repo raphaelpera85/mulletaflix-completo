@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using System.Text;
@@ -63,6 +63,7 @@ public class TrickplayController : BaseMulletaFlixApiController
             return NotFound();
         }
 
+        ApplyImmutableTrickplayCacheHeaders();
         return Content(playlist, MimeTypes.GetMimeType("playlist.m3u8"), Encoding.UTF8);
     }
 
@@ -97,10 +98,21 @@ public class TrickplayController : BaseMulletaFlixApiController
         if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
         {
             Response.Headers.ContentDisposition = "attachment";
+            ApplyImmutableTrickplayCacheHeaders();
             return PhysicalFile(path, MediaTypeNames.Image.Jpeg);
         }
 
         return NotFound();
+    }
+
+    /// <summary>
+    /// Trickplay tiles and their playlist are regenerated wholesale whenever the media changes, and
+    /// the URLs already carry item, width and index. Without an explicit cache policy every scrub
+    /// re-requested every tile, which is the heaviest per-seek cost during trickplay playback.
+    /// </summary>
+    private void ApplyImmutableTrickplayCacheHeaders()
+    {
+        Response.Headers.CacheControl = "public, max-age=31536000, immutable";
     }
 }
 

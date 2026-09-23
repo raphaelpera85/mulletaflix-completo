@@ -25,9 +25,9 @@ class SleepTimerMenuTest {
         composeRule.setContent {
             MaterialTheme {
                 SleepTimerMenu(
+                    mode = SleepTimerMode.OFF,
                     remainingMs = null,
                     selectedMinutes = null,
-                    isAtMediaEnd = false,
                     onSelect = { selectedMinutes = it },
                     onSelectAtMediaEnd = { selectedAtMediaEnd = true },
                     onDismiss = {},
@@ -54,9 +54,9 @@ class SleepTimerMenuTest {
         composeRule.setContent {
             MaterialTheme {
                 SleepTimerMenu(
+                    mode = SleepTimerMode.OFF,
                     remainingMs = null,
                     selectedMinutes = null,
-                    isAtMediaEnd = false,
                     onSelect = {},
                     onSelectAtMediaEnd = { selectedAtMediaEnd = true },
                     onDismiss = {},
@@ -74,5 +74,35 @@ class SleepTimerMenuTest {
             .performClick()
 
         assertEquals(true, selectedAtMediaEnd)
+    }
+
+    /**
+     * "Ao fim da mídia" also has no remaining milliseconds, so the "Desativado"
+     * row — which asked `remainingMs == null` — was selected at the same time and
+     * the menu could not say which timer was armed.
+     */
+    @Test
+    fun onlyOneOptionIsSelectedWhenTheTimerEndsWithTheMedia() {
+        composeRule.setContent {
+            MaterialTheme {
+                SleepTimerMenu(
+                    mode = SleepTimerMode.AT_MEDIA_END,
+                    remainingMs = null,
+                    selectedMinutes = null,
+                    onSelect = {},
+                    onSelectAtMediaEnd = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        val selected = composeRule
+            .onAllNodes(
+                SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton) and
+                    SemanticsMatcher.expectValue(SemanticsProperties.Selected, true),
+            )
+            .fetchSemanticsNodes()
+
+        assertEquals("exactly one radio row may be selected", 1, selected.size)
     }
 }

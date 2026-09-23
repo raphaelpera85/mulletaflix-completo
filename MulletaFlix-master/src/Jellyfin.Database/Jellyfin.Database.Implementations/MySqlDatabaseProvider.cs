@@ -31,6 +31,18 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
 
     private const string BackupFolderName = "MySQLBackups";
 
+    /// <summary>
+    /// Per-pool connection ceiling. MySqlConnector pools are keyed by the full connection string, so
+    /// every distinct database (main plus one per plugin schema) gets its own pool with this cap.
+    /// It must therefore stay low enough that the sum of the pools this process can open remains
+    /// below the server's <c>max_connections</c>, which <c>MariaDbProcessManager</c> raises to 300.
+    /// At 100 per pool and two pools in use (main + introskipper) the process tops out near 200,
+    /// leaving the remainder for administrative clients. The previous 200 per pool could reach 400
+    /// and let the process exhaust the server, which surfaced as "Too many connections" and a 503
+    /// on every database-backed endpoint.
+    /// </summary>
+    private const int MaxPoolSize = 100;
+
     private static readonly string DefaultConnectionString =
         "Server=127.0.0.1;Port=3306;User ID=root;Password=;CharSet=utf8mb4;SslMode=None;";
 
@@ -81,11 +93,11 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
         var databaseName = GetOption(opts, "database", e => e, () => DatabaseNames.Main);
         EnsureDatabaseExists(databaseName);
         var connString = opts is not null
-            ? $"Server={_server};Port={_port};User ID={_user};Password={_password};CharSet=utf8mb4;Pooling=True;Minimum Pool Size=0;Maximum Pool Size=200;Connection Idle Timeout=300;Connection Lifetime=1800;Default Command Timeout=120;"
+            ? $"Server={_server};Port={_port};User ID={_user};Password={_password};CharSet=utf8mb4;Pooling=True;Minimum Pool Size=0;Maximum Pool Size={MaxPoolSize};Connection Idle Timeout=300;Connection Lifetime=1800;Default Command Timeout=120;"
             : DefaultConnectionString;
 
         connString = ApplySchema(connString, databaseName);
-        _logger.LogInformation("MySQL database: {Database}", databaseName);
+        _logger.LogInformation("MariaDB database: {Database}", databaseName);
 
         var versionStr = GetOption(opts, "server-version", e => e, () => "11.4.2");
         var serverVersion = new MariaDbServerVersion(new Version(versionStr));
@@ -243,7 +255,7 @@ public sealed class MySqlDatabaseProvider : IMulletaFlixDatabaseProvider
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Scheduled MySQL optimization failed.");
+            _logger.LogWarning(ex, "Scheduled MariaDB optimization failed.");
         }
     }
 

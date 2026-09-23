@@ -25,8 +25,6 @@ class SyncPlayRepositoryImplTest {
                 groupName = "Family Movie Night",
                 state = "Playing",
                 participants = listOf("User1", "User2"),
-                playingItemId = "item-99",
-                positionTicks = 1200000000L
             )
         )
 

@@ -8,6 +8,9 @@ import androidx.media3.session.MediaSession
 /**
  * Shares the active screen player with the app's MediaSessionService.
  * The service can still create a fallback session when it starts first.
+ *
+ * Ownership: the bridge **borrows** the player and **owns** only the session it
+ * builds. See [shouldReleaseSession] and [shouldReleasePlayer].
  */
 @UnstableApi
 object PlayerMediaSessionBridge {
@@ -62,9 +65,12 @@ object PlayerMediaSessionBridge {
 
     @Synchronized
     private fun releaseIfUnused(force: Boolean = false) {
-        if (!force && (uiOwner || serviceOwner)) return
+        if (!force && !shouldReleaseSession(uiOwner, serviceOwner)) return
         activeSession?.release()
-        activePlayer?.release()
+        // The player is deliberately *not* released. [shouldReleasePlayer] carries the
+        // rule and the reasoning; it is always false because the bridge never builds a
+        // player, only borrows one.
+        if (shouldReleasePlayer()) activePlayer?.release()
         activeSession = null
         activePlayer = null
         uiOwner = false

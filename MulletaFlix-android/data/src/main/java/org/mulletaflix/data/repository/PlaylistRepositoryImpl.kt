@@ -10,18 +10,18 @@ import javax.inject.Singleton
 class PlaylistRepositoryImpl @Inject constructor(
     private val api: MulletaFlixApiService,
 ) : PlaylistRepository {
-    override suspend fun getPlaylists(userId: String): Result<List<Playlist>> = runCatching {
+    override suspend fun getPlaylists(userId: String): Result<List<Playlist>> = suspendRunCatching {
         api.getPlaylists(userId).items.map { Playlist(it.id, it.name.orEmpty()) }
     }
 
-    override suspend fun createPlaylist(userId: String, name: String, itemId: String?): Result<Playlist> = runCatching {
+    override suspend fun createPlaylist(userId: String, name: String, itemId: String?): Result<Playlist> = suspendRunCatching {
         require(name.isNotBlank()) { "Informe um nome para a playlist." }
         val created = api.createPlaylist(name.trim(), userId, itemId)
         val id = requireNotNull(created.id) { "O servidor não retornou o ID da playlist." }
         Playlist(id, name.trim())
     }
 
-    override suspend fun addItem(userId: String, playlistId: String, itemId: String): Result<Unit> = runCatching {
+    override suspend fun addItem(userId: String, playlistId: String, itemId: String): Result<Unit> = suspendRunCatching {
         api.addItemToPlaylist(playlistId, itemId, userId)
     }
 }

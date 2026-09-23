@@ -1,9 +1,14 @@
 package org.mulletaflix.feature.itemdetail
 
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -98,5 +103,46 @@ class SeriesSectionTest {
 
         composeRule.onNodeWithText("Não foi possível carregar os episódios.").assertIsDisplayed()
         composeRule.onNodeWithText("Tentar novamente").assertIsDisplayed()
+    }
+
+    /**
+     * O botão de play sobre a capa do episódio media 40 dp de alvo — abaixo do mínimo
+     * de 48 dp do Material, e justamente sobre a arte que o usuário também tenta tocar
+     * para abrir os detalhes. Medido no aparelho pelo nó clicável, não pelo desenho:
+     * o disco preto continua com 40 dp, quem cresceu foi a área que aceita o toque.
+     */
+    @Test
+    fun thePlayButtonOverAnEpisodeThumbnailMeetsTheMinimumTouchTarget() {
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "sea-1",
+                            "Temporada 1",
+                            org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "ep-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                            indexNumber = 1, parentIndexNumber = 1,
+                        )
+                    ),
+                    selectedSeasonIndex = 0,
+                    onSeasonSelect = {},
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                )
+            }
+        }
+
+        val target = EPISODE_PLAY_TARGET_DP.dp
+        composeRule
+            .onNodeWithContentDescription("Reproduzir")
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .assertWidthIsAtLeast(target)
+            .assertHeightIsAtLeast(target)
     }
 }

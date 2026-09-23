@@ -81,6 +81,39 @@ class ServerSelectionPolicyTest {
     }
 
     @Test
+    fun `automatic verification prefers the server it is already logged into`() {
+        // A decisão que este arquivo existe para tomar, aplicada também ao endereço
+        // que a tela conecta sozinha: numa rede com dois servidores compatíveis, o
+        // primeiro a responder não pode tomar o lugar do servidor da conta.
+        val unrelated = ServerInfo("Other Server", "http://192.168.1.20:8096", serverId = "other-id")
+        val matching = ServerInfo("MulletaFlix LAN", "http://192.168.1.10:8096", serverId = "saved-id")
+        val saved = ServerInfo("MulletaFlix Cloud", DEFAULT_MULLETAFLIX_SERVER_URL, serverId = "saved-id")
+        val state = AuthState(
+            discoveredServers = listOf(unrelated, matching),
+            savedServers = listOf(saved),
+        )
+
+        assertEquals(
+            matching.url,
+            automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false),
+        )
+    }
+
+    @Test
+    fun `automatic verification keeps the first LAN server when nothing identifies it`() {
+        // Primeira configuração: não há identidade para casar, e o primeiro
+        // endereço compatível continua sendo a resposta honesta.
+        val first = ServerInfo("First LAN", "http://192.168.1.20:8096")
+        val second = ServerInfo("Second LAN", "http://192.168.1.10:8096")
+        val state = AuthState(discoveredServers = listOf(first, second))
+
+        assertEquals(
+            first.url,
+            automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false),
+        )
+    }
+
+    @Test
     fun `stale lan discovery falls back to another saved endpoint`() {
         val lan = ServerInfo("LAN", "http://192.168.1.10:8096")
         val remote = ServerInfo("Remote", DEFAULT_MULLETAFLIX_SERVER_URL)

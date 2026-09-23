@@ -3,7 +3,6 @@ package org.mulletaflix.feature.library
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -63,6 +62,43 @@ class FavoritesViewModelTest {
         assertEquals(listOf(first, second), viewModel.state.value.items)
         assertEquals(1, media.lastStartIndex)
         assertTrue(!viewModel.state.value.hasMore)
+    }
+
+    /**
+     * The server can insert or remove a favourite between two requests, which shifts
+     * the offset window: the tail of page 1 comes back as the head of page 2. The grid
+     * renders `key = item.id`, and the offset has to keep advancing past every item the
+     * server handed over — duplicates included — or the same window is requested
+     * forever.
+     */
+    @Test
+    fun `a shifted page does not repeat a favorite and the offset keeps advancing`() = runTest {
+        val a = MediaItem("a", "A", MediaItemType.Movie)
+        val b = MediaItem("b", "B", MediaItemType.Movie)
+        val c = MediaItem("c", "C", MediaItemType.Movie)
+        val d = MediaItem("d", "D", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(a, b, c) to 10)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        media.pages[3] = Result.success(listOf(c, d) to 10)
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(
+            "the repeated favorite must not be rendered twice",
+            listOf("a", "b", "c", "d"),
+            viewModel.state.value.items.map { it.id },
+        )
+
+        media.pages[5] = Result.success(emptyList<MediaItem>() to 10)
+        viewModel.loadMore()
+        advanceUntilIdle()
+        assertEquals(
+            "the next offset counts fetched items, not the deduplicated list",
+            5,
+            media.lastStartIndex,
+        )
     }
 
     @Test
@@ -196,12 +232,7 @@ class FavoritesViewModelTest {
         override suspend fun markAsUnplayed(userId: String, itemId: String) = Result.success(Unit)
         override suspend fun markAsFavorite(userId: String, itemId: String) = Result.success(Unit)
         override suspend fun unmarkAsFavorite(userId: String, itemId: String) = Result.success(Unit)
-        override suspend fun search(userId: String, searchTerm: String, limit: Int, includeItemTypes: String?) = Result.success(emptyList<MediaItem>())
-        override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
-        override suspend fun getRecordings(userId: String) = Result.success(emptyList<MediaItem>())
-        override suspend fun getSuggestions(userId: String, itemId: String) = Result.success(emptyList<MediaItem>())
-        override fun observeFavorites(userId: String): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
-        override fun observeRecentlyWatched(userId: String): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
+        override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
     }
 
     private class FakeAuthRepository : AuthRepository {

@@ -8,7 +8,9 @@ import { useUserSettings } from './useUserSettings';
 
 export function useLocale() {
     const { dateTimeLocale: dateTimeSetting, language } = useUserSettings();
-    const [ dateFnsLocale, setDateFnsLocale ] = useState<Locale>(undefined as unknown as Locale);
+    // Honest type instead of the previous `undefined as unknown as Locale` cast: the locale is
+    // genuinely absent until fetchLocale resolves, and date-fns falls back to en-US for undefined.
+    const [ dateFnsLocale, setDateFnsLocale ] = useState<Locale | undefined>();
 
     const locale: string = useMemo(() => (
         normalizeLocaleName(language || getDefaultLanguage())

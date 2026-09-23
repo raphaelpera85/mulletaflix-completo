@@ -3,6 +3,7 @@ package org.mulletaflix.feature.home
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -25,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -46,6 +49,8 @@ import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.userAvatarPath
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.designsystem.components.isTelevisionDevice
 
 /**
  * Home screen — the first screen users see after login.
@@ -71,8 +76,7 @@ fun HomeScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-            Configuration.UI_MODE_TYPE_TELEVISION
+        val isTelevision = isTelevisionDevice()
         val layoutSpec = homeLayoutSpec(
             homeDeviceClass(maxWidth.value.roundToInt(), isTelevision),
         )
@@ -161,32 +165,11 @@ fun HomeScreen(
 
             state.error?.let { message ->
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                        ),
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "Não foi possível carregar o conteúdo",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                text = message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                            TextButton(
-                                onClick = viewModel::refresh,
-                                modifier = Modifier.padding(top = 4.dp),
-                            ) {
-                                Text("Tentar novamente")
-                            }
-                        }
-                    }
+                    HomeLoadErrorCard(
+                        title = "Não foi possível carregar o conteúdo",
+                        message = message,
+                        onRetry = viewModel::refresh,
+                    )
                 }
             }
 
@@ -273,6 +256,21 @@ fun HomeScreen(
                 }
             }
 
+            // A falha ao buscar os canais some do mesmo jeito que "este servidor não tem
+            // TV ao vivo": o carrossel não é desenhado e nada explica a diferença. Como
+            // o servidor com TV desligada responde **sucesso com zero canais**, dá para
+            // distinguir os dois casos — e o erro fica exatamente onde o carrossel
+            // estaria, para não sugerir que o problema é das bibliotecas abaixo.
+            state.liveTvError?.let { message ->
+                item {
+                    HomeLoadErrorCard(
+                        title = "Não foi possível carregar a TV ao vivo",
+                        message = message,
+                        onRetry = viewModel::refresh,
+                    )
+                }
+            }
+
             // ── Library tiles ────────────────────────────────────────────────
             if (state.libraries.isNotEmpty()) {
                 item {
@@ -282,6 +280,21 @@ fun HomeScreen(
                         onLibraryClick = { library ->
                             if (shouldOpenLiveTv(library)) onLiveTvClick() else onLibraryClick(library.id)
                         },
+                    )
+                }
+            }
+
+            // Sem esta linha, uma falha ao listar as bibliotecas desenhava exatamente
+            // a Home de quem não tem biblioteca nenhuma: sem bloco, sem erro e sem
+            // como tentar de novo. `state.error` continua sendo a falha do feed
+            // inteiro — os dois não podem aparecer juntos, porque quando o feed
+            // inteiro falha não há `HomeFeed` para carregar `librariesError`.
+            state.librariesError?.let { message ->
+                item {
+                    HomeLoadErrorCard(
+                        title = "Não foi possível carregar suas bibliotecas",
+                        message = message,
+                        onRetry = viewModel::refresh,
                     )
                 }
             }
@@ -300,6 +313,48 @@ fun HomeScreen(
         }
     }
 
+}
+
+/**
+ * O cartão de erro da Home, com o "Tentar novamente" que o torna recuperável.
+ *
+ * Duas falhas diferentes usam o mesmo desenho: o feed inteiro (`state.error`) e
+ * só as bibliotecas (`state.librariesError`). Antes existia um desenho para a
+ * primeira e **nenhum** para a segunda, e uma falha ao listar as bibliotecas
+ * desenhava a Home de quem não tem biblioteca.
+ */
+@Composable
+private fun HomeLoadErrorCard(
+    title: String,
+    message: String,
+    onRetry: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Text("Tentar novamente")
+            }
+        }
+    }
 }
 
 @Composable
@@ -536,7 +591,7 @@ private val MediaItem.runtimeMinutes: Int? get() =
     runtimeTicks?.div(600_000_000L)?.toInt()?.takeIf { it > 0 }
 
 @Composable
-private fun HomeTopBar(
+internal fun HomeTopBar(
     profile: UserProfile?,
     layoutSpec: HomeLayoutSpec,
     onSearch: () -> Unit,
@@ -571,22 +626,40 @@ private fun HomeTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            IconButton(onClick = onSearch) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onSearch,
+            ) {
                 Icon(Icons.Default.Search, contentDescription = "Buscar", tint = MaterialTheme.colorScheme.onBackground)
             }
-            IconButton(onClick = onLiveTv) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onLiveTv,
+            ) {
                 Icon(Icons.Default.Tv, contentDescription = "TV Ao Vivo", tint = MaterialTheme.colorScheme.onBackground)
             }
-            IconButton(onClick = onDownloads) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onDownloads,
+            ) {
                 Icon(Icons.Default.FileDownload, contentDescription = "Downloads", tint = MaterialTheme.colorScheme.onBackground)
             }
-            IconButton(onClick = onFavorites) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onFavorites,
+            ) {
                 Icon(Icons.Default.Favorite, contentDescription = "Minha Lista", tint = MaterialTheme.colorScheme.secondary)
             }
-            IconButton(onClick = onSettings) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onSettings,
+            ) {
                 Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = MaterialTheme.colorScheme.onBackground)
             }
-            IconButton(onClick = onProfile) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onProfile,
+            ) {
                 if (avatarUrl == null) {
                     Icon(
                         Icons.Default.AccountCircle,
@@ -610,4 +683,22 @@ private fun HomeTopBar(
             }
         }
     }
+}
+
+/**
+ * One top-bar action. The focus treatment lives in `:design-system`, shared with
+ * every other screen's top bar — this wrapper only binds the Home layout's
+ * TV spacing to it.
+ */
+@Composable
+private fun HomeTopBarAction(
+    focusFriendly: Boolean,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    MulletaFlixTopBarAction(
+        onClick = onClick,
+        focusFriendly = focusFriendly,
+        content = content,
+    )
 }

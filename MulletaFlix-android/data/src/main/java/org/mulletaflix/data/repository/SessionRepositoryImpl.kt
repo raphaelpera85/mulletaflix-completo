@@ -44,18 +44,30 @@ class SessionRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * O `DeviceId` é resolvido uma vez por processo.
+     *
+     * Ver [SingleFlightId]: sem isso, as requisições paralelas do primeiro boot
+     * criavam um UUID cada uma e o aparelho se apresentava ao servidor como dois
+     * dispositivos diferentes.
+     */
+    private val deviceId = SingleFlightId(
+        read = { context.dataStore.data.first()[PreferencesKeys.DEVICE_ID] },
+        write = { generatedId ->
+            context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.DEVICE_ID] = generatedId
+            }
+        },
+        newId = { UUID.randomUUID().toString() },
+    )
+
     override fun getDeviceId(): Flow<String> {
         return flow {
-            val storedId = context.dataStore.data.first()[PreferencesKeys.DEVICE_ID]
-            val deviceId = storedId ?: UUID.randomUUID().toString().also { generatedId ->
-                context.dataStore.edit { preferences ->
-                    preferences[PreferencesKeys.DEVICE_ID] = generatedId
-                }
-            }
-            emit(deviceId)
+            val resolved = deviceId.get()
+            emit(resolved)
             emitAll(
                 context.dataStore.data.map { preferences ->
-                    preferences[PreferencesKeys.DEVICE_ID] ?: deviceId
+                    preferences[PreferencesKeys.DEVICE_ID] ?: resolved
                 }
             )
         }

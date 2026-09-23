@@ -41,3 +41,24 @@ internal fun shouldDeliverMediaDeepLink(
 ): Boolean = requestSequence != null &&
     !itemId.isNullOrBlank() &&
     handledSequence != requestSequence
+
+/**
+ * Whether a shared link's item belongs to the server this session is signed in to.
+ *
+ * `ShareItemContent` writes the generating server's id into the link precisely so
+ * a recipient on another server does not resolve the id against their own
+ * library. That value used to be parsed and then discarded, so a link from
+ * another server opened an unrelated item or none at all.
+ *
+ * An unknown id on either side means "cannot tell", and the link is allowed: a
+ * server that does not report its id must not lose link support.
+ */
+internal fun shouldOpenLinkOnCurrentServer(
+    linkServerId: String?,
+    sessionServerId: String?,
+): Boolean {
+    val link = linkServerId?.trim().orEmpty()
+    val session = sessionServerId?.trim().orEmpty()
+    if (link.isEmpty() || session.isEmpty()) return true
+    return link.equals(session, ignoreCase = true)
+}

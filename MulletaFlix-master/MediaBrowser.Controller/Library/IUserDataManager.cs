@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using MulletaFlix.Database.Implementations.Entities;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
@@ -28,6 +29,19 @@ namespace MediaBrowser.Controller.Library
         /// <param name="reason">The reason.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         void SaveUserData(User user, BaseItem item, UserItemData userData, UserDataSaveReason reason, CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Saves the user data without blocking the calling thread. Prefer this from async request
+        /// paths such as playback progress reporting, where the synchronous overload waits on a
+        /// semaphore and an EF transaction while holding a thread-pool thread.
+        /// </summary>
+        /// <param name="user">The user.</param>
+        /// <param name="item">The item.</param>
+        /// <param name="userData">The user data.</param>
+        /// <param name="reason">The reason.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A task representing the save.</returns>
+        Task SaveUserDataAsync(User user, BaseItem item, UserItemData userData, UserDataSaveReason reason, CancellationToken cancellationToken);
 
         /// <summary>
         /// Save the provided user data for the given user.

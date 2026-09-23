@@ -25,11 +25,6 @@
     @retrofit2.http.* <methods>;
 }
 
-# ── Room DB ───────────────────────────────────────────────────────────────
--keep class * extends androidx.room.RoomDatabase
--keep @androidx.room.Entity class *
--dontwarn androidx.room.paging.**
-
 # ── Hilt / Dagger ─────────────────────────────────────────────────────────
 -keep class * extends dagger.hilt.internal.GeneratedComponent
 -keep class dagger.hilt.** { *; }

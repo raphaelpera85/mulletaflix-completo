@@ -21,7 +21,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -46,6 +45,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.domain.model.cardMetadata
@@ -85,12 +85,16 @@ fun FavoritesScreen(
             TopAppBar(
                 title = { Text("Minha Lista") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    MulletaFlixTopBarAction(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
                 actions = {
-                    IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) {
+                    MulletaFlixTopBarAction(
+                        onClick = viewModel::refresh,
+                        busy = state.isLoading,
+                        busyContentDescription = "Atualizar Minha Lista",
+                    ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Atualizar Minha Lista")
                     }
                 },

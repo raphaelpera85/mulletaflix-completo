@@ -92,7 +92,18 @@ public sealed partial class BaseItemRepository
         }
         else
         {
-            dbQuery = dbQuery.Distinct();
+            // Deduplicate through the primary key instead of Distinct() over the whole entity.
+            // Distinct() spans all ~70 columns including 24 longtext ones, so no index can satisfy
+            // it and the optimizer drops to a full table scan (EXPLAIN: type=ALL, rows=78048,
+            // "Using where; Using filesort"). GetItems runs this shape twice per request — once for
+            // TotalRecordCount and once for the page — and the COUNT form made MariaDB build a
+            // derived temp table holding every column of every row just to count them.
+            // Projecting to Id keeps the dedupe on an indexed single column, and callers still get
+            // the same entities because Id is the primary key: duplicates can only come from join
+            // fan-out, never from two distinct rows sharing an Id. AsNoTracking matches the query
+            // built by PrepareItemQuery and the other collapsing helpers in this file.
+            var dedupedIds = dbQuery.Select(e => e.Id).Distinct();
+            dbQuery = context.BaseItems.AsNoTracking().Where(e => dedupedIds.Contains(e.Id));
         }
 
         if (filter.CollapseBoxSetItems == true)

@@ -4,6 +4,46 @@ import retrofit2.http.*
 import org.mulletaflix.core.api.dto.*
 
 /**
+ * How many channels one `LiveTv/Channels` request asks for.
+ *
+ * The list is paged because a single request with `Limit = 100` silently hid
+ * every channel beyond the hundredth: a provider with 300 channels showed 100,
+ * with nothing on screen saying the rest existed.
+ */
+const val LIVE_TV_CHANNEL_PAGE_SIZE = 100
+
+/**
+ * Safety cap on channel paging, so a server that keeps reporting a larger total
+ * than it returns can never loop forever.
+ */
+const val MAX_LIVE_TV_CHANNEL_PAGES = 40
+
+/**
+ * How many programmes one `LiveTv/Programs` request asks for.
+ *
+ * The guide used to ask for a single page of 50 and ignore `TotalRecordCount`. A
+ * provider with a few hundred channels and ten programmes each has thousands of
+ * programmes in a 24-hour window, and the server orders them by start date — so the
+ * fifty that came back belonged to a handful of channels and the rest of the guide
+ * showed "nenhum programa".
+ */
+const val LIVE_TV_GUIDE_PAGE_SIZE = 100
+
+/** Safety cap on guide paging, per batch of channels. */
+const val MAX_LIVE_TV_GUIDE_PAGES = 20
+
+/**
+ * How many recordings one `LiveTv/Recordings` request asks for.
+ *
+ * The list was asked for with `Limit = 20` and no `StartIndex`, so a viewer with 35
+ * recordings saw 20 and nothing said the other 15 existed.
+ */
+const val LIVE_TV_RECORDINGS_PAGE_SIZE = 100
+
+/** Safety cap on recording paging. */
+const val MAX_LIVE_TV_RECORDINGS_PAGES = 20
+
+/**
  * MulletaFlix REST API service.
  *
  * Maps all 70 confirmed controllers from Jellyfin.Api/Controllers/ to Kotlin suspend functions.
@@ -216,6 +256,22 @@ interface MulletaFlixApiService {
         @Body body: PlaybackInfoRequestDto,
     ): PlaybackInfoResponseDto
 
+    /**
+     * Opens a live channel that the server marked as requiring it.
+     *
+     * A tuner channel is not a file: `PlaybackInfo` returns its media source with
+     * `RequiresOpening = true` and no `LiveStreamId`, and the stream route only knows
+     * where the feed is after this call. The official web client does the same step
+     * (`playbackmanager.ts`, `getLiveStream`).
+     */
+    @POST("LiveStreams/Open")
+    suspend fun openLiveStream(
+        @Query("UserId") userId: String,
+        @Query("ItemId") itemId: String,
+        @Query("PlaySessionId") playSessionId: String? = null,
+        @Body body: OpenLiveStreamDto,
+    ): LiveStreamResponseDto
+
     // ── Search ───────────────────────────────────────────────────────────────
 
     @GET("Search/Hints")
@@ -233,23 +289,47 @@ interface MulletaFlixApiService {
         @Query("UserId") userId: String,
         @Query("EnableImageTypes") enableImageTypes: String = "Primary",
         @Query("Fields") fields: String = "Overview",
-        @Query("Limit") limit: Int = 100,
+        @Query("StartIndex") startIndex: Int = 0,
+        @Query("Limit") limit: Int = LIVE_TV_CHANNEL_PAGE_SIZE,
     ): BaseItemDtoQueryResultDto
 
-    @GET("LiveTv/EPG")
+    // The server exposes the guide at `LiveTv/Programs`. `LiveTv/EPG` does not
+    // exist on any MulletaFlix/Jellyfin release, so this request answered 404 and
+    // the whole EPG dialog showed "HTTP 404 Not Found" with no programmes at all.
+    // `LiveTvApiContractTest` pins the route so it cannot drift again.
+    // The server reads these as "EndDate >= MinEndDate" and "StartDate <=
+    // MaxStartDate" (`BaseItemRepository.TranslateQuery.cs`), which is an *overlap*
+    // test. `MinStartDate`/`MaxEndDate` are an "inside the window" test and left the
+    // programme that is on the air right now out of the guide.
+    @GET("LiveTv/Programs")
     suspend fun getEpg(
         @Query("ChannelIds") channelIds: String,
         @Query("StartIndex") startIndex: Int = 0,
-        @Query("Limit") limit: Int = 50,
-        @Query("MinStartDate") minStartDate: String? = null,
-        @Query("MaxEndDate") maxEndDate: String? = null,
+        @Query("Limit") limit: Int = LIVE_TV_GUIDE_PAGE_SIZE,
+        @Query("MinEndDate") minEndDate: String? = null,
+        @Query("MaxStartDate") maxStartDate: String? = null,
     ): BaseItemDtoQueryResultDto
 
     @GET("LiveTv/Recordings")
     suspend fun getRecordings(
         @Query("UserId") userId: String,
-        @Query("Limit") limit: Int = 20,
+        @Query("StartIndex") startIndex: Int = 0,
+        @Query("Limit") limit: Int = LIVE_TV_RECORDINGS_PAGE_SIZE,
     ): BaseItemDtoQueryResultDto
+
+    // Supplies ServiceName and the server's padding policy for a programme.
+    @GET("LiveTv/Timers/Defaults")
+    suspend fun getLiveTvTimerDefaults(
+        @Query("programId") programId: String,
+    ): TimerDefaultsDto
+
+    // `IsScheduled=true` is the server's own filter for `Status == New`, i.e. the
+    // recordings that are still pending. Used to mark the guide so an already
+    // scheduled programme cannot be scheduled a second time.
+    @GET("LiveTv/Timers")
+    suspend fun getLiveTvTimers(
+        @Query("IsScheduled") isScheduled: Boolean? = true,
+    ): LiveTvTimerQueryResultDto
 
     @POST("LiveTv/Timers")
     suspend fun createLiveTvTimer(@Body body: CreateLiveTvTimerDto)
@@ -289,15 +369,6 @@ interface MulletaFlixApiService {
 
     @GET("Branding/Configuration")
     suspend fun getBrandingConfig(): BrandingOptionsDto
-
-    // ── Suggestions ────────────────────────────────────────────────────────────
-
-    @GET("Items/{itemId}/Suggestions")
-    suspend fun getSuggestions(
-        @Path("itemId") itemId: String,
-        @Query("UserId") userId: String,
-        @Query("Limit") limit: Int = 12,
-    ): BaseItemDtoQueryResultDto
 
     // ── SyncPlay ───────────────────────────────────────────────────────────────
 

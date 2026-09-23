@@ -1,0 +1,187 @@
+Raiz 'Series'  : id=6a8b7f8f5a0928dc05f6f3a9 parent=/raphael
+Raiz 'Novelas' : não existe (será criada)
+Documentos na coleção: 29683
+
+Pasta                                                Pai atual                     Desc.  Legado  ObjId
+---------------------------------------------------------------------------------------------------------
+A Caverna Encantada                                  ObjectId:6a8b7f8f5a0928dc05f6f3a9      4       0      4
+A Cozinheira de Castamar                             ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Desalmada                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Dona do Pedaço                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+A Escrava Isaura (2004)                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Favorita                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+A Força do Querer                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Gata Comeu                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Indomada                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Infância de Romeu e Julieta                        ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Lei do Amor                                        ObjectId:6a8b7f8f5a0928dc05f6f3a9      6       0      6
+A Lua Me Disse                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Mentira                                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Mulher Proibida                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Nobreza do Amor                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Nova Vida de Ana                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Promessa                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      3       0      3
+A Próxima Vítima                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Rainha da Pérsia                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Regra do Jogo                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+A Sucessora                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Terra Prometida                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Usurpadora                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Usurpadora (2019)                                  ObjectId:6a8b7f8f5a0928dc05f6f3a9      4       0      4
+A Viagem                                             ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+A Vida da Gente                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      6       0      6
+A Vítima                                             ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Acorrentada                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Agora é Que São Elas                                 ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Além da Ilusão                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Além da Usurpadora                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Além do Horizonte                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      6       0      6
+Além do Tempo                                        ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Alma                                                 ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Alma Gêmea                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Alma Gêmea (2026)                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      9       8      1
+Alma Indomável                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Alto Astral                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Amar a Morte                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Amar Demais                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Amor à Vida                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      9       0      9
+Amor com Amor Se Paga                                ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Amor de Mãe                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Amor e Ódio                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Amor e Revolução (2011)                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Amor em Ruínas                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Amor Perfeito                                        ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Amor sem Igual                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Andando nas Nuvens                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Anjo Mau (1976)                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Anjo Mau (1997)                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9     29       0     29
+Ao Sul do Coração                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Apocalipse                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      3       0      3
+Aquele Beijo                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Araguaia                                             ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+As Aventuras de Poliana                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      6       0      6
+As Filhas da Mãe                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+As Filhas da Senhora Garcia                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Até que se Prove o Contrário                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Avenida Brasil                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+Babilônia                                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      6       0      6
+Baila Comigo                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Bambolê                                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Barriga de Aluguel                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Bebê a Bordo                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Bela, a Feia (2009)                                  ObjectId:6a8b7f8f5a0928dc05f6f3a9     36       0     36
+Belíssima                                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+Betty, A Feia - A História Continua                  ObjectId:6a8b7f8f5a0928dc05f6f3a9      3       0      3
+BIA                                                  ObjectId:6a8b7f8f5a0928dc05f6f3a9      2       0      2
+Bibi de A Força do Querer                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Boogie Oogie                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Brega e Chique                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Cabocla                                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Café com Aroma de Mulher                             ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Cair em Tentação                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Cama de Gato                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Caminho das Índias                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Caras e Bocas                                        ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Celebridade                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Cheias de Charme                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      6       0      6
+Chiquititas (1997)                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Chocolate                                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Chocolate com Pimenta                                ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Ciranda de Pedra                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Cobras e Lagartos                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Colisão                                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Coração Marcado                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      2       0      2
+Cristal (2006)                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Cúmplices de um Resgate                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Da Cor do Pecado                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      6       0      6
+Deus Salve o Rei                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Duas Caras                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Em Família                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Éramos Seis                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Escrava Mãe                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Espelho da Vida                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Estrela-Guia                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      4       0      4
+Êta Mundo Bom!                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+Explode Coração                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Felicidade                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Fera Radical                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Fina Estampa                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+Fuzuê                                                /raphael/Series                   4       2      2
+Gabriela                                             ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Gênesis                                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Geração Brasil                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Guerra dos Sexos                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Haja Coração                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Hilda Furacão                                        ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+I Love Paraisópolis                                  ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Império                                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      9       0      9
+Império de Mentiras                                  ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Insensato Coração                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Jezabel                                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Kubanacan                                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Laços de Família                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Liberdade                                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Liberdade, Liberdade                                 ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Lua Cheia de Amor                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Malhação - vidas brasileiras                         ObjectId:6a8b7f8f5a0928dc05f6f3a9     14       0     14
+Malhação (2010)                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Malhação (2012)                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9     15       0     15
+Malhação (2014)                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9    292       1    291
+Malhação Viva a Diferença                            ObjectId:6a8b7f8f5a0928dc05f6f3a9     11       0     11
+Mania de Você                                        /raphael/Series                   5       2      3
+Maria do Bairro                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Marimar                                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Meu Bem, Meu Mal                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Morde e Assopra                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Mulheres Apaixonadas                                 ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Mulheres de Areia                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Novo Mundo                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+O Bem-Amado                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+O Clone                                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+O Cravo e a Rosa                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+O Outro Lado do Paraíso                              ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+O Profeta                                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+O Rebu                                               ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+O Rei do Gado                                        ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+O Rico e Lázaro                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+O Salvador da Pátria                                 ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+O Sétimo Guardião                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+O11ZE                                                ObjectId:6a8b7f8f5a0928dc05f6f3a9      3       0      3
+Operação Pacífico                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Orgulho e Paixão                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Os Dez Mandamentos                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      2       0      2
+Os Inocentes                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Os Ricos Também Choram (2022)                        ObjectId:6a8b7f8f5a0928dc05f6f3a9     61       0     61
+Pacto de Sangue                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Páginas da Vida                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Pantanal                                             ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Pátria                                               ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Pedra Sobre Pedra                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Pega Pega                                            ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Por Amor                                             ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Porto dos Milagres                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Quatro por Quatro                                    ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Que Rei Sou Eu_                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Renascer (1993)                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Renascer (2024)                                      ObjectId:6a8b7f8f5a0928dc05f6f3a9    198       0    198
+Rock Story                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Roda de Fogo                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Roque Santeiro                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Rubí                                                 ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Salve Jorge                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+Salve-se Quem Puder                                  ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Sangue Bom                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Sassaricando                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Segundo Sol                                          ObjectId:6a8b7f8f5a0928dc05f6f3a9      7       0      7
+Selva de Pedra                                       ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Senhora do Destino                                   ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Sete Vidas                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      5       0      5
+Sinhá Moça                                           ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Sol Nascente                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      8       0      8
+Terra Nostra                                         ObjectId:6a8b7f8f5a0928dc05f6f3a9      1       0      1
+Vale Tudo (2025)                                     ObjectId:6a8b7f8f5a0928dc05f6f3a9    174      85     89
+
+Títulos na lista............: 176
+  já em Novelas............: 0
+  ausentes na árvore.......: 0
+Descendentes analisados....: 1228 (pai legado: 98, pai ObjectId: 1130)
