@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.cast.framework.CastContext
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -44,9 +45,16 @@ class PlayerCastControlTouchTargetTest {
     @Before
     fun initializeCast() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
+        var castAvailable = false
         instrumentation.runOnMainSync {
-            CastContext.getSharedInstance(instrumentation.targetContext)
+            castAvailable = runCatching {
+                CastContext.getSharedInstance(instrumentation.targetContext)
+            }.isSuccess
         }
+        assumeTrue(
+            "Google Play Services Cast não está disponível neste AVD; teste executado em dispositivo compatível.",
+            castAvailable,
+        )
     }
 
     @Test

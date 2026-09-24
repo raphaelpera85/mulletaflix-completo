@@ -2,10 +2,10 @@ package org.mulletaflix.core.common.update
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import java.io.File
 
 object AppUpdateInstaller {
@@ -27,7 +27,7 @@ object AppUpdateInstaller {
     fun openUnknownAppSourcesSettings(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                data = Uri.parse("package:${context.packageName}")
+                data = "package:${context.packageName}".toUri()
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
@@ -44,7 +44,7 @@ object AppUpdateInstaller {
             return false
         }
 
-        val contentUri: Uri = FileProvider.getUriForFile(
+        val contentUri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             apkFile

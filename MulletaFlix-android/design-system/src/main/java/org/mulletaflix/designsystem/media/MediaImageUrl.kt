@@ -1,5 +1,6 @@
 package org.mulletaflix.designsystem.media
 
+import android.annotation.SuppressLint
 import androidx.compose.runtime.compositionLocalOf
 import java.net.URI
 import java.net.URLEncoder
@@ -35,14 +36,8 @@ fun resolveMediaUrl(baseUrl: String, path: String?, accessToken: String? = null)
 }
 
 /**
- * Records the artwork URL actually handed to the image loader, with the token
- * redacted.
- *
- * A cover grid that reaches the server as *anonymous* is throttled by the
- * server's rate limiter and loads very slowly, and the only way to tell an
- * authenticated image URL from an anonymous one is to look at what was
- * requested. Debug builds only, and the token is never printed — logcat tag
- * `MulletaFlixImage`.
+ * Records the artwork URL handed to the image loader only in debuggable builds.
+ * The credential-bearing portions are redacted before they reach logcat.
  */
 private fun logResolvedMediaUrl(url: String) {
     if (!isDebuggableApp()) return
@@ -52,11 +47,13 @@ private fun logResolvedMediaUrl(url: String) {
 internal const val TAG_IMAGE_URL = "MulletaFlixImage"
 
 /** True only when the running application is a debuggable build. */
+@SuppressLint("PrivateApi")
 private fun isDebuggableApp(): Boolean = runCatching {
     val application = currentApplication() ?: return@runCatching false
     application.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
 }.getOrDefault(false)
 
+@SuppressLint("PrivateApi")
 private fun currentApplication(): android.app.Application? = runCatching {
     Class.forName("android.app.ActivityThread")
         .getMethod("currentApplication")

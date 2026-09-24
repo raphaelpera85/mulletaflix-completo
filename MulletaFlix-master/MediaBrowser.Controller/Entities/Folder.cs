@@ -399,16 +399,19 @@ namespace MediaBrowser.Controller.Entities
 
         private static bool IsLibraryFolderAccessible(IDirectoryService directoryService, BaseItem item, bool checkCollection)
         {
-            if (!checkCollection && (item is BoxSet || string.Equals(item.FileNameWithoutExtension, "collections", StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-
-            // For top parents i.e. Library folders, skip the validation if it's empty or inaccessible
+            // A temporarily unavailable mounted library must never be treated as
+            // an empty library. This is especially important for Nebula/rclone:
+            // a mount can disappear briefly while the service reconnects, and a
+            // scan during that window must not delete the cached catalog entries.
             if (item.IsTopParent && !directoryService.IsAccessible(item.ContainingFolderPath))
             {
                 Logger.LogWarning("Library folder {LibraryFolderPath} is inaccessible or empty, skipping", item.ContainingFolderPath);
                 return false;
+            }
+
+            if (!checkCollection && (item is BoxSet || string.Equals(item.FileNameWithoutExtension, "collections", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
             }
 
             return true;
@@ -2088,4 +2091,3 @@ namespace MediaBrowser.Controller.Entities
         }
     }
 }
-

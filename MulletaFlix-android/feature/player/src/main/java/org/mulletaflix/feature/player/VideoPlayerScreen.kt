@@ -15,6 +15,7 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -997,6 +998,7 @@ internal fun PlayerTopBarActionsRow(
  * teste, que passa a medir isso em vez de alguém supor.
  */
 @Composable
+@OptIn(markerClass = [UnstableApi::class])
 internal fun PlayerCastControl(
     isCasting: Boolean,
     modifier: Modifier = Modifier,

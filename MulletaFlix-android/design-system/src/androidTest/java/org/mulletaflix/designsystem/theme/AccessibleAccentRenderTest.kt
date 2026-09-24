@@ -1,7 +1,6 @@
 package org.mulletaflix.designsystem.theme
 
 import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +15,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
+import androidx.test.filters.SdkSuppress
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -32,6 +32,7 @@ import org.junit.Test
  * because the emulator may composite the swatch through a display colour
  * transform.
  */
+@SdkSuppress(minSdkVersion = Build.VERSION_CODES.O)
 class AccessibleAccentRenderTest {
 
     @get:Rule
@@ -39,7 +40,6 @@ class AccessibleAccentRenderTest {
 
     private val swatchTag = "accent-swatch"
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun themeAccentRendersWithAaContrastAgainstTheDarkSurface() {
         composeRule.setContent {
@@ -67,7 +67,6 @@ class AccessibleAccentRenderTest {
         )
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Test
     fun vividBrandRedStillRendersAsTheContainerColour() {
         composeRule.setContent {
@@ -96,7 +95,6 @@ class AccessibleAccentRenderTest {
         )
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun readCenterPixel(): Int {
         val bitmap = composeRule.onNodeWithTag(swatchTag).captureToImage().asAndroidBitmap()
         return bitmap.getPixel(bitmap.width / 2, bitmap.height / 2)

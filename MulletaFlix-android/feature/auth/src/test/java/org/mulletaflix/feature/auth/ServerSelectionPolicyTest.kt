@@ -127,4 +127,31 @@ class ServerSelectionPolicyTest {
 
         assertEquals(DEFAULT_MULLETAFLIX_SERVER_URL, fallbackServerCandidate(AuthState(savedServers = listOf(lan)), lan.url))
     }
+
+    @Test
+    fun `any discovered lan endpoint can trigger public fallback`() {
+        val first = ServerInfo("Other LAN", "http://192.168.1.20:8096")
+        val selected = ServerInfo("MulletaFlix LAN", "http://192.168.1.10:8096")
+
+        assertEquals(
+            true,
+            shouldTryFallbackAfterDiscoveryFailure(
+                discovered = listOf(first, selected),
+                failedEndpoint = selected.url,
+            ),
+        )
+    }
+
+    @Test
+    fun `public endpoint failure does not start another fallback`() {
+        val lan = ServerInfo("MulletaFlix LAN", "http://192.168.1.10:8096")
+
+        assertEquals(
+            false,
+            shouldTryFallbackAfterDiscoveryFailure(
+                discovered = listOf(lan),
+                failedEndpoint = DEFAULT_MULLETAFLIX_SERVER_URL,
+            ),
+        )
+    }
 }

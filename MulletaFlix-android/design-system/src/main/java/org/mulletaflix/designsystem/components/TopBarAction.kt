@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -189,7 +190,12 @@ fun MulletaFlixTopBarAction(
         modifier = Modifier
             .testTag(TOP_BAR_ACTION_TEST_TAG)
             .scale(focusScale)
+            // Material3's IconButton exposes click semantics, but on the API 35
+            // TV test surface it did not consistently become a focus target when
+            // requested directly. Keep touch layouts unchanged and make the
+            // remote target explicit where focus is part of the UX contract.
             .onFocusChanged { isFocused = it.isFocused }
+            .focusable(enabled = focusFriendly)
             .then(
                 if (ringWidthDp > 0f) {
                     Modifier

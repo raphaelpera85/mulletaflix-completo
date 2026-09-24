@@ -1057,6 +1057,77 @@ public sealed class NebulaMongoContext : IDisposable
     }
 
     /// <summary>
+    /// Remove a categoria legada Series/Animações. O Nebula mantém uma biblioteca
+    /// própria em Animações; deixar esse nó dentro de Series faz o Jellyfin expô-lo
+    /// como uma série recente no aplicativo.
+    /// </summary>
+    public async Task<NebulaAnimacaoMigrationResult> NormalizeAnimacoesLibraryAsync(CancellationToken cancellationToken = default)
+    {
+        var result = new NebulaAnimacaoMigrationResult { Success = false };
+        var documents = await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+
+        static string ParentKey(BsonDocument doc)
+            => doc.TryGetValue("parent", out var parent) && !parent.IsBsonNull ? parent.ToString() : string.Empty;
+
+        var seriesRoots = documents.Where(d =>
+            d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+            && d.GetValue("name", string.Empty).AsString.Equals("Series", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        foreach (var seriesRoot in seriesRoots)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var seriesParent = ParentKey(seriesRoot);
+            var animationRoot = documents.FirstOrDefault(d =>
+                d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                && d.GetValue("name", string.Empty).AsString.Equals("Animações", StringComparison.OrdinalIgnoreCase)
+                && ParentKey(d).Equals(seriesParent, StringComparison.OrdinalIgnoreCase));
+
+            if (animationRoot == null)
+            {
+                continue;
+            }
+
+            var duplicate = documents.FirstOrDefault(d =>
+                d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                && d.GetValue("name", string.Empty).AsString.Equals("Animações", StringComparison.OrdinalIgnoreCase)
+                && ParentKey(d).Equals(seriesRoot.GetValue("_id").ToString(), StringComparison.OrdinalIgnoreCase));
+
+            if (duplicate == null)
+            {
+                continue;
+            }
+
+            var duplicateId = duplicate.GetValue("_id");
+            var children = documents.Where(d => ParentKey(d).Equals(duplicateId.ToString(), StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var child in children)
+            {
+                var update = Builders<BsonDocument>.Update
+                    .Set("parent", animationRoot.GetValue("_id"))
+                    .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                var updateResult = await _filesCollection.UpdateOneAsync(
+                    Builders<BsonDocument>.Filter.Eq("_id", child.GetValue("_id")),
+                    update,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (updateResult.ModifiedCount > 0)
+                {
+                    result.Moved++;
+                }
+            }
+
+            var duplicateFilter = Builders<BsonDocument>.Filter.Eq("_id", duplicateId);
+            var deleteResult = await _filesCollection.DeleteOneAsync(duplicateFilter, cancellationToken).ConfigureAwait(false);
+            result.DuplicateRemoved |= deleteResult.DeletedCount > 0;
+        }
+
+        result.Success = true;
+        result.Message = result.Moved == 0 && !result.DuplicateRemoved
+            ? "Nenhum nó duplicado Series/Animações encontrado."
+            : $"Biblioteca normalizada: {result.Moved} grupo(s) movido(s) para Animações e nó duplicado removido: {result.DuplicateRemoved}.";
+        _logger.LogInformation("[NEBULA-ANIMACOES] {Message}", result.Message);
+        return result;
+    }
+
+    /// <summary>
     /// Obtém o delta de sincronização do catálogo: documentos criados ou modificados
     /// a partir de uma data UTC, mais os arquivos que ainda não foram enviados
     /// (fila, staging, envio em andamento ou falha). A coleção inteira nunca é devolvida.

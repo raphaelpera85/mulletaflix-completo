@@ -57,3 +57,9 @@ internal fun automaticServerCandidate(
 internal fun fallbackServerCandidate(state: AuthState, failedEndpoint: String): String =
     state.savedServers.firstOrNull { it.url != failedEndpoint }?.url
         ?: DEFAULT_MULLETAFLIX_SERVER_URL
+
+/** Retry the saved/public endpoint after any discovered LAN endpoint fails. */
+internal fun shouldTryFallbackAfterDiscoveryFailure(
+    discovered: List<ServerInfo>,
+    failedEndpoint: String,
+): Boolean = discovered.any { it.url == failedEndpoint }

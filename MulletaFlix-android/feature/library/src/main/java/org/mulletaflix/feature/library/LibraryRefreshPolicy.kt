@@ -19,9 +19,16 @@ internal const val TV_FAVORITES_REFRESH_INTERVAL_MILLIS = 60_000L
 internal fun favoritesAutoRefreshIntervalMillis(isTelevision: Boolean): Long =
     if (isTelevision) TV_FAVORITES_REFRESH_INTERVAL_MILLIS else 0L
 
-/** Keeps poster cards readable while making better use of tablet/TV width. */
-internal fun favoritesGridColumns(widthDp: Int, isTelevision: Boolean): Int = when {
-    isTelevision -> (widthDp / 132).coerceAtLeast(4)
-    widthDp >= 600 -> (widthDp / 150).coerceAtLeast(4)
-    else -> 3
+/** Keeps poster cards readable while honoring the shared grid-density preference. */
+internal fun favoritesGridColumns(
+    widthDp: Int,
+    isTelevision: Boolean,
+    density: String = LIBRARY_GRID_DENSITY_COMFORTABLE,
+): Int {
+    val normalized = normalizeLibraryGridDensity(density)
+    return when {
+        isTelevision -> (widthDp / libraryGridMinSizeDp(normalized, isTelevision = true)).coerceAtLeast(5)
+        widthDp >= 600 -> (widthDp / libraryGridMinSizeDp(normalized, isTablet = true)).coerceAtLeast(4)
+        else -> (widthDp / libraryGridMinSizeDp(normalized)).coerceAtLeast(3)
+    }
 }

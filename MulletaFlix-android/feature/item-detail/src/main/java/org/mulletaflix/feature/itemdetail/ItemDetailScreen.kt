@@ -80,6 +80,8 @@ fun ItemDetailScreen(
                 DetailHero(
                     item = item,
                     onBack = onBack,
+                    onRefresh = { viewModel.loadItem(itemId) },
+                    isRefreshing = state.isLoading,
                     onPlay = { onPlay(playbackTargetId(item, state.episodes)) },
                     playEnabled = canPlayItem(item, state.episodes),
                      onFavorite = { viewModel.toggleFavorite() },
@@ -208,6 +210,8 @@ fun ItemDetailScreen(
 private fun DetailHero(
     item: MediaItem,
     onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    isRefreshing: Boolean,
     onPlay: () -> Unit,
     playEnabled: Boolean,
     onFavorite: () -> Unit,
@@ -247,6 +251,23 @@ private fun DetailHero(
                 .background(Color.Black.copy(0.4f), CircleShape)
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = Color.White)
+        }
+
+        // Metadata may be completed by the server after the detail was opened.
+        // Keep an explicit refresh action in the hero so the user can reconcile
+        // artwork, NFO-derived fields and episode lists without leaving the page.
+        MulletaFlixTopBarAction(
+            onClick = onRefresh,
+            busy = isRefreshing,
+            busyContentDescription = detailRefreshContentDescription(true),
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                .background(Color.Black.copy(0.4f), CircleShape),
+        ) {
+            Icon(
+                Icons.Default.Refresh,
+                contentDescription = detailRefreshContentDescription(isRefreshing),
+                tint = Color.White,
+            )
         }
 
         // Bottom content: keep the complete poster visible beside the metadata.
@@ -302,6 +323,9 @@ private fun DetailHero(
         }
     }
 }
+
+internal fun detailRefreshContentDescription(isRefreshing: Boolean): String =
+    if (isRefreshing) "Atualizando detalhes" else "Atualizar detalhes"
 
 /**
  * A fileira de ações do cabeçalho de Detalhes.

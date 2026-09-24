@@ -15,6 +15,7 @@ import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.paging.appendDistinctBy
 import org.mulletaflix.domain.paging.hasMorePages
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.usecase.GetFavoriteItemsUseCase
 import javax.inject.Inject
 
@@ -24,12 +25,14 @@ data class FavoritesState(
     val items: List<MediaItem> = emptyList(),
     val hasMore: Boolean = false,
     val error: String? = null,
+    val gridDensity: String = LIBRARY_GRID_DENSITY_COMFORTABLE,
 )
 
 @HiltViewModel
 class FavoritesViewModel @Inject constructor(
     private val getFavoriteItemsUseCase: GetFavoriteItemsUseCase,
     private val authRepository: AuthRepository,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(FavoritesState())
@@ -51,6 +54,11 @@ class FavoritesViewModel @Inject constructor(
     private var fetchedItemCount = 0
 
     init {
+        viewModelScope.launch {
+            settingsRepository.getLibraryGridDensity().collect { density ->
+                _state.update { it.copy(gridDensity = normalizeLibraryGridDensity(density)) }
+            }
+        }
         viewModelScope.launch {
             authRepository.getSavedUserId().distinctUntilChanged().collect { userId ->
                 val userChanged = hasObservedUser && currentUserId != userId

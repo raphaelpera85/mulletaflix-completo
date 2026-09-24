@@ -112,8 +112,8 @@ internal fun mediaCardAccessibilityLabel(
 fun MediaCard(
     title: String,
     imageUrl: String?,
-    metadata: String? = null,
     modifier: Modifier = Modifier,
+    metadata: String? = null,
     shape: MediaCardShape = MediaCardShape.Portrait,
     progress: Float = 0f,            // 0..1, 0 = not shown
     isWatched: Boolean = false,

@@ -15,6 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.api.dto.QuickConnectResultDto
 import org.mulletaflix.core.api.dto.PublicSystemInfoDto
 
 /**
@@ -185,5 +186,34 @@ class AuthRepositoryImplTest {
         assertEquals("12.0.27", verification.version)
         assertEquals("server-b", verification.serverId)
         assertTrue((verification.latencyMs ?: -1L) >= 0L)
+    }
+
+    @Test
+    fun `quick connect normaliza o codigo e segredo recebidos`() = runBlocking {
+        coEvery { api.initiateQuickConnect() } returns QuickConnectResultDto(
+            code = " 393877 ",
+            secret = " secret-1 ",
+        )
+
+        val quickConnect = repository().initiateQuickConnect().getOrThrow()
+
+        assertEquals("393877", quickConnect.code)
+        assertEquals("secret-1", quickConnect.secret)
+    }
+
+    @Test
+    fun `quick connect rejeita resposta sem codigo ou segredo`() = runBlocking {
+        coEvery { api.initiateQuickConnect() } returns QuickConnectResultDto(
+            code = " ",
+            secret = "secret-1",
+        )
+
+        val result = repository().initiateQuickConnect()
+
+        assertTrue(result.isFailure)
+        assertEquals(
+            "O servidor retornou um código Quick Connect inválido",
+            result.exceptionOrNull()?.message,
+        )
     }
 }

@@ -23,9 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -46,6 +48,12 @@ import org.mulletaflix.designsystem.components.remoteFocusRing
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 internal const val REGISTER_DIALOG_CONTENT_DESCRIPTION = "Conteúdo do cadastro; deslize verticalmente para ver mais"
+internal const val LOGIN_USERNAME_TEST_TAG = "auth.login.username"
+internal const val LOGIN_PASSWORD_TEST_TAG = "auth.login.password"
+internal const val LOGIN_SUBMIT_TEST_TAG = "auth.login.submit"
+internal const val QUICK_CONNECT_TAB_TEST_TAG = "auth.quick_connect.tab"
+internal const val QUICK_CONNECT_INITIATE_TEST_TAG = "auth.quick_connect.initiate"
+internal const val QUICK_CONNECT_CODE_TEST_TAG = "auth.quick_connect.code"
 
 /**
  * Login screen — first authentication step after server is selected.
@@ -134,7 +142,9 @@ fun LoginScreen(
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    modifier = Modifier.remoteFocusRing(RoundedCornerShape(12.dp)),
+                    modifier = Modifier
+                        .remoteFocusRing(RoundedCornerShape(12.dp))
+                        .testTag(QUICK_CONNECT_TAB_TEST_TAG),
                 ) {
                     Text("Quick Connect", modifier = Modifier.padding(vertical = 12.dp))
                 }
@@ -197,7 +207,7 @@ fun LoginScreen(
 }
 
 @Composable
-private fun PasswordLoginForm(
+internal fun PasswordLoginForm(
     username: String,
     password: String,
     isLoading: Boolean,
@@ -214,7 +224,8 @@ private fun PasswordLoginForm(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.semantics { testTagsAsResourceId = true },
     ) {
         // User avatars (if server has multiple users)
         if (users.isNotEmpty()) {
@@ -230,7 +241,7 @@ private fun PasswordLoginForm(
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(LOGIN_USERNAME_TEST_TAG),
             enabled = !isLoading,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.secondary,
@@ -259,7 +270,7 @@ private fun PasswordLoginForm(
                 imeAction = ImeAction.Done
             ),
             keyboardActions = KeyboardActions(onDone = { onLogin() }),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(LOGIN_PASSWORD_TEST_TAG),
             enabled = !isLoading,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.secondary,
@@ -278,7 +289,8 @@ private fun PasswordLoginForm(
             enabled = !isLoading && username.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(52.dp)
+                .testTag(LOGIN_SUBMIT_TEST_TAG),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed),
         ) {
@@ -387,7 +399,7 @@ internal fun RegisterDialog(
 }
 
 @Composable
-private fun QuickConnectForm(
+internal fun QuickConnectForm(
     pin: String?,
     isAvailable: Boolean,
     isLoading: Boolean,
@@ -409,7 +421,8 @@ private fun QuickConnectForm(
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.secondary,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 8.sp
+                letterSpacing = 8.sp,
+                modifier = Modifier.testTag(QUICK_CONNECT_CODE_TEST_TAG),
             )
             OutlinedButton(onClick = { onCopyPin(pin) }) {
                 Icon(Icons.Default.ContentCopy, contentDescription = null)
@@ -435,7 +448,15 @@ private fun QuickConnectForm(
         } else {
             Text("Gera um código de 6 dígitos para entrar sem senha.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(0.8f))
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            Button(onClick = onInitiate, enabled = !isLoading, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp)) {
+            Button(
+                onClick = onInitiate,
+                enabled = !isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .testTag(QUICK_CONNECT_INITIATE_TEST_TAG),
+                shape = RoundedCornerShape(12.dp),
+            ) {
                 if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                 else Text("Gerar Código Quick Connect")
             }

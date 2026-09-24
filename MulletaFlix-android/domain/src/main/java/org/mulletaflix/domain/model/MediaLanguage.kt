@@ -28,6 +28,16 @@ object MediaLanguage {
         Entry(canonical = "es", label = "Español"),
         Entry(canonical = "fr", label = "Français"),
         Entry(canonical = "de", label = "Deutsch"),
+        Entry(canonical = "it", label = "Italiano"),
+        Entry(canonical = "ja", label = "日本語"),
+        Entry(canonical = "ko", label = "한국어"),
+        Entry(canonical = "zh", label = "中文"),
+        Entry(canonical = "ru", label = "Русский"),
+        Entry(canonical = "ar", label = "العربية"),
+        Entry(canonical = "nl", label = "Nederlands"),
+        Entry(canonical = "tr", label = "Türkçe"),
+        Entry(canonical = "pl", label = "Polski"),
+        Entry(canonical = "hi", label = "हिन्दी"),
     )
 
     data class Entry(val canonical: String, val label: String)
@@ -52,6 +62,16 @@ object MediaLanguage {
             "spa", "es", "es-es", "es-mx", "spanish", "espanhol", "español" -> "es"
             "fra", "fre", "fr", "fr-fr", "french", "francês", "français" -> "fr"
             "deu", "ger", "de", "de-de", "german", "alemão", "deutsch" -> "de"
+            "ita", "it", "it-it", "italian", "italiano" -> "it"
+            "jpn", "ja", "ja-jp", "japanese", "日本語" -> "ja"
+            "kor", "ko", "ko-kr", "korean", "한국어" -> "ko"
+            "zho", "chi", "zh", "zh-cn", "chinese", "中文" -> "zh"
+            "rus", "ru", "ru-ru", "russian", "русский" -> "ru"
+            "ara", "ar", "ar-sa", "arabic", "العربية" -> "ar"
+            "nld", "dut", "nl", "nl-nl", "dutch", "nederlands" -> "nl"
+            "tur", "tr", "tr-tr", "turkish", "türkçe" -> "tr"
+            "pol", "pl", "pl-pl", "polish", "polski" -> "pl"
+            "hin", "hi", "hi-in", "hindi", "हिन्दी" -> "hi"
             "off", "none", "desativadas", "desabilitadas" -> OFF
             "original", "idioma original" -> ORIGINAL
             else -> normalized

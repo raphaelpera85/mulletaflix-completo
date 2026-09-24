@@ -27,11 +27,7 @@ import androidx.compose.ui.semantics.semantics
 import android.content.res.Configuration
 import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.MediaCardShape
@@ -62,6 +58,7 @@ fun LibraryScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
+    val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600 && !isTelevision
 
     // A library must be populated as soon as its destination is entered. The
     // TV refresh loop is intentionally periodic, so relying on it for the
@@ -70,20 +67,12 @@ fun LibraryScreen(
         viewModel.loadLibrary(libraryId)
     }
 
-    LaunchedEffect(libraryId, lifecycleOwner, isTelevision) {
-        val refreshInterval = libraryAutoRefreshIntervalMillis(isTelevision)
-        if (refreshInterval > 0L) {
-            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                if (libraryRefreshImmediatelyOnResume(isTelevision)) {
-                    viewModel.refreshIfIdle(libraryId)
-                }
-                while (isActive) {
-                    delay(refreshInterval)
-                    viewModel.refreshIfIdle(libraryId)
-                }
-            }
-        }
-    }
+    TvRefreshEffect(
+        lifecycleOwner = lifecycleOwner,
+        refreshIntervalMillis = libraryAutoRefreshIntervalMillis(isTelevision),
+        refreshImmediately = libraryRefreshImmediatelyOnResume(isTelevision),
+        onRefresh = { viewModel.refreshIfIdle(libraryId) },
+    )
 
     Scaffold(
         topBar = {
@@ -155,13 +144,19 @@ fun LibraryScreen(
                     if (tvColumns > 0) {
                         GridCells.Fixed(tvColumns)
                     } else {
-                        GridCells.Adaptive(minSize = libraryGridMinSizeDp(state.gridDensity).dp)
+                        GridCells.Adaptive(
+                            minSize = libraryGridMinSizeDp(
+                                state.gridDensity,
+                                isTablet = isTablet,
+                            ).dp,
+                        )
                     }
                 } else {
                     GridCells.Fixed(1)
                 }
 
                 LazyVerticalGrid(
+                    state = rememberLibraryGridScrollState(),
                     columns = columns,
                     contentPadding = PaddingValues(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -23,7 +23,7 @@ internal static class Program
     private static string TargetPathFor(string rootName) => $"raphael/{rootName}";
 
     /// <summary>
-    /// Ponto de entrada. Comandos suportados: audit, node, backup, apply, verify, rollback.
+    /// Ponto de entrada. Comandos suportados: audit, node, backup, apply, verify, rollback, normalize-animacoes.
     /// </summary>
     public static async Task<int> Main(string[] args)
     {
@@ -58,6 +58,8 @@ internal static class Program
                     return await VerifyAsync(files, GetRequiredArgument(arguments, "list"), GetTargetRoot(arguments)).ConfigureAwait(false);
                 case "rollback":
                     return await RollbackAsync(files, GetRequiredArgument(arguments, "map")).ConfigureAwait(false);
+                case "normalize-animacoes":
+                    return await NormalizeAnimacoesAsync(files).ConfigureAwait(false);
                 default:
                     PrintUsage();
                     return 1;
@@ -99,6 +101,46 @@ internal static class Program
     }
 
     // ---------------------------------------------------------------- audit
+
+    private static async Task<int> NormalizeAnimacoesAsync(IMongoCollection<BsonDocument> files)
+    {
+        var documents = await files.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync().ConfigureAwait(false);
+        static string ParentKey(BsonDocument doc)
+            => doc.TryGetValue("parent", out var parent) && !parent.IsBsonNull ? parent.ToString() : string.Empty;
+
+        var moved = 0;
+        var removed = 0;
+        foreach (var series in documents.Where(d => d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+            && d.GetValue("name", string.Empty).AsString.Equals("Series", StringComparison.OrdinalIgnoreCase)))
+        {
+            var parent = ParentKey(series);
+            var target = documents.FirstOrDefault(d => d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                && d.GetValue("name", string.Empty).AsString.Equals("Animações", StringComparison.OrdinalIgnoreCase)
+                && ParentKey(d).Equals(parent, StringComparison.OrdinalIgnoreCase));
+            var duplicate = documents.FirstOrDefault(d => d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                && d.GetValue("name", string.Empty).AsString.Equals("Animações", StringComparison.OrdinalIgnoreCase)
+                && ParentKey(d).Equals(series.GetValue("_id").ToString(), StringComparison.OrdinalIgnoreCase));
+            if (target == null || duplicate == null)
+            {
+                continue;
+            }
+
+            foreach (var child in documents.Where(d => ParentKey(d).Equals(duplicate.GetValue("_id").ToString(), StringComparison.OrdinalIgnoreCase)))
+            {
+                var update = await files.UpdateOneAsync(
+                    Builders<BsonDocument>.Filter.Eq("_id", child.GetValue("_id")),
+                    Builders<BsonDocument>.Update.Set("parent", target.GetValue("_id"))
+                        .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())).ConfigureAwait(false);
+                moved += (int)update.ModifiedCount;
+            }
+
+            var delete = await files.DeleteOneAsync(Builders<BsonDocument>.Filter.Eq("_id", duplicate.GetValue("_id"))).ConfigureAwait(false);
+            removed += (int)delete.DeletedCount;
+        }
+
+        Console.WriteLine($"Animações normalizadas: {moved} grupo(s) movido(s), {removed} nó(s) duplicado(s) removido(s).");
+        return 0;
+    }
 
     /// <summary>
     /// Analisa a lista de pastas candidatas contra a árvore real: existência, pai atual,

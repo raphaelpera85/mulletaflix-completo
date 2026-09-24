@@ -104,9 +104,14 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun initiateQuickConnect(): Result<QuickConnectState> = suspendRunCatching {
         val res = api.initiateQuickConnect()
+        val code = res.code.trim()
+        val secret = res.secret.trim()
+        require(code.isNotEmpty() && secret.isNotEmpty()) {
+            "O servidor retornou um código Quick Connect inválido"
+        }
         QuickConnectState(
-            code = res.code,
-            secret = res.secret,
+            code = code,
+            secret = secret,
             isAuthorized = res.authenticated,
         )
     }

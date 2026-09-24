@@ -11,6 +11,7 @@ import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SearchHistoryRepository
+import org.mulletaflix.domain.repository.SearchHintItem
 import org.mulletaflix.domain.usecase.SearchMediaUseCase
 import javax.inject.Inject
 
@@ -21,6 +22,8 @@ data class SearchState(
     val isRefreshing: Boolean = false,
     val results: List<MediaItem> = emptyList(),
     val history: List<String> = emptyList(),
+    val hints: List<SearchHintItem> = emptyList(),
+    val isLoadingHints: Boolean = false,
     val error: String? = null,
     val isOffline: Boolean = false,
     /**
@@ -67,6 +70,7 @@ class SearchViewModel @Inject constructor(
     val state: StateFlow<SearchState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+    private var hintsJob: Job? = null
     private var historyJob: Job? = null
     private var currentUserId: String? = null
     private var searchGeneration = 0L
@@ -88,6 +92,7 @@ class SearchViewModel @Inject constructor(
                 currentUserId = userId
                 if (userChanged) {
                     searchJob?.cancel()
+                    hintsJob?.cancel()
                     ++searchGeneration
                     _state.update {
                         it.copy(
@@ -98,6 +103,8 @@ class SearchViewModel @Inject constructor(
                             isLoading = false,
                             isRefreshing = false,
                             error = null,
+                            hints = emptyList(),
+                            isLoadingHints = false,
                         )
                     }
                 }
@@ -129,9 +136,12 @@ class SearchViewModel @Inject constructor(
                 // geração e a flag ficaria presa em `true` — botão girando para sempre.
                 hasMore = false,
                 isLoadingMore = false,
+                hints = emptyList(),
+                isLoadingHints = false,
             )
         }
         searchJob?.cancel()
+        hintsJob?.cancel()
         val generation = ++searchGeneration
         if (newQuery.isBlank()) {
             // Clearing the box invalidates the in-flight search, and that
@@ -139,8 +149,13 @@ class SearchViewModel @Inject constructor(
             // generation moved on. Both flags have to be lowered here, or a
             // cancelled pull-to-refresh (`refreshSearch`) leaves its indicator
             // spinning with no request behind it.
-            _state.update { it.copy(results = emptyList(), totalMatching = null, hasMore = false, isLoadingMore = false, isLoading = false, isRefreshing = false, error = null) }
+            _state.update { it.copy(results = emptyList(), totalMatching = null, hasMore = false, isLoadingMore = false, isLoading = false, isRefreshing = false, isLoadingHints = false, hints = emptyList(), error = null) }
             return
+        }
+
+        hintsJob = viewModelScope.launch {
+            delay(180)
+            loadHints(newQuery, _state.value.activeFilter, generation)
         }
 
         searchJob = viewModelScope.launch {
@@ -163,6 +178,8 @@ class SearchViewModel @Inject constructor(
         // An explicit search is remembered whatever it returns: the viewer asked for it.
         rememberSearch(normalizedQuery, currentUserId)
         searchJob?.cancel()
+        hintsJob?.cancel()
+        _state.update { it.copy(hints = emptyList(), isLoadingHints = false) }
         val generation = ++searchGeneration
         searchJob = viewModelScope.launch {
             performSearch(normalizedQuery, _state.value.activeFilter, generation)
@@ -211,12 +228,19 @@ class SearchViewModel @Inject constructor(
                 totalMatching = null,
                 hasMore = false,
                 isLoadingMore = false,
+                hints = emptyList(),
+                isLoadingHints = false,
             )
         }
         val currentQuery = _state.value.query
         if (currentQuery.isNotBlank()) {
             searchJob?.cancel()
             val generation = ++searchGeneration
+            hintsJob?.cancel()
+            hintsJob = viewModelScope.launch {
+                delay(180)
+                loadHints(currentQuery, filter, generation)
+            }
             searchJob = viewModelScope.launch {
                 performSearch(currentQuery, filter, generation, isRefresh = false)
             }
@@ -233,12 +257,30 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch { searchHistoryRepository.clear(currentUserId) }
     }
 
+    private suspend fun loadHints(query: String, filter: SearchFilter?, generation: Long) {
+        val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: return
+        if (query.trim().length < 2 || _state.value.isOffline || !isCurrentSearch(query, filter, generation, userId)) return
+        _state.update { it.copy(isLoadingHints = true) }
+        searchMediaUseCase.hints(userId, query, filter.toApiItemType())
+            .onSuccess { hintItems ->
+                if (isCurrentSearch(query, filter, generation, userId)) {
+                    _state.update { it.copy(hints = hintItems, isLoadingHints = false) }
+                }
+            }
+            .onFailure {
+                if (isCurrentSearch(query, filter, generation, userId)) {
+                    _state.update { it.copy(hints = emptyList(), isLoadingHints = false) }
+                }
+            }
+    }
+
     private suspend fun performSearch(
         query: String,
         filter: SearchFilter?,
         generation: Long,
         isRefresh: Boolean = false,
     ) {
+        hintsJob?.cancel()
         val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
             if (generation == searchGeneration &&
                 _state.value.query == query &&
@@ -275,6 +317,8 @@ class SearchViewModel @Inject constructor(
                 isLoading = !isRefresh,
                 isRefreshing = isRefresh,
                 isLoadingMore = false,
+                hints = emptyList(),
+                isLoadingHints = false,
                 error = null,
             )
         }

@@ -1024,6 +1024,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 novelaMigration.Success ? "INFO" : "WARNING",
                 $"[NEBULA-NOVELAS] {novelaMigration.Message}");
 
+            var animacaoMigration = await _mongoContext.NormalizeAnimacoesLibraryAsync(cancellationToken).ConfigureAwait(false);
+            EmitServerLog(
+                animacaoMigration.Success ? "INFO" : "WARNING",
+                $"[NEBULA-ANIMACOES] {animacaoMigration.Message}");
+
             // 1.1 Sincronizador com Supabase e verificação de prioridade do banco (restauração se Mongo estiver vazio)
             if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
             {
@@ -1747,6 +1752,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
 
         return await mongo.ScanAndMoveNovelasAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<NebulaAnimacaoMigrationResult> NormalizeAnimacoesLibraryAsync(CancellationToken cancellationToken = default)
+    {
+        var mongo = _mongoContext;
+        if (mongo == null)
+        {
+            return new NebulaAnimacaoMigrationResult
+            {
+                Success = false,
+                Message = "O MongoDB do Nebula ainda não está inicializado. Inicie o envio e tente novamente."
+            };
+        }
+
+        return await mongo.NormalizeAnimacoesLibraryAsync(cancellationToken).ConfigureAwait(false);
     }
 
 

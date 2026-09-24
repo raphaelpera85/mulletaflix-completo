@@ -1,6 +1,7 @@
 package org.mulletaflix.domain.usecase
 
 import org.mulletaflix.domain.repository.SearchRepository
+import org.mulletaflix.domain.repository.SearchHintItem
 import org.mulletaflix.domain.repository.SearchResults
 import javax.inject.Inject
 
@@ -13,6 +14,22 @@ import javax.inject.Inject
 class SearchMediaUseCase @Inject constructor(
     private val searchRepository: SearchRepository,
 ) {
+    suspend fun hints(
+        userId: String,
+        query: String,
+        itemTypes: String? = null,
+    ): Result<List<SearchHintItem>> = runCatching {
+        val trimmed = query.trim()
+        if (trimmed.length < 2) return@runCatching emptyList()
+        require(userId.isNotBlank()) { "O identificador do usuário é obrigatório." }
+        searchRepository.searchHints(trimmed, userId).getOrThrow()
+            .asSequence()
+            .filter { itemTypes == null || it.type.equals(itemTypes, ignoreCase = true) }
+            .distinctBy { it.id }
+            .take(8)
+            .toList()
+    }
+
     suspend operator fun invoke(
         userId: String,
         query: String,

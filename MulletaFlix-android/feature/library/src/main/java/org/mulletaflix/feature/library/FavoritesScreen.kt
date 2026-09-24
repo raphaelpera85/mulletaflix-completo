@@ -65,7 +65,12 @@ fun FavoritesScreen(
     val configuration = LocalConfiguration.current
     val isTelevision = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
-    val gridColumns = favoritesGridColumns(configuration.screenWidthDp, isTelevision)
+    val gridColumns = favoritesGridColumns(
+        widthDp = configuration.screenWidthDp,
+        isTelevision = isTelevision,
+        density = state.gridDensity,
+    )
+    val gridState = rememberLibraryGridScrollState()
 
     LaunchedEffect(lifecycleOwner, isTelevision) {
         val refreshInterval = favoritesAutoRefreshIntervalMillis(isTelevision)
@@ -115,7 +120,7 @@ fun FavoritesScreen(
                 state.items.isEmpty() ->
                     EmptyFavoritesState()
                 else ->
-                    FavoritesGrid(state.items, state.hasMore, state.isLoading, gridColumns, isTelevision, onItemClick, viewModel::loadMore)
+                    FavoritesGrid(state.items, state.hasMore, state.isLoading, gridColumns, isTelevision, gridState, onItemClick, viewModel::loadMore)
             }
             if (state.error != null && state.items.isNotEmpty()) {
                 FavoritesInlineError(
@@ -160,10 +165,12 @@ private fun FavoritesGrid(
     isLoading: Boolean,
     gridColumns: Int,
     isTelevision: Boolean,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
 ) {
     LazyVerticalGrid(
+        state = gridState,
         columns = GridCells.Fixed(gridColumns),
         contentPadding = PaddingValues(8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),

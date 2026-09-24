@@ -31,6 +31,11 @@ private fun languageCodeLabel(value: String): String? = when (
     "zho", "chi", "zh" -> "中文"
     "rus", "ru" -> "Русский"
     "ara", "ar" -> "العربية"
+    "nld", "dut", "nl" -> "Nederlands"
+    "tur", "tr" -> "Türkçe"
+    "pol", "pl" -> "Polski"
+    "hin", "hi" -> "हिन्दी"
+    "heb", "he" -> "עברית"
     else -> null
 }
 

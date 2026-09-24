@@ -12,6 +12,14 @@ public sealed class NebulaNovelaMigrationResult
     public string Message { get; set; } = string.Empty;
 }
 
+public sealed class NebulaAnimacaoMigrationResult
+{
+    public bool Success { get; set; }
+    public int Moved { get; set; }
+    public bool DuplicateRemoved { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
 public class NebulaStatusDto
 {
     public bool IsEnvioRunning { get; set; }

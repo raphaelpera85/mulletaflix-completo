@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -71,6 +72,7 @@ fun SearchScreen(
     var isListening by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf<String?>(null) }
     var showClearHistoryConfirmation by rememberSaveable { mutableStateOf(false) }
+    val resultsScrollState = rememberSearchScrollState()
     val speechRecognizer = remember(context) {
         runCatching {
             if (SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -186,6 +188,18 @@ fun SearchScreen(
             )
         }
 
+        if (state.hints.isNotEmpty() || state.isLoadingHints) {
+            SearchHintPanel(
+                hints = state.hints,
+                isLoading = state.isLoadingHints,
+                onHintClick = { hint ->
+                    viewModel.search(hint.name)
+                    onItemClick(hint.id)
+                },
+                focusFriendly = isTelevision,
+            )
+        }
+
         // ── Filter chips ────────────────────────────────────────────────────
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -286,7 +300,7 @@ fun SearchScreen(
                 onRefresh = viewModel::refreshSearch,
                 modifier = Modifier.fillMaxSize(),
             ) {
-            LazyColumn {
+            LazyColumn(state = resultsScrollState) {
                 searchTruncationNotice(state.results.size, state.totalMatching)?.let { notice ->
                     item { SearchTruncationBanner(notice) }
                 }
@@ -321,7 +335,9 @@ fun SearchScreen(
                         )
                     }
                     item {
+                        val carouselScrollState = rememberSearchCarouselScrollState()
                         LazyRow(
+                            state = carouselScrollState,
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.padding(bottom = 8.dp)
@@ -427,6 +443,59 @@ internal fun SearchTruncationBanner(notice: String) {
 }
 
 @Composable
+internal fun SearchHintPanel(
+    hints: List<org.mulletaflix.domain.repository.SearchHintItem>,
+    isLoading: Boolean,
+    onHintClick: (org.mulletaflix.domain.repository.SearchHintItem) -> Unit,
+    focusFriendly: Boolean,
+    state: LazyListState = rememberSearchScrollState(),
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        if (isLoading && hints.isEmpty()) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        LazyColumn(
+            state = state,
+            modifier = Modifier.heightIn(max = 280.dp),
+            contentPadding = PaddingValues(vertical = 4.dp),
+        ) {
+            items(hints, key = { it.id }) { hint ->
+                var isFocused by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .clickable(onClick = { onHintClick(hint) })
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Abrir sugestão ${hint.name}"
+                        }
+                        .then(
+                            if (focusFriendly && isFocused) {
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
+                            } else Modifier
+                        )
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                        Text(hint.name, style = MaterialTheme.typography.bodyLarge)
+                        val detail = listOfNotNull(hint.type, hint.year?.toString()).joinToString(" • ")
+                        if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun ClearSearchHistoryDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
@@ -465,8 +534,10 @@ internal fun SearchHistory(
     onRemoveItem: (String) -> Unit,
     onClearHistory: () -> Unit,
     focusFriendly: Boolean = false,
+    state: LazyListState = rememberSearchScrollState(),
 ) {
     LazyColumn(
+        state = state,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 80.dp),
     ) {

@@ -23,7 +23,7 @@ servidor local responder, usa a URL pública. A busca manual continua disponíve
 | ⚙️ Configurações com 8 temas | ✅ |
 | 👤 Perfil multi-usuário | ✅ |
 | 📡 SyncPlay | ✅ |
-| 📺 Chromecast | ✅ (estrutura) |
+| 📺 Chromecast | ✅ |
 
 ## 🏗️ Arquitetura
 
@@ -83,7 +83,7 @@ cd MulletaFlix-android
 | Tema | Descrição |
 |---|---|
 | Sistema | Segue o modo claro/escuro do Android |
-| Escuro | Fundo #101010, azul MulletaFlix (padrão) |
+| Escuro | Fundo preto cinematográfico, detalhes em vermelho (padrão) |
 | Claro | Fundo branco |
 | Netflix | Fundo preto, vermelho |
 | Purple Haze | Fundo roxo escuro |

@@ -70,6 +70,29 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `type ahead loads deduplicated filtered hints before the full search`() = runTest {
+        searchRepository.hints = listOf(
+            SearchHintItem("movie-1", "Matrix", "Movie", 1999, null),
+            SearchHintItem("movie-1", "Matrix", "Movie", 1999, null),
+            SearchHintItem("series-1", "Matrix Files", "Series", 2024, null),
+        )
+        viewModel.setFilter(SearchFilter.Movies)
+        viewModel.onQueryChange("mat")
+
+        advanceTimeBy(179)
+        assertTrue(viewModel.state.value.hints.isEmpty())
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf("movie-1"), viewModel.state.value.hints.map { it.id })
+
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.hints.isEmpty())
+        assertEquals("mat", searchRepository.hintTerm)
+        assertTrue(searchRepository.called)
+    }
+
+    @Test
     fun `manual search keeps ten distinct history entries`() = runTest {
         advanceUntilIdle()
         repeat(12) { viewModel.search("term-$it") }
@@ -643,6 +666,8 @@ class SearchViewModelTest {
         var itemTypes: String? = null
         var calls = 0
         var shouldFail = false
+        var hintTerm: String? = null
+        var hints: List<SearchHintItem> = emptyList()
 
         /** Devolve uma busca bem-sucedida sem resultado. */
         var emptyResults = false
@@ -650,7 +675,10 @@ class SearchViewModelTest {
         /** Total que o servidor informa; nulo = o servidor não contou. */
         var totalMatching: Int? = null
 
-        override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
+        override suspend fun searchHints(term: String, userId: String?): Result<List<SearchHintItem>> {
+            hintTerm = term
+            return Result.success(hints)
+        }
         override suspend fun searchItems(
             term: String,
             userId: String,

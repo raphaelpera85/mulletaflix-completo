@@ -164,7 +164,7 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 ## 🎨 11. Design System, Temas & Visual (`:design-system`)
 
 - [x] **Paleta Oficial MulletaFlix**
-  - [x] Cores primárias `#00A4DC`, fundos cinematográficos `#101010`
+  - [x] Preto como cor primária (`#0F0F0F`), vermelho de destaque (`#E50914`) e fundos cinematográficos quase pretos
   - [x] Tipografia oficial Noto Sans
 - [x] **Suporte aos 8 Temas do MulletaFlix Web**
   - [x] Padrão Escuro (Dark)
@@ -560,3 +560,164 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Executar os 13 testes instrumentados do módulo `app` no AVD `MulletaflixTvApi34`.
 - [x] Declarar explicitamente o opt-in da API experimental do Coil usada pela cadeia falsa do teste de cache.
 - [x] Confirmar build instrumentado sem falhas e fechamento automático do emulador.
+
+## 229. Teste de Cast compatível com AVD sem Google Play Services (v1.2.95)
+- [x] Detectar a ausência do módulo Google Cast no AVD antes de inicializar `CastContext`.
+- [x] Ignorar somente o teste que depende do módulo ausente, mantendo a medição ativa em dispositivos compatíveis.
+- [x] Executar a suíte de player no Android TV e confirmar zero falhas, com um skip documentado.
+- [x] Validar o alvo de toque do Cast em um dispositivo/AVD com Google Play Services Cast disponível.
+
+## 230. Fallback público após falha de qualquer servidor LAN descoberto (v1.2.96)
+- [x] Tentar o servidor salvo/público quando o endpoint LAN escolhido falhar, mesmo se outro anúncio LAN estiver em primeiro lugar.
+- [x] Não iniciar fallback adicional quando a própria URL pública falhar.
+- [x] Cobrir os dois caminhos com teste unitário de política.
+
+## 231. Refresh automático confiável ao retornar para a TV (v1.2.97)
+- [x] Extrair o ciclo de atualização da Home para um efeito observável e testável.
+- [x] Aplicar o mesmo ciclo à Library, com atualização imediata ao entrar em `RESUMED` e intervalo periódico.
+- [x] Cobrir `ON_STOP → ON_START → ON_RESUME` em teste instrumentado no AVD de Android TV.
+
+## 232. Cobertura independente do refresh da Library (QA pós-release)
+- [x] Adicionar um teste instrumentado específico para o efeito de refresh da Library.
+- [x] Confirmar duas atualizações imediatas: entrada inicial e retorno ao `RESUMED`.
+- [x] Manter a release APK-only inalterada, pois `androidTest` não modifica o binário distribuído.
+
+## 233. Validação Cast em AVD com Google Play Services
+- [x] Executar os 14 testes instrumentados do módulo player no `MulletaflixApi35` (`google_apis_playstore`).
+- [x] Confirmar `0 skipped` e `0 failed`, incluindo o teste real do `MediaRouteButton`.
+- [x] Registrar a evidência sem gerar nova release, pois a execução não alterou o código de produção.
+
+## 234. Suíte instrumentada no tablet Android 15
+- [x] Executar `:app:connectedDebugAndroidTest` no `MulletaflixTabletApi35`.
+- [x] Confirmar 13/13 testes aprovados, 0 skips e 0 falhas.
+- [x] Confirmar encerramento automático do emulador após a execução.
+
+## 235. Matriz instrumentada completa por dispositivo
+- [x] Confirmar 13/13 testes no celular `MulletaflixApi35` (Android 15, Play Store).
+- [x] Confirmar 13/13 testes no tablet `MulletaflixTabletApi35` (Android 15, Play Store).
+- [x] Confirmar 13/13 testes no TV `MulletaflixTvApi34` (Android 14, Android TV).
+- [x] Confirmar zero skips e zero falhas nas três execuções.
+
+## 236. Smoke conectado ao servidor público (QA pós-release v1.2.97)
+- [x] Confirmar `System/Info/Public` no endpoint DuckDNS com HTTP 200 e servidor v12.0.78.
+- [x] Confirmar autenticação da conta de teste diretamente pela API com HTTP 200 e token retornado, sem registrar credenciais.
+- [x] Repetir a interação no AVD celular com coordenadas derivadas do dump UI, mantendo o `MainActivity` em foreground e sem `FATAL EXCEPTION` no logcat.
+- [ ] Automatizar a entrada de senha com caractere especial por UI sem depender de `adb input text`, pois o shell/teclado do AVD perde caracteres em campos Compose; não tratar a tentativa atual como prova de navegação pós-login.
+- [x] Confirmar conteúdo autenticado: 4 bibliotecas, 8.020 mídias no total e 20 títulos retornados na consulta de filmes/séries.
+
+## 237. Automação confiável do formulário de login (v1.2.98)
+- [x] Adicionar tags semânticas estáveis para usuário, senha e envio do login e expô-las como `resource-id` para UIAutomator.
+- [x] Cobrir entrada Compose com senha contendo caractere especial (`Bug309c*`) sem depender do parser do `adb input text`.
+- [x] Executar o teste instrumentado de autenticação no AVD celular: 3/3, 0 skipped, 0 failed.
+- [x] Gerar e instalar localmente o APK `v1.2.98` (`versionCode=299`) no AVD celular.
+- [x] Revalidar lint isolado após a geração dos artefatos intermediários: `:app:lintDebug` passou com código 0.
+- [x] Revalidar `:app:assembleRelease` e o teste de autenticação após a semântica `testTagsAsResourceId`: 3/3, 0 skipped, 0 failed.
+- [x] Validar Quick Connect no servidor público: `QuickConnect/Enabled` respondeu `true` e `QuickConnect/Initiate` respondeu HTTP 200 com identidade do cliente.
+- [x] Rejeitar resposta Quick Connect sem código/segredo e normalizar espaços antes do polling.
+- [x] Expor tags estáveis para aba, botão de geração e código Quick Connect; teste instrumentado total: 4/4, 0 skipped, 0 failed.
+- [x] Cobrir o contrato HTTP real do Quick Connect com `MockWebServer`: POST, rota, payload e cabeçalho `Authorization` do cliente.
+- [x] Pacote final local: 7.336.683 bytes, SHA-256 `D4C6002CA8A7205B91EBE5A1E5E37557178E012AD5662E7DB4F7E2D5180B0BE3`.
+
+## 238. Grade de capas compacta para Android TV (v1.2.99)
+- [x] Ajustar o tamanho mínimo das capas considerando a largura lógica real de 480dp em TVs 1080p.
+- [x] Exibir 5 colunas no modo confortável e 6 no modo compacto no AVD `MulletaflixTvApi34`.
+- [x] Aplicar a mesma política à tela de favoritos.
+- [x] Validar política unitária e suíte instrumentada da biblioteca: 10/10 no Android TV.
+- [x] Gerar APK local `v1.2.99`, `versionCode=300`, com lint e release build aprovados.
+- [ ] Publicar release remota somente quando o bloco de release definido no handoff for fechado.
+
+## 239. Catálogo ampliado de idiomas do player (v1.3.0)
+- [x] Expandir as preferências de áudio e legenda para 15 idiomas selecionáveis, mantendo português, inglês, espanhol, francês e alemão.
+- [x] Normalizar códigos ISO comuns retornados pelo servidor, incluindo variantes de italiano, japonês, coreano, chinês, russo, árabe, neerlandês, turco, polonês e hindi.
+- [x] Exibir rótulos amigáveis para as novas faixas de áudio e legenda no player.
+- [x] Cobrir `MediaLanguage`, `TrackLabelPolicy` e `SettingsOptionLists` com testes unitários.
+- [x] Executar `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Executar a suíte instrumentada do player no AVD celular: 14/14, 0 skipped, 0 failed.
+- [x] Gerar APK local `v1.3.0`, `versionCode=301`, 7.336.679 bytes, SHA-256 `0717495296CC4B69FEFCAFF9959291C55352069B347098570FA917170937D03A`.
+- [ ] Publicar release remota somente quando o bloco de release definido no handoff for fechado.
+
+## 240. Densidade adaptativa específica para tablets (v1.3.1)
+- [x] Diferenciar tablet de celular pela largura mínima de 600dp, sem confundir tablet com Android TV.
+- [x] Usar capas de 140dp no modo confortável e 116dp no modo compacto em tablets.
+- [x] Preservar a política compacta da TV: 5 colunas confortáveis e 6 compactas em 480dp.
+- [x] Cobrir celular, tablet e TV em `LibraryGridDensityTest`.
+- [x] Suíte instrumentada da biblioteca na TV: 10/10, 0 skipped, 0 failed.
+- [x] `:app:lintDebug` e `:app:assembleRelease` aprovados.
+- [x] Corrigir `build-app-package.ps1` para ler `appVersion` do catálogo Gradle quando `versionName` usa `libs.versions.appVersion`.
+- [x] Gerar APK local `v1.3.1`, `versionCode=302`, 7.336.683 bytes, SHA-256 `22EDA29A522E37CD3DD4D1BA1402A9E0FD6F6DF921B3DCAE7E56AB0FAF43C47A`.
+- [ ] Publicar release remota somente quando o bloco de release definido no handoff for fechado.
+
+## 241. Densidade compartilhada em Minha Lista (v1.3.2)
+- [x] Fazer a tela de favoritos consumir a mesma preferência de densidade da biblioteca.
+- [x] Aplicar modo confortável/compacto de forma consistente em celular, tablet e TV.
+- [x] Cobrir a política com `FavoritesPresentationPolicyTest` e validar o ciclo do `FavoritesViewModel`.
+- [x] Suíte instrumentada da biblioteca na TV: 10/10, 0 skipped, 0 failed.
+- [x] Unitários completos: `testDebugUnitTest` aprovado.
+- [x] `:app:lintDebug` e `:app:assembleRelease` aprovados.
+- [x] Gerar APK local `v1.3.2`, `versionCode=303`, 7.336.679 bytes, SHA-256 `856EAB52E2153D7916C64E18B894BE49C1A9DBF15DBE9CCF12233681871E9D38`.
+- [ ] Publicar release remota somente quando o bloco de release definido no handoff for fechado.
+
+## 242. Atualização manual de metadados no detalhe (v1.3.3)
+- [x] Adicionar ação de atualização no detalhe sem sair da tela, recarregando metadados, imagens, NFO e episódios pelo `ItemDetailViewModel`.
+- [x] Exibir estado de carregamento acessível no botão: `Atualizar detalhes` / `Atualizando detalhes`.
+- [x] Cobrir a política de descrição da ação com `DetailRefreshPolicyTest`.
+- [x] Executar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Executar a suíte instrumentada do módulo item-detail no AVD `MulletaflixApi35`: 14/14, 0 skipped, 0 failed.
+- [x] Gerar APK local `v1.3.3`, `versionCode=304`, 7.336.679 bytes, SHA-256 `EB3EAC284A7FCFC9B603D36E561CBC7145CE52B0094F3C139CFF82F966825172`.
+- [x] Confirmar `versionName=1.3.3`/`versionCode=304` com `aapt` e encerrar o emulador (`emulator=0`, `qemu=0`).
+- [ ] Publicar release remota somente quando o bloco de release definido no handoff for fechado.
+
+## 243. Sugestões de busca durante a digitação (v1.3.4)
+- [x] Ativar a API existente `Search/Hints` no fluxo de busca do APK.
+- [x] Debounce curto de 180 ms, cancelamento de consultas antigas e ocultação das sugestões quando a busca completa começa.
+- [x] Filtrar por tipo selecionado, remover IDs duplicados e limitar a oito sugestões para manter a lista fluida.
+- [x] Adicionar painel Compose rolável, acessível e amigável ao D-pad/TV para abrir diretamente o título sugerido.
+- [x] Cobrir ViewModel com hints filtrados/deduplicados e painel com teste instrumentado.
+- [x] Executar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Suíte instrumentada de busca no AVD `MulletaflixApi35`: 9/9, 0 skipped, 0 failed.
+- [x] Conferir v1.3.3 antes do bump: `versionCode=304`, SHA-256 `EB3EAC284A7FCFC9B603D36E561CBC7145CE52B0094F3C139CFF82F966825172`.
+- [x] Gerar APK local `v1.3.4`, `versionCode=305`, 7.336.679 bytes, SHA-256 `64DEA7056D284D9B71F97D6069E9BB2850186863F796B83C03D40D9760950129`.
+- [x] Confirmar `versionName=1.3.4`/`versionCode=305` com `aapt` e encerrar o emulador (`emulator=0`, `qemu=0`).
+- [ ] Publicar release remota somente quando o bloco de release definido no handoff for fechado.
+
+## 244. Restauração do scroll em Biblioteca e Minha Lista (v1.3.5)
+- [x] Compartilhar um contrato de `LazyGridState` salvo entre Biblioteca e Minha Lista.
+- [x] Preservar a posição da grade durante recriação/restauração de estado, inclusive para TV e tablet.
+- [x] Adicionar teste instrumentado real de restauração da posição da grade.
+- [x] Suíte instrumentada da biblioteca no AVD `MulletaflixApi35`: 11/11, 0 skipped, 0 failed.
+- [x] Executar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Conferir v1.3.4 antes do bump: `versionCode=305`, SHA-256 `64DEA7056D284D9B71F97D6069E9BB2850186863F796B83C03D40D9760950129`.
+- [x] Gerar APK local `v1.3.5`, `versionCode=306`, 7.336.679 bytes, SHA-256 `955E703B10D7200ED5EF9799B1483EDC159931BA84A2A8D352C2A1DF155FFE97`.
+- [x] Confirmar `versionName=1.3.5`/`versionCode=306` com `aapt` e encerrar o emulador (`emulator=0`, `qemu=0`).
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 245. Restauração do scroll em Home e Busca + foco TV (v1.3.6)
+- [x] Salvar a posição vertical da Home durante recriação/restauração de estado.
+- [x] Salvar a posição dos resultados, histórico e sugestões da Busca.
+- [x] Adicionar testes instrumentados de restauração para Home e Busca.
+- [x] Corrigir o alvo de foco explícito dos botões do topo no modo TV, mantendo o comportamento touch sem anel permanente.
+- [x] Suíte instrumentada da Busca no AVD `MulletaflixApi35`: 10/10, 0 skipped, 0 failed.
+- [x] Suíte instrumentada da Home no AVD `MulletaflixApi35`: 8/8, 0 skipped, 0 failed.
+- [x] Executar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Conferir v1.3.5 antes do bump: `versionCode=306`, SHA-256 `955E703B10D7200ED5EF9799B1483EDC159931BA84A2A8D352C2A1DF155FFE97`.
+- [x] Gerar APK local `v1.3.6`, `versionCode=307`, 7.336.679 bytes, SHA-256 `173CA7BF36F58A811C9C80C599383520685626CA94C05AD6D83ECE0B7550BA84`.
+- [x] Confirmar `versionName=1.3.6`/`versionCode=307` com `aapt` e encerrar o emulador (`emulator=0`, `qemu=0`).
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 246. Restauração dos carrosséis horizontais (v1.3.7)
+- [x] Preservar a posição dos carrosséis de conteúdo e bibliotecas da Home.
+- [x] Preservar a posição dos carrosséis agrupados de resultados da Busca.
+- [x] Cobrir restauração horizontal com testes instrumentados reais em Home e Busca.
+- [x] Suíte instrumentada da Home no AVD `MulletaflixApi35`: 9/9, 0 skipped, 0 failed.
+- [x] Suíte instrumentada da Busca no AVD `MulletaflixApi35`: 11/11, 0 skipped, 0 failed.
+- [x] Executar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Conferir v1.3.6 antes do bump: `versionCode=307`, SHA-256 `173CA7BF36F58A811C9C80C599383520685626CA94C05AD6D83ECE0B7550BA84`.
+- [x] Gerar APK local `v1.3.7`, `versionCode=308`, 7.336.683 bytes, SHA-256 `2EDF6972A7F98568AA3D160CBBA5470EB599E04D75C20C2C878A5F60C3A501A7`.
+- [x] Confirmar `versionName=1.3.7`/`versionCode=308` com `aapt` e encerrar o emulador (`emulator=0`, `qemu=0`).
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 247. Matriz real de UX por dispositivo (validação do APK v1.3.7)
+- [x] Tablet Android 15 (`MulletaflixTabletApi35`): Home 9/9 e Biblioteca 11/11, 0 skipped, 0 failed.
+- [x] Android TV 14 (`MulletaflixTvApi34`): Home 9/9 e Biblioteca 11/11, 0 skipped, 0 failed.
+- [x] Confirmar que a execução dos AVDs termina automaticamente pelo `with-emulator.ps1`; nenhum processo de emulador permaneceu aberto.
+- [x] Nenhuma alteração de código ou nova release foi criada nesta rodada; a versão validada continua sendo `v1.3.7`.

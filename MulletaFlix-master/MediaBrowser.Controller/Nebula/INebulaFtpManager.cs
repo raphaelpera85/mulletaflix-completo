@@ -30,6 +30,8 @@ public interface INebulaFtpManager
 
     Task<NebulaNovelaMigrationResult> ScanAndMoveNovelasAsync(CancellationToken cancellationToken = default);
 
+    Task<NebulaAnimacaoMigrationResult> NormalizeAnimacoesLibraryAsync(CancellationToken cancellationToken = default);
+
     System.Collections.Generic.List<NebulaBotDto> GetBots();
 
     System.Collections.Generic.List<NebulaBotDto> SaveBot(NebulaSaveBotRequest request);

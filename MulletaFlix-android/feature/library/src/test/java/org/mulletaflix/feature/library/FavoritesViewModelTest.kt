@@ -23,6 +23,8 @@ import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.ServerVerification
+import org.mulletaflix.domain.repository.AppThemeSetting
+import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.repository.UserSession
 import org.mulletaflix.domain.usecase.GetFavoriteItemsUseCase
 
@@ -41,6 +43,7 @@ class FavoritesViewModelTest {
     private fun createViewModel() = FavoritesViewModel(
         getFavoriteItemsUseCase = GetFavoriteItemsUseCase(media),
         authRepository = FakeAuthRepository(),
+        settingsRepository = FakeSettingsRepository(),
     )
 
     @Test
@@ -120,7 +123,7 @@ class FavoritesViewModelTest {
     @Test
     fun `missing session finishes loading and exposes reauthentication state`() = runTest {
         val auth = FakeAuthRepository().apply { userIdState.value = null }
-        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth)
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository())
 
         advanceUntilIdle()
 
@@ -185,7 +188,7 @@ class FavoritesViewModelTest {
         val old = MediaItem("old", "Conta antiga", MediaItemType.Movie)
         media.responseSequence = ArrayDeque(listOf(oldResponse))
         val auth = FakeAuthRepository()
-        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth)
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository())
         runCurrent()
 
         auth.userIdState.value = "user-2"
@@ -248,5 +251,39 @@ class FavoritesViewModelTest {
         override suspend fun checkQuickConnect(secret: String) = Result.success(null)
         override suspend fun logout() = Result.success(Unit)
         override suspend fun setServerUrl(url: String) = Unit
+    }
+
+    private class FakeSettingsRepository : SettingsRepository {
+        override fun getTheme() = MutableStateFlow(AppThemeSetting.Dark)
+        override suspend fun setTheme(theme: AppThemeSetting) = Unit
+        override fun isPiPEnabled() = MutableStateFlow(true)
+        override suspend fun setPiPEnabled(enabled: Boolean) = Unit
+        override fun getPreferredAudioLanguage() = MutableStateFlow<String?>(null)
+        override suspend fun setPreferredAudioLanguage(language: String?) = Unit
+        override fun getPreferredSubtitleLanguage() = MutableStateFlow<String?>(null)
+        override suspend fun setPreferredSubtitleLanguage(language: String?) = Unit
+        override fun isAutoPlayEnabled() = MutableStateFlow(true)
+        override suspend fun setAutoPlayEnabled(enabled: Boolean) = Unit
+        override fun isSkipIntroEnabled() = MutableStateFlow(true)
+        override suspend fun setSkipIntroEnabled(enabled: Boolean) = Unit
+        override fun getDefaultQuality() = MutableStateFlow("Auto")
+        override suspend fun setDefaultQuality(quality: String) = Unit
+        override fun getDefaultPlaybackSpeed() = MutableStateFlow(1f)
+        override suspend fun setDefaultPlaybackSpeed(speed: Float) = Unit
+        override suspend fun clearLocalPreferences() = Unit
+        override fun getSubtitleFontSize() = MutableStateFlow(100)
+        override suspend fun setSubtitleFontSize(size: Int) = Unit
+        override fun getDefaultAspectRatio() = MutableStateFlow("FIT")
+        override suspend fun setDefaultAspectRatio(aspectRatio: String) = Unit
+        override fun isLibraryGridViewEnabled() = MutableStateFlow(true)
+        override suspend fun setLibraryGridViewEnabled(enabled: Boolean) = Unit
+        override fun getLibraryGridDensity() = MutableStateFlow(LIBRARY_GRID_DENSITY_COMFORTABLE)
+        override suspend fun setLibraryGridDensity(density: String) = Unit
+        override fun getDefaultLibrarySort() = MutableStateFlow("SortName")
+        override suspend fun setDefaultLibrarySort(sortBy: String) = Unit
+        override fun getDefaultLibrarySortOrder() = MutableStateFlow("Ascending")
+        override suspend fun setDefaultLibrarySortOrder(sortOrder: String) = Unit
+        override fun getDefaultLibraryFilters() = MutableStateFlow(emptySet<String>())
+        override suspend fun setDefaultLibraryFilters(filters: Set<String>) = Unit
     }
 }

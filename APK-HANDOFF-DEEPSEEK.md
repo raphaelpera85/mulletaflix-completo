@@ -5,8 +5,8 @@ Escopo principal desta conversa: **APK Android**. O `AGENTS.md` atual do reposit
 também exige a geração/publicação da release do servidor ao concluir qualquer alteração;
 essa exigência foi aplicada nesta rodada.
 
-> Nota desta rodada: as evidências de build e publicação foram coletadas em 23/09/2026.
-> O servidor permanece na versão publicada `12.0.76`; a release Android nesta rodada é a versão `1.2.94`.
+> Nota desta rodada: as evidências de build e testes foram coletadas em 23/09/2026.
+> O servidor não foi alterado nesta conversa APK-only; a release Android publicada continua sendo `1.2.97`, enquanto o APK local validado está em `1.3.7`.
 
 ## Skills e metodologias utilizadas
 
@@ -47,20 +47,20 @@ Fable: intenção/aceite
   → Cavecrew: revisão especializada quando necessário
   → Fable Judge + Gauntlet Evaluator: testes reais/lint/build/UI
   → Caveman Compress/Learn: registrar evidências e aprendizado
-  → pacote/publicação do servidor e do APK em releases separadas
+  → pacote/release somente do APK quando houver alteração no APK
 ```
 
 ## Estado confirmado
 
-- Versão atual do APK (local e publicada): **1.2.94**. `versionCode`: **295**.
-- **Release Android publicada: [app-v1.2.94](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.94)** — 7.336.679 bytes, sha256 `9E97245CFC7D3C58D162F35811A86C0E780DF0EA85C9F490BD00450B7D73A98C`.
+- Versão publicada do APK: **1.2.97**. O APK local mais recente é **1.3.4**, `versionCode`: **305**.
+- **Release Android publicada: [app-v1.2.97](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.97)** — 7.336.683 bytes, sha256 `032008165BE51EC7FB892B3487F5E27CA4BE4E0FE8FD1A151E55F72F718D0662`.
 - **Release do servidor confirmada: [v12.0.76](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/v12.0.76)** — API do GitHub confirmou `mulletaflix-update-win-x64.zip` 370.545.524 bytes e `mulletaflix_12.0.76_windows-x64.exe` 405.477.990 bytes; SHA-256 local respectivamente `BC111F80E42B1CD7E47B1E864977E27C20CC50D50ACE15097887000A1FF85D40` e `34DE942FB72AC884696D38459683E7F6A0382CAAEA61D45CD2373591971652DE`.
 - **Atenção (v1.2.81 … v1.2.85): cinco builds com o MESMO tamanho** — 7.320.299 bytes em v1.2.81, v1.2.82, v1.2.84 e v1.2.85, com quatro digests diferentes. A v1.2.86 finalmente mudou de tamanho (7.336.683), o que é a prova barata de que o número não serve para identificar build — só SHA-256 + `versionCode`.
-- Quality Bar desta rodada: `:app:connectedDebugAndroidTest` executou **13 testes instrumentados aprovados** no AVD `MulletaflixTvApi34`; o opt-in explícito da API experimental do Coil removeu o aviso do teste de cache; `:app:assembleRelease` passou com código 0 (662 tarefas); o APK v1.2.94 foi instalado e aberto no mesmo ciclo do wrapper, com `am start` sem erro; `publish-app-release.ps1` anexou o APK; emuladores encerrados (`emulator=0`, `qemu=0`). O servidor não foi alterado nem publicado nesta conversa APK-only; o build do servidor segue bloqueado pelo erro existente em `ShortMaxSeriesProvider.cs` (`GetProviderId`/`SetProviderId` ausentes).
+- Quality Bar desta rodada: `:app:testDebugUnitTest` passou com **456 tarefas**; `lintDebug` passou com **719 tarefas**; `:feature:auth:connectedDebugAndroidTest` passou com **2 testes** no AVD `MulletaflixTvApi34`; `:app:assembleRelease` passou com código 0 (662 tarefas); o APK v1.2.96 foi instalado e aberto no AVD no mesmo ciclo do wrapper, com `am start` sem erro; `publish-app-release.ps1` anexou o APK; emuladores encerrados (`emulator=0`, `qemu=0`). O servidor não foi alterado nem publicado nesta conversa APK-only; o build do servidor segue bloqueado pelo erro existente em `ShortMaxSeriesProvider.cs` (`GetProviderId`/`SetProviderId` ausentes).
 - **Alvos de toque: a lista está fechada.** O último item (o `MediaRouteButton` de 40 dp) foi **medido** na v1.2.84 e **não tinha defeito**: alvo de toque 48,0 dp × 48,0 dp, layout 40,0 dp. Ver a rodada — inclusive o erro de método que quase transformou isso num conserto desnecessário.
 - **Método que passou a valer (v1.2.83):** revisar o próprio trabalho é a forma mais fraca de verificação. Depois de duas rodadas seguidas de mudanças minhas, uma **auditoria adversarial independente** (subagente, read-only, instruído a procurar defeito e não elogiar) comparou as mudanças com `HEAD` e achou **dois defeitos reais que eu tinha acabado de introduzir** — ambos corrigidos na v1.2.83. Repetir esse passo depois de qualquer bloco de mudanças próprias: ele também **refutou** duas hipóteses minhas (o que é tão útil quanto achar defeito) e deixou dois suspeitos registrados, em vez de "corrigidos às cegas".
 - **Prova de que o cache morto saiu do pacote (medida, não deduzida):** varredura dos `classes*.dex` dentro dos dois APKs — na v1.2.80 as strings `androidx/room/RoomDatabase`, `mulletaflix.db` e `MediaItemEntity` aparecem **1, 1 e 3 vezes**; na v1.2.81 aparecem **0, 0 e 0**. O APK encolheu de 7.357.517 para 7.320.299 bytes (**−37.218**).
-- **ATENÇÃO — releases:** o `AGENTS.md` atual exige, para toda alteração concluída, `build-update-package.ps1` sem `-SkipInstaller`, `build-app-package.ps1`, `publish-release.ps1` e `publish-app-release.ps1`, com conferência da API do GitHub. O handoff antigo registrava APK-only e cadência de 10 versões; essa anotação está supersedida pelas regras atuais do repositório.
+- **ATENÇÃO — releases:** nesta conversa o escopo é exclusivamente APK. Não executar scripts nem publicar release do servidor. Antes de uma nova release Android, conferir a versão/asset remoto anterior; a cadência registrada permanece publicar somente quando o bloco de versões definido for fechado.
 - **Onde as coisas moram agora:** cores, faixa de tamanho e matemática de legenda em `:domain` (`SubtitleStylePolicy`); regras de paginação em `:domain/paging/PagingPolicy`; política de qualidade em `:domain/model/PlaybackQuality.kt`; política de URL de mídia em `:design-system/media/MediaImageUrl.kt` (`resolveMediaUrl`, `redactToken`, `retargetMediaUrl`, `canonicalImageCacheKey` — a regra de "o que é um token" tem **uma** definição); decisão de repontar o player em `:feature:player/StreamRetargetPolicy.kt` (`shouldRetargetPreparedStream`, `retargetPreparedStreamUrl`) e a ordem dos passos em `:feature:player/PreparedStreamRetarget.kt`; chave de cache do Coil em `artworkCacheKeyInterceptor` (`MulletaFlixApp.kt`); pedido de download em `downloadRequestFor` (`Media3DownloadRepository.kt`); mapeamento de tema em `staticColorSchemeFor` (`MulletaFlixTheme.kt`) — é ele que o `ThemeVariantsTest` lê, de propósito; catálogos dos diálogos de Ajustes e a lista rolável em `SettingsOptionLists.kt` / `ChoiceDialogOptions` (`SettingsScreen.kt`); o que a busca devolve e se ela está truncada em `:domain/repository/SearchRepository.kt` (`SearchResults`) e em `:feature:search/SearchTruncationNotice.kt` (`searchTruncationNotice`), com a frase desenhada por `SearchTruncationBanner` (`SearchScreen.kt`).
 - **Atenção 17:** substituição de texto por script sobre fonte Kotlin **quebra em silêncio** quando o trecho tem interpolação ou quebra de linha. Na v1.2.77, restaurar uma reversão com `[System.IO.File]::ReadAllText` + `.Replace` deixou **duas** cópias de um comentário no `DownloadsScreen.kt` e **apagou** a linha `modifier = Modifier.semantics { selected = … }` do `LibraryScreen.kt` (o `old_string` tinha crases de interpolação e o PowerShell as interpretou). Nos dois casos a compilação passou — só a releitura do trecho pegou. **Depois de qualquer substituição por script, leia o trecho de volta**; ou use a ferramenta de edição, que falha quando o alvo não casa. **Atenção 17b (v1.2.80):** a ferramenta de edição também cola linhas se o `old_string` terminar em quebra de linha e o `new_string` não — `) {` seguido de `    AlertDialog(` virou `) {    AlertDialog(` no `SearchScreen.kt`. A compilação passou de novo; só a releitura pegou. Regra prática: incluir a linha seguinte (ou não incluir a quebra) quando o alvo é o fim de uma assinatura.
 - **Atenção 16:** nome de teste com crase (`` fun `frase com espaços`() ``) funciona em teste **unitário** e **quebra o build** de teste instrumentado: o D8 recusa `Space characters in SimpleName ... are not allowed prior to DEX version 040` (o `minSdk` 24 fixa uma versão de DEX anterior à 040). Em `src/androidTest` use `camelCase`, como os testes que já existiam.
@@ -101,6 +101,127 @@ Fable: intenção/aceite
 
 > Histórico: a v1.2.40 foi a última release antes desta rodada e foi instalada no
 > Android TV com `Success`.
+
+## Rodada v1.2.97 — Refresh de TV ao retornar ao foreground
+
+Trigésima segunda rodada. `versionCode` 298. A release Android foi publicada em
+[app-v1.2.97](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.97).
+
+### O que mudou
+
+- Extraído o ciclo de refresh da Home para um efeito controlável pelo lifecycle.
+- Aplicado o mesmo comportamento à Library: atualização imediata ao entrar em `RESUMED`
+  e atualização periódica enquanto a TV permanece em primeiro plano.
+- Adicionado teste instrumentado que simula `ON_STOP → ON_START → ON_RESUME` e exige uma
+  nova atualização imediata.
+- Atualizada a versão para `1.2.97` / `versionCode` 298.
+
+### Evidências
+
+- `testDebugUnitTest`: **BUILD SUCCESSFUL**, 456 tarefas.
+- `lintDebug`: **BUILD SUCCESSFUL**, 719 tarefas.
+- `:feature:home:connectedDebugAndroidTest` com `TvRefreshEffectTest`: **1 teste aprovado**
+  no AVD `MulletaflixTvApi34`.
+- `:app:assembleRelease`: **BUILD SUCCESSFUL**, 662 tarefas.
+- APK: `dist/mulletaflix-app-v1.2.97.apk`, 7.336.683 bytes, SHA-256
+  `032008165BE51EC7FB892B3487F5E27CA4BE4E0FE8FD1A151E55F72F718D0662`.
+- A release anterior `app-v1.2.96` foi verificada via API antes do empacotamento.
+- Instalação e abertura da `MainActivity` passaram no Android TV; o wrapper encerrou o
+  emulador automaticamente.
+- Apenas a release do APK foi publicada. Nenhuma alteração ou release do servidor foi feita.
+
+### Cobertura QA adicionada após a publicação (sem alteração do APK)
+
+- `:feature:library:connectedDebugAndroidTest` com `TvRefreshEffectTest`: **1 teste aprovado**
+  no AVD `MulletaflixTvApi34`.
+- A cobertura confirma o mesmo contrato de retorno ao foreground para a Library.
+- Nenhuma nova release foi criada, porque a alteração é exclusivamente `src/androidTest` e
+  não muda o binário Android publicado `app-v1.2.97`.
+
+### Validação Cast em ambiente compatível
+
+- `:feature:player:connectedDebugAndroidTest`: **BUILD SUCCESSFUL**, 14 testes aprovados,
+  `0 skipped`, `0 failed`, no AVD `MulletaflixApi35` com imagem
+  `google_apis_playstore/x86_64`.
+- O teste do `MediaRouteButton` deixou de ser apenas um skip por ausência do Cast SDK;
+  o controle foi medido em um ambiente com Google Play Services disponível.
+- A validação não altera o APK publicado e, portanto, não gera uma nova release.
+
+### Validação instrumentada em tablet
+
+- `:app:connectedDebugAndroidTest`: **BUILD SUCCESSFUL**, 13 testes aprovados,
+  `0 skipped`, `0 failed`, no AVD `MulletaflixTabletApi35` (Android 15,
+  `google_apis_playstore/x86_64`).
+- O wrapper iniciou e encerrou o AVD automaticamente; nenhuma release nova foi criada,
+  pois esta rodada foi exclusivamente de validação.
+
+### Matriz completa de dispositivos
+
+- `:app:connectedDebugAndroidTest` no celular `MulletaflixApi35`: **13/13 aprovados**,
+  `0 skipped`, `0 failed`.
+- A mesma suíte no tablet `MulletaflixTabletApi35`: **13/13 aprovados**,
+  `0 skipped`, `0 failed`.
+- A mesma suíte no TV `MulletaflixTvApi34`: **13/13 aprovados**,
+  `0 skipped`, `0 failed`.
+- As execuções foram feitas separadamente com o wrapper de ciclo de vida; nenhum AVD
+  permanece aberto ao final.
+
+## Rodada v1.2.96 — Fallback LAN para servidor público
+
+Trigésima primeira rodada. `versionCode` 297. A release Android foi publicada em
+[app-v1.2.96](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.96).
+
+### O que mudou
+
+- Corrigida a recuperação automática de conexão: quando o endpoint LAN escolhido
+  falha, o APK agora tenta o servidor salvo ou a URL pública mesmo se outro anúncio
+  LAN estiver em primeiro lugar.
+- A URL pública não dispara fallback adicional quando ela própria falha.
+- Adicionada política pura e testes de regressão para os dois caminhos.
+- Atualizada a versão para `1.2.96` / `versionCode` 297.
+
+### Evidências
+
+- `:feature:auth:testDebugUnitTest`: **BUILD SUCCESSFUL**.
+- `testDebugUnitTest`: **BUILD SUCCESSFUL**, 456 tarefas.
+- `lintDebug`: **BUILD SUCCESSFUL**, 719 tarefas.
+- `:feature:auth:connectedDebugAndroidTest`: **2 testes aprovados** no Android TV.
+- `:app:assembleRelease`: **BUILD SUCCESSFUL**, 662 tarefas.
+- APK: `dist/mulletaflix-app-v1.2.96.apk`, 7.336.683 bytes, SHA-256
+  `1DD4966E33BA03D2991A7134F5204698038CCFD1C68937195820B14F6425D248`.
+- A release anterior `app-v1.2.95` foi verificada via API antes do empacotamento.
+- Instalação e abertura da `MainActivity` passaram no Android TV; o wrapper encerrou o
+  emulador automaticamente.
+- Apenas a release do APK foi publicada. Nenhuma alteração ou release do servidor foi feita.
+
+## Rodada v1.2.95 — Robustez do Cast e Quality Bar do APK
+
+Trigésima rodada. `versionCode` 296. A release Android foi publicada em
+[app-v1.2.95](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.2.95).
+
+### O que mudou
+
+- O teste de alvo de toque do Cast agora detecta explicitamente quando o AVD não possui
+  o módulo Cast do Google Play Services e pula somente essa dependência; em dispositivos
+  compatíveis, a medição continua ativa.
+- Corrigidos avisos/erros de lint em testes por API mínima, permissão de estado de rede,
+  `Uri` moderno, `Modifier` e opt-in Media3.
+- O diagnóstico de URLs de artwork foi mantido protegido: somente build debuggable,
+  sempre com `redactToken`, sem credenciais em release.
+- Atualizada a versão para `1.2.95` / `versionCode` 296.
+
+### Evidências
+
+- `testDebugUnitTest`: **BUILD SUCCESSFUL**, 456 tarefas.
+- `lintDebug`: **BUILD SUCCESSFUL**, 719 tarefas.
+- `:app:assembleRelease`: **BUILD SUCCESSFUL**, 662 tarefas.
+- APK: `dist/mulletaflix-app-v1.2.95.apk`, 7.336.683 bytes, SHA-256
+  `22BBC2AA868A665075B59E2DB38ED850710F2842D1B1105DB23A78A532515C47`.
+- A release anterior `app-v1.2.94` foi verificada via API antes do empacotamento:
+  7.336.679 bytes, digest remoto `9E97245CFC7D3C58D162F35811A86C0E780DF0EA85C9F490BD00450B7D73A98C`.
+- Instalação e abertura da `MainActivity` passaram no Android TV; o wrapper encerrou o
+  emulador automaticamente.
+- Apenas a release do APK foi publicada. Nenhuma alteração ou release do servidor foi feita.
 
 ## Rodada v1.2.94 — Suíte instrumentada do app no Android TV
 
@@ -3926,6 +4047,137 @@ Aceitar somente se tamanho/hash local e remoto coincidirem e `emulatorProcesses`
 - [ ] Nenhum emulador ficou aberto.
 - [ ] `git diff --check` passou; avisos de conversão LF/CRLF podem ser registrados, mas não ignorar erros reais.
 - [ ] Nenhum script de release do servidor foi executado.
+
+### QA conectado adicional após v1.2.97
+
+- O endpoint público `http://mulletaflix.duckdns.org:8096/System/Info/Public` respondeu HTTP 200 e identificou o servidor Mulletaflix v12.0.78.
+- A conta de teste fornecida pelo usuário autenticou diretamente em `Users/AuthenticateByName` com HTTP 200 e token retornado. Credenciais e token não foram registrados.
+- A sessão autenticada consultou somente leitura `Library/VirtualFolders` e `Items`: 4 bibliotecas, 8.020 mídias totais e 20 títulos de filmes/séries retornados. O servidor possui conteúdo configurado.
+- No AVD celular, o `MainActivity` permaneceu em foreground após a tentativa de login e não houve `FATAL EXCEPTION` no logcat. A interação por `adb input text` não é conclusiva para a navegação pós-login porque perdeu caracteres do campo Compose, especialmente o caractere especial da senha.
+- Próximo passo: criar um driver UI confiável (UIAutomator/Macrobenchmark ou entrada caractere a caractere com verificação do estado) antes de classificar o login conectado como E2E aprovado. Não houve alteração de produção nem nova release APK nesta rodada.
+
+### v1.2.98 — automação de login
+
+- `LoginScreen` expõe tags semânticas estáveis para usuário, senha e envio e habilita `testTagsAsResourceId` no formulário. Isso permite testes Compose/UIAutomator sem coordenadas frágeis nem dependência do shell para caracteres especiais.
+- `LoginFormSemanticsTest` passou no AVD `MulletaflixApi35`: 3/3, 0 skipped, 0 failed; validou `Bug309c*` diretamente no campo Compose.
+- Quality Bar passou: `testDebugUnitTest`, `:app:lintDebug` isolado e `:app:assembleRelease`.
+- APK local: `dist/mulletaflix-app-v1.2.98.apk`, 7.336.683 bytes, SHA-256 `DF99672EB96921437E07975EB314399DCD892224DCA24FE237F5B632AEC3FC37`.
+- Matriz app instrumentada após a mudança: celular, tablet e TV com 13/13, 0 skipped, 0 failed. APK release instalado e identificado como `versionCode=299`, `versionName=1.2.98`.
+- Regressão específica do formulário após a semântica final: `:feature:auth:connectedDebugAndroidTest` no AVD celular com 3/3, 0 skipped, 0 failed.
+- Emuladores encerrados pelo wrapper após o teste: `emulator=0`, `qemu-system-x86_64=0`.
+- Quick Connect foi verificado no servidor público: `QuickConnect/Enabled` retornou `true`; `QuickConnect/Initiate` retornou HTTP 200 quando enviado com a identidade `Authorization` do cliente. A requisição anônima retornou HTTP 400, confirmando que o cabeçalho de identidade é obrigatório.
+- O repositório agora normaliza e valida código/segredo do Quick Connect antes de iniciar o polling; o teste de UI também cobre o botão de geração com tag estável. A suíte instrumentada de autenticação passou com 4/4.
+- `QuickConnectHttpContractTest` passou com Retrofit + `MockWebServer`, comprovando POST `/QuickConnect/Initiate`, desserialização do payload e presença do cabeçalho `Authorization` sem token quando deslogado.
+- Novo pacote local após essa melhoria: `dist/mulletaflix-app-v1.2.98.apk`, 7.336.683 bytes, SHA-256 `D4C6002CA8A7205B91EBE5A1E5E37557178E012AD5662E7DB4F7E2D5180B0BE3`.
+- Nenhuma release remota foi publicada nesta rodada; seguir a política de blocos definida neste handoff. Nenhum script de release do servidor foi executado.
+
+### v1.2.99 — grade compacta para Android TV
+
+- A causa do layout com três capas gigantes era a largura lógica de aproximadamente 480dp no Android TV, combinada com um mínimo de 132dp por capa.
+- A política passou a usar 96dp no modo confortável e 80dp no modo compacto: 5 e 6 colunas respectivamente em 480dp. Favoritos usa 96dp como mínimo no TV.
+- Testes unitários de densidade e favoritos passaram; a suíte instrumentada da biblioteca passou com 10/10 no `MulletaflixTvApi34`.
+- `:app:lintDebug` e `:app:assembleRelease` passaram com código 0.
+- APK local: `dist/mulletaflix-app-v1.2.99.apk`, `versionCode=300`, 7.336.683 bytes, SHA-256 `9AFFDE2C1DB126449FAB238AD11E93613C7040921EC20E7BFCBF75C3D6653BD7`.
+- A versão anterior local `v1.2.98` foi conferida antes da nova geração: 7.336.683 bytes, SHA-256 `D4C6002CA8A7205B91EBE5A1E5E37557178E012AD5662E7DB4F7E2D5180B0BE3`.
+- Nenhuma alteração foi feita no servidor; a release remota do APK permanece pendente conforme a política de blocos.
+
+### v1.3.0 — catálogo ampliado de idiomas do player
+
+- A regra de versionamento foi aplicada: depois de `1.2.99`, a próxima versão é `1.3.0`, com `versionCode=301`.
+- `MediaLanguage` agora oferece 15 idiomas selecionáveis nas preferências de áudio e legenda e normaliza códigos ISO comuns devolvidos pelo servidor.
+- `TrackLabelPolicy` ganhou rótulos amigáveis para neerlandês, turco, polonês, hindi e outras variantes; as faixas continuam identificadas pelo índice do servidor.
+- Testes unitários direcionados de domínio, player e configurações passaram; `:app:lintDebug` e `:app:assembleRelease` passaram com código 0.
+- A suíte instrumentada do player passou no AVD `MulletaflixApi35`: 14/14, 0 skipped, 0 failed.
+- APK local: `dist/mulletaflix-app-v1.3.0.apk`, 7.336.679 bytes, SHA-256 `0717495296CC4B69FEFCAFF9959291C55352069B347098570FA917170937D03A`.
+- A versão local anterior `v1.2.99` foi conferida antes da geração: 7.336.683 bytes, SHA-256 `9AFFDE2C1DB126449FAB238AD11E93613C7040921EC20E7BFCBF75C3D6653BD7`.
+- Emulador encerrado pelo wrapper após os testes: `emulator=0`, `qemu-system-x86_64=0`.
+- Nenhuma alteração ou release do servidor foi feita; a release remota do APK permanece pendente conforme a política de blocos.
+
+### v1.3.1 — densidade adaptativa para tablets
+
+- O layout da biblioteca agora identifica tablets por `smallestScreenWidthDp >= 600`, separando-os do celular e do Android TV.
+- Tablets usam mínimo de 140dp por capa no modo confortável e 116dp no modo compacto; telefones e TV preservam suas políticas próprias.
+- `LibraryGridDensityTest` cobre as três famílias de dispositivo; a suíte instrumentada da biblioteca no `MulletaflixTvApi34` passou com 10/10.
+- `:app:lintDebug` e `:app:assembleRelease` passaram com código 0.
+- `build-app-package.ps1` foi corrigido para obter a versão de `gradle/libs.versions.toml` quando o `build.gradle.kts` usa `libs.versions.appVersion`; antes isso rotulava o pacote como `v1.0.0` por engano.
+- APK local: `dist/mulletaflix-app-v1.3.1.apk`, `versionCode=302`, 7.336.683 bytes, SHA-256 `22EDA29A522E37CD3DD4D1BA1402A9E0FD6F6DF921B3DCAE7E56AB0FAF43C47A`.
+- A versão anterior local entregue `v1.3.0` foi conferida antes do bump: `versionCode=301`, 7.336.679 bytes, SHA-256 `0717495296CC4B69FEFCAFF9959291C55352069B347098570FA917170937D03A`.
+- Nenhuma alteração ou release do servidor foi feita; a release remota do APK permanece pendente conforme a política de blocos.
+
+### v1.3.2 — densidade compartilhada em Minha Lista
+
+- `FavoritesViewModel` agora observa `SettingsRepository.getLibraryGridDensity()` e entrega a preferência à tela de favoritos.
+- Celular, tablet e TV usam a mesma escolha confortável/compacta, cada qual com seus mínimos adaptativos; a grade de TV permanece com pelo menos cinco colunas.
+- `FavoritesPresentationPolicyTest` cobre a política compacta nos três form factors e `FavoritesViewModelTest` continua passando.
+- Suíte instrumentada da biblioteca no `MulletaflixTvApi34`: 10/10, 0 skipped, 0 failed.
+- Quality Bar: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` passaram com código 0.
+- A versão local anterior entregue `v1.3.1` foi conferida antes do bump: `versionCode=302`, 7.336.683 bytes, SHA-256 `22EDA29A522E37CD3DD4D1BA1402A9E0FD6F6DF921B3DCAE7E56AB0FAF43C47A`.
+- APK local: `dist/mulletaflix-app-v1.3.2.apk`, `versionCode=303`, 7.336.679 bytes, SHA-256 `856EAB52E2153D7916C64E18B894BE49C1A9DBF15DBE9CCF12233681871E9D38`.
+- Nenhuma alteração ou release do servidor foi feita; a release remota do APK permanece pendente conforme a política de blocos.
+
+### v1.3.3 — atualização manual de metadados no detalhe
+
+- A tela de detalhe agora oferece uma ação explícita para atualizar os dados da mídia sem sair da tela; a ação chama novamente `ItemDetailViewModel.loadItem(itemId)` e cobre metadados, artwork, NFO e episódios disponibilizados pelo servidor.
+- O botão informa estado acessível durante a operação: `Atualizar detalhes` quando ocioso e `Atualizando detalhes` enquanto carrega.
+- `DetailRefreshPolicyTest` passou; `testDebugUnitTest` passou com 456 tarefas, `:app:lintDebug` passou com 638 tarefas e `:app:assembleRelease` passou com 662 tarefas.
+- A suíte instrumentada do módulo item-detail passou no AVD `MulletaflixApi35`: 14/14, 0 skipped, 0 failed.
+- A versão local anterior `v1.3.2` foi conferida antes do bump: `versionCode=303`, 7.336.679 bytes, SHA-256 `856EAB52E2153D7916C64E18B894BE49C1A9DBF15DBE9CCF12233681871E9D38`.
+- APK local: `dist/mulletaflix-app-v1.3.3.apk`, `versionCode=304`, 7.336.679 bytes, SHA-256 `EB3EAC284A7FCFC9B603D36E561CBC7145CE52B0094F3C139CFF82F966825172`.
+- A validação `aapt` confirmou `versionName=1.3.3`; o wrapper encerrou o emulador (`emulator=0`, `qemu-system-x86_64=0`).
+- Nenhuma alteração ou release do servidor foi feita; a release remota do APK permanece pendente conforme a política de blocos.
+
+### v1.3.4 — sugestões de busca durante a digitação
+
+- A busca agora usa o endpoint existente `Search/Hints` após 180 ms de pausa na digitação; a resposta é filtrada pelo tipo escolhido, deduplicada por ID e limitada a oito itens.
+- O painel de sugestões é uma lista Compose rolável com semântica de botão, descrição acessível e foco visual para TV/D-pad. Selecionar uma sugestão abre diretamente o detalhe do título.
+- A consulta de hints é cancelada quando o texto/filtro muda e é ocultada quando a busca completa começa, evitando respostas antigas sobrepostas aos resultados atuais.
+- `SearchViewModelTest` passou com a cobertura de debounce, filtro e deduplicação; `:feature:search:connectedDebugAndroidTest` passou com 9/9, 0 skipped, 0 failed.
+- Quality Bar: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` passaram com código 0.
+- A versão local anterior entregue `v1.3.3` foi conferida antes do bump: `versionCode=304`, 7.336.679 bytes, SHA-256 `EB3EAC284A7FCFC9B603D36E561CBC7145CE52B0094F3C139CFF82F966825172`.
+- APK local: `dist/mulletaflix-app-v1.3.4.apk`, `versionCode=305`, 7.336.679 bytes, SHA-256 `64DEA7056D284D9B71F97D6069E9BB2850186863F796B83C03D40D9760950129`.
+- `aapt` confirmou `versionName=1.3.4`; nenhum emulador ficou aberto (`emulator=0`, `qemu-system-x86_64=0`).
+- Nenhuma alteração ou release do servidor foi feita; a release remota do APK permanece pendente conforme a política de blocos.
+
+### v1.3.5 — restauração do scroll em Biblioteca e Minha Lista
+
+- Biblioteca e Minha Lista agora usam `rememberLazyGridState()` por meio de um contrato compartilhado, permitindo que a posição da grade seja restaurada após recriação de Activity/processo.
+- O teste instrumentado `LibraryScrollStateRestorationTest` valida a posição efetiva antes e depois da restauração; o índice exato pode variar conforme o primeiro item parcialmente visível da linha.
+- A suíte instrumentada da biblioteca passou no AVD `MulletaflixApi35`: 11/11, 0 skipped, 0 failed.
+- Quality Bar: `testDebugUnitTest` passou com 456 tarefas, `:app:lintDebug` passou com 638 tarefas e `:app:assembleRelease` passou com 662 tarefas.
+- A versão local anterior entregue `v1.3.4` foi conferida antes do bump: `versionCode=305`, 7.336.679 bytes, SHA-256 `64DEA7056D284D9B71F97D6069E9BB2850186863F796B83C03D40D9760950129`.
+- APK local: `dist/mulletaflix-app-v1.3.5.apk`, `versionCode=306`, 7.336.679 bytes, SHA-256 `955E703B10D7200ED5EF9799B1483EDC159931BA84A2A8D352C2A1DF155FFE97`.
+- `aapt` confirmou `versionName=1.3.5`, `versionCode=306`; nenhum emulador ficou aberto (`emulator=0`, `qemu-system-x86_64=0`).
+- Nenhuma alteração ou release do servidor foi feita; a release remota do APK permanece pendente por falta de autorização explícita.
+
+### v1.3.6 — restauração do scroll em Home e Busca + foco TV
+
+- Home agora usa `rememberHomeScrollState()` e preserva sua posição vertical após recriação de Activity/processo.
+- Busca agora preserva a posição dos resultados, do histórico e do painel rolável de sugestões por meio de `rememberSearchScrollState()`.
+- `MulletaFlixTopBarAction` ganhou um alvo de foco explícito somente para o modo TV; o teste de navegação D-pad e a medição visual do anel passaram no API 35.
+- Testes instrumentados: Busca 10/10 e Home 8/8 no AVD `MulletaflixApi35`, sem skips ou falhas.
+- Quality Bar: `testDebugUnitTest` passou com 456 tarefas, `:app:lintDebug` passou com 638 tarefas e `:app:assembleRelease` passou com 662 tarefas.
+- A versão local anterior entregue `v1.3.5` foi conferida antes do bump: `versionCode=306`, 7.336.679 bytes, SHA-256 `955E703B10D7200ED5EF9799B1483EDC159931BA84A2A8D352C2A1DF155FFE97`.
+- APK local: `dist/mulletaflix-app-v1.3.6.apk`, `versionCode=307`, 7.336.679 bytes, SHA-256 `173CA7BF36F58A811C9C80C599383520685626CA94C05AD6D83ECE0B7550BA84`.
+- `aapt` confirmou `versionName=1.3.6`, `versionCode=307`; nenhum emulador ficou aberto (`emulator=0`, `qemu-system-x86_64=0`).
+- Nenhuma alteração ou release do servidor foi feita; a release remota do APK permanece pendente por falta de autorização explícita.
+
+### v1.3.7 — restauração dos carrosséis horizontais
+
+- Os carrosséis da Home (`MediaSection` e bibliotecas) agora usam estado salvo de `LazyRow`, preservando a posição ao recriar a Activity/processo.
+- Cada carrossel agrupado dos resultados da Busca também possui estado salvo independente, evitando que uma lista horizontal volte ao início ao atualizar/recriar a tela.
+- Testes instrumentados: Home 9/9 e Busca 11/11 no AVD `MulletaflixApi35`, sem skips ou falhas.
+- Quality Bar: `testDebugUnitTest` passou com 456 tarefas, `:app:lintDebug` passou com 638 tarefas e `:app:assembleRelease` passou com 662 tarefas.
+- A versão local anterior entregue `v1.3.6` foi conferida antes do bump: `versionCode=307`, 7.336.679 bytes, SHA-256 `173CA7BF36F58A811C9C80C599383520685626CA94C05AD6D83ECE0B7550BA84`.
+- APK local: `dist/mulletaflix-app-v1.3.7.apk`, `versionCode=308`, 7.336.683 bytes, SHA-256 `2EDF6972A7F98568AA3D160CBBA5470EB599E04D75C20C2C878A5F60C3A501A7`.
+- `aapt` confirmou `versionName=1.3.7`, `versionCode=308`; nenhum emulador ficou aberto (`emulator=0`, `qemu-system-x86_64=0`).
+- Nenhuma alteração ou release do servidor foi feita; a release remota do APK permanece pendente por falta de autorização explícita.
+
+### Validação adicional da matriz de dispositivos após v1.3.7
+
+- Tablet Android 15 (`MulletaflixTabletApi35`): Home 9/9 e Biblioteca 11/11, sem skips ou falhas.
+- Android TV 14 (`MulletaflixTvApi34`): Home 9/9 e Biblioteca 11/11, sem skips ou falhas.
+- Os AVDs foram iniciados somente durante os comandos e encerrados pelo wrapper; nenhum processo `emulator`/`qemu-system-x86_64` ficou ativo.
+- Esta rodada foi somente de validação: não houve alteração de código, bump de versão ou nova release do APK.
 
 ## Formato recomendado para o próximo relatório
 

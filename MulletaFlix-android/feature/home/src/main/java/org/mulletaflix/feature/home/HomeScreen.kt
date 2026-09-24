@@ -17,11 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -77,26 +73,17 @@ fun HomeScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isTelevision = isTelevisionDevice()
+        val homeScrollState = rememberHomeScrollState()
         val layoutSpec = homeLayoutSpec(
             homeDeviceClass(maxWidth.value.roundToInt(), isTelevision),
         )
 
-        LaunchedEffect(lifecycleOwner, isTelevision) {
-            val refreshInterval = homeAutoRefreshIntervalMillis(isTelevision)
-            if (refreshInterval > 0L) {
-                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                    if (refreshHomeImmediatelyOnResume(isTelevision)) {
-                        // Do not wait for the first interval when a TV is
-                        // opened or returns from standby/another app.
-                        viewModel.refreshIfIdle()
-                    }
-                    while (isActive) {
-                        delay(refreshInterval)
-                        viewModel.refreshIfIdle()
-                    }
-                }
-            }
-        }
+        TvRefreshEffect(
+            lifecycleOwner = lifecycleOwner,
+            refreshIntervalMillis = homeAutoRefreshIntervalMillis(isTelevision),
+            refreshImmediately = refreshHomeImmediatelyOnResume(isTelevision),
+            onRefresh = viewModel::refreshIfIdle,
+        )
 
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
@@ -107,6 +94,7 @@ fun HomeScreen(
                 .align(Alignment.TopCenter),
         ) {
             LazyColumn(
+                state = homeScrollState,
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
@@ -504,6 +492,7 @@ private fun MediaSection(
     onItemClick: (String) -> Unit,
     isLive: Boolean = false,
 ) {
+    val carouselScrollState = rememberHomeCarouselScrollState()
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
         Text(
             text = title,
@@ -512,6 +501,7 @@ private fun MediaSection(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
         LazyRow(
+            state = carouselScrollState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -556,6 +546,7 @@ private fun LibraryTiles(
     layoutSpec: HomeLayoutSpec,
     onLibraryClick: (MediaItem) -> Unit,
 ) {
+    val carouselScrollState = rememberHomeCarouselScrollState()
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
         Text(
             text = "Minhas Bibliotecas",
@@ -564,6 +555,7 @@ private fun LibraryTiles(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
         LazyRow(
+            state = carouselScrollState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {

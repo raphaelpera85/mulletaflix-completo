@@ -79,7 +79,7 @@ fun ServerSelectionScreen(
                 onFailure = {
                     // A stale LAN advertisement must not prevent access through
                     // the saved/public endpoint.
-                    if (state.discoveredServers.firstOrNull()?.url == endpoint) {
+                    if (shouldTryFallbackAfterDiscoveryFailure(state.discoveredServers, endpoint)) {
                         viewModel.connectToServer(
                             fallbackServerCandidate(state, endpoint),
                             onSuccess = { onServerSelected() },

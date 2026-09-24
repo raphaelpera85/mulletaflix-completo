@@ -19,13 +19,34 @@ class LibraryGridDensityTest {
 
     @Test
     fun `television uses smaller cards and multiple predictable columns`() {
-        assertEquals(132, libraryGridMinSizeDp(LIBRARY_GRID_DENSITY_COMFORTABLE, isTelevision = true))
-        assertEquals(112, libraryGridMinSizeDp(LIBRARY_GRID_DENSITY_COMPACT, isTelevision = true))
-        assertEquals(7, libraryGridColumns(1008, LIBRARY_GRID_DENSITY_COMFORTABLE, isTelevision = true))
+        assertEquals(96, libraryGridMinSizeDp(LIBRARY_GRID_DENSITY_COMFORTABLE, isTelevision = true))
+        assertEquals(80, libraryGridMinSizeDp(LIBRARY_GRID_DENSITY_COMPACT, isTelevision = true))
+        assertEquals(5, libraryGridColumns(480, LIBRARY_GRID_DENSITY_COMFORTABLE, isTelevision = true))
+        assertEquals(6, libraryGridColumns(480, LIBRARY_GRID_DENSITY_COMPACT, isTelevision = true))
+        assertEquals(10, libraryGridColumns(1008, LIBRARY_GRID_DENSITY_COMFORTABLE, isTelevision = true))
     }
 
     @Test
     fun `phone keeps adaptive columns instead of television fixed policy`() {
         assertEquals(0, libraryGridColumns(411, LIBRARY_GRID_DENSITY_COMFORTABLE, isTelevision = false))
+    }
+
+    @Test
+    fun `tablet uses a readable adaptive card size distinct from phone`() {
+        assertEquals(
+            140,
+            libraryGridMinSizeDp(
+                LIBRARY_GRID_DENSITY_COMFORTABLE,
+                isTablet = true,
+            ),
+        )
+        assertEquals(
+            116,
+            libraryGridMinSizeDp(
+                LIBRARY_GRID_DENSITY_COMPACT,
+                isTablet = true,
+            ),
+        )
+        assertEquals(112, libraryGridMinSizeDp(LIBRARY_GRID_DENSITY_COMFORTABLE))
     }
 }
