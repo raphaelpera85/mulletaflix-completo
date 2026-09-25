@@ -39,6 +39,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
     private readonly ILogger<MediaInfoController> _logger;
     private readonly MediaInfoHelper _mediaInfoHelper;
     private readonly IUserManager _userManager;
+    private readonly TransientMediaItemRegistry _transientMediaItemRegistry;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaInfoController"/> class.
@@ -50,6 +51,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
     /// <param name="logger">Instance of the <see cref="ILogger{MediaInfoController}"/> interface.</param>
     /// <param name="mediaInfoHelper">Instance of the <see cref="MediaInfoHelper"/>.</param>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface..</param>
+    /// <param name="transientMediaItemRegistry">Registry for path-resolved items during playback.</param>
     public MediaInfoController(
         IMediaSourceManager mediaSourceManager,
         IDeviceManager deviceManager,
@@ -57,7 +59,8 @@ public class MediaInfoController : BaseMulletaFlixApiController
         IFileSystem fileSystem,
         ILogger<MediaInfoController> logger,
         MediaInfoHelper mediaInfoHelper,
-        IUserManager userManager)
+        IUserManager userManager,
+        TransientMediaItemRegistry transientMediaItemRegistry)
     {
         _mediaSourceManager = mediaSourceManager;
         _deviceManager = deviceManager;
@@ -66,6 +69,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
         _logger = logger;
         _mediaInfoHelper = mediaInfoHelper;
         _userManager = userManager;
+        _transientMediaItemRegistry = transientMediaItemRegistry;
     }
 
     /// <summary>
@@ -183,6 +187,10 @@ public class MediaInfoController : BaseMulletaFlixApiController
             if (!string.IsNullOrWhiteSpace(playbackInfoDto?.Path))
             {
                 item = _libraryManager.ResolvePath(_fileSystem.GetFileSystemInfo(playbackInfoDto.Path)) as BaseItem;
+                if (item is not null)
+                {
+                    _transientMediaItemRegistry.Register(item);
+                }
             }
 
             if (item is null)

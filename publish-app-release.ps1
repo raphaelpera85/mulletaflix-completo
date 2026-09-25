@@ -56,6 +56,10 @@ if (-not $Version) {
 }
 $Version = Normalize-AppVersion $Version
 
+if ([string]::IsNullOrWhiteSpace($Notes)) {
+    throw "Notas específicas da release são obrigatórias. Informe -Notes com as melhorias e correções incluídas no APK."
+}
+
 if (-not $Tag) {
     $Tag = "app-v$Version"
 }
@@ -111,17 +115,6 @@ try {
     Write-Host "Release já existe para a tag $Tag (ID: $($existingRelease.id)). Atualizando..." -ForegroundColor Yellow
 } catch {
     Write-Host "Criando nova release para a tag $Tag..." -ForegroundColor Cyan
-}
-
-if (-not $Notes) {
-    $Notes = @"
-#### ✨ Destaques:
-- **ExoPlayer & Media3**: Reprodução de alto desempenho para HLS, DASH, MKV e MP4 com suporte a áudio multi-canal e legendas integradas.
-- **Descoberta Automática de Servidor**: Detecção de instâncias do MulletaFlix na rede local (LAN) com fallback dinâmico para acesso remoto.
-- **Interface Moderna**: Jetpack Compose + Material 3 com 8 temas visuais integrados (Dark, Light, Netflix, Apple TV, Purple Haze, etc.).
-- **Autenticação Rápida**: Login tradicional e emparelhamento sem senha via Quick Connect de 6 dígitos.
-- **Reprodução Offline & Live TV**: Suporte a download de itens para reprodução offline e canais de Live TV com guia de programação (EPG).
-"@
 }
 
 $bodyContent = @"

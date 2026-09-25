@@ -5,10 +5,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.requestFocus
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -104,5 +106,29 @@ class SleepTimerMenuTest {
             .fetchSemanticsNodes()
 
         assertEquals("exactly one radio row may be selected", 1, selected.size)
+    }
+
+    @Test
+    fun tvTimerOptionCanReceiveRemoteFocus() {
+        composeRule.setContent {
+            MaterialTheme {
+                SleepTimerMenu(
+                    mode = SleepTimerMode.OFF,
+                    remainingMs = null,
+                    selectedMinutes = null,
+                    onSelect = {},
+                    onSelectAtMediaEnd = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        val option = composeRule.onNode(
+            SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton) and
+                hasText("30 minutos") and
+                hasClickAction(),
+        )
+        option.requestFocus()
+        option.assertIsFocused()
     }
 }

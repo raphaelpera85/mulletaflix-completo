@@ -14,6 +14,7 @@
 		A00000000000000000000006 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000006 /* APIClient.swift */; };
 		A00000000000000000000007 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000007 /* SessionStore.swift */; };
 		A00000000000000000000008 /* SyncPlayRealtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000009 /* SyncPlayRealtime.swift */; };
+		A00000000000000000000009 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000010 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +28,7 @@
 		B00000000000000000000007 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B00000000000000000000009 /* SyncPlayRealtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPlayRealtime.swift; sourceTree = "<group>"; };
+		B00000000000000000000010 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -34,7 +36,7 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		D00000000000000000000001 = {isa = PBXGroup; children = (D00000000000000000000002, D00000000000000000000003, B00000000000000000000008, D00000000000000000000004); sourceTree = "<group>"; };
+		D00000000000000000000001 = {isa = PBXGroup; children = (D00000000000000000000002, D00000000000000000000003, B00000000000000000000008, B00000000000000000000010, D00000000000000000000004); sourceTree = "<group>"; };
 		D00000000000000000000002 /* App */ = {isa = PBXGroup; children = (B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004); path = App; sourceTree = "<group>"; };
 		D00000000000000000000003 /* MulletaFlixCore */ = {isa = PBXGroup; children = (B00000000000000000000005, B00000000000000000000006, B00000000000000000000007, B00000000000000000000009); path = Sources/MulletaFlixCore; sourceTree = "<group>"; };
 		D00000000000000000000004 /* Products */ = {isa = PBXGroup; children = (B00000000000000000000000); name = Products; sourceTree = "<group>"; };
@@ -49,7 +51,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		C00000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		C00000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000009); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */

@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.mulletaflix.core.api.dto.GroupInfoDto
+import org.mulletaflix.core.api.dto.SyncPlayPlaybackStatusDto
 import retrofit2.http.GET
 import retrofit2.http.POST
 
@@ -86,6 +87,28 @@ class SyncPlayApiContractTest {
         assertEquals("SyncPlay/New", routeOf("createSyncPlayGroup") { it.getAnnotation(POST::class.java)?.value })
         assertEquals("SyncPlay/Join", routeOf("joinSyncPlayGroup") { it.getAnnotation(POST::class.java)?.value })
         assertEquals("SyncPlay/Leave", routeOf("leaveSyncPlayGroup") { it.getAnnotation(POST::class.java)?.value })
+        assertEquals("SyncPlay/Pause", routeOf("pauseSyncPlay") { it.getAnnotation(POST::class.java)?.value })
+        assertEquals("SyncPlay/Unpause", routeOf("unpauseSyncPlay") { it.getAnnotation(POST::class.java)?.value })
+        assertEquals("SyncPlay/Stop", routeOf("stopSyncPlay") { it.getAnnotation(POST::class.java)?.value })
+        assertEquals("SyncPlay/Buffering", routeOf("reportSyncPlayBuffering") { it.getAnnotation(POST::class.java)?.value })
+        assertEquals("SyncPlay/Ready", routeOf("reportSyncPlayReady") { it.getAnnotation(POST::class.java)?.value })
+    }
+
+    @Test
+    fun `buffering and ready payloads match server request contract`() {
+        val status = SyncPlayPlaybackStatusDto(
+            whenUtc = "2026-09-24T12:30:00.000Z",
+            positionTicks = 42_000_000L,
+            isPlaying = true,
+            playlistItemId = "e7b83cbe1f782b329a2490a40252e46a",
+        )
+
+        val json = moshi.adapter(SyncPlayPlaybackStatusDto::class.java).toJson(status)
+
+        assertEquals(
+            """{"When":"2026-09-24T12:30:00.000Z","PositionTicks":42000000,"IsPlaying":true,"PlaylistItemId":"e7b83cbe1f782b329a2490a40252e46a"}""",
+            json,
+        )
     }
 
     private fun routeOf(methodName: String, extract: (java.lang.reflect.Method) -> String?): String {

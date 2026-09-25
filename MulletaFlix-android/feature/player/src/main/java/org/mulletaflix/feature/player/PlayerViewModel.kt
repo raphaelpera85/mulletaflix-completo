@@ -22,7 +22,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.cache.CacheDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
@@ -44,8 +43,12 @@ import org.mulletaflix.domain.model.Chapter
 import org.mulletaflix.domain.model.MediaSegment
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
+import org.mulletaflix.domain.usecase.ManageSyncPlayUseCase
+import org.mulletaflix.domain.repository.SyncPlayPlaybackStatus
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
+import org.mulletaflix.core.api.SyncPlayRealtimeClient
+import org.mulletaflix.core.api.SyncPlayRealtimeEvent
 import org.mulletaflix.core.common.dispatcher.ApplicationScope
 import org.mulletaflix.domain.model.SUBTITLE_COLOR_WHITE
 import org.mulletaflix.domain.model.normalizeSubtitleColor
@@ -53,6 +56,10 @@ import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.model.primaryImageUrl
 import javax.inject.Inject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 data class TrackInfo(
     val index: Int,
@@ -70,6 +77,19 @@ data class NextEpisodeInfo(
     val episodeNumber: Int?,
     val seasonNumber: Int?,
 )
+
+enum class SyncPlayConnectionState {
+    NONE,
+    CONNECTED,
+    RECONNECTING,
+}
+
+internal fun syncPlayConnectionMessage(state: SyncPlayConnectionState): String? = when (state) {
+    SyncPlayConnectionState.RECONNECTING -> "SyncPlay desconectado — tentando reconectar…"
+    SyncPlayConnectionState.NONE,
+    SyncPlayConnectionState.CONNECTED,
+    -> null
+}
 
 data class PlayerState(
     val title: String? = null,
@@ -114,6 +134,7 @@ data class PlayerState(
     val sleepTimerMinutes: Int? = null,
     val sleepTimerMode: SleepTimerMode = SleepTimerMode.OFF,
     val isCasting: Boolean = false,
+    val syncPlayConnection: SyncPlayConnectionState = SyncPlayConnectionState.NONE,
 )
 
 /**
@@ -157,6 +178,8 @@ class PlayerViewModel @Inject constructor(
     private val getItemDetailUseCase: GetItemDetailUseCase,
     private val playbackRepository: PlaybackRepository,
     private val sessionRepository: SessionRepository,
+    private val syncPlayRealtimeClient: SyncPlayRealtimeClient,
+    private val manageSyncPlayUseCase: ManageSyncPlayUseCase,
     private val settingsRepository: SettingsRepository,
     private val getNextEpisodeUseCase: GetNextEpisodeUseCase,
     private val networkMonitor: NetworkMonitor,
@@ -202,14 +225,13 @@ class PlayerViewModel @Inject constructor(
         .setHandleAudioBecomingNoisy(true)
         .setMediaSourceFactory(
             DefaultMediaSourceFactory(
-                CacheDataSource.Factory()
-                    .setCache(OfflineDownloadCache.get(context))
-                    .setUpstreamDataSourceFactory(
-                        DefaultHttpDataSource.Factory()
-                            .setConnectTimeoutMs(MEDIA_CONNECT_TIMEOUT_MS)
-                            .setReadTimeoutMs(MEDIA_READ_TIMEOUT_MS)
-                            .setAllowCrossProtocolRedirects(true),
-                    )
+                playbackCacheDataSourceFactory(
+                    cache = OfflineDownloadCache.get(context),
+                    upstreamFactory = DefaultHttpDataSource.Factory()
+                        .setConnectTimeoutMs(MEDIA_CONNECT_TIMEOUT_MS)
+                        .setReadTimeoutMs(MEDIA_READ_TIMEOUT_MS)
+                        .setAllowCrossProtocolRedirects(true),
+                ),
             )
         )
         .build().also { exo ->
@@ -228,6 +250,9 @@ class PlayerViewModel @Inject constructor(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 _state.update {
                     it.copy(isBuffering = playbackState == Player.STATE_BUFFERING)
+                }
+                if (playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_READY) {
+                    enqueueSyncPlayPlaybackStatus(playbackState == Player.STATE_BUFFERING)
                 }
                 if (playbackState == Player.STATE_ENDED) {
                     val keys = listOfNotNull(localPlaybackKey, legacyLocalPlaybackKey)
@@ -382,7 +407,11 @@ class PlayerViewModel @Inject constructor(
     private var serverProgressJob: Job? = null
     private var loadJob: Job? = null
     private var retryJob: Job? = null
+    private val syncPlayCommandScheduler = LatestSyncPlayCommandScheduler(viewModelScope)
     private var currentItemId: String? = null
+    private var currentPlaylistItemId: String? = null
+    private var pendingSyncPositionMs: Long? = null
+    private var pendingSyncIsPlaying: Boolean? = null
     private var currentPlaySessionId: String? = null
     private var currentMediaSourceId: String? = null
     private var currentTranscodeUrl: String? = null
@@ -398,6 +427,37 @@ class PlayerViewModel @Inject constructor(
     private var lastPlaybackErrorCode: Int? = null
     private var lastPlaybackPositionAtError = 0L
     private var stoppedReported = false
+    private val syncPlayReportingSession = SyncPlayReportingSession()
+    private val syncPlayStatusProcessor by lazy(LazyThreadSafetyMode.NONE) {
+        SyncPlayStatusEventProcessor(
+            scope = viewModelScope,
+            currentSnapshot = {
+                SyncPlayStatusSnapshot(
+                    generation = syncPlayReportingSession.generation,
+                    groupId = syncPlayRealtimeClient.activeGroupId,
+                    playlistItemId = currentPlaylistItemId,
+                    isOfflinePlayback = isOfflinePlayback,
+                    networkIsOffline = networkWasOffline,
+                    realtimeConnected = syncPlayReportingSession.isConnected,
+                    playerIsBuffering = player.playbackState == Player.STATE_BUFFERING,
+                )
+            },
+        ) { event ->
+            val status = SyncPlayPlaybackStatus(
+                whenUtc = syncPlayWhenUtcNow(),
+                positionTicks = player.currentPosition.coerceAtLeast(0L) * 10_000L,
+                isPlaying = player.playWhenReady,
+                playlistItemId = event.playlistItemId,
+            )
+            val result = if (event.isBuffering) {
+                manageSyncPlayUseCase.reportBuffering(status)
+            } else {
+                manageSyncPlayUseCase.reportReady(status)
+            }
+            result.isSuccess
+        }
+    }
+    private var lastPlaybackStopJob: Job? = null
     private var autoPlayEnabled = true
     private var skipIntroEnabled = true
     private var defaultQuality = "Auto"
@@ -431,14 +491,37 @@ class PlayerViewModel @Inject constructor(
     private var lastLocalPositionPersistedAt = 0L
 
     init {
+        viewModelScope.launch {
+            syncPlayRealtimeClient.events.collect { event ->
+                when (event) {
+                    SyncPlayRealtimeEvent.Connected -> {
+                        syncPlayReportingSession.onConnected()
+                        if (syncPlayRealtimeClient.activeGroupId != null) {
+                            _state.update { it.copy(syncPlayConnection = SyncPlayConnectionState.CONNECTED) }
+                            enqueueSyncPlayPlaybackStatus(player.playbackState == Player.STATE_BUFFERING)
+                        }
+                    }
+                    SyncPlayRealtimeEvent.Disconnected -> {
+                        syncPlayReportingSession.onDisconnected()
+                        if (syncPlayRealtimeClient.activeGroupId != null) {
+                            _state.update { it.copy(syncPlayConnection = SyncPlayConnectionState.RECONNECTING) }
+                        }
+                    }
+                    is SyncPlayRealtimeEvent.Command -> applySyncPlayCommand(event)
+                    is SyncPlayRealtimeEvent.QueueUpdate -> applySyncPlayQueueUpdate(event)
+                    is SyncPlayRealtimeEvent.GroupUpdate -> Unit
+                }
+            }
+        }
         castSessionManager?.addSessionManagerListener(castSessionListener, CastSession::class.java)
         updateCastState(castSessionManager?.currentCastSession != null)
         viewModelScope.launch {
             sessionRepository.getCurrentUserId().distinctUntilChanged().collect { userId ->
                 val userChanged = hasObservedSession && currentUserId != userId
                 hasObservedSession = true
+                val previousUserId = currentUserId
+                if (userChanged) invalidatePlaybackForSessionChange(previousUserId)
                 currentUserId = userId
-                if (userChanged) invalidatePlaybackForSessionChange()
             }
         }
         viewModelScope.launch {
@@ -523,6 +606,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun loadMedia(itemId: String) {
+        val previousStopJob = stopCurrentRemotePlaybackBeforeLoad()
         val loadGeneration = ++playbackLoadGeneration
         val sessionAtLoad = sessionGeneration
         loadJob?.cancel()
@@ -534,7 +618,15 @@ class PlayerViewModel @Inject constructor(
         // "pausar em 30 minutos" morrer no primeiro episódio seguinte, sempre.
         player.stop()
         currentItemId = itemId
+        currentPlaylistItemId = null
+        pendingSyncPositionMs = null
+        pendingSyncIsPlaying = null
         isOfflinePlayback = false
+        // The stop report captured the previous session above. Clear its
+        // identity before a rapid second navigation can mistake it for the new
+        // item while that item's PlaybackInfo is still in flight.
+        currentPlaySessionId = null
+        currentMediaSourceId = null
         localPlaybackKey = null
         legacyLocalPlaybackKey = null
         lastLocalPositionPersistedAt = 0L
@@ -560,6 +652,8 @@ class PlayerViewModel @Inject constructor(
             )
         }
         loadJob = viewModelScope.launch {
+            previousStopJob?.join()
+            if (!isCurrentPlaybackLoad(loadGeneration, playbackLoadGeneration, itemId, currentItemId, sessionAtLoad, sessionGeneration)) return@launch
             val userId = sessionRepository.getCurrentUserId().first()
             if (userId == null) {
                 showLoadError("Faça login para reproduzir esta mídia.", loadGeneration)
@@ -778,6 +872,7 @@ class PlayerViewModel @Inject constructor(
             currentMediaMetadata = mediaMetadata
             val mediaItem = Media3Item.Builder()
                 .setUri(streamUrl)
+                .setMediaId(itemId)
                 .setMimeType(playbackMimeType(mediaSource.container, streamUrl))
                 .setMediaMetadata(mediaMetadata)
                 .build()
@@ -798,7 +893,16 @@ class PlayerViewModel @Inject constructor(
                 .takeIf { it > 0L }
                 ?.let(player::seekTo)
 
-            if (autoPlayEnabled) player.play()
+            val syncPositionMs = pendingSyncPositionMs
+            val syncIsPlaying = pendingSyncIsPlaying
+            if (syncPositionMs != null) player.seekTo(syncPositionMs)
+            pendingSyncPositionMs = null
+            pendingSyncIsPlaying = null
+            when (syncIsPlaying) {
+                true -> player.play()
+                false -> player.pause()
+                null -> if (autoPlayEnabled) player.play()
+            }
 
             // Report start to server
             playbackRepository.reportPlaybackStart(
@@ -814,6 +918,7 @@ class PlayerViewModel @Inject constructor(
 
     /** Plays a completed Media3 download through the shared cache, without server calls. */
     fun loadOffline(uri: String, title: String) {
+        val previousStopJob = stopCurrentRemotePlaybackBeforeLoad()
         val loadGeneration = ++playbackLoadGeneration
         val sessionAtLoad = sessionGeneration
         loadJob?.cancel()
@@ -825,15 +930,22 @@ class PlayerViewModel @Inject constructor(
         // item, inclusive para um download.
         player.stop()
         currentItemId = null
+        currentPlaylistItemId = null
+        pendingSyncPositionMs = null
+        pendingSyncIsPlaying = null
         isOfflinePlayback = true
+        currentPlaySessionId = null
+        currentMediaSourceId = null
         localPlaybackKey = null
         legacyLocalPlaybackKey = null
         viewModelScope.launch {
+            previousStopJob?.join()
             val userId = resolveOfflinePlaybackUserId(
                 cachedUserId = currentUserId,
                 persistedUserId = sessionRepository.getCurrentUserId().first(),
             )
             if (userId == null) {
+                if (loadGeneration != playbackLoadGeneration || sessionAtLoad != sessionGeneration) return@launch
                 _state.value = offlinePlaybackState(
                     title = title,
                     isBuffering = false,
@@ -892,6 +1004,89 @@ class PlayerViewModel @Inject constructor(
                 .takeIf { it > 0L }
                 ?.let(player::seekTo)
             player.play()
+        }
+    }
+
+    private fun applySyncPlayQueueUpdate(event: SyncPlayRealtimeEvent.QueueUpdate) {
+        if (syncPlayRealtimeClient.activeGroupId != event.groupId) return
+        val itemId = event.itemId ?: return
+        syncPlayCommandScheduler.cancelPending()
+        currentPlaylistItemId = event.playlistItemId
+        val positionMs = syncPlayPositionMs(event.startPositionTicks) ?: 0L
+        if (currentItemId != itemId) {
+            loadMedia(itemId)
+            currentPlaylistItemId = event.playlistItemId
+            pendingSyncPositionMs = positionMs
+            pendingSyncIsPlaying = event.isPlaying
+            return
+        }
+        syncPlayQueueCorrectionPositionMs(
+            authoritativePositionMs = positionMs,
+            currentPositionMs = player.currentPosition,
+        )?.let(player::seekTo)
+        if (event.isPlaying) player.play() else player.pause()
+        enqueueSyncPlayPlaybackStatus(player.playbackState == Player.STATE_BUFFERING)
+    }
+
+    private fun enqueueSyncPlayPlaybackStatus(isBuffering: Boolean) {
+        val groupId = syncPlayRealtimeClient.activeGroupId
+        val playlistItemId = currentPlaylistItemId
+        if (isOfflinePlayback || networkWasOffline || groupId.isNullOrBlank() || playlistItemId.isNullOrBlank()) {
+            return
+        }
+        if (currentItemId == null) return
+        if (!syncPlayReportingSession.isConnected) return
+        syncPlayStatusProcessor.enqueue(
+            SyncPlayStatusEvent(
+                generation = syncPlayReportingSession.generation,
+                groupId = groupId,
+                playlistItemId = playlistItemId,
+                isBuffering = isBuffering,
+            ),
+        )
+    }
+
+    private fun syncPlayWhenUtcNow(): String = SimpleDateFormat(
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        Locale.US,
+    ).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }.format(Date())
+
+    private fun applySyncPlayCommand(event: SyncPlayRealtimeEvent.Command) {
+        if (!shouldApplySyncPlayCommand(
+                event = event,
+                activeGroupId = syncPlayRealtimeClient.activeGroupId,
+                currentItemId = currentItemId,
+                currentPlaylistItemId = currentPlaylistItemId,
+            )
+        ) return
+
+        val delayMs = ((event.whenEpochMs ?: 0L) - System.currentTimeMillis())
+            .coerceAtLeast(0L)
+            .coerceAtMost(30_000L)
+        val generationAtCommand = playbackLoadGeneration
+        syncPlayCommandScheduler.schedule(delayMs) {
+            if (generationAtCommand != playbackLoadGeneration ||
+                !shouldApplySyncPlayCommand(
+                    event = event,
+                    activeGroupId = syncPlayRealtimeClient.activeGroupId,
+                    currentItemId = currentItemId,
+                    currentPlaylistItemId = currentPlaylistItemId,
+                )
+            ) return@schedule
+            when (event.command.lowercase()) {
+                "pause" -> {
+                    syncPlayCommandPositionMs(event.command, event.positionTicks)?.let(player::seekTo)
+                    player.pause()
+                }
+                "unpause" -> {
+                    syncPlayCommandPositionMs(event.command, event.positionTicks)?.let(player::seekTo)
+                    player.play()
+                }
+                "stop" -> player.stop()
+                "seek" -> syncPlayCommandPositionMs(event.command, event.positionTicks)?.let(player::seekTo)
+            }
         }
     }
 
@@ -1290,6 +1485,8 @@ class PlayerViewModel @Inject constructor(
                 val isPausedAtReport = isPlaybackPausedForReport(player.isPlaying)
                 val reportSnapshot = PlaybackProgressSnapshot(
                     generation = generationAtReport,
+                    sessionGeneration = sessionGeneration,
+                    userId = currentUserId ?: sessionRepository.getCurrentUserId().first(),
                     itemId = itemIdAtReport,
                     playSessionId = playSessionIdAtReport,
                     mediaSourceId = mediaSourceIdAtReport,
@@ -1298,7 +1495,7 @@ class PlayerViewModel @Inject constructor(
                     positionMs = positionAtReport,
                     isPaused = isPausedAtReport,
                 )
-                val userId = sessionRepository.getCurrentUserId().first() ?: continue
+                val userId = reportSnapshot.userId ?: continue
                 if (isCurrentPlaybackReport(
                         expectedGeneration = reportSnapshot.generation,
                         currentGeneration = playbackLoadGeneration,
@@ -1308,6 +1505,10 @@ class PlayerViewModel @Inject constructor(
                         currentPlaySessionId = currentPlaySessionId,
                         expectedMediaSourceId = reportSnapshot.mediaSourceId,
                         currentMediaSourceId = currentMediaSourceId,
+                        expectedSessionGeneration = reportSnapshot.sessionGeneration,
+                        currentSessionGeneration = sessionGeneration,
+                        expectedUserId = reportSnapshot.userId,
+                        currentUserId = currentUserId,
                     )
                 ) {
                     playbackRepository.reportPlaybackProgress(
@@ -1366,21 +1567,43 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun reportPlaybackStopped() {
-        if (stoppedReported) return
+    private fun stopCurrentRemotePlaybackBeforeLoad(): Job? {
+        if (shouldReportRemotePlaybackBeforeLoad(
+                currentItemId = currentItemId,
+                isOfflinePlayback = isOfflinePlayback,
+                playSessionId = currentPlaySessionId,
+                mediaSourceId = currentMediaSourceId,
+                stoppedReported = stoppedReported,
+            )
+        ) {
+            // The next load intentionally changes generation and item identity;
+            // allow this snapshot to reach the server after that transition.
+            return reportPlaybackStopped(allowPlaybackChange = true)
+        }
+        // Ended playback already reported its stop, but the next episode must
+        // still wait for that request before it starts a new server session.
+        return lastPlaybackStopJob?.takeUnless { it.isCompleted }
+    }
+
+    private fun reportPlaybackStopped(
+        allowPlaybackChange: Boolean = false,
+        userIdOverride: String? = currentUserId,
+    ): Job? {
+        if (stoppedReported) return lastPlaybackStopJob
         stoppedReported = true
         val generationAtReport = playbackLoadGeneration
         val itemIdAtReport = currentItemId
         val playSessionIdAtReport = currentPlaySessionId
         val mediaSourceIdAtReport = currentMediaSourceId
         val positionAtReport = player.currentPosition.coerceAtLeast(0L)
+        val userIdAtReport = userIdOverride
         // Not `viewModelScope`: `ViewModel.clear()` cancels it *before* calling
         // `onCleared()`, so this launch never ran its body and the server kept the
         // session open — the item stayed as "Now Playing" and the transcode the
         // server had started was never stopped.
-        teardownScope.launch {
-            val userId = sessionRepository.getCurrentUserId().first() ?: return@launch
-            if (isCurrentPlaybackReport(
+        val stopJob = teardownScope.launch {
+            val userId = userIdAtReport ?: return@launch
+            if ((allowPlaybackChange || isCurrentPlaybackReport(
                     expectedGeneration = generationAtReport,
                     currentGeneration = playbackLoadGeneration,
                     expectedItemId = itemIdAtReport,
@@ -1389,7 +1612,7 @@ class PlayerViewModel @Inject constructor(
                     currentPlaySessionId = currentPlaySessionId,
                     expectedMediaSourceId = mediaSourceIdAtReport,
                     currentMediaSourceId = currentMediaSourceId,
-                ) && itemIdAtReport != null
+                )) && itemIdAtReport != null
             ) {
                 playbackRepository.reportPlaybackStopped(
                     itemId = itemIdAtReport,
@@ -1399,6 +1622,8 @@ class PlayerViewModel @Inject constructor(
                 )
             }
         }
+        lastPlaybackStopJob = stopJob
+        return stopJob
     }
 
     private var nextEpisodeCountdownJob: Job? = null
@@ -1512,7 +1737,19 @@ class PlayerViewModel @Inject constructor(
     }
 
     /** A session switch must stop the old media and invalidate every delayed callback. */
-    private fun invalidatePlaybackForSessionChange() {
+    private suspend fun invalidatePlaybackForSessionChange(previousUserId: String?) {
+        val previousStopJob = if (shouldReportRemotePlaybackBeforeLoad(
+                currentItemId = currentItemId,
+                isOfflinePlayback = isOfflinePlayback,
+                playSessionId = currentPlaySessionId,
+                mediaSourceId = currentMediaSourceId,
+                stoppedReported = stoppedReported,
+            )
+        ) {
+            reportPlaybackStopped(allowPlaybackChange = true, userIdOverride = previousUserId)
+        } else {
+            lastPlaybackStopJob?.takeUnless { it.isCompleted }
+        }
         sessionGeneration++
         playbackLoadGeneration++
         loadJob?.cancel()
@@ -1554,6 +1791,7 @@ class PlayerViewModel @Inject constructor(
                 sleepTimerMode = SleepTimerMode.OFF,
             )
         }
+        previousStopJob?.join()
     }
 
     private fun persistLocalPlaybackPosition(force: Boolean = false) {

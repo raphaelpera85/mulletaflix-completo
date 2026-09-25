@@ -5,6 +5,9 @@ import org.mulletaflix.core.api.dto.JoinGroupRequestDto
 import org.mulletaflix.core.api.dto.NewGroupRequestDto
 import org.mulletaflix.domain.repository.SyncPlayGroup
 import org.mulletaflix.domain.repository.SyncPlayRepository
+import org.mulletaflix.domain.repository.SyncPlayPlaybackCommand
+import org.mulletaflix.domain.repository.SyncPlayPlaybackStatus
+import org.mulletaflix.core.api.dto.SyncPlayPlaybackStatusDto
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,4 +38,27 @@ class SyncPlayRepositoryImpl @Inject constructor(
     override suspend fun leaveGroup(): Result<Unit> = suspendRunCatching {
         api.leaveSyncPlayGroup()
     }
+
+    override suspend fun sendPlaybackCommand(command: SyncPlayPlaybackCommand): Result<Unit> = suspendRunCatching {
+        when (command) {
+            SyncPlayPlaybackCommand.PAUSE -> api.pauseSyncPlay()
+            SyncPlayPlaybackCommand.UNPAUSE -> api.unpauseSyncPlay()
+            SyncPlayPlaybackCommand.STOP -> api.stopSyncPlay()
+        }
+    }
+
+    override suspend fun reportBuffering(status: SyncPlayPlaybackStatus): Result<Unit> = suspendRunCatching {
+        api.reportSyncPlayBuffering(status.toDto())
+    }
+
+    override suspend fun reportReady(status: SyncPlayPlaybackStatus): Result<Unit> = suspendRunCatching {
+        api.reportSyncPlayReady(status.toDto())
+    }
+
+    private fun SyncPlayPlaybackStatus.toDto() = SyncPlayPlaybackStatusDto(
+        whenUtc = whenUtc,
+        positionTicks = positionTicks,
+        isPlaying = isPlaying,
+        playlistItemId = playlistItemId,
+    )
 }

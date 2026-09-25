@@ -1,5 +1,30 @@
 import Foundation
 
+enum APIRetryPolicy {
+    static let maxRetries = 2
+
+    static func isRetryableMethod(_ method: String) -> Bool {
+        ["GET", "HEAD", "OPTIONS"].contains(method.uppercased())
+    }
+
+    static func shouldRetryResponse(method: String, statusCode: Int, attempt: Int) -> Bool {
+        isRetryableMethod(method)
+            && attempt < maxRetries
+            && (statusCode == 408 || statusCode == 425 || statusCode == 429 || (500...599).contains(statusCode))
+    }
+
+    static func shouldRetryFailure(method: String, attempt: Int) -> Bool {
+        isRetryableMethod(method) && attempt < maxRetries
+    }
+
+    static func delayMilliseconds(attempt: Int, retryAfter: String?) -> UInt64 {
+        if let seconds = retryAfter.flatMap({ Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }), seconds >= 0 {
+            return min(UInt64(seconds) * 1_000, 1_500)
+        }
+        return attempt == 0 ? 250 : 750
+    }
+}
+
 public enum APIError: LocalizedError, Equatable {
     case invalidServerURL
     case invalidResponse
@@ -128,6 +153,14 @@ public actor APIClient {
         try await request(path: "System/Info/Public")
     }
 
+    public func health() async throws -> [String: String] {
+        try await request(path: "Health")
+    }
+
+    public func brandingConfiguration() async throws -> BrandingOptions {
+        try await request(path: "Branding/Configuration")
+    }
+
     public func seasons(userID: String, seriesID: String) async throws -> [MediaItem] {
         let result: ItemQueryResult = try await request(path: "Shows/\(seriesID)/Seasons?UserId=\(userID)&Fields=Overview&EnableImageTypes=Primary,Thumb&ImageTypeLimit=1")
         return result.items
@@ -161,7 +194,12 @@ public actor APIClient {
         try await perform(path: "Playlists/\(playlistID)/Items?Ids=\(itemID)&UserId=\(userID)", method: "POST")
     }
 
-    public func items(userID: String, parentID: String?, startIndex: Int = 0, limit: Int = 60, sortBy: String? = nil, sortOrder: String? = nil, filters: String? = nil, isFavorite: Bool? = nil, includeItemTypes: String? = nil, genres: String? = nil, years: String? = nil, isPlayed: Bool? = nil, fields: String = "ItemCounts") async throws -> ItemQueryResult {
+    public func items(userID: String, parentID: String?, startIndex: Int = 0, limit: Int = 60, sortBy: String? = nil, sortOrder: String? = nil, filters: String? = nil, isFavorite: Bool? = nil, includeItemTypes: String? = nil, genres: String? = nil, years: String? = nil, officialRatings: String? = nil, isPlayed: Bool? = nil, fields: String = "ItemCounts") async throws -> ItemQueryResult {
+        let path = Self.itemsPath(userID: userID, parentID: parentID, startIndex: startIndex, limit: limit, sortBy: sortBy, sortOrder: sortOrder, filters: filters, isFavorite: isFavorite, includeItemTypes: includeItemTypes, genres: genres, years: years, officialRatings: officialRatings, isPlayed: isPlayed, fields: fields)
+        return try await request(path: path)
+    }
+
+    static func itemsPath(userID: String, parentID: String?, startIndex: Int = 0, limit: Int = 60, sortBy: String? = nil, sortOrder: String? = nil, filters: String? = nil, isFavorite: Bool? = nil, includeItemTypes: String? = nil, genres: String? = nil, years: String? = nil, officialRatings: String? = nil, isPlayed: Bool? = nil, fields: String = "ItemCounts") -> String {
         var path = "Users/\(userID)/Items?Limit=\(limit)&StartIndex=\(startIndex)&Recursive=true&Fields=\(fields)&EnableImageTypes=Primary,Backdrop,Thumb&ImageTypeLimit=1"
         if let parentID { path += "&ParentId=\(parentID)" }
         if let sortBy { path += "&SortBy=\(sortBy)" }
@@ -171,19 +209,20 @@ public actor APIClient {
         if let includeItemTypes { path += "&IncludeItemTypes=\(includeItemTypes)" }
         if let genres { path += "&Genres=\(queryValue(genres))" }
         if let years { path += "&Years=\(queryValue(years))" }
+        if let officialRatings { path += "&OfficialRatings=\(queryValue(officialRatings))" }
         if let isPlayed { path += "&IsPlayed=\(isPlayed ? "true" : "false")" }
-        return try await request(path: path)
+        return path
     }
 
-    public func allItems(userID: String, parentID: String?, sortBy: String? = nil, sortOrder: String? = nil, filters: String? = nil, isFavorite: Bool? = nil, genres: String? = nil, years: String? = nil, isPlayed: Bool? = nil, pageSize: Int = 100, includeItemTypes: String? = nil, fields: String = "ItemCounts") async throws -> [MediaItem] {
+    public func allItems(userID: String, parentID: String?, sortBy: String? = nil, sortOrder: String? = nil, filters: String? = nil, isFavorite: Bool? = nil, genres: String? = nil, years: String? = nil, officialRatings: String? = nil, isPlayed: Bool? = nil, pageSize: Int = 100, includeItemTypes: String? = nil, fields: String = "ItemCounts") async throws -> [MediaItem] {
         var startIndex = 0
         var resultItems: [MediaItem] = []
         var seenIDs = Set<String>()
         for _ in 0..<100 {
-            let page = try await items(userID: userID, parentID: parentID, startIndex: startIndex, limit: pageSize, sortBy: sortBy, sortOrder: sortOrder, filters: filters, isFavorite: isFavorite, includeItemTypes: includeItemTypes, genres: genres, years: years, isPlayed: isPlayed, fields: fields)
+            let page = try await items(userID: userID, parentID: parentID, startIndex: startIndex, limit: pageSize, sortBy: sortBy, sortOrder: sortOrder, filters: filters, isFavorite: isFavorite, includeItemTypes: includeItemTypes, genres: genres, years: years, officialRatings: officialRatings, isPlayed: isPlayed, fields: fields)
             let newItems = page.items.filter { seenIDs.insert($0.id).inserted }
             resultItems.append(contentsOf: newItems)
-            if page.items.isEmpty || newItems.isEmpty || resultItems.count >= page.totalRecordCount || page.items.count < pageSize { break }
+            if page.items.isEmpty || newItems.isEmpty || (page.hasExplicitTotalRecordCount && resultItems.count >= page.totalRecordCount) || page.items.count < pageSize { break }
             startIndex += page.items.count
         }
         return resultItems
@@ -204,6 +243,11 @@ public actor APIClient {
         )
     }
 
+    public func lyrics(itemID: String) async throws -> [LyricLine] {
+        let result: LyricsResult = try await request(path: "Audio/\(itemID)/Lyrics")
+        return result.lyrics
+    }
+
     public func searchItems(userID: String, term: String, includeItemTypes: String? = nil, startIndex: Int = 0, limit: Int = 30) async throws -> ItemQueryResult {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=")
@@ -221,18 +265,22 @@ public actor APIClient {
         return result.hints
     }
 
-    public func allSearchItems(userID: String, term: String, includeItemTypes: String? = nil, pageSize: Int = 60) async throws -> [MediaItem] {
+    public func allSearchItems(userID: String, term: String, includeItemTypes: String? = nil, pageSize: Int = 60) async throws -> SearchItemsResult {
         var startIndex = 0
         var resultItems: [MediaItem] = []
         var seenIDs = Set<String>()
+        var totalRecordCount: Int?
         for _ in 0..<100 {
             let page = try await searchItems(userID: userID, term: term, includeItemTypes: includeItemTypes, startIndex: startIndex, limit: pageSize)
+            if totalRecordCount == nil, page.hasExplicitTotalRecordCount {
+                totalRecordCount = page.totalRecordCount
+            }
             let newItems = page.items.filter { seenIDs.insert($0.id).inserted }
             resultItems.append(contentsOf: newItems)
-            if page.items.isEmpty || newItems.isEmpty || resultItems.count >= page.totalRecordCount || page.items.count < pageSize { break }
+            if page.items.isEmpty || newItems.isEmpty || (page.hasExplicitTotalRecordCount && resultItems.count >= page.totalRecordCount) || page.items.count < pageSize { break }
             startIndex += page.items.count
         }
-        return resultItems
+        return SearchItemsResult(items: resultItems, totalRecordCount: totalRecordCount)
     }
 
     public func liveTVChannels(userID: String, limit: Int = 100, startIndex: Int = 0) async throws -> [MediaItem] {
@@ -256,11 +304,15 @@ public actor APIClient {
 
     public func liveTVPrograms(channelIDs: [String], startDate: String, endDate: String, limit: Int = 100, startIndex: Int = 0) async throws -> [MediaItem] {
         guard !channelIDs.isEmpty else { return [] }
-        let ids = channelIDs.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? channelIDs.joined(separator: ",")
-        let start = startDate.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? startDate
-        let end = endDate.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? endDate
-        let result: ItemQueryResult = try await request(path: "LiveTv/Programs?ChannelIds=\(ids)&StartIndex=\(startIndex)&Limit=\(limit)&MinEndDate=\(start)&MaxStartDate=\(end)")
+        let result: ItemQueryResult = try await request(path: Self.liveTVProgramsPath(channelIDs: channelIDs, startDate: startDate, endDate: endDate, limit: limit, startIndex: startIndex))
         return result.items
+    }
+
+    static func liveTVProgramsPath(channelIDs: [String], startDate: String, endDate: String, limit: Int = 100, startIndex: Int = 0) -> String {
+        let ids = queryValue(channelIDs.joined(separator: ","))
+        let start = queryValue(startDate)
+        let end = queryValue(endDate)
+        return "LiveTv/Programs?ChannelIds=\(ids)&StartIndex=\(startIndex)&Limit=\(limit)&MinEndDate=\(start)&MaxStartDate=\(end)"
     }
 
     public func allLiveTVPrograms(channelIDs: [String], startDate: String, endDate: String, pageSize: Int = 100) async throws -> [MediaItem] {
@@ -364,6 +416,10 @@ public actor APIClient {
         try await perform(path: "SyncPlay/Leave", method: "POST")
     }
 
+    public func sendSyncPlayCommand(_ command: SyncPlayPlaybackCommand) async throws {
+        try await perform(path: command.route, method: "POST")
+    }
+
     public func reportPlaybackStart(itemID: String, mediaSourceID: String?, positionTicks: Int64 = 0) async throws {
         try await perform(path: "Sessions/Playing", method: "POST", body: PlaybackStartBody(itemID: itemID, mediaSourceID: mediaSourceID, positionTicks: positionTicks))
     }
@@ -405,19 +461,38 @@ public actor APIClient {
         return components?.url
     }
 
-    public func preparedPlaybackURL(userID: String, item: MediaItem) async throws -> URL? {
+    public func preparedPlaybackURL(userID: String, item: MediaItem, maxStreamingBitrate: Int64? = nil, startTimeTicks: Int64? = nil) async throws -> URL? {
         struct PlaybackInfoBody: Encodable {
             let userID: String
             let mediaSourceID: String?
+            let audioStreamIndex: Int?
+            let subtitleStreamIndex: Int?
+            let maxStreamingBitrate: Int64?
+            let startTimeTicks: Int64?
             let enableDirectPlay = true
             let enableDirectStream = true
             let enableTranscoding = true
             enum CodingKeys: String, CodingKey {
                 case userID = "UserId", mediaSourceID = "MediaSourceId"
+                case audioStreamIndex = "AudioStreamIndex", subtitleStreamIndex = "SubtitleStreamIndex"
+                case maxStreamingBitrate = "MaxStreamingBitrate"
+                case startTimeTicks = "StartTimeTicks"
                 case enableDirectPlay = "EnableDirectPlay", enableDirectStream = "EnableDirectStream", enableTranscoding = "EnableTranscoding"
             }
         }
-        let info: PlaybackInfo = try await request(path: "Items/\(item.id)/PlaybackInfo?UserId=\(userID)", method: "POST", body: PlaybackInfoBody(userID: userID, mediaSourceID: item.mediaSources.first?.id))
+        let requestedSource = item.mediaSources.first
+        let info: PlaybackInfo = try await request(
+            path: "Items/\(item.id)/PlaybackInfo?UserId=\(userID)",
+            method: "POST",
+            body: PlaybackInfoBody(
+                userID: userID,
+                mediaSourceID: requestedSource?.id,
+                audioStreamIndex: requestedSource?.defaultAudioStreamIndex,
+                subtitleStreamIndex: requestedSource?.defaultSubtitleStreamIndex,
+                maxStreamingBitrate: maxStreamingBitrate,
+                startTimeTicks: startTimeTicks
+            )
+        )
         guard var source = info.mediaSources.first, let sourceID = source.id else {
             throw APIError.serverMessage(info.errorCode ?? "O servidor não encontrou uma fonte de reprodução.")
         }
@@ -496,8 +571,7 @@ public actor APIClient {
         request.setValue(Self.authorizationHeader(accessToken: accessToken, deviceID: deviceID), forHTTPHeaderField: "Authorization")
         if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
         if let body { request.httpBody = try encoder.encode(AnyEncodable(body)); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        let (data, http) = try await send(request)
         guard (200..<300).contains(http.statusCode) else { throw APIError.httpStatus(http.statusCode) }
         return try decoder.decode(T.self, from: data)
     }
@@ -510,9 +584,37 @@ public actor APIClient {
         request.setValue(Self.authorizationHeader(accessToken: accessToken, deviceID: deviceID), forHTTPHeaderField: "Authorization")
         if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
         if let body { request.httpBody = try encoder.encode(AnyEncodable(body)); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        let (_, http) = try await send(request)
         guard (200..<300).contains(http.statusCode) else { throw APIError.httpStatus(http.statusCode) }
+    }
+
+    private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var attempt = 0
+        while true {
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+                if APIRetryPolicy.shouldRetryResponse(method: request.httpMethod ?? "GET", statusCode: http.statusCode, attempt: attempt) {
+                    try await waitBeforeRetry(attempt: attempt, retryAfter: http.value(forHTTPHeaderField: "Retry-After"))
+                    attempt += 1
+                    continue
+                }
+                return (data, http)
+            } catch let error as APIError {
+                throw error
+            } catch {
+                guard APIRetryPolicy.shouldRetryFailure(method: request.httpMethod ?? "GET", attempt: attempt) else {
+                    throw error
+                }
+                try await waitBeforeRetry(attempt: attempt, retryAfter: nil)
+                attempt += 1
+            }
+        }
+    }
+
+    private func waitBeforeRetry(attempt: Int, retryAfter: String?) async throws {
+        let milliseconds = APIRetryPolicy.delayMilliseconds(attempt: attempt, retryAfter: retryAfter)
+        try await Task.sleep(nanoseconds: milliseconds * 1_000_000)
     }
 
     private func makeURL(path: String) -> URL {
@@ -522,10 +624,23 @@ public actor APIClient {
         return URL(string: base.absoluteString + "?" + parts[1]) ?? base
     }
 
-    private func queryValue(_ value: String) -> String {
+    private static func queryValue(_ value: String) -> String {
         var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=")
+        allowed.remove(charactersIn: "&=+/?#")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+}
+
+private struct LyricsResult: Decodable {
+    let lyrics: [LyricLine]
+
+    private enum CodingKeys: String, CodingKey {
+        case lyrics = "Lyrics"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        lyrics = try values.decodeIfPresent([LyricLine].self, forKey: .lyrics) ?? []
     }
 }
 

@@ -262,7 +262,17 @@ class LibraryViewModel @Inject constructor(
      */
     fun refreshIfIdle(libraryId: String) {
         val current = _state.value
-        if (current.isOffline || (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))) return
+        // `loadLibrary` starts a coroutine before persisted query preferences
+        // have necessarily emitted. During that short window the state still
+        // reports idle even though a request job already exists. TV enters a
+        // library with both the initial load and the foreground refresh effect
+        // active, so checking the job prevents the refresh from cancelling the
+        // first request and starting a duplicate one.
+        if (
+            current.isOffline ||
+            loadJob?.isActive == true ||
+            (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))
+        ) return
         loadLibrary(libraryId)
     }
 

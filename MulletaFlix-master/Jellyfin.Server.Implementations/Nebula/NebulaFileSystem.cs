@@ -21,16 +21,18 @@ public sealed class NebulaFileSystemProvider : IFileSystemClassFactory
 {
     private readonly NebulaMongoContext _mongoContext;
     private readonly NebulaTelegramPool _telegramPool;
+    private readonly NebulaPlaybackCache? _playbackCache;
     private readonly NebulaUploadEngine? _uploadEngine; // pode ser null em modo streamOnly
     private readonly ILogger<NebulaFileSystem> _logger;
 
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaFileSystemProvider"/>.
     /// </summary>
-    public NebulaFileSystemProvider(NebulaMongoContext mongoContext, NebulaTelegramPool telegramPool, NebulaUploadEngine? uploadEngine, ILogger<NebulaFileSystem> logger)
+    public NebulaFileSystemProvider(NebulaMongoContext mongoContext, NebulaTelegramPool telegramPool, NebulaUploadEngine? uploadEngine, NebulaPlaybackCache? playbackCache, ILogger<NebulaFileSystem> logger)
     {
         _mongoContext = mongoContext;
         _telegramPool = telegramPool;
+        _playbackCache = playbackCache;
         _uploadEngine = uploadEngine;
         _logger = logger;
     }
@@ -39,7 +41,7 @@ public sealed class NebulaFileSystemProvider : IFileSystemClassFactory
     public Task<IUnixFileSystem> Create(FubarDev.FtpServer.IAccountInformation accountInformation)
     {
         var username = accountInformation?.FtpUser?.Identity?.Name ?? "raphael";
-        IUnixFileSystem fs = new NebulaFileSystem(_mongoContext, _telegramPool, _uploadEngine, _logger, username);
+        IUnixFileSystem fs = new NebulaFileSystem(_mongoContext, _telegramPool, _uploadEngine, _playbackCache, _logger, username);
         return Task.FromResult(fs);
     }
 }
@@ -51,6 +53,7 @@ public sealed class NebulaFileSystem : IUnixFileSystem
 {
     private readonly NebulaMongoContext _mongoContext;
     private readonly NebulaTelegramPool _telegramPool;
+    private readonly NebulaPlaybackCache? _playbackCache;
     private readonly NebulaUploadEngine? _uploadEngine; // pode ser null em modo streamOnly
     private readonly ILogger<NebulaFileSystem> _logger;
     private readonly string _username;
@@ -63,12 +66,14 @@ public sealed class NebulaFileSystem : IUnixFileSystem
         NebulaMongoContext mongoContext,
         NebulaTelegramPool telegramPool,
         NebulaUploadEngine? uploadEngine,
+        NebulaPlaybackCache? playbackCache,
         ILogger<NebulaFileSystem> logger,
         string username = "raphael")
     {
         _mongoContext = mongoContext;
         _telegramPool = telegramPool;
         _uploadEngine = uploadEngine;
+        _playbackCache = playbackCache;
         _logger = logger;
         _username = string.IsNullOrWhiteSpace(username) ? "raphael" : username.Trim();
         _userHomePath = $"/{_username.Trim('/')}";
@@ -321,7 +326,7 @@ public sealed class NebulaFileSystem : IUnixFileSystem
         }
 
         var totalSize = doc.Contains("size") ? doc.GetValue("size").ToInt64() : (doc.Contains("file_size") ? doc.GetValue("file_size").ToInt64() : partsList.Sum(part => part.Size));
-        var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger);
+        var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger, _playbackCache, nebulaFile.NodeId);
         if (startPosition > 0)
         {
             stream.Seek(startPosition, SeekOrigin.Begin);

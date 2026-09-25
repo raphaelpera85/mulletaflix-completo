@@ -42,6 +42,7 @@ public static class StreamingHelpers
     /// <param name="transcodeManager">Instance of the <see cref="ITranscodeManager"/> interface.</param>
     /// <param name="transcodingJobType">The <see cref="TranscodingJobType"/>.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/>.</param>
+    /// <param name="transientMediaItemRegistry">Optional registry for path-resolved playback items.</param>
     /// <returns>A <see cref="Task"/> containing the current <see cref="StreamState"/>.</returns>
     public static async Task<StreamState> GetStreamingState(
         StreamingRequestDto streamingRequest,
@@ -54,7 +55,8 @@ public static class StreamingHelpers
         EncodingHelper encodingHelper,
         ITranscodeManager transcodeManager,
         TranscodingJobType transcodingJobType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TransientMediaItemRegistry? transientMediaItemRegistry = null)
     {
         var httpRequest = httpContext.Request;
         if (!string.IsNullOrWhiteSpace(streamingRequest.Params))
@@ -108,8 +110,11 @@ public static class StreamingHelpers
                                           ?? state.SupportedSubtitleCodecs.FirstOrDefault();
         }
 
-        var item = libraryManager.GetItemById<BaseItem>(streamingRequest.Id)
-            ?? throw new ResourceNotFoundException();
+        var item = libraryManager.GetItemById<BaseItem>(streamingRequest.Id);
+        if (item is null && transientMediaItemRegistry?.TryGet(streamingRequest.Id, out item) != true)
+        {
+            throw new ResourceNotFoundException();
+        }
 
         state.IsInputVideo = item.MediaType == MediaType.Video;
 
@@ -129,7 +134,7 @@ public static class StreamingHelpers
             {
                 dynamic mediaSourceManagerImpl = mediaSourceManager;
                 IReadOnlyList<MediaSourceInfo> mediaSources = await mediaSourceManagerImpl.GetPlaybackMediaSources(
-                    libraryManager.GetItemById<BaseItem>(streamingRequest.Id),
+                    item,
                     null,
                     false,
                     false,

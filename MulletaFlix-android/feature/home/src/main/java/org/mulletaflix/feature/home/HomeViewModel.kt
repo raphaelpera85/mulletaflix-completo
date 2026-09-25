@@ -107,7 +107,11 @@ class HomeViewModel @Inject constructor(
      */
     fun refreshIfIdle() {
         val current = _state.value
-        if (current.isLoading || current.isRefreshing) return
+        // A foreground refresh can arrive immediately after the initial
+        // coroutine is created, before that coroutine publishes isLoading.
+        // Treat the active Job as authoritative so TV never replaces the
+        // first Home request with a duplicate one.
+        if (loadJob?.isActive == true || current.isLoading || current.isRefreshing) return
         refresh()
     }
 

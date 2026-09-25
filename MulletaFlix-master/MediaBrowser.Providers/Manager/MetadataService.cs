@@ -962,7 +962,10 @@ namespace MediaBrowser.Providers.Manager
                 }
             }
 
-            // Merge results in original provider priority order.
+            // Merge results in original provider priority order. When an item was
+            // identified by a provider id, that provider is authoritative for the
+            // title and image set. Other providers may still enrich missing fields,
+            // but must not replace the identified title or its artwork.
             foreach (var (_, provider, result, error) in providerResults.OrderBy(r => r.index))
             {
                 if (error is not null)
@@ -980,14 +983,16 @@ namespace MediaBrowser.Providers.Manager
 
                 result.Provider = provider.Name;
 
-                var foundImageTypes = await SaveRemoteResultImages(item, result, options, provider.Name, cancellationToken).ConfigureAwait(false);
+                var isIdentifiedProvider = HasProviderId(id, provider.Name);
+
+                var foundImageTypes = await SaveRemoteResultImages(item, result, options, provider.Name, isIdentifiedProvider, cancellationToken).ConfigureAwait(false);
                 if (foundImageTypes.Count > 0)
                 {
                     imageService.UpdateReplaceImages(options, foundImageTypes);
                     refreshResult.UpdateType |= ItemUpdateType.ImageUpdate;
                 }
 
-                MergeData(result, temp, [], replaceData, false);
+                MergeData(result, temp, [], replaceData || isIdentifiedProvider, false);
                 MergeNewData(temp.Item, id);
 
                 refreshResult.UpdateType |= ItemUpdateType.MetadataDownload;
@@ -996,11 +1001,19 @@ namespace MediaBrowser.Providers.Manager
             return refreshResult;
         }
 
+        internal static bool HasProviderId(TIdType lookupInfo, string providerName)
+        {
+            return lookupInfo?.ProviderIds is not null
+                && lookupInfo.ProviderIds.TryGetValue(providerName, out var providerId)
+                && !string.IsNullOrWhiteSpace(providerId);
+        }
+
         private async Task<List<ImageType>> SaveRemoteResultImages(
             TItemType item,
             MetadataResult<TItemType> result,
             MetadataRefreshOptions options,
             string providerName,
+            bool isIdentifiedProvider,
             CancellationToken cancellationToken)
         {
             if (result.RemoteImages.Count == 0)
@@ -1013,7 +1026,8 @@ namespace MediaBrowser.Providers.Manager
             // may throttle the burst, leaving items with only a poster or no
             // image at all.
             var imagesToDownload = result.RemoteImages
-                .Where(img => !item.ImageInfos.Any(x => x.Type == img.Type) || options.IsReplacingImage(img.Type))
+                .Where(img => !item.ImageInfos.Any(x => x.Type == img.Type)
+                    || (isIdentifiedProvider && options.IsReplacingImage(img.Type)))
                 .ToList();
 
             if (imagesToDownload.Count == 0)

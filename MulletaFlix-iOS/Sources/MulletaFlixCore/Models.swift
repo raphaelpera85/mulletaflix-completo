@@ -1,5 +1,39 @@
 import Foundation
 
+public enum OfflineDownloadScope {
+    public static func ownerKey(serverURL: URL, userID: String) -> String {
+        "\(serverURL.absoluteString)|\(userID)"
+    }
+
+    public static func directoryName(ownerKey: String) -> String {
+        let encoded = Data(ownerKey.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        return "scope-\(encoded)"
+    }
+
+    public static func acceptsCallback(ownerKey: String, currentOwnerKey: String?) -> Bool {
+        guard let currentOwnerKey else { return false }
+        return ownerKey == currentOwnerKey
+    }
+}
+
+public enum OfflinePlaybackPositionScope {
+    public static func key(ownerKey: String, itemID: String) -> String {
+        let owner = Data(ownerKey.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        let item = Data(itemID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        return "offline-playback-position:\(owner):\(item)"
+    }
+}
+
 public enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
     case all, movies, series, episodes, music, people
 
@@ -25,6 +59,65 @@ public enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
         case .music: return "Audio"
         case .people: return "Person"
         }
+    }
+}
+
+/// Formats the server's UTC timestamps for the viewer's local time zone.
+///
+/// Jellyfin may emit ISO-8601 timestamps with or without fractional seconds.
+/// Invalid or missing values return nil so the UI never presents a plausible,
+/// but incorrect, recording time.
+public enum LiveTVDateFormatting {
+    public static func recordingStartLabel(
+        _ raw: String?,
+        timeZone: TimeZone = .current,
+        locale: Locale = .current
+    ) -> String? {
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let date = parseServerDate(raw) else { return nil }
+
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private static func parseServerDate(_ raw: String) -> Date? {
+        let options: ISO8601DateFormatter.Options = [.withInternetDateTime, .withFractionalSeconds]
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = options
+        if let date = fractional.date(from: raw) { return date }
+
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let date = plain.date(from: raw) { return date }
+
+        let withoutZone = DateFormatter()
+        withoutZone.calendar = Calendar(identifier: .gregorian)
+        withoutZone.locale = Locale(identifier: "en_US_POSIX")
+        withoutZone.timeZone = TimeZone(secondsFromGMT: 0)
+        withoutZone.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSS"
+        if let date = withoutZone.date(from: raw) { return date }
+        withoutZone.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return withoutZone.date(from: raw)
+    }
+}
+
+public struct LyricLine: Decodable, Hashable, Sendable {
+    public let text: String
+    public let start: Int64?
+
+    private enum CodingKeys: String, CodingKey {
+        case text = "Text"
+        case start = "Start"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        text = try values.decode(String.self, forKey: .text)
+        start = try values.decodeIfPresent(Int64.self, forKey: .start)
     }
 }
 
@@ -120,6 +213,24 @@ public enum OfflineDownloadPolicy {
     }
 }
 
+/// Decides whether a foreground transition should start a catalog refresh.
+///
+/// A transition can happen while the initial load is still running. Starting a
+/// second request in that window invalidates the first request's result and can
+/// leave the UI dependent on whichever response finishes last.
+public enum ForegroundRefreshPolicy {
+    public static func shouldRefresh(
+        isSignedIn: Bool,
+        isNetworkAvailable: Bool?,
+        isHomeLoading: Bool,
+        isLibrariesLoading: Bool,
+        isLiveTVLoading: Bool
+    ) -> Bool {
+        isSignedIn && isNetworkAvailable != false &&
+            !isHomeLoading && !isLibrariesLoading && !isLiveTVLoading
+    }
+}
+
 public struct UserSession: Codable, Sendable, Equatable {
     public let serverURL: URL
     public let accessToken: String
@@ -182,6 +293,45 @@ public struct ServerInfo: Decodable, Equatable, Sendable {
 
     public var displayName: String {
         serverName ?? productName ?? "Servidor MulletaFlix"
+    }
+}
+
+public struct BrandingOptions: Decodable, Equatable, Sendable {
+    public let loginDisclaimer: String?
+    public let customCSS: String?
+    public let splashscreenEnabled: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case loginDisclaimer = "LoginDisclaimer"
+        case customCSS = "CustomCss"
+        case splashscreenEnabled = "SplashscreenEnabled"
+    }
+
+    public init(loginDisclaimer: String? = nil, customCSS: String? = nil, splashscreenEnabled: Bool = true) {
+        self.loginDisclaimer = loginDisclaimer
+        self.customCSS = customCSS
+        self.splashscreenEnabled = splashscreenEnabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        loginDisclaimer = try values.decodeIfPresent(String.self, forKey: .loginDisclaimer)
+        customCSS = try values.decodeIfPresent(String.self, forKey: .customCSS)
+        splashscreenEnabled = try values.decodeIfPresent(Bool.self, forKey: .splashscreenEnabled) ?? true
+    }
+}
+
+public struct SavedServer: Codable, Identifiable, Hashable, Sendable {
+    public let url: String
+    public let name: String
+    public let version: String?
+
+    public var id: String { url }
+
+    public init(url: String, name: String, version: String? = nil) {
+        self.url = url
+        self.name = name
+        self.version = version
     }
 }
 
@@ -337,8 +487,13 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
     public let chapters: [Chapter]
     public let mediaSources: [MediaSource]
     public let playedPercentage: Double?
+    public let playbackPositionTicks: Int64
     public let isFavorite: Bool
     public let isPlayed: Bool
+
+    public var qualityBadge: String? {
+        mediaSources.compactMap(\.qualityBadge).first
+    }
 
     private enum CodingKeys: String, CodingKey {
         case id = "Id"
@@ -370,11 +525,13 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
 
     private struct UserData: Decodable {
         let playedPercentage: Double?
+        let playbackPositionTicks: Int64
         let isFavorite: Bool
         let played: Bool
 
         enum CodingKeys: String, CodingKey {
             case playedPercentage = "PlayedPercentage"
+            case playbackPositionTicks = "PlaybackPositionTicks"
             case isFavorite = "IsFavorite"
             case played = "Played"
         }
@@ -382,6 +539,7 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             playedPercentage = try values.decodeIfPresent(Double.self, forKey: .playedPercentage)
+            playbackPositionTicks = try values.decodeIfPresent(Int64.self, forKey: .playbackPositionTicks) ?? 0
             isFavorite = try values.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
             played = try values.decodeIfPresent(Bool.self, forKey: .played) ?? false
         }
@@ -413,6 +571,7 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
         chapters: [Chapter] = [],
         mediaSources: [MediaSource] = [],
         playedPercentage: Double? = nil,
+        playbackPositionTicks: Int64 = 0,
         isFavorite: Bool = false,
         isPlayed: Bool = false
     ) {
@@ -441,6 +600,7 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
         self.chapters = chapters
         self.mediaSources = mediaSources
         self.playedPercentage = playedPercentage
+        self.playbackPositionTicks = playbackPositionTicks
         self.isFavorite = isFavorite
         self.isPlayed = isPlayed
     }
@@ -455,7 +615,8 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
                   channelId: channelId, channelName: channelName, startDate: startDate, endDate: endDate,
                   chapters: chapters,
                   mediaSources: mediaSources,
-                  playedPercentage: playedPercentage, isFavorite: value, isPlayed: isPlayed)
+                  playedPercentage: playedPercentage, playbackPositionTicks: playbackPositionTicks,
+                  isFavorite: value, isPlayed: isPlayed)
     }
 
     public func withPlayed(_ value: Bool) -> MediaItem {
@@ -468,7 +629,8 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
                   channelId: channelId, channelName: channelName, startDate: startDate, endDate: endDate,
                   chapters: chapters,
                   mediaSources: mediaSources,
-                  playedPercentage: playedPercentage, isFavorite: isFavorite, isPlayed: value)
+                  playedPercentage: playedPercentage, playbackPositionTicks: playbackPositionTicks,
+                  isFavorite: isFavorite, isPlayed: value)
     }
 
     public init(from decoder: Decoder) throws {
@@ -499,6 +661,7 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
         mediaSources = try values.decodeIfPresent([MediaSource].self, forKey: .mediaSources) ?? []
         let userData = try values.decodeIfPresent(UserData.self, forKey: .userData)
         playedPercentage = userData?.playedPercentage
+        playbackPositionTicks = userData?.playbackPositionTicks ?? 0
         isFavorite = userData?.isFavorite ?? false
         isPlayed = userData?.played ?? false
     }
@@ -529,6 +692,160 @@ public struct MediaStream: Decodable, Hashable, Sendable {
     }
 }
 
+public enum PlaybackQualityPolicy {
+    public static func maxStreamingBitrate(for quality: String) -> Int64? {
+        switch quality {
+        case "4K": return 20_000_000
+        case "1440p": return 12_000_000
+        case "1080p": return 8_000_000
+        case "720p": return 4_000_000
+        case "480p": return 2_000_000
+        default:
+            guard quality.hasSuffix("p"),
+                  let height = Int(quality.dropLast()), height > 0 else { return nil }
+            return max(1_000_000, Int64(height) * Int64(height) * 4)
+        }
+    }
+}
+
+public enum PlaybackResumePolicy {
+    public static func initialPositionTicks(server: Int64, local: Int64, isLocal: Bool) -> Int64 {
+        let serverPosition = max(0, server)
+        let localPosition = max(0, local)
+        guard isLocal else { return serverPosition }
+        return localPosition > 0 ? localPosition : serverPosition
+    }
+}
+
+/// Converts low-level playback failures into safe, actionable viewer messages.
+///
+/// Playback URLs contain session credentials. The raw AVPlayer error must never
+/// be rendered directly because some URL-loading errors include the full URL.
+public enum PlaybackErrorPolicy {
+    public static func userFacingMessage(from error: Error?) -> String {
+        let nsError = error as NSError?
+        switch nsError?.code {
+        case NSURLError.timedOut,
+             NSURLError.networkConnectionLost,
+             NSURLError.cannotConnectToHost,
+             NSURLError.notConnectedToInternet:
+            return "A conexão com o servidor foi interrompida. Verifique a rede e tente novamente."
+        default:
+            return sanitizedMessage(nsError?.localizedDescription)
+        }
+    }
+
+    public static func sanitizedMessage(_ raw: String?) -> String {
+        let fallback = "Não foi possível reproduzir esta mídia."
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return fallback
+        }
+        let pattern = "(?i)(api_key|access_token|token|authorization)=([^&\\s]+)"
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return raw }
+        let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
+        return expression.stringByReplacingMatches(
+            in: raw,
+            range: range,
+            withTemplate: "$1=[redacted]"
+        )
+    }
+}
+
+/// Bounds automatic recovery of remote playback after transient network loss.
+public enum PlaybackRecoveryPolicy {
+    private static let retryDelaysMilliseconds: [Int] = [750, 1_500, 3_000]
+
+    public static func shouldAutomaticallyRetry(
+        error: Error?,
+        attempt: Int,
+        isLocal: Bool,
+        networkAvailable: Bool?
+    ) -> Bool {
+        !isLocal && networkAvailable != false && attempt < retryDelaysMilliseconds.count && isTransientNetworkError(error)
+    }
+
+    public static func shouldRetryAfterNetworkRestored(
+        wasOffline: Bool,
+        isOnline: Bool,
+        isLocal: Bool,
+        hasPlaybackError: Bool,
+        wasTransientNetworkFailure: Bool
+    ) -> Bool {
+        wasOffline && isOnline && !isLocal && hasPlaybackError && wasTransientNetworkFailure
+    }
+
+    public static func retryDelayMilliseconds(for attempt: Int) -> Int {
+        retryDelaysMilliseconds[min(max(0, attempt), retryDelaysMilliseconds.count - 1)]
+    }
+
+    public static func isTransientNetworkError(_ error: Error?) -> Bool {
+        guard let error else { return false }
+        let nsError = error as NSError
+        if isTransientNetworkCode(nsError.code) { return true }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+            return isTransientNetworkError(underlying)
+        }
+        return false
+    }
+
+    private static func isTransientNetworkCode(_ code: Int) -> Bool {
+        code == NSURLError.timedOut ||
+            code == NSURLError.networkConnectionLost ||
+            code == NSURLError.cannotConnectToHost ||
+            code == NSURLError.notConnectedToInternet ||
+            code == NSURLError.cannotFindHost
+    }
+}
+
+/// Keeps authentication failures actionable without exposing transport jargon.
+public enum AuthErrorPolicy {
+    public static func authenticationMessage(for error: Error) -> String {
+        if let apiError = error as? APIError {
+            if case .serverMessage(let message) = apiError,
+               !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return message
+            }
+            if case .httpStatus(let code) = apiError {
+                switch code {
+                case 400, 401: return "Usuário ou senha inválidos. Confira os dados e tente novamente."
+                case 403: return "Este usuário não tem permissão para acessar o servidor."
+                case 404: return "Usuário ou servidor não encontrado."
+                case 408, 504: return "O servidor demorou para responder. Tente novamente."
+                default: break
+                }
+            }
+        }
+        return serverConnectionMessage(for: error)
+    }
+
+    public static func serverConnectionMessage(for error: Error) -> String {
+        if let apiError = error as? APIError {
+            switch apiError {
+            case .serverMessage(let message):
+                let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmedMessage.isEmpty ? "Não foi possível conectar ao servidor. Verifique a conexão e tente novamente." : message
+            case .httpStatus(401): return "O servidor recusou a conexão anônima. Verifique o endereço."
+            case .httpStatus(404): return "A API do MulletaFlix não foi encontrada nesse endereço."
+            case .httpStatus(let code): return "O servidor respondeu com um erro (\(code)). Tente novamente."
+            case .invalidServerURL: return apiError.localizedDescription
+            default: break
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cannotFindHost, .dnsLookupFailed:
+                return "Servidor não encontrado. Verifique o endereço e a conexão com a internet."
+            case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet:
+                return "Não foi possível conectar ao servidor. Verifique se ele está online."
+            case .timedOut:
+                return "O servidor demorou para responder. Tente novamente."
+            default: break
+            }
+        }
+        return "Não foi possível conectar ao servidor. Verifique a conexão e tente novamente."
+    }
+}
+
 public struct MediaSource: Decodable, Hashable, Sendable {
     public let id: String?
     public let liveStreamId: String?
@@ -537,7 +854,19 @@ public struct MediaSource: Decodable, Hashable, Sendable {
     public let supportsDirectPlay: Bool
     public let supportsDirectStream: Bool
     public let supportsTranscoding: Bool
+    public let defaultAudioStreamIndex: Int?
+    public let defaultSubtitleStreamIndex: Int?
     public let mediaStreams: [MediaStream]
+
+    public var qualityBadge: String? {
+        let maximumHeight = mediaStreams
+            .filter { $0.type?.caseInsensitiveCompare("Video") == .orderedSame }
+            .compactMap(\.height)
+            .max() ?? 0
+        if maximumHeight >= 2160 { return "4K" }
+        if maximumHeight >= 720 { return "HD" }
+        return nil
+    }
 
     public var qualityLabels: [String] {
         var labels: [String] = []
@@ -560,6 +889,8 @@ public struct MediaSource: Decodable, Hashable, Sendable {
         case supportsDirectPlay = "SupportsDirectPlay"
         case supportsDirectStream = "SupportsDirectStream"
         case supportsTranscoding = "SupportsTranscoding"
+        case defaultAudioStreamIndex = "DefaultAudioStreamIndex"
+        case defaultSubtitleStreamIndex = "DefaultSubtitleStreamIndex"
         case mediaStreams = "MediaStreams"
     }
 
@@ -572,6 +903,8 @@ public struct MediaSource: Decodable, Hashable, Sendable {
         supportsDirectPlay = try values.decodeIfPresent(Bool.self, forKey: .supportsDirectPlay) ?? true
         supportsDirectStream = try values.decodeIfPresent(Bool.self, forKey: .supportsDirectStream) ?? true
         supportsTranscoding = try values.decodeIfPresent(Bool.self, forKey: .supportsTranscoding) ?? true
+        defaultAudioStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultAudioStreamIndex)
+        defaultSubtitleStreamIndex = try values.decodeIfPresent(Int.self, forKey: .defaultSubtitleStreamIndex)
         mediaStreams = try values.decodeIfPresent([MediaStream].self, forKey: .mediaStreams) ?? []
     }
 }
@@ -608,6 +941,7 @@ public struct PlaybackInfo: Decodable, Sendable {
 public struct ItemQueryResult: Decodable, Sendable {
     public let items: [MediaItem]
     public let totalRecordCount: Int
+    public let hasExplicitTotalRecordCount: Bool
 
     private enum CodingKeys: String, CodingKey {
         case items = "Items"
@@ -617,7 +951,19 @@ public struct ItemQueryResult: Decodable, Sendable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         items = try values.decodeIfPresent([MediaItem].self, forKey: .items) ?? []
-        totalRecordCount = try values.decodeIfPresent(Int.self, forKey: .totalRecordCount) ?? items.count
+        let explicitTotal = try values.decodeIfPresent(Int.self, forKey: .totalRecordCount)
+        hasExplicitTotalRecordCount = explicitTotal != nil
+        totalRecordCount = explicitTotal ?? items.count
+    }
+}
+
+public struct SearchItemsResult: Sendable {
+    public let items: [MediaItem]
+    public let totalRecordCount: Int?
+
+    public init(items: [MediaItem], totalRecordCount: Int?) {
+        self.items = items
+        self.totalRecordCount = totalRecordCount
     }
 }
 

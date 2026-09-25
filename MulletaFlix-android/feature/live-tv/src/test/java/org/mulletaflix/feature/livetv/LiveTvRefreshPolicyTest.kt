@@ -16,4 +16,11 @@ class LiveTvRefreshPolicyTest {
         assertEquals(0L, liveTvAutoRefreshIntervalMillis(isTelevision = false))
         assertEquals(false, refreshLiveTvImmediatelyOnResume(isTelevision = false))
     }
+
+    @Test
+    fun `epg refreshes only while its dialog is open`() {
+        assertTrue(shouldRefreshLiveTvGuide(isGuideOpen = true))
+        assertEquals(false, shouldRefreshLiveTvGuide(isGuideOpen = false))
+        assertEquals(60_000L, LIVE_TV_GUIDE_REFRESH_INTERVAL_MILLIS)
+    }
 }

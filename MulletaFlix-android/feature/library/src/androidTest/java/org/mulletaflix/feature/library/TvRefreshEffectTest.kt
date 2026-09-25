@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Regression coverage for library refresh after returning to the TV foreground. */
 class TvRefreshEffectTest {
@@ -42,6 +43,33 @@ class TvRefreshEffectTest {
         composeRule.waitUntil { refreshCount.get() == 2 }
 
         assertEquals(2, refreshCount.get())
+    }
+
+    @Test
+    fun keeps_refreshing_after_one_refresh_failure() {
+        val owner = TestLifecycleOwner()
+        val refreshCount = AtomicInteger(0)
+        val failOnce = AtomicBoolean(true)
+        composeRule.runOnUiThread {
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        }
+
+        composeRule.setContent {
+            TvRefreshEffect(
+                lifecycleOwner = owner,
+                refreshIntervalMillis = 50,
+                refreshImmediately = true,
+                onRefresh = {
+                    refreshCount.incrementAndGet()
+                    if (failOnce.compareAndSet(true, false)) error("transient refresh failure")
+                },
+            )
+        }
+
+        resume(owner)
+        composeRule.waitUntil(timeoutMillis = 2_000) { refreshCount.get() >= 2 }
+
+        assertEquals(false, failOnce.get())
     }
 
     private fun resume(owner: TestLifecycleOwner) {

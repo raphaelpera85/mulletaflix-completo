@@ -63,7 +63,7 @@ class ServerSelectionPolicyTest {
 
     @Test
     fun `public endpoint is automatically verified after empty discovery`() {
-        val state = AuthState(serverUrl = DEFAULT_MULLETAFLIX_SERVER_URL)
+        val state = AuthState(serverUrl = DEFAULT_MULLETAFLIX_SERVER_URL, savedServersLoaded = true)
 
         assertEquals(
             DEFAULT_MULLETAFLIX_SERVER_URL,
@@ -73,7 +73,7 @@ class ServerSelectionPolicyTest {
 
     @Test
     fun `automatic verification waits while discovery is running or editing`() {
-        val state = AuthState(isDiscovering = true)
+        val state = AuthState(isDiscovering = true, savedServersLoaded = true)
 
         assertEquals(null, automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false))
         assertEquals(null, automaticServerCandidate(state.copy(isDiscovering = false), manuallyEdited = true, connectionStarted = false))
@@ -91,6 +91,7 @@ class ServerSelectionPolicyTest {
         val state = AuthState(
             discoveredServers = listOf(unrelated, matching),
             savedServers = listOf(saved),
+            savedServersLoaded = true,
         )
 
         assertEquals(
@@ -105,7 +106,7 @@ class ServerSelectionPolicyTest {
         // endereço compatível continua sendo a resposta honesta.
         val first = ServerInfo("First LAN", "http://192.168.1.20:8096")
         val second = ServerInfo("Second LAN", "http://192.168.1.10:8096")
-        val state = AuthState(discoveredServers = listOf(first, second))
+        val state = AuthState(discoveredServers = listOf(first, second), savedServersLoaded = true)
 
         assertEquals(
             first.url,
@@ -152,6 +153,20 @@ class ServerSelectionPolicyTest {
                 discovered = listOf(lan),
                 failedEndpoint = DEFAULT_MULLETAFLIX_SERVER_URL,
             ),
+        )
+    }
+
+    @Test
+    fun `automatic verification waits for persisted servers before selecting a LAN endpoint`() {
+        val unrelated = ServerInfo("Other LAN", "http://192.168.1.20:8096", serverId = "other-id")
+        val state = AuthState(
+            discoveredServers = listOf(unrelated),
+            savedServersLoaded = false,
+        )
+
+        assertEquals(
+            null,
+            automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false),
         )
     }
 }

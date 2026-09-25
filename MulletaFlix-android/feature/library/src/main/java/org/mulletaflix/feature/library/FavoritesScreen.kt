@@ -35,14 +35,11 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import android.content.res.Configuration
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
@@ -72,18 +69,12 @@ fun FavoritesScreen(
     )
     val gridState = rememberLibraryGridScrollState()
 
-    LaunchedEffect(lifecycleOwner, isTelevision) {
-        val refreshInterval = favoritesAutoRefreshIntervalMillis(isTelevision)
-        if (refreshInterval > 0L) {
-            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                viewModel.refreshIfIdle()
-                while (isActive) {
-                    delay(refreshInterval)
-                    viewModel.refreshIfIdle()
-                }
-            }
-        }
-    }
+    TvRefreshEffect(
+        lifecycleOwner = lifecycleOwner,
+        refreshIntervalMillis = favoritesAutoRefreshIntervalMillis(isTelevision),
+        refreshImmediately = isTelevision,
+        onRefresh = viewModel::refreshIfIdle,
+    )
 
     Scaffold(
         topBar = {
@@ -127,6 +118,16 @@ fun FavoritesScreen(
                     message = state.error!!,
                     onRetry = viewModel::refresh,
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                )
+            }
+            if (state.isOffline) {
+                LibraryOfflineBanner(
+                    message = "Sem conexão. Minha Lista será atualizada quando a rede voltar.",
+                    onRetry = viewModel::refresh,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(12.dp)
+                        .zIndex(1f),
                 )
             }
         }

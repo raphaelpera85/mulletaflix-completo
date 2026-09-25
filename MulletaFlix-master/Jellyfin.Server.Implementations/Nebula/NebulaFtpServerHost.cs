@@ -33,6 +33,7 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
             NebulaMongoContext mongoContext,
             NebulaTelegramPool telegramPool,
             NebulaUploadEngine? uploadEngine,
+            NebulaPlaybackCache? playbackCache,
             ILogger<NebulaFtpServerHost> logger,
             ILogger<NebulaFileSystem> fsLogger,
             ILogger<NebulaFtpMembershipProvider> authLogger,
@@ -47,6 +48,10 @@ public sealed class NebulaFtpServerHost : IAsyncDisposable, IDisposable
             services.AddLogging();
             services.AddSingleton(mongoContext);
             services.AddSingleton(telegramPool);
+            if (playbackCache != null)
+            {
+                services.AddSingleton(playbackCache);
+            }
             if (uploadEngine != null)
             {
                 services.AddSingleton(uploadEngine);

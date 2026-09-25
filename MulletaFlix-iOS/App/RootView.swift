@@ -59,11 +59,55 @@ struct LoginView: View {
                         }
                         .font(.footnote)
                     }
+                    if let health = model.serverHealth {
+                        Label("Saúde: \(health)", systemImage: "heart.text.square.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let disclaimer = model.branding?.loginDisclaimer?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !disclaimer.isEmpty {
+                        Text(disclaimer)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                     if !model.discoveredServers.isEmpty {
                         Picker("Servidor encontrado", selection: $model.serverURL) {
                             Text("Selecionar manualmente").tag("")
                             ForEach(model.discoveredServers, id: \.address) { server in
                                 Text(server.name).tag(server.address.absoluteString)
+                            }
+                        }
+                    }
+                }
+                if !model.savedServers.isEmpty {
+                    Section("Servidores salvos") {
+                        ForEach(model.savedServers) { server in
+                            Button {
+                                Task { await model.selectSavedServer(server) }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "server.rack")
+                                    VStack(alignment: .leading) {
+                                        Text(server.name)
+                                        Text(server.url)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if let version = server.version {
+                                        Text("v\(version)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    model.removeSavedServer(server)
+                                } label: {
+                                    Label("Remover", systemImage: "trash")
+                                }
                             }
                         }
                     }

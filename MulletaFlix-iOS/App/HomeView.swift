@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import AVKit
 import AVFAudio
+import Speech
 
 enum IOSVideoAspectRatio: String, CaseIterable, Identifiable {
     case fit
@@ -66,7 +67,14 @@ struct HomeView: View {
             deepLinkItem = await model.loadPendingDeepLinkItem()
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, model.state == .signedIn else { return }
+            guard phase == .active,
+                  ForegroundRefreshPolicy.shouldRefresh(
+                      isSignedIn: model.state == .signedIn,
+                      isNetworkAvailable: model.isNetworkAvailable,
+                      isHomeLoading: model.isHomeLoading,
+                      isLibrariesLoading: model.isLibrariesLoading,
+                      isLiveTVLoading: model.isLiveTVLoading
+                  ) else { return }
             Task {
                 await model.loadHome()
                 await model.loadLibraries()
@@ -103,9 +111,26 @@ private struct ProfileView: View {
     let model: AppModel
     @State private var showingSwitchUser = false
     @State private var profileImageURL: URL?
+    @State private var didCopyServerURL = false
 
     var body: some View {
         Form {
+            if model.isProfileLoading && model.profile == nil {
+                ProgressView("Carregando perfil…")
+            }
+            if let error = model.profileError {
+                Section("Atualização do perfil") {
+                    Label("Não foi possível atualizar as permissões.", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Tentar novamente") {
+                        Task { await model.loadProfile() }
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
             Section("Conta") {
                 HStack(spacing: 14) {
                     ZStack {
@@ -160,7 +185,28 @@ private struct ProfileView: View {
                         }
                     }
                 }
-                Text(model.serverURL).font(.footnote).foregroundStyle(.secondary)
+                HStack {
+                    Text(model.serverURL)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        UIPasteboard.general.string = model.serverURL
+                        didCopyServerURL = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(2))
+                            didCopyServerURL = false
+                        }
+                    } label: {
+                        Label(
+                            didCopyServerURL ? "Copiada" : "Copiar URL",
+                            systemImage: didCopyServerURL ? "checkmark" : "doc.on.doc"
+                        )
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(didCopyServerURL ? "URL do servidor copiada" : "Copiar URL do servidor")
+                }
                 NavigationLink {
                     SyncPlayView(model: model)
                 } label: {
@@ -190,6 +236,7 @@ private struct ProfileView: View {
         }
         .navigationTitle("Perfil")
         .task(id: model.session?.userID) {
+            profileImageURL = nil
             await model.loadProfile()
             profileImageURL = await model.profileImageURL()
         }
@@ -208,23 +255,52 @@ private struct FavoritesView: View {
 
     var body: some View {
         Group {
-            if model.favoriteItems.isEmpty {
-                ContentUnavailableView(
-                    "Nenhum favorito",
-                    systemImage: "heart.slash",
-                    description: Text("Adicione filmes, séries ou músicas à sua lista para vê-los aqui.")
-                )
+            if model.isFavoritesLoading && model.favoriteItems.isEmpty {
+                ProgressView("Carregando Minha Lista…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = model.favoritesError, model.favoriteItems.isEmpty {
+                ContentUnavailableView {
+                    Label("Minha Lista indisponível", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Tentar novamente") {
+                        Task { await model.loadFavorites() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 18) {
-                        ForEach(model.favoriteItems) { item in
-                            NavigationLink(value: item) {
-                                MediaCard(item: item, model: model)
+                VStack(spacing: 8) {
+                    if let error = model.favoritesError {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                        Button("Tentar novamente") {
+                            Task { await model.loadFavorites() }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    if model.favoriteItems.isEmpty {
+                        ContentUnavailableView(
+                            "Nenhum favorito",
+                            systemImage: "heart.slash",
+                            description: Text("Adicione filmes, séries ou músicas à sua lista para vê-los aqui.")
+                        )
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: columns, spacing: 18) {
+                                ForEach(model.favoriteItems) { item in
+                                    NavigationLink(value: item) {
+                                        MediaCard(item: item, model: model)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
-                            .buttonStyle(.plain)
+                            .padding()
                         }
                     }
-                    .padding()
                 }
             }
         }
@@ -232,7 +308,8 @@ private struct FavoritesView: View {
         .navigationDestination(for: MediaItem.self) { item in
             ItemDetailView(item: item, model: model)
         }
-        .refreshable { await model.loadHome() }
+        .task(id: model.session?.userID) { await model.loadFavorites() }
+        .refreshable { await model.loadFavorites() }
     }
 }
 
@@ -292,6 +369,12 @@ private struct SettingsView: View {
 
     private let playbackRates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
     @State private var showingCacheCleared = false
+    @State private var showingLicenses = false
+
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "desconhecida"
+        return "MulletaFlix iOS \(version)"
+    }
 
     var body: some View {
         Form {
@@ -367,12 +450,29 @@ private struct SettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+            Section("Sobre") {
+                Label(appVersion, systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
+                Link(destination: URL(string: "https://github.com/raphaelpera85/MulletaFlix")!) {
+                    Label("GitHub", systemImage: "safari")
+                }
+                Button {
+                    showingLicenses = true
+                } label: {
+                    Label("Licenças", systemImage: "scroll")
+                }
+            }
         }
         .navigationTitle("Preferências")
         .alert("Cache limpo", isPresented: $showingCacheCleared) {
             Button("OK", role: .cancel) { }
         } message: {
             Text("As imagens serão carregadas novamente quando necessário.")
+        }
+        .alert("Licenças", isPresented: $showingLicenses) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("MulletaFlix iOS é distribuído sob GPL-2.0 e utiliza componentes das plataformas Apple e Swift.")
         }
         .onChange(of: model.librarySort) { _, _ in
             Task { await model.reloadSelectedLibrary() }
@@ -406,6 +506,22 @@ private struct SyncPlayView: View {
                     .disabled(groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            if let error = model.syncPlayError {
+                Section {
+                    HStack(alignment: .top, spacing: 10) {
+                        Label("Não foi possível atualizar as salas", systemImage: "wifi.exclamationmark")
+                            .foregroundStyle(.red)
+                        Spacer()
+                        Button("Tentar novamente") {
+                            Task { await model.loadSyncPlay() }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             if model.isSyncPlayLoading && model.syncPlayGroups.isEmpty {
                 ProgressView().frame(maxWidth: .infinity)
             } else if model.syncPlayGroups.isEmpty {
@@ -434,10 +550,38 @@ private struct SyncPlayView: View {
                 }
             }
             if model.activeSyncPlayGroupID != nil {
-                Section {
+                Section("Controles da sala") {
+                    Label(
+                        model.syncPlayRealtimeStatus == "Conectado"
+                            ? "Sincronização em tempo real conectada"
+                            : "Conectando à sincronização em tempo real…",
+                        systemImage: model.syncPlayRealtimeStatus == "Conectado" ? "checkmark.circle.fill" : "circle.dotted"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(model.syncPlayRealtimeStatus == "Conectado" ? .green : .secondary)
+                    if let command = model.lastSyncPlayCommand?.name {
+                        Text("Último comando: \(command)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Button("Pausar", systemImage: "pause.fill") {
+                            Task { await model.sendSyncPlayCommand(.pause) }
+                        }
+                        .disabled(model.isSyncPlaySubmitting)
+                        Button("Retomar", systemImage: "play.fill") {
+                            Task { await model.sendSyncPlayCommand(.unpause) }
+                        }
+                        .disabled(model.isSyncPlaySubmitting)
+                    }
+                    Button("Parar reprodução do grupo", systemImage: "stop.fill") {
+                        Task { await model.sendSyncPlayCommand(.stop) }
+                    }
+                    .disabled(model.isSyncPlaySubmitting)
                     Button("Sair da sala atual", role: .destructive) {
                         Task { await model.leaveSyncPlayGroup() }
                     }
+                    .disabled(model.isSyncPlaySubmitting)
                 }
             }
         }
@@ -476,6 +620,19 @@ struct LiveTVView: View {
             if model.isLiveTVLoading {
                 ProgressView().frame(maxWidth: .infinity).padding(.top, 48)
             } else {
+                if let error = model.liveTVError {
+                    ContentUnavailableView {
+                        Label("TV ao vivo indisponível", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Tentar novamente") {
+                            Task { await model.loadLiveTV() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.horizontal)
+                }
                 Picker("TV ao vivo", selection: $section) {
                     Text("Canais").tag(0)
                     Text("Guia").tag(1)
@@ -538,7 +695,8 @@ private struct LiveProgramRow: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(program.name).font(.headline)
             if let channel = program.channelName { Text(channel).font(.subheadline).foregroundStyle(.secondary) }
-            if let start = program.startDate, let end = program.endDate {
+            if let start = LiveTVDateFormatting.recordingStartLabel(program.startDate),
+               let end = LiveTVDateFormatting.recordingStartLabel(program.endDate) {
                 Text("\(start) – \(end)").font(.caption).foregroundStyle(.secondary)
             }
             HStack {
@@ -548,6 +706,9 @@ private struct LiveProgramRow: View {
                 Spacer()
                 if model.scheduledLiveProgramIDs.contains(program.id) {
                     Label("Agendado", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                } else if model.schedulingLiveProgramIDs.contains(program.id) {
+                    ProgressView()
+                        .accessibilityLabel("Agendando gravação")
                 } else {
                     Button {
                         Task { await model.scheduleLiveProgram(program) }
@@ -567,6 +728,7 @@ struct SearchView: View {
     let model: AppModel
     @State private var query = ""
     @State private var filter: SearchFilter = .all
+    @StateObject private var voiceSearch = IOSVoiceSearchController()
 
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: model.compactGrid ? 104 : 135), spacing: 12)]
@@ -574,7 +736,17 @@ struct SearchView: View {
 
     var body: some View {
         ScrollView {
-            if model.isSearching {
+            if let searchError = model.searchError, !model.isSearching {
+                VStack(spacing: 12) {
+                    ContentUnavailableView("Busca indisponível", systemImage: "wifi.exclamationmark", description: Text(searchError))
+                    Button("Tentar novamente") {
+                        Task { await model.search(query, filter: filter) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+            } else if model.isSearching {
                 ProgressView().frame(maxWidth: .infinity).padding(.top, 36)
             } else if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.searchHistory.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
@@ -640,10 +812,39 @@ struct SearchView: View {
                     }
                 }
                 .padding()
+                if let total = model.searchTotalMatching, total > model.searchItems.count {
+                    Text("Mostrando \(model.searchItems.count) de \(total) resultados.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal)
+                }
             }
         }
         .navigationTitle("Buscar")
         .searchable(text: $query, prompt: "Filmes, séries, músicas e pessoas")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { voiceSearch.toggle() } label: {
+                    Image(systemName: voiceSearch.isListening ? "waveform.circle.fill" : "mic")
+                }
+                .accessibilityLabel(voiceSearch.isListening ? "Parar busca por voz" : "Buscar por voz")
+                .symbolEffect(.pulse, isActive: voiceSearch.isListening)
+            }
+        }
+        .onChange(of: voiceSearch.transcript) { _, value in
+            guard !value.isEmpty else { return }
+            query = value
+        }
+        .alert("Busca por voz", isPresented: Binding(
+            get: { voiceSearch.errorMessage != nil },
+            set: { if !$0 { voiceSearch.errorMessage = nil } }
+        )) {
+            Button("OK") { voiceSearch.errorMessage = nil }
+        } message: {
+            Text(voiceSearch.errorMessage ?? "Não foi possível iniciar a busca por voz.")
+        }
+        .onDisappear { voiceSearch.stopListening() }
         .safeAreaInset(edge: .top) {
             Picker("Tipo", selection: $filter) {
                 ForEach(SearchFilter.allCases) { value in
@@ -663,30 +864,144 @@ struct SearchView: View {
     }
 }
 
+@MainActor
+private final class IOSVoiceSearchController: NSObject, ObservableObject {
+    @Published var transcript = ""
+    @Published var isListening = false
+    @Published var errorMessage: String?
+
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "pt-BR"))
+    private let audioEngine = AVAudioEngine()
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+
+    func toggle() {
+        if isListening { stop() } else { requestPermissionsAndStart() }
+    }
+
+    func stopListening() { stop() }
+
+    private func requestPermissionsAndStart() {
+        errorMessage = nil
+        SFSpeechRecognizer.requestAuthorization { status in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard status == .authorized else {
+                    self.errorMessage = "Permita o reconhecimento de fala nos Ajustes para usar a busca por voz."
+                    return
+                }
+                AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        guard granted else {
+                            self.errorMessage = "Permita o microfone nos Ajustes para usar a busca por voz."
+                            return
+                        }
+                        self.start()
+                    }
+                }
+            }
+        }
+    }
+
+    private func start() {
+        guard let recognizer, recognizer.isAvailable else {
+            errorMessage = "O reconhecimento de fala não está disponível agora."
+            return
+        }
+        stop()
+        transcript = ""
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        recognitionRequest = request
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            let recognizedText = result?.bestTranscription.formattedString ?? ""
+            let isFinal = result?.isFinal == true
+            let didFail = error != nil
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if !recognizedText.isEmpty { self.transcript = recognizedText }
+                if isFinal || didFail { self.stop() }
+            }
+        }
+
+        let inputNode = audioEngine.inputNode
+        inputNode.installTap(onBus: 0, bufferSize: 1_024, format: inputNode.outputFormat(forBus: 0)) { [weak request] buffer, _ in
+            request?.append(buffer)
+        }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            audioEngine.prepare()
+            try audioEngine.start()
+            isListening = true
+        } catch {
+            errorMessage = "Não foi possível acessar o microfone."
+            stop()
+        }
+    }
+
+    private func stop() {
+        guard isListening || recognitionTask != nil else { return }
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionRequest = nil
+        recognitionTask = nil
+        isListening = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+}
+
 struct HomeDashboard: View {
     let model: AppModel
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
+                if model.isHomeLoading && model.heroItem == nil && homeItemsAreEmpty {
+                    ProgressView("Carregando conteúdo…")
+                        .frame(maxWidth: .infinity, minHeight: 260)
+                }
+                if let error = model.homeError {
+                    ContentUnavailableView {
+                        Label("Não foi possível carregar o conteúdo", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Tentar novamente") {
+                            Task { await model.loadHome() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.horizontal)
+                }
                 if let heroItem = model.heroItem {
                     HeroBanner(item: heroItem, model: model)
                 }
-                MediaRail(title: "Minha Lista", items: model.favoriteItems, model: model)
-                MediaRail(title: "Continuar assistindo", items: model.resumeItems, model: model)
-                MediaRail(title: "Próximo episódio", items: model.nextUpItems, model: model)
-                MediaRail(title: "Adicionados recentemente", items: model.latestItems, model: model)
-                MediaRail(title: "Mais populares", items: model.popularItems, model: model)
-                MediaRail(title: "Filmes", items: model.movieItems, model: model)
-                MediaRail(title: "Séries", items: model.seriesItems, model: model)
-                MediaRail(title: "TV ao vivo", items: model.liveChannels, model: model)
-                if model.favoriteItems.isEmpty && model.resumeItems.isEmpty && model.nextUpItems.isEmpty && model.latestItems.isEmpty && model.popularItems.isEmpty && model.movieItems.isEmpty && model.seriesItems.isEmpty && model.liveChannels.isEmpty {
+                if !model.favoriteItems.isEmpty { MediaRail(title: "Minha Lista", items: model.favoriteItems, model: model) }
+                if !model.resumeItems.isEmpty { MediaRail(title: "Continuar assistindo", items: model.resumeItems, model: model) }
+                if !model.nextUpItems.isEmpty { MediaRail(title: "Próximo episódio", items: model.nextUpItems, model: model) }
+                if !model.latestItems.isEmpty { MediaRail(title: "Adicionados recentemente", items: model.latestItems, model: model) }
+                if !model.popularItems.isEmpty { MediaRail(title: "Mais populares", items: model.popularItems, model: model) }
+                if !model.movieItems.isEmpty { MediaRail(title: "Filmes", items: model.movieItems, model: model) }
+                if !model.seriesItems.isEmpty { MediaRail(title: "Séries", items: model.seriesItems, model: model) }
+                if !model.liveChannels.isEmpty { MediaRail(title: "TV ao vivo", items: model.liveChannels, model: model) }
+                if !model.isHomeLoading && model.homeError == nil && model.heroItem == nil && homeItemsAreEmpty {
                     ContentUnavailableView("Início", systemImage: "film", description: Text("Nenhum título disponível agora."))
                 }
             }
             .padding(.vertical)
         }
         .navigationTitle("Início")
+    }
+
+    private var homeItemsAreEmpty: Bool {
+        model.favoriteItems.isEmpty && model.resumeItems.isEmpty && model.nextUpItems.isEmpty &&
+        model.latestItems.isEmpty && model.popularItems.isEmpty && model.movieItems.isEmpty &&
+        model.seriesItems.isEmpty && model.liveChannels.isEmpty
     }
 }
 
@@ -830,19 +1145,77 @@ struct LibraryView: View {
     var body: some View {
         Group {
             if let selected = model.selectedLibrary {
-                MediaShelf(title: selected.name, items: model.libraryItems, model: model)
-            } else {
-                List(model.libraries) { library in
-                    Button {
-                        Task { await model.openLibrary(library) }
-                    } label: {
-                        Label(library.name, systemImage: "rectangle.stack.fill")
+                if model.isLibraryLoading && model.libraryItems.isEmpty {
+                    ProgressView("Carregando biblioteca…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = model.libraryError, model.libraryItems.isEmpty {
+                    ContentUnavailableView {
+                        Label("Biblioteca indisponível", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Tentar novamente") {
+                            Task { await model.openLibrary(selected) }
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .accessibilityHint("Abre esta biblioteca")
+                } else {
+                    VStack(spacing: 10) {
+                        if let error = model.libraryError {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                            Button("Tentar novamente") {
+                                Task { await model.openLibrary(selected) }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        MediaShelf(title: selected.name, items: model.libraryItems, model: model)
+                    }
                 }
-                .overlay {
-                    if model.libraries.isEmpty {
-                        ContentUnavailableView("Bibliotecas", systemImage: "rectangle.stack", description: Text("Nenhuma biblioteca disponível."))
+            } else {
+                if model.isLibrariesLoading && model.libraries.isEmpty {
+                    ProgressView("Carregando bibliotecas…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = model.librariesError, model.libraries.isEmpty {
+                    ContentUnavailableView {
+                        Label("Bibliotecas indisponíveis", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Tentar novamente") {
+                            Task { await model.loadLibraries() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    VStack(spacing: 8) {
+                        if let error = model.librariesError {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                            Button("Tentar novamente") {
+                                Task { await model.loadLibraries() }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        List(model.libraries) { library in
+                            Button {
+                                Task { await model.openLibrary(library) }
+                            } label: {
+                                Label(library.name, systemImage: "rectangle.stack.fill")
+                            }
+                            .accessibilityHint("Abre esta biblioteca")
+                        }
+                        .overlay {
+                            if model.libraries.isEmpty {
+                                ContentUnavailableView("Bibliotecas", systemImage: "rectangle.stack", description: Text("Nenhuma biblioteca disponível."))
+                            }
+                        }
                     }
                 }
             }
@@ -877,6 +1250,7 @@ private struct LibraryFilterSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var genre: String
     @State private var year: String
+    @State private var rating: String
     @State private var playedFilter: LibraryPlayedFilter
     @State private var favoritesOnly: Bool
 
@@ -884,6 +1258,7 @@ private struct LibraryFilterSheet: View {
         self.model = model
         _genre = State(initialValue: model.libraryGenreFilter)
         _year = State(initialValue: model.libraryYearFilter)
+        _rating = State(initialValue: model.libraryRatingFilter)
         _playedFilter = State(initialValue: model.libraryPlayedFilter)
         _favoritesOnly = State(initialValue: model.libraryFavoritesOnly)
     }
@@ -895,6 +1270,8 @@ private struct LibraryFilterSheet: View {
                     TextField("Gênero (ex.: Drama)", text: $genre)
                     TextField("Ano (ex.: 2024)", text: $year)
                         .keyboardType(.numberPad)
+                    TextField("Classificação (ex.: 16, PG-13)", text: $rating)
+                        .textInputAutocapitalization(.characters)
                     Picker("Status", selection: $playedFilter) {
                         ForEach(LibraryPlayedFilter.allCases) { filter in
                             Text(filter.title).tag(filter)
@@ -909,6 +1286,7 @@ private struct LibraryFilterSheet: View {
                     Button("Concluir") {
                         model.libraryGenreFilter = genre
                         model.libraryYearFilter = year
+                        model.libraryRatingFilter = rating
                         model.libraryPlayedFilter = playedFilter
                         model.libraryFavoritesOnly = favoritesOnly
                         dismiss()
@@ -929,9 +1307,12 @@ struct ItemDetailView: View {
     @State private var showPlayer = false
     @State private var showPlaylistSheet = false
     @State private var newPlaylistName = ""
+    @State private var lyricsTrack: MediaItem?
 
     var body: some View {
         let displayedItem = detailItem ?? item
+        let hasResumePosition = displayedItem.playbackPositionTicks > 0
+            || model.offlinePlaybackPosition(for: displayedItem.id) > 0
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 MediaCard(item: displayedItem, model: model)
@@ -972,19 +1353,20 @@ struct ItemDetailView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(Array(model.albumTracks.enumerated()), id: \.element.id) { index, track in
-                                Button {
-                                    Task {
-                                        playerItem = track
-                                        if let localURL = model.localURL(for: track) {
-                                            playbackURL = localURL
-                                        } else {
-                                            playbackURL = await model.playbackURL(for: track)
+                                HStack(spacing: 12) {
+                                    Button {
+                                        Task {
+                                            playerItem = track
+                                            if let localURL = model.localURL(for: track) {
+                                                playbackURL = localURL
+                                            } else {
+                                                playbackURL = await model.playbackURL(for: track)
+                                            }
+                                            nextEpisode = nil
+                                            showPlayer = playbackURL != nil
                                         }
-                                        nextEpisode = nil
-                                        showPlayer = playbackURL != nil
-                                    }
-                                } label: {
-                                    HStack(spacing: 12) {
+                                    } label: {
+                                        HStack(spacing: 12) {
                                         Text("\(index + 1)")
                                             .foregroundStyle(.secondary)
                                             .frame(width: 28, alignment: .leading)
@@ -994,11 +1376,19 @@ struct ItemDetailView: View {
                                                 Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                             }
                                         }
-                                        Spacer()
-                                        Image(systemName: "play.circle.fill")
+                                            Spacer()
+                                            Image(systemName: "play.circle.fill")
+                                        }
                                     }
+                                    .buttonStyle(.plain)
+                                    Button {
+                                        lyricsTrack = track
+                                    } label: {
+                                        Image(systemName: "quote.bubble")
+                                            .accessibilityLabel("Mostrar letra")
+                                    }
+                                    .buttonStyle(.borderless)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -1038,7 +1428,7 @@ struct ItemDetailView: View {
                         }
                     }
                 }
-                Button("Assistir", systemImage: "play.fill") {
+                Button(hasResumePosition ? "Continuar" : "Assistir", systemImage: "play.fill") {
                     guard model.profile?.canPlayMedia != false else { return }
                     Task {
                         nextEpisode = await model.nextEpisode(after: displayedItem)
@@ -1094,13 +1484,21 @@ struct ItemDetailView: View {
         }
         .fullScreenCover(isPresented: $showPlayer) {
             if let playbackURL, let playerItem {
+                let isLocal = model.localURL(for: playerItem) != nil
+                let localPosition = model.offlinePlaybackPosition(for: playerItem.id)
+                let startTimeTicks = PlaybackResumePolicy.initialPositionTicks(
+                    server: playerItem.playbackPositionTicks,
+                    local: localPosition,
+                    isLocal: isLocal
+                )
                 PlayerView(
                     url: playbackURL,
                     model: model,
                     itemID: playerItem.id,
                     mediaSourceID: playerItem.mediaSources.first?.id,
                     availableQualityOptions: playerItem.mediaSources.first?.qualityLabels ?? [],
-                    isLocal: model.localURL(for: playerItem) != nil,
+                    startTimeTicks: startTimeTicks,
+                    isLocal: isLocal,
                     nextEpisode: nextEpisode,
                     onPlayNext: {
                         Task {
@@ -1115,6 +1513,9 @@ struct ItemDetailView: View {
                 )
                 .id(playerItem.id)
             }
+        }
+        .sheet(item: $lyricsTrack) { track in
+            LyricsView(track: track, model: model)
         }
         .sheet(isPresented: $showPlaylistSheet) {
             PlaylistPickerView(model: model, item: displayedItem, newPlaylistName: $newPlaylistName)
@@ -1131,6 +1532,47 @@ struct ItemDetailView: View {
             values.append("\(minutes) min")
         }
         return values.isEmpty ? nil : values.joined(separator: "  •  ")
+    }
+}
+
+private struct LyricsView: View {
+    let track: MediaItem
+    let model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var lines: [LyricLine] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Carregando letra…")
+                } else if lines.isEmpty {
+                    ContentUnavailableView("Letra indisponível", systemImage: "quote.bubble", description: Text("O servidor não forneceu letras para esta faixa."))
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                                Text(line.text)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle(track.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fechar") { dismiss() }
+                }
+            }
+            .task {
+                lines = await model.lyrics(for: track)
+                isLoading = false
+            }
+        }
     }
 }
 
@@ -1220,6 +1662,7 @@ struct DownloadsView: View {
     let model: AppModel
     @State private var searchQuery = ""
     @State private var statusFilter: DownloadStatusFilter = .all
+    @State private var offlinePlayerItem: MediaItem?
     @State private var showingStorageSummary = false
     @State private var showingClearCompleted = false
     @State private var showingClearFailed = false
@@ -1247,14 +1690,40 @@ struct DownloadsView: View {
                     ContentUnavailableView("Nenhum download encontrado", systemImage: "line.3.horizontal.decrease.circle", description: Text("Ajuste a busca ou o filtro de estado."))
                 }
 
-                ForEach(filteredDownloads) { entry in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(entry.title).font(.headline)
+                    ForEach(filteredDownloads) { entry in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                            if let artworkURL = entry.artworkURL.flatMap({ URL(string: $0) }) {
+                                AuthenticatedArtwork(url: artworkURL, token: model.session?.accessToken)
+                                    .frame(width: 48, height: 72)
+                                    .aspectRatio(2 / 3, contentMode: .fit)
+                                    .clipShape(.rect(cornerRadius: 6))
+                                    .accessibilityHidden(true)
+                            } else {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(.gray.opacity(0.25))
+                                    .frame(width: 48, height: 72)
+                                    .overlay { Image(systemName: "film") }
+                                    .accessibilityHidden(true)
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.title).font(.headline)
+                                Text(statusText(entry))
+                                    .font(.caption)
+                                    .foregroundStyle(entry.state == .failed ? .red : .secondary)
+                            }
                             Spacer()
-                            Text(statusText(entry))
-                                .font(.caption)
-                                .foregroundStyle(entry.state == .failed ? .red : .secondary)
+                        }
+                        if entry.state == .completed {
+                            Button {
+                                let item = MediaItem(id: entry.itemID, name: entry.title)
+                                guard model.localURL(for: item) != nil else { return }
+                                offlinePlayerItem = item
+                            } label: {
+                                Label("Reproduzir", systemImage: "play.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityHint("Abre o player usando o arquivo armazenado neste dispositivo")
                         }
                         if entry.state == .downloading || entry.state == .queued || entry.state == .paused {
                             ProgressView(value: Double(entry.percent), total: 100)
@@ -1286,6 +1755,31 @@ struct DownloadsView: View {
         }
         .navigationTitle("Downloads offline")
         .searchable(text: $searchQuery, prompt: "Buscar downloads")
+        .fullScreenCover(item: $offlinePlayerItem) { item in
+            if let url = model.localURL(for: item) {
+                PlayerView(
+                    url: url,
+                    model: model,
+                    itemID: item.id,
+                    mediaSourceID: nil,
+                    startTimeTicks: PlaybackResumePolicy.initialPositionTicks(
+                        server: 0,
+                        local: model.offlinePlaybackPosition(for: item.id),
+                        isLocal: true
+                    ),
+                    isLocal: true,
+                    nextEpisode: nil,
+                    onPlayNext: {}
+                )
+                .id(item.id)
+            } else {
+                ContentUnavailableView(
+                    "Arquivo indisponível",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("Este download não está mais armazenado no dispositivo.")
+                )
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button { showingStorageSummary = true } label: {
@@ -1424,6 +1918,7 @@ struct PlayerView: View {
     let itemID: String
     let mediaSourceID: String?
     let availableQualityOptions: [String]
+    let startTimeTicks: Int64
     let isLocal: Bool
     let nextEpisode: MediaItem?
     let onPlayNext: () -> Void
@@ -1448,18 +1943,25 @@ struct PlayerView: View {
     @State private var gestureHint: String?
     @State private var gestureHintTask: Task<Void, Never>?
     @State private var playbackError: String?
+    @State private var playbackRetryAttempt = 0
+    @State private var playbackRetryTask: Task<Void, Never>?
+    @State private var playbackWaitingForNetwork = false
+    @State private var didFinishPlayback = false
+    @State private var didReportRemoteStopped = false
+    @State private var wasPlayingBeforeAudioInterruption = false
 
     private enum GestureAxis {
         case horizontal
         case vertical
     }
 
-    init(url: URL, model: AppModel, itemID: String, mediaSourceID: String?, availableQualityOptions: [String] = [], isLocal: Bool, nextEpisode: MediaItem?, onPlayNext: @escaping () -> Void) {
+    init(url: URL, model: AppModel, itemID: String, mediaSourceID: String?, availableQualityOptions: [String] = [], startTimeTicks: Int64 = 0, isLocal: Bool, nextEpisode: MediaItem?, onPlayNext: @escaping () -> Void) {
         self.url = url
         self.model = model
         self.itemID = itemID
         self.mediaSourceID = mediaSourceID
         self.availableQualityOptions = availableQualityOptions
+        self.startTimeTicks = max(0, startTimeTicks)
         self.isLocal = isLocal
         self.nextEpisode = nextEpisode
         self.onPlayNext = onPlayNext
@@ -1714,6 +2216,9 @@ struct PlayerView: View {
                 selectedPlaybackRate = model.playbackRate
                 player.defaultRate = Float(selectedPlaybackRate)
                 player.currentItem?.preferredPeakBitRate = selectedQuality.peakBitrate
+                if isLocal, startTimeTicks > 0 {
+                    player.seek(to: CMTime(seconds: Double(startTimeTicks) / 10_000_000, preferredTimescale: 600))
+                }
                 guard model.autoPlay else { return }
                 player.play()
                 player.rate = Float(selectedPlaybackRate)
@@ -1721,21 +2226,109 @@ struct PlayerView: View {
             .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notification in
                 guard let failedItem = notification.object as? AVPlayerItem,
                       failedItem === player.currentItem else { return }
-                let error = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?.localizedDescription
-                playbackError = error ?? "A fonte de mídia retornou um erro inesperado."
+                let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
                 player.pause()
+                playbackRetryTask?.cancel()
+                playbackWaitingForNetwork = PlaybackRecoveryPolicy.isTransientNetworkError(error) && model.isNetworkAvailable == false
+                if PlaybackRecoveryPolicy.shouldAutomaticallyRetry(
+                    error: error,
+                    attempt: playbackRetryAttempt,
+                    isLocal: isLocal,
+                    networkAvailable: model.isNetworkAvailable
+                ) {
+                    let attempt = playbackRetryAttempt
+                    playbackRetryAttempt += 1
+                    playbackError = "Conexão perdida. Tentando novamente…"
+                    playbackRetryTask = Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(PlaybackRecoveryPolicy.retryDelayMilliseconds(for: attempt)))
+                        guard !Task.isCancelled else { return }
+                        retryPlayback(automatic: true)
+                    }
+                } else {
+                    playbackError = PlaybackErrorPolicy.userFacingMessage(from: error)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
+                guard let finishedItem = notification.object as? AVPlayerItem,
+                      finishedItem === player.currentItem else { return }
+                didFinishPlayback = true
+                if isLocal {
+                    model.clearOfflinePlaybackPosition(for: itemID)
+                } else if !didReportRemoteStopped {
+                    didReportRemoteStopped = true
+                    let positionSeconds = player.currentTime().seconds
+                    Task {
+                        await model.reportPlaybackStopped(
+                            itemID: itemID,
+                            mediaSourceID: mediaSourceID,
+                            positionSeconds: positionSeconds
+                        )
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
+                guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+                switch type {
+                case .began:
+                    wasPlayingBeforeAudioInterruption = player.timeControlStatus == .playing
+                    player.pause()
+                case .ended:
+                    let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                    let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+                    if wasPlayingBeforeAudioInterruption, options.contains(.shouldResume), model.autoPlay {
+                        player.play()
+                        player.rate = Float(selectedPlaybackRate)
+                    }
+                    wasPlayingBeforeAudioInterruption = false
+                @unknown default:
+                    break
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
+                guard let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                      let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason),
+                      reason == .oldDeviceUnavailable else { return }
+                player.pause()
+            }
+            .onChange(of: model.isNetworkAvailable) { wasAvailable, isAvailable in
+                guard PlaybackRecoveryPolicy.shouldRetryAfterNetworkRestored(
+                    wasOffline: wasAvailable == false,
+                    isOnline: isAvailable == true,
+                    isLocal: isLocal,
+                    hasPlaybackError: playbackError != nil,
+                    wasTransientNetworkFailure: playbackWaitingForNetwork
+                ) else { return }
+                playbackWaitingForNetwork = false
+                playbackRetryAttempt = 0
+                retryPlayback(automatic: true)
             }
             .onDisappear {
                 player.pause()
+                playbackRetryTask?.cancel()
                 gestureHintTask?.cancel()
             }
             .task {
-                guard !isLocal else { return }
-                await model.reportPlaybackStart(itemID: itemID, mediaSourceID: mediaSourceID)
+                if !isLocal {
+                    await model.reportPlaybackStart(
+                        itemID: itemID,
+                        mediaSourceID: mediaSourceID,
+                        positionSeconds: Double(startTimeTicks) / 10_000_000
+                    )
+                }
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5))
                     guard !Task.isCancelled else { return }
-                    await model.reportPlaybackProgress(itemID: itemID, mediaSourceID: mediaSourceID, positionSeconds: player.currentTime().seconds, isPaused: player.timeControlStatus != .playing)
+                    let positionSeconds = player.currentTime().seconds
+                    if player.timeControlStatus == .playing {
+                        playbackRetryAttempt = 0
+                        playbackError = nil
+                    }
+                    if isLocal {
+                        model.saveOfflinePlaybackPosition(itemID: itemID, positionSeconds: positionSeconds)
+                    } else {
+                        await model.reportPlaybackProgress(itemID: itemID, mediaSourceID: mediaSourceID, positionSeconds: positionSeconds, isPaused: player.timeControlStatus != .playing)
+                    }
                 }
             }
             .task {
@@ -1776,10 +2369,22 @@ struct PlayerView: View {
                 }
             }
             .onDisappear {
+                playbackRetryTask?.cancel()
                 cancelNextEpisodeCountdown()
                 gestureHintTask?.cancel()
-                guard !isLocal else { return }
-                Task { await model.reportPlaybackStopped(itemID: itemID, mediaSourceID: mediaSourceID, positionSeconds: player.currentTime().seconds) }
+                let positionSeconds = player.currentTime().seconds
+                if isLocal, !didFinishPlayback {
+                    model.saveOfflinePlaybackPosition(itemID: itemID, positionSeconds: positionSeconds)
+                } else if !isLocal, !didReportRemoteStopped {
+                    didReportRemoteStopped = true
+                    Task {
+                        await model.reportPlaybackStopped(
+                            itemID: itemID,
+                            mediaSourceID: mediaSourceID,
+                            positionSeconds: positionSeconds
+                        )
+                    }
+                }
             }
     }
 
@@ -1853,10 +2458,15 @@ struct PlayerView: View {
         }
     }
 
-    private func retryPlayback() {
+    private func retryPlayback(automatic: Bool = false) {
+        if !automatic {
+            playbackRetryTask?.cancel()
+            playbackRetryAttempt = 0
+        }
+        playbackWaitingForNetwork = false
         let position = player.currentTime()
         let replacement = AVPlayerItem(url: url)
-        replacement.preferredPeakBitRate = model.defaultQuality.peakBitrate
+        replacement.preferredPeakBitRate = selectedQuality.peakBitrate
         player.replaceCurrentItem(with: replacement)
         playbackError = nil
         if position.isValid && position.seconds.isFinite && position.seconds > 0 {
@@ -1954,7 +2564,7 @@ struct PlayerView: View {
     }
 
     private func selectPreferredMediaOptions() async {
-        guard !isLocal, let currentItem = player.currentItem else { return }
+        guard let currentItem = player.currentItem else { return }
         let asset = currentItem.asset
         do {
             _ = try await asset.load(.availableMediaCharacteristicsWithMediaSelectionOptions)
@@ -2028,16 +2638,7 @@ struct PlayerView: View {
 
 private extension String {
     var peakBitrate: Double {
-        switch self {
-        case "4K": return 20_000_000
-        case "1440p": return 12_000_000
-        case "1080p": return 8_000_000
-        case "720p": return 4_000_000
-        case "480p": return 2_000_000
-        default:
-            guard hasSuffix("p"), let height = Int(dropLast()) else { return 0 }
-            return Double(max(1_000_000, height * height * 4))
-        }
+        Double(PlaybackQualityPolicy.maxStreamingBitrate(for: self) ?? 0)
     }
 }
 
@@ -2057,6 +2658,18 @@ struct MediaCard: View {
             }
             .aspectRatio(2 / 3, contentMode: .fit)
             .clipShape(.rect(cornerRadius: 10))
+            .overlay(alignment: .topLeading) {
+                if let qualityBadge = item.qualityBadge {
+                    Text(qualityBadge)
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(.black.opacity(0.78), in: Capsule())
+                        .foregroundStyle(.white)
+                        .padding(8)
+                        .accessibilityLabel("Qualidade \(qualityBadge)")
+                }
+            }
             Text(item.name).font(.subheadline.weight(.medium)).lineLimit(2)
             if let year = item.productionYear { Text(String(year)).font(.caption).foregroundStyle(.secondary) }
         }

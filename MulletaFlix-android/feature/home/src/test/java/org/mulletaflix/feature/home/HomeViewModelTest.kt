@@ -375,6 +375,39 @@ class HomeViewModelTest {
         advanceUntilIdle()
     }
 
+    @Test fun `refreshIfIdle keeps the initial Home job while state is still idle`() = runTest {
+        val responseRelease = CompletableDeferred<Unit>()
+        var resumeCalls = 0
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                resumeCalls++
+                responseRelease.await()
+                return Result.success(emptyList())
+            }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        runCurrent()
+
+        // Start the initial job and immediately let the foreground effect try
+        // to refresh before the request has published its loading state.
+        viewModel.refreshIfIdle()
+        runCurrent()
+
+        assertEquals(1, resumeCalls)
+        responseRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
     @Test fun `a late refresh cannot overwrite a newer home response`() = runTest {
         val firstResponse = CompletableDeferred<Unit>()
         val repository = object : FakeMediaRepository() {

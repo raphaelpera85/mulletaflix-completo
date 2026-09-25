@@ -5,8 +5,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertTrue
@@ -61,11 +65,13 @@ class LoginFormSemanticsTest {
                 QuickConnectForm(
                     pin = null,
                     isAvailable = true,
+                    availabilityError = null,
                     isLoading = false,
                     isWaiting = false,
                     secondsRemaining = null,
                     error = null,
                     onInitiate = { initiated = true },
+                    onRetryAvailability = {},
                     onCancel = {},
                     onCopyPin = {},
                 )
@@ -75,5 +81,82 @@ class LoginFormSemanticsTest {
         composeRule.onNodeWithTag(QUICK_CONNECT_INITIATE_TEST_TAG).performClick()
 
         composeRule.runOnIdle { assertTrue(initiated) }
+    }
+
+    @Test
+    fun quickConnectDoesNotOfferInitiationWhileAvailabilityIsUnknown() {
+        composeRule.setContent {
+            MaterialTheme {
+                QuickConnectForm(
+                    pin = null,
+                    isAvailable = null,
+                    availabilityError = null,
+                    isLoading = false,
+                    isWaiting = false,
+                    secondsRemaining = null,
+                    error = null,
+                    onInitiate = {},
+                    onRetryAvailability = {},
+                    onCancel = {},
+                    onCopyPin = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Verificando Quick Connect…").assertExists()
+        composeRule.onAllNodesWithTag(QUICK_CONNECT_INITIATE_TEST_TAG).assertCountEquals(0)
+    }
+
+    @Test
+    fun quickConnectAvailabilityFailureOffersRetry() {
+        var retried = false
+
+        composeRule.setContent {
+            MaterialTheme {
+                QuickConnectForm(
+                    pin = null,
+                    isAvailable = null,
+                    availabilityError = "Servidor indisponível",
+                    isLoading = false,
+                    isWaiting = false,
+                    secondsRemaining = null,
+                    error = null,
+                    onInitiate = {},
+                    onRetryAvailability = { retried = true },
+                    onCancel = {},
+                    onCopyPin = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Servidor indisponível").assertExists()
+        composeRule.onNodeWithTag(QUICK_CONNECT_RETRY_AVAILABILITY_TEST_TAG).performClick()
+        composeRule.runOnIdle { assertTrue(retried) }
+    }
+
+    @Test
+    fun userAvatarExposesAnAccessibleSelectionAction() {
+        var selected: AuthUser? = null
+
+        composeRule.setContent {
+            MaterialTheme {
+                PasswordLoginForm(
+                    username = "",
+                    password = "",
+                    isLoading = false,
+                    error = null,
+                    onUsernameChange = {},
+                    onPasswordChange = {},
+                    onLogin = {},
+                    users = listOf(AuthUser("u1", "Raphael")),
+                    onUserSelect = { selected = it },
+                    onRegister = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Selecionar Raphael").performClick()
+
+        composeRule.runOnIdle { assertTrue(selected?.name == "Raphael") }
     }
 }

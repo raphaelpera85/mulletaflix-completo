@@ -197,7 +197,13 @@ class LiveTvViewModel @Inject constructor(
     /** Used by the TV foreground timer; manual refresh remains destructive. */
     fun refreshIfIdle() {
         val current = _state.value
-        if (!shouldRefreshLiveTvIfIdle(current.isOffline, current.isLoading)) return
+        // The initial session collector starts the request before the first
+        // `isLoading` state emission is dispatched. Treat the Job as the
+        // source of truth too, otherwise the TV foreground timer can cancel
+        // the first channel load and leave the screen with stale/empty data.
+        if (refreshJob?.isActive == true ||
+            !shouldRefreshLiveTvIfIdle(current.isOffline, current.isLoading)
+        ) return
         refresh()
     }
 

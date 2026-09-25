@@ -16,10 +16,12 @@ import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.domain.repository.SyncPlayGroup
 import org.mulletaflix.domain.repository.SyncPlayRepository
+import org.mulletaflix.domain.repository.SyncPlayPlaybackCommand
 
 import org.mulletaflix.domain.usecase.ManageSyncPlayUseCase
 import org.mulletaflix.core.api.SavedServerSession
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.api.SyncPlayRealtimeEvent
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SyncPlayViewModelTest {
@@ -27,6 +29,31 @@ class SyncPlayViewModelTest {
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
+
+    @Test fun `realtime notifications distinguish repeated events`() {
+        val first = syncPlayRealtimeNotification(SyncPlayRealtimeEvent.QueueUpdate("g1", "item-1", null, 0L, true))
+        val second = syncPlayRealtimeNotification(SyncPlayRealtimeEvent.Disconnected)
+
+        assertEquals("Mídia da sala atualizada", first)
+        assertEquals("Sincronização desconectada; tentando reconectar…", second)
+    }
+
+    @Test fun `realtime content events are limited to the active room`() {
+        val matchingCommand = SyncPlayRealtimeEvent.Command("room-active", "item", "Pause", 0L)
+        val otherRoomUpdate = SyncPlayRealtimeEvent.GroupUpdate("room-other", "GroupJoined")
+        val matchingQueue = SyncPlayRealtimeEvent.QueueUpdate("room-active", "item", null, 0L, true)
+
+        assertEquals(true, shouldHandleSyncPlayRealtimeEvent(matchingCommand, "room-active"))
+        assertEquals(false, shouldHandleSyncPlayRealtimeEvent(otherRoomUpdate, "room-active"))
+        assertEquals(true, shouldHandleSyncPlayRealtimeEvent(matchingQueue, "room-active"))
+        assertEquals(false, shouldHandleSyncPlayRealtimeEvent(matchingCommand, null))
+    }
+
+    @Test fun `realtime connection events are ignored when there is no active room`() {
+        assertEquals(false, shouldHandleSyncPlayRealtimeEvent(SyncPlayRealtimeEvent.Connected, null))
+        assertEquals(false, shouldHandleSyncPlayRealtimeEvent(SyncPlayRealtimeEvent.Disconnected, ""))
+        assertEquals(true, shouldHandleSyncPlayRealtimeEvent(SyncPlayRealtimeEvent.Connected, "room-active"))
+    }
 
     @Test fun `refresh exposes current groups`() = runTest {
         val groups = listOf(SyncPlayGroup("g1", "Filme", "Playing", listOf("Raphael")))
@@ -142,6 +169,20 @@ class SyncPlayViewModelTest {
         assertEquals(2, repository.createCalls)
     }
 
+    @Test fun `playback command is sent only once while submitting`() = runTest {
+        val gate = CompletableDeferred<Result<Unit>>()
+        val repository = FakeRepository(listOf(SyncPlayGroup("g1", "Filme", "Playing", emptyList())), commandGate = gate)
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+        viewModel.joinGroup("g1")
+        advanceUntilIdle()
+        viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.PAUSE)
+        viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.PAUSE)
+        gate.complete(Result.success(Unit))
+        advanceUntilIdle()
+        assertEquals(1, repository.commandCalls)
+    }
+
     private class FakeRepository(
         private val groups: List<SyncPlayGroup>,
         private val firstResponse: CompletableDeferred<Result<List<SyncPlayGroup>>>? = null,
@@ -149,11 +190,13 @@ class SyncPlayViewModelTest {
         private val createGate: CompletableDeferred<Result<Unit>>? = null,
         private val joinGate: CompletableDeferred<Result<Unit>>? = null,
         private val leaveGate: CompletableDeferred<Result<Unit>>? = null,
+        private val commandGate: CompletableDeferred<Result<Unit>>? = null,
     ) : SyncPlayRepository, SessionRepository {
         var listCalls = 0
         var createCalls = 0
         var joinCalls = 0
         var leaveCalls = 0
+        var commandCalls = 0
         override suspend fun getGroups(): Result<List<SyncPlayGroup>> {
             listCalls++
             if (listCalls == 1 && firstResponse != null) return firstResponse.await()
@@ -171,6 +214,12 @@ class SyncPlayViewModelTest {
             leaveCalls++
             return leaveGate?.await() ?: Result.success(Unit)
         }
+        override suspend fun sendPlaybackCommand(command: SyncPlayPlaybackCommand): Result<Unit> {
+            commandCalls++
+            return commandGate?.await() ?: Result.success(Unit)
+        }
+        override suspend fun reportBuffering(status: org.mulletaflix.domain.repository.SyncPlayPlaybackStatus) = Result.success(Unit)
+        override suspend fun reportReady(status: org.mulletaflix.domain.repository.SyncPlayPlaybackStatus) = Result.success(Unit)
         override fun getAccessToken(): Flow<String?> = flowOf(null)
         override fun getDeviceId(): Flow<String> = flowOf("device")
         override fun getBaseUrl(): Flow<String> = flowOf("http://server")

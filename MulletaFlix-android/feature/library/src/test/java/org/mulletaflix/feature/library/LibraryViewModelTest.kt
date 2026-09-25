@@ -186,6 +186,25 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `refreshIfIdle does not replace the initial job before loading state is published`() = runTest {
+        val responseRelease = CompletableDeferred<Unit>()
+        media.blockLibraryId = "library-1"
+        media.blockedLibraryRelease = responseRelease
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        // The initial coroutine is active, but it has not reached the point
+        // where it publishes isLoading yet. This is the TV-entry race window.
+        viewModel.loadLibrary("library-1")
+        viewModel.refreshIfIdle("library-1")
+        runCurrent()
+
+        assertEquals(1, media.detailCalls)
+        responseRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
     fun `network recovery refreshes the loaded library once`() = runTest {
         val network = FakeNetworkMonitor(initialOnline = false)
         media.itemsByLibrary["library-1"] = listOf(MediaItem("item-1", "Item", MediaItemType.Movie)) to 2

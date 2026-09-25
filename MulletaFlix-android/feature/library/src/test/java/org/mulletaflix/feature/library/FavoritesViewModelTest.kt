@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -27,6 +28,7 @@ import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.repository.UserSession
 import org.mulletaflix.domain.usecase.GetFavoriteItemsUseCase
+import org.mulletaflix.core.common.network.NetworkMonitor
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FavoritesViewModelTest {
@@ -40,10 +42,11 @@ class FavoritesViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun createViewModel() = FavoritesViewModel(
+    private fun createViewModel(networkMonitor: NetworkMonitor = FakeNetworkMonitor()) = FavoritesViewModel(
         getFavoriteItemsUseCase = GetFavoriteItemsUseCase(media),
         authRepository = FakeAuthRepository(),
         settingsRepository = FakeSettingsRepository(),
+        networkMonitor = networkMonitor,
     )
 
     @Test
@@ -123,7 +126,7 @@ class FavoritesViewModelTest {
     @Test
     fun `missing session finishes loading and exposes reauthentication state`() = runTest {
         val auth = FakeAuthRepository().apply { userIdState.value = null }
-        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository())
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository(), FakeNetworkMonitor())
 
         advanceUntilIdle()
 
@@ -183,12 +186,33 @@ class FavoritesViewModelTest {
     }
 
     @Test
+    fun `refreshes favorites when network returns after an outage`() = runTest {
+        val stale = MediaItem("stale", "Stale", MediaItemType.Movie)
+        val fresh = MediaItem("fresh", "Fresh", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(stale) to 1)
+        val network = FakeNetworkMonitor(initialOnline = false)
+        val viewModel = createViewModel(network)
+
+        advanceUntilIdle()
+        assertEquals(listOf(stale), viewModel.state.value.items)
+        assertEquals(true, viewModel.state.value.isOffline)
+        media.pages[0] = Result.success(listOf(fresh) to 1)
+
+        network.setOnline(true)
+        advanceUntilIdle()
+
+        assertEquals(listOf(fresh), viewModel.state.value.items)
+        assertEquals(false, viewModel.state.value.isOffline)
+        assertEquals(2, media.pageRequestCountFor(0))
+    }
+
+    @Test
     fun `late favorites response from a previous user cannot replace current session`() = runTest {
         val oldResponse = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
         val old = MediaItem("old", "Conta antiga", MediaItemType.Movie)
         media.responseSequence = ArrayDeque(listOf(oldResponse))
         val auth = FakeAuthRepository()
-        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository())
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository(), FakeNetworkMonitor())
         runCurrent()
 
         auth.userIdState.value = "user-2"
@@ -200,6 +224,15 @@ class FavoritesViewModelTest {
 
         assertTrue(viewModel.state.value.items.isEmpty())
         assertEquals(false, viewModel.state.value.hasMore)
+    }
+
+    private class FakeNetworkMonitor(initialOnline: Boolean = true) : NetworkMonitor {
+        private val online = MutableStateFlow(initialOnline)
+        override val isOnline: Flow<Boolean> = online
+
+        fun setOnline(value: Boolean) {
+            online.value = value
+        }
     }
 
     private class FakeMediaRepository : MediaRepository {

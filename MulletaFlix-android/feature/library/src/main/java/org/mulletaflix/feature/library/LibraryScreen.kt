@@ -14,6 +14,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.zIndex
@@ -32,6 +33,7 @@ import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.designsystem.components.remoteFocusRing
 import org.mulletaflix.domain.model.*
 
 /**
@@ -125,7 +127,10 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(loadError, color = MaterialTheme.colorScheme.error)
-                    Button(onClick = { viewModel.loadLibrary(libraryId) }) {
+                    Button(
+                        onClick = { viewModel.loadLibrary(libraryId) },
+                        modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+                    ) {
                         Text("Tentar novamente")
                     }
                 }
@@ -171,7 +176,10 @@ fun LibraryScreen(
                             ) {
                                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(loadError, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
-                                    TextButton(onClick = { viewModel.loadLibrary(libraryId) }) { Text("Tentar novamente") }
+                                    TextButton(
+                                        onClick = { viewModel.loadLibrary(libraryId) },
+                                        modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+                                    ) { Text("Tentar novamente") }
                                 }
                             }
                         }
@@ -265,6 +273,7 @@ fun LibraryScreen(
 
 @Composable
 internal fun LibraryOfflineBanner(
+    message: String = "Sem conexão. A biblioteca será atualizada quando a rede voltar.",
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -285,12 +294,15 @@ internal fun LibraryOfflineBanner(
                 tint = MaterialTheme.colorScheme.onErrorContainer,
             )
             Text(
-                text = "Sem conexão. A biblioteca será atualizada quando a rede voltar.",
+                text = message,
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onRetry) {
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+            ) {
                 Text("Tentar novamente")
             }
         }
@@ -298,7 +310,7 @@ internal fun LibraryOfflineBanner(
 }
 
 @Composable
-private fun FilterDialog(
+internal fun FilterDialog(
     activeFilters: List<String>,
     onToggle: (String) -> Unit,
     onClear: () -> Unit,
@@ -319,6 +331,12 @@ private fun FilterDialog(
                         selected = filter in activeFilters,
                         onClick = { onToggle(filter) },
                         label = { Text(filter) },
+                        modifier = Modifier
+                            .remoteFocusRing(RoundedCornerShape(8.dp))
+                            .semantics {
+                                selected = filter in activeFilters
+                                contentDescription = "Filtro $filter"
+                            },
                         leadingIcon = if (filter in activeFilters) {
                             { Icon(Icons.Default.Check, contentDescription = null) }
                         } else null,
@@ -327,10 +345,18 @@ private fun FilterDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Fechar") }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+            ) { Text("Fechar") }
         },
         dismissButton = if (activeFilters.isNotEmpty()) {
-            { TextButton(onClick = onClear) { Text("Limpar") } }
+            {
+                TextButton(
+                    onClick = onClear,
+                    modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+                ) { Text("Limpar") }
+            }
         } else null,
     )
 }
@@ -400,10 +426,16 @@ private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> 
             AssistChip(
                 onClick = { onRemoveFilter(filter) },
                 label = { Text(filter) },
-                trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remover", modifier = Modifier.size(16.dp)) }
+                modifier = Modifier
+                    .remoteFocusRing(RoundedCornerShape(8.dp))
+                    .semantics { contentDescription = "Remover filtro $filter" },
+                trailingIcon = { Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp)) }
             )
         }
-        TextButton(onClick = onClearAll) { Text("Limpar") }
+        TextButton(
+            onClick = onClearAll,
+            modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+        ) { Text("Limpar") }
     }
 }
 
@@ -425,7 +457,12 @@ internal fun SortDropdown(
                 // `DropdownMenuItem` do material3 1.4.0 não tem parâmetro `selected`,
                 // então a única marca do campo ativo era um visto sem descrição: o
                 // leitor de tela lia os nomes e nunca dizia qual estava escolhido.
-                modifier = Modifier.semantics { selected = selectedOption == option },
+                modifier = Modifier
+                    .remoteFocusRing(RoundedCornerShape(8.dp))
+                    .semantics {
+                        selected = selectedOption == option
+                        contentDescription = "Ordenar por ${option.label}"
+                    },
                 onClick = { selectedOption = option },
             )
         }
@@ -440,7 +477,12 @@ internal fun SortDropdown(
                     )
                 },
                 trailingIcon = { if (selectedOrder == order) Icon(Icons.Default.Check, contentDescription = null) },
-                modifier = Modifier.semantics { selected = selectedOrder == order },
+                modifier = Modifier
+                    .remoteFocusRing(RoundedCornerShape(8.dp))
+                    .semantics {
+                        selected = selectedOrder == order
+                        contentDescription = "Ordem ${order.label}"
+                    },
                 onClick = { selectedOrder = order },
             )
         }
@@ -448,6 +490,7 @@ internal fun SortDropdown(
         DropdownMenuItem(
             text = { Text("Aplicar") },
             leadingIcon = { Icon(Icons.Default.Check, contentDescription = null) },
+            modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
             onClick = { onApply(selectedOption, selectedOrder); onDismiss() },
         )
     }

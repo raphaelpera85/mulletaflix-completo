@@ -381,6 +381,21 @@ interface MulletaFlixApiService {
     @POST("SyncPlay/Leave")
     suspend fun leaveSyncPlayGroup()
 
+    @POST("SyncPlay/Pause")
+    suspend fun pauseSyncPlay()
+
+    @POST("SyncPlay/Unpause")
+    suspend fun unpauseSyncPlay()
+
+    @POST("SyncPlay/Stop")
+    suspend fun stopSyncPlay()
+
+    @POST("SyncPlay/Buffering")
+    suspend fun reportSyncPlayBuffering(@Body body: org.mulletaflix.core.api.dto.SyncPlayPlaybackStatusDto)
+
+    @POST("SyncPlay/Ready")
+    suspend fun reportSyncPlayReady(@Body body: org.mulletaflix.core.api.dto.SyncPlayPlaybackStatusDto)
+
     @GET("SyncPlay/List")
     suspend fun getSyncPlayGroups(): List<GroupInfoDto>
 

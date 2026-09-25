@@ -15,14 +15,17 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.atomic.AtomicInteger
 import org.mulletaflix.designsystem.theme.MulletaFlixTheme
 
 /**
@@ -63,6 +66,8 @@ class HomeTopBarFocusTest {
                         onFavorites = {},
                         onSettings = {},
                         onProfile = {},
+                        onRefresh = {},
+                        isRefreshing = false,
                     )
                 }
             }
@@ -149,5 +154,32 @@ class HomeTopBarFocusTest {
             "the unfocused baseline must also be neutral; measured $unfocusedBias",
             unfocusedBias <= 5,
         )
+    }
+
+    @Test
+    fun refreshActionIsAvailableToTheRemoteAndInvokesHomeRefresh() {
+        val refreshCalls = AtomicInteger(0)
+        val spec = homeLayoutSpec(HomeDeviceClass.TV)
+        composeRule.setContent {
+            MulletaFlixTheme {
+                Box(Modifier.fillMaxSize().background(Color.Black)) {
+                    HomeTopBar(
+                        profile = null,
+                        layoutSpec = spec,
+                        onSearch = {},
+                        onLiveTv = {},
+                        onDownloads = {},
+                        onFavorites = {},
+                        onSettings = {},
+                        onProfile = {},
+                        onRefresh = { refreshCalls.incrementAndGet() },
+                        isRefreshing = false,
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Atualizar Home").performClick()
+        assertEquals(1, refreshCalls.get())
     }
 }

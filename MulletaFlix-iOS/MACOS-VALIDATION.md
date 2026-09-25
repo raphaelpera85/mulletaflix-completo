@@ -1,7 +1,7 @@
 # Validação macOS
 
 Execute os comandos a partir de `MulletaFlix-iOS` em macOS com Xcode 16 ou
-superior e um SDK iOS 18 instalado.
+superior, Swift disponível no PATH e um SDK iOS 18 instalado.
 
 ## Camada Core
 
@@ -32,7 +32,8 @@ ser aberto no Xcode para inspecionar avisos e fases do build.
 
 ## Execução no simulador
 
-Para selecionar, inicializar e compilar no primeiro iPhone Simulator disponível:
+Para selecionar, inicializar, executar os testes Core e compilar no primeiro
+iPhone Simulator disponível:
 
 ```sh
 bash scripts/run-simulator-tests.sh
@@ -79,6 +80,16 @@ Com o app instalado e o simulador inicializado, valide também:
    botão de retry após interromper a fonte.
 4. Configurações: desative o botão de pular introdução, limpe o cache de
    imagens e confirme que downloads offline e sessão permanecem intactos.
+5. Música: abra um álbum, confira as faixas e use o botão de citação para
+   carregar a letra de uma faixa; valide também o estado de letra indisponível.
+6. Busca por voz: permita microfone/reconhecimento de fala, toque no microfone,
+   dite um título e confirme que o texto preenche a busca e dispara os resultados.
+7. Servidores: entre em dois servidores, saia e confirme que ambos aparecem em
+   “Servidores salvos”; remova um deles e confirme que ele desaparece da lista.
+8. Branding: verifique um servidor que possua aviso de login e confirme que o
+   texto aparece na tela de acesso; repita com um servidor sem aviso.
+9. Saúde do servidor: confirme que um servidor que expõe `Health` mostra o
+   estado na tela de acesso e que a ausência dessa rota não impede o login.
 
 Para testar um link web oficial no Simulator, use:
 

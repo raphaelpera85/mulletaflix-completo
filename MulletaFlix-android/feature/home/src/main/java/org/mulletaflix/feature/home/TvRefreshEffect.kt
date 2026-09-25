@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -19,11 +20,22 @@ internal fun TvRefreshEffect(
     LaunchedEffect(lifecycleOwner, refreshIntervalMillis, refreshImmediately) {
         if (refreshIntervalMillis <= 0L) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            if (refreshImmediately) onRefresh()
+            if (refreshImmediately) refreshSafely(onRefresh)
             while (isActive) {
                 delay(refreshIntervalMillis)
-                onRefresh()
+                refreshSafely(onRefresh)
             }
         }
+    }
+}
+
+/** Keeps one failed network refresh from killing every future TV refresh. */
+private suspend fun refreshSafely(onRefresh: suspend () -> Unit) {
+    try {
+        onRefresh()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        // The ViewModel owns user-facing error state. The scheduler must remain alive.
     }
 }

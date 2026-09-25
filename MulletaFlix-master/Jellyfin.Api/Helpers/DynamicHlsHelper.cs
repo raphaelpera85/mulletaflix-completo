@@ -45,6 +45,7 @@ public class DynamicHlsHelper
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly EncodingHelper _encodingHelper;
     private readonly ITrickplayManager _trickplayManager;
+    private readonly TransientMediaItemRegistry? _transientMediaItemRegistry;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DynamicHlsHelper"/> class.
@@ -60,6 +61,7 @@ public class DynamicHlsHelper
     /// <param name="httpContextAccessor">Instance of the <see cref="IHttpContextAccessor"/> interface.</param>
     /// <param name="encodingHelper">Instance of <see cref="EncodingHelper"/>.</param>
     /// <param name="trickplayManager">Instance of <see cref="ITrickplayManager"/>.</param>
+    /// <param name="transientMediaItemRegistry">Registry for path-resolved items during playback.</param>
     public DynamicHlsHelper(
         ILibraryManager libraryManager,
         IUserManager userManager,
@@ -71,7 +73,8 @@ public class DynamicHlsHelper
         ILogger<DynamicHlsHelper> logger,
         IHttpContextAccessor httpContextAccessor,
         EncodingHelper encodingHelper,
-        ITrickplayManager trickplayManager)
+        ITrickplayManager trickplayManager,
+        TransientMediaItemRegistry? transientMediaItemRegistry = null)
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
@@ -84,6 +87,7 @@ public class DynamicHlsHelper
         _httpContextAccessor = httpContextAccessor;
         _encodingHelper = encodingHelper;
         _trickplayManager = trickplayManager;
+        _transientMediaItemRegistry = transientMediaItemRegistry;
     }
 
     /// <summary>
@@ -132,7 +136,8 @@ public class DynamicHlsHelper
                 _encodingHelper,
                 _transcodeManager,
                 transcodingJobType,
-                cancellationTokenSource.Token)
+                cancellationTokenSource.Token,
+                _transientMediaItemRegistry)
             .ConfigureAwait(false);
 
         _httpContextAccessor.HttpContext.Response.Headers.Append(HeaderNames.Expires, "0");
@@ -996,4 +1001,3 @@ public class DynamicHlsHelper
             StringComparison.Ordinal);
     }
 }
-

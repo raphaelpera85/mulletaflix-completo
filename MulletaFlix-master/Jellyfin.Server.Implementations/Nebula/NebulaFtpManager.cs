@@ -47,6 +47,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private NebulaUploadEngine? _uploadEngine;
     private NebulaFtpServerHost? _ftpServerHost;
     private NebulaHttpStreamServer? _httpStreamServer;
+    private NebulaPlaybackCache? _playbackCache;
     private NebulaStagingWatcher? _stagingWatcher;
     private NebulaSupabaseSyncService? _supabaseSyncService;
     private NebulaDownloaderEngine? _downloaderEngine;
@@ -1123,10 +1124,15 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             // 4. Servidor FTP C# nativo
+            _playbackCache = new NebulaPlaybackCache(
+                _configManager.CommonApplicationPaths.CachePath,
+                _loggerFactory.CreateLogger<NebulaPlaybackCache>());
+
             _ftpServerHost = new NebulaFtpServerHost(
                 _mongoContext,
                 _telegramPool,
                 _uploadEngine, // pode ser null em streamOnly
+                _playbackCache,
                 _loggerFactory.CreateLogger<NebulaFtpServerHost>(),
                 _loggerFactory.CreateLogger<NebulaFileSystem>(),
                 _loggerFactory.CreateLogger<NebulaFtpMembershipProvider>(),
@@ -1144,7 +1150,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 config.HttpStreamPort,    // HTTP Stream port (default 2123 for MulletaFlix)
                 _loggerFactory.CreateLogger<NebulaHttpStreamServer>(),
                 config.HttpStreamToken,
-                config.MaxActiveConnections);
+                config.MaxActiveConnections,
+                _playbackCache);
             _httpStreamServer.Start();
 
             if (poolInitTask != null)
@@ -1337,6 +1344,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _httpStreamServer = null;
             }
 
+            _playbackCache?.Dispose();
+            _playbackCache = null;
+
             if (_uploadEngine != null)
             {
                 await _uploadEngine.DisposeAsync().ConfigureAwait(false);
@@ -1453,6 +1463,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _telegramPool,
                 _loggerFactory.CreateLogger<NebulaDownloaderEngine>(),
                 _metadataExportService);
+            _downloaderEngine.OnUploadReady += filePath => _stagingWatcher?.EnqueueMediaFromDownloader(filePath);
             _downloaderEngine.OnLog += msg => AddDownloaderLog(msg);
             _downloaderEngine.OnProgressChanged += st =>
             {

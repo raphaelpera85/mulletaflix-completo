@@ -103,6 +103,7 @@ class AuthViewModelTest {
 
     @Test
     fun `quick connect availability is exposed and disabled servers get a clear message`() = runTest {
+        coEvery { discovery.discover(any()) } returns emptyList()
         val authRepo = object : FakeAuthRepository() {
             override suspend fun isQuickConnectEnabled(): Result<Boolean> = Result.success(false)
         }
@@ -117,6 +118,31 @@ class AuthViewModelTest {
             "Quick Connect está desativado neste servidor. Use usuário e senha.",
             viewModel.state.value.error,
         )
+    }
+
+    @Test
+    fun `quick connect availability failure can be retried`() = runTest {
+        coEvery { discovery.discover(any()) } returns emptyList()
+        var availabilityCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun isQuickConnectEnabled(): Result<Boolean> =
+                if (++availabilityCalls == 1) {
+                    Result.failure(IllegalStateException("timeout"))
+                } else {
+                    Result.success(true)
+                }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.isQuickConnectAvailable)
+        assertEquals("Não foi possível conectar ao servidor. Verifique a conexão e tente novamente.", viewModel.state.value.quickConnectAvailabilityError)
+
+        viewModel.retryQuickConnectAvailability()
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.state.value.isQuickConnectAvailable)
+        assertNull(viewModel.state.value.quickConnectAvailabilityError)
     }
 
     @Test
@@ -398,6 +424,25 @@ class AuthViewModelTest {
         advanceUntilIdle()
 
         assertEquals("http://192.168.1.10:8096", viewModel.state.value.serverUrl)
+    }
+
+    @Test
+    fun `switching from public fallback to LAN clears endpoint scoped login state`() = runTest {
+        coEvery { discovery.discover(any()) } returns listOf(
+            ServerInfo("LAN Server", "http://192.168.1.10:8096", serverId = "lan-id"),
+        )
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun getAvailableUsers(): Result<List<AvailableUser>> =
+                Result.success(listOf(AvailableUser(id = "public-user", name = "Public User")))
+        }
+
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals("http://192.168.1.10:8096", viewModel.state.value.serverUrl)
+        assertTrue(viewModel.state.value.availableUsers.isEmpty())
+        assertNull(viewModel.state.value.isQuickConnectAvailable)
+        assertNull(viewModel.state.value.quickConnectAvailabilityError)
     }
 
     @Test

@@ -85,6 +85,8 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
+- **Intro nativa automática antes de cada mídia**: o servidor usa a intro incluída no pacote por padrão, mesmo quando a configuração antiga ainda a marcava como desativada. A tela de Marca agora informa que a execução é automática e mantém o caminho apenas para uma intro personalizada.
+- **Cache local durante a reprodução Nebula**: ao iniciar uma mídia, o servidor mantém o streaming normal e pré-carrega os blocos do Telegram em `cache\nebula-playback`, servindo os próximos blocos do disco quando disponíveis. O cache é compartilhado entre STRM HTTP e a montagem FTP N:, protegido por sessão ativa e removido após uma hora sem atividade.
 - **Dois arquivos nesta release**: o instalador executável `mulletaflix_<versao>_windows-x64.exe`, para instalação limpa em uma máquina nova, e o pacote de atualização in-place `mulletaflix-update-win-x64.zip`, para quem já tem o servidor instalado. Desde a 12.0.63 o instalador executável é publicado junto de toda release de servidor.
 - **Varredura de séries não perde mais metadados**: ao regravar um item que já existia e cuja metadata mudou (provedores, campos travados ou trailers), as linhas filhas eram mapeadas apontando de volta para a instância nova do item. O EF seguia essa navegação, tentava rastrear uma segunda instância com o mesmo `Id` de uma linha já carregada do banco e abortava tudo com "cannot be tracked because another instance with the same key value for {'Id'} is already being tracked". O item deixava de ser salvo e a varredura registrava "Error while performing a library operation". A navegação agora é substituída pela chave estrangeira explícita antes da reinserção.
 - **Fim do esgotamento do pool do MariaDB**: cada arquivo indexado disparava uma verificação própria que esperava 10 segundos e depois rodava um `RefreshMetadata` completo. Numa varredura de milhares de séries, isso virava milhares de atualizações simultâneas e o pool batia no teto. O sintoma era "Connect Timeout expired. All pooled connections are in use.". As verificações agora passam por um limite de 4 simultâneas.
@@ -120,10 +122,14 @@ A pasta Nebula agora organiza as mídias em quatro raízes distintas, nesta sequ
 - **Migração automática no startup**: novelas dentro de `Series` no MongoDB são detectadas e movidas para `Novelas`. Também disponível via `POST /Nebula/Actions/ScanNovelas`.
 - **Ciclo de cleanup ajustado de 30 s → 15 min**: elimina a principal causa de pressão de memória em máquinas com ~16 GB.
 - **Correção: duplo-upload de arquivos**: a chave de dedupe da fila não era removida ao reenfileirar sidecars, permitindo upload duplicado do mesmo arquivo.
+- **Download com envio imediato**: mídias encontradas pelo download que já estão disponíveis localmente e precisam somente de envio agora são registradas no MongoDB e colocadas diretamente na fila de upload do Nebula, sem aguardar o scanner periódico.
+- **Identificação automática corrige nome e capa**: GoodShort, ShortMax, DramaFinds e DramaBox agora substituem os metadados e a imagem antigos ao aplicar uma identificação confirmada, evitando que uma capa ou título de outra mídia permaneça no item reconhecido.
+- **Título e capa permanecem da mesma fonte reconhecida**: quando a identificação traz um `ProviderId`, o provider correspondente passa a ser a autoridade para nome e imagens; os demais providers só enriquecem campos e completam artes ausentes, evitando título antigo com capa nova ou nova sobrescrita da capa correta.
+- **Dashboard informa atualização disponível**: o bloco Servidor agora consulta o status de atualização, mostra a versão disponível ao lado da versão instalada e abre o Centro de Atualizações ao clicar no aviso.
 
 ### 🧪 Cobertura de testes
 
-- 223 testes unitários Nebula passando (0 falhas).
+- 254 testes unitários Nebula passando (0 falhas).
 - 18 testes de integração IntroSkipper cobrindo registro do plugin e migração SQLite→MariaDB.
 '@
 

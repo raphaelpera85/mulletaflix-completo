@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.paging.appendDistinctBy
 import org.mulletaflix.domain.paging.hasMorePages
@@ -20,6 +21,7 @@ import org.mulletaflix.domain.usecase.GetFavoriteItemsUseCase
 import javax.inject.Inject
 
 data class FavoritesState(
+    val isOffline: Boolean = false,
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val items: List<MediaItem> = emptyList(),
@@ -33,6 +35,7 @@ class FavoritesViewModel @Inject constructor(
     private val getFavoriteItemsUseCase: GetFavoriteItemsUseCase,
     private val authRepository: AuthRepository,
     private val settingsRepository: SettingsRepository,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(FavoritesState())
@@ -54,6 +57,16 @@ class FavoritesViewModel @Inject constructor(
     private var fetchedItemCount = 0
 
     init {
+        viewModelScope.launch {
+            var previousOnline: Boolean? = null
+            networkMonitor.isOnline.distinctUntilChanged().collect { online ->
+                _state.update { it.copy(isOffline = !online) }
+                if (shouldRefreshLibraryOnNetworkReturn(previousOnline, online)) {
+                    refreshIfIdle()
+                }
+                previousOnline = online
+            }
+        }
         viewModelScope.launch {
             settingsRepository.getLibraryGridDensity().collect { density ->
                 _state.update { it.copy(gridDensity = normalizeLibraryGridDensity(density)) }

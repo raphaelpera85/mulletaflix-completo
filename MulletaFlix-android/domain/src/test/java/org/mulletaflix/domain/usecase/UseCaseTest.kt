@@ -627,6 +627,9 @@ class UseCaseTest {
             override suspend fun createGroup(name: String) = Result.success(Unit)
             override suspend fun joinGroup(groupId: String) = Result.success(Unit)
             override suspend fun leaveGroup() = Result.success(Unit)
+            override suspend fun sendPlaybackCommand(command: org.mulletaflix.domain.repository.SyncPlayPlaybackCommand) = Result.success(Unit)
+            override suspend fun reportBuffering(status: org.mulletaflix.domain.repository.SyncPlayPlaybackStatus) = Result.success(Unit)
+            override suspend fun reportReady(status: org.mulletaflix.domain.repository.SyncPlayPlaybackStatus) = Result.success(Unit)
         }
         val useCase = ManageSyncPlayUseCase(repo)
 

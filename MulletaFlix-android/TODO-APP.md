@@ -4,6 +4,192 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 ---
 
+## Trabalho APK v1.3.55 — Cache offline durável e comandos SyncPlay consistentes
+
+- [x] Um comando SyncPlay novo invalida o comando agendado anterior; o player revalida sala, mídia e geração antes de aplicar.
+- [x] Atualização da fila invalida comandos pendentes da faixa anterior.
+- [x] Cache de downloads offline movido para diretório privado persistente; cache legado é migrado e pastas coexistentes são mescladas sem sobrescrita.
+- [x] Conflitos entre arquivos mantêm as cópias intactas e a pasta antiga ativa; falhas de migração também preservam os downloads.
+- [x] Player lê mídia baixada sem gravar streams não baixados no cache persistente.
+- [x] Testes cobrem latest-wins, migração, coexistência, conflito, falha de migração e configuração de cache somente leitura.
+- [x] Teste instrumentado no Android TV comprova leitura real de segmentos offline sem bytes upstream e stream sem persistência no cache.
+- [x] Android TV: 20 testes instrumentados, 19 aprovados, 1 ignorado preexistente de touch target não aplicável à TV, 0 falhas; emulador encerrado automaticamente.
+- [x] Gate da rodada anterior: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`; 980 testes, 0 falhas, 0 ignorados.
+- [x] APK intermediário da rodada anterior: `dist/interim-v1.3.55/mulletaflix-app-v1.3.55.apk`, 7.372.099 bytes, SHA-256 `FD9ED53B0CEA115F7EA87E160D7CC0EF398164AD3E461DB0F241EF8C99EDAB10`. O pacote v1.3.55 preexistente foi verificado e preservado.
+- [x] Gate desta rodada (factory extraída + teste instrumentado real): `testDebugUnitTest` (980 testes, 0 falhas, 0 ignorados), `:app:lintDebug`, `:app:assembleRelease` e suíte Android TV concluídos com `BUILD SUCCESSFUL`.
+- [ ] Publicação remota: não feita; versões intermediárias seguem a cadência de release do APK.
+
+---
+
+## Release v1.3.54 — Eventos SyncPlay limitados à sala ativa (APK)
+
+- [x] O APK agora descarta comandos, atualizações da sala e da fila cujo `groupId` não corresponde à sala ativa; eventos de conexão/desconexão também são ignorados sem uma sala ativa.
+- [x] Testes unitários cobrem eventos da sala correta, de outra sala e recebidos sem sala ativa.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK local: `dist/mulletaflix-app-v1.3.54.apk`, 7.372.095 bytes, SHA-256 `9AD33AB2132E8FBF32C0E7F55AB799DC1704B365920A2ED6C461614C6524EC9C`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.53 — Teste instrumentado para notificações do SyncPlay (APK)
+
+- [x] O efeito de Snackbar do SyncPlay foi isolado em componente testável, mantendo a mensagem persistente nos controles da sala.
+- [x] Teste instrumentado confirma no Android TV que eventos repetidos com a mesma mensagem continuam visíveis.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK local: `dist/mulletaflix-app-v1.3.53.apk`, 7.372.099 bytes, SHA-256 `0AFFDEBDC32FA19A8964C659DD10552309E6550A716C1E713829234000B7B505`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.52 — Feedback visual de eventos do SyncPlay (APK)
+
+- [x] Eventos de conexão, desconexão, comandos, sala e fila agora geram notificações transitórias visíveis no APK.
+- [x] Cada evento possui sequência própria, então eventos consecutivos com a mesma mensagem não são descartados pela UI.
+- [x] O estado persistente continua mostrando o último evento nos controles da sala, enquanto a Snackbar fornece confirmação imediata.
+- [x] Teste unitário cobre as mensagens de eventos em tempo real.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK local: `dist/mulletaflix-app-v1.3.52.apk`, 7.372.099 bytes, SHA-256 `1E01A68D925F1D0DD2C185C592FBE2CDC07D52EAE4E3F0D3295FA6368BEDAD99`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.51 — Estado consistente ao trocar automaticamente para a LAN (APK)
+
+- [x] A descoberta LAN invalida usuários e Quick Connect do endpoint anterior antes de concluir a verificação do novo servidor.
+- [x] O carregamento persistido do endpoint público é ignorado quando a descoberta já selecionou um endereço local diferente, evitando mistura de estados.
+- [x] Teste unitário cobre a transição público → LAN e confirma que o seletor de usuários e Quick Connect não exibem dados antigos.
+- [x] Android TV: 7/7 testes instrumentados de autenticação aprovados, sem skips ou falhas; emulador encerrado automaticamente.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK local: `dist/mulletaflix-app-v1.3.51.apk`, 7.369.451 bytes, SHA-256 `A7F9D2B526420D15757ACC62DD31622B67EE9A75A276874011A5601EBCF56461`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.50 — Cobertura do retry de disponibilidade do Quick Connect (APK)
+
+- [x] O teste unitário do `AuthViewModel` cobre falha de `QuickConnect/Enabled`, mensagem acionável, retry e recuperação para disponibilidade confirmada.
+- [x] A cobertura instrumentada continua validando os estados de carregamento, erro com retry e disponibilidade autorizada na Android TV.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK local: `dist/mulletaflix-app-v1.3.50.apk`, 7.369.451 bytes, SHA-256 `535524D2DAC96442DBE6B7441E88FE69BAA40B51E6ECF47611723BC9DAACAFA9`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.49 — Retry acionável para falha de disponibilidade do Quick Connect (APK)
+
+- [x] Falhas de timeout/rede ao consultar `QuickConnect/Enabled` deixam de prender a tela indefinidamente em “Verificando”.
+- [x] A tela exibe a mensagem acionável retornada pela política de conexão e o botão focável `Tentar novamente`.
+- [x] O retry reinicia a verificação no servidor atualmente selecionado e invalida o estado anterior.
+- [x] Teste instrumentado cobre a mensagem de erro e a ação de retry, além dos estados desconhecido e disponível.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 7/7 testes instrumentados de autenticação aprovados, sem skips ou falhas; emulador encerrado automaticamente.
+- [x] APK local: `dist/mulletaflix-app-v1.3.49.apk`, 7.369.451 bytes, SHA-256 `A7596996CF623877C54A2581AAC5DD694BFA94AEA96CB4CE61E0E19111713E85`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.48 — Quick Connect aguarda a disponibilidade real do servidor (APK)
+
+- [x] O botão de geração não aparece enquanto `QuickConnect/Enabled` ainda está sendo verificado.
+- [x] A tela exibe estado explícito `Verificando Quick Connect…`, evitando iniciar a operação antes da resposta do servidor.
+- [x] O fluxo desativado continua orientando o usuário para login com usuário e senha.
+- [x] Teste instrumentado cobre a ausência do botão durante o estado desconhecido; o teste de início autorizado continua coberto.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 6/6 testes instrumentados de autenticação aprovados, sem skips ou falhas; emulador encerrado automaticamente.
+- [x] APK local: `dist/mulletaflix-app-v1.3.48.apk`, 7.369.451 bytes, SHA-256 `A14D76317B408B4A60269F65B1B1DE4DD7B87B0795DEF086C4BC45193FF5357E`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.47 — Correção de micro-seeks nas atualizações de fila SyncPlay (APK)
+
+- [x] Atualizações de fila com diferença de até 750 ms não forçam seek, reduzindo microtravadas durante a reprodução.
+- [x] Drift acima da tolerância continua corrigido para a posição autoritativa do servidor.
+- [x] Comandos explícitos `Pause`, `Unpause` e `Seek` continuam usando a posição autoritativa recebida.
+- [x] Teste unitário cobre drift pequeno, drift significativo e posição negativa.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 15/15 testes instrumentados aprovados na Biblioteca; SyncPlay reportou 0 testes; emulador encerrado automaticamente.
+- [x] APK local: `dist/mulletaflix-app-v1.3.47.apk`, 7.369.451 bytes, SHA-256 `592D64DFD0C04DC0BD8E5B8CBC036ED5AAB28FCAD2D3E4CAFC61CA939C630E46`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.46 — Estado visual da reconexão SyncPlay no player (APK)
+
+- [x] O player exibe aviso não bloqueante quando o SyncPlay perde a conexão e tenta reconectar.
+- [x] O aviso não aparece para mídia offline nem para sessões SyncPlay conectadas, evitando ruído visual.
+- [x] O layout usa espaçamento próprio quando o aviso offline também está visível e permanece compatível com TV/D-pad.
+- [x] Teste unitário cobre as mensagens dos estados `NONE`, `CONNECTED` e `RECONNECTING`.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 15/15 testes instrumentados aprovados na Biblioteca; SyncPlay reportou 0 testes; emulador encerrado automaticamente.
+- [x] APK local: `dist/mulletaflix-app-v1.3.46.apk`, 7.369.451 bytes, SHA-256 `3657713368B1447CC46854929F2BA9A93913BCC99532841ECCA62E2BEA4BAC30`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.45 — Proteção contra callbacks obsoletos do SyncPlay (APK)
+
+- [x] Mensagens recebidas por um WebSocket substituído durante reconexão ou troca de sala agora são descartadas antes de alcançar o player.
+- [x] A mesma validação de identidade foi aplicada aos callbacks de abertura, mensagem, fechamento e falha.
+- [x] Teste unitário cobre socket ativo, socket antigo e callback sem conexão ativa.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 15/15 testes instrumentados aprovados na Biblioteca; SyncPlay reportou 0 testes; emulador encerrado automaticamente.
+- [x] APK local: `dist/mulletaflix-app-v1.3.45.apk`, 7.369.451 bytes, SHA-256 `4B2A2AD74A36059423C69E56FA4680ABD5D1D7EFFEC76F2EA1464CEA0FBEA113`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.44 — Posicionamento autoritativo nos comandos SyncPlay (APK)
+
+- [x] `Pause` e `Unpause` agora aplicam `PositionTicks` do servidor antes de alterar o estado do player, evitando divergência após comandos remotos.
+- [x] `Stop` continua sem forçar uma posição recebida, preservando o contrato semântico do comando.
+- [x] Teste unitário cobre a conversão de posição para `Pause`/`Unpause` e a ausência de seek em `Stop`.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 15/15 testes instrumentados aprovados na Biblioteca; SyncPlay reportou 0 testes; emulador encerrado automaticamente.
+- [x] APK local: `dist/mulletaflix-app-v1.3.44.apk`, 7.369.451 bytes, SHA-256 `71192BE76FB02E4EA3541E4FDDE52DCB2EF8815FBD7AB4EB692368775E354DD6`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.43 — Reconexão resiliente do SyncPlay (APK)
+
+- [x] WebSocket SyncPlay reconecta automaticamente após falha ou fechamento inesperado enquanto a sala continua ativa.
+- [x] Backoff limitado de 1, 2, 4 e 8 segundos evita tempestade de conexões durante perda de Wi‑Fi/Internet.
+- [x] Saída da sala cancela a reconexão pendente e impede que uma conexão antiga volte a controlar o player.
+- [x] Testes unitários cobrem os limites da política de backoff, incluindo tentativas negativas e tentativas prolongadas.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 15/15 testes instrumentados aprovados na Biblioteca; SyncPlay reportou 0 testes; emulador encerrado automaticamente.
+- [x] APK local: `dist/mulletaflix-app-v1.3.43.apk`, 7.369.451 bytes, SHA-256 `CC13834674027F4D3313D649FCAEA986B6244C22AF0CCE0FCECDA3BB265ADED9`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.42 — Aplicação de comandos SyncPlay no player (APK)
+
+- [x] Contrato WebSocket atualizado com `PlaylistItemId`, `ItemId`, `PositionTicks`, `When` e estado da fila conforme o servidor.
+- [x] Player aplica automaticamente pausa, retomada, parada e busca recebidas da sala ativa, respeitando a mídia e o grupo atuais.
+- [x] Atualizações de fila trocando a mídia atual são aplicadas ao player com posição e estado de reprodução sincronizados.
+- [x] Comandos de outra sala, outra mídia ou sem identificação de playlist são descartados para evitar controles indevidos.
+- [x] Testes unitários cobrem parser de comandos/atualização de fila e política de filtragem/posição.
+- [x] Gate Android: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 15/15 testes instrumentados aprovados na Biblioteca; SyncPlay reportou 0 testes; emulador encerrado automaticamente.
+- [x] APK local: `dist/mulletaflix-app-v1.3.42.apk`, 7.369.451 bytes, SHA-256 `FBB62AF1042548A8C7176B780970597F2147C43D607208257700EC8B37B3482A`.
+- [ ] Publicação remota da release do APK: mantida pendente nesta conversa APK-only.
+
+---
+
+## Release v1.3.41 — SyncPlay em tempo real (APK)
+
+- [x] Cliente WebSocket autenticado no endpoint `/socket`, usando `api_key` e `deviceId` da sessão.
+- [x] Parser coberto por testes para `SyncPlayCommand` e `SyncPlayGroupUpdate`; mensagens não relacionadas são ignoradas.
+- [x] Ciclo de vida da conexão ligado à entrada/saída da sala SyncPlay, com estado de conexão e último evento visíveis na UI.
+- [x] Gate Android executado com `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` (`BUILD SUCCESSFUL`).
+- [x] Android TV: 15 testes instrumentados, 15 aprovados, 0 falhas e 0 ignorados; emulador encerrado automaticamente.
+- [x] APK local gerado: `dist/mulletaflix-app-v1.3.41.apk`, 7.353.067 bytes, SHA-256 `BB29FA73BBA9D1AEE38D512F148CC087A3165F17CA0570EB680FFD0E5C35D54F`.
+- [x] Aplicar comandos remotos automaticamente ao player local (concluído na v1.3.42).
+
+---
+
 ## 🏛️ 1. Arquitetura & Infraestrutura (Clean Architecture + Multi-module)
 
 - [x] **Configuração Gradle & Version Catalog (`libs.versions.toml`)**
@@ -164,10 +350,12 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 ## 👥 10. SyncPlay (Sessões Sincronizadas) (`:feature:sync-play`)
 
 - [x] **Salas de Sincronização**
-  - [x] Criação e entrada em salas existentes via WebSocket do MulletaFlix
-  - [x] Controle sincronizado de Play, Pause e Seek entre múltiplos participantes
-  - [x] Lista de usuários conectados na sala com seus status de buffer
-  - [x] Notificações em tela de ações de outros usuários
+  - [x] Criação, listagem, entrada e saída via endpoints REST oficiais do MulletaFlix
+  - [x] Comandos remotos de Pausar, Retomar e Parar via endpoints REST oficiais
+  - [x] Lista de participantes retornada pelo servidor
+  - [x] Listener WebSocket para aplicar automaticamente no player local as ações iniciadas por outros participantes
+  - [x] Sincronização de Play/Seek/Stop e troca de mídia em tempo real no player Android
+  - [x] Player envia transições SyncPlay `Buffering`/`Ready` com `When`, posição em ticks, intenção de reprodução e `PlaylistItemId`; processador serial com fila pendente limitada/coalescida, deduplicação por sessão e validação da sala/mídia/rede atuais. Testes cobrem atraso, estado obsoleto, offline, falha/retry e reconexão na mesma sala. Validado no trabalho pós-v1.3.55; ainda sem nova release.
 
 ---
 
@@ -1632,3 +1820,203 @@ Pendências relacionadas:
 - [x] Usar largura máxima maior e centralizada na Android TV.
 - [x] Manter largura total em celulares.
 - [x] Cobrir os três perfis de largura em teste unitário.
+
+## 248. Seleção LAN após carregar servidores persistidos (v1.3.8)
+- [x] Aguardar a emissão da lista persistida antes de escolher automaticamente um servidor LAN.
+- [x] Evitar que uma resposta UDP chegue antes do `serverId` salvo e conecte a um servidor incorreto.
+- [x] Cobrir a corrida com teste unitário de política de seleção.
+
+## 249. Foco remoto na autenticação para Android TV (v1.3.9)
+- [x] Exibir anel vermelho de foco nos botões de login, cadastro e Quick Connect.
+- [x] Preservar a navegação por controle remoto sem alterar a lógica de autenticação.
+- [x] Manter os testes semânticos dos formulários e do botão Quick Connect.
+
+## 250. Foco remoto em seleção de usuário e cadastro (v1.3.10)
+- [x] Exibir foco vermelho nos avatares selecionáveis da tela de login.
+- [x] Exibir foco vermelho nas ações de confirmar e voltar do cadastro.
+- [x] Cobrir a ativação acessível da seleção de usuário por avatar.
+
+## 251. Ordenação acessível para controle remoto (v1.3.11)
+- [x] Exibir foco vermelho nos itens de ordenação e na ação de aplicar na Android TV.
+- [x] Expor descrições acessíveis explícitas para ascendente e descendente.
+- [x] Cobrir a presença das duas direções e a aplicação conjunta da ordenação em teste Compose.
+
+## 252. Filtros acessíveis para controle remoto (v1.3.12)
+- [x] Exibir foco vermelho nos chips de filtro e nas ações do diálogo.
+- [x] Expor descrições acessíveis para selecionar e remover filtros.
+- [x] Cobrir seleção, limpeza e fechamento do diálogo em teste Compose.
+
+## 253. Encerramento do Quick Connect ao sair da autenticação (v1.3.13)
+- [x] Cancelar o polling ao retornar da aba Quick Connect para o login.
+- [x] Cancelar o polling ao deixar a tela de autenticação.
+- [x] Preservar a limpeza de spinner, segredo e estado de espera coberta no ViewModel.
+
+## 254. Corrida de refresh ao abrir biblioteca na Android TV (v1.3.14)
+- [x] Impedir que o refresh de foreground substitua o carregamento inicial ainda não refletido no estado visual.
+- [x] Preservar uma única requisição quando a tela dispara carga inicial e refresh simultaneamente.
+- [x] Cobrir a janela de corrida com teste unitário do `LibraryViewModel`.
+
+## 255. Corrida de refresh ao abrir a Home na Android TV (v1.3.15)
+- [x] Tratar o `Job` ativo como fonte de verdade antes da publicação de `isLoading`.
+- [x] Evitar que o refresh de foreground duplique ou cancele a carga inicial da Home.
+- [x] Cobrir a janela de corrida no `HomeViewModel`.
+
+## 256. Atualização manual da Home por controle remoto (v1.3.16)
+- [x] Expor a ação `Atualizar Home` no menu superior da Home.
+- [x] Manter o alvo acessível no D-pad e mostrar estado ocupado sem removê-lo do foco.
+- [x] Cobrir o acionamento da ação em teste instrumentado de Android TV.
+
+## 257. Versão do servidor somente após verificação (v1.3.17)
+- [x] Remover a versão histórica fixa do servidor oficial na tela inicial de conexão.
+- [x] Exibir a versão apenas quando o handshake do servidor retornar essa informação.
+- [x] Cobrir a ausência de versão não verificada em teste unitário.
+
+## 258. Corrida de refresh na TV ao vivo (v1.3.18)
+- [x] Tratar o `Job` ativo como fonte de verdade antes da publicação de `isLoading`.
+- [x] Evitar que o timer de foreground cancele a primeira carga de canais.
+- [x] Cobrir a janela de corrida em teste unitário do `LiveTvViewModel`.
+
+## 259. Controle remoto na barra da TV ao vivo (v1.3.19)
+- [x] Separar a barra superior em componente testável sem dependência de rede ou Hilt.
+- [x] Cobrir foco D-pad, atualização de canais e abertura do EPG em teste instrumentado.
+- [x] Impedir o acesso ao EPG enquanto ainda não existem canais carregados.
+
+## 260. EPG atualizado enquanto está aberto (v1.3.20)
+- [x] Atualizar a programação automaticamente a cada minuto enquanto o diálogo EPG estiver visível.
+- [x] Pausar a consulta quando o diálogo for fechado ou a Activity sair do foreground.
+- [x] Cobrir a política de atualização aberta/fechada em teste unitário.
+
+## 261. Conteúdo visual do EPG (v1.3.21)
+- [x] Cobrir o botão `Gravar` para programas agendáveis.
+- [x] Impedir que programas já agendados sejam apresentados para gravação novamente.
+- [x] Manter programas visíveis e oferecer retry quando a atualização do EPG falhar.
+
+## 262. Foco remoto nas ações do EPG (v1.3.22)
+- [x] Destacar em vermelho o botão `Gravar` quando receber foco na Android TV.
+- [x] Manter o comportamento padrão de toque em celular e tablet.
+- [x] Cobrir o botão agendável no conteúdo do EPG em teste Compose instrumentado.
+
+## 263. Foco remoto completo no EPG (v1.3.23)
+- [x] Aplicar destaque vermelho também ao retry de erro do guia.
+- [x] Aplicar destaque vermelho ao botão `Fechar` do diálogo.
+- [x] Reutilizar um componente único para manter o comportamento consistente entre as ações.
+
+## 264. Retry do player com foco remoto (v1.3.24)
+- [x] Extrair o cartão de erro do player para um componente testável.
+- [x] Destacar em vermelho o botão `Tentar novamente` quando focado na Android TV.
+- [x] Preservar o retry remoto para streams online e reprodução offline.
+
+## 265. Foco automático na recuperação do player (v1.3.25)
+- [x] Direcionar automaticamente o foco para `Tentar novamente` quando um erro aparece na Android TV.
+- [x] Manter o foco automático restrito à televisão, sem interferir em celular e tablet.
+- [x] Verificar a semântica de foco e a ativação do retry em teste Compose instrumentado.
+
+## 266. Foco no próximo episódio (v1.3.26)
+- [x] Direcionar o foco para `Assistir Agora` quando o prompt surgir na Android TV.
+- [x] Destacar a ação principal do próximo episódio com a cor de foco vermelha.
+- [x] Manter o cancelamento e o comportamento de toque em outras superfícies.
+
+## 267. Retry focável na TV ao vivo (v1.3.27)
+- [x] Aplicar o mesmo destaque vermelho de controle remoto aos retries de erro dos canais e gravações.
+- [x] Manter o retry de toque em celular/tablet e o comportamento de atualização existente.
+- [x] Cobrir foco e acionamento do retry do EPG em teste instrumentado de Android TV.
+
+## 268. Retry focável na Home (v1.3.28)
+- [x] Aplicar destaque vermelho de foco remoto aos três cartões de erro recuperáveis da Home.
+- [x] Preservar o comportamento de toque em celular/tablet.
+- [x] Cobrir foco e acionamento do retry em teste Compose instrumentado.
+
+## 269. Foco remoto nos menus do player (v1.3.29)
+- [x] Destacar em vermelho as opções de áudio, legendas e qualidade quando focadas na Android TV.
+- [x] Preservar seleção por toque e semântica de rádio em celular/tablet.
+- [x] Cobrir o foco remoto de uma opção de idioma em teste instrumentado.
+
+## 270. Foco remoto nos controles avançados do player (v1.3.30)
+- [x] Aplicar o mesmo foco visual aos menus de velocidade, temporizador e proporção da tela.
+- [x] Manter a seleção inteira da linha e a semântica de rádio existente.
+- [x] Cobrir o foco remoto de uma opção do temporizador em teste instrumentado.
+
+## 271. Retry focável na biblioteca (v1.3.31)
+- [x] Aplicar o foco vermelho aos retries de erro inicial, erro em grade e banner offline.
+- [x] Preservar a grade adaptativa e a interação por toque.
+- [x] Cobrir o foco remoto do retry offline em teste instrumentado.
+
+## 272. Encerramento seguro da sessão remota ao trocar mídia (v1.3.32)
+- [x] Conferir a versão anterior antes do bump: `v1.3.31`, `versionCode=332`, SHA-256 `8BDF480C8BEAC44DE5951E6066D9C00B34E07E175559CBF9B3EBBF8798671385`.
+- [x] Encerrar o playback remoto anterior antes de iniciar outra mídia, aguardando o relatório de parada.
+- [x] Impedir que relatórios atrasados atravessem troca de conta, sessão ou geração de carregamento.
+- [x] Preservar o fluxo offline sem chamadas indevidas ao servidor e proteger a carga offline contra callbacks obsoletos.
+- [x] Validar 19 testes instrumentados do player na Android TV: 18 aprovados, 1 skipped esperado, 0 falhas.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+
+## 273. Mensagens acionáveis de conexão e Quick Connect (v1.3.33)
+- [x] Conferir a versão anterior antes do bump: `v1.3.32`, `versionCode=333`, SHA-256 `60F9A6A831DB3A27544CCB127BA68C6037D877CBB9915795C66DEBC5C41B5F78`.
+- [x] Traduzir falhas de HTTP, timeout, host indisponível e bloqueio CLEARTEXT em mensagens úteis para conexão, login, cadastro e Quick Connect.
+- [x] Validar 5 testes instrumentados de autenticação na Android TV, sem falhas.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Gerar o APK local `v1.3.33`, `versionCode=334`, 7.336.683 bytes, SHA-256 `D08648413EE7BF87EA3215594F8F23691DE4CEBD7F2AC6619532B31061D0117E`.
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 274. Loop de atualização resiliente na TV (v1.3.34)
+- [x] Conferir a versão anterior antes do bump: `v1.3.33`, `versionCode=334`, SHA-256 `D08648413EE7BF87EA3215594F8F23691DE4CEBD7F2AC6619532B31061D0117E`.
+- [x] Proteger os loops de atualização da Home e da Biblioteca contra falhas transitórias sem engolir cancelamento de lifecycle.
+- [x] Validar os testes instrumentados de regressão: Home 12/12 e Biblioteca 14/14 na Android TV.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Gerar e registrar o APK local `v1.3.34`, `versionCode=335`, 7.336.679 bytes, SHA-256 `46E34B8C6BFC73FD41B9A0ED0CB42862AD1F9D231B13643C2CEC2553FFAF62B4`.
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 280. Controles básicos de reprodução no SyncPlay (v1.3.40)
+- [x] Conferir a versão anterior antes do bump: `v1.3.39`, `versionCode=340`, 7.353.067 bytes, SHA-256 `3095F6E29CB528773250E0484636E73AD774281E7B0334C40C153B7CED08FD31`.
+- [x] Mapear as rotas reais do servidor para `SyncPlay/Pause`, `SyncPlay/Unpause` e `SyncPlay/Stop` no cliente Android.
+- [x] Expor os comandos na sala ativa com foco compatível com controle remoto/D-pad e proteção contra toques duplicados.
+- [x] Adicionar cobertura de contrato da API e teste unitário do ViewModel para envio único durante submissão.
+- [x] Executar a suíte instrumentada da Biblioteca na Android TV: 15/15, 0 skipped, 0 falhas; o módulo SyncPlay não possui testes instrumentados (`0 testes`).
+- [x] Executar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0 antes do empacotamento.
+- [x] Gerar e registrar o APK local `v1.3.40`, `versionCode=341`, 7.353.067 bytes, SHA-256 `F693CFC81D1D4128FD5CC45E13C149AA82436A026CDADF11D6F846BB01C16767`.
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 279. Cobertura instrumentada do banner offline contextual (v1.3.39)
+- [x] Conferir a versão anterior antes do bump: `v1.3.38`, `versionCode=339`, SHA-256 `FAAAEDD038CF40EC7B35C1EFF3A722978A59156EFEE68E2CEC7A0F020B3442F9`.
+- [x] Adicionar teste instrumentado para a mensagem contextual de Minha Lista no banner offline compartilhado.
+- [x] Confirmar que a ação `Tentar novamente` continua visível e compatível com foco remoto/D-pad.
+- [x] Validar a suíte instrumentada da Biblioteca na Android TV: 15/15, 0 skipped, 0 falhas.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0 antes do bump.
+- [x] Gerar e registrar o APK local `v1.3.39`, `versionCode=340`, 7.353.067 bytes, SHA-256 `3095F6E29CB528773250E0484636E73AD774281E7B0334C40C153B7CED08FD31`.
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 278. Banner offline contextual em Minha Lista (v1.3.38)
+- [x] Conferir a versão anterior antes do bump: `v1.3.37`, `versionCode=338`, SHA-256 `CC613BFFDD9E63F65AF8E9BDF0C861C4700EA0D804CDFF2A9A25858F44A681DC`.
+- [x] Exibir em Minha Lista o estado offline enquanto a conectividade estiver indisponível.
+- [x] Reutilizar o banner focável da Biblioteca com mensagem contextual e ação de retry para TV/D-pad.
+- [x] Cobrir o estado offline e sua limpeza após o retorno da rede no teste unitário de reconciliação.
+- [x] Validar a suíte instrumentada da Biblioteca na Android TV: 14/14, 0 skipped, 0 falhas.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0 antes do bump.
+- [x] Gerar e registrar o APK local `v1.3.38`, `versionCode=339`, 7.353.067 bytes, SHA-256 `FAAAEDD038CF40EC7B35C1EFF3A722978A59156EFEE68E2CEC7A0F020B3442F9`.
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 277. Recuperação de Minha Lista após retorno da rede (v1.3.37)
+- [x] Conferir a versão anterior antes do bump: `v1.3.36`, `versionCode=337`, SHA-256 `2AEF6EADBD1109FBA95BDA678CFF89B7A8DAC4F10169FA22046F152ED1D0BC8C`.
+- [x] Fazer Minha Lista observar o estado de conectividade e atualizar quando a rede voltar após uma interrupção.
+- [x] Reutilizar a política de refresh ocioso para não cancelar uma requisição em andamento nem duplicar chamadas.
+- [x] Adicionar teste unitário de regressão para uma lista stale ser reconciliada após o retorno da rede.
+- [x] Validar a suíte instrumentada da Biblioteca na Android TV: 14/14, 0 skipped, 0 falhas.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0 antes do bump.
+- [x] Gerar e registrar o APK local `v1.3.37`, `versionCode=338`, 7.353.067 bytes, SHA-256 `CC613BFFDD9E63F65AF8E9BDF0C861C4700EA0D804CDFF2A9A25858F44A681DC`.
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 276. Atualização resiliente de Minha Lista/Favoritos na TV (v1.3.36)
+- [x] Conferir a versão anterior antes do bump: `v1.3.35`, `versionCode=336`, SHA-256 `9F87A81CE26E38933C07851AC14F49E7F0CDB28A409653783C694C91353AC5AF`.
+- [x] Reutilizar o scheduler resiliente da Biblioteca em Minha Lista/Favoritos, preservando atualização automática na Android TV após falha transitória.
+- [x] Validar o cancelamento pelo lifecycle e o bloqueio de polling fora do foreground.
+- [x] Validar a suíte instrumentada da Biblioteca na Android TV: 14/14, 0 skipped, 0 falhas.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Gerar e registrar o APK local `v1.3.36`, `versionCode=337`, 7.353.067 bytes, SHA-256 `2AEF6EADBD1109FBA95BDA678CFF89B7A8DAC4F10169FA22046F152ED1D0BC8C`.
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## 275. Atualização resiliente da TV ao vivo e EPG (v1.3.35)
+- [x] Conferir a versão anterior antes do bump: `v1.3.34`, `versionCode=335`, SHA-256 `46E34B8C6BFC73FD41B9A0ED0CB42862AD1F9D231B13643C2CEC2553FFAF62B4`.
+- [x] Centralizar canais e EPG em scheduler de foreground resiliente a falhas transitórias.
+- [x] Validar os testes instrumentados do Live TV: 8/8, 0 skipped, 0 falhas.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Gerar e registrar o APK local `v1.3.35`, `versionCode=336`, 7.353.067 bytes, SHA-256 `9F87A81CE26E38933C07851AC14F49E7F0CDB28A409653783C694C91353AC5AF`.
+- [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.

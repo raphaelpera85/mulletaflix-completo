@@ -48,6 +48,7 @@ public class VideosController : BaseMulletaFlixApiController
     private readonly ITranscodeManager _transcodeManager;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly EncodingHelper _encodingHelper;
+    private readonly TransientMediaItemRegistry _transientMediaItemRegistry;
 
     private readonly TranscodingJobType _transcodingJobType = TranscodingJobType.Progressive;
 
@@ -63,6 +64,7 @@ public class VideosController : BaseMulletaFlixApiController
     /// <param name="transcodeManager">Instance of the <see cref="ITranscodeManager"/> interface.</param>
     /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
     /// <param name="encodingHelper">Instance of <see cref="EncodingHelper"/>.</param>
+    /// <param name="transientMediaItemRegistry">Registry for path-resolved items during playback.</param>
     public VideosController(
         ILibraryManager libraryManager,
         IUserManager userManager,
@@ -72,7 +74,8 @@ public class VideosController : BaseMulletaFlixApiController
         IMediaEncoder mediaEncoder,
         ITranscodeManager transcodeManager,
         IHttpClientFactory httpClientFactory,
-        EncodingHelper encodingHelper)
+        EncodingHelper encodingHelper,
+        TransientMediaItemRegistry transientMediaItemRegistry)
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
@@ -83,6 +86,7 @@ public class VideosController : BaseMulletaFlixApiController
         _transcodeManager = transcodeManager;
         _httpClientFactory = httpClientFactory;
         _encodingHelper = encodingHelper;
+        _transientMediaItemRegistry = transientMediaItemRegistry;
     }
 
     /// <summary>
@@ -437,7 +441,8 @@ public class VideosController : BaseMulletaFlixApiController
                 _encodingHelper,
                 _transcodeManager,
                 _transcodingJobType,
-                cancellationTokenSource.Token)
+                cancellationTokenSource.Token,
+                _transientMediaItemRegistry)
             .ConfigureAwait(false);
 
         if (@static.HasValue && @static.Value && state.DirectStreamProvider is not null)
@@ -662,4 +667,3 @@ public class VideosController : BaseMulletaFlixApiController
             enableAudioVbrEncoding);
     }
 }
-

@@ -1,0 +1,5 @@
+Exception: D:\Users\Raphael\Documents\Projetos\mulletaflix\.tmp-clean-empty-nebula.ps1:43
+Line |
+  43 |      if($null -eq $del){throw 'DeleteMany method not found'}
+     |                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | DeleteMany method not found

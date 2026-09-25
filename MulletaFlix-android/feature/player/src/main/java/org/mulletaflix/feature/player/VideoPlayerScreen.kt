@@ -19,6 +19,7 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
@@ -38,6 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
@@ -57,6 +61,7 @@ import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
+import org.mulletaflix.designsystem.components.isTelevisionDevice
 import org.mulletaflix.designsystem.subtitle.SUBTITLE_OUTLINE_COLOR
 import org.mulletaflix.designsystem.subtitle.subtitleForegroundColor
 import org.mulletaflix.domain.model.subtitleFractionalTextSize
@@ -408,22 +413,24 @@ fun VideoPlayerScreen(
             PlayerOfflineNotice(visible = state.isNetworkOffline)
         }
 
+        syncPlayConnectionMessage(state.syncPlayConnection)?.let { message ->
+            PlayerSyncPlayNotice(
+                message = message,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = if (state.isNetworkOffline) 76.dp else 24.dp),
+            )
+        }
+
         AnimatedVisibility(visible = state.error != null, modifier = Modifier.align(Alignment.Center)) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(state.error ?: "Erro de reprodução", color = MaterialTheme.colorScheme.onSurface)
-                    Button(onClick = {
-                        if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId)
-                        else viewModel.retryPlayback()
-                    }) {
-                        Text("Tentar novamente")
-                    }
-                }
-            }
+            PlayerErrorCard(
+                message = state.error ?: "Erro de reprodução",
+                isTelevision = isTelevision,
+                onRetry = {
+                    if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId)
+                    else viewModel.retryPlayback()
+                },
+            )
         }
 
         // ── Skip Intro button ────────────────────────────────────────────────
@@ -483,55 +490,13 @@ fun VideoPlayerScreen(
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 100.dp)
         ) {
             if (nextEpisode != null) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                    modifier = Modifier.widthIn(max = 340.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "Próximo Episódio",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.secondary,
-                            )
-                        }
-                        Text(
-                            text = nextEpisode.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                        formatNextEpisodeSubtitle(nextEpisode.seasonNumber, nextEpisode.episodeNumber)?.let { subtitle ->
-                            Text(
-                                text = subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        state.nextEpisodeCountdown?.let { seconds ->
-                            Text(
-                                text = "Reproduzindo em ${seconds}s...",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
-                        }
-                        Row(
-                            horizontalArrangement = Arrangement.End,
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
-                        ) {
-                            TextButton(onClick = { viewModel.cancelNextEpisodeCountdown() }) {
-                                Text("Cancelar")
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Button(onClick = { viewModel.playNextEpisodeNow() }) {
-                                Text("Assistir Agora")
-                            }
-                        }
-                    }
-                }
+                PlayerNextEpisodePrompt(
+                    nextEpisode = nextEpisode,
+                    countdownSeconds = state.nextEpisodeCountdown,
+                    isTelevision = isTelevision,
+                    onCancel = viewModel::cancelNextEpisodeCountdown,
+                    onPlayNow = viewModel::playNextEpisodeNow,
+                )
             }
         }
 
@@ -564,6 +529,126 @@ fun VideoPlayerScreen(
                 onCopyStats = { copyPlaybackStats(context, state.title, state.playbackStats) },
                 onShareStats = { sharePlaybackStats(context, state.title, state.playbackStats) },
             )
+        }
+    }
+}
+
+@Composable
+private fun PlayerSyncPlayNotice(message: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        color = Color.Black.copy(alpha = 0.82f),
+        contentColor = MaterialTheme.colorScheme.secondary,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                color = MaterialTheme.colorScheme.secondary,
+                strokeWidth = 2.dp,
+            )
+            Text(
+                text = message,
+                modifier = Modifier.padding(start = 8.dp),
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun PlayerErrorCard(
+    message: String,
+    isTelevision: Boolean,
+    onRetry: () -> Unit,
+) {
+    var isRetryFocused by remember { mutableStateOf(false) }
+    val retryFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(isTelevision, message) {
+        if (isTelevision) retryFocusRequester.requestFocus()
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(message, color = MaterialTheme.colorScheme.onSurface)
+            Button(
+                onClick = onRetry,
+                modifier = Modifier
+                    .then(if (isTelevision) Modifier.focusRequester(retryFocusRequester) else Modifier)
+                    .onFocusChanged { isRetryFocused = it.isFocused }
+                    .then(
+                        if (isTelevision && isRetryFocused) {
+                            Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.small)
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                Text("Tentar novamente")
+            }
+        }
+    }
+}
+
+@Composable
+internal fun PlayerNextEpisodePrompt(
+    nextEpisode: NextEpisodeInfo,
+    countdownSeconds: Int?,
+    isTelevision: Boolean,
+    onCancel: () -> Unit,
+    onPlayNow: () -> Unit,
+) {
+    val playFocusRequester = remember { FocusRequester() }
+    var playFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(isTelevision, nextEpisode.id) {
+        if (isTelevision) playFocusRequester.requestFocus()
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        modifier = Modifier.widthIn(max = 340.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.PlayCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                Spacer(Modifier.width(8.dp))
+                Text("Próximo Episódio", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+            }
+            Text(text = nextEpisode.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
+            formatNextEpisodeSubtitle(nextEpisode.seasonNumber, nextEpisode.episodeNumber)?.let { subtitle ->
+                Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            countdownSeconds?.let { seconds ->
+                Text(
+                    text = "Reproduzindo em ${seconds}s...",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                TextButton(onClick = onCancel) { Text("Cancelar") }
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = onPlayNow,
+                    modifier = Modifier
+                        .then(if (isTelevision) Modifier.focusRequester(playFocusRequester) else Modifier)
+                        .onFocusChanged { playFocused = it.isFocused }
+                        .then(
+                            if (isTelevision && playFocused) {
+                                Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.small)
+                            } else {
+                                Modifier
+                            },
+                        ),
+                ) { Text("Assistir Agora") }
+            }
         }
     }
 }
@@ -1023,6 +1108,37 @@ internal fun PlayerCastControl(
 }
 
 // Helpers
+/** A radio row with a visible D-pad focus target on Android TV. */
+@Composable
+private fun PlayerOptionRow(
+    selected: Boolean,
+    onClick: () -> Unit,
+    verticalAlignment: Alignment.Vertical,
+    content: @Composable RowScope.() -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Row(
+        verticalAlignment = verticalAlignment,
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(
+                if (isTelevisionDevice() && isFocused) {
+                    Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.small)
+                } else {
+                    Modifier
+                },
+            )
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onClick,
+            )
+            .padding(vertical = 8.dp),
+        content = content,
+    )
+}
+
 @Composable
 internal fun PlayerTrackMenu(
     title: String,
@@ -1046,32 +1162,20 @@ internal fun PlayerTrackMenu(
                     .selectableGroup(),
             ) {
                 if (allowNone) {
-                    Row(
+                    PlayerOptionRow(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = selectedIndex == -1,
-                                role = Role.RadioButton,
-                                onClick = { onSelect(-1) },
-                            )
-                            .padding(vertical = 8.dp),
+                        selected = selectedIndex == -1,
+                        onClick = { onSelect(-1) },
                     ) {
                         RadioButton(selected = selectedIndex == -1, onClick = null)
                         Text("Nenhuma", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
                 tracks.forEachIndexed { index, track ->
-                    Row(
+                    PlayerOptionRow(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = selectedIndex == index,
-                                role = Role.RadioButton,
-                                onClick = { onSelect(index) },
-                            )
-                            .padding(vertical = 8.dp),
+                        selected = selectedIndex == index,
+                        onClick = { onSelect(index) },
                     ) {
                         RadioButton(selected = selectedIndex == index, onClick = null)
                         Text(trackLabel(track), modifier = Modifier.padding(start = 8.dp))
@@ -1112,16 +1216,10 @@ internal fun QualityMenu(
                     )
                 }
                 qualityMenuOptions(qualities).forEach { q ->
-                    Row(
+                    PlayerOptionRow(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = selectedQuality == q,
-                                role = Role.RadioButton,
-                                onClick = { onSelect(q) },
-                            )
-                            .padding(vertical = 8.dp),
+                        selected = selectedQuality == q,
+                        onClick = { onSelect(q) },
                     ) {
                         RadioButton(selected = selectedQuality == q, onClick = null)
                         Text(qualityOptionLabel(q, isMetered), modifier = Modifier.padding(start = 8.dp))
@@ -1154,16 +1252,10 @@ private fun SpeedMenu(
                     .selectableGroup(),
             ) {
                 speeds.forEach { speed ->
-                    Row(
+                    PlayerOptionRow(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = currentSpeed == speed,
-                                role = Role.RadioButton,
-                                onClick = { onSelect(speed) },
-                            )
-                            .padding(vertical = 8.dp),
+                        selected = currentSpeed == speed,
+                        onClick = { onSelect(speed) },
                     ) {
                         RadioButton(selected = currentSpeed == speed, onClick = null)
                         Text("${speed}x", modifier = Modifier.padding(start = 8.dp))
@@ -1203,45 +1295,27 @@ internal fun SleepTimerMenu(
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
-                Row(
+                PlayerOptionRow(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .selectable(
-                            selected = isSleepTimerOffSelected(mode),
-                            role = Role.RadioButton,
-                            onClick = { onSelect(null) },
-                        )
-                        .padding(vertical = 8.dp),
+                    selected = isSleepTimerOffSelected(mode),
+                    onClick = { onSelect(null) },
                 ) {
                     RadioButton(selected = isSleepTimerOffSelected(mode), onClick = null)
                     Text("Desativado", modifier = Modifier.padding(start = 8.dp))
                 }
-                Row(
+                PlayerOptionRow(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .selectable(
-                            selected = isSleepTimerAtMediaEndSelected(mode),
-                            role = Role.RadioButton,
-                            onClick = onSelectAtMediaEnd,
-                        )
-                        .padding(vertical = 8.dp),
+                    selected = isSleepTimerAtMediaEndSelected(mode),
+                    onClick = onSelectAtMediaEnd,
                 ) {
                     RadioButton(selected = isSleepTimerAtMediaEndSelected(mode), onClick = null)
                     Text("Ao fim da mídia", modifier = Modifier.padding(start = 8.dp))
                 }
                 options.forEach { minutes ->
-                    Row(
+                    PlayerOptionRow(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                        .selectable(
-                            selected = isSleepTimerOptionSelected(mode, selectedMinutes, minutes),
-                            role = Role.RadioButton,
-                            onClick = { onSelect(minutes) },
-                        )
-                        .padding(vertical = 8.dp),
+                        selected = isSleepTimerOptionSelected(mode, selectedMinutes, minutes),
+                        onClick = { onSelect(minutes) },
                     ) {
                     RadioButton(selected = isSleepTimerOptionSelected(mode, selectedMinutes, minutes), onClick = null)
                         Text("${minutes} minutos", modifier = Modifier.padding(start = 8.dp))
@@ -1273,16 +1347,10 @@ private fun AspectRatioMenu(
                     .selectableGroup(),
             ) {
                 VideoAspectRatio.values().forEach { ratio ->
-                    Row(
+                    PlayerOptionRow(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = currentRatio == ratio,
-                                role = Role.RadioButton,
-                                onClick = { onSelect(ratio) },
-                            )
-                            .padding(vertical = 8.dp),
+                        selected = currentRatio == ratio,
+                        onClick = { onSelect(ratio) },
                     ) {
                         RadioButton(selected = currentRatio == ratio, onClick = null)
                         Text(ratio.title, modifier = Modifier.padding(start = 8.dp))

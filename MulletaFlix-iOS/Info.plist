@@ -33,6 +33,10 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>O MulletaFlix usa a rede local para encontrar servidores disponíveis.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>O MulletaFlix usa o microfone para pesquisar filmes, séries e músicas por voz.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>O MulletaFlix usa o reconhecimento de fala para transformar sua voz em uma busca.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

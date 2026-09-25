@@ -2,6 +2,13 @@ import XCTest
 @testable import MulletaFlixCore
 
 final class SyncPlayRealtimeTests: XCTestCase {
+    func testSyncPlayPlaybackCommandsMatchServerRoutes() {
+        XCTAssertEqual(SyncPlayPlaybackCommand.pause.route, "SyncPlay/Pause")
+        XCTAssertEqual(SyncPlayPlaybackCommand.unpause.route, "SyncPlay/Unpause")
+        XCTAssertEqual(SyncPlayPlaybackCommand.stop.route, "SyncPlay/Stop")
+        XCTAssertEqual(SyncPlayPlaybackCommand.allCases.map(\.rawValue), ["Pause", "Unpause", "Stop"])
+    }
+
     func testBuildsWebSocketURLWithAuthenticationAndDeviceMetadata() throws {
         let serverURL = try XCTUnwrap(URL(string: "https://example.test/base"))
         let url = try XCTUnwrap(SyncPlayRealtimeClient.webSocketURL(serverURL: serverURL, accessToken: "a&b", deviceID: "ios-1"))

@@ -48,6 +48,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     private readonly string _host;
     private readonly int _port;
     private readonly string _streamToken;
+    private readonly NebulaPlaybackCache? _playbackCache;
     private readonly ILogger<NebulaHttpStreamServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _lifecycleLock = new();
@@ -69,13 +70,15 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         int port,
         ILogger<NebulaHttpStreamServer> logger,
         string streamToken = "",
-        int maxActiveConnections = 32)
+        int maxActiveConnections = 32,
+        NebulaPlaybackCache? playbackCache = null)
     {
         _mongoContext = mongoContext ?? throw new ArgumentNullException(nameof(mongoContext));
         _telegramPool = telegramPool ?? throw new ArgumentNullException(nameof(telegramPool));
         _host = string.IsNullOrWhiteSpace(host) ? "127.0.0.1" : host;
         _port = port > 0 ? port : 2123;
         _logger = logger;
+        _playbackCache = playbackCache;
         _streamToken = streamToken ?? string.Empty;
         _streamConcurrency = new SemaphoreSlim(Math.Clamp(maxActiveConnections, 1, 4096));
     }
@@ -478,7 +481,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             return;
         }
 
-        await using var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger);
+        await using var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger, _playbackCache, GetMediaCacheKey(doc));
         stream.Seek(start, SeekOrigin.Begin);
 
         // Rented instead of allocated: a fresh 128 KB array per request means roughly one gigabyte of
@@ -507,6 +510,11 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         }
 
         response.Close();
+    }
+
+    private static string GetMediaCacheKey(BsonDocument doc)
+    {
+        return doc.TryGetValue("_id", out var id) ? id.ToString() : doc.GetValue("name", "media.bin").AsString;
     }
 
     private static bool TryParseRange(string? rangeHeader, long totalSize, out long start, out long end, out bool isRange)

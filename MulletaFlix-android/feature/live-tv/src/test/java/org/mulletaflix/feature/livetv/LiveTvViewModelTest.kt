@@ -237,6 +237,27 @@ class LiveTvViewModelTest {
         )
     }
 
+    @Test fun `idle refresh sees the active job before loading state is published`() = runTest {
+        // The foreground effect can run in the same frame as the session
+        // collector. At that point isLoading is still false, but refreshJob
+        // already owns the initial request and must prevent a replacement.
+        val inFlight = CompletableDeferred<Result<List<MediaItem>>>()
+        val channel = MediaItem("channel-race", "Canal corrida", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(channel)
+        repository.channelResponses.add(inFlight)
+        repository.channelResponses.add(CompletableDeferred())
+        val viewModel = createViewModel()
+
+        viewModel.refreshIfIdle()
+        runCurrent()
+
+        inFlight.complete(Result.success(listOf(channel)))
+        advanceUntilIdle()
+
+        assertEquals(1, repository.channelRequests)
+        assertEquals(listOf(channel), viewModel.state.value.channels)
+    }
+
     @Test fun `programmes already scheduled on the server are marked as scheduled`() = runTest {
         // Reported as a real risk: without this the guide had no idea what was
         // already recording, so reopening the screen showed "Gravar" for a

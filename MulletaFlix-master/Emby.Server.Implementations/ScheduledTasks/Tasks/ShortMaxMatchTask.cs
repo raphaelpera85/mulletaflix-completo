@@ -61,7 +61,7 @@ public sealed class ShortMaxMatchTask : IScheduledTask
                 if (match is null) continue;
                 var result = new RemoteSearchResult { Name = match.Series.Name, ImageUrl = match.Series.Cover, Overview = match.Series.Overview };
                 result.SetProviderId(ShortMaxSeriesProvider.ProviderKey, match.Series.SeriesId);
-                _providerManager.QueueRefresh(item.Id, new MetadataRefreshOptions(new DirectoryService(_fileSystem)) { MetadataRefreshMode = MetadataRefreshMode.FullRefresh, ImageRefreshMode = MetadataRefreshMode.FullRefresh, ReplaceAllImages = false, IsAutomated = true, SearchResult = result }, RefreshPriority.Normal);
+                _providerManager.QueueRefresh(item.Id, new MetadataRefreshOptions(new DirectoryService(_fileSystem)) { MetadataRefreshMode = MetadataRefreshMode.FullRefresh, ImageRefreshMode = MetadataRefreshMode.FullRefresh, ReplaceAllMetadata = true, ReplaceAllImages = true, IsAutomated = true, SearchResult = result }, RefreshPriority.Normal);
                 _logger.LogInformation("ShortMax matched '{LibraryName}' to '{ShortMaxName}' (id {SeriesId}, score {Score})", item.Name, match.Series.Name, match.Series.SeriesId, match.Score);
             }
             start += page.Count;

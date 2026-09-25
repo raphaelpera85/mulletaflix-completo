@@ -2,6 +2,310 @@ import XCTest
 @testable import MulletaFlixCore
 
 final class ModelTests: XCTestCase {
+    func testAuthErrorPolicyExplainsAuthenticationStatusCodes() {
+        XCTAssertEqual(
+            AuthErrorPolicy.authenticationMessage(for: APIError.httpStatus(401)),
+            "Usuário ou senha inválidos. Confira os dados e tente novamente."
+        )
+        XCTAssertEqual(
+            AuthErrorPolicy.authenticationMessage(for: APIError.httpStatus(403)),
+            "Este usuário não tem permissão para acessar o servidor."
+        )
+        XCTAssertEqual(
+            AuthErrorPolicy.authenticationMessage(for: APIError.httpStatus(504)),
+            "O servidor demorou para responder. Tente novamente."
+        )
+    }
+
+    func testAuthErrorPolicyExplainsTransportFailures() {
+        XCTAssertEqual(
+            AuthErrorPolicy.serverConnectionMessage(for: URLError(.cannotFindHost)),
+            "Servidor não encontrado. Verifique o endereço e a conexão com a internet."
+        )
+        XCTAssertEqual(
+            AuthErrorPolicy.serverConnectionMessage(for: URLError(.timedOut)),
+            "O servidor demorou para responder. Tente novamente."
+        )
+    }
+
+    func testAuthErrorPolicyPreservesServerMessages() {
+        XCTAssertEqual(
+            AuthErrorPolicy.authenticationMessage(for: APIError.serverMessage("Conta bloqueada pelo servidor.")),
+            "Conta bloqueada pelo servidor."
+        )
+        XCTAssertEqual(
+            AuthErrorPolicy.serverConnectionMessage(for: APIError.serverMessage("API em manutenção.")),
+            "API em manutenção."
+        )
+    }
+
+    func testPlaybackErrorPolicyMapsNetworkFailuresToActionableMessage() {
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
+
+        XCTAssertEqual(
+            PlaybackErrorPolicy.userFacingMessage(from: error),
+            "A conexão com o servidor foi interrompida. Verifique a rede e tente novamente."
+        )
+    }
+
+    func testPlaybackErrorPolicyRedactsCredentialsFromRawUrl() {
+        let raw = "The operation could not be completed: https://media.example/stream?api_key=secret-value&item=movie-1"
+
+        let message = PlaybackErrorPolicy.sanitizedMessage(raw)
+
+        XCTAssertEqual(
+            message,
+            "The operation could not be completed: https://media.example/stream?api_key=[redacted]&item=movie-1"
+        )
+        XCTAssertFalse(message.contains("secret-value"))
+    }
+
+    func testPlaybackErrorPolicyUsesFallbackForMissingMessage() {
+        XCTAssertEqual(
+            PlaybackErrorPolicy.sanitizedMessage(nil),
+            "Não foi possível reproduzir esta mídia."
+        )
+    }
+
+    func testPlaybackRecoveryPolicyRetriesOnlyTransientRemoteFailures() {
+        let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
+        let codec = NSError(domain: "AVFoundationErrorDomain", code: -11821)
+
+        XCTAssertTrue(
+            PlaybackRecoveryPolicy.shouldAutomaticallyRetry(
+                error: timeout,
+                attempt: 0,
+                isLocal: false,
+                networkAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldAutomaticallyRetry(
+                error: codec,
+                attempt: 0,
+                isLocal: false,
+                networkAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldAutomaticallyRetry(
+                error: timeout,
+                attempt: 0,
+                isLocal: true,
+                networkAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldAutomaticallyRetry(
+                error: timeout,
+                attempt: 3,
+                isLocal: false,
+                networkAvailable: true
+            )
+        )
+    }
+
+    func testPlaybackRecoveryPolicyUsesBoundedBackoff() {
+        XCTAssertEqual(PlaybackRecoveryPolicy.retryDelayMilliseconds(for: 0), 750)
+        XCTAssertEqual(PlaybackRecoveryPolicy.retryDelayMilliseconds(for: 1), 1_500)
+        XCTAssertEqual(PlaybackRecoveryPolicy.retryDelayMilliseconds(for: 2), 3_000)
+        XCTAssertEqual(PlaybackRecoveryPolicy.retryDelayMilliseconds(for: 99), 3_000)
+    }
+
+    func testPlaybackRecoveryPolicyRetriesAfterNetworkRestorationOnlyForRemoteNetworkErrors() {
+        XCTAssertTrue(
+            PlaybackRecoveryPolicy.shouldRetryAfterNetworkRestored(
+                wasOffline: true,
+                isOnline: true,
+                isLocal: false,
+                hasPlaybackError: true,
+                wasTransientNetworkFailure: true
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldRetryAfterNetworkRestored(
+                wasOffline: true,
+                isOnline: true,
+                isLocal: false,
+                hasPlaybackError: true,
+                wasTransientNetworkFailure: false
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldRetryAfterNetworkRestored(
+                wasOffline: true,
+                isOnline: true,
+                isLocal: true,
+                hasPlaybackError: true,
+                wasTransientNetworkFailure: true
+            )
+        )
+    }
+
+    func testForegroundRefreshWaitsUntilAllCatalogRequestsAreIdle() {
+        XCTAssertTrue(
+            ForegroundRefreshPolicy.shouldRefresh(
+                isSignedIn: true,
+                isNetworkAvailable: true,
+                isHomeLoading: false,
+                isLibrariesLoading: false,
+                isLiveTVLoading: false
+            )
+        )
+        XCTAssertFalse(
+            ForegroundRefreshPolicy.shouldRefresh(
+                isSignedIn: true,
+                isNetworkAvailable: true,
+                isHomeLoading: true,
+                isLibrariesLoading: false,
+                isLiveTVLoading: false
+            )
+        )
+        XCTAssertFalse(
+            ForegroundRefreshPolicy.shouldRefresh(
+                isSignedIn: true,
+                isNetworkAvailable: true,
+                isHomeLoading: false,
+                isLibrariesLoading: true,
+                isLiveTVLoading: false
+            )
+        )
+    }
+
+    func testForegroundRefreshDoesNotStartWithoutSessionOrNetwork() {
+        XCTAssertFalse(
+            ForegroundRefreshPolicy.shouldRefresh(
+                isSignedIn: false,
+                isNetworkAvailable: true,
+                isHomeLoading: false,
+                isLibrariesLoading: false,
+                isLiveTVLoading: false
+            )
+        )
+        XCTAssertFalse(
+            ForegroundRefreshPolicy.shouldRefresh(
+                isSignedIn: true,
+                isNetworkAvailable: false,
+                isHomeLoading: false,
+                isLibrariesLoading: false,
+                isLiveTVLoading: false
+            )
+        )
+    }
+
+    func testLiveTVDateFormattingConvertsUtcToViewerTimeZone() throws {
+        let saoPaulo = try XCTUnwrap(TimeZone(identifier: "America/Sao_Paulo"))
+
+        XCTAssertEqual(
+            LiveTVDateFormatting.recordingStartLabel(
+                "2026-09-14T23:00:00.0000000Z",
+                timeZone: saoPaulo,
+                locale: Locale(identifier: "en_US")
+            ),
+            "2026-09-14 20:00"
+        )
+    }
+
+    func testLiveTVDateFormattingAcceptsTimestampWithoutFractionalSeconds() {
+        let utc = TimeZone(secondsFromGMT: 0)!
+
+        XCTAssertEqual(
+            LiveTVDateFormatting.recordingStartLabel(
+                "2026-09-14T23:00:00Z",
+                timeZone: utc,
+                locale: Locale(identifier: "en_US")
+            ),
+            "2026-09-14 23:00"
+        )
+    }
+
+    func testLiveTVDateFormattingDoesNotInventInvalidTimes() {
+        XCTAssertNil(LiveTVDateFormatting.recordingStartLabel("ontem à noite"))
+        XCTAssertNil(LiveTVDateFormatting.recordingStartLabel(nil))
+        XCTAssertNil(LiveTVDateFormatting.recordingStartLabel("   "))
+    }
+
+    func testOfflineDownloadScopeSeparatesUsersAndServers() throws {
+        let firstServer = try XCTUnwrap(URL(string: "https://media.example"))
+        let secondServer = try XCTUnwrap(URL(string: "https://other.example"))
+        let first = OfflineDownloadScope.ownerKey(serverURL: firstServer, userID: "user-1")
+        let same = OfflineDownloadScope.ownerKey(serverURL: firstServer, userID: "user-1")
+        let otherUser = OfflineDownloadScope.ownerKey(serverURL: firstServer, userID: "user-2")
+        let otherServer = OfflineDownloadScope.ownerKey(serverURL: secondServer, userID: "user-1")
+
+        XCTAssertEqual(first, same)
+        XCTAssertNotEqual(first, otherUser)
+        XCTAssertNotEqual(first, otherServer)
+        XCTAssertTrue(OfflineDownloadScope.directoryName(ownerKey: first).hasPrefix("scope-"))
+        XCTAssertFalse(OfflineDownloadScope.directoryName(ownerKey: first).contains("/"))
+        XCTAssertTrue(OfflineDownloadScope.acceptsCallback(ownerKey: first, currentOwnerKey: same))
+        XCTAssertFalse(OfflineDownloadScope.acceptsCallback(ownerKey: first, currentOwnerKey: otherUser))
+        XCTAssertFalse(OfflineDownloadScope.acceptsCallback(ownerKey: first, currentOwnerKey: nil))
+    }
+
+    func testOfflinePlaybackPositionScopeSeparatesUsersServersAndItems() {
+        let first = OfflinePlaybackPositionScope.key(ownerKey: "https://media.example|user-1", itemID: "movie/1")
+        let same = OfflinePlaybackPositionScope.key(ownerKey: "https://media.example|user-1", itemID: "movie/1")
+        let otherUser = OfflinePlaybackPositionScope.key(ownerKey: "https://media.example|user-2", itemID: "movie/1")
+        let otherItem = OfflinePlaybackPositionScope.key(ownerKey: "https://media.example|user-1", itemID: "movie/2")
+
+        XCTAssertEqual(first, same)
+        XCTAssertNotEqual(first, otherUser)
+        XCTAssertNotEqual(first, otherItem)
+        XCTAssertFalse(first.contains("/"))
+    }
+
+    func testAPIRetryPolicyRetriesTransientReadOnlyResponses() {
+        XCTAssertTrue(APIRetryPolicy.shouldRetryResponse(method: "GET", statusCode: 503, attempt: 0))
+        XCTAssertTrue(APIRetryPolicy.shouldRetryResponse(method: "HEAD", statusCode: 429, attempt: 1))
+        XCTAssertFalse(APIRetryPolicy.shouldRetryResponse(method: "GET", statusCode: 503, attempt: 2))
+        XCTAssertFalse(APIRetryPolicy.shouldRetryResponse(method: "POST", statusCode: 503, attempt: 0))
+        XCTAssertFalse(APIRetryPolicy.shouldRetryResponse(method: "GET", statusCode: 404, attempt: 0))
+    }
+
+    func testAPIRetryPolicyNeverRetriesMutationsOrUnboundedFailures() {
+        XCTAssertFalse(APIRetryPolicy.shouldRetryFailure(method: "POST", attempt: 0))
+        XCTAssertFalse(APIRetryPolicy.shouldRetryFailure(method: "DELETE", attempt: 1))
+        XCTAssertTrue(APIRetryPolicy.shouldRetryFailure(method: "OPTIONS", attempt: 1))
+        XCTAssertFalse(APIRetryPolicy.shouldRetryFailure(method: "GET", attempt: 2))
+    }
+
+    func testAPIRetryPolicyUsesBoundedServerHintOrBackoff() {
+        XCTAssertEqual(APIRetryPolicy.delayMilliseconds(attempt: 0, retryAfter: "1"), 1_000)
+        XCTAssertEqual(APIRetryPolicy.delayMilliseconds(attempt: 0, retryAfter: "99"), 1_500)
+        XCTAssertEqual(APIRetryPolicy.delayMilliseconds(attempt: 0, retryAfter: "invalid"), 250)
+        XCTAssertEqual(APIRetryPolicy.delayMilliseconds(attempt: 1, retryAfter: nil), 750)
+    }
+
+    func testLiveTVProgramsPathEscapesQueryValues() {
+        let path = APIClient.liveTVProgramsPath(
+            channelIDs: ["channel/one", "channel&two"],
+            startDate: "2026-09-24T10:00:00+03:00",
+            endDate: "2026-09-25T10:00:00+03:00",
+            limit: 25,
+            startIndex: 50
+        )
+
+        XCTAssertTrue(path.contains("ChannelIds=channel%2Fone,channel%26two"))
+        XCTAssertTrue(path.contains("MinEndDate=2026-09-24T10:00:00%2B03:00"))
+        XCTAssertTrue(path.contains("MaxStartDate=2026-09-25T10:00:00%2B03:00"))
+        XCTAssertTrue(path.contains("StartIndex=50&Limit=25"))
+    }
+
+    func testPlaybackQualityPolicyMatchesPlayerAndServerBitrates() {
+        XCTAssertEqual(PlaybackQualityPolicy.maxStreamingBitrate(for: "4K"), 20_000_000)
+        XCTAssertEqual(PlaybackQualityPolicy.maxStreamingBitrate(for: "1080p"), 8_000_000)
+        XCTAssertEqual(PlaybackQualityPolicy.maxStreamingBitrate(for: "576p"), 1_327_104)
+        XCTAssertNil(PlaybackQualityPolicy.maxStreamingBitrate(for: "Auto"))
+    }
+
+    func testPlaybackResumePolicyPrefersLocalOfflinePositionAndFallsBackToServer() {
+        XCTAssertEqual(PlaybackResumePolicy.initialPositionTicks(server: 100, local: 200, isLocal: true), 200)
+        XCTAssertEqual(PlaybackResumePolicy.initialPositionTicks(server: 100, local: 0, isLocal: true), 100)
+        XCTAssertEqual(PlaybackResumePolicy.initialPositionTicks(server: 100, local: 200, isLocal: false), 100)
+        XCTAssertEqual(PlaybackResumePolicy.initialPositionTicks(server: -1, local: -2, isLocal: true), 0)
+    }
+
     func testOfflineDownloadPolicyBlocksPausedQueue() {
         XCTAssertFalse(OfflineDownloadPolicy.canStart(queuePaused: true, wifiOnly: false, wifiAvailable: true))
     }
@@ -43,11 +347,39 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(UserSession.self, from: data), session)
     }
 
+    func testSavedServerRoundTripsThroughCodable() throws {
+        let server = SavedServer(url: "https://media.example", name: "Sala", version: "1.2.3")
+        let data = try JSONEncoder().encode(server)
+        XCTAssertEqual(try JSONDecoder().decode(SavedServer.self, from: data), server)
+        XCTAssertEqual(server.id, server.url)
+    }
+
     func testMediaSourceDecodesVideoStreamsAndQualityOptions() throws {
-        let data = #"{"Id":"source-1","MediaStreams":[{"Type":"Video","Codec":"hevc","Width":3840,"Height":2160,"BitRate":20000000},{"Type":"Video","Width":1920,"Height":1080},{"Type":"Video","Width":1024,"Height":576},{"Type":"Audio","Height":2160}]}"#.data(using: .utf8)!
+        let data = #"{"Id":"source-1","DefaultAudioStreamIndex":7,"DefaultSubtitleStreamIndex":-1,"MediaStreams":[{"Type":"Video","Codec":"hevc","Width":3840,"Height":2160,"BitRate":20000000},{"Type":"Video","Width":1920,"Height":1080},{"Type":"Video","Width":1024,"Height":576},{"Type":"Audio","Height":2160}]}"#.data(using: .utf8)!
         let source = try JSONDecoder().decode(MediaSource.self, from: data)
         XCTAssertEqual(source.mediaStreams.count, 4)
+        XCTAssertEqual(source.defaultAudioStreamIndex, 7)
+        XCTAssertEqual(source.defaultSubtitleStreamIndex, -1)
         XCTAssertEqual(source.qualityLabels, ["4K", "1080p", "576p"])
+        XCTAssertEqual(source.qualityBadge, "4K")
+
+        let hdData = #"{"Id":"source-hd","MediaStreams":[{"Type":"Video","Height":720}]}"#.data(using: .utf8)!
+        XCTAssertEqual(try JSONDecoder().decode(MediaSource.self, from: hdData).qualityBadge, "HD")
+
+        let sdData = #"{"Id":"source-sd","MediaStreams":[{"Type":"Video","Height":576}]}"#.data(using: .utf8)!
+        XCTAssertNil(try JSONDecoder().decode(MediaSource.self, from: sdData).qualityBadge)
+    }
+
+    func testLyricsDecodeAndroidContract() throws {
+        let data = #"{"Lyrics":[{"Text":"Primeira linha","Start":0},{"Text":"Segunda linha","Start":25000000}]}"#.data(using: .utf8)!
+        let result = try JSONDecoder().decode(LyricsEnvelope.self, from: data)
+        XCTAssertEqual(result.lyrics.map(\.text), ["Primeira linha", "Segunda linha"])
+        XCTAssertEqual(result.lyrics.last?.start, 25000000)
+    }
+
+    private struct LyricsEnvelope: Decodable {
+        let lyrics: [LyricLine]
+        private enum CodingKeys: String, CodingKey { case lyrics = "Lyrics" }
     }
 
     func testPublicServerInfoDecodesAndroidContract() throws {
@@ -57,6 +389,20 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(info.version, "1.2.3")
         XCTAssertEqual(info.id, "server-1")
         XCTAssertTrue(info.startupWizardCompleted)
+    }
+
+    func testBrandingOptionsDecodeAndroidContract() throws {
+        let data = #"{"LoginDisclaimer":"Uso autorizado","CustomCss":"body{}","SplashscreenEnabled":false}"#.data(using: .utf8)!
+        let branding = try JSONDecoder().decode(BrandingOptions.self, from: data)
+        XCTAssertEqual(branding.loginDisclaimer, "Uso autorizado")
+        XCTAssertEqual(branding.customCSS, "body{}")
+        XCTAssertFalse(branding.splashscreenEnabled)
+    }
+
+    func testHealthEndpointKeepsItsPath() async throws {
+        let client = APIClient(serverURL: try XCTUnwrap(URL(string: "https://example.test")))
+        let url = await client.url(forPath: "Health")
+        XCTAssertEqual(url.path, "/Health")
     }
 
     func testSearchHintsDecodeAndroidContract() throws {
@@ -135,6 +481,27 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(url.query, "Genres=Ficção%20científica&Years=2024&IsPlayed=false&IsFavorite=true")
     }
 
+    func testLibraryRatingFilterRemainsAnOfficialRatingsQueryParameter() async throws {
+        let client = APIClient(serverURL: try XCTUnwrap(URL(string: "https://media.example")))
+        let path = APIClient.itemsPath(
+            userID: "user-1",
+            parentID: "library-1",
+            officialRatings: "16,PG-13"
+        )
+        let url = await client.url(forPath: path)
+        XCTAssertTrue(url.query?.contains("OfficialRatings=16,PG-13") == true)
+    }
+
+    func testLibraryCardQueryRequestsMediaSourcesForQualityBadges() async throws {
+        let client = APIClient(serverURL: try XCTUnwrap(URL(string: "https://media.example")))
+        let url = await client.url(forPath: APIClient.itemsPath(
+            userID: "user-1",
+            parentID: "library-1",
+            fields: "Overview,MediaSources,ItemCounts"
+        ))
+        XCTAssertTrue(url.query?.contains("Fields=Overview,MediaSources,ItemCounts") == true)
+    }
+
     func testFavoriteFilterParametersRemainQueryParameters() async throws {
         let client = APIClient(serverURL: try XCTUnwrap(URL(string: "https://example.test")))
         let url = await client.url(forPath: "Users/user/Items?Filters=IsFavorite&IsFavorite=true")
@@ -151,7 +518,15 @@ final class ModelTests: XCTestCase {
         let data = #"{"Items":[{"Id":"one","Name":"Um"}]}"#.data(using: .utf8)!
         let result = try JSONDecoder().decode(ItemQueryResult.self, from: data)
         XCTAssertEqual(result.totalRecordCount, 1)
+        XCTAssertFalse(result.hasExplicitTotalRecordCount)
         XCTAssertEqual(result.items.map(\.id), ["one"])
+    }
+
+    func testPagedResultPreservesExplicitTotalCountForSearchNotice() throws {
+        let data = #"{"Items":[{"Id":"one","Name":"Um"}],"TotalRecordCount":42}"#.data(using: .utf8)!
+        let result = try JSONDecoder().decode(ItemQueryResult.self, from: data)
+        XCTAssertEqual(result.totalRecordCount, 42)
+        XCTAssertTrue(result.hasExplicitTotalRecordCount)
     }
 
     func testAuthorizationMatchesAndroidClientIdentityContract() {
@@ -245,6 +620,13 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(item.people.first?.role, "Diretora")
     }
 
+    func testMediaItemDecodesPlaybackPositionFromUserData() throws {
+        let data = #"{"Id":"movie-1","Name":"Filme","UserData":{"PlayedPercentage":42.5,"PlaybackPositionTicks":123456789,"Played":false}}"#.data(using: .utf8)!
+        let item = try JSONDecoder().decode(MediaItem.self, from: data)
+        XCTAssertEqual(item.playedPercentage, 42.5)
+        XCTAssertEqual(item.playbackPositionTicks, 123456789)
+    }
+
     func testRegistrationResultDecodesSuccessAndMessage() throws {
         let data = #"{"Success":true,"Message":"Conta criada"}"#.data(using: .utf8)!
         let result = try JSONDecoder().decode(RegistrationResult.self, from: data)
@@ -267,13 +649,14 @@ final class ModelTests: XCTestCase {
     }
 
     func testPlayedStateCanBeUpdatedWithoutLosingMediaContext() throws {
-        let data = #"{"Id":"episode-1","Name":"Piloto","SeriesId":"series-1","SeasonId":"season-1","IndexNumber":1,"UserData":{"Played":false}}"#.data(using: .utf8)!
+        let data = #"{"Id":"episode-1","Name":"Piloto","SeriesId":"series-1","SeasonId":"season-1","IndexNumber":1,"UserData":{"Played":false,"PlaybackPositionTicks":987654321}}"#.data(using: .utf8)!
         let item = try JSONDecoder().decode(MediaItem.self, from: data)
         let updated = item.withPlayed(true)
         XCTAssertTrue(updated.isPlayed)
         XCTAssertEqual(updated.seriesId, "series-1")
         XCTAssertEqual(updated.seasonId, "season-1")
         XCTAssertEqual(updated.indexNumber, 1)
+        XCTAssertEqual(updated.playbackPositionTicks, 987654321)
     }
 
     func testPlaybackInfoDecodesLiveStreamRequirements() throws {

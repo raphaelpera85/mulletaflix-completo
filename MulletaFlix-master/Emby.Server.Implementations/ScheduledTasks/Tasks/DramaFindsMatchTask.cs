@@ -219,7 +219,8 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
                             {
                                 MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
                                 ImageRefreshMode = MetadataRefreshMode.FullRefresh,
-                                ReplaceAllImages = false,
+                                ReplaceAllMetadata = true,
+                                ReplaceAllImages = true,
                                 IsAutomated = true,
                                 SearchResult = searchResult
                             },

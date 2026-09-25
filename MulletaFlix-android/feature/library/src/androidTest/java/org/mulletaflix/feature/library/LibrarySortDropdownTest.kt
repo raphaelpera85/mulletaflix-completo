@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -29,6 +30,8 @@ class LibrarySortDropdownTest {
 
         composeRule.onNodeWithText("Ascendente").assertIsDisplayed()
         composeRule.onNodeWithText("Descendente").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Ordem Ascendente").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Ordem Descendente").assertIsDisplayed()
         composeRule.onNodeWithText("Data de Lançamento").performClick()
         composeRule.onNodeWithText("Descendente").performClick()
         composeRule.onNodeWithText("Aplicar").performClick()

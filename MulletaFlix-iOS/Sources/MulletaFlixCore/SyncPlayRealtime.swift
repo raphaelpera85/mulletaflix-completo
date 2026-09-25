@@ -6,6 +6,28 @@ public enum SyncPlayRealtimeEvent: Equatable, Sendable {
     case unknown(type: String)
 }
 
+public enum SyncPlayPlaybackCommand: String, CaseIterable, Sendable {
+    case pause = "Pause"
+    case unpause = "Unpause"
+    case stop = "Stop"
+
+    public var route: String {
+        switch self {
+        case .pause: return "SyncPlay/Pause"
+        case .unpause: return "SyncPlay/Unpause"
+        case .stop: return "SyncPlay/Stop"
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .pause: return "Pausar"
+        case .unpause: return "Retomar"
+        case .stop: return "Parar reprodução do grupo"
+        }
+    }
+}
+
 public struct SyncPlayGroupUpdate: Decodable, Equatable, Sendable {
     public let type: String?
     public let groupId: String?

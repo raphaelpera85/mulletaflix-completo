@@ -10,9 +10,8 @@ package org.mulletaflix.domain.repository
  * sessão" nunca abria nada, e a tela ainda trocava para "Sair da sala atual", o
  * que fazia a entrada parecer bem-sucedida.
  *
- * O que o app faz hoje é o que os quatro endpoints REST permitem: criar, entrar,
- * sair e listar. Seguir a reprodução do grupo exige o WebSocket do SyncPlay, que
- * este app não tem — por isso os campos saíram em vez de ficarem mentindo.
+ * O que a API REST permite é criar, entrar, sair, listar e enviar comandos. O
+ * estado realtime da reprodução chega pelo WebSocket observado pelo player.
  */
 data class SyncPlayGroup(
     val groupId: String,
@@ -21,9 +20,21 @@ data class SyncPlayGroup(
     val participants: List<String>,
 )
 
+enum class SyncPlayPlaybackCommand { PAUSE, UNPAUSE, STOP }
+
+data class SyncPlayPlaybackStatus(
+    val whenUtc: String,
+    val positionTicks: Long,
+    val isPlaying: Boolean,
+    val playlistItemId: String,
+)
+
 interface SyncPlayRepository {
     suspend fun getGroups(): Result<List<SyncPlayGroup>>
     suspend fun createGroup(name: String): Result<Unit>
     suspend fun joinGroup(groupId: String): Result<Unit>
     suspend fun leaveGroup(): Result<Unit>
+    suspend fun sendPlaybackCommand(command: SyncPlayPlaybackCommand): Result<Unit>
+    suspend fun reportBuffering(status: SyncPlayPlaybackStatus): Result<Unit>
+    suspend fun reportReady(status: SyncPlayPlaybackStatus): Result<Unit>
 }

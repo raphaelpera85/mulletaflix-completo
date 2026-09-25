@@ -14,11 +14,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -52,48 +48,33 @@ fun LiveTvScreen(
         Configuration.UI_MODE_TYPE_TELEVISION
     var showGuide by remember { mutableStateOf(false) }
 
-    LaunchedEffect(lifecycleOwner, isTelevision) {
-        val refreshInterval = liveTvAutoRefreshIntervalMillis(isTelevision)
-        if (refreshInterval > 0L) {
-            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                if (refreshLiveTvImmediatelyOnResume(isTelevision)) {
-                    viewModel.refreshIfIdle()
-                }
-                while (isActive) {
-                    delay(refreshInterval)
-                    viewModel.refreshIfIdle()
-                }
-            }
-        }
-    }
+    LiveTvRefreshEffect(
+        lifecycleOwner = lifecycleOwner,
+        refreshIntervalMillis = liveTvAutoRefreshIntervalMillis(isTelevision),
+        refreshImmediately = refreshLiveTvImmediatelyOnResume(isTelevision),
+        onRefresh = viewModel::refreshIfIdle,
+    )
+    LiveTvRefreshEffect(
+        lifecycleOwner = lifecycleOwner,
+        refreshIntervalMillis = if (shouldRefreshLiveTvGuide(showGuide)) {
+            LIVE_TV_GUIDE_REFRESH_INTERVAL_MILLIS
+        } else {
+            0L
+        },
+        refreshImmediately = false,
+        onRefresh = viewModel::loadGuide,
+    )
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("TV Ao Vivo & EPG") },
-                navigationIcon = {
-                    MulletaFlixTopBarAction(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
-                    }
-                },
-                actions = {
-                    MulletaFlixTopBarAction(
-                        onClick = viewModel::refresh,
-                        busy = state.isLoading,
-                        busyContentDescription = "Atualizar canais",
-                    ) {
-                        Icon(Icons.Default.Refresh, "Atualizar canais")
-                    }
-                    MulletaFlixTopBarAction(
-                        onClick = { showGuide = true; viewModel.loadGuide() },
-                        enabled = state.channels.isNotEmpty(),
-                        busy = state.isLoadingGuide,
-                        busyContentDescription = "Guia EPG",
-                    ) {
-                        Icon(Icons.Default.CalendarMonth, "Guia EPG")
-                    }
-                }
+            LiveTvTopBar(
+                onBack = onBack,
+                onRefresh = viewModel::refresh,
+                onGuide = { showGuide = true; viewModel.loadGuide() },
+                isLoading = state.isLoading,
+                isLoadingGuide = state.isLoadingGuide,
+                hasChannels = state.channels.isNotEmpty(),
             )
-        }
+        },
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Text("Canais disponíveis", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(bottom = 8.dp)) }
@@ -117,7 +98,7 @@ fun LiveTvScreen(
                     }
                 }
             }
-            state.error?.let { error -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); TextButton(onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }
+            state.error?.let { error -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); GuideActionButton(isTelevision = isTelevision, onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }
             if (state.isLoading && state.channels.isEmpty()) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (!state.isLoading && state.channels.isEmpty() && state.error == null) item { EmptyLiveTvState() }
             items(state.channels, key = { it.id }) { channel ->
@@ -133,7 +114,7 @@ fun LiveTvScreen(
                     ) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
-                            TextButton(onClick = viewModel::refresh) { Text("Tentar novamente") }
+                            GuideActionButton(isTelevision = isTelevision, onClick = viewModel::refresh) { Text("Tentar novamente") }
                         }
                     }
                 }
@@ -153,7 +134,57 @@ fun LiveTvScreen(
             }
         }
     }
-    if (showGuide) AlertDialog(onDismissRequest = { showGuide = false; viewModel.closeGuide() }, title = { Text("Guia das próximas 24 horas") }, text = { GuideContent(state, onSchedule = viewModel::scheduleRecording, onRetry = viewModel::loadGuide) }, confirmButton = { TextButton(onClick = { showGuide = false; viewModel.closeGuide() }) { Text("Fechar") } })
+    if (showGuide) AlertDialog(
+        onDismissRequest = { showGuide = false; viewModel.closeGuide() },
+        title = { Text("Guia das próximas 24 horas") },
+        text = { GuideContent(state, isTelevision = isTelevision, onSchedule = viewModel::scheduleRecording, onRetry = viewModel::loadGuide) },
+        confirmButton = {
+            GuideActionButton(isTelevision = isTelevision, onClick = { showGuide = false; viewModel.closeGuide() }) {
+                Text("Fechar")
+            }
+        },
+    )
+}
+
+/**
+ * Top bar kept separate from the screen so TV remote actions can be verified
+ * without constructing a Hilt ViewModel or making a network request.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LiveTvTopBar(
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onGuide: () -> Unit,
+    isLoading: Boolean,
+    isLoadingGuide: Boolean,
+    hasChannels: Boolean,
+) {
+    TopAppBar(
+        title = { Text("TV Ao Vivo & EPG") },
+        navigationIcon = {
+            MulletaFlixTopBarAction(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+            }
+        },
+        actions = {
+            MulletaFlixTopBarAction(
+                onClick = onRefresh,
+                busy = isLoading,
+                busyContentDescription = "Atualizar canais",
+            ) {
+                Icon(Icons.Default.Refresh, "Atualizar canais")
+            }
+            MulletaFlixTopBarAction(
+                onClick = onGuide,
+                enabled = hasChannels,
+                busy = isLoadingGuide,
+                busyContentDescription = "Guia EPG",
+            ) {
+                Icon(Icons.Default.CalendarMonth, "Guia EPG")
+            }
+        },
+    )
 }
 
 @Composable
@@ -283,7 +314,12 @@ private fun RecordingRow(recording: MediaItem, isTelevision: Boolean, onPlay: ()
 }
 
 @Composable
-private fun GuideContent(state: LiveTvUiState, onSchedule: (MediaItem) -> Unit, onRetry: () -> Unit) {
+internal fun GuideContent(
+    state: LiveTvUiState,
+    isTelevision: Boolean = false,
+    onSchedule: (MediaItem) -> Unit,
+    onRetry: () -> Unit,
+) {
     Column {
         // The error is a banner, not a replacement. It used to be rendered
         // *instead of* the programmes, so one failed refresh discarded a guide
@@ -299,7 +335,9 @@ private fun GuideContent(state: LiveTvUiState, onSchedule: (MediaItem) -> Unit, 
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = onRetry) { Text("Tentar novamente") }
+                GuideActionButton(isTelevision = isTelevision, onClick = onRetry) {
+                    Text("Tentar novamente")
+                }
             }
         }
         when (guideBody(state.isLoadingGuide, state.programs.size)) {
@@ -322,7 +360,12 @@ private fun GuideContent(state: LiveTvUiState, onSchedule: (MediaItem) -> Unit, 
                             if (canSchedule) {
                                 val scheduled = program.id in state.scheduledProgramIds
                                 val scheduling = program.id in state.schedulingProgramIds
-                                TextButton(onClick = { onSchedule(program) }, enabled = !scheduled && !scheduling) {
+                                var isFocused by remember { mutableStateOf(false) }
+                                GuideActionButton(
+                                    isTelevision = isTelevision,
+                                    onClick = { onSchedule(program) },
+                                    enabled = !scheduled && !scheduling,
+                                ) {
                                     Text(if (scheduled) "Agendado" else if (scheduling) "Agendando…" else "Gravar")
                                 }
                             }
@@ -332,6 +375,30 @@ private fun GuideContent(state: LiveTvUiState, onSchedule: (MediaItem) -> Unit, 
             }
         }
     }
+}
+
+@Composable
+private fun GuideActionButton(
+    isTelevision: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(
+                if (isTelevision && isFocused) {
+                    Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.small)
+                } else {
+                    Modifier
+                },
+            ),
+        content = content,
+    )
 }
 
 @Composable

@@ -126,7 +126,8 @@ public sealed class GoodShortMatchTask : IScheduledTask
                         {
                             MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
                             ImageRefreshMode = MetadataRefreshMode.FullRefresh,
-                            ReplaceAllImages = false,
+                            ReplaceAllMetadata = true,
+                            ReplaceAllImages = true,
                             IsAutomated = true,
                             SearchResult = searchResult
                         },

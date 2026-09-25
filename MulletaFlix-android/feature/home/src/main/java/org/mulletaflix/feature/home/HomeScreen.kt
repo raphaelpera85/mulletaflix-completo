@@ -47,6 +47,7 @@ import org.mulletaflix.designsystem.media.userAvatarPath
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.isTelevisionDevice
+import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 /**
  * Home screen — the first screen users see after login.
@@ -111,6 +112,8 @@ fun HomeScreen(
                     onFavorites = { navController.navigate("main/favorites") },
                     onSettings = { navController.navigate("main/settings") },
                     onProfile = { navController.navigate("main/profile") },
+                    onRefresh = { viewModel.refresh() },
+                    isRefreshing = state.isRefreshing,
                 )
             }
 
@@ -156,6 +159,7 @@ fun HomeScreen(
                     HomeLoadErrorCard(
                         title = "Não foi possível carregar o conteúdo",
                         message = message,
+                        isTelevision = isTelevision,
                         onRetry = viewModel::refresh,
                     )
                 }
@@ -254,6 +258,7 @@ fun HomeScreen(
                     HomeLoadErrorCard(
                         title = "Não foi possível carregar a TV ao vivo",
                         message = message,
+                        isTelevision = isTelevision,
                         onRetry = viewModel::refresh,
                     )
                 }
@@ -282,6 +287,7 @@ fun HomeScreen(
                     HomeLoadErrorCard(
                         title = "Não foi possível carregar suas bibliotecas",
                         message = message,
+                        isTelevision = isTelevision,
                         onRetry = viewModel::refresh,
                     )
                 }
@@ -312,11 +318,13 @@ fun HomeScreen(
  * desenhava a Home de quem não tem biblioteca.
  */
 @Composable
-private fun HomeLoadErrorCard(
+internal fun HomeLoadErrorCard(
     title: String,
     message: String,
+    isTelevision: Boolean = false,
     onRetry: () -> Unit,
 ) {
+    var isFocused by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         colors = CardDefaults.cardColors(
@@ -337,7 +345,16 @@ private fun HomeLoadErrorCard(
             )
             TextButton(
                 onClick = onRetry,
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .onFocusChanged { isFocused = it.isFocused }
+                    .then(
+                        if (isTelevision && isFocused) {
+                            Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.small)
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
                 Text("Tentar novamente")
             }
@@ -592,6 +609,8 @@ internal fun HomeTopBar(
     onFavorites: () -> Unit,
     onSettings: () -> Unit,
     onProfile: () -> Unit,
+    onRefresh: () -> Unit,
+    isRefreshing: Boolean,
 ) {
     val serverUrl = LocalMulletaFlixServerUrl.current
     val accessToken = LocalMulletaFlixAccessToken.current
@@ -650,6 +669,14 @@ internal fun HomeTopBar(
             }
             HomeTopBarAction(
                 focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onRefresh,
+                busy = isRefreshing,
+                busyContentDescription = "Atualizando Home",
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Atualizar Home", tint = MaterialTheme.colorScheme.onBackground)
+            }
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
                 onClick = onProfile,
             ) {
                 if (avatarUrl == null) {
@@ -686,11 +713,15 @@ internal fun HomeTopBar(
 private fun HomeTopBarAction(
     focusFriendly: Boolean,
     onClick: () -> Unit,
+    busy: Boolean = false,
+    busyContentDescription: String? = null,
     content: @Composable () -> Unit,
 ) {
     MulletaFlixTopBarAction(
         onClick = onClick,
         focusFriendly = focusFriendly,
+        busy = busy,
+        busyContentDescription = busyContentDescription,
         content = content,
     )
 }

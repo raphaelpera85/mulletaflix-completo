@@ -4,8 +4,8 @@ set -euo pipefail
 IOS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEVICE_NAME="${1:-iPhone 16}"
 
-if ! command -v xcrun >/dev/null 2>&1 || ! command -v xcodebuild >/dev/null 2>&1; then
-  echo "Xcode e o iOS Simulator precisam estar instalados em um Mac." >&2
+if ! command -v xcrun >/dev/null 2>&1 || ! command -v xcodebuild >/dev/null 2>&1 || ! command -v swift >/dev/null 2>&1; then
+  echo "Xcode, Swift e o iOS Simulator precisam estar instalados em um Mac." >&2
   exit 1
 fi
 
@@ -20,6 +20,9 @@ fi
 
 xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
 open -a Simulator
+
+echo "Executando testes Swift do núcleo..."
+(cd "$IOS_ROOT" && swift test --enable-code-coverage)
 
 xcodebuild \
   -project "$IOS_ROOT/MulletaFlix.xcodeproj" \

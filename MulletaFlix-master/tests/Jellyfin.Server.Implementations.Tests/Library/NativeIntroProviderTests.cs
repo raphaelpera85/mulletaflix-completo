@@ -64,6 +64,46 @@ public class NativeIntroProviderTests
     }
 
     [Fact]
+    public async Task GetIntros_ReturnsConfiguredIntro_WhenLegacySettingIsDisabled()
+    {
+        var introPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
+        await File.WriteAllTextAsync(introPath, "intro video");
+
+        try
+        {
+            var configManager = new Mock<IServerConfigurationManager>();
+            configManager.Setup(m => m.GetConfiguration("branding")).Returns(new BrandingOptions
+            {
+                IntroEnabled = false,
+                IntroPath = introPath
+            });
+
+            var prebufferManager = new Mock<IStrmPrebufferManager>();
+            prebufferManager.Setup(m => m.PrepareAsync(It.IsAny<BaseItem>())).Returns(Task.CompletedTask);
+
+            var provider = new NativeIntroProvider(
+                configManager.Object,
+                prebufferManager.Object,
+                Mock.Of<Microsoft.Extensions.Logging.ILogger<NativeIntroProvider>>());
+            var item = new Video
+            {
+                Id = Guid.NewGuid(),
+                Path = Path.Combine(Path.GetTempPath(), "movie.mkv")
+            };
+            var user = new User("test", "test", "test") { Id = Guid.NewGuid() };
+
+            var intros = await provider.GetIntros(item, user);
+
+            Assert.Single(intros);
+            Assert.Equal(introPath, intros.First().Path);
+        }
+        finally
+        {
+            File.Delete(introPath);
+        }
+    }
+
+    [Fact]
     public async Task GetIntros_ResolvesNativeIntro_WhenNotExplicitlyConfigured()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"intro-test-{Guid.NewGuid():N}");
@@ -154,4 +194,3 @@ public class NativeIntroProviderTests
         }
     }
 }
-

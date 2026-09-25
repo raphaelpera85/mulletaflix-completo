@@ -44,11 +44,6 @@ public sealed class NativeIntroProvider : IIntroProvider
     public async Task<IEnumerable<IntroInfo>> GetIntros(BaseItem item, User user)
     {
         var options = _configurationManager.GetConfiguration<BrandingOptions>("branding");
-        if (options is not null && !options.IntroEnabled)
-        {
-            return [];
-        }
-
         string introPath = null;
         if (!string.IsNullOrWhiteSpace(options?.IntroPath))
         {
@@ -169,4 +164,3 @@ public sealed class NativeIntroProvider : IIntroProvider
         return files[Random.Shared.Next(files.Length)];
     }
 }
-
