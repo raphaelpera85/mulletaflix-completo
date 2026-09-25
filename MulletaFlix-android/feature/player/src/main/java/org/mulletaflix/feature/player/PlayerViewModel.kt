@@ -427,18 +427,17 @@ class PlayerViewModel @Inject constructor(
     private var lastPlaybackErrorCode: Int? = null
     private var lastPlaybackPositionAtError = 0L
     private var stoppedReported = false
-    private val syncPlayReportingSession = SyncPlayReportingSession()
     private val syncPlayStatusProcessor by lazy(LazyThreadSafetyMode.NONE) {
         SyncPlayStatusEventProcessor(
             scope = viewModelScope,
             currentSnapshot = {
                 SyncPlayStatusSnapshot(
-                    generation = syncPlayReportingSession.generation,
+                    generation = syncPlayRealtimeClient.connectionState.value.generation,
                     groupId = syncPlayRealtimeClient.activeGroupId,
                     playlistItemId = currentPlaylistItemId,
                     isOfflinePlayback = isOfflinePlayback,
                     networkIsOffline = networkWasOffline,
-                    realtimeConnected = syncPlayReportingSession.isConnected,
+                    realtimeConnected = syncPlayRealtimeClient.connectionState.value.connected,
                     playerIsBuffering = player.playbackState == Player.STATE_BUFFERING,
                 )
             },
@@ -492,21 +491,21 @@ class PlayerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            syncPlayRealtimeClient.connectionState.collect { connection ->
+                if (syncPlayRealtimeClient.activeGroupId == null) return@collect
+                if (connection.connected) {
+                    _state.update { it.copy(syncPlayConnection = SyncPlayConnectionState.CONNECTED) }
+                    enqueueSyncPlayPlaybackStatus(player.playbackState == Player.STATE_BUFFERING)
+                } else {
+                    _state.update { it.copy(syncPlayConnection = SyncPlayConnectionState.RECONNECTING) }
+                }
+            }
+        }
+        viewModelScope.launch {
             syncPlayRealtimeClient.events.collect { event ->
                 when (event) {
-                    SyncPlayRealtimeEvent.Connected -> {
-                        syncPlayReportingSession.onConnected()
-                        if (syncPlayRealtimeClient.activeGroupId != null) {
-                            _state.update { it.copy(syncPlayConnection = SyncPlayConnectionState.CONNECTED) }
-                            enqueueSyncPlayPlaybackStatus(player.playbackState == Player.STATE_BUFFERING)
-                        }
-                    }
-                    SyncPlayRealtimeEvent.Disconnected -> {
-                        syncPlayReportingSession.onDisconnected()
-                        if (syncPlayRealtimeClient.activeGroupId != null) {
-                            _state.update { it.copy(syncPlayConnection = SyncPlayConnectionState.RECONNECTING) }
-                        }
-                    }
+                    SyncPlayRealtimeEvent.Connected,
+                    SyncPlayRealtimeEvent.Disconnected -> Unit
                     is SyncPlayRealtimeEvent.Command -> applySyncPlayCommand(event)
                     is SyncPlayRealtimeEvent.QueueUpdate -> applySyncPlayQueueUpdate(event)
                     is SyncPlayRealtimeEvent.GroupUpdate -> Unit
@@ -1035,10 +1034,11 @@ class PlayerViewModel @Inject constructor(
             return
         }
         if (currentItemId == null) return
-        if (!syncPlayReportingSession.isConnected) return
+        val connection = syncPlayRealtimeClient.connectionState.value
+        if (!connection.connected) return
         syncPlayStatusProcessor.enqueue(
             SyncPlayStatusEvent(
-                generation = syncPlayReportingSession.generation,
+                generation = connection.generation,
                 groupId = groupId,
                 playlistItemId = playlistItemId,
                 isBuffering = isBuffering,

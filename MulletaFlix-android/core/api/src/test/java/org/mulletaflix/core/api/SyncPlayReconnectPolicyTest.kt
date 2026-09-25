@@ -1,6 +1,8 @@
 package org.mulletaflix.core.api
 
 import org.junit.Assert.assertEquals
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 class SyncPlayReconnectPolicyTest {
@@ -26,5 +28,32 @@ class SyncPlayReconnectPolicyTest {
         assertEquals(true, isCurrentSyncPlaySocket(activeSocket, activeSocket))
         assertEquals(false, isCurrentSyncPlaySocket(activeSocket, oldSocket))
         assertEquals(false, isCurrentSyncPlaySocket(null, oldSocket))
+    }
+
+    @Test
+    fun `rejects callbacks from a stale connection generation`() {
+        val socket = Any()
+
+        assertEquals(true, isCurrentSyncPlayConnection(4, 4, "group", socket, socket))
+        assertEquals(false, isCurrentSyncPlayConnection(5, 4, "group", socket, socket))
+        assertEquals(false, isCurrentSyncPlayConnection(4, 4, null, socket, socket))
+    }
+
+    @Test
+    fun `late observer receives current connected snapshot`() = runBlocking {
+        val tracker = SyncPlayRealtimeConnectionTracker()
+        tracker.onConnected()
+
+        assertEquals(SyncPlayConnectionSnapshot(generation = 1, connected = true), tracker.state.first())
+    }
+
+    @Test
+    fun `reconnect advances generation while connected again`() = runBlocking {
+        val tracker = SyncPlayRealtimeConnectionTracker()
+        tracker.onConnected()
+        tracker.onDisconnected()
+        tracker.onConnected()
+
+        assertEquals(SyncPlayConnectionSnapshot(generation = 3, connected = true), tracker.state.first())
     }
 }

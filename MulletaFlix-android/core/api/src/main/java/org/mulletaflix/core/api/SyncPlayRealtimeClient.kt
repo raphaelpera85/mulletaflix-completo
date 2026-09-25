@@ -5,8 +5,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -44,6 +48,24 @@ sealed interface SyncPlayRealtimeEvent {
     ) : SyncPlayRealtimeEvent
 }
 
+data class SyncPlayConnectionSnapshot(
+    val generation: Long = 0L,
+    val connected: Boolean = false,
+)
+
+internal class SyncPlayRealtimeConnectionTracker {
+    private val _state = MutableStateFlow(SyncPlayConnectionSnapshot())
+    val state: StateFlow<SyncPlayConnectionSnapshot> = _state.asStateFlow()
+
+    fun onConnected() {
+        _state.update { it.copy(generation = it.generation + 1, connected = true) }
+    }
+
+    fun onDisconnected() {
+        _state.update { it.copy(generation = it.generation + 1, connected = false) }
+    }
+}
+
 @JsonClass(generateAdapter = true)
 internal data class SyncPlayWireEnvelope(
     @param:com.squareup.moshi.Json(name = "MessageType") val messageType: String? = null,
@@ -61,7 +83,10 @@ class SyncPlayRealtimeClient @Inject constructor(
     private val envelopeAdapter = moshi.adapter(SyncPlayWireEnvelope::class.java)
     private val _events = MutableSharedFlow<SyncPlayRealtimeEvent>(extraBufferCapacity = 32)
     val events: Flow<SyncPlayRealtimeEvent> = _events.asSharedFlow()
+    private val connectionTracker = SyncPlayRealtimeConnectionTracker()
+    val connectionState: StateFlow<SyncPlayConnectionSnapshot> = connectionTracker.state
 
+    private val connectionLock = Any()
     @Volatile private var socket: WebSocket? = null
     @Volatile var activeGroupId: String? = null
         private set
@@ -70,10 +95,7 @@ class SyncPlayRealtimeClient @Inject constructor(
     private var reconnectJob: Job? = null
 
     fun start(groupId: String? = null) {
-        stop()
-        activeGroupId = groupId
-        val generation = connectionGeneration
-        connect(generation)
+        replaceConnection(groupId)
     }
 
     private fun connect(generation: Long) {
@@ -91,56 +113,98 @@ class SyncPlayRealtimeClient @Inject constructor(
             .addQueryParameter("api_key", token)
             .addQueryParameter("deviceId", deviceId)
             .build()
-        socket = httpClient.newWebSocket(Request.Builder().url(websocketUrl).build(), listener)
+        synchronized(connectionLock) {
+            if (generation != connectionGeneration || activeGroupId == null) return
+            socket = httpClient.newWebSocket(
+                Request.Builder().url(websocketUrl).build(),
+                listenerFor(generation),
+            )
+        }
     }
 
     fun stop() {
-        connectionGeneration++
-        reconnectJob?.cancel()
-        reconnectJob = null
-        reconnectAttempt = 0
-        socket?.close(1000, "room closed")
-        socket = null
-        activeGroupId = null
+        replaceConnection(null)
     }
 
-    private val listener = object : WebSocketListener() {
-        override fun onOpen(webSocket: WebSocket, response: Response) {
-            if (!isCurrentSyncPlaySocket(socket, webSocket)) return
-            reconnectAttempt = 0
+    private fun replaceConnection(groupId: String?) {
+        val (socketToClose, generation) = synchronized(connectionLock) {
+            connectionGeneration++
             reconnectJob?.cancel()
             reconnectJob = null
-            _events.tryEmit(SyncPlayRealtimeEvent.Connected)
+            reconnectAttempt = 0
+            activeGroupId = groupId
+            val previousSocket = socket
+            socket = null
+            connectionTracker.onDisconnected()
+            previousSocket to connectionGeneration
+        }
+        socketToClose?.close(1000, "room closed")
+        if (groupId != null) connect(generation)
+    }
+
+    private fun listenerFor(generation: Long) = object : WebSocketListener() {
+        override fun onOpen(webSocket: WebSocket, response: Response) {
+            synchronized(connectionLock) {
+                if (!isCurrentConnection(generation, webSocket)) return
+                reconnectAttempt = 0
+                reconnectJob?.cancel()
+                reconnectJob = null
+                connectionTracker.onConnected()
+                _events.tryEmit(SyncPlayRealtimeEvent.Connected)
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            if (!isCurrentSyncPlaySocket(socket, webSocket)) return
-            parse(text)?.let(_events::tryEmit)
+            synchronized(connectionLock) {
+                if (!isCurrentConnection(generation, webSocket)) return
+                parse(text)?.let(_events::tryEmit)
+            }
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            if (isCurrentSyncPlaySocket(socket, webSocket)) {
+            val wasCurrent = synchronized(connectionLock) {
+                if (!isCurrentConnection(generation, webSocket)) return@synchronized false
                 socket = null
+                connectionTracker.onDisconnected()
                 _events.tryEmit(SyncPlayRealtimeEvent.Disconnected)
-                scheduleReconnect(connectionGeneration)
+                true
+            }
+            if (wasCurrent) {
+                scheduleReconnect(generation)
             }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            if (isCurrentSyncPlaySocket(socket, webSocket)) {
+            val wasCurrent = synchronized(connectionLock) {
+                if (!isCurrentConnection(generation, webSocket)) return@synchronized false
                 socket = null
+                connectionTracker.onDisconnected()
                 _events.tryEmit(SyncPlayRealtimeEvent.Disconnected)
-                scheduleReconnect(connectionGeneration)
+                true
+            }
+            if (wasCurrent) {
+                scheduleReconnect(generation)
             }
         }
     }
 
+    private fun isCurrentConnection(generation: Long, callbackSocket: WebSocket): Boolean =
+        isCurrentSyncPlayConnection(
+            activeGeneration = connectionGeneration,
+            callbackGeneration = generation,
+            activeGroupId = activeGroupId,
+            activeSocket = socket,
+            callbackSocket = callbackSocket,
+        )
+
     private fun scheduleReconnect(generation: Long) {
-        if (generation != connectionGeneration || activeGroupId == null || reconnectJob?.isActive == true) return
-        val attempt = reconnectAttempt++
-        reconnectJob = applicationScope.launch {
-            delay(syncPlayReconnectDelayMs(attempt))
-            if (generation == connectionGeneration && activeGroupId != null) connect(generation)
+        synchronized(connectionLock) {
+            if (generation != connectionGeneration || activeGroupId == null || reconnectJob?.isActive == true) return
+            val attempt = reconnectAttempt++
+            reconnectJob = applicationScope.launch {
+                delay(syncPlayReconnectDelayMs(attempt))
+                connect(generation)
+            }
         }
     }
 
@@ -151,6 +215,15 @@ class SyncPlayRealtimeClient @Inject constructor(
 /** Drops callbacks from a socket superseded by a reconnect or room switch. */
 internal fun isCurrentSyncPlaySocket(activeSocket: Any?, callbackSocket: Any): Boolean =
     activeSocket === callbackSocket
+
+internal fun isCurrentSyncPlayConnection(
+    activeGeneration: Long,
+    callbackGeneration: Long,
+    activeGroupId: String?,
+    activeSocket: Any?,
+    callbackSocket: Any,
+): Boolean = activeGeneration == callbackGeneration && !activeGroupId.isNullOrBlank() &&
+    isCurrentSyncPlaySocket(activeSocket, callbackSocket)
 
 /** Bounded backoff keeps a transient Wi-Fi loss from creating a reconnect storm. */
 internal fun syncPlayReconnectDelayMs(attempt: Int): Long = when (attempt.coerceAtLeast(0)) {

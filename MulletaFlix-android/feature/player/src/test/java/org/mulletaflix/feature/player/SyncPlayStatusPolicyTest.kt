@@ -156,11 +156,11 @@ class SyncPlayStatusPolicyTest {
 
     @Test
     fun `leaving and rejoining same room reports same playback state again`() = runTest {
-        val session = SyncPlayReportingSession()
-        session.onConnected()
+        var generation = 1L
+        var realtimeConnected = true
         var snapshot = statusSnapshot(playerIsBuffering = false).copy(
-            generation = session.generation,
-            realtimeConnected = session.isConnected,
+            generation = generation,
+            realtimeConnected = realtimeConnected,
         )
         var sends = 0
         val processor = SyncPlayStatusEventProcessor(
@@ -168,15 +168,17 @@ class SyncPlayStatusPolicyTest {
             currentSnapshot = { snapshot },
         ) { sends++; true }
 
-        assertTrue(processor.enqueue(statusEvent(generation = session.generation, isBuffering = false)))
+        assertTrue(processor.enqueue(statusEvent(generation = generation, isBuffering = false)))
         runCurrent()
-        session.onDisconnected()
-        session.onConnected()
+        generation++
+        realtimeConnected = false
+        generation++
+        realtimeConnected = true
         snapshot = snapshot.copy(
-            generation = session.generation,
-            realtimeConnected = session.isConnected,
+            generation = generation,
+            realtimeConnected = realtimeConnected,
         )
-        assertTrue(processor.enqueue(statusEvent(generation = session.generation, isBuffering = false)))
+        assertTrue(processor.enqueue(statusEvent(generation = generation, isBuffering = false)))
         runCurrent()
 
         assertEquals(2, sends)

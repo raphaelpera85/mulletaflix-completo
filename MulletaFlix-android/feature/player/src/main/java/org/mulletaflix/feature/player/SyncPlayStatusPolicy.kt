@@ -64,24 +64,6 @@ internal data class SyncPlayStatusSnapshot(
     )
 }
 
-/** Makes each WebSocket connection lifetime a new reporting/deduplication session. */
-internal class SyncPlayReportingSession {
-    var generation: Long = 0L
-        private set
-    var isConnected: Boolean = false
-        private set
-
-    fun onConnected() {
-        generation++
-        isConnected = true
-    }
-
-    fun onDisconnected() {
-        generation++
-        isConnected = false
-    }
-}
-
 /** Serializes SyncPlay reports and retains only the newest pending state. */
 internal class SyncPlayStatusEventProcessor(
     scope: CoroutineScope,
