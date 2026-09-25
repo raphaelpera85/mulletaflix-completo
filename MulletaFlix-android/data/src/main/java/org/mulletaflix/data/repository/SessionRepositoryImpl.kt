@@ -100,6 +100,17 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override suspend fun saveSession(serverUrl: String, token: String, userId: String, userName: String?, deviceId: String) {
+        saveSession(serverUrl, token, userId, userName, null, deviceId)
+    }
+
+    override suspend fun saveSession(
+        serverUrl: String,
+        token: String,
+        userId: String,
+        userName: String?,
+        serverId: String?,
+        deviceId: String,
+    ) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SERVER_URL] = serverUrl.trimEnd('/')
             preferences[PreferencesKeys.ACCESS_TOKEN] = token
@@ -114,6 +125,8 @@ class SessionRepositoryImpl @Inject constructor(
                 preferences.remove(PreferencesKeys.USER_NAME)
             }
             preferences[PreferencesKeys.DEVICE_ID] = deviceId
+            if (serverId.isNullOrBlank()) preferences.remove(PreferencesKeys.SERVER_ID)
+            else preferences[PreferencesKeys.SERVER_ID] = serverId
         }
     }
 

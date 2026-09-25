@@ -42,6 +42,7 @@ import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.model.Chapter
 import org.mulletaflix.domain.model.MediaStream
 import org.mulletaflix.domain.model.MediaSegment
+import org.mulletaflix.domain.model.UserMediaPreferenceScope
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.domain.usecase.ManageSyncPlayUseCase
@@ -428,15 +429,15 @@ class PlayerViewModel @Inject constructor(
     }.getOrNull()
 
     private val castSessionListener = object : SessionManagerListener<CastSession> {
-        override fun onSessionStarting(session: CastSession) = updateCastState(true)
-        override fun onSessionStarted(session: CastSession, sessionId: String) = updateCastState(true)
+        override fun onSessionStarting(session: CastSession) = updateCastState(true, session, CastConnectionState.CONNECTING)
+        override fun onSessionStarted(session: CastSession, sessionId: String) = updateCastState(true, session, CastConnectionState.CONNECTED)
         override fun onSessionStartFailed(session: CastSession, error: Int) = updateCastState(false)
         override fun onSessionEnding(session: CastSession) = updateCastState(false)
         override fun onSessionEnded(session: CastSession, error: Int) = updateCastState(false)
-        override fun onSessionResuming(session: CastSession, sessionId: String) = updateCastState(true)
-        override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) = updateCastState(true)
+        override fun onSessionResuming(session: CastSession, sessionId: String) = updateCastState(true, session, CastConnectionState.CONNECTING)
+        override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) = updateCastState(true, session, CastConnectionState.CONNECTED)
         override fun onSessionResumeFailed(session: CastSession, error: Int) = updateCastState(false)
-        override fun onSessionSuspended(session: CastSession, reason: Int) = updateCastState(false)
+        override fun onSessionSuspended(session: CastSession, reason: Int) = updateCastState(true, session, CastConnectionState.SUSPENDED)
     }
 
     private val mediaSession: androidx.media3.session.MediaSession =
@@ -460,6 +461,7 @@ class PlayerViewModel @Inject constructor(
     private var isOfflinePlayback = false
     private var playbackLoadGeneration = 0L
     private var currentUserId: String? = null
+    private var currentMediaPreferenceScope: UserMediaPreferenceScope? = null
     private var hasObservedSession = false
     private var sessionGeneration = 0L
     private var networkWasOffline = false
@@ -682,6 +684,7 @@ class PlayerViewModel @Inject constructor(
         // "pausar em 30 minutos" morrer no primeiro episódio seguinte, sempre.
         player.stop()
         currentItemId = itemId
+        currentMediaPreferenceScope = null
         pendingAutomaticIntroSkipTargetMs = null
         currentPlaylistItemId = null
         pendingSyncPositionMs = null
@@ -727,6 +730,15 @@ class PlayerViewModel @Inject constructor(
                 showLoadError("Faça login para reproduzir esta mídia.", loadGeneration)
                 return@launch
             }
+            val preferenceScope = UserMediaPreferenceScope(
+                userId = userId,
+                serverId = sessionRepository.getServerId().first(),
+                serverUrl = sessionRepository.getBaseUrl().first(),
+            )
+            if (!isCurrentPlaybackLoad(loadGeneration, playbackLoadGeneration, itemId, currentItemId, sessionAtLoad, sessionGeneration) ||
+                sessionRepository.getCurrentUserId().first() != userId
+            ) return@launch
+            currentMediaPreferenceScope = preferenceScope
             localPlaybackKey = remotePlaybackPositionKey(userId, itemId)
 
             // Get playback info from server to determine best play method
@@ -772,8 +784,8 @@ class PlayerViewModel @Inject constructor(
                 }
             }
 
-            val preferredAudioLanguage = settingsRepository.getPreferredAudioLanguage().first()
-            val preferredSubtitleLanguage = settingsRepository.getPreferredSubtitleLanguage().first()
+            val preferredAudioLanguage = settingsRepository.getPreferredAudioLanguage(preferenceScope).first()
+            val preferredSubtitleLanguage = settingsRepository.getPreferredSubtitleLanguage(preferenceScope).first()
             val itemAudioStreams = item.mediaStreams
                 .filter { it.type == org.mulletaflix.domain.model.MediaStreamType.Audio }
             val itemSubtitleStreams = item.mediaStreams
@@ -1033,6 +1045,7 @@ class PlayerViewModel @Inject constructor(
         // item, inclusive para um download.
         player.stop()
         currentItemId = null
+        currentMediaPreferenceScope = null
         pendingAutomaticIntroSkipTargetMs = null
         currentPlaylistItemId = null
         pendingSyncPositionMs = null
@@ -1070,6 +1083,12 @@ class PlayerViewModel @Inject constructor(
                 sessionAtLoad != sessionGeneration ||
                 currentUserId?.let { it != userId } == true
             ) return@launch
+
+            currentMediaPreferenceScope = UserMediaPreferenceScope(
+                userId = userId,
+                serverId = sessionRepository.getServerId().first(),
+                serverUrl = sessionRepository.getBaseUrl().first(),
+            )
 
             localPlaybackKey = offlinePlaybackPositionKey(userId, uri)
             legacyLocalPlaybackKey = offlinePlaybackPositionKey(uri)
@@ -1390,6 +1409,7 @@ class PlayerViewModel @Inject constructor(
 
     fun selectSubtitle(index: Int) {
         subtitleSelectionGeneration++
+        val preferenceScope = currentMediaPreferenceScope
         if (index < 0) {
             if (attachedExternalSubtitleStreamIndex != null && !_state.value.isCasting) {
                 replaceSubtitleConfiguration(stream = null, serverIndex = null)
@@ -1401,7 +1421,7 @@ class PlayerViewModel @Inject constructor(
             playbackSubtitleStreamIndex = null
             playbackSubtitlesDisabled = true
             viewModelScope.launch {
-                settingsRepository.setPreferredSubtitleLanguage("off")
+                preferenceScope?.let { settingsRepository.setPreferredSubtitleLanguage(it, "off") }
             }
             return
         }
@@ -1429,12 +1449,13 @@ class PlayerViewModel @Inject constructor(
         playbackSubtitlesDisabled = false
         viewModelScope.launch {
             persistableTrackLanguage(track.language)?.let {
-                settingsRepository.setPreferredSubtitleLanguage(it)
+                preferenceScope?.let { scope -> settingsRepository.setPreferredSubtitleLanguage(scope, it) }
             }
         }
     }
 
     fun selectAudio(index: Int) {
+        val preferenceScope = currentMediaPreferenceScope
         val track = _state.value.audioTracks.getOrNull(index) ?: return
         val serverIndex = track.index
         if (!selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_AUDIO)) return
@@ -1443,7 +1464,7 @@ class PlayerViewModel @Inject constructor(
         playbackAudioStreamIndex = serverIndex
         viewModelScope.launch {
             persistableTrackLanguage(track.language)?.let {
-                settingsRepository.setPreferredAudioLanguage(it)
+                preferenceScope?.let { scope -> settingsRepository.setPreferredAudioLanguage(scope, it) }
             }
         }
     }
@@ -1946,6 +1967,24 @@ class PlayerViewModel @Inject constructor(
 
     private fun updateCastState(isCasting: Boolean) {
         _state.update { it.copy(isCasting = isCasting) }
+        val session = castSessionManager?.currentCastSession
+        PlayerMediaSessionBridge.updateCastState(
+            isCasting = isCasting,
+            receiverName = if (isCasting) session?.castDevice?.friendlyName else null,
+        )
+    }
+
+    private fun updateCastState(
+        isCasting: Boolean,
+        session: CastSession,
+        connectionState: CastConnectionState,
+    ) {
+        _state.update { it.copy(isCasting = isCasting) }
+        PlayerMediaSessionBridge.updateCastState(
+            isCasting = isCasting,
+            receiverName = if (isCasting) session.castDevice?.friendlyName else null,
+            connectionState = connectionState,
+        )
     }
 
     private suspend fun createExternalSubtitleConfiguration(
@@ -1977,6 +2016,7 @@ class PlayerViewModel @Inject constructor(
         val itemId = currentItemId ?: return
         val generation = playbackLoadGeneration
         val selectionGeneration = subtitleSelectionGeneration
+        val preferenceScope = currentMediaPreferenceScope
         viewModelScope.launch {
             val configuration = stream?.let {
                 createExternalSubtitleConfiguration(itemId, currentMediaSourceId, it)
@@ -2012,13 +2052,13 @@ class PlayerViewModel @Inject constructor(
                 currentSubtitleStreamIndex = null
                 playbackSubtitleStreamIndex = null
                 viewModelScope.launch {
-                    settingsRepository.setPreferredSubtitleLanguage("off")
+                    preferenceScope?.let { settingsRepository.setPreferredSubtitleLanguage(it, "off") }
                 }
             } else {
                 val selectedTrack = _state.value.subtitleTracks.firstOrNull { it.index == serverIndex }
                 viewModelScope.launch {
                     persistableTrackLanguage(selectedTrack?.language)?.let {
-                        settingsRepository.setPreferredSubtitleLanguage(it)
+                        preferenceScope?.let { scope -> settingsRepository.setPreferredSubtitleLanguage(scope, it) }
                     }
                 }
             }
@@ -2049,6 +2089,7 @@ class PlayerViewModel @Inject constructor(
             lastPlaybackStopJob?.takeUnless { it.isCompleted }
         }
         sessionGeneration++
+        currentMediaPreferenceScope = null
         playbackLoadGeneration++
         loadJob?.cancel()
         retryJob?.cancel()

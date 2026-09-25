@@ -21,6 +21,8 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val LAN_SCAN_DEBOUNCE_MS = 350L
+
 /**
  * Re-checks the advertised MulletaFlix server after connectivity changes.
  * Authentication remains in DataStore; only the active base URL is replaced.
@@ -105,7 +107,18 @@ class LanServerRecovery @Inject constructor(
         val generation = scanGeneration.incrementAndGet()
         scanJob?.cancel()
         scanJob = scope.launch {
+            // Wi-Fi/Ethernet changes can emit several callbacks in quick
+            // succession. Wait for the burst to settle before opening UDP
+            // sockets; only the newest foreground scan should reach discovery.
+            if (!shouldRunDebouncedLanScan(
+                    scanGeneration = generation,
+                    latestGeneration = { scanGeneration.get() },
+                    isStarted = { started },
+                    debounceMs = LAN_SCAN_DEBOUNCE_MS,
+                )
+            ) return@launch
             scanMutex.withLock {
+                if (!isCurrentLanScan(generation, scanGeneration.get(), started)) return@withLock
                 val userId = sessionRepository.getCurrentUserId().first() ?: return@withLock
                 val currentUrl = sessionRepository.getBaseUrl().first()
                 val authenticatedServerId = sessionRepository.getServerId().first()

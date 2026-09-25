@@ -21,7 +21,7 @@ servidor local responder, usa a URL pública. A busca manual continua disponíve
 | ⬇️ Downloads offline | ✅ |
 | 📺 Live TV + EPG | ✅ |
 | ⚙️ Configurações com 8 temas | ✅ |
-| 👤 Perfil multi-usuário | ✅ |
+| 👤 Perfil multi-usuário com preferências de áudio/legenda por conta e servidor | ✅ |
 | 📡 SyncPlay | ✅ |
 | 📺 Chromecast | ✅ |
 
@@ -52,8 +52,9 @@ MulletaFlix-android/
 
 ## 🛠️ Stack Tecnológica
 
-- **Language:** Kotlin 2.0
-- **UI:** Jetpack Compose + Material 3
+- **Language / build:** Kotlin 2.3.21 + Android Gradle Plugin 9.3.2
+- **SDK:** compile 37, target 36, minimum 24
+- **UI:** Jetpack Compose (BOM 2026.09.00) + Material 3
 - **DI:** Hilt
 - **Network:** Retrofit + OkHttp + Moshi
 - **Media:** Media3 / ExoPlayer (HLS, DASH, MP4, MKV)

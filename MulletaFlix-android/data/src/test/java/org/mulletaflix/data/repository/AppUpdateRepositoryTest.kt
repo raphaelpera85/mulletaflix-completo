@@ -1,5 +1,12 @@
 package org.mulletaflix.data.repository
 
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -334,4 +341,50 @@ class AppUpdateRepositoryTest {
         assertFalse(info.isUpdateAvailable)
         assertEquals("1.2.72", info.latestVersion)
     }
+
+    @Test
+    fun `an unsuccessful GitHub response is closed`() {
+        val body = mockk<ResponseBody>(relaxed = true)
+        val response = httpResponse(code = 503, body = body)
+
+        val result = repository.parseResponse(response, "1.3.66")
+
+        assertTrue(result.isFailure)
+        assertEquals("Falha ao consultar releases: HTTP 503", result.exceptionOrNull()?.message)
+        verify(exactly = 1) { body.close() }
+    }
+
+    @Test
+    fun `a successful GitHub response is closed after parsing`() {
+        val body = mockk<ResponseBody>(relaxed = true)
+        every { body.string() } returns "[]"
+        val response = httpResponse(code = 200, body = body)
+
+        val result = repository.parseResponse(response, "1.3.66")
+
+        assertTrue(result.isSuccess)
+        assertFalse(result.getOrThrow().isUpdateAvailable)
+        verify(exactly = 1) { body.close() }
+    }
+
+    @Test
+    fun `a GitHub response is closed when its body cannot be parsed`() {
+        val body = mockk<ResponseBody>(relaxed = true)
+        every { body.string() } returns "not json"
+        val response = httpResponse(code = 200, body = body)
+
+        val result = runCatching { repository.parseResponse(response, "1.3.66") }
+
+        assertTrue(result.isFailure)
+        verify(exactly = 1) { body.close() }
+    }
+
+    private fun httpResponse(code: Int, body: ResponseBody): Response =
+        Response.Builder()
+            .request(Request.Builder().url("https://api.github.com/releases").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(code)
+            .message("test response")
+            .body(body)
+            .build()
 }

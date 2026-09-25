@@ -22,7 +22,11 @@
 | Home & Descoberta (`:feature:home`) | Carregamento assíncrono, expiração de sessão e seções dinâmicas | JVM |
 | Biblioteca (`:feature:library`) | Filtros, ordenação e navegação paginada | JVM |
 | TV ao vivo / EPG (`:feature:live-tv`) | Canais e guia, agendamento otimista, resolução limitada do ID do timer, retry sem reabrir guia, respostas obsoletas após offline/troca de sessão, pré-validação de sessão/rede ao cancelar timer; ações acessíveis na TV | JVM + Compose instrumentado |
-| Player (`:feature:player`) | Pular capítulos, gestos de volume/brilho, PiP, recuperação, seleção de faixas, sidecar de legenda externa (MIME/URL/token/ID exclusivo), Cast oculta sidecars, auto-play (`NextEpisodePolicy`) e bloqueio de seek sem busca/duração | JVM + Compose/MediaItem instrumentado |
+| Player (`:feature:player`) | Pular capítulos, gestos de volume/brilho, PiP automático/fallback por API e ocultação/restauração dos overlays via `StateFlow`, recuperação, seleção de faixas, sidecar de legenda externa (MIME/URL/token/ID exclusivo), Cast oculta sidecars, auto-play (`NextEpisodePolicy`) e bloqueio de seek sem busca/duração | JVM + Compose/MediaItem/StateFlow instrumentado |
+| Preferências de mídia por perfil | Isolamento de áudio/legendas por usuário e identidade do servidor; alternância A→B→A; gravação tardia no perfil de origem; migração do ajuste global legado para o primeiro perfil | DataStore instrumentado em TV + tablet |
+| UX por dispositivo | Testes instrumentados executados no AVD de telefone, tablet e Android TV; cenários de foco D-pad/centro limitados a TV, fluxos touch e acessibilidade executados no tablet | Android instrumentado |
+| Atualização e rede em TV | Verificação periódica apenas enquanto Android TV está em primeiro plano; eliminação de verificações concorrentes e de varreduras LAN obsoletas | JVM + Compose/Lifecycle instrumentado |
+| Cast e PiP | Estado do receptor e comandos do mini player; regras de PiP por API, retângulo de origem, entrada automática e ocultação do OSD | JVM + Compose/Media3 instrumentado |
 | Controle remoto de reprodução (`:feature:sync-play`) | Pausa/retomada, parar reprodução, avanço/retrocesso limitado à duração conhecida e fallback quando duração não é informada | JVM + Compose instrumentado |
 | Seleção de servidor | Logo, URL, ação de descoberta na rede | Instrumentado Compose |
 | Build & Packaging | Variantes debug (APK gerado com sucesso) e release | Gradle |

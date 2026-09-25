@@ -42,6 +42,7 @@ import { bindSkipSegment } from './skipsegment.ts';
 import * as bitrateTest from 'utils/bitrateTest';
 import { getAudioMaxValues } from 'utils/playback/audioProfile';
 import { warmupMediaStream } from 'utils/playback/warmupMediaStream';
+import { playIntroThenMain } from 'utils/playback/playIntroThenMain';
 
 const UNLIMITED_ITEMS = -1;
 
@@ -731,13 +732,15 @@ function supportsDirectPlay(apiClient, item, mediaSource) {
  * @param {import('@jellyfin/sdk/lib/generated-client/index.js').PlaybackInfoResponse} result
  * @returns {boolean}
  */
-function validatePlaybackInfoResult(instance, result) {
+function validatePlaybackInfoResult(instance, result, suppressError = false) {
     if (result.ErrorCode) {
         // NOTE: To avoid needing to retranslate the "NoCompatibleStream" message,
         // we need to keep the key in the same format.
         const errMessage = result.ErrorCode === PlaybackErrorCode.NoCompatibleStream ?
             'PlaybackErrorNoCompatibleStream' : `PlaybackError.${result.ErrorCode}`;
-        showPlaybackInfoErrorMessage(instance, errMessage);
+        if (!suppressError) {
+            showPlaybackInfoErrorMessage(instance, errMessage);
+        }
         return false;
     }
 
@@ -2536,23 +2539,26 @@ export class PlaybackManager {
                 introPlayOptions.items = items;
                 introPlayOptions.startIndex = introStartIndex;
 
-                return playInternal(items[introStartIndex], introPlayOptions, function () {
-                    setPlaylistState(items[introStartIndex].PlaylistItemId, introStartIndex);
-                    loading.hide();
-                }).catch(function (error: any) {
-                    console.warn('[playbackmanager] intro playback failed, falling back to main item:', error);
-                    const fallbackIndex = introItems.length + playStartIndex;
-                    const fallbackPlayOptions = Object.assign({}, firstItem.playOptions, {
-                        hasIntros: false
-                    });
-                    fallbackPlayOptions.items = items;
-                    fallbackPlayOptions.startIndex = fallbackIndex;
-
-                    return playInternal(items[fallbackIndex], fallbackPlayOptions, function () {
-                        setPlaylistState(items[fallbackIndex].PlaylistItemId, fallbackIndex);
+                return playIntroThenMain(
+                    () => playInternal(items[introStartIndex], introPlayOptions, function () {
+                        setPlaylistState(items[introStartIndex].PlaylistItemId, introStartIndex);
                         loading.hide();
-                    });
-                });
+                    }, undefined, true),
+                    (error: any) => console.warn('[playbackmanager] intro playback failed, falling back to main item:', error),
+                    () => {
+                        const fallbackIndex = introItems.length + playStartIndex;
+                        const fallbackPlayOptions = Object.assign({}, firstItem.playOptions, {
+                            hasIntros: false
+                        });
+                        fallbackPlayOptions.items = items;
+                        fallbackPlayOptions.startIndex = fallbackIndex;
+
+                        return playInternal(items[fallbackIndex], fallbackPlayOptions, function () {
+                            setPlaylistState(items[fallbackIndex].PlaylistItemId, fallbackIndex);
+                            loading.hide();
+                        });
+                    }
+                );
             });
         }
 
@@ -2563,10 +2569,12 @@ export class PlaybackManager {
             }
         }
 
-        function playInternal(item, playOptions, onPlaybackStartedFn, prevSource) {
+        function playInternal(item, playOptions, onPlaybackStartedFn, prevSource, propagateErrors = false) {
             if (item.IsPlaceHolder) {
                 loading.hide();
-                showPlaybackInfoErrorMessage(self, 'PlaybackErrorPlaceHolder');
+                if (!propagateErrors) {
+                    showPlaybackInfoErrorMessage(self, 'PlaybackErrorPlaceHolder');
+                }
                 return Promise.reject();
             }
 
@@ -2594,12 +2602,21 @@ export class PlaybackManager {
                 .catch(onInterceptorRejection)
                 .then(() => detectBitrate(apiClient, item, mediaType))
                 .then((bitrate: any) => {
-                    return playAfterBitrateDetect(bitrate, item, playOptions, onPlaybackStartedFn, prevSource)
-                        .catch(onPlaybackRejection);
+                    return playAfterBitrateDetect(bitrate, item, playOptions, onPlaybackStartedFn, prevSource, propagateErrors)
+                        .catch((error: unknown) => {
+                            if (propagateErrors) {
+                                throw error;
+                            }
+                            return onPlaybackRejection(error);
+                        });
                 })
-                .catch(() => {
+                .catch((error: unknown) => {
                     if (playOptions.fullscreen) {
                         loading.hide();
+                    }
+                    if (propagateErrors) {
+                        cancelPlayback();
+                        throw error;
                     }
                 });
         }
@@ -2818,7 +2835,7 @@ export class PlaybackManager {
             }
         }
 
-        function playAfterBitrateDetect(maxBitrate, item, playOptions, onPlaybackStartedFn, prevSource) {
+        function playAfterBitrateDetect(maxBitrate, item, playOptions, onPlaybackStartedFn, prevSource, propagateErrors = false) {
             const startPosition = playOptions.startPositionTicks;
 
             const player = getPlayer(item, playOptions);
@@ -2951,6 +2968,9 @@ export class PlaybackManager {
                         onPlaybackStarted(player, playOptions, streamInfo, mediaSource);
                     }, function (err: any) {
                         loading.hide();
+                        if (propagateErrors) {
+                            throw err;
+                        }
                         setTimeout(function () {
                             onPlaybackError.call(player, err, {
                                 type: getMediaError(err),
@@ -3171,7 +3191,7 @@ export class PlaybackManager {
             options.isPlayback = true;
 
             return getPlaybackInfo(player, apiClient, item, deviceProfile, mediaSourceId, null, options).then(function (playbackInfoResult: any) {
-                if (validatePlaybackInfoResult(self, playbackInfoResult)) {
+                if (validatePlaybackInfoResult(self, playbackInfoResult, item.IsIntro === true)) {
                     return getOptimalMediaSource(apiClient, item, playbackInfoResult.MediaSources).then(function (mediaSource: any) {
                         if (mediaSource) {
                             if (mediaSource.RequiresOpening && !mediaSource.LiveStreamId) {
@@ -3194,7 +3214,9 @@ export class PlaybackManager {
                                 return mediaSource;
                             }
                         } else {
-                            showPlaybackInfoErrorMessage(self, `PlaybackError.${MediaError.NO_MEDIA_ERROR}`);
+                            if (!item.IsIntro) {
+                                showPlaybackInfoErrorMessage(self, `PlaybackError.${MediaError.NO_MEDIA_ERROR}`);
+                            }
                             return Promise.reject();
                         }
                     });

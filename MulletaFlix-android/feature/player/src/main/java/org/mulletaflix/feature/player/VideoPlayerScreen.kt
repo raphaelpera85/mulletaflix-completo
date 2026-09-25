@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Rect
 import android.media.AudioManager
 import android.os.Build
 import android.view.WindowManager
@@ -83,6 +84,14 @@ internal const val PLAYER_TOP_BAR_ACTIONS_TEST_TAG = "player-top-bar-actions"
 internal const val PLAYER_CAST_CONTROL_TEST_TAG = "player-cast-control"
 internal const val PLAYER_SEEK_BAR_TEST_TAG = "player-seek-bar"
 
+@Composable
+internal fun BoxScope.PlayerOverlayContent(
+    isInPictureInPictureMode: Boolean,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    if (shouldShowPlayerOverlay(isInPictureInPictureMode)) content()
+}
+
 /** Tamanho visual do ícone de transmissão. O alvo de toque é medido à parte. */
 internal val CAST_CONTROL_VISUAL_SIZE = 40.dp
 internal const val PLAYBACK_STATS_CONTENT_DESCRIPTION = "Dados técnicos da mídia; deslize verticalmente para ver mais"
@@ -124,14 +133,18 @@ fun VideoPlayerScreen(
     val isTelevision = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isInPictureInPictureMode by PlayerPictureInPictureController.isInPictureInPictureMode.collectAsStateWithLifecycle()
     val notificationPreferences = remember(context) {
         context.getSharedPreferences(NOTIFICATION_PROMPT_PREFERENCES, Context.MODE_PRIVATE)
     }
+    var pipSourceRect by remember { mutableStateOf<Rect?>(null) }
     val latestPosition by rememberUpdatedState(state.currentPosition)
     val latestDuration by rememberUpdatedState(state.duration)
     val latestSeekable by rememberUpdatedState(state.isSeekable)
     val latestPlaying by rememberUpdatedState(state.isPlaying)
     val latestPipEnabled by rememberUpdatedState(state.pictureInPictureEnabled)
+    val latestIsInPictureInPictureMode by rememberUpdatedState(isInPictureInPictureMode)
+    val latestPipSourceRect by rememberUpdatedState(pipSourceRect)
     var gestureHint by remember { mutableStateOf<String?>(null) }
     var notificationPromptDismissed by remember(notificationPreferences) {
         mutableStateOf(
@@ -175,11 +188,16 @@ fun VideoPlayerScreen(
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         activity?.requestedOrientation = playerOrientationForEntry(previousOrientation)
         PlayerPictureInPictureController.register {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                shouldEnterPictureInPicture(latestPipEnabled, latestPlaying, Build.VERSION.SDK_INT)
+            if (shouldEnterPictureInPictureOnUserLeaveHint(
+                    enabled = latestPipEnabled,
+                    isPlaying = latestPlaying,
+                    sdkInt = Build.VERSION.SDK_INT,
+                )
             ) {
                 activity?.enterPictureInPictureMode(
-                    android.app.PictureInPictureParams.Builder().build()
+                    android.app.PictureInPictureParams.Builder().apply {
+                        latestPipSourceRect?.let { setSourceRectHint(it) }
+                    }.build(),
                 )
             }
         }
@@ -197,6 +215,32 @@ fun VideoPlayerScreen(
 
     // OSD visibility auto-hide
     var osdVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(isInPictureInPictureMode) {
+        if (isInPictureInPictureMode) {
+            osdVisible = false
+            gestureHint = null
+        } else {
+            osdVisible = true
+        }
+    }
+
+    LaunchedEffect(activity, state.pictureInPictureEnabled, state.isPlaying, pipSourceRect) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val params = android.app.PictureInPictureParams.Builder().apply {
+                latestPipSourceRect?.let { setSourceRectHint(it) }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setAutoEnterEnabled(
+                        shouldUseAutomaticPictureInPicture(
+                            enabled = state.pictureInPictureEnabled,
+                            isPlaying = state.isPlaying,
+                            sdkInt = Build.VERSION.SDK_INT,
+                        ),
+                    )
+                }
+            }.build()
+            activity?.setPictureInPictureParams(params)
+        }
+    }
     LaunchedEffect(osdVisible, state.isPlaying, isTelevision) {
         if (osdVisible && shouldAutoHidePlayerOsd(isTelevision, state.isPlaying)) {
             delay(PLAYER_OSD_AUTO_HIDE_MILLIS)
@@ -205,12 +249,14 @@ fun VideoPlayerScreen(
     }
 
     // PiP on back when playing
-    BackHandler(enabled = state.isPlaying) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+    BackHandler(enabled = state.isPlaying && !isInPictureInPictureMode) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             shouldEnterPictureInPicture(state.pictureInPictureEnabled, state.isPlaying, Build.VERSION.SDK_INT)
         ) {
             activity?.enterPictureInPictureMode(
-                android.app.PictureInPictureParams.Builder().build()
+                android.app.PictureInPictureParams.Builder().apply {
+                    latestPipSourceRect?.let { setSourceRectHint(it) }
+                }.build(),
             )
         } else {
             onBack()
@@ -230,7 +276,7 @@ fun VideoPlayerScreen(
                 var axisLocked = false
                 detectDragGestures(
                     onDragStart = {
-                        if (state.isControlsLocked) return@detectDragGestures
+                        if (latestIsInPictureInPictureMode || state.isControlsLocked) return@detectDragGestures
                         startX = it.x
                         startPosition = latestPosition
                         previewPosition = latestPosition
@@ -240,11 +286,11 @@ fun VideoPlayerScreen(
                     },
                     onDragCancel = {},
                     onDragEnd = {
-                        if (state.isControlsLocked) return@detectDragGestures
+                        if (latestIsInPictureInPictureMode || state.isControlsLocked) return@detectDragGestures
                         if (horizontalDrag && latestSeekable && latestDuration > 0L) viewModel.seekTo(previewPosition)
                     },
                     onDrag = { _, dragAmount ->
-                        if (state.isControlsLocked) return@detectDragGestures
+                        if (latestIsInPictureInPictureMode || state.isControlsLocked) return@detectDragGestures
                         totalDrag += dragAmount
                         if (!axisLocked && totalDrag.getDistance() >= 12f) {
                             axisLocked = true
@@ -295,12 +341,12 @@ fun VideoPlayerScreen(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = {
-                        if (!state.isControlsLocked) {
+                        if (!latestIsInPictureInPictureMode && !state.isControlsLocked) {
                             osdVisible = !osdVisible
                         }
                     },
                     onDoubleTap = { offset ->
-                        if (state.isControlsLocked || !latestSeekable || latestDuration <= 0L) return@detectTapGestures
+                        if (latestIsInPictureInPictureMode || state.isControlsLocked || !latestSeekable || latestDuration <= 0L) return@detectTapGestures
                         val seekDelta = if (offset.x < size.width / 2f) -10_000L else 10_000L
                         val target = (latestPosition + seekDelta).coerceIn(
                             0L,
@@ -319,6 +365,29 @@ fun VideoPlayerScreen(
                 PlayerView(ctx).apply {
                     useController = false  // We use our own OSD
                     player = viewModel.player
+                    addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                        val visibleRect = Rect()
+                        if (view.getGlobalVisibleRect(visibleRect) && !visibleRect.isEmpty) {
+                            pipSourceRect = visibleRect
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                val params = android.app.PictureInPictureParams.Builder()
+                                    .setSourceRectHint(visibleRect)
+                                    .apply {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                            setAutoEnterEnabled(
+                                                shouldUseAutomaticPictureInPicture(
+                                                    enabled = latestPipEnabled,
+                                                    isPlaying = latestPlaying,
+                                                    sdkInt = Build.VERSION.SDK_INT,
+                                                ),
+                                            )
+                                        }
+                                    }
+                                    .build()
+                                activity?.setPictureInPictureParams(params)
+                            }
+                        }
+                    }
                 }
             },
             update = { playerView ->
@@ -340,6 +409,7 @@ fun VideoPlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        PlayerOverlayContent(isInPictureInPictureMode) {
         AnimatedVisibility(
             visible = showNotificationPrompt && osdVisible,
             enter = fadeIn(),
@@ -532,6 +602,7 @@ fun VideoPlayerScreen(
                 onCopyStats = { copyPlaybackStats(context, state.title, state.playbackStats) },
                 onShareStats = { sharePlaybackStats(context, state.title, state.playbackStats) },
             )
+        }
         }
     }
 }
@@ -767,8 +838,10 @@ private fun PlayerOsd(
                     Icon(Icons.Default.ClosedCaption, contentDescription = "Legendas", tint = Color.White)
                 }
                 // Quality
-                IconButton(onClick = { showQualityMenu = true }) {
-                    Icon(Icons.Default.Hd, contentDescription = "Qualidade", tint = Color.White)
+                if (qualityControlAvailable(state.isCasting)) {
+                    IconButton(onClick = { showQualityMenu = true }) {
+                        Icon(Icons.Default.Hd, contentDescription = "Qualidade", tint = Color.White)
+                    }
                 }
                 // Speed
                 IconButton(onClick = { showSpeedMenu = true }) {
@@ -874,7 +947,7 @@ private fun PlayerOsd(
         }
 
         // ── Quality dropdown ─────────────────────────────────────────────────
-        if (showQualityMenu) {
+        if (showQualityMenu && qualityControlAvailable(state.isCasting)) {
             QualityMenu(
                 qualities = state.availableQualities,
                 selectedQuality = state.selectedQuality,

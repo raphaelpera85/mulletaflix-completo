@@ -20,6 +20,8 @@ class HomeLoadErrorCardTest {
 
     @Test
     fun tvRetryIsFocusableAndInvokesCallback() {
+        assumeTelevisionProfile()
+
         var retries = 0
         composeRule.setContent {
             MulletaFlixTheme {

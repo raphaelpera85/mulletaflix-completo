@@ -95,6 +95,7 @@ class HomeTopBarFocusTest {
 
     @Test
     fun remoteNavigationMovesFocusAcrossTheTopBarIcons() {
+        assumeTelevisionProfile()
         showTopBar(focusFriendly = true)
 
         composeRule.onNodeWithContentDescription("Buscar").requestFocus()
@@ -111,6 +112,7 @@ class HomeTopBarFocusTest {
 
     @Test
     fun theFocusedIconIsPaintedDifferentlyFromAnUnfocusedOne() {
+        assumeTelevisionProfile()
         showTopBar(focusFriendly = true)
 
         // Reference: the remote is on the neighbour, so "Buscar" is inert.
@@ -158,6 +160,7 @@ class HomeTopBarFocusTest {
 
     @Test
     fun refreshActionIsAvailableToTheRemoteAndInvokesHomeRefresh() {
+        assumeTelevisionProfile()
         val refreshCalls = AtomicInteger(0)
         val spec = homeLayoutSpec(HomeDeviceClass.TV)
         composeRule.setContent {

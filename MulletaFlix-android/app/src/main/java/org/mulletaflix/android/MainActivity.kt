@@ -1,6 +1,8 @@
 package org.mulletaflix.android
 
 import android.os.Bundle
+import android.os.Build
+import android.app.PictureInPictureUiState
 import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,8 +23,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dagger.hilt.android.AndroidEntryPoint
 import org.mulletaflix.android.navigation.MulletaFlixNavHost
@@ -43,8 +43,11 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.android.update.AppUpdateViewModel
+import org.mulletaflix.android.update.AppUpdateCheckEffect
+import org.mulletaflix.android.update.appUpdateCheckIntervalMillis
 import org.mulletaflix.core.common.update.AppUpdateInstaller
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.SettingsRepository
@@ -72,6 +75,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        PlayerPictureInPictureController.onPictureInPictureModeChanged(isInPictureInPictureMode)
         incomingDeepLink = mediaDeepLinkRequest(intent, ++deepLinkSequence)
         enableEdgeToEdge()
 
@@ -89,6 +93,9 @@ class MainActivity : ComponentActivity() {
             val updateState by appUpdateViewModel.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
             val lifecycleOwner = LocalLifecycleOwner.current
+            val isTelevision = LocalConfiguration.current.uiMode and
+                android.content.res.Configuration.UI_MODE_TYPE_MASK ==
+                android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
 
             LaunchedEffect(Unit) {
                 hasValidSession = combine(
@@ -99,13 +106,12 @@ class MainActivity : ComponentActivity() {
                 sessionResolved = true
             }
 
-            LaunchedEffect(lifecycleOwner, sessionResolved) {
-                if (!sessionResolved) return@LaunchedEffect
-                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                    // Re-check on every foreground transition so TV devices
-                    // can notice a new APK without being force-stopped.
-                    appUpdateViewModel.checkForUpdate(BuildConfig.VERSION_NAME)
-                }
+            if (sessionResolved) {
+                AppUpdateCheckEffect(
+                    lifecycleOwner = lifecycleOwner,
+                    intervalMillis = appUpdateCheckIntervalMillis(isTelevision),
+                    checkForUpdate = { appUpdateViewModel.checkForUpdate(BuildConfig.VERSION_NAME) },
+                )
             }
 
             CompositionLocalProvider(
@@ -284,6 +290,21 @@ class MainActivity : ComponentActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         PlayerPictureInPictureController.dispatchUserLeaveHint()
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        PlayerPictureInPictureController.onPictureInPictureModeChanged(isInPictureInPictureMode)
+    }
+
+    override fun onPictureInPictureUiStateChanged(pipState: PictureInPictureUiState) {
+        super.onPictureInPictureUiStateChanged(pipState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && pipState.isTransitioningToPip) {
+            PlayerPictureInPictureController.onPictureInPictureModeChanged(true)
+        }
     }
 
     override fun onDestroy() {

@@ -2,6 +2,200 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Release v1.3.68 — Melhorias de perfil, rede local e controles de reprodução
+
+### Notas do APK
+
+- Preferências de idioma de áudio e legenda são isoladas por usuário e servidor; a escolha de uma reprodução antiga não sobrescreve a conta ativa, e ajustes legados do aparelho migram uma única vez para o primeiro perfil.
+- Android TV verifica novas versões periodicamente enquanto o app está em primeiro plano; no celular, mantém a verificação ao voltar ao app. Verificações simultâneas são evitadas.
+- A descoberta de servidor na rede local agrupa callbacks de conectividade e descarta buscas antigas antes de abrir sondagens, reduzindo buscas duplicadas.
+- O player mantém um mini controle Cast fora da tela de reprodução, com estado do receptor, abrir controles, reproduzir/pausar e encerrar transmissão; PiP usa entrada automática quando compatível e oculta OSD e gestos enquanto ativo.
+- Ações da barra superior na TV mantêm foco visual e respondem ao pressionamento central do controle remoto; durante carregamentos continuam alcançáveis sem iniciar pedidos duplicados.
+
+### Validação
+
+- [x] APK oficial anterior verificado antes do bump: `app-v1.3.67`, `versionName=1.3.67`, `versionCode=368`, um APK, 7.421.251 bytes, SHA-256 `CFC4356A359E2E3C92FB949838CBC10DACC1715762358B65892669FB6FD20991`; digest da API do GitHub confere.
+- [x] `SettingsRepositoryAccountScopeTest`: isolamento usuário/servidor e migração do legado aprovados em Android TV e tablet (2/2 testes por dispositivo); AVDs encerrados após a execução.
+- [x] Suíte JVM completa: 1.097 testes, 0 falhas, 0 erros, 0 ignorados; lint debug (repetição isolada após falha transitória FIR) e `assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Suítes Android instrumentadas dos 14 módulos concluídas em TV e tablet sem falhas; tablet: 188 testes, 20 pulos intencionais de cenários exclusivos de TV/controle remoto; os dois AVDs foram encerrados.
+- [x] Suíte instrumentada completa dos 14 módulos no perfil de celular concluída com `BUILD SUCCESSFUL`; cenários exclusivos de TV/controle remoto foram omitidos pelo perfil e o AVD foi encerrado. A condição de TV ausente em um teste remoto da Home foi corrigida e a suíte integral repetida passou.
+- [x] APK montado e conferido: `versionName=1.3.68`, `versionCode=369`, 7.437.635 bytes, SHA-256 `36A02EA2089B68A37772A64E5394A2B8E013A5F51B9BC24F6FF2104034AF0CFA`, assinatura v2 válida; certificado confere com o APK anterior.
+- [x] Release oficial [app-v1.3.68](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.3.68) publicada somente com o APK; API autenticada confirma asset único `mulletaflix-app-v1.3.68.apk`, 7.437.635 bytes, digest remoto e SHA-256 local idênticos (`36A02EA2089B68A37772A64E5394A2B8E013A5F51B9BC24F6FF2104034AF0CFA`), tag/título corretos e notas idênticas aos cinco itens de melhorias listados acima.
+
+## Release v1.3.67 — Fechamento confiável da resposta de atualização
+
+### Notas oficiais do APK
+
+- A consulta de versões do APK fecha a resposta HTTP também para status não exitosos; respostas de sucesso e erros durante leitura/análise do corpo liberam os recursos de rede.
+
+### Validação
+
+- [x] APK oficial anterior verificado por API e download antes do bump: `app-v1.3.66`, `versionName=1.3.66`, `versionCode=367`, um asset, 7.437.635 bytes, SHA-256 `98A677D690326F8A236D532FDDC3C99E5321042D79B4E40640348894E583904F`.
+- [x] `:data:testDebugUnitTest`: 17 testes, 0 falhas; cobre fechamento da resposta em sucesso, HTTP 503 e corpo inválido.
+- [x] `testDebugUnitTest`: 1.097 testes, 0 falhas, 0 erros, 0 ignorados.
+- [x] `:app:lintDebug` e `:app:assembleRelease`: `BUILD SUCCESSFUL`; APK `dist/release-v1.3.67/mulletaflix-app-v1.3.67.apk`, `versionName=1.3.67`, `versionCode=368`, 7.421.251 bytes, SHA-256 `CFC4356A359E2E3C92FB949838CBC10DACC1715762358B65892669FB6FD20991`; assinatura v2 válida, certificado igual ao APK oficial v1.3.66.
+- [x] Release oficial [app-v1.3.67](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.3.67) publicada somente com o APK; API/download confirmam asset único `mulletaflix-app-v1.3.67.apk`, 7.421.251 bytes, SHA-256 local e remoto idênticos (`CFC4356A359E2E3C92FB949838CBC10DACC1715762358B65892669FB6FD20991`), `versionName=1.3.67`, `versionCode=368`, assinatura v2 válida e notas oficiais idênticas às melhorias acima.
+
+## Release v1.3.66 — PiP automático e transição alinhada ao vídeo
+
+### Notas oficiais do APK
+
+- No Android 12+, o sistema pode levar o vídeo automaticamente para PiP ao sair por gesto enquanto a reprodução está ativa e a preferência de PiP está ligada; pausado, desligado ou Android 11 e anteriores não ativam essa entrada automática. O fluxo manual de Home continua como fallback no Android 8–11.
+- Os parâmetros de PiP atualizam o retângulo de origem junto com o layout visível do player para alinhar a animação ao vídeo.
+
+### Validação
+
+- [x] Release APK anterior consultada por API e download antes do bump: `app-v1.3.65`, `versionName=1.3.65`, `versionCode=366`, asset único de 7.421.255 bytes, SHA-256 `1C4D7591FC8161DA5205E85C58EE128C98649570584109B31CEC88956282D7FF`.
+- [x] `testDebugUnitTest`: 1.094 testes, 0 falhas, 0 erros e 0 ignorados; `:app:lintDebug` concluído com `BUILD SUCCESSFUL`.
+- [x] `PlayerPictureInPictureUiTest`: 1/1 aprovado em telefone Android 15, Android TV API 34 e tablet Android 15; AVDs iniciados pelo wrapper foram encerrados.
+- [x] `:app:assembleRelease`: `BUILD SUCCESSFUL`; APK `dist/release-v1.3.66/mulletaflix-app-v1.3.66.apk`, `versionName=1.3.66`, `versionCode=367`, 7.437.635 bytes, SHA-256 `98A677D690326F8A236D532FDDC3C99E5321042D79B4E40640348894E583904F`; assinatura v2 válida e certificado igual ao APK oficial v1.3.65.
+- [x] Release oficial [app-v1.3.66](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.3.66) publicada somente com o APK; API confirma asset único `mulletaflix-app-v1.3.66.apk`, 7.437.635 bytes, download com hash SHA-256 idêntico ao local (`98A677D690326F8A236D532FDDC3C99E5321042D79B4E40640348894E583904F`), `versionName=1.3.66`, `versionCode=367` e notas idênticas às melhorias acima.
+
+## Release v1.3.65 — Player sem overlays no PiP
+
+### Notas oficiais do APK
+
+- Ao entrar em Picture-in-Picture, controles, avisos e demais overlays do player desaparecem; o vídeo e as legendas continuam visíveis. Gestos e o tratamento de Voltar do player deixam de interferir nesse modo.
+- Ao sair do PiP, os controles reaparecem inclusive se a reprodução estiver pausada. A tela acompanha as transições do sistema e oculta os controles antecipadamente nos dispositivos compatíveis.
+
+### Validação
+
+- [x] Release anterior consultada pela API e APK baixado: `app-v1.3.64`, asset único de 7.421.247 bytes, SHA-256 `99DC636348AA0CED9FF8B6BE22C78D639EF082C40DEB012EC96FD0E8D6663EA2`.
+- [x] `testDebugUnitTest`: 1.092 testes, 0 falhas, 0 erros e 0 ignorados; `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV (`MulletaflixTvApi34`) e tablet (`MulletaflixTabletApi35`): `:app:connectedDebugAndroidTest`, 14/14 em cada perfil; os AVDs iniciados pelo wrapper foram encerrados.
+- [x] APK local `dist/release-v1.3.65/mulletaflix-app-v1.3.65.apk`: `versionName=1.3.65`, `versionCode=366`, 7.421.255 bytes, SHA-256 `1C4D7591FC8161DA5205E85C58EE128C98649570584109B31CEC88956282D7FF`; assinatura v2 e certificado iguais ao APK oficial anterior.
+- [x] Release oficial [app-v1.3.65](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.3.65) publicada somente com o APK; API e download confirmam asset único, `versionName=1.3.65`, `versionCode=366`, 7.421.255 bytes, SHA-256 `1C4D7591FC8161DA5205E85C58EE128C98649570584109B31CEC88956282D7FF` e notas específicas iguais às melhorias acima.
+
+## Release v1.3.64 — Recuperação de sessão Cast suspensa
+
+### Notas oficiais do APK
+
+- Uma desconexão Cast temporária agora mantém o mini player e o observador da sessão ativos, mostrando o estado de reconexão em vez de tratar a suspensão como encerramento.
+- Os controles de reprodução ficam desativados enquanto o dispositivo Cast está desconectado e voltam ao reconectar; o encerramento/falha real continua limpando o mini player.
+
+### Validação
+
+- [x] Conferido o APK oficial anterior v1.3.63 via API e download: `versionCode=364`, 7.421.251 bytes, SHA-256 `D2AA84993155D2A2D69BBBE361A90B8D62E4EE68CB7509316BE472EF74380318`; release contém somente o APK e suas notas correspondem à versão publicada.
+- [x] `:feature:player:testDebugUnitTest :app:compileDebugKotlin` e suíte completa `testDebugUnitTest`: `BUILD SUCCESSFUL`, 1.089 testes, 0 falhas, 0 erros e 0 ignorados.
+- [x] `:app:lintDebug`: `BUILD SUCCESSFUL`.
+- [x] Android TV (`MulletaflixTvApi34`) e tablet (`MulletaflixTabletApi35`): `:app:connectedDebugAndroidTest`, 14/14 em cada perfil; os AVDs iniciados pelos testes foram encerrados.
+- [x] APK local `dist/release-v1.3.64/mulletaflix-app-v1.3.64.apk`: `versionName=1.3.64`, `versionCode=365`, 7.421.247 bytes, SHA-256 `99DC636348AA0CED9FF8B6BE22C78D639EF082C40DEB012EC96FD0E8D6663EA2`; manifesto e assinatura validados, certificado idêntico ao APK oficial anterior.
+- [x] Release oficial [app-v1.3.64](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.3.64) publicada somente com o APK; API e download confirmam um asset, `versionName=1.3.64`, `versionCode=365`, 7.421.247 bytes, SHA-256 `99DC636348AA0CED9FF8B6BE22C78D639EF082C40DEB012EC96FD0E8D6663EA2`; notas oficiais formatadas e alinhadas aos dois itens acima.
+
+## Release v1.3.63 — Continuidade da sessão Cast fora do player
+
+### Notas oficiais do APK
+
+- Corrigido o ciclo de vida do mini player Cast ao sair da tela do player: a observação da sessão e os eventos do controle remoto permanecem ativos enquanto a transmissão continuar, mesmo sem o serviço de MediaSession assumir a sessão.
+- Ao terminar ou falhar a sessão Cast, o estado do mini player é limpo e os callbacks remotos são removidos.
+
+### Validação
+
+- [x] Conferido o APK oficial anterior v1.3.62 pela API de releases: asset único `mulletaflix-app-v1.3.62.apk`, `versionCode=363`, 7.421.251 bytes, SHA-256 `9FA09C38B5B8B5979BE59DF3AEE581D093B78C5F5B92478E8395724219762001`.
+- [x] `testDebugUnitTest`: 1.087 testes, 0 falhas e 0 erros; `:app:lintDebug` e `:app:compileDebugKotlin` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV (`MulletaflixTvApi34`) e tablet (`MulletaflixTabletApi35`): `:app:connectedDebugAndroidTest`, 14/14 em cada perfil; os AVDs iniciados pelos testes foram encerrados.
+- [x] APK local `dist/release-v1.3.63/mulletaflix-app-v1.3.63.apk`: `versionCode=364`, 7.421.251 bytes, SHA-256 `D2AA84993155D2A2D69BBBE361A90B8D62E4EE68CB7509316BE472EF74380318`; manifesto e assinatura v2 validados, certificado igual ao APK oficial anterior.
+- [x] Release oficial [app-v1.3.63](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.3.63) publicada somente com o APK; API confirma um asset, tamanho/hash iguais ao artefato local e notas alinhadas às correções acima.
+
+## Release v1.3.62 — Mini player global para sessões Cast
+
+### Notas oficiais do APK
+
+- Ao sair do player durante uma transmissão Cast, um mini player permanece nas telas autenticadas do aplicativo, mostrando título, dispositivo e estado da reprodução.
+- O mini player permite reabrir os controles do título, pausar/retomar e encerrar a transmissão; desaparece ao encerrar a sessão e não cobre telas de login nem o player em tela cheia.
+- Controles têm alvos acessíveis por toque e foco D-pad, com margens ampliadas para Android TV. O estado é atualizado por eventos do player, sem polling periódico.
+
+### Validação
+
+- [x] Conferido o APK oficial anterior v1.3.61: `versionCode=362`, 7.421.251 bytes, SHA-256 `D266739AC8C08B6158F2F27799BF54CD52A2FBB69BFDC569E460726BF8A85659`; tamanho e hash conferidos pela API e por download oficial do GitHub.
+- [x] `testDebugUnitTest`: 1.085 testes, 0 falhas, 0 erros, 0 ignorados; `:app:lintDebug` concluído com `BUILD SUCCESSFUL`.
+- [x] Android TV e tablet: `:app:connectedDebugAndroidTest`, 14/14 em cada perfil; os dois AVDs foram encerrados pelo wrapper.
+- [x] APK v1.3.62: `dist/mulletaflix-app-v1.3.62.apk`, `versionCode=363`, 7.421.251 bytes, SHA-256 `9FA09C38B5B8B5979BE59DF3AEE581D093B78C5F5B92478E8395724219762001`; manifesto e assinatura v2 validados.
+- [x] Release oficial `app-v1.3.62` publicada somente com o APK; API confirma asset único, tamanho/hash idênticos ao pacote local e notas que espelham as mudanças acima.
+
+## Release v1.3.61 — Atualização automática na Android TV e estabilidade
+
+### Notas oficiais do APK
+
+- Na Android TV, a verificação de novas versões continua enquanto o aplicativo permanece em primeiro plano, com intervalo de 60 minutos; ao ir para segundo plano, ela pausa. Celulares continuam verificando ao voltar ao primeiro plano, sem polling periódico.
+- Consultas simultâneas de atualização são evitadas. A atualização continua sendo oferecida para confirmação; a instalação depende do instalador do Android.
+- A descoberta automática de servidor LAN aguarda 350 ms para agrupar notificações rápidas de rede e descarta varreduras substituídas antes de abrir sondas.
+- Durante uma sessão Cast, o controle de qualidade local deixa de aparecer, pois não se aplica ao stream remoto.
+
+### Validação
+
+- [x] Conferido APK oficial anterior v1.3.60: `versionCode=361`, 7.421.251 bytes, SHA-256 `8CC9BF7CF733219838972D67EE3AAFA7FE166DCA22626DF014A0E59E6CD637FA`; tamanho e hash coincidem com a API e o download oficial do GitHub.
+- [x] `testDebugUnitTest`: 1.082 testes, 0 falhas, 0 erros, 0 ignorados; `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: `:app:connectedDebugAndroidTest`, 14/14 aprovados; wrapper encerrou o AVD ao final.
+- [x] APK v1.3.61: `dist/mulletaflix-app-v1.3.61.apk`, `versionCode=362`, 7.421.251 bytes, SHA-256 `D266739AC8C08B6158F2F27799BF54CD52A2FBB69BFDC569E460726BF8A85659`; manifesto validado e certificado igual ao APK oficial anterior.
+- [x] Release oficial `app-v1.3.61` publicada somente com o APK; API confirma um único asset, tamanho, SHA-256 idêntico ao artefato local/baixado e notas específicas correspondentes às alterações.
+
+## Release v1.3.60 — Atualização do stack estável do Compose
+
+### Notas oficiais do APK
+
+- Atualizada a Compose BOM de `2026.08.00` para `2026.09.00`, adotando o conjunto estável mais recente indicado pela documentação Android e mantendo as bibliotecas Compose alinhadas entre si.
+
+### Validação
+
+- [x] Conferido APK oficial anterior v1.3.59: `versionCode=360`, 7.421.251 bytes, SHA-256 `A1A96BE6C476F30F985311A9917F6514C6D0DC9D2056658A8EDB1D4499EED9E0`; tamanho e hash coincidem com a API e o download oficial do GitHub.
+- [x] `testDebugUnitTest`: 1.080 testes, 0 falhas, 0 erros, 0 ignorados.
+- [x] `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL` quando executados separadamente; uma primeira execução combinada falhou em lint instrumentado por ausência transitória de fonte gerada pelo KSP.
+- [x] APK v1.3.60: `dist/release-v1.3.60/mulletaflix-app-v1.3.60.apk`, `versionCode=361`, 7.421.251 bytes, SHA-256 `8CC9BF7CF733219838972D67EE3AAFA7FE166DCA22626DF014A0E59E6CD637FA`; manifesto validado e certificado igual ao APK oficial anterior.
+- [x] Release oficial `app-v1.3.60` publicada somente com o APK; API confirma asset único, tamanho, SHA-256 correspondente e notas específicas corrigidas/legíveis alinhadas ao artefato.
+
+## Release v1.3.59 — Controle de qualidade consistente durante Cast
+
+### Notas oficiais do APK
+
+- O seletor de qualidade fica oculto durante a transmissão Cast, pois suas restrições atuam somente no player local; se uma sessão Cast iniciar com o menu aberto, ele também deixa de ser exibido.
+
+### Validação
+
+- [x] Conferido APK oficial anterior v1.3.58: `versionCode=359`, 7.421.251 bytes, SHA-256 `AF1A0C5C03F3D7B9017ECF66022FDFD648478652955D214B25CADD15A58950E8`; tamanho e hash coincidem com a API e o download oficial do GitHub.
+- [x] `PlayerOptionsTest`: 21 testes, 0 falhas; suíte JVM completa: 1.080 testes, 0 falhas, 0 erros, 0 ignorados.
+- [x] `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK v1.3.59: `dist/release-v1.3.59/mulletaflix-app-v1.3.59.apk`, `versionCode=360`, 7.421.251 bytes, SHA-256 `A1A96BE6C476F30F985311A9917F6514C6D0DC9D2056658A8EDB1D4499EED9E0`; manifesto e assinatura validados, certificado igual ao APK oficial anterior.
+- [x] Release oficial `app-v1.3.59` publicada somente com o APK; API confirma asset único, tamanho, SHA-256 e notas correspondentes ao artefato.
+
+## Release v1.3.58 — Reconexão LAN sem varreduras redundantes
+
+### Notas oficiais do APK
+
+- Descoberta e reconexão LAN agrupam mudanças rápidas de conectividade em uma janela de 350 ms e descartam varreduras substituídas antes de iniciar sondagens UDP, reduzindo trabalho redundante durante alternâncias de rede e retorno ao primeiro plano.
+
+### Validação
+
+- [x] Conferido APK oficial anterior v1.3.57: `versionCode=358`, 7.421.251 bytes, SHA-256 `2A03CD48096A76204B0CBDDB5BE075DF0C5BCDF885DFC6FCAFB9A0E0D133BD74`; hash coincide com a API do GitHub.
+- [x] `testDebugUnitTest`: 1.267 testes, 0 falhas, 0 erros e 4 ignorados; `LanServerRecoveryPolicyTest` passou 21/21.
+- [x] `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK v1.3.58: `dist/release-v1.3.58/mulletaflix-app-v1.3.58.apk`, `versionCode=359`, 7.421.251 bytes, SHA-256 `AF1A0C5C03F3D7B9017ECF66022FDFD648478652955D214B25CADD15A58950E8`; manifesto e assinatura validados, certificado igual ao APK anterior.
+- [x] Release oficial `app-v1.3.58` publicada somente com o APK; API confirma asset único, tamanho, SHA-256 e notas correspondentes ao artefato.
+
+## Release v1.3.57 — Melhorias de reprodução, biblioteca e UX para telas grandes
+
+### Notas oficiais do APK
+
+- Legendas embutidas agora podem ser selecionadas durante Cast com o seletor remoto Media3; controles de áudio indisponíveis no receiver padrão não são exibidos. Legendas externas não são oferecidas em Cast/offline.
+- Reprodução local passa a aceitar sidecars de legenda externa com URLs resolvidas com segurança; adiciona opção independente para pular aberturas automaticamente, sem pular créditos.
+- TV ao vivo atualiza o EPG ao retomar e mantém o estado de agendamento verificável enquanto o servidor propaga o timer.
+- Quick Connect diferencia timeout local de expiração confirmada e permite recuperar-se de falhas transitórias.
+- Controle remoto exibe progresso quando a sessão informa duração e não perde atualizações após comandos concorrentes.
+- Busca e playlists preservam resultados durante paginação/retry, e a biblioteca expõe playlists do usuário.
+- Downloads distinguem carregamento inicial de fila realmente vazia; Home separa reproduzir de detalhes e permite recuperar seções que falharam sem descartar o restante.
+- Tablet/TV recebem índice alfabético focável para saltos na biblioteca.
+- Cache offline durável e comandos SyncPlay mais consistentes preservam downloads e evitam comandos obsoletos.
+- A troca de legenda em receiver Cast físico não foi verificada nesta rodada; a seleção foi coberta pelos testes do seletor Media3.
+
+### Validação
+
+- Baseline publicada verificada: v1.3.56, `versionCode=357`, SHA-256 `497CF96D4806C0159FFACCB0BA6FF2C8BAB1FA8D0D3E80060670ECC9AB06392C`.
+- [x] `testDebugUnitTest`: 1.077 testes, 0 falhas/erros/skips; `:app:lintDebug` e `:app:assembleRelease` — `BUILD SUCCESSFUL`.
+- [x] Android TV: suíte completa, 140 aprovados, 1 ignorado (alvo de toque não aplicável à TV), 0 falhas; após separar pressupostos por dispositivo, foco TV nos módulos Home, biblioteca, EPG e perfil passou 48/48.
+- [x] Tablet: 121 testes instrumentados, 108 aprovados, 13 ignorados por serem verificações de foco remoto exclusivas de TV, 0 falhas; AVDs foram encerrados pelos wrappers.
+- [x] APK v1.3.57: `dist/release-v1.3.57/mulletaflix-app-v1.3.57.apk`, `versionCode=358`, 7.421.251 bytes, SHA-256 `2A03CD48096A76204B0CBDDB5BE075DF0C5BCDF885DFC6FCAFB9A0E0D133BD74`; `aapt` confirmou versão/ID e `apksigner` confirmou assinatura, com certificado igual ao APK anterior.
+- [x] Release oficial `app-v1.3.57` publicada somente com o APK; API confirma asset único, tamanho, SHA-256 e notas alinhadas ao artefato.
+
 ## Release v1.3.56 — Atualização confiável dos controles remotos
 
 - [x] Após um comando remoto bem-sucedido, enfileirar uma consulta de atualização caso outra já esteja em andamento; polls periódicos concorrentes continuam coalescidos.
@@ -11,31 +205,31 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Release oficial `app-v1.3.56` publicada só com o APK; API confirma asset, SHA-256 e notas correspondentes a esta correção.
 - [ ] Revisar release histórica `app-v1.3.54`: seu asset publicado tem SHA-256 `0AFFDEBDC32FA19A8964C659DD10552309E6550A716C1E713829234000B7B505` (igual ao APK local v1.3.53), enquanto o APK local v1.3.54 tem SHA-256 `9AD33AB2132E8FBF32C0E7F55AB799DC1704B365920A2ED6C461614C6524EC9C`; a release histórica não foi alterada.
 
-## Trabalho APK sem release — Faixas externas durante Cast
+## Trabalho APK — Faixas externas durante Cast (incluído em v1.3.57)
 
 - [x] Em Cast/offline, excluir faixas externas das elegíveis para seleção e não anexar sidecars ao `MediaItem`; manter faixas externas na reprodução local online.
 - [x] Testes JVM cobrem reprodução local, Cast, offline, stream embutido, tipo incorreto e ausência de preferência.
-- [ ] Ainda não há nova release do APK; as notas oficiais devem descrever todas as mudanças efetivamente incluídas e validadas no artefato quando a release for atualizada.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem a política de legendas externas no Cast/offline e a validação automatizada.
 
-## Trabalho APK sem release — Pulo automático da abertura
+## Trabalho APK — Pulo automático da abertura (incluído em v1.3.57)
 
 - [x] Adicionar preferência independente “Pular abertura automaticamente”, opt-in/desligada por padrão e persistida no DataStore; manter separado o botão manual de pulo.
 - [x] Buscar automaticamente apenas durante reprodução ativa e seekable, somente para segmentos/capítulos de abertura detectados; nunca pular créditos; evitar seeks repetidos.
 - [x] Cobertura da política e persistência da configuração; Android TV: teste Compose do switch aprovado dentro de 12 testes instrumentados, 0 falhas.
 - [x] `testDebugUnitTest`: 1.070 testes, 0 falhas/erros/skips; `:app:lintDebug` e `:app:assembleRelease` — `BUILD SUCCESSFUL`.
 - [x] APK local sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `1296828B8316E9EE2CBD9F62C090C8B6182DDBE28FC59307930373D4C35EA609`.
-- [ ] Nenhuma release oficial foi criada. Em cada release futura, notas devem espelhar exatamente as melhorias e correções incluídas e validadas no APK correspondente — somente o APK, sem anunciar alterações exclusivas do servidor.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem a preferência automática de abertura e explicitam que créditos não são pulados.
 
-## Trabalho APK sem release — Atualização imediata do EPG ao retomar
+## Trabalho APK — Atualização imediata do EPG ao retomar (incluído em v1.3.57)
 
 - [x] Recarregar o guia da TV ao vivo imediatamente quando o aplicativo retoma com o EPG aberto; manter atualização periódica apenas enquanto o guia estiver visível.
 - [x] Serializar a leitura do EPG com a atualização de canais, evitando iniciar uma consulta que a recarga de canais cancelaria e repetiria.
 - [x] Testes cobrem política de tela aberta/fechada, pausa/retomada (Android TV: `LiveTvRefreshEffectTest`, 3/3) e carga do guia adiada durante atualização de canais, com uma única consulta após estabilização.
 - [x] `testDebugUnitTest`: 1.055 testes, 0 falhas/erros/skips; `:app:lintDebug`; `:app:assembleRelease` — todos `BUILD SUCCESSFUL`.
 - [x] APK local de validação sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `68988FE828EB4D2D2BF33D18E77172FC6DB14430C53E6131913F2EBB557B5361`.
-- [ ] Nenhuma release oficial foi criada. Quando houver release autorizada, notas devem espelhar todas e somente as mudanças incluídas e validadas no APK publicado.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem a atualização do EPG ao retomar.
 
-## Trabalho APK sem release — Timeout honesto no Quick Connect
+## Trabalho APK — Timeout honesto no Quick Connect (incluído em v1.3.57)
 
 - [x] Separar término do prazo local da confirmação de expiração do servidor; HTTP 404 continua sendo expiração terminal.
 - [x] Preservar retries após falha transitória e autenticação quando a consulta posterior confirma autorização.
@@ -43,9 +237,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Validar `testDebugUnitTest` (1.053 testes, 0 falhas/erros/skips), `:app:lintDebug` e `:app:assembleRelease`; todos concluídos com `BUILD SUCCESSFUL`.
 - [x] Compose de autenticação: Android TV 9/9 e tablet 9/9; wrappers encerraram os AVDs.
 - [x] APK local sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `73E654F01C7E83D9739171C00EA8BB3B38DAF26C9497567C73CAA397EEEFAF7F`.
-- [ ] Sem bump/publicação; notas oficiais devem refletir somente as melhorias/correções presentes e validadas no APK liberado.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem a diferença entre timeout local e expiração confirmada e a recuperação de falhas transitórias.
 
-## Trabalho APK sem release — Progresso da reprodução remota
+## Trabalho APK — Progresso da reprodução remota (incluído em v1.3.57)
 
 - [x] Mostrar barra de progresso acessível e tempos decorrido/total nas sessões com duração conhecida; limitar posição exibida ao intervalo válido.
 - [x] Preservar sessões sem duração (ex.: canais ao vivo), ocultando o progresso e mantendo controles atuais.
@@ -54,19 +248,19 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] APK local de validação sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `1D2E8AC4B2E5AC7862F8F1719E642CEA68C9D3024BC0FF53C137C9A2D2B55121`.
 - [x] Contrato HTTP de reprodução remota exercitado com Retrofit + MockWebServer: listagem/filtros, decodificação da sessão, seek e omissão do parâmetro de seek em Play/Pause (3/3); suíte completa `testDebugUnitTest` (1.069 testes, 0 falhas/erros/skips), `:app:lintDebug` e `:app:assembleDebug` — `BUILD SUCCESSFUL`.
 - [x] Não perder atualização imediata após comando remoto durante uma consulta em andamento; polls periódicos concorrentes continuam coalescidos. Regressão `RemotePlaybackViewModelTest` (5/5); suíte `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleDebug` — `BUILD SUCCESSFUL`.
-- [ ] Sem bump/publicação; notas oficiais de release serão atualizadas somente quando a release do APK for criada e refletirão exatamente mudanças validadas.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem progresso remoto e atualização após comandos concorrentes.
 
-## Trabalho APK sem release — Retry da paginação da busca
+## Trabalho APK — Retry da paginação da busca (incluído em v1.3.57)
 
 - [x] Corrigir “Tentar” após falha de página para repetir o mesmo offset e anexar resultados sem substituir a primeira página.
 - [x] Preservar o retry e a mensagem de falha quando o dispositivo estiver offline; adicionar testes para retry online e offline.
 - [x] Validação: `testDebugUnitTest` (1.050 testes, 0 falhas/erros/skips), `:feature:search:connectedDebugAndroidTest` (11/11 na TV), `:app:lintDebug` e `:app:assembleRelease` — todos `BUILD SUCCESSFUL`; AVD encerrado pelo wrapper.
 - [x] APK local de validação, sem bump/publicação: v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `4C1D58A2BBCD427F94D8B6C86BEB3F929F039C4C16E4D25F360F86FFADAF48AA`.
-- [ ] Release oficial não foi criada. Quando houver release autorizada, notas devem listar precisamente as mudanças presentes e validadas no APK correspondente; sem alterações exclusivas do servidor.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem paginação/retry de busca e playlists, biblioteca de playlists e estados de loading/erro.
 
 ---
 
-## Trabalho APK sem release — Carregamento da fila offline
+## Trabalho APK — Carregamento da fila offline (incluído em v1.3.57)
 
 - [x] Distinguir fila não carregada de fila vazia; expirar snapshot compartilhado após coleta parada para não mostrar dados obsoletos ao retornar.
 - [x] Mostrar progresso acessível antes do primeiro snapshot real do Media3; manter CTA “Explorar Catálogo” somente no estado vazio confirmado.
@@ -74,11 +268,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Gates APK: `testDebugUnitTest` (1.048 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:app:assembleRelease`; todos `BUILD SUCCESSFUL`.
 - [x] Android TV: 8/8 testes instrumentados aprovados; wrapper encerrou o AVD.
 - [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `66AACC03941830BE6EA4F78E173E6C2857B183F9C749000540BD42B3305A5943`.
-- [ ] Sem bump, pacote de distribuição ou publicação; notas oficiais só serão atualizadas junto de release autorizada e listarão apenas mudanças APK validadas.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem a distinção entre fila inicial em carregamento e fila vazia confirmada.
 
 ---
 
-## Trabalho APK sem release — Confirmação de agendamento na TV ao vivo
+## Trabalho APK — Confirmação de agendamento na TV ao vivo (incluído em v1.3.57)
 
 - [x] Após agendar gravação, repetir consulta ao timer duas vezes com espera curta e limitada; estado local mantém “Agendado” durante propagação.
 - [x] Se servidor não retornar ID, oferecer “Verificar” sem fechar/reabrir EPG; desabilitar Cancelar/Verificar offline e indicar confirmação pendente.
@@ -87,11 +281,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Gates APK sequenciais: `testDebugUnitTest` (1.046 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:app:assembleRelease`; todos `BUILD SUCCESSFUL`.
 - [x] Android TV: 13/13 testes instrumentados aprovados; AVD encerrado pelo wrapper.
 - [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `A26B12C791A7A86BA0007DDFF49E00E3E8799980DFF9C65F2219B5D2FAFC0CF7`.
-- [ ] Sem bump, pacote de distribuição ou publicação; notas oficiais só serão atualizadas junto a uma release autorizada e refletirão exatamente melhorias/correções incluídas e validadas no APK.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem EPG retomado e estado verificável de agendamento.
 
 ---
 
-## Trabalho APK sem release — Legendas externas no player
+## Trabalho APK — Legendas externas no player (incluído em v1.3.57)
 
 - [x] Preservar `DeliveryUrl` do DTO até o domínio e carregar legenda externa selecionada (SRT, VTT, ASS/SSA, TTML/DFXP) como sidecar Media3.
 - [x] Ao alternar faixa, anexar só a legenda externa selecionada; remover sidecar ao voltar para faixa embutida/desativada. IDs exclusivos evitam colisões com faixas do container.
@@ -101,11 +295,11 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Android TV: 27 testes instrumentados finalizados, 26 aprovados e 1 ignorado (alvo de toque Cast não aplicável à TV); wrapper encerra o AVD ao terminar.
 - [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `CE16D647748DD5C972DBA6FD38B841E1DFD6EE8459D0AD176078232C98D92385`.
 - [x] `ExternalSubtitlePlaybackIntegrationTest` passou no emulador Android TV: Media3 buscou mídia e SRT por rotas HTTP independentes, decodificou o cue e o `SubtitleView` do `PlayerView` renderizou pixels durante playback.
-- [ ] Validar a seleção pelo fluxo do `PlayerViewModel`, além do servidor Mulletaflix real e do receiver Cast; este teste usa configuração sidecar e servidor HTTP local determinístico. Sem bump, pacote de distribuição ou publicação. Notas oficiais serão atualizadas junto à próxima release autorizada e espelharão somente melhorias/correções realmente incluídas e validadas no APK.
+- [x] Incluído no APK v1.3.57, com URLs seguras e sidecars locais. A seleção de faixa embutida foi coberta no seletor; fluxo Cast completo e receiver físico não foram validados e essa limitação consta nas notas oficiais.
 
 ---
 
-## Trabalho APK sem release — Biblioteca de playlists
+## Trabalho APK — Biblioteca de playlists (incluído em v1.3.57)
 
 - [x] Adicionar leitura paginada de itens de playlist via `Playlists/{playlistId}/Items`, sem mudança no servidor.
 - [x] Expor “Minhas playlists” em Configurações, com capas, acesso aos detalhes e reprodução direta.
@@ -113,9 +307,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Android TV: 16/16 testes instrumentados aprovados; emulador encerrado pelo wrapper.
 - [x] Gates APK: `testDebugUnitTest` (1.016 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:app:assembleRelease`; `BUILD SUCCESSFUL`.
 - [x] Artefato local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `F933134DE84E0ADCDF1B1F6DD95EB4DEE07CE883895D16DF6A6EE94CE80A7B54`.
-- [ ] Sem bump, pacote de distribuição ou publicação. Atualizar notas fiéis ao diff somente junto da próxima release oficial do APK.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem a biblioteca de playlists.
 
-## Trabalho APK sem release — Paginação e retry de playlists e busca
+## Trabalho APK — Paginação e retry de playlists e busca (incluído em v1.3.57)
 
 - [x] Avançar os offsets de playlists e busca pela quantidade bruta recebida do servidor, não pela lista visível após deduplicação; busca conserva “Carregar mais” após páginas repetidas quando o total ainda indica resultados, permitindo chegar a itens posteriores sem paginação automática em loop.
 - [x] Preservar títulos já carregados ao falhar página da playlist, repetir no mesmo offset e mostrar carregamento durante retry.
@@ -123,9 +317,9 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Android TV: 17/17 testes instrumentados aprovados; wrapper encerrou o emulador.
 - [x] Gates APK: `testDebugUnitTest` (1.062 testes, 0 falhas/erros/skips), `:app:lintDebug` e `:app:assembleRelease`; todos `BUILD SUCCESSFUL`.
 - [x] APK local de validação v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `9A26ED1BE5D909D3BC7FB847E6702151EA016AC7E48DE5E813A5BE28E6389F75`.
-- [ ] Sem bump, pacote de distribuição ou publicação nesta rodada. Na próxima release autorizada, notas devem descrever estas correções somente se presentes e validadas no APK publicado.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem paginação e retry de busca/playlists.
 
-## Trabalho APK sem release — Índice alfabético em tablet/TV
+## Trabalho APK — Índice alfabético em tablet/TV (incluído em v1.3.57)
 
 - [x] Adicionar trilho de salto por letras presentes na biblioteca, normalizando acentos do português.
 - [x] Mostrar o índice somente em tablet/TV, com ordenação Nome ascendente e paginação concluída; saltos incluem cabeçalhos de erro/filtros.
@@ -133,25 +327,25 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Android TV: 16/16 testes instrumentados aprovados, incluindo salto real para letra com cabeçalhos; AVD fechado pelo wrapper.
 - [x] Gates: `testDebugUnitTest` (1.019 testes, 0 falhas/erros), `:app:lintDebug` e `:app:assembleRelease` com `BUILD SUCCESSFUL`.
 - [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `2879055D68161D93D176B0E33883EBFBEBD7C4FE55DD741F0D7AA2D5F52A399B`.
-- [ ] Sem bump ou publicação. Nenhuma versão foi liberada; notas oficiais serão atualizadas para descrever exatamente estes itens quando houver release autorizada.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem o índice alfabético para tablet/TV.
 
-## Trabalho APK sem release — Reprodução da Home e atualização remota
+## Trabalho APK — Reprodução da Home e atualização remota (incluído em v1.3.57)
 
 - [x] Separar a ação “Reproduzir” do destaque da Home de “Mais informações”; o primeiro abre a rota do player e o segundo mantém a rota de detalhes.
 - [x] Adicionar teste Compose das ações distintas; Home Android TV: 13/13 testes instrumentados aprovados.
 - [x] Ao falhar a atualização das sessões remotas, limpar a lista desatualizada e manter erro acionável; teste unitário cobre falha após sessão previamente carregada.
 - [x] Gates: `testDebugUnitTest` (1.020 testes, 0 falhas/erros), `:app:lintDebug` e `:app:assembleRelease` com `BUILD SUCCESSFUL`.
 - [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `EF55CB7221B6795B7BF115ED29E8541BE8EB2D7CE2D3ABAF3FE3D96C25774B76`.
-- [ ] Sem bump nem publicação. Notas da release oficial ficam pendentes e devem listar somente estas alterações e outras mudanças APK efetivamente incluídas/validadas.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem a ação Reproduzir e a recuperação das atualizações remotas.
 
-## Trabalho APK sem release — Erros parciais da Home
+## Trabalho APK — Erros parciais da Home (incluído em v1.3.57)
 
 - [x] Propagar falhas de Continuar Assistindo, Próximo Episódio e Minha Lista sem descartar as demais seções que carregaram.
 - [x] Exibir erro com “Tentar novamente” no local da seção; não mostrar “Nenhum conteúdo” quando existe mídia ou erro de seção.
 - [x] Cobrir os erros no caso de uso e ViewModel e a regra de Home realmente vazia com testes unitários.
 - [x] Gates após as alterações APK: `testDebugUnitTest` (1.023 testes, 0 falhas/erros), `:app:lintDebug`, `:app:assembleRelease` — `BUILD SUCCESSFUL`; Android TV Home 13/13.
 - [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `7081D42AFCEC19DCE4EC3E6D80637FCC56FED8958A747EAFD982B854E83DB485`.
-- [ ] Sem bump nem publicação. As notas oficiais ficam pendentes e devem refletir precisamente todas as melhorias/correções do APK quando houver release autorizada.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem retry por seção da Home sem descartar conteúdo que carregou.
 
 ## Skills e metodologias do projeto
 
@@ -164,7 +358,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 ---
 
-## Trabalho APK v1.3.55 — Cache offline durável e comandos SyncPlay consistentes
+## Trabalho APK v1.3.55 — Cache offline durável e comandos SyncPlay consistentes (incluído em v1.3.57)
 
 - [x] Um comando SyncPlay novo invalida o comando agendado anterior; o player revalida sala, mídia e geração antes de aplicar.
 - [x] Atualização da fila invalida comandos pendentes da faixa anterior.
@@ -177,7 +371,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Gate da rodada anterior: `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`; 980 testes, 0 falhas, 0 ignorados.
 - [x] APK intermediário da rodada anterior: `dist/interim-v1.3.55/mulletaflix-app-v1.3.55.apk`, 7.372.099 bytes, SHA-256 `FD9ED53B0CEA115F7EA87E160D7CC0EF398164AD3E461DB0F241EF8C99EDAB10`. O pacote v1.3.55 preexistente foi verificado e preservado.
 - [x] Gate desta rodada (factory extraída + teste instrumentado real): `testDebugUnitTest` (980 testes, 0 falhas, 0 ignorados), `:app:lintDebug`, `:app:assembleRelease` e suíte Android TV concluídos com `BUILD SUCCESSFUL`.
-- [ ] Publicação remota: não feita; versões intermediárias seguem a cadência de release do APK.
+- [x] Incluído no APK v1.3.57; notas oficiais descrevem cache offline persistente e consistência dos comandos SyncPlay.
 
 ---
 

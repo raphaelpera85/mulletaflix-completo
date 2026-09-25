@@ -1,5 +1,6 @@
 package org.mulletaflix.android.network
 
+import kotlinx.coroutines.delay
 import org.mulletaflix.feature.auth.ServerInfo
 
 /**
@@ -83,3 +84,14 @@ internal fun isCurrentLanScan(
     latestGeneration: Long,
     isStarted: Boolean,
 ): Boolean = isStarted && scanGeneration == latestGeneration
+
+/** Waits for a burst of network callbacks, then lets only its newest scan probe. */
+internal suspend fun shouldRunDebouncedLanScan(
+    scanGeneration: Long,
+    latestGeneration: () -> Long,
+    isStarted: () -> Boolean,
+    debounceMs: Long,
+): Boolean {
+    delay(debounceMs.coerceAtLeast(0L))
+    return isCurrentLanScan(scanGeneration, latestGeneration(), isStarted())
+}

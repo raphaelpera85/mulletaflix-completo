@@ -3,11 +3,37 @@ package org.mulletaflix.android.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -26,6 +52,10 @@ import org.mulletaflix.feature.library.LibraryScreen
 import org.mulletaflix.feature.library.FavoritesScreen
 import org.mulletaflix.feature.itemdetail.ItemDetailScreen
 import org.mulletaflix.feature.player.VideoPlayerScreen
+import org.mulletaflix.feature.player.PlayerMediaSessionBridge
+import org.mulletaflix.feature.player.CastConnectionState
+import org.mulletaflix.feature.player.canToggleCastPlayback
+import org.mulletaflix.feature.player.castMiniControllerStatus
 import org.mulletaflix.feature.search.SearchScreen
 import org.mulletaflix.feature.settings.SettingsScreen
 import org.mulletaflix.feature.user.ProfileScreen
@@ -107,7 +137,15 @@ fun MulletaFlixNavHost(
         }
     }
 
+    val castMiniController by PlayerMediaSessionBridge.castMiniControllerState.collectAsState()
+    val isPlayerRoute = currentRoute == MulletaFlixRoute.VIDEO_PLAYER ||
+        currentRoute == MulletaFlixRoute.OFFLINE_PLAYER
+    val isAuthRoute = currentRoute == MulletaFlixRoute.LOGIN ||
+        currentRoute == MulletaFlixRoute.SERVER_SELECTION
+
+    Column(Modifier.fillMaxSize()) {
     NavHost(
+        modifier = Modifier.weight(1f),
         navController = navController,
         startDestination = startDestination,
         enterTransition = {
@@ -328,6 +366,64 @@ fun MulletaFlixNavHost(
                 offlineTitle = backStack.arguments?.getString("title"),
                 onBack = { navController.popBackStack() },
             )
+        }
+    }
+    if (castMiniController != null && !isPlayerRoute && !isAuthRoute) {
+        CastMiniControllerBar(
+            state = castMiniController!!,
+            isTelevision = LocalConfiguration.current.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION,
+            onOpen = { navController.navigate(MulletaFlixRoute.videoPlayer(castMiniController!!.itemId)) },
+        )
+    }
+    }
+}
+
+@Composable
+@UnstableApi
+private fun CastMiniControllerBar(
+    state: org.mulletaflix.feature.player.CastMiniControllerState,
+    isTelevision: Boolean,
+    onOpen: () -> Unit,
+) {
+    val context = LocalContext.current
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, tonalElevation = 4.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = if (isTelevision) 32.dp else 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Cast, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Column(
+                Modifier.weight(1f).padding(horizontal = 12.dp)
+                    .semantics { contentDescription = "Transmitindo ${state.title} em ${state.receiverName}" }
+            ) {
+                Text(state.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "${state.receiverName} · ${castMiniControllerStatus(state.connectionState, state.isPlaying)}",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            IconButton(onClick = onOpen, modifier = Modifier.size(48.dp).semantics { contentDescription = "Abrir controles do player" }) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+            }
+            IconButton(
+                onClick = PlayerMediaSessionBridge::toggleCastPlayback,
+                enabled = canToggleCastPlayback(state.connectionState),
+                modifier = Modifier.size(48.dp).semantics {
+                    contentDescription = when {
+                        state.connectionState == CastConnectionState.SUSPENDED -> "Reconectando transmissão"
+                        state.connectionState == CastConnectionState.CONNECTING -> "Conectando transmissão"
+                        state.isPlaying -> "Pausar transmissão"
+                        else -> "Retomar transmissão"
+                    }
+                },
+            ) {
+                Icon(if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null)
+            }
+            IconButton(onClick = { PlayerMediaSessionBridge.stopCasting(context) }, modifier = Modifier.size(48.dp).semantics { contentDescription = "Parar transmissão" }) {
+                Icon(Icons.Default.Close, contentDescription = null)
+            }
         }
     }
 }

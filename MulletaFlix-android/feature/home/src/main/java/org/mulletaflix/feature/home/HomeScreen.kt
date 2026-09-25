@@ -27,6 +27,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -187,7 +189,8 @@ fun HomeScreen(
                         cardShape = null,
                         cardWidth = null,
                         layoutSpec = layoutSpec,
-                        onItemClick = onItemClick
+                        onItemClick = onItemClick,
+                        onResumeItemClick = onPlayItemClick,
                     )
                 }
             } else {
@@ -545,7 +548,7 @@ internal fun HeroBanner(
 // ── Media Section (horizontal scroll) ────────────────────────────────────────
 
 @Composable
-private fun MediaSection(
+internal fun MediaSection(
     title: String,
     items: List<MediaItem>,
     cardShape: MediaCardShape?,
@@ -553,6 +556,7 @@ private fun MediaSection(
     layoutSpec: HomeLayoutSpec,
     onItemClick: (String) -> Unit,
     isLive: Boolean = false,
+    onResumeItemClick: ((String) -> Unit)? = null,
 ) {
     val carouselScrollState = rememberHomeCarouselScrollState()
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
@@ -573,29 +577,50 @@ private fun MediaSection(
             ) { item ->
                 val resolvedShape = cardShape ?: defaultMediaSectionShape(item)
                 val resolvedWidth = (cardWidth ?: if (resolvedShape == MediaCardShape.Portrait) 130.dp else 240.dp) * layoutSpec.cardScale
-                MediaCard(
-                    title = item.name,
-                    imageUrl = item.primaryImageUrl,
-                    metadata = item.cardMetadata(),
-                    shape = resolvedShape,
-                    progress = item.playbackProgressFraction(),
-                    isWatched = item.isPlayed,
-                    isFavorite = item.isFavorite,
-                    unplayedCount = item.unplayedItemCount ?: 0,
-                    isLive = isLive,
-                     qualityBadge = when {
-                         item.has4K -> "4K"
-                         item.hasHD -> "HD"
-                         else -> null
-                     },
-                     focusFriendly = layoutSpec.usesFocusFriendlySpacing,
-                     onClick = { onItemClick(item.id) },
-                    modifier = Modifier.width(resolvedWidth)
-                )
+                Column(modifier = Modifier.width(resolvedWidth)) {
+                    MediaCard(
+                        title = item.name,
+                        imageUrl = item.primaryImageUrl,
+                        metadata = item.cardMetadata(),
+                        shape = resolvedShape,
+                        progress = item.playbackProgressFraction(),
+                        isWatched = item.isPlayed,
+                        isFavorite = item.isFavorite,
+                        unplayedCount = item.unplayedItemCount ?: 0,
+                        isLive = isLive,
+                        qualityBadge = when {
+                            item.has4K -> "4K"
+                            item.hasHD -> "HD"
+                            else -> null
+                        },
+                        focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                        onClick = { onItemClick(item.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (onResumeItemClick != null && item.hasResumablePlaybackPosition()) {
+                        Button(
+                            onClick = { onResumeItemClick(item.id) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                                .heightIn(min = 48.dp)
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = "Retomar ${item.name}"
+                                },
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Retomar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
             }
         }
     }
 }
+
+internal fun MediaItem.hasResumablePlaybackPosition(): Boolean =
+    !isPlayed && (playbackPositionTicks ?: userProgress?.playbackPositionTicks ?: 0L) > 0L
 
 internal fun defaultMediaSectionShape(item: MediaItem): MediaCardShape =
     if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape

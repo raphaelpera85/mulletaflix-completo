@@ -2,6 +2,7 @@ package org.mulletaflix.domain.repository
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import org.mulletaflix.domain.model.UserMediaPreferenceScope
 
 enum class AppThemeSetting {
     Dark,
@@ -23,9 +24,15 @@ interface SettingsRepository {
 
     fun getPreferredAudioLanguage(): Flow<String?>
     suspend fun setPreferredAudioLanguage(language: String?)
+    fun getPreferredAudioLanguage(scope: UserMediaPreferenceScope): Flow<String?> = getPreferredAudioLanguage()
+    suspend fun setPreferredAudioLanguage(scope: UserMediaPreferenceScope, language: String?) =
+        setPreferredAudioLanguage(language)
 
     fun getPreferredSubtitleLanguage(): Flow<String?>
     suspend fun setPreferredSubtitleLanguage(language: String?)
+    fun getPreferredSubtitleLanguage(scope: UserMediaPreferenceScope): Flow<String?> = getPreferredSubtitleLanguage()
+    suspend fun setPreferredSubtitleLanguage(scope: UserMediaPreferenceScope, language: String?) =
+        setPreferredSubtitleLanguage(language)
 
     fun isAutoPlayEnabled(): Flow<Boolean>
     suspend fun setAutoPlayEnabled(enabled: Boolean)

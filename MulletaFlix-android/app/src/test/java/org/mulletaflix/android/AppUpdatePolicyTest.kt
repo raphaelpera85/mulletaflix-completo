@@ -4,8 +4,17 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.domain.model.AppUpdateInfo
+import org.mulletaflix.android.update.TV_APP_UPDATE_CHECK_INTERVAL_MILLIS
+import org.mulletaflix.android.update.appUpdateCheckIntervalMillis
 
 class AppUpdatePolicyTest {
+    @Test
+    fun `periodic update checks are limited to televisions`() {
+        assertTrue(appUpdateCheckIntervalMillis(isTelevision = true) == TV_APP_UPDATE_CHECK_INTERVAL_MILLIS)
+        assertTrue(appUpdateCheckIntervalMillis(isTelevision = false) == 0L)
+        assertTrue(TV_APP_UPDATE_CHECK_INTERVAL_MILLIS >= 60L * 60L * 1000L)
+    }
+
     private fun update(
         available: Boolean = true,
         downloadUrl: String? = "https://example.test/app.apk",

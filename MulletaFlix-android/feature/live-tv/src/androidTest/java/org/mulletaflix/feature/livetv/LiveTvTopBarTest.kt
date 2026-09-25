@@ -31,6 +31,7 @@ class LiveTvTopBarTest {
 
     @Test
     fun remoteMovesFromRefreshToGuideAndBothActionsInvokeCallbacks() {
+        assumeTelevisionProfile()
         var refreshCalls = 0
         var guideCalls = 0
         composeRule.setContent {

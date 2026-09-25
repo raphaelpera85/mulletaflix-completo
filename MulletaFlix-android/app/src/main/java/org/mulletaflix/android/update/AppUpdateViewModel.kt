@@ -63,6 +63,7 @@ class AppUpdateViewModel @Inject constructor(
     private var dismissedVersion: String? = null
 
     private var downloadJob: Job? = null
+    private var checkJob: Job? = null
 
     /**
      * Consulta o GitHub e decide se há o que mostrar.
@@ -72,8 +73,8 @@ class AppUpdateViewModel @Inject constructor(
      * resposta atrasada atropelar um download que começou depois dela.
      */
     fun checkForUpdate(currentVersion: String) {
-        if (_state.value.isDownloading) return
-        viewModelScope.launch {
+        if (_state.value.isDownloading || checkJob?.isActive == true) return
+        checkJob = viewModelScope.launch {
             runCatching { checkAppUpdateUseCase(currentVersion) }
                 .getOrElse { Result.failure(it) }
                 .onSuccess { info ->

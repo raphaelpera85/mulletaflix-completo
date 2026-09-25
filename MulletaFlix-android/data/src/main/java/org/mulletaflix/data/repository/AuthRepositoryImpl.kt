@@ -76,9 +76,9 @@ class AuthRepositoryImpl @Inject constructor(
             token = token,
             userId = userId,
             userName = userName,
+            serverId = result.serverId,
             deviceId = deviceId,
         )
-        sessionRepository.setServerId(result.serverId)
 
         UserSession(
             userId = userId,
@@ -132,9 +132,9 @@ class AuthRepositoryImpl @Inject constructor(
                 token = token,
                 userId = user.id,
                 userName = user.name,
+                serverId = res.serverId,
                 deviceId = deviceId,
             )
-            sessionRepository.setServerId(res.serverId)
             UserSession(
                 userId = user.id,
                 userName = user.name,

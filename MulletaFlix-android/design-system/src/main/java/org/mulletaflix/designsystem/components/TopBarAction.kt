@@ -22,6 +22,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -190,6 +195,17 @@ fun MulletaFlixTopBarAction(
         modifier = Modifier
             .testTag(TOP_BAR_ACTION_TEST_TAG)
             .scale(focusScale)
+            // IconButton's own clickable can sit inside this explicit TV focus target.
+            // Intercept the centre press here so focus and remote activation belong to
+            // the same node; otherwise the icon looks focused but OK/Enter is lost.
+            .onPreviewKeyEvent { event ->
+                if (!focusFriendly || event.key != Key.DirectionCenter) {
+                    false
+                } else {
+                    if (event.type == KeyEventType.KeyDown && acceptsInput) onClick()
+                    true
+                }
+            }
             // Material3's IconButton exposes click semantics, but on the API 35
             // TV test surface it did not consistently become a focus target when
             // requested directly. Keep touch layouts unchanged and make the

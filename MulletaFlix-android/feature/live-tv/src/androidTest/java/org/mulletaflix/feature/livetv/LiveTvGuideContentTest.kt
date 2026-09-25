@@ -78,6 +78,7 @@ class LiveTvGuideContentTest {
 
     @Test
     fun scheduledProgrammeWithTimerExposesFocusedCancelAction() {
+        assumeTelevisionProfile()
         var cancelledId: String? = null
         composeRule.setContent {
             MulletaFlixTheme {
@@ -106,6 +107,7 @@ class LiveTvGuideContentTest {
 
     @Test
     fun guideErrorKeepsProgrammeVisibleAndOffersRetry() {
+        assumeTelevisionProfile()
         var retries = 0
         composeRule.setContent {
             MulletaFlixTheme {
@@ -134,6 +136,7 @@ class LiveTvGuideContentTest {
 
     @Test
     fun scheduledProgrammeWithoutTimerOffersFocusedVerificationAction() {
+        assumeTelevisionProfile()
         var verifiedId: String? = null
         composeRule.setContent {
             MulletaFlixTheme {

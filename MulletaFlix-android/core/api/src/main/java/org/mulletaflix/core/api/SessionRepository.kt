@@ -18,6 +18,17 @@ interface SessionRepository {
     suspend fun saveSession(serverUrl: String, token: String, userId: String, userName: String?, deviceId: String) {
         saveSession(serverUrl, token, userId, deviceId)
     }
+    suspend fun saveSession(
+        serverUrl: String,
+        token: String,
+        userId: String,
+        userName: String?,
+        serverId: String?,
+        deviceId: String,
+    ) {
+        saveSession(serverUrl, token, userId, userName, deviceId)
+        setServerId(serverId)
+    }
     suspend fun setBaseUrl(url: String)
     suspend fun setServerId(serverId: String?) {}
     suspend fun clearSession()
@@ -34,4 +45,3 @@ data class SavedServerSession(
     val serverId: String? = null,
     val lastConnected: Long = System.currentTimeMillis(),
 )
-

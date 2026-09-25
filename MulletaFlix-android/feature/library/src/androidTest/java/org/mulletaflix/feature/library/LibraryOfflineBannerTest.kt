@@ -34,6 +34,7 @@ class LibraryOfflineBannerTest {
 
     @Test
     fun tvRetryCanReceiveRemoteFocus() {
+        assumeTelevisionProfile()
         composeRule.setContent {
             LibraryOfflineBannerTestSurface(onRetry = {})
         }

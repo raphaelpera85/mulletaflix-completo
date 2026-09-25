@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
 import org.mulletaflix.domain.model.AppUpdateInfo
 import org.mulletaflix.domain.repository.AppUpdateRepository
@@ -35,20 +36,23 @@ class AppUpdateRepositoryImpl @Inject constructor() : AppUpdateRepository {
                     .get()
                     .build()
 
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(
-                        Exception("Falha ao consultar releases: HTTP ${response.code}")
-                    )
-                }
-
-                val responseBody = response.body?.string()
-                    ?: return@withContext Result.failure(Exception("Resposta vazia do GitHub"))
-
-                val updateInfo = parseReleases(responseBody, currentVersion)
-                Result.success(updateInfo)
+                parseResponse(httpClient.newCall(request).execute(), currentVersion)
             } catch (e: Exception) {
                 Result.failure(e)
+            }
+        }
+
+    internal fun parseResponse(response: Response, currentVersion: String): Result<AppUpdateInfo> =
+        response.use { httpResponse ->
+            if (!httpResponse.isSuccessful) {
+                Result.failure(Exception("Falha ao consultar releases: HTTP ${httpResponse.code}"))
+            } else {
+                val responseBody = httpResponse.body?.string()
+                if (responseBody == null) {
+                    Result.failure(Exception("Resposta vazia do GitHub"))
+                } else {
+                    Result.success(parseReleases(responseBody, currentVersion))
+                }
             }
         }
 

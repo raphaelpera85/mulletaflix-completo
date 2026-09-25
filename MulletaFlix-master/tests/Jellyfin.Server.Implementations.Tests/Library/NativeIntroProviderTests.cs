@@ -55,7 +55,6 @@ public class NativeIntroProviderTests
 
             Assert.Single(intros);
             Assert.Equal(introPath, intros.First().Path);
-            prebufferManager.Verify(m => m.PrepareAsync(It.IsAny<BaseItem>()), Times.Once);
         }
         finally
         {
@@ -143,7 +142,6 @@ public class NativeIntroProviderTests
 
             Assert.Single(intros);
             Assert.Equal(introFile, intros.First().Path);
-            prebufferManager.Verify(m => m.PrepareAsync(item), Times.Once);
         }
         finally
         {
@@ -152,6 +150,52 @@ public class NativeIntroProviderTests
             {
                 Directory.Delete(tempDir, true);
             }
+        }
+    }
+
+    [Fact]
+    public async Task GetIntros_ReturnsIntroWithoutWaitingForMainMediaPrebuffer()
+    {
+        var introPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
+        await File.WriteAllTextAsync(introPath, "intro video");
+        var prebufferStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishPrebuffer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            var configManager = new Mock<IServerConfigurationManager>();
+            configManager.Setup(m => m.GetConfiguration("branding")).Returns(new BrandingOptions
+            {
+                IntroPath = introPath
+            });
+
+            var prebufferManager = new Mock<IStrmPrebufferManager>();
+            prebufferManager
+                .Setup(m => m.PrepareAsync(It.IsAny<BaseItem>()))
+                .Returns(() =>
+                {
+                    prebufferStarted.TrySetResult();
+                    return finishPrebuffer.Task;
+                });
+
+            var provider = new NativeIntroProvider(
+                configManager.Object,
+                prebufferManager.Object,
+                Mock.Of<Microsoft.Extensions.Logging.ILogger<NativeIntroProvider>>());
+            var item = new Video { Id = Guid.NewGuid(), Name = "Test media", Path = "N:\\Series\\test.strm" };
+            var user = new User("test", "test", "test") { Id = Guid.NewGuid() };
+
+            var introsTask = provider.GetIntros(item, user);
+            var completedBeforePrebuffer = await Task.WhenAny(introsTask, Task.Delay(TimeSpan.FromSeconds(2)));
+
+            Assert.Same(introsTask, completedBeforePrebuffer);
+            Assert.Single(await introsTask);
+            await prebufferStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            finishPrebuffer.TrySetResult();
+            File.Delete(introPath);
         }
     }
 

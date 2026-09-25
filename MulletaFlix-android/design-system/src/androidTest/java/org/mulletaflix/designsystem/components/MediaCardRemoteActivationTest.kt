@@ -9,6 +9,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assume
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,6 +49,7 @@ class MediaCardRemoteActivationTest {
 
     @Test
     fun aFocusedRemoteCardOpensOnTheFirstCentrePress() {
+        assumeTelevisionSurface()
         var clicks = 0
         showCard { clicks++ }
 
@@ -68,6 +70,7 @@ class MediaCardRemoteActivationTest {
 
     @Test
     fun aSecondCentrePressDoesNotOpenACardTwice() {
+        assumeTelevisionSurface()
         var clicks = 0
         showCard { clicks++ }
 

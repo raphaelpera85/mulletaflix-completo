@@ -9,6 +9,9 @@ import org.mulletaflix.domain.model.QUALITY_AUTO
 import org.mulletaflix.domain.model.normalizePlaybackQualityPreference
 import org.mulletaflix.domain.model.qualityLabelForHeight as qualityLabelForHeightInDomain
 
+/** Quality constraints can only be changed for the local Media3 player. */
+internal fun qualityControlAvailable(isCasting: Boolean): Boolean = !isCasting
+
 /**
  * Aspect ratio display mode for the video player.
  */

@@ -117,13 +117,9 @@ try {
     Write-Host "Criando nova release para a tag $Tag..." -ForegroundColor Cyan
 }
 
-$bodyContent = @"
-### MulletaFlix Android $Tag
-
-Aplicativo oficial MulletaFlix para dispositivos Android e Android TV / Box.
-
-$Notes
-"@
+# Release notes are supplied by the caller and must describe only changes in
+# this APK. Do not prepend generic product copy or a duplicate release heading.
+$bodyContent = $Notes.Trim()
 
 $releasePayloadJson = @{
     tag_name = $Tag

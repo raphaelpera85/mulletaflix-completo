@@ -21,6 +21,7 @@ class ProfileSwitcherItemRemoteFocusTest {
 
     @Test
     fun switcherCanReceiveRemoteKeyboardFocus() {
+        assumeTelevisionProfile()
         val user = AvailableUser(id = "user-2", name = "Raphael")
         val focusRequester = FocusRequester()
         composeRule.setContent {

@@ -5,9 +5,11 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -78,6 +80,31 @@ class AppUpdateViewModelTest {
         checkAppUpdateUseCase = CheckAppUpdateUseCase(FakeCheckRepository { Result.success(info) }),
         downloader = downloader,
     )
+
+    @Test
+    fun `overlapping update checks share one in-flight request`() = runTest {
+        val response = CompletableDeferred<Result<AppUpdateInfo>>()
+        var requests = 0
+        val viewModel = AppUpdateViewModel(
+            checkAppUpdateUseCase = CheckAppUpdateUseCase(object : AppUpdateRepository {
+                override suspend fun checkForUpdate(currentVersion: String): Result<AppUpdateInfo> {
+                    requests++
+                    return response.await()
+                }
+            }),
+            downloader = downloaderEmitting(),
+        )
+
+        viewModel.checkForUpdate("1.2.84")
+        runCurrent()
+        viewModel.checkForUpdate("1.2.84")
+        runCurrent()
+        assertEquals(1, requests)
+
+        response.complete(Result.success(update()))
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.isDialogVisible)
+    }
 
     @Test
     fun `an available update is offered`() = runTest {

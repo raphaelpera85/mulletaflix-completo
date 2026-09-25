@@ -51,6 +51,7 @@ class MediaCardAccessibilityTest {
 
     @Test
     fun remoteFriendlyMediaCard_acceptsRemoteFocus() {
+        assumeTelevisionSurface()
         val focusRequester = FocusRequester()
 
         composeRule.setContent {

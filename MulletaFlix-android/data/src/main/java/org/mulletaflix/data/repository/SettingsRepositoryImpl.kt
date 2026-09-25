@@ -6,19 +6,30 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.domain.model.normalizeSubtitleColor
 import org.mulletaflix.domain.model.normalizeSubtitleSizePercent
+import org.mulletaflix.domain.model.UserMediaPreferenceScope
 import org.mulletaflix.domain.repository.AppThemeSetting
 import org.mulletaflix.domain.repository.SettingsRepository
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "mulletaflix_settings")
+internal val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "mulletaflix_settings")
 
 @Singleton
 class SettingsRepositoryImpl @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val sessionRepository: SessionRepository,
 ) : SettingsRepository {
 
     private object Keys {
@@ -41,6 +52,15 @@ class SettingsRepositoryImpl @Inject constructor(
         val DEFAULT_LIBRARY_FILTERS = stringSetPreferencesKey("default_library_filters")
     }
 
+    private data class PreferenceScope(val token: String)
+
+    private val currentPreferenceScope: Flow<PreferenceScope?> = combine(
+        sessionRepository.getCurrentUserId(),
+        sessionRepository.getServerId(),
+        sessionRepository.getBaseUrl(),
+    ) { userId, serverId, serverUrl -> preferenceScope(userId, serverId, serverUrl) }
+        .distinctUntilChanged()
+
     override fun getTheme(): Flow<AppThemeSetting> {
         return context.settingsDataStore.data.map { pref ->
             val name = pref[Keys.THEME] ?: AppThemeSetting.Dark.name
@@ -60,23 +80,110 @@ class SettingsRepositoryImpl @Inject constructor(
         context.settingsDataStore.edit { it[Keys.PIP_ENABLED] = enabled }
     }
 
-    override fun getPreferredAudioLanguage(): Flow<String?> {
-        return context.settingsDataStore.data.map { it[Keys.AUDIO_LANG] ?: "por" }
-    }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    override fun getPreferredAudioLanguage(): Flow<String?> =
+        currentPreferenceScope.flatMapLatest { preferredLanguageFlow(Keys.AUDIO_LANG, it) }
 
-    override suspend fun setPreferredAudioLanguage(language: String?) {
-        context.settingsDataStore.edit {
-            if (language != null) it[Keys.AUDIO_LANG] = language else it.remove(Keys.AUDIO_LANG)
+    override fun getPreferredAudioLanguage(scope: UserMediaPreferenceScope): Flow<String?> =
+        preferredLanguageFlow(Keys.AUDIO_LANG, preferenceScope(scope.userId, scope.serverId, scope.serverUrl))
+
+    override suspend fun setPreferredAudioLanguage(language: String?) =
+        setPreferredLanguage(Keys.AUDIO_LANG, language)
+
+    override suspend fun setPreferredAudioLanguage(scope: UserMediaPreferenceScope, language: String?) =
+        setPreferredLanguage(
+            Keys.AUDIO_LANG,
+            language,
+            preferenceScope(scope.userId, scope.serverId, scope.serverUrl),
+        )
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    override fun getPreferredSubtitleLanguage(): Flow<String?> =
+        currentPreferenceScope.flatMapLatest { preferredLanguageFlow(Keys.SUBTITLE_LANG, it) }
+
+    override fun getPreferredSubtitleLanguage(scope: UserMediaPreferenceScope): Flow<String?> =
+        preferredLanguageFlow(Keys.SUBTITLE_LANG, preferenceScope(scope.userId, scope.serverId, scope.serverUrl))
+
+    override suspend fun setPreferredSubtitleLanguage(language: String?) =
+        setPreferredLanguage(Keys.SUBTITLE_LANG, language)
+
+    override suspend fun setPreferredSubtitleLanguage(scope: UserMediaPreferenceScope, language: String?) =
+        setPreferredLanguage(
+            Keys.SUBTITLE_LANG,
+            language,
+            preferenceScope(scope.userId, scope.serverId, scope.serverUrl),
+        )
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun preferredLanguageFlow(
+        key: Preferences.Key<String>,
+        scope: PreferenceScope?,
+    ): Flow<String?> = if (scope == null) {
+        context.settingsDataStore.data.map { it[key] ?: "por" }
+    } else {
+        flow {
+            migrateLegacyLanguagePreferences(scope)
+            emitAll(context.settingsDataStore.data.map { preferences ->
+                preferences[scopedLanguageKey(key, scope)] ?: "por"
+            })
         }
     }
 
-    override fun getPreferredSubtitleLanguage(): Flow<String?> {
-        return context.settingsDataStore.data.map { it[Keys.SUBTITLE_LANG] ?: "por" }
+    private suspend fun setPreferredLanguage(key: Preferences.Key<String>, language: String?) {
+        setPreferredLanguage(key, language, currentPreferenceScope.first())
     }
 
-    override suspend fun setPreferredSubtitleLanguage(language: String?) {
-        context.settingsDataStore.edit {
-            if (language != null) it[Keys.SUBTITLE_LANG] = language else it.remove(Keys.SUBTITLE_LANG)
+    private suspend fun setPreferredLanguage(
+        key: Preferences.Key<String>,
+        language: String?,
+        scope: PreferenceScope?,
+    ) {
+        if (scope != null) migrateLegacyLanguagePreferences(scope)
+        context.settingsDataStore.edit { preferences ->
+            if (scope == null) {
+                if (language == null) preferences.remove(key) else preferences[key] = language
+            } else {
+                val scopedKey = scopedLanguageKey(key, scope)
+                if (language == null) preferences.remove(scopedKey) else preferences[scopedKey] = language
+            }
+        }
+    }
+
+    private fun preferenceScope(userId: String?, serverId: String?, serverUrl: String): PreferenceScope? {
+        val cleanUserId = userId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val serverIdentity = serverId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: serverUrl.trim().trimEnd('/').lowercase().takeIf { it.isNotEmpty() }
+            ?: return null
+        return PreferenceScope(scopeToken(serverIdentity, cleanUserId))
+    }
+
+    private suspend fun migrateLegacyLanguagePreferences(scope: PreferenceScope) {
+        context.settingsDataStore.edit { preferences ->
+            listOf(Keys.AUDIO_LANG, Keys.SUBTITLE_LANG).forEach { key ->
+                val legacyValue = preferences[key]
+                preferences.remove(key)
+                if (legacyValue == null) return@forEach
+                val scopedKey = scopedLanguageKey(key, scope)
+                if (scopedKey !in preferences) preferences[scopedKey] = legacyValue
+            }
+        }
+    }
+
+    private fun scopedLanguageKey(
+        key: Preferences.Key<String>,
+        scope: PreferenceScope,
+    ): Preferences.Key<String> = stringPreferencesKey("${key.name}_${scope.token}")
+
+    private fun scopeToken(serverIdentity: String, userId: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("$serverIdentity\u0000$userId".toByteArray(StandardCharsets.UTF_8))
+        val alphabet = "0123456789abcdef"
+        return buildString(digest.size * 2) {
+            digest.forEach { byte ->
+                val value = byte.toInt() and 0xff
+                append(alphabet[value ushr 4])
+                append(alphabet[value and 0x0f])
+            }
         }
     }
 

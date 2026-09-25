@@ -3,7 +3,7 @@
 compileSdk = "37"
 targetSdk = "36"
 minSdk = "24"
-appVersion = "1.3.56"
+appVersion = "1.3.68"
 
 # Kotlin & AGP
 agp = "9.3.2"
@@ -16,7 +16,7 @@ lifecycleRuntimeKtx = "2.11.0"
 activityCompose = "1.13.0"
 
 # Compose
-composeBom = "2026.08.00"
+composeBom = "2026.09.00"
 navigationCompose = "2.10.1"
 
 # Material

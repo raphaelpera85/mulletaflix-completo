@@ -52,7 +52,8 @@ function Get-BootState {
 }
 
 try {
-    $existing = (& $adb devices) | Select-String -SimpleMatch $serial
+    $serialPattern = '^\s*' + [regex]::Escape($serial) + '\s'
+    $existing = (& $adb devices) | Where-Object { $_ -match $serialPattern }
     if (-not $existing) {
         $emulatorProcess = Start-Process -FilePath $emulator -ArgumentList @(
             "-avd", $AvdName,
@@ -60,7 +61,7 @@ try {
             "-no-snapshot",
             "-no-boot-anim",
             "-gpu", "swiftshader_indirect"
-        ) -WindowStyle Hidden -PassThru
+        ) -WindowStyle Normal -PassThru
         $startedHere = $true
     }
 

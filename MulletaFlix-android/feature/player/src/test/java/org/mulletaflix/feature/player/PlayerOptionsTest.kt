@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.domain.model.MediaStream
@@ -15,6 +16,12 @@ class PlayerOptionsTest {
         // descrição localizada que o `MediaRouteButton` do Media3 já publica.
         assertEquals("Transmitir", castActionLabel(isCasting = false))
         assertEquals("Transmitindo", castActionLabel(isCasting = true))
+    }
+
+    @Test
+    fun `quality control is available locally but not during cast`() {
+        assertTrue(qualityControlAvailable(isCasting = false))
+        assertFalse(qualityControlAvailable(isCasting = true))
     }
 
     @Test

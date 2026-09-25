@@ -85,8 +85,11 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
+- **Intro inicia sem esperar o pré-buffer**: buscar e preparar o cache da mídia principal não bloqueia mais a resposta da intro nativa; falhas de cache ficam isoladas e não retiram a intro da sequência. Os logs agora registram quando a intro é fornecida e quantas intros foram resolvidas para cada mídia.
+
 - **Backup MongoDB → Supabase a cada hora**: sincronização automática agora executa em intervalo fixo de 60 minutos. Configurações antigas que impunham 24 horas são migradas para o ciclo horário; usuários do aplicativo continuam fora deste backup.
 - **Pré-buffer de reprodução valida a resposta**: a fonte da mídia só é mantida para o player depois que o endpoint de streaming responde com sucesso e entrega bytes; respostas HTTP de erro deixam o player buscar uma fonte nova, em vez de provocar “não foi possível encontrar uma fonte de mídia válida”. A sondagem usa apenas 64 KB e cancela o restante.
+- **Falha na intro não bloqueia a mídia**: quando o servidor rejeita a fonte de vídeo da intro nativa, a reprodução não exibe o erro genérico nem engole a rejeição; o player tenta iniciar imediatamente o episódio ou filme já pré-carregado.
 - **Reprodução da intro corrigida**: intros nativas resolvidas por caminho agora são registradas como itens transitórios quando a API as entrega ao player. A consulta posterior de PlaybackInfo pelo ID e o streaming usam o mesmo registro, evitando o erro de “não foi possível encontrar uma fonte de mídia válida”.
 - **PlaybackInfo POST reconhece a intro transitória**: o endpoint usado pelo player web agora procura a intro no registro temporário antes de tentar resolver um caminho. Isso evita a falha de fonte de mídia para a intro nativa que não está cadastrada na biblioteca persistente.
 - **Intro nativa automática antes de cada mídia**: o servidor usa a intro incluída no pacote por padrão, mesmo quando a configuração antiga ainda a marcava como desativada. A tela de Marca agora informa que a execução é automática e mantém o caminho apenas para uma intro personalizada.
