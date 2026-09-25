@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,12 +28,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.core.common.update.AppUpdateInstaller
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.designsystem.components.ReleaseNotesText
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.designsystem.components.remoteFocusRing
 
 /**
  * Settings screen with categorized preferences.
@@ -51,6 +56,8 @@ import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 fun SettingsScreen(
     onLogout: () -> Unit,
     onSyncPlay: () -> Unit = {},
+    onRemotePlayback: () -> Unit = {},
+    onPlaylists: () -> Unit = {},
     onProfile: () -> Unit = {},
     onBack: (() -> Unit)? = null,
     viewModel: SettingsViewModel = hiltViewModel()
@@ -106,6 +113,8 @@ fun SettingsScreen(
                 )
                 SettingsItem(icon = Icons.Default.Person, title = "Meu Perfil", subtitle = state.username ?: "Ver perfil, permissões e alternar usuário", onClick = onProfile)
                 SettingsItem(icon = Icons.Default.Group, title = "Salas SyncPlay", subtitle = "Assistir sincronizado com amigos", onClick = onSyncPlay)
+                SettingsItem(icon = Icons.Default.CastConnected, title = "Dispositivos em reprodução", subtitle = "Controlar TVs e outros players conectados", onClick = onRemotePlayback)
+                SettingsItem(icon = Icons.AutoMirrored.Filled.QueueMusic, title = "Minhas playlists", subtitle = "Consultar e reproduzir títulos salvos", onClick = onPlaylists)
                 SettingsItem(icon = Icons.AutoMirrored.Filled.Logout, title = "Sair", subtitle = "Desconectar da conta atual", onClick = {
                     viewModel.logout()
                     onLogout()
@@ -230,10 +239,17 @@ fun SettingsScreen(
                 )
                 SettingsToggle(
                     icon = Icons.Default.SkipNext,
-                    title = "Pular Introdução",
-                    subtitle = "Mostrar botão para pular abertura",
+                    title = "Botão de pular abertura",
+                    subtitle = "Exibir ação manual durante a abertura",
                     checked = state.skipIntro,
                     onCheckedChange = viewModel::setSkipIntro
+                )
+                SettingsToggle(
+                    icon = Icons.Default.FastForward,
+                    title = "Pular abertura automaticamente",
+                    subtitle = "Avançar sem confirmação durante uma introdução detectada",
+                    checked = state.automaticIntroSkip,
+                    onCheckedChange = viewModel::setAutomaticIntroSkip,
                 )
                 SettingsToggle(
                     icon = Icons.Default.PictureInPicture,
@@ -628,6 +644,7 @@ internal fun SettingsItem(
             // Linha de navegação: sem papel, o leitor de tela a anuncia como texto
             // e não como algo que se ativa.
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .remoteFocusRing(shape = RoundedCornerShape(12.dp))
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -643,7 +660,7 @@ internal fun SettingsItem(
 }
 
 @Composable
-private fun SettingsToggle(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+internal fun SettingsToggle(icon: ImageVector, title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -653,7 +670,11 @@ private fun SettingsToggle(icon: ImageVector, title: String, subtitle: String, c
             Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = Modifier.semantics { contentDescription = title },
+        )
     }
     HorizontalDivider(modifier = Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
 }

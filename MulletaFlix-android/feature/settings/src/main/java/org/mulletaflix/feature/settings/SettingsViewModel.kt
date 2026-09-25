@@ -39,6 +39,7 @@ data class SettingsState(
     val defaultSpeed: Float = 1.0f,
     val autoPlay: Boolean = true,
     val skipIntro: Boolean = true,
+    val automaticIntroSkip: Boolean = false,
     val pictureInPicture: Boolean = true,
     val audioLanguage: String = "Português (Brasil)",
     val subtitleLanguage: String = "Português (Brasil)",
@@ -126,6 +127,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            settingsRepository.isAutomaticIntroSkipEnabled().collect { enabled ->
+                _state.update { it.copy(automaticIntroSkip = enabled) }
+            }
+        }
+        viewModelScope.launch {
             settingsRepository.isPiPEnabled().collect { enabled ->
                 _state.update { it.copy(pictureInPicture = enabled) }
             }
@@ -208,6 +214,11 @@ class SettingsViewModel @Inject constructor(
     fun setSkipIntro(skipIntro: Boolean) {
         _state.update { it.copy(skipIntro = skipIntro) }
         viewModelScope.launch { settingsRepository.setSkipIntroEnabled(skipIntro) }
+    }
+
+    fun setAutomaticIntroSkip(enabled: Boolean) {
+        _state.update { it.copy(automaticIntroSkip = enabled) }
+        viewModelScope.launch { settingsRepository.setAutomaticIntroSkipEnabled(enabled) }
     }
 
     fun setPictureInPicture(enabled: Boolean) {

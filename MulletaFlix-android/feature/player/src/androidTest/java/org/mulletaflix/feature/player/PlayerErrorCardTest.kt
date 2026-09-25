@@ -21,6 +21,7 @@ class PlayerErrorCardTest {
 
     @Test
     fun televisionRetryActionIsVisibleAndInvokesCallback() {
+        assumeTelevisionProfile()
         val retries = AtomicInteger(0)
         composeRule.setContent {
             MulletaFlixTheme {

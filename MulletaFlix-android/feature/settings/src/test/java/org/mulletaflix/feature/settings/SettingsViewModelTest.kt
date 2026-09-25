@@ -66,6 +66,7 @@ class SettingsViewModelTest {
         assertEquals(MulletaFlixThemeVariant.Dark, state.theme)
         assertTrue(state.autoPlay)
         assertTrue(state.skipIntro)
+        assertFalse(state.automaticIntroSkip)
         assertTrue(state.pictureInPicture)
         assertEquals("FIT", state.aspectRatio)
     }
@@ -97,12 +98,15 @@ class SettingsViewModelTest {
 
         viewModel.setAutoPlay(false)
         viewModel.setSkipIntro(false)
+        viewModel.setAutomaticIntroSkip(true)
         viewModel.setPictureInPicture(false)
         viewModel.setDefaultPlaybackSpeed(1.5f)
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.autoPlay)
         assertFalse(viewModel.state.value.skipIntro)
+        assertTrue(viewModel.state.value.automaticIntroSkip)
+        assertTrue(settingsRepo.automaticIntroSkip)
         assertFalse(viewModel.state.value.pictureInPicture)
         assertEquals(1.5f, viewModel.state.value.defaultSpeed, 0.01f)
     }
@@ -679,6 +683,7 @@ class SettingsViewModelTest {
         var currentTheme: AppThemeSetting = AppThemeSetting.Dark
         var autoPlay: Boolean = true
         var skipIntro: Boolean = true
+        var automaticIntroSkip: Boolean = false
         var pip: Boolean = true
         var quality: String = "Auto"
         var speed: Float = 1.0f
@@ -707,6 +712,8 @@ class SettingsViewModelTest {
 
         override fun isSkipIntroEnabled(): Flow<Boolean> = MutableStateFlow(skipIntro)
         override suspend fun setSkipIntroEnabled(enabled: Boolean) { skipIntro = enabled }
+        override fun isAutomaticIntroSkipEnabled(): Flow<Boolean> = MutableStateFlow(automaticIntroSkip)
+        override suspend fun setAutomaticIntroSkipEnabled(enabled: Boolean) { automaticIntroSkip = enabled }
 
         override fun getDefaultQuality(): Flow<String> = MutableStateFlow(quality)
         override suspend fun setDefaultQuality(quality: String) { this.quality = quality }

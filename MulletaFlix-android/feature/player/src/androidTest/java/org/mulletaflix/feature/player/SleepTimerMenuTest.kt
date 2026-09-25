@@ -110,6 +110,7 @@ class SleepTimerMenuTest {
 
     @Test
     fun tvTimerOptionCanReceiveRemoteFocus() {
+        assumeTelevisionProfile()
         composeRule.setContent {
             MaterialTheme {
                 SleepTimerMenu(

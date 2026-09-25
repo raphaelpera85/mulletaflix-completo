@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
@@ -44,6 +45,8 @@ public class UserLibraryController : BaseMulletaFlixApiController
     private readonly IUserViewManager _userViewManager;
     private readonly IFileSystem _fileSystem;
     private readonly IJobQueue _jobQueue;
+    private readonly TransientMediaItemRegistry _transientMediaItemRegistry;
+    private readonly INebulaFtpManager _nebulaFtpManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UserLibraryController"/> class.
@@ -55,6 +58,8 @@ public class UserLibraryController : BaseMulletaFlixApiController
     /// <param name="userViewManager">Instance of the <see cref="IUserViewManager"/> interface.</param>
     /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/> interface.</param>
     /// <param name="jobQueue">Instance of the <see cref="IJobQueue"/> interface.</param>
+    /// <param name="transientMediaItemRegistry">Registry for path-resolved intro items during playback.</param>
+    /// <param name="nebulaFtpManager">Nebula cache coordinator.</param>
     public UserLibraryController(
         IUserManager userManager,
         IUserDataManager userDataRepository,
@@ -62,7 +67,9 @@ public class UserLibraryController : BaseMulletaFlixApiController
         IDtoService dtoService,
         IUserViewManager userViewManager,
         IFileSystem fileSystem,
-        IJobQueue jobQueue)
+        IJobQueue jobQueue,
+        TransientMediaItemRegistry transientMediaItemRegistry,
+        INebulaFtpManager nebulaFtpManager)
     {
         _userManager = userManager;
         _userDataRepository = userDataRepository;
@@ -71,6 +78,8 @@ public class UserLibraryController : BaseMulletaFlixApiController
         _userViewManager = userViewManager;
         _fileSystem = fileSystem;
         _jobQueue = jobQueue;
+        _transientMediaItemRegistry = transientMediaItemRegistry;
+        _nebulaFtpManager = nebulaFtpManager;
     }
 
     private bool UserExists(Guid userId)
@@ -209,9 +218,19 @@ public class UserLibraryController : BaseMulletaFlixApiController
             return NotFound();
         }
 
-        var items = await _libraryManager.GetIntros(item, user).ConfigureAwait(false);
+        if (item is Video && !string.IsNullOrWhiteSpace(item.Path))
+        {
+            _ = _nebulaFtpManager.StartPlaybackPrefetchAsync(item.Path, CancellationToken.None);
+        }
+
+        var items = (await _libraryManager.GetIntros(item, user).ConfigureAwait(false)).ToList();
+        foreach (var intro in items)
+        {
+            _transientMediaItemRegistry.Register(intro);
+        }
+
         var dtoOptions = new DtoOptions();
-        var dtos = await _dtoService.GetBaseItemDtosAsync(items.ToList(), dtoOptions, user).ConfigureAwait(false);
+        var dtos = await _dtoService.GetBaseItemDtosAsync(items, dtoOptions, user).ConfigureAwait(false);
 
         return new QueryResult<BaseItemDto>(dtos);
     }

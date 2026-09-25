@@ -315,11 +315,17 @@ fun SearchScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    text = "Não foi possível atualizar a busca.",
+                                    text = if (state.canRetryLoadMore) {
+                                        "Não foi possível carregar mais resultados."
+                                    } else {
+                                        "Não foi possível atualizar a busca."
+                                    },
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.weight(1f),
                                 )
-                                TextButton(onClick = viewModel::retrySearch) { Text("Tentar") }
+                                TextButton(
+                                    onClick = if (state.canRetryLoadMore) viewModel::retryLoadMore else viewModel::retrySearch,
+                                ) { Text("Tentar") }
                             }
                         }
                     }

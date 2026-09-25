@@ -70,6 +70,26 @@ class TrackSelectionPolicyTest {
     }
 
     @Test
+    fun `unsupported groups keep their place when other groups have variants`() {
+        val serverIndices = listOf(1, 2, 3)
+        val supportedTrackIndicesByGroup = listOf(emptyList(), listOf(0, 1, 2), listOf(0))
+
+        assertEquals(1, supportedTrackGroupPosition(2, serverIndices, supportedTrackIndicesByGroup))
+        assertEquals(2, supportedTrackGroupPosition(3, serverIndices, supportedTrackIndicesByGroup))
+    }
+
+    @Test
+    fun `unsupported matching group is not replaced with a different stream`() {
+        assertNull(
+            supportedTrackGroupPosition(
+                serverIndex = 1,
+                orderedServerIndices = listOf(1, 2),
+                supportedTrackIndicesByGroup = listOf(emptyList(), listOf(0, 1)),
+            ),
+        )
+    }
+
+    @Test
     fun `ordering does not depend on the order the server serialised`() {
         assertEquals(listOf(1, 2, 3), orderedStreamIndices(listOf(3, 1, 2)))
     }

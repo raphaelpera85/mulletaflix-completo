@@ -28,10 +28,14 @@ data class HomeState(
     val nextUpItems: List<MediaItem> = emptyList(),
     val favoriteItems: List<MediaItem> = emptyList(),
     val recentlyAddedByLibrary: Map<String, List<MediaItem>> = emptyMap(),
+    val recentlyAddedErrorsByLibrary: Map<String, String> = emptyMap(),
     val liveTvChannels: List<MediaItem> = emptyList(),
     val libraries: List<MediaItem> = emptyList(),
     val userProfile: UserProfile? = null,
     val error: String? = null,
+    val resumeError: String? = null,
+    val nextUpError: String? = null,
+    val favoritesError: String? = null,
     /** Não nulo quando só as bibliotecas falharam; o resto da Home pode estar certo. */
     val librariesError: String? = null,
     /** Não nulo quando só a TV ao vivo falhou. Zero canais por **sucesso** não é erro. */
@@ -78,12 +82,16 @@ class HomeViewModel @Inject constructor(
                             nextUpItems = emptyList(),
                             favoriteItems = emptyList(),
                             recentlyAddedByLibrary = emptyMap(),
+                            recentlyAddedErrorsByLibrary = emptyMap(),
                             liveTvChannels = emptyList(),
                             libraries = emptyList(),
                             userProfile = null,
                             isLoading = false,
                             isRefreshing = false,
                             error = null,
+                            resumeError = null,
+                            nextUpError = null,
+                            favoritesError = null,
                             librariesError = null,
                             liveTvError = null,
                         )
@@ -123,7 +131,16 @@ class HomeViewModel @Inject constructor(
             // erro do feed inteiro — os dois cartões juntos, que é exatamente o que a
             // `HomeScreen` documenta como impossível. Vale para as três saídas daqui
             // para baixo: offline, sessão expirada e falha total.
-            _state.update { it.copy(librariesError = null, liveTvError = null) }
+            _state.update {
+                it.copy(
+                    resumeError = null,
+                    nextUpError = null,
+                    favoritesError = null,
+                    recentlyAddedErrorsByLibrary = emptyMap(),
+                    librariesError = null,
+                    liveTvError = null,
+                )
+            }
             // Do not enqueue a request while the monitor already reports the
             // device offline. Reading the current value here also closes the
             // small startup race between the session collector and the
@@ -196,9 +213,13 @@ class HomeViewModel @Inject constructor(
                             nextUpItems = feed.nextUpItems,
                             favoriteItems = feed.favoriteItems,
                             recentlyAddedByLibrary = feed.recentlyAddedByLibrary,
+                            recentlyAddedErrorsByLibrary = feed.recentlyAddedErrorsByLibrary,
                             liveTvChannels = feed.liveTvChannels,
                             libraries = feed.libraries,
                             error = null,
+                            resumeError = feed.resumeError,
+                            nextUpError = feed.nextUpError,
+                            favoritesError = feed.favoritesError,
                             librariesError = feed.librariesError,
                             liveTvError = feed.liveTvError,
                         )

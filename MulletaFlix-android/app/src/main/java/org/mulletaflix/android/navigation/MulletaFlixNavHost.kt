@@ -32,6 +32,8 @@ import org.mulletaflix.feature.user.ProfileScreen
 import org.mulletaflix.feature.livetv.LiveTvScreen
 import org.mulletaflix.feature.downloads.DownloadsScreen
 import org.mulletaflix.feature.syncplay.SyncPlayScreen
+import org.mulletaflix.feature.syncplay.RemotePlaybackScreen
+import org.mulletaflix.feature.itemdetail.PlaylistLibraryScreen
 
 /**
  * Root navigation host for MulletaFlix.
@@ -163,6 +165,9 @@ fun MulletaFlixNavHost(
                 onItemClick = { itemId ->
                     navController.navigate(MulletaFlixRoute.itemDetail(itemId))
                 },
+                onPlayItemClick = { itemId ->
+                    navController.navigate(MulletaFlixRoute.videoPlayer(itemId))
+                },
                 onLibraryClick = { libId ->
                     navController.navigate(MulletaFlixRoute.library(libId))
                 },
@@ -228,6 +233,8 @@ fun MulletaFlixNavHost(
             SettingsScreen(
                 onProfile = { navController.navigate(MulletaFlixRoute.PROFILE) },
                 onSyncPlay = { navController.navigate(MulletaFlixRoute.SYNC_PLAY) },
+                onRemotePlayback = { navController.navigate(MulletaFlixRoute.REMOTE_PLAYBACK) },
+                onPlaylists = { navController.navigate(MulletaFlixRoute.PLAYLISTS) },
                 onBack = { navController.popBackStack() },
                 onLogout = {
                     navController.navigate(MulletaFlixRoute.SERVER_SELECTION) {
@@ -243,6 +250,18 @@ fun MulletaFlixNavHost(
             // sempre nulo e nunca abria nada.
             SyncPlayScreen(
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(MulletaFlixRoute.REMOTE_PLAYBACK) {
+            RemotePlaybackScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(MulletaFlixRoute.PLAYLISTS) {
+            PlaylistLibraryScreen(
+                onBack = { navController.popBackStack() },
+                onItemClick = { id -> navController.navigate(MulletaFlixRoute.itemDetail(id)) },
+                onPlay = { id -> navController.navigate(MulletaFlixRoute.videoPlayer(id)) },
             )
         }
 
@@ -324,6 +343,8 @@ object MulletaFlixRoute {
     const val SETTINGS = "main/settings"
     const val PROFILE = "main/profile"
     const val SYNC_PLAY = "main/sync-play"
+    const val REMOTE_PLAYBACK = "main/remote-playback"
+    const val PLAYLISTS = "main/playlists"
 
     const val LIBRARY = "main/library/{libId}"
     const val ITEM_DETAIL = "detail/{itemId}"

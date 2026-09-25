@@ -42,7 +42,8 @@ fun DownloadsScreen(
     onExploreClick: () -> Unit = {},
     viewModel: DownloadsViewModel = hiltViewModel()
 ) {
-    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
+    val downloadsState by viewModel.downloadsState.collectAsStateWithLifecycle()
+    val downloads = downloadsState.entries
     val queuePaused by viewModel.queuePaused.collectAsStateWithLifecycle()
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
     val actionMessage by viewModel.actionMessage.collectAsStateWithLifecycle()
@@ -96,9 +97,10 @@ fun DownloadsScreen(
                 availableWidthDp = maxWidth.value.toInt(),
                 isTelevision = isTelevision,
             ).dp
-            if (downloads.isEmpty()) {
-                EmptyDownloads(onExploreClick = onExploreClick)
-            } else {
+            DownloadsQueueContent(
+                state = downloadsState,
+                onExploreClick = onExploreClick,
+            ) {
                 LazyColumn(
                     Modifier
                         .fillMaxSize()
@@ -240,6 +242,35 @@ fun DownloadsScreen(
         StorageSummaryDialog(
             summary = summarizeDownloadStorage(downloads),
             onDismiss = { showStorageSummary = false },
+        )
+    }
+}
+
+@Composable
+internal fun DownloadsQueueContent(
+    state: DownloadsUiState,
+    onExploreClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    when (downloadsContentState(state.isLoaded, state.entries.size)) {
+        DownloadsContentState.Loading -> DownloadsLoadingState()
+        DownloadsContentState.Empty -> EmptyDownloads(onExploreClick = onExploreClick)
+        DownloadsContentState.Content -> content()
+    }
+}
+
+@Composable
+internal fun DownloadsLoadingState() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator()
+        Text(
+            text = "Carregando downloads offline…",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
         )
     }
 }

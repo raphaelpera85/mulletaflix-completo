@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using MediaBrowser.Model.Configuration;
 
 namespace MediaBrowser.Model.Nebula;
 
@@ -203,7 +204,7 @@ public class NebulaSupabaseStatusDto
 
     public bool AutoBackupEnabled { get; set; } = true;
 
-    public int AutoBackupIntervalHours { get; set; } = 24;
+    public int AutoBackupIntervalHours { get; set; } = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
 
     public DateTime? LastBackupTime { get; set; }
 

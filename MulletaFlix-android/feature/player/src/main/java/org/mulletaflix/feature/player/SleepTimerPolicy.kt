@@ -102,6 +102,7 @@ internal fun PlayerState.forNewItem(
     isBuffering = true,
     currentPosition = 0L,
     duration = 0L,
+    isSeekable = false,
     nextEpisode = null,
     nextEpisodeCountdown = null,
     error = null,

@@ -750,6 +750,7 @@ class ItemDetailViewModelTest {
 
     private open class FakePlaylistRepository : PlaylistRepository {
         override suspend fun getPlaylists(userId: String): Result<List<Playlist>> = Result.success(emptyList())
+        override suspend fun getPlaylistItems(userId: String, playlistId: String, startIndex: Int, limit: Int) = Result.success(emptyList<MediaItem>() to 0)
         override suspend fun createPlaylist(userId: String, name: String, itemId: String?): Result<Playlist> = Result.success(Playlist("p1", name))
         override suspend fun addItem(userId: String, playlistId: String, itemId: String): Result<Unit> = Result.success(Unit)
     }

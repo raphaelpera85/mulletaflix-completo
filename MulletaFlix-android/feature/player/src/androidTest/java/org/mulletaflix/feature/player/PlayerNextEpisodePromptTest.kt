@@ -20,6 +20,7 @@ class PlayerNextEpisodePromptTest {
 
     @Test
     fun televisionPromptFocusesPlayActionAndInvokesCallback() {
+        assumeTelevisionProfile()
         val plays = AtomicInteger(0)
         composeRule.setContent {
             MulletaFlixTheme {

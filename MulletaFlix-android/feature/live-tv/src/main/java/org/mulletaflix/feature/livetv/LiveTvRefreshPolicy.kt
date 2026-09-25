@@ -12,6 +12,12 @@ internal fun refreshLiveTvImmediatelyOnResume(isTelevision: Boolean): Boolean = 
 /** The open EPG must follow the clock without polling while it is hidden. */
 internal fun shouldRefreshLiveTvGuide(isGuideOpen: Boolean): Boolean = isGuideOpen
 
+/** An open EPG is stale after backgrounding; handhelds refresh it directly on resume. */
+internal fun refreshLiveTvGuideImmediatelyOnResume(
+    isGuideOpen: Boolean,
+    isTelevision: Boolean,
+): Boolean = isGuideOpen && !isTelevision
+
 /** Foreground timers must not cancel a channel request already in progress. */
 internal fun shouldRefreshLiveTvIfIdle(isOffline: Boolean, isLoading: Boolean): Boolean =
     !isOffline && !isLoading

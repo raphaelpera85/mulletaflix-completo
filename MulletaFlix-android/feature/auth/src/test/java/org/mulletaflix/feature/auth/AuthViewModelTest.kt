@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -26,6 +27,7 @@ import org.mulletaflix.domain.repository.*
 import org.mulletaflix.domain.usecase.LoginUseCase
 import org.mulletaflix.domain.usecase.RegisterUseCase
 import org.mulletaflix.domain.usecase.VerifyServerUseCase
+import retrofit2.HttpException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthViewModelTest {
@@ -166,6 +168,73 @@ class AuthViewModelTest {
         assertEquals(1, checkCalls)
         assertTrue(viewModel.state.value.isAuthenticated)
         assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectSecret)
+    }
+
+    @Test
+    fun `quick connect poll timeout does not claim server confirmed expiration after network failures`() = runTest {
+        var checkCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                checkCalls++
+                return Result.failure(java.io.IOException("offline"))
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(QUICK_CONNECT_MAX_POLL_ATTEMPTS, checkCalls)
+        assertEquals(QUICK_CONNECT_POLL_TIMEOUT_MESSAGE, viewModel.state.value.error)
+        assertFalse(viewModel.state.value.error.orEmpty().contains("expirou", ignoreCase = true))
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectPin)
+        assertNull(viewModel.state.value.quickConnectSecret)
+    }
+
+    @Test
+    fun `transient quick connect poll failure can recover and authenticate`() = runTest {
+        var checkCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> =
+                when (++checkCalls) {
+                    1 -> Result.failure(java.io.IOException("temporary network failure"))
+                    else -> Result.success(UserSession("u1", "Raphael", "token", "s1"))
+                }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(2, checkCalls)
+        assertTrue(viewModel.state.value.isAuthenticated)
+        assertNull(viewModel.state.value.error)
+    }
+
+    @Test
+    fun `server confirmed quick connect expiration remains terminal`() = runTest {
+        val expired = HttpException(retrofit2.Response.error<Any>(404, "".toResponseBody()))
+        var checkCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                checkCalls++
+                return Result.failure(expired)
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(1, checkCalls)
+        assertEquals("O código Quick Connect expirou. Gere um novo código.", viewModel.state.value.error)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectPin)
         assertNull(viewModel.state.value.quickConnectSecret)
     }
 

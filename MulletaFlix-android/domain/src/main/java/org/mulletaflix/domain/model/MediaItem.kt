@@ -154,6 +154,7 @@ data class MediaStream(
     val isDefault: Boolean = false,
     val isForced: Boolean = false,
     val isExternal: Boolean = false,
+    val deliveryUrl: String? = null,
     val height: Int? = null,
     val width: Int? = null,
     val bitRate: Int? = null,

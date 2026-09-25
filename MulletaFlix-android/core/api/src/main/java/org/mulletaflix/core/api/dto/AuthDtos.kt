@@ -82,4 +82,13 @@ data class SessionInfoDto(
     @Json(name = "DeviceName") val deviceName: String? = null,
     @Json(name = "DeviceId") val deviceId: String? = null,
     @Json(name = "ApplicationVersion") val applicationVersion: String? = null,
+    @param:Json(name = "NowPlayingItem") val nowPlayingItem: BaseItemDto? = null,
+    @param:Json(name = "PlayState") val playState: PlayerStateInfoDto? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PlayerStateInfoDto(
+    @param:Json(name = "PositionTicks") val positionTicks: Long? = null,
+    @param:Json(name = "CanSeek") val canSeek: Boolean = false,
+    @param:Json(name = "IsPaused") val isPaused: Boolean = false,
 )

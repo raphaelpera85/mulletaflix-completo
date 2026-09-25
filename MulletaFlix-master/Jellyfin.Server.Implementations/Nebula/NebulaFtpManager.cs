@@ -1182,10 +1182,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             {
                 if (config.SupabaseAutoBackup)
                 {
-                    const int intervalMinutes = 24 * 60;
+                    var intervalMinutes = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours * 60;
                     _supabaseSyncService.StartContinuousSync(config.SupabaseUrl, config.SupabaseKey, intervalMinutes: intervalMinutes, progressAction: AddServerLog);
-                    config.SupabaseAutoBackupIntervalHours = 24;
-                    AddServerLog("[SUPABASE] Serviço de sincronização contínua e backup automático ativado (Intervalo: 24 horas).");
+                    config.SupabaseAutoBackupIntervalHours = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
+                    AddServerLog("[SUPABASE] Serviço de sincronização contínua e backup automático ativado (Intervalo: 1 hora).");
                 }
                 else
                 {
@@ -1374,6 +1374,25 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             _envioLock.Release();
+        }
+    }
+
+    public async Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)
+    {
+        var streamServer = _httpStreamServer;
+        if (streamServer is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await streamServer.StartPlaybackPrefetchAsync(mediaPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Falha ao iniciar o pré-cache da mídia; a reprodução continuará sem pré-cache.");
+            return false;
         }
     }
 
@@ -3179,7 +3198,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         config.MaxWorkers = Math.Clamp(config.MaxWorkers, 1, 64);
         config.ChunkSizeMb = Math.Clamp(config.ChunkSizeMb, 1, 512);
         config.DownloadParts = Math.Clamp(config.DownloadParts, 1, 32);
-        config.SupabaseAutoBackupIntervalHours = 24;
+        // Earlier versions forced this value to 24 on every startup. Normalize old
+        // configurations to the new hourly schedule instead of retaining that legacy value.
+        config.SupabaseAutoBackupIntervalHours = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
         return config;
     }
 

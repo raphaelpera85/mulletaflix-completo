@@ -24,6 +24,7 @@ class PreparedStreamRetargetTest {
     /** Registra o que o coordenador pediu ao player. */
     private class RecordingStream(
         private var url: String? = "http://192.168.15.9:8096/Videos/item-1/stream?api_key=OLD",
+        var fallbackUrl: String? = "http://192.168.15.9:8096/Videos/item-1/transcode?api_key=OLD",
         private val offline: Boolean = false,
         private val position: Long = 42_000L,
         private val playing: Boolean = true,
@@ -51,7 +52,12 @@ class PreparedStreamRetargetTest {
         stream: RecordingStream,
         token: String? = "NEW",
         tokenReads: MutableList<String> = mutableListOf(),
-    ) = PreparedStreamRetarget(stream, accessToken = { tokenReads += "read"; token })
+    ) = PreparedStreamRetarget(
+        stream = stream,
+        accessToken = { tokenReads += "read"; token },
+        transcodeFallbackUrl = { stream.fallbackUrl },
+        updateTranscodeFallbackUrl = { stream.fallbackUrl = it },
+    )
 
     @Test
     fun `a stream prepared at home moves to the address in use`() = runBlocking {
@@ -65,6 +71,33 @@ class PreparedStreamRetargetTest {
         )
         assertEquals("a posição assistida precisa ser preservada", 42_000L, stream.replacedPosition)
         assertEquals("a intenção de reproduzir precisa ser preservada", true, stream.replacedResume)
+    }
+
+    @Test
+    fun `transcode fallback follows LAN to internet host changes`() = runBlocking {
+        val stream = RecordingStream()
+
+        coordinator(stream).onBaseUrlChanged("http://mulletaflix.duckdns.org:8096")
+
+        assertEquals(
+            "http://mulletaflix.duckdns.org:8096/Videos/item-1/transcode?api_key=NEW",
+            stream.fallbackUrl,
+        )
+    }
+
+    @Test
+    fun `transcode fallback follows internet to LAN host changes`() = runBlocking {
+        val stream = RecordingStream(
+            url = "http://mulletaflix.duckdns.org:8096/Videos/item-1/stream?api_key=OLD",
+            fallbackUrl = "http://mulletaflix.duckdns.org:8096/Videos/item-1/transcode?api_key=OLD",
+        )
+
+        coordinator(stream).onBaseUrlChanged("http://192.168.15.9:8096")
+
+        assertEquals(
+            "http://192.168.15.9:8096/Videos/item-1/transcode?api_key=NEW",
+            stream.fallbackUrl,
+        )
     }
 
     @Test

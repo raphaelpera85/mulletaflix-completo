@@ -146,6 +146,7 @@ fun MediaStreamDto.toDomain(): MediaStream {
         isDefault = isDefault,
         isForced = isForced,
         isExternal = isExternal,
+        deliveryUrl = deliveryUrl,
         height = height,
         width = width,
         bitRate = bitRate,

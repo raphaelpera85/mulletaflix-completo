@@ -40,20 +40,27 @@ class GetHomeFeedUseCase @Inject constructor(
 
             val libraries = librariesResult.getOrDefault(emptyList())
 
-            val recentlyAdded = libraries.map { lib ->
+            val recentResults = libraries.map { lib ->
                 async {
                     lib.name to mediaRepository
                         .getLatestItems(userId, parentId = lib.id)
-                        .getOrDefault(emptyList())
                 }
             }.map { it.await() }.toMap()
+            val recentlyAdded = recentResults.mapValues { (_, result) -> result.getOrDefault(emptyList()) }
+            val recentlyAddedErrors = recentResults.mapNotNull { (libraryName, result) ->
+                result.sectionError("Não foi possível carregar Adicionados Recentemente — $libraryName.")
+                    ?.let { libraryName to it }
+            }.toMap()
 
             val resumeItems = resumeResult.getOrDefault(emptyList())
             val nextUpItems = nextUpResult.getOrDefault(emptyList())
             val liveTvChannels = liveTvResult.getOrDefault(emptyList())
             val favoriteItems = favoritesResult.getOrNull()?.first.orEmpty()
 
-            if (libraries.isEmpty() && resumeItems.isEmpty() && nextUpItems.isEmpty() && librariesResult.isFailure) {
+            if (
+                libraries.isEmpty() && resumeItems.isEmpty() && nextUpItems.isEmpty() &&
+                favoriteItems.isEmpty() && liveTvChannels.isEmpty() && librariesResult.isFailure
+            ) {
                 throw librariesResult.exceptionOrNull() ?: Exception("Não foi possível carregar o catálogo.")
             }
 
@@ -66,8 +73,12 @@ class GetHomeFeedUseCase @Inject constructor(
                 nextUpItems = nextUpItems,
                 favoriteItems = favoriteItems,
                 recentlyAddedByLibrary = recentlyAdded,
+                recentlyAddedErrorsByLibrary = recentlyAddedErrors,
                 liveTvChannels = liveTvChannels,
                 libraries = libraries,
+                resumeError = resumeResult.sectionError("Não foi possível carregar Continuar Assistindo."),
+                nextUpError = nextUpResult.sectionError("Não foi possível carregar Próximo Episódio."),
+                favoritesError = favoritesResult.sectionError("Não foi possível carregar Minha Lista."),
                 // A Home sem blocos de biblioteca era indistinguível de uma conta sem
                 // biblioteca nenhuma. O erro sobe como estado, não como lista vazia.
                 librariesError = librariesResult.sectionError("Não foi possível carregar suas bibliotecas."),

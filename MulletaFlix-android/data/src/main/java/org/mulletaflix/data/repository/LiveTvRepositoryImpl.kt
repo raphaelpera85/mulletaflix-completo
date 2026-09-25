@@ -169,12 +169,21 @@ class LiveTvRepositoryImpl @Inject constructor(
         recordings.distinctBy { it.id }.map { it.toDomain() }
     }
 
-    override suspend fun getScheduledProgramIds(): Result<Set<String>> = suspendRunCatching {
+    override suspend fun getScheduledProgramTimerIds(): Result<Map<String, String>> = suspendRunCatching {
         api.getLiveTvTimers(isScheduled = true)
             .items
             .orEmpty()
-            .mapNotNull { timer -> timer.programId?.takeIf(String::isNotBlank) }
-            .toSet()
+            .mapNotNull { timer ->
+                val programId = timer.programId?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val timerId = timer.id?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                programId to timerId
+            }
+            .toMap()
+    }
+
+    override suspend fun cancelScheduledRecording(timerId: String): Result<Unit> = suspendRunCatching {
+        require(timerId.isNotBlank()) { "O identificador da gravação está vazio." }
+        api.cancelLiveTvTimer(timerId)
     }
 
     override suspend fun scheduleRecording(program: MediaItem): Result<Unit> = suspendRunCatching {

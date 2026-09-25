@@ -52,24 +52,38 @@ internal interface RetargetableStream {
 internal class PreparedStreamRetarget(
     private val stream: RetargetableStream,
     private val accessToken: suspend () -> String?,
+    private val transcodeFallbackUrl: () -> String? = { null },
+    private val updateTranscodeFallbackUrl: (String) -> Unit = {},
 ) {
     /** @return whether the stream was moved. */
     suspend fun onBaseUrlChanged(baseUrl: String): Boolean {
         if (stream.isOffline()) return false
-        val preparedUrl = stream.preparedUrl() ?: return false
+        val preparedUrl = stream.preparedUrl()
+        val fallbackUrl = transcodeFallbackUrl()
+        val shouldMoveStream = preparedUrl?.let { shouldRetargetPreparedStream(it, baseUrl) } == true
+        val shouldMoveFallback = fallbackUrl?.let { shouldRetargetPreparedStream(it, baseUrl) } == true
         // The decision is asked first so the credential — a storage read — is not read
-        // when the address did not really change, which is most emissions.
-        if (!shouldRetargetPreparedStream(preparedUrl, baseUrl)) return false
-        val retargeted = retargetPreparedStreamUrl(
-            preparedUrl = preparedUrl,
-            baseUrl = baseUrl,
-            accessToken = accessToken(),
-        ) ?: return false
+        // when neither address actually changed, which is most emissions.
+        if (!shouldMoveStream && !shouldMoveFallback) return false
+        val token = accessToken()
 
-        // The position goes with the replacement rather than a `seekTo` afterwards:
-        // the player would otherwise start loading from zero and immediately jump.
-        val position = stream.positionMs().coerceAtLeast(0L)
-        stream.replaceSource(retargeted, position, stream.isPlaying())
-        return true
+        val retargetedStream = preparedUrl
+            ?.takeIf { shouldMoveStream }
+            ?.let { retargetPreparedStreamUrl(it, baseUrl, token) }
+        val retargetedFallback = fallbackUrl
+            ?.takeIf { shouldMoveFallback }
+            ?.let { retargetPreparedStreamUrl(it, baseUrl, token) }
+
+        // Keep future retries pointed at the new host even if replacing the active
+        // source fails; the fallback belongs to the same server session.
+        retargetedFallback?.let(updateTranscodeFallbackUrl)
+        if (retargetedStream != null) {
+            // The position goes with the replacement rather than a `seekTo` afterwards:
+            // the player would otherwise start loading from zero and immediately jump.
+            val position = stream.positionMs().coerceAtLeast(0L)
+            stream.replaceSource(retargetedStream, position, stream.isPlaying())
+        }
+
+        return retargetedStream != null
     }
 }

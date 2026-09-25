@@ -51,6 +51,10 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindRemotePlaybackRepository(impl: RemotePlaybackRepositoryImpl): RemotePlaybackRepository
+
+    @Binds
+    @Singleton
     abstract fun bindPlaylistRepository(impl: PlaylistRepositoryImpl): PlaylistRepository
 
     @Binds

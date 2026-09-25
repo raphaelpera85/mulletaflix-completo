@@ -389,6 +389,89 @@ class UseCaseTest {
         assertEquals(listOf(library), feed.libraries)
     }
 
+    @Test
+    fun `GetHomeFeedUseCase surfaces independent resume next up and favorites failures`() = runTest {
+        val library = MediaItem(id = "lib1", name = "Filmes", type = MediaItemType.CollectionFolder)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("resume indisponível"))
+            override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("próximo indisponível"))
+            override suspend fun getLibraries(userId: String) = Result.success(listOf(library))
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ): Result<Pair<List<MediaItem>, Int>> = Result.failure(IllegalStateException("favoritos indisponíveis"))
+        }
+
+        val feed = GetHomeFeedUseCase(mediaRepo)("u1").getOrThrow()
+
+        assertEquals("resume indisponível", feed.resumeError)
+        assertEquals("próximo indisponível", feed.nextUpError)
+        assertEquals("favoritos indisponíveis", feed.favoritesError)
+        assertEquals(listOf(library), feed.libraries)
+        assertEquals(null, feed.librariesError)
+    }
+
+    @Test
+    fun `GetHomeFeedUseCase surfaces a recent items failure for its library`() = runTest {
+        val library = MediaItem(id = "lib1", name = "Filmes", type = MediaItemType.CollectionFolder)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(listOf(library))
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("HTTP 503"))
+        }
+
+        val feed = GetHomeFeedUseCase(mediaRepo)("u1").getOrThrow()
+
+        assertTrue(feed.recentlyAddedByLibrary["Filmes"].isNullOrEmpty())
+        assertEquals("HTTP 503", feed.recentlyAddedErrorsByLibrary["Filmes"])
+    }
+
+    @Test
+    fun `GetHomeFeedUseCase keeps favorite content when libraries fail`() = runTest {
+        val favorite = MediaItem(id = "fav1", name = "Favorito", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("bibliotecas indisponíveis"))
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ): Result<Pair<List<MediaItem>, Int>> = Result.success(listOf(favorite) to 1)
+        }
+
+        val feed = GetHomeFeedUseCase(mediaRepo)("u1").getOrThrow()
+
+        assertEquals(listOf(favorite), feed.favoriteItems)
+        assertEquals("bibliotecas indisponíveis", feed.librariesError)
+    }
+
     /**
      * O mesmo defeito das bibliotecas, na seção de TV ao vivo, que sobreviveu à correção
      * delas: a falha ao buscar `LiveTv/Channels` era achatada em lista vazia e o carrossel
@@ -571,7 +654,8 @@ class UseCaseTest {
             override suspend fun getChannels(userId: String) = Result.success(listOf(channel))
             override suspend fun getPrograms(channelIds: List<String>, windowStartUtc: String?, windowEndUtc: String?) = Result.success(emptyList<MediaItem>())
             override suspend fun getRecordings(userId: String) = Result.success(listOf(recording))
-            override suspend fun getScheduledProgramIds() = Result.success(emptySet<String>())
+            override suspend fun getScheduledProgramTimerIds() = Result.success(emptyMap<String, String>())
+            override suspend fun cancelScheduledRecording(timerId: String) = Result.success(Unit)
             override suspend fun scheduleRecording(program: MediaItem) = Result.success(Unit)
         }
         val useCase = GetLiveTvChannelsUseCase(liveTvRepo)
@@ -649,6 +733,7 @@ class UseCaseTest {
         val playlist = Playlist(id = "p1", name = "Favoritos Rock")
         val repo = object : PlaylistRepository {
             override suspend fun getPlaylists(userId: String) = Result.success(listOf(playlist))
+            override suspend fun getPlaylistItems(userId: String, playlistId: String, startIndex: Int, limit: Int) = Result.success(emptyList<org.mulletaflix.domain.model.MediaItem>() to 0)
             override suspend fun createPlaylist(userId: String, name: String, itemId: String?) = Result.success(playlist)
             override suspend fun addItem(userId: String, playlistId: String, itemId: String) = Result.success(Unit)
         }
@@ -663,6 +748,10 @@ class UseCaseTest {
 
         val validCreate = useCase.createPlaylist("u1", "Rock Clássico")
         assertTrue(validCreate.isSuccess)
+
+        assertTrue(useCase.getPlaylistItems("u1", "p1", startIndex = -1).isFailure)
+        assertTrue(useCase.getPlaylistItems("u1", "p1", limit = 201).isFailure)
+        assertTrue(useCase.getPlaylistItems("u1", "p1", startIndex = 0, limit = 10).isSuccess)
     }
 
     @Test

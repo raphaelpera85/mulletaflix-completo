@@ -65,6 +65,7 @@ import org.mulletaflix.designsystem.theme.MulletaFlixRed
 @Composable
 fun HomeScreen(
     onItemClick: (String) -> Unit,
+    onPlayItemClick: (String) -> Unit,
     onLibraryClick: (String) -> Unit,
     onLiveTvClick: () -> Unit,
     navController: NavController,
@@ -171,7 +172,7 @@ fun HomeScreen(
                     HeroBanner(
                         item = hero,
                         heightDp = layoutSpec.heroHeightDp,
-                        onPlay = { onItemClick(hero.id) },
+                        onPlay = { onPlayItemClick(hero.id) },
                         onMoreInfo = { onItemClick(hero.id) }
                     )
                 }
@@ -189,6 +190,17 @@ fun HomeScreen(
                         onItemClick = onItemClick
                     )
                 }
+            } else {
+                state.resumeError?.let { message ->
+                    item {
+                        HomeLoadErrorCard(
+                            title = "Não foi possível carregar Continuar Assistindo",
+                            message = message,
+                            isTelevision = isTelevision,
+                            onRetry = viewModel::refresh,
+                        )
+                    }
+                }
             }
 
             // ── Next Up ──────────────────────────────────────────────────────
@@ -202,6 +214,17 @@ fun HomeScreen(
                         layoutSpec = layoutSpec,
                         onItemClick = onItemClick
                     )
+                }
+            } else {
+                state.nextUpError?.let { message ->
+                    item {
+                        HomeLoadErrorCard(
+                            title = "Não foi possível carregar Próximo Episódio",
+                            message = message,
+                            isTelevision = isTelevision,
+                            onRetry = viewModel::refresh,
+                        )
+                    }
                 }
             }
 
@@ -217,19 +240,43 @@ fun HomeScreen(
                         onItemClick = onItemClick,
                     )
                 }
+            } else {
+                state.favoritesError?.let { message ->
+                    item {
+                        HomeLoadErrorCard(
+                            title = "Não foi possível carregar Minha Lista",
+                            message = message,
+                            isTelevision = isTelevision,
+                            onRetry = viewModel::refresh,
+                        )
+                    }
+                }
             }
 
             // ── Recently Added (per library) ─────────────────────────────────
             state.recentlyAddedByLibrary.forEach { (libraryName, items) ->
-                item {
-                    MediaSection(
-                        title = "Adicionados Recentemente — $libraryName",
-                        items = items,
-                        cardShape = MediaCardShape.Portrait,
-                        cardWidth = 130.dp,
-                        layoutSpec = layoutSpec,
-                        onItemClick = onItemClick
-                    )
+                if (items.isNotEmpty()) {
+                    item {
+                        MediaSection(
+                            title = "Adicionados Recentemente — $libraryName",
+                            items = items,
+                            cardShape = MediaCardShape.Portrait,
+                            cardWidth = 130.dp,
+                            layoutSpec = layoutSpec,
+                            onItemClick = onItemClick,
+                        )
+                    }
+                } else {
+                    state.recentlyAddedErrorsByLibrary[libraryName]?.let { message ->
+                        item {
+                            HomeLoadErrorCard(
+                                title = "Não foi possível carregar Adicionados Recentemente — $libraryName",
+                                message = message,
+                                isTelevision = isTelevision,
+                                onRetry = viewModel::refresh,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -293,9 +340,7 @@ fun HomeScreen(
                 }
             }
 
-            if (!state.isLoading && state.error == null && state.heroItem == null &&
-                state.resumeItems.isEmpty() && state.libraries.isEmpty()
-            ) {
+            if (shouldShowEmptyHomeState(state)) {
                 item {
                     EmptyHomeState(modifier = Modifier.fillMaxWidth().padding(32.dp))
                 }
@@ -391,7 +436,7 @@ private fun EmptyHomeState(modifier: Modifier = Modifier) {
 // ── Hero Banner ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun HeroBanner(
+internal fun HeroBanner(
     item: MediaItem,
     heightDp: Int,
     onPlay: () -> Unit,

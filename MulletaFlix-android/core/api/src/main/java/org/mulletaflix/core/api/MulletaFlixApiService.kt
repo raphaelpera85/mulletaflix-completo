@@ -222,6 +222,16 @@ interface MulletaFlixApiService {
         @Query("Recursive") recursive: Boolean = true,
     ): BaseItemDtoQueryResultDto
 
+    @GET("Playlists/{playlistId}/Items")
+    suspend fun getPlaylistItems(
+        @Path("playlistId") playlistId: String,
+        @Query("UserId") userId: String,
+        @Query("StartIndex") startIndex: Int,
+        @Query("Limit") limit: Int,
+        @Query("EnableImages") enableImages: Boolean = true,
+        @Query("EnableUserData") enableUserData: Boolean = true,
+    ): BaseItemDtoQueryResultDto
+
     @POST("Playlists")
     suspend fun createPlaylist(
         @Query("Name") name: String,
@@ -246,6 +256,22 @@ interface MulletaFlixApiService {
 
     @POST("Sessions/Playing/Stopped")
     suspend fun reportPlaybackStopped(@Body body: PlaybackStopInfoDto)
+
+    // ── Remote playback control ─────────────────────────────────────────────
+
+    @GET("Sessions")
+    suspend fun getSessions(
+        @Query("controllableByUserId") controllableByUserId: String,
+        @Query("activeWithinSeconds") activeWithinSeconds: Int = 300,
+    ): List<SessionInfoDto>
+
+    @POST("Sessions/{sessionId}/Playing/{command}")
+    suspend fun sendSessionPlaystateCommand(
+        @Path("sessionId") sessionId: String,
+        @Path("command") command: String,
+        @Query("seekPositionTicks") seekPositionTicks: Long? = null,
+        @Query("controllingUserId") controllingUserId: String? = null,
+    )
 
     // ── Media Info ───────────────────────────────────────────────────────────
 
@@ -330,6 +356,9 @@ interface MulletaFlixApiService {
     suspend fun getLiveTvTimers(
         @Query("IsScheduled") isScheduled: Boolean? = true,
     ): LiveTvTimerQueryResultDto
+
+    @DELETE("LiveTv/Timers/{timerId}")
+    suspend fun cancelLiveTvTimer(@Path("timerId") timerId: String)
 
     @POST("LiveTv/Timers")
     suspend fun createLiveTvTimer(@Body body: CreateLiveTvTimerDto)

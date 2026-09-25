@@ -7,18 +7,29 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 import javax.inject.Inject
 
+data class DownloadsUiState(
+    val entries: List<DownloadEntry> = emptyList(),
+    val isLoaded: Boolean = false,
+)
+
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
     private val manageDownloadsUseCase: ManageDownloadsUseCase,
 ) : ViewModel() {
-    val downloads: StateFlow<List<DownloadEntry>> = manageDownloadsUseCase.observeDownloads()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val downloadsState: StateFlow<DownloadsUiState> = manageDownloadsUseCase.observeDownloads()
+        .map { entries -> DownloadsUiState(entries = entries, isLoaded = true) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000, replayExpirationMillis = 0),
+            DownloadsUiState(),
+        )
 
     private val _queuePaused = MutableStateFlow(false)
     val queuePaused: StateFlow<Boolean> = _queuePaused

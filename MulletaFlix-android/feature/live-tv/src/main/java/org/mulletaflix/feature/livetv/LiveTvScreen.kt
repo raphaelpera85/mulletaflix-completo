@@ -61,7 +61,7 @@ fun LiveTvScreen(
         } else {
             0L
         },
-        refreshImmediately = false,
+        refreshImmediately = refreshLiveTvGuideImmediatelyOnResume(showGuide, isTelevision),
         onRefresh = viewModel::loadGuide,
     )
     Scaffold(
@@ -69,7 +69,10 @@ fun LiveTvScreen(
             LiveTvTopBar(
                 onBack = onBack,
                 onRefresh = viewModel::refresh,
-                onGuide = { showGuide = true; viewModel.loadGuide() },
+                onGuide = {
+                    showGuide = true
+                    if (isTelevision) viewModel.loadGuide()
+                },
                 isLoading = state.isLoading,
                 isLoadingGuide = state.isLoadingGuide,
                 hasChannels = state.channels.isNotEmpty(),
@@ -137,7 +140,16 @@ fun LiveTvScreen(
     if (showGuide) AlertDialog(
         onDismissRequest = { showGuide = false; viewModel.closeGuide() },
         title = { Text("Guia das próximas 24 horas") },
-        text = { GuideContent(state, isTelevision = isTelevision, onSchedule = viewModel::scheduleRecording, onRetry = viewModel::loadGuide) },
+        text = {
+            GuideContent(
+                state = state,
+                isTelevision = isTelevision,
+                onSchedule = viewModel::scheduleRecording,
+                onCancel = viewModel::cancelScheduledRecording,
+                onRetry = viewModel::loadGuide,
+                onRetryTimerLookup = viewModel::retryScheduledRecordingTimerLookup,
+            )
+        },
         confirmButton = {
             GuideActionButton(isTelevision = isTelevision, onClick = { showGuide = false; viewModel.closeGuide() }) {
                 Text("Fechar")
@@ -318,7 +330,9 @@ internal fun GuideContent(
     state: LiveTvUiState,
     isTelevision: Boolean = false,
     onSchedule: (MediaItem) -> Unit,
+    onCancel: (MediaItem) -> Unit,
     onRetry: () -> Unit,
+    onRetryTimerLookup: (MediaItem) -> Unit,
 ) {
     Column {
         // The error is a banner, not a replacement. It used to be rendered
@@ -340,6 +354,14 @@ internal fun GuideContent(
                 }
             }
         }
+        state.recordingActionError?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+        }
         when (guideBody(state.isLoadingGuide, state.programs.size)) {
             GuideBody.LOADING -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             GuideBody.EMPTY -> Text("Nenhum programa encontrado para as próximas 24 horas.")
@@ -360,13 +382,43 @@ internal fun GuideContent(
                             if (canSchedule) {
                                 val scheduled = program.id in state.scheduledProgramIds
                                 val scheduling = program.id in state.schedulingProgramIds
-                                var isFocused by remember { mutableStateOf(false) }
-                                GuideActionButton(
-                                    isTelevision = isTelevision,
-                                    onClick = { onSchedule(program) },
-                                    enabled = !scheduled && !scheduling,
-                                ) {
-                                    Text(if (scheduled) "Agendado" else if (scheduling) "Agendando…" else "Gravar")
+                                if (scheduled) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("Agendado", style = MaterialTheme.typography.labelMedium)
+                                        if (program.id in state.scheduledProgramTimerIds) {
+                                            val cancelling = program.id in state.cancellingProgramIds
+                                            GuideActionButton(
+                                                isTelevision = isTelevision,
+                                                onClick = { onCancel(program) },
+                                                enabled = !cancelling && !state.isOffline,
+                                            ) {
+                                                Text(if (cancelling) "Cancelando…" else "Cancelar")
+                                            }
+                                        } else {
+                                            val resolvingTimer = program.id in state.resolvingTimerProgramIds
+                                            Text(
+                                                if (resolvingTimer) "Confirmando com o servidor…"
+                                                else "Aguardando confirmação do servidor",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            GuideActionButton(
+                                                isTelevision = isTelevision,
+                                                onClick = { onRetryTimerLookup(program) },
+                                                enabled = !resolvingTimer && !state.isOffline,
+                                            ) {
+                                                Text(if (resolvingTimer) "Verificando…" else "Verificar")
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    GuideActionButton(
+                                        isTelevision = isTelevision,
+                                        onClick = { onSchedule(program) },
+                                        enabled = !scheduling && !state.isOffline,
+                                    ) {
+                                        Text(if (scheduling) "Agendando…" else "Gravar")
+                                    }
                                 }
                             }
                         }

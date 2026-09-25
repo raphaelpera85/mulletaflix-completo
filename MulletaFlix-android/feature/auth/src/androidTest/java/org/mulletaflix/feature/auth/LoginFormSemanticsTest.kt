@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -81,6 +82,55 @@ class LoginFormSemanticsTest {
         composeRule.onNodeWithTag(QUICK_CONNECT_INITIATE_TEST_TAG).performClick()
 
         composeRule.runOnIdle { assertTrue(initiated) }
+    }
+
+    @Test
+    fun quickConnectPollTimeoutShowsNeutralMessageAndAllowsNewCode() {
+        var initiated = false
+        composeRule.setContent {
+            MaterialTheme {
+                QuickConnectForm(
+                    pin = null,
+                    isAvailable = true,
+                    availabilityError = null,
+                    isLoading = false,
+                    isWaiting = false,
+                    secondsRemaining = null,
+                    error = QUICK_CONNECT_POLL_TIMEOUT_MESSAGE,
+                    onInitiate = { initiated = true },
+                    onRetryAvailability = {},
+                    onCancel = {},
+                    onCopyPin = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText(QUICK_CONNECT_POLL_TIMEOUT_MESSAGE).assertIsDisplayed()
+        composeRule.onNodeWithTag(QUICK_CONNECT_INITIATE_TEST_TAG).performClick()
+        composeRule.runOnIdle { assertTrue(initiated) }
+    }
+
+    @Test
+    fun serverConfirmedQuickConnectExpirationShowsExpirationMessage() {
+        composeRule.setContent {
+            MaterialTheme {
+                QuickConnectForm(
+                    pin = null,
+                    isAvailable = true,
+                    availabilityError = null,
+                    isLoading = false,
+                    isWaiting = false,
+                    secondsRemaining = null,
+                    error = "O código Quick Connect expirou. Gere um novo código.",
+                    onInitiate = {},
+                    onRetryAvailability = {},
+                    onCancel = {},
+                    onCopyPin = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("O código Quick Connect expirou. Gere um novo código.").assertIsDisplayed()
     }
 
     @Test

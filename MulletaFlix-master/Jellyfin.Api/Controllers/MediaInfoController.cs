@@ -92,6 +92,11 @@ public class MediaInfoController : BaseMulletaFlixApiController
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
         if (item is null)
         {
+            _transientMediaItemRegistry.TryGet(itemId, out item);
+        }
+
+        if (item is null)
+        {
             return NotFound();
         }
 
@@ -182,6 +187,11 @@ public class MediaInfoController : BaseMulletaFlixApiController
             ? null
             : _userManager.GetUserById(userId.Value);
         var item = _libraryManager.GetItemById<BaseItem>(itemId, user);
+        if (item is null)
+        {
+            _transientMediaItemRegistry.TryGet(itemId, out item);
+        }
+
         if (item is null)
         {
             if (!string.IsNullOrWhiteSpace(playbackInfoDto?.Path))

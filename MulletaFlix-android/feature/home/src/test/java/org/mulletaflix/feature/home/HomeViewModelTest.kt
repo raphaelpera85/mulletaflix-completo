@@ -85,6 +85,46 @@ class HomeViewModelTest {
         assertEquals(0, state.libraries.size)
     }
 
+    @Test fun `independent home section failures reach UI state without failing the feed`() = runTest {
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("resume offline"))
+            override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("next offline"))
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ): Result<Pair<List<MediaItem>, Int>> = Result.failure(IllegalStateException("favorites offline"))
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(null, state.error)
+        assertEquals("resume offline", state.resumeError)
+        assertEquals("next offline", state.nextUpError)
+        assertEquals("favorites offline", state.favoritesError)
+        assertEquals(false, state.isLoading)
+    }
+
     @Test fun `an offline reload clears the previous live tv failure`() = runTest {
         // O caminho que discrimina é este: uma recarga que **volta cedo** e não produz
         // feed nenhum. A primeira versão deste teste deixava a segunda carga ter

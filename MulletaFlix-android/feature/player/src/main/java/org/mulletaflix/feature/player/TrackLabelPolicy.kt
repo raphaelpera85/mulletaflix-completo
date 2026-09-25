@@ -57,4 +57,5 @@ internal fun trackLabel(track: TrackInfo): String = buildList {
     }
     if (track.isDefault) add("Padrão")
     if (track.isForced) add("Forçada")
+    if (track.isExternal) add("Externa")
 }.joinToString(" • ")

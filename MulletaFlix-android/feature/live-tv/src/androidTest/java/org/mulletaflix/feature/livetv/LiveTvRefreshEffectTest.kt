@@ -69,6 +69,38 @@ class LiveTvRefreshEffectTest {
         assertEquals(pausedCount, refreshCount.get())
     }
 
+    @Test
+    fun refreshes_immediately_when_returning_to_resumed_with_the_guide_open() {
+        val owner = TestLifecycleOwner()
+        val refreshCount = AtomicInteger(0)
+        composeRule.runOnUiThread {
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        }
+
+        composeRule.setContent {
+            LiveTvRefreshEffect(
+                lifecycleOwner = owner,
+                refreshIntervalMillis = Long.MAX_VALUE,
+                refreshImmediately = refreshLiveTvGuideImmediatelyOnResume(
+                    isGuideOpen = true,
+                    isTelevision = false,
+                ),
+                onRefresh = { refreshCount.incrementAndGet() },
+            )
+        }
+        resume(owner)
+        composeRule.waitUntil(timeoutMillis = 2_000) { refreshCount.get() == 1 }
+
+        composeRule.runOnUiThread {
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+            owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        }
+        resume(owner)
+        composeRule.waitUntil(timeoutMillis = 2_000) { refreshCount.get() == 2 }
+
+        assertEquals(2, refreshCount.get())
+    }
+
     private fun resume(owner: TestLifecycleOwner) {
         composeRule.runOnUiThread {
             owner.registry.handleLifecycleEvent(Lifecycle.Event.ON_START)

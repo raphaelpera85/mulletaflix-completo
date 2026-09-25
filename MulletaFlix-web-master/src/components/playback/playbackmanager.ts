@@ -41,6 +41,7 @@ import { toApi } from 'utils/jellyfin-apiclient/compat';
 import { bindSkipSegment } from './skipsegment.ts';
 import * as bitrateTest from 'utils/bitrateTest';
 import { getAudioMaxValues } from 'utils/playback/audioProfile';
+import { warmupMediaStream } from 'utils/playback/warmupMediaStream';
 
 const UNLIMITED_ITEMS = -1;
 
@@ -2457,18 +2458,15 @@ export class PlaybackManager {
                     return getPlaybackMediaSource(player, apiClient, deviceProfile, item, options.mediaSourceId, mediaOptions)
                         .then(function (mediaSource: any) {
                             if (mediaSource) {
-                                item.PrebufferedMediaSource = mediaSource;
-
                                 const streamInfo = createStreamInfo(apiClient, item.MediaType, item, mediaSource, startPosition, player);
                                 if (streamInfo && streamInfo.url) {
-                                    // Pre-warm the media stream URL in browser network cache/socket pool
-                                    fetch(streamInfo.url, {
-                                        method: 'GET',
-                                        headers: { 'Range': 'bytes=0-2097151' }
-                                    }).then(function () {
+                                    // fetch() resolves for HTTP failures too; only retain the
+                                    // playback source after receiving actual media successfully.
+                                    void warmupMediaStream(streamInfo.url).then(function () {
+                                        item.PrebufferedMediaSource = mediaSource;
                                         console.info('[playbackmanager] Main media prebuffer successful for:', item.Name || item.Id);
                                     }).catch(function (err: any) {
-                                        console.debug('[playbackmanager] Stream warmup fetch error (non-fatal):', err);
+                                        console.warn('[playbackmanager] Main media prebuffer failed; playback will request a fresh source:', item.Name || item.Id, err);
                                     });
                                 }
                             }

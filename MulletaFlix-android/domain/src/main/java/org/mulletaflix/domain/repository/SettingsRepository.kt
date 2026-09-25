@@ -33,6 +33,10 @@ interface SettingsRepository {
     fun isSkipIntroEnabled(): Flow<Boolean>
     suspend fun setSkipIntroEnabled(enabled: Boolean)
 
+    /** Automatic intro skipping is opt-in; existing installations keep manual controls only. */
+    fun isAutomaticIntroSkipEnabled(): Flow<Boolean> = flowOf(false)
+    suspend fun setAutomaticIntroSkipEnabled(enabled: Boolean) = Unit
+
     fun getDefaultQuality(): Flow<String>
     suspend fun setDefaultQuality(quality: String)
 

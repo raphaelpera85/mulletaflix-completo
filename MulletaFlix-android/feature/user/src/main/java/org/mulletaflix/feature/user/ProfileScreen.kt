@@ -307,42 +307,11 @@ fun ProfileScreen(
                                     userAvatarPath(user.id, user.primaryImageTag),
                                     LocalMulletaFlixAccessToken.current,
                                 )
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { viewModel.selectUserToSwitch(user) }
-                                        .padding(4.dp)
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primaryContainer,
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = user.name.firstOrNull()?.uppercase() ?: "U",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                            if (userAvatarUrl != null) {
-                                                AsyncImage(
-                                                    model = userAvatarUrl,
-                                                    contentDescription = user.name,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = user.name,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
+                                ProfileSwitcherItem(
+                                    user = user,
+                                    avatarUrl = userAvatarUrl,
+                                    onClick = viewModel::selectUserToSwitch,
+                                )
                             }
                         }
                     }
@@ -459,6 +428,55 @@ fun ProfileScreen(
                     Text("Cancelar")
                 }
             }
+        )
+    }
+}
+
+@Composable
+internal fun ProfileSwitcherItem(
+    user: AvailableUser,
+    avatarUrl: String?,
+    modifier: Modifier = Modifier,
+    onClick: (AvailableUser) -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(
+                role = Role.Button,
+                onClickLabel = "Alternar para ${user.name}",
+                onClick = { onClick(user) },
+            )
+            .padding(4.dp),
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(48.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = user.name.firstOrNull()?.uppercase() ?: "U",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (avatarUrl != null) {
+                    AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = user.name,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

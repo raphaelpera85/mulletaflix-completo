@@ -598,6 +598,112 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `deduplicated pages advance by the number of records received`() = runTest {
+        val paged = PagedSearchRepository(total = 100, repeatFromPreviousPage = 2)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(paged),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        repeat(3) {
+            viewModel.loadMore()
+            advanceUntilIdle()
+        }
+
+        val ids = viewModel.state.value.results.map { it.id }
+        assertEquals(listOf(0, 30, 62, 94), paged.starts)
+        assertEquals("as páginas repetidas não podem criar títulos duplicados", ids.distinct(), ids)
+        assertEquals(100, ids.size)
+        assertFalse(viewModel.state.value.hasMore)
+    }
+
+    @Test
+    fun `loadMore continues past one duplicate-only page when server total is not reached`() = runTest {
+        val starts = mutableListOf<Int>()
+        val firstPage = (0 until 30).map { MediaItem("id-$it", "Item $it", MediaItemType.Movie) }
+        val secondPage = (30 until 60).map { MediaItem("id-$it", "Item $it", MediaItemType.Movie) }
+        val repository = object : SearchRepository {
+            override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
+            override suspend fun searchItems(term: String, userId: String, itemTypes: String?, startIndex: Int): Result<SearchResults> {
+                starts += startIndex
+                val items = when (startIndex) {
+                    0 -> firstPage
+                    30 -> firstPage
+                    else -> secondPage
+                }
+                return Result.success(SearchResults(items, totalMatching = 60))
+            }
+        }
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(repository),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(30, viewModel.state.value.results.size)
+        assertTrue("uma página duplicada não deve ocultar o offset seguinte", viewModel.state.value.hasMore)
+
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 30, 60), starts)
+        assertEquals(60, viewModel.state.value.results.size)
+        assertFalse(viewModel.state.value.hasMore)
+    }
+
+    @Test
+    fun `loadMore stays available after duplicate-only pages to reach later results`() = runTest {
+        val starts = mutableListOf<Int>()
+        val firstPage = (0 until 30).map { MediaItem("id-$it", "Item $it", MediaItemType.Movie) }
+        val laterPage = (30 until 60).map { MediaItem("id-$it", "Item $it", MediaItemType.Movie) }
+        val repository = object : SearchRepository {
+            override suspend fun searchHints(term: String, userId: String?) = Result.success(emptyList<SearchHintItem>())
+            override suspend fun searchItems(term: String, userId: String, itemTypes: String?, startIndex: Int): Result<SearchResults> {
+                starts += startIndex
+                val items = if (startIndex >= 120) laterPage else firstPage
+                return Result.success(SearchResults(items, totalMatching = 60))
+            }
+        }
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(repository),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        repeat(3) {
+            viewModel.loadMore()
+            advanceUntilIdle()
+        }
+
+        assertEquals(listOf(0, 30, 60, 90), starts)
+        assertEquals(30, viewModel.state.value.results.size)
+        assertTrue("o botão de paginação manual deve continuar disponível", viewModel.state.value.hasMore)
+
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 30, 60, 90, 120), starts)
+        assertEquals(60, viewModel.state.value.results.size)
+        assertFalse("o total recebido encerra a paginação", viewModel.state.value.hasMore)
+    }
+
+    @Test
     fun `a failed page says so and stops offering more`() = runTest {
         val paged = PagedSearchRepository(total = 100)
         viewModel = SearchViewModel(
@@ -618,6 +724,66 @@ class SearchViewModelTest {
         assertEquals("o que já estava na tela continua", 30, viewModel.state.value.results.size)
         assertEquals("Não foi possível carregar mais resultados.", viewModel.state.value.error)
         assertFalse("o botão não pode virar armadilha de tentar-e-falar", viewModel.state.value.hasMore)
+        assertFalse(viewModel.state.value.isLoadingMore)
+    }
+
+    @Test
+    fun `retrying a failed page appends that page without repeating the first page`() = runTest {
+        val paged = PagedSearchRepository(total = 100)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(paged),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        paged.failNext = true
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(30, viewModel.state.value.results.size)
+        assertTrue(viewModel.state.value.canRetryLoadMore)
+
+        viewModel.retryLoadMore()
+        advanceUntilIdle()
+
+        assertEquals("o retry pede novamente o offset da página perdida", listOf(0, 30, 30), paged.starts)
+        assertEquals("itens anteriores ficam e página repetida é anexada", 60, viewModel.state.value.results.size)
+        assertEquals("id-0", viewModel.state.value.results.first().id)
+        assertTrue(viewModel.state.value.hasMore)
+        assertFalse(viewModel.state.value.canRetryLoadMore)
+        assertFalse(viewModel.state.value.isLoadingMore)
+    }
+
+    @Test
+    fun `retrying a failed page offline keeps the retry available`() = runTest {
+        val paged = PagedSearchRepository(total = 100)
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(paged),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+
+        viewModel.search("a")
+        advanceUntilIdle()
+        paged.failNext = true
+        viewModel.loadMore()
+        advanceUntilIdle()
+        networkState.value = false
+        advanceUntilIdle()
+
+        viewModel.retryLoadMore()
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 30), paged.starts)
+        assertEquals("Não foi possível carregar mais resultados.", viewModel.state.value.error)
+        assertTrue(viewModel.state.value.canRetryLoadMore)
+        assertFalse(viewModel.state.value.hasMore)
         assertFalse(viewModel.state.value.isLoadingMore)
     }
 

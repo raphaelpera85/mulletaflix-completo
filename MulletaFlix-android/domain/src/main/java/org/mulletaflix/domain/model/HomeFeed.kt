@@ -20,8 +20,12 @@ data class HomeFeed(
     val nextUpItems: List<MediaItem> = emptyList(),
     val favoriteItems: List<MediaItem> = emptyList(),
     val recentlyAddedByLibrary: Map<String, List<MediaItem>> = emptyMap(),
+    val recentlyAddedErrorsByLibrary: Map<String, String> = emptyMap(),
     val liveTvChannels: List<MediaItem> = emptyList(),
     val libraries: List<MediaItem> = emptyList(),
+    val resumeError: String? = null,
+    val nextUpError: String? = null,
+    val favoritesError: String? = null,
     val librariesError: String? = null,
     val liveTvError: String? = null,
 )

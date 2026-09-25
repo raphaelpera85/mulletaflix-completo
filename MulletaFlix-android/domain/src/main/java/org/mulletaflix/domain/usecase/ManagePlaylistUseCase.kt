@@ -1,6 +1,7 @@
 package org.mulletaflix.domain.usecase
 
 import org.mulletaflix.domain.model.Playlist
+import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.PlaylistRepository
 import javax.inject.Inject
 
@@ -15,6 +16,13 @@ class ManagePlaylistUseCase @Inject constructor(
             return Result.failure(IllegalArgumentException("O identificador do usuário é obrigatório."))
         }
         return playlistRepository.getPlaylists(userId)
+    }
+
+    suspend fun getPlaylistItems(userId: String, playlistId: String, startIndex: Int = 0, limit: Int = 50): Result<Pair<List<MediaItem>, Int>> {
+        if (userId.isBlank() || playlistId.isBlank() || startIndex < 0 || limit !in 1..200) {
+            return Result.failure(IllegalArgumentException("Parâmetros inválidos para carregar a playlist."))
+        }
+        return playlistRepository.getPlaylistItems(userId, playlistId, startIndex, limit)
     }
 
     suspend fun createPlaylist(userId: String, name: String, itemId: String? = null): Result<Playlist> {

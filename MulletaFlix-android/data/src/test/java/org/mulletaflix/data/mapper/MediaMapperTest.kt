@@ -73,4 +73,19 @@ class MediaMapperTest {
         // become null and accidentally fall back to a container default.
         assertEquals(-1, domain.defaultSubtitleStreamIndex)
     }
+
+    @Test
+    fun `maps external subtitle delivery metadata`() {
+        val stream = MediaStreamDto(
+            type = "Subtitle",
+            index = 12,
+            codec = "SubRip",
+            isExternal = true,
+            deliveryUrl = "/Items/movie-1/Subtitles/12/0/Stream.srt",
+        ).toDomain()
+
+        assertEquals(12, stream.index)
+        assertTrue(stream.isExternal)
+        assertEquals("/Items/movie-1/Subtitles/12/0/Stream.srt", stream.deliveryUrl)
+    }
 }

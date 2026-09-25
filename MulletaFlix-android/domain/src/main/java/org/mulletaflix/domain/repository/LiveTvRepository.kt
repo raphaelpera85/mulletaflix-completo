@@ -38,5 +38,6 @@ interface LiveTvRepository {
      * the screen was reopened, a programme that was already set to record showed
      * "Gravar" again, and tapping it created a **second** timer on the server.
      */
-    suspend fun getScheduledProgramIds(): Result<Set<String>>
+    suspend fun getScheduledProgramTimerIds(): Result<Map<String, String>>
+    suspend fun cancelScheduledRecording(timerId: String): Result<Unit>
 }

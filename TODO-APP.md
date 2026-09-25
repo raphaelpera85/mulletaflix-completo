@@ -3,6 +3,25 @@
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 O código completo do app está localizado em: [`MulletaFlix-android/`](file:///d:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-android)
 
+## Trabalho APK sem release — Acessibilidade da troca rápida de perfil
+
+- [x] Opções de perfil anunciam semântica de botão e ação específica para alternar para o usuário; avatar decorativo não duplica o anúncio do nome.
+- [x] Teste Compose verifica papel, rótulo e despacho do usuário selecionado; teste separado verifica solicitação de foco do componente.
+- [x] Android TV: 5 testes instrumentados aprovados; tablet: teste instrumentado de semântica/interação por toque aprovado. O foco remoto ponta a ponta/D-pad não é comprovado por esses testes.
+- [x] `testDebugUnitTest` concluiu com `BUILD SUCCESSFUL`; `:app:lintDebug` concluiu isolado com `BUILD SUCCESSFUL` após falha interna transitória do analisador quando combinado com a suíte.
+- [x] `:app:assembleRelease` concluiu com `BUILD SUCCESSFUL`; APK local v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `EEC9EB091E725B88A12D6D09D29F088CF9EEF13B3845D44D7C6F7F9E7A522773`.
+- [ ] Nenhuma nova versão ou release oficial criada nesta tarefa; notas da futura release devem descrever somente essas melhorias após validação do APK correspondente.
+
+---
+
+## Trabalho APK sem release — Restauração de áudio e legendas após reconstrução da fonte
+
+- [x] Manter a restauração pendente quando o player ainda não expõe grupos de faixas, desde que os metadados do servidor continuem anunciando a faixa escolhida.
+- [x] Encerrar a tentativa quando a faixa for selecionada ou deixar de constar nos metadados; cobrir retry e os dois casos de encerramento com testes unitários.
+- [x] Gates APK: `testDebugUnitTest` (1.057 testes, 0 falhas/erros/skips), `:app:lintDebug` e `:app:assembleRelease` — todos `BUILD SUCCESSFUL`.
+- [x] APK local de validação sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `4C231325210A9C82A39494E0DEF048977446E5E4ACE86463CA08F1A9FC2DA9A6`.
+- [ ] Nenhuma release oficial foi criada. Quando autorizada, as notas devem espelhar precisamente as melhorias e correções incluídas e validadas no APK.
+
 ---
 
 ## Trabalho APK v1.3.55 — Cache offline durável e comandos SyncPlay consistentes
@@ -1006,3 +1025,14 @@ O código completo do app está localizado em: [`MulletaFlix-android/`](file:///
 - [x] Android TV 14 (`MulletaflixTvApi34`): Home 9/9 e Biblioteca 11/11, 0 skipped, 0 failed.
 - [x] Confirmar que a execução dos AVDs termina automaticamente pelo `with-emulator.ps1`; nenhum processo de emulador permaneceu aberto.
 - [x] Nenhuma alteração de código ou nova release foi criada nesta rodada; a versão validada continua sendo `v1.3.7`.
+
+## Correção do mapeamento de faixas de áudio e legenda no player (APK v1.3.55, sem release)
+- [x] Preservar a posição dos grupos Media3 não suportados durante o mapeamento do índice de stream informado pelo servidor.
+- [x] Selecionar as representações suportadas do grupo correspondente sem fixar uma única variante de qualidade.
+- [x] Só atualizar a faixa exibida e preferência salva quando a seleção correspondente tiver sucesso.
+- [x] Cobrir grupos sem faixas suportadas e grupo correspondente com múltiplas variantes em testes unitários.
+- [x] Rodar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease`: BUILD SUCCESSFUL; 1.027 testes unitários, 0 falhas/erros/ignorados.
+- [x] Rodar `:feature:player:connectedDebugAndroidTest` no AVD Android TV: 20 testes, 19 passaram, 1 ignorado (Cast), 0 falhas/erros; emulador fechado automaticamente.
+- [x] Gerar APK local de validação (não publicado): versão `1.3.55`, `versionCode=356`, 7.404.867 bytes, SHA-256 `8E351825218BD96A9F4F46E524873F915FDC83D27546D62D0274C089D1D91F16`.
+- [ ] Risco restante: validar com mídia real de múltiplas faixas que a ordem dos streams do servidor corresponde à ordem dos grupos Media3; a ordem 1:1 não está comprovada pela suíte atual.
+- [ ] Publicar release/APK e atualizar notas apenas com melhorias/correções efetivamente incluídas e validadas; nenhuma release foi publicada nesta rodada.

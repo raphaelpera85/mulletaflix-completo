@@ -450,7 +450,7 @@ class LiveTvRepositoryImplTest {
     )
 
     @Test
-    fun getScheduledProgramIds_returnsTheProgrammesWithAPendingTimer() = runTest {
+    fun getScheduledProgramTimerIds_returnsTheProgrammesWithTheirPendingTimer() = runTest {
         coEvery { api.getLiveTvTimers(isScheduled = true) } returns LiveTvTimerQueryResultDto(
             items = listOf(
                 LiveTvTimerDto(id = "timer-1", programId = "prog-1"),
@@ -459,13 +459,13 @@ class LiveTvRepositoryImplTest {
             totalRecordCount = 2,
         )
 
-        val result = repository.getScheduledProgramIds()
+        val result = repository.getScheduledProgramTimerIds()
 
-        assertEquals(setOf("prog-1", "prog-2"), result.getOrThrow())
+        assertEquals(mapOf("prog-1" to "timer-1", "prog-2" to "timer-2"), result.getOrThrow())
     }
 
     @Test
-    fun getScheduledProgramIds_ignoresTimersWithoutAProgramme() = runTest {
+    fun getScheduledProgramTimerIds_ignoresTimersWithoutAProgrammeOrTimerId() = runTest {
         // A manual timer that is not tied to a guide entry has no ProgramId; it
         // must not turn into an empty-string key that matches nothing, and it
         // must not fail the whole lookup.
@@ -474,20 +474,39 @@ class LiveTvRepositoryImplTest {
                 LiveTvTimerDto(id = "timer-1", programId = null),
                 LiveTvTimerDto(id = "timer-2", programId = "   "),
                 LiveTvTimerDto(id = "timer-3", programId = "prog-3"),
+                LiveTvTimerDto(id = "   ", programId = "prog-4"),
             ),
         )
 
-        val result = repository.getScheduledProgramIds()
+        val result = repository.getScheduledProgramTimerIds()
 
-        assertEquals(setOf("prog-3"), result.getOrThrow())
+        assertEquals(mapOf("prog-3" to "timer-3"), result.getOrThrow())
     }
 
     @Test
-    fun getScheduledProgramIds_isEmptyWhenTheServerSendsNoItems() = runTest {
+    fun getScheduledProgramTimerIds_isEmptyWhenTheServerSendsNoItems() = runTest {
         coEvery { api.getLiveTvTimers(isScheduled = true) } returns LiveTvTimerQueryResultDto()
 
-        val result = repository.getScheduledProgramIds()
+        val result = repository.getScheduledProgramTimerIds()
 
-        assertEquals(emptySet<String>(), result.getOrThrow())
+        assertEquals(emptyMap<String, String>(), result.getOrThrow())
+    }
+
+    @Test
+    fun cancelScheduledRecording_callsTheServerWithTheTimerId() = runTest {
+        coEvery { api.cancelLiveTvTimer("timer-1") } returns Unit
+
+        val result = repository.cancelScheduledRecording("timer-1")
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 1) { api.cancelLiveTvTimer("timer-1") }
+    }
+
+    @Test
+    fun cancelScheduledRecording_rejectsBlankTimerIdsWithoutCallingTheServer() = runTest {
+        val result = repository.cancelScheduledRecording("  ")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { api.cancelLiveTvTimer(any()) }
     }
 }

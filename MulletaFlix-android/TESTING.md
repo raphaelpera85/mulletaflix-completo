@@ -17,10 +17,13 @@
 | Detalhes do Item (`:feature:item-detail`) | Filmes, séries, temporadas/episódios, faixas de álbuns, favoritos, assistidos, playlists e erros | JVM |
 | Mapeamento de mídia (`:data`) | Tipo, imagens, 4K, HD, HDR, Dolby Vision, Atmos | JVM |
 | Cache offline & Downloads | Conversão entidade/domínio, progresso de reprodução, fila de download | JVM |
+| Downloads UI (`:feature:downloads`) | Distinguir loading da fila de estado vazio; reiniciar no estado loading após coleta expirar e aguardar snapshot novo; anúncio de progresso Compose | JVM + Compose instrumentado |
 | Busca (`:feature:search`) | Debounce, filtro por filmes/mídias, histórico limitado, remoção individual de histórico, erro e retry | JVM |
 | Home & Descoberta (`:feature:home`) | Carregamento assíncrono, expiração de sessão e seções dinâmicas | JVM |
 | Biblioteca (`:feature:library`) | Filtros, ordenação e navegação paginada | JVM |
-| Player (`:feature:player`) | Pular capítulos, gestos de volume/brilho, PiP, recuperação, seleção de faixas e auto-play do próximo episódio (`NextEpisodePolicy`) | JVM |
+| TV ao vivo / EPG (`:feature:live-tv`) | Canais e guia, agendamento otimista, resolução limitada do ID do timer, retry sem reabrir guia, respostas obsoletas após offline/troca de sessão, pré-validação de sessão/rede ao cancelar timer; ações acessíveis na TV | JVM + Compose instrumentado |
+| Player (`:feature:player`) | Pular capítulos, gestos de volume/brilho, PiP, recuperação, seleção de faixas, sidecar de legenda externa (MIME/URL/token/ID exclusivo), Cast oculta sidecars, auto-play (`NextEpisodePolicy`) e bloqueio de seek sem busca/duração | JVM + Compose/MediaItem instrumentado |
+| Controle remoto de reprodução (`:feature:sync-play`) | Pausa/retomada, parar reprodução, avanço/retrocesso limitado à duração conhecida e fallback quando duração não é informada | JVM + Compose instrumentado |
 | Seleção de servidor | Logo, URL, ação de descoberta na rede | Instrumentado Compose |
 | Build & Packaging | Variantes debug (APK gerado com sucesso) e release | Gradle |
 
@@ -34,6 +37,8 @@ Os fluxos abaixo estão implementados no aplicativo, mas precisam de um servidor
 - legendas, faixas de áudio, qualidade e Cast;
 - Live TV, gravações, downloads e SyncPlay;
 - logout, cache, preferências e troca de servidor.
+
+Legendas externas têm validação unitária de SRT/VTT/ASS/SSA/TTML/DFXP, rota fallback, IDs sem colisão com `Format.id` embutido, URL relativa/same-origin, credenciais em URLs externas e política Cast. O teste Android verifica a configuração do sidecar no `MediaItem`; a reprodução de cues contra mídia real e suporte no receiver Cast continuam pendentes de ambiente. O Cast padrão do Media3 não encaminha `SubtitleConfiguration` local.
 
 Esses cenários devem ser executados com dados de teste controlados; credenciais reais não devem ser armazenadas nos testes ou relatórios.
 

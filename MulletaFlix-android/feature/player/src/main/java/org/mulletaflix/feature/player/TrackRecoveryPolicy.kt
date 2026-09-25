@@ -16,3 +16,10 @@ internal fun trackRecoverySelection(
     subtitleStreamIndex = subtitleStreamIndex,
     subtitlesDisabled = subtitlesDisabled || subtitleStreamIndex == null,
 )
+
+/** Keep a recovery attempt alive while server metadata still advertises the target. */
+internal fun shouldRetryTrackSelection(
+    serverStreamIndex: Int,
+    advertisedStreamIndices: Collection<Int>,
+    selected: Boolean,
+): Boolean = !selected && serverStreamIndex in advertisedStreamIndices

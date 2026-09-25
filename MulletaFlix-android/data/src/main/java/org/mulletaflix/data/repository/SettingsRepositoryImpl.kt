@@ -28,6 +28,7 @@ class SettingsRepositoryImpl @Inject constructor(
         val SUBTITLE_LANG = stringPreferencesKey("preferred_subtitle_lang")
         val AUTOPLAY_ENABLED = booleanPreferencesKey("autoplay_enabled")
         val SKIP_INTRO_ENABLED = booleanPreferencesKey("skip_intro_enabled")
+        val AUTOMATIC_INTRO_SKIP_ENABLED = booleanPreferencesKey("automatic_intro_skip_enabled")
         val DEFAULT_QUALITY = stringPreferencesKey("default_quality")
         val DEFAULT_PLAYBACK_SPEED = floatPreferencesKey("default_playback_speed")
         val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size")
@@ -91,6 +92,13 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override suspend fun setSkipIntroEnabled(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.SKIP_INTRO_ENABLED] = enabled }
+    }
+
+    override fun isAutomaticIntroSkipEnabled(): Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.AUTOMATIC_INTRO_SKIP_ENABLED] ?: false }
+
+    override suspend fun setAutomaticIntroSkipEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.AUTOMATIC_INTRO_SKIP_ENABLED] = enabled }
     }
 
     override fun getDefaultQuality(): Flow<String> =

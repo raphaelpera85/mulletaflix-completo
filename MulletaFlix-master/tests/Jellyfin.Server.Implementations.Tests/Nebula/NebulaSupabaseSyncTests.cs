@@ -5,6 +5,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
+using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Nebula;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using Xunit;
@@ -13,6 +15,17 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public class NebulaSupabaseSyncTests
 {
+    [Fact]
+    public void AutomaticMongoBackupDefaultsToHourlyForConfigurationAndStatus()
+    {
+        var configuration = new NebulaFtpConfiguration();
+        var status = new NebulaSupabaseStatusDto();
+
+        Assert.Equal(1, configuration.SupabaseAutoBackupIntervalHours);
+        Assert.Equal(1, status.AutoBackupIntervalHours);
+        Assert.Equal(1, NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours);
+    }
+
     [Fact]
     public void DeltaSync_GeneratesCorrectMinObjectIdForTimestamp()
     {

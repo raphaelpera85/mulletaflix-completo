@@ -45,6 +45,13 @@ class LiveTvViewModelTest {
         advanceUntilIdle()
         assertTrue(viewModel.state.value.error!!.contains("Sessão expirada"))
         assertEquals(0, repository.channelRequests)
+
+        viewModel.scheduleRecording(testProgram("schedule-without-session"))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.schedulingProgramIds.isEmpty())
+        assertTrue(viewModel.state.value.recordingActionError!!.contains("Sessão expirada"))
+        assertTrue(repository.scheduledIds.isEmpty())
     }
 
     @Test fun `does not refresh live tv while offline and refreshes after reconnect`() = runTest {
@@ -96,6 +103,103 @@ class LiveTvViewModelTest {
         assertTrue("program-1" in viewModel.state.value.scheduledProgramIds)
     }
 
+    @Test fun `reopening the guide retries timer lookup after schedule reconciliation fails`() = runTest {
+        val program = testProgram("program-timer-retry")
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        repository.scheduledLookupResponses += Result.success(emptyMap())
+        repository.scheduledLookupResponses += Result.failure(IllegalStateException("indisponível"))
+        repository.scheduledLookupResponses += Result.success(emptyMap())
+        repository.scheduledLookupResponses += Result.failure(IllegalStateException("ainda não propagado"))
+        repository.scheduledLookupResponses += Result.success(mapOf(program.id to "timer-retry"))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.scheduleRecording(program)
+        advanceUntilIdle()
+        assertTrue(program.id in viewModel.state.value.scheduledProgramIds)
+        assertTrue(program.id !in viewModel.state.value.scheduledProgramTimerIds)
+
+        viewModel.loadGuide()
+        advanceUntilIdle()
+
+        assertEquals("timer-retry", viewModel.state.value.scheduledProgramTimerIds[program.id])
+    }
+
+    @Test fun `successful schedule retries delayed timer lookup and manual retry resolves without reopening guide`() = runTest {
+        val program = testProgram("program-delayed-timer")
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        val lookupsBeforeSchedule = repository.scheduledRequests
+
+        repository.scheduledLookupResponses += Result.failure(IllegalStateException("temporarily unavailable"))
+        repository.scheduledLookupResponses += Result.success(emptyMap())
+        repository.scheduledLookupResponses += Result.failure(IllegalStateException("not propagated yet"))
+        viewModel.scheduleRecording(program)
+        advanceUntilIdle()
+
+        assertTrue(program.id in viewModel.state.value.scheduledProgramIds)
+        assertTrue(program.id in viewModel.state.value.locallyScheduledProgramIds)
+        assertTrue(program.id !in viewModel.state.value.scheduledProgramTimerIds)
+        assertTrue(viewModel.state.value.resolvingTimerProgramIds.isEmpty())
+        assertEquals(lookupsBeforeSchedule + 3, repository.scheduledRequests)
+
+        repository.scheduledLookupResponses += Result.success(mapOf(program.id to "timer-delayed"))
+        viewModel.retryScheduledRecordingTimerLookup(program)
+        advanceUntilIdle()
+
+        assertEquals("timer-delayed", viewModel.state.value.scheduledProgramTimerIds[program.id])
+        assertTrue(program.id !in viewModel.state.value.locallyScheduledProgramIds)
+        assertEquals(lookupsBeforeSchedule + 4, repository.scheduledRequests)
+    }
+
+    @Test fun `late timer lookup cannot update guide after network drops`() = runTest {
+        val program = testProgram("program-network-drop")
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        val network = FakeNetworkMonitor()
+        val viewModel = createViewModel(networkMonitor = network)
+        advanceUntilIdle()
+        val pendingLookup = CompletableDeferred<Result<Map<String, String>>>()
+        repository.scheduledLookupDeferredResponses += pendingLookup
+
+        viewModel.scheduleRecording(program)
+        runCurrent()
+        assertTrue(program.id in viewModel.state.value.resolvingTimerProgramIds)
+
+        network.online.value = false
+        runCurrent()
+        pendingLookup.complete(Result.success(mapOf(program.id to "timer-stale")))
+        advanceUntilIdle()
+
+        assertTrue(program.id !in viewModel.state.value.scheduledProgramTimerIds)
+        assertTrue(program.id in viewModel.state.value.locallyScheduledProgramIds)
+        assertTrue(viewModel.state.value.resolvingTimerProgramIds.isEmpty())
+    }
+
+    @Test fun `guide refresh removes a timer cancelled outside the app`() = runTest {
+        val program = testProgram("program-cancelled-remotely")
+        repository.channels = listOf(
+            MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
+        )
+        repository.scheduledResponse = Result.success(mapOf(program.id to "timer-remote"))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        assertTrue(program.id in viewModel.state.value.scheduledProgramIds)
+
+        repository.scheduledLookupResponses += Result.success(emptyMap())
+        viewModel.loadGuide()
+        advanceUntilIdle()
+
+        assertTrue(program.id !in viewModel.state.value.scheduledProgramIds)
+        assertTrue(program.id !in viewModel.state.value.scheduledProgramTimerIds)
+    }
+
     @Test fun `repeated taps schedule a program only once`() = runTest {
         val program = MediaItem(
             id = "program-duplicate",
@@ -113,6 +217,85 @@ class LiveTvViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("program-duplicate"), repository.scheduledIds)
+    }
+
+    @Test fun `cancels a scheduled recording and clears its guide state`() = runTest {
+        val program = testProgram("program-cancel")
+        repository.scheduledResponse = Result.success(mapOf(program.id to "timer-cancel"))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.cancelScheduledRecording(program)
+        advanceUntilIdle()
+
+        assertEquals(listOf("timer-cancel"), repository.cancelledTimerIds)
+        assertTrue(program.id !in viewModel.state.value.scheduledProgramIds)
+        assertTrue(program.id !in viewModel.state.value.scheduledProgramTimerIds)
+        assertTrue(program.id !in viewModel.state.value.cancellingProgramIds)
+    }
+
+    @Test fun `failed timer cancellation keeps the programme scheduled without a misleading guide retry`() = runTest {
+        val program = testProgram("program-cancel-failure")
+        repository.scheduledResponse = Result.success(mapOf(program.id to "timer-fail"))
+        repository.cancellationResult = Result.failure(IllegalStateException("Permissão negada"))
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.cancelScheduledRecording(program)
+        advanceUntilIdle()
+
+        assertTrue(program.id in viewModel.state.value.scheduledProgramIds)
+        assertTrue(program.id in viewModel.state.value.scheduledProgramTimerIds)
+        assertTrue(viewModel.state.value.cancellingProgramIds.isEmpty())
+        assertEquals("Permissão negada", viewModel.state.value.recordingActionError)
+        assertEquals(null, viewModel.state.value.guideError)
+    }
+
+    @Test fun `offline cancellation does not call the server`() = runTest {
+        val program = testProgram("program-cancel-offline")
+        repository.scheduledResponse = Result.success(mapOf(program.id to "timer-offline"))
+        val network = FakeNetworkMonitor()
+        val viewModel = createViewModel(networkMonitor = network)
+        advanceUntilIdle()
+        network.online.value = false
+        advanceUntilIdle()
+
+        viewModel.cancelScheduledRecording(program)
+        advanceUntilIdle()
+
+        assertTrue(repository.cancelledTimerIds.isEmpty())
+        assertTrue(program.id in viewModel.state.value.scheduledProgramIds)
+        assertTrue(viewModel.state.value.recordingActionError!!.contains("offline"))
+    }
+
+    @Test fun `cancellation does not reach the server if the session changes before the request starts`() = runTest {
+        val program = testProgram("program-cancel-session-race")
+        repository.scheduledResponse = Result.success(mapOf(program.id to "timer-session-race"))
+        val session = FakeSessionRepository()
+        val viewModel = createViewModel(session = session)
+        advanceUntilIdle()
+
+        viewModel.cancelScheduledRecording(program)
+        session.userIdState.value = "user-2"
+        advanceUntilIdle()
+
+        assertTrue(repository.cancelledTimerIds.isEmpty())
+    }
+
+    @Test fun `cancellation rechecks connectivity immediately before the request`() = runTest {
+        val program = testProgram("program-cancel-network-race")
+        repository.scheduledResponse = Result.success(mapOf(program.id to "timer-network-race"))
+        val network = FakeNetworkMonitor()
+        val viewModel = createViewModel(networkMonitor = network)
+        advanceUntilIdle()
+
+        viewModel.cancelScheduledRecording(program)
+        network.online.value = false
+        advanceUntilIdle()
+
+        assertTrue(repository.cancelledTimerIds.isEmpty())
+        assertTrue(program.id !in viewModel.state.value.cancellingProgramIds)
+        assertTrue(viewModel.state.value.recordingActionError!!.contains("offline"))
     }
 
     @Test fun `different programs can be scheduled without cancelling each other`() = runTest {
@@ -237,6 +420,24 @@ class LiveTvViewModelTest {
         )
     }
 
+    @Test fun `guide load waits for active channel refresh and runs once on the settled snapshot`() = runTest {
+        val inFlight = CompletableDeferred<Result<List<MediaItem>>>()
+        val channel = MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel)
+        repository.channels = listOf(channel)
+        repository.channelResponses.add(inFlight)
+        val viewModel = createViewModel()
+
+        runCurrent()
+        viewModel.loadGuide()
+        runCurrent()
+
+        assertEquals("the EPG must wait while channel IDs are being refreshed", 0, repository.guideRequests)
+        inFlight.complete(Result.success(listOf(channel)))
+        advanceUntilIdle()
+
+        assertEquals("the settled channel snapshot should trigger exactly one EPG request", 1, repository.guideRequests)
+    }
+
     @Test fun `idle refresh sees the active job before loading state is published`() = runTest {
         // The foreground effect can run in the same frame as the session
         // collector. At that point isLoading is still false, but refreshJob
@@ -265,7 +466,7 @@ class LiveTvViewModelTest {
         repository.channels = listOf(
             MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
         )
-        repository.scheduledResponse = Result.success(setOf("prog-1", "prog-2"))
+        repository.scheduledResponse = Result.success(mapOf("prog-1" to "timer-1", "prog-2" to "timer-2"))
 
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -281,7 +482,7 @@ class LiveTvViewModelTest {
         repository.channels = listOf(
             MediaItem("channel-1", "Canal", org.mulletaflix.domain.model.MediaItemType.LiveTvChannel),
         )
-        repository.scheduledResponse = Result.success(setOf("prog-duplicate"))
+        repository.scheduledResponse = Result.success(mapOf("prog-duplicate" to "timer-duplicate"))
         val viewModel = createViewModel()
         advanceUntilIdle()
 
@@ -497,8 +698,12 @@ class LiveTvViewModelTest {
         var recordingRequests = 0
         var scheduledRequests = 0
         var guideRequests = 0
-        var scheduledResponse: Result<Set<String>> = Result.success(emptySet())
+        var scheduledResponse: Result<Map<String, String>> = Result.success(emptyMap())
+        val scheduledLookupResponses = mutableListOf<Result<Map<String, String>>>()
+        val scheduledLookupDeferredResponses = mutableListOf<CompletableDeferred<Result<Map<String, String>>>>()
+        var cancellationResult: Result<Unit> = Result.success(Unit)
         val scheduledIds = mutableListOf<String>()
+        val cancelledTimerIds = mutableListOf<String>()
         val guideResponses = mutableListOf<CompletableDeferred<Result<List<MediaItem>>>>()
         val channelResponses = mutableListOf<CompletableDeferred<Result<List<MediaItem>>>>()
         val guideWindows = mutableListOf<Pair<String?, String?>>()
@@ -531,13 +736,20 @@ class LiveTvViewModelTest {
             recordingsResult?.let { return it }
             return Result.success(recordings)
         }
-        override suspend fun getScheduledProgramIds(): Result<Set<String>> {
+        override suspend fun getScheduledProgramTimerIds(): Result<Map<String, String>> {
             scheduledRequests++
+            scheduledLookupDeferredResponses.removeFirstOrNull()?.let { return it.await() }
+            scheduledLookupResponses.removeFirstOrNull()?.let { return it }
             return scheduledResponse
         }
         override suspend fun scheduleRecording(program: MediaItem): Result<Unit> {
             scheduledIds += program.id
+            scheduledResponse = Result.success(scheduledResponse.getOrDefault(emptyMap()) + (program.id to "timer-${program.id}"))
             return Result.success(Unit)
+        }
+        override suspend fun cancelScheduledRecording(timerId: String): Result<Unit> {
+            cancelledTimerIds += timerId
+            return cancellationResult
         }
     }
 

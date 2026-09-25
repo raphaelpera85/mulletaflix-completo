@@ -796,7 +796,52 @@ public sealed class NebulaMongoContext : IDisposable
             Builders<BsonDocument>.Filter.Eq("status", "completed"));
 
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        var match = await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (match != null || (!pathOrName.Contains('/', StringComparison.Ordinal) && !pathOrName.Contains('\\', StringComparison.Ordinal)))
+        {
+            return match;
+        }
+
+        var segments = pathOrName.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length > 0 && segments[0].Length == 2 && segments[0][1] == ':')
+        {
+            segments = segments[1..];
+        }
+
+        if (segments.Length == 0)
+        {
+            return null;
+        }
+
+        string? parentId = null;
+        var parentPath = "/";
+        for (var index = 0; index < segments.Length; index++)
+        {
+            var node = await FindByNameAndParentAsync(segments[index], parentId, parentPath, cancellationToken).ConfigureAwait(false);
+            if (node is null)
+            {
+                return null;
+            }
+
+            var isLast = index == segments.Length - 1;
+            if (isLast)
+            {
+                return string.Equals(node.GetValue("type", string.Empty).AsString, "dir", StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(node.GetValue("status", string.Empty).AsString, "completed", StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : node;
+            }
+
+            if (!string.Equals(node.GetValue("type", string.Empty).AsString, "dir", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            parentId = node.GetValue("_id").ToString();
+            parentPath = NormalizePath(parentPath.TrimEnd('/') + "/" + segments[index]);
+        }
+
+        return null;
     }
 
     /// <summary>

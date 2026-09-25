@@ -2,6 +2,166 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Release v1.3.56 — Atualização confiável dos controles remotos
+
+- [x] Após um comando remoto bem-sucedido, enfileirar uma consulta de atualização caso outra já esteja em andamento; polls periódicos concorrentes continuam coalescidos.
+- [x] Teste de regressão reproduziu a atualização perdida antes da correção; `RemotePlaybackViewModelTest` (5/5).
+- [x] `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` — `BUILD SUCCESSFUL`.
+- [x] APK release: `dist/release-v1.3.56/mulletaflix-app-v1.3.56.apk`, `versionCode=357`, 7.421.251 bytes, SHA-256 `497CF96D4806C0159FFACCB0BA6FF2C8BAB1FA8D0D3E80060670ECC9AB06392C`; manifest validado com `aapt`, assinatura validada com `apksigner` e compatível com o APK v1.3.55 enviado anteriormente.
+- [x] Release oficial `app-v1.3.56` publicada só com o APK; API confirma asset, SHA-256 e notas correspondentes a esta correção.
+- [ ] Revisar release histórica `app-v1.3.54`: seu asset publicado tem SHA-256 `0AFFDEBDC32FA19A8964C659DD10552309E6550A716C1E713829234000B7B505` (igual ao APK local v1.3.53), enquanto o APK local v1.3.54 tem SHA-256 `9AD33AB2132E8FBF32C0E7F55AB799DC1704B365920A2ED6C461614C6524EC9C`; a release histórica não foi alterada.
+
+## Trabalho APK sem release — Faixas externas durante Cast
+
+- [x] Em Cast/offline, excluir faixas externas das elegíveis para seleção e não anexar sidecars ao `MediaItem`; manter faixas externas na reprodução local online.
+- [x] Testes JVM cobrem reprodução local, Cast, offline, stream embutido, tipo incorreto e ausência de preferência.
+- [ ] Ainda não há nova release do APK; as notas oficiais devem descrever todas as mudanças efetivamente incluídas e validadas no artefato quando a release for atualizada.
+
+## Trabalho APK sem release — Pulo automático da abertura
+
+- [x] Adicionar preferência independente “Pular abertura automaticamente”, opt-in/desligada por padrão e persistida no DataStore; manter separado o botão manual de pulo.
+- [x] Buscar automaticamente apenas durante reprodução ativa e seekable, somente para segmentos/capítulos de abertura detectados; nunca pular créditos; evitar seeks repetidos.
+- [x] Cobertura da política e persistência da configuração; Android TV: teste Compose do switch aprovado dentro de 12 testes instrumentados, 0 falhas.
+- [x] `testDebugUnitTest`: 1.070 testes, 0 falhas/erros/skips; `:app:lintDebug` e `:app:assembleRelease` — `BUILD SUCCESSFUL`.
+- [x] APK local sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `1296828B8316E9EE2CBD9F62C090C8B6182DDBE28FC59307930373D4C35EA609`.
+- [ ] Nenhuma release oficial foi criada. Em cada release futura, notas devem espelhar exatamente as melhorias e correções incluídas e validadas no APK correspondente — somente o APK, sem anunciar alterações exclusivas do servidor.
+
+## Trabalho APK sem release — Atualização imediata do EPG ao retomar
+
+- [x] Recarregar o guia da TV ao vivo imediatamente quando o aplicativo retoma com o EPG aberto; manter atualização periódica apenas enquanto o guia estiver visível.
+- [x] Serializar a leitura do EPG com a atualização de canais, evitando iniciar uma consulta que a recarga de canais cancelaria e repetiria.
+- [x] Testes cobrem política de tela aberta/fechada, pausa/retomada (Android TV: `LiveTvRefreshEffectTest`, 3/3) e carga do guia adiada durante atualização de canais, com uma única consulta após estabilização.
+- [x] `testDebugUnitTest`: 1.055 testes, 0 falhas/erros/skips; `:app:lintDebug`; `:app:assembleRelease` — todos `BUILD SUCCESSFUL`.
+- [x] APK local de validação sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `68988FE828EB4D2D2BF33D18E77172FC6DB14430C53E6131913F2EBB557B5361`.
+- [ ] Nenhuma release oficial foi criada. Quando houver release autorizada, notas devem espelhar todas e somente as mudanças incluídas e validadas no APK publicado.
+
+## Trabalho APK sem release — Timeout honesto no Quick Connect
+
+- [x] Separar término do prazo local da confirmação de expiração do servidor; HTTP 404 continua sendo expiração terminal.
+- [x] Preservar retries após falha transitória e autenticação quando a consulta posterior confirma autorização.
+- [x] Regressões cobrem 100 falhas transitórias, recuperação em polling posterior e expiração confirmada por HTTP 404.
+- [x] Validar `testDebugUnitTest` (1.053 testes, 0 falhas/erros/skips), `:app:lintDebug` e `:app:assembleRelease`; todos concluídos com `BUILD SUCCESSFUL`.
+- [x] Compose de autenticação: Android TV 9/9 e tablet 9/9; wrappers encerraram os AVDs.
+- [x] APK local sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `73E654F01C7E83D9739171C00EA8BB3B38DAF26C9497567C73CAA397EEEFAF7F`.
+- [ ] Sem bump/publicação; notas oficiais devem refletir somente as melhorias/correções presentes e validadas no APK liberado.
+
+## Trabalho APK sem release — Progresso da reprodução remota
+
+- [x] Mostrar barra de progresso acessível e tempos decorrido/total nas sessões com duração conhecida; limitar posição exibida ao intervalo válido.
+- [x] Preservar sessões sem duração (ex.: canais ao vivo), ocultando o progresso e mantendo controles atuais.
+- [x] Validar `testDebugUnitTest` (1.050 testes, 0 falhas/erros/skips), `:app:lintDebug` e `:app:assembleRelease`; todos concluídos com `BUILD SUCCESSFUL`.
+- [x] Android TV: 8/8 testes instrumentados aprovados; o wrapper iniciou e encerrou o AVD.
+- [x] APK local de validação sem bump/publicação: v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `1D2E8AC4B2E5AC7862F8F1719E642CEA68C9D3024BC0FF53C137C9A2D2B55121`.
+- [x] Contrato HTTP de reprodução remota exercitado com Retrofit + MockWebServer: listagem/filtros, decodificação da sessão, seek e omissão do parâmetro de seek em Play/Pause (3/3); suíte completa `testDebugUnitTest` (1.069 testes, 0 falhas/erros/skips), `:app:lintDebug` e `:app:assembleDebug` — `BUILD SUCCESSFUL`.
+- [x] Não perder atualização imediata após comando remoto durante uma consulta em andamento; polls periódicos concorrentes continuam coalescidos. Regressão `RemotePlaybackViewModelTest` (5/5); suíte `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleDebug` — `BUILD SUCCESSFUL`.
+- [ ] Sem bump/publicação; notas oficiais de release serão atualizadas somente quando a release do APK for criada e refletirão exatamente mudanças validadas.
+
+## Trabalho APK sem release — Retry da paginação da busca
+
+- [x] Corrigir “Tentar” após falha de página para repetir o mesmo offset e anexar resultados sem substituir a primeira página.
+- [x] Preservar o retry e a mensagem de falha quando o dispositivo estiver offline; adicionar testes para retry online e offline.
+- [x] Validação: `testDebugUnitTest` (1.050 testes, 0 falhas/erros/skips), `:feature:search:connectedDebugAndroidTest` (11/11 na TV), `:app:lintDebug` e `:app:assembleRelease` — todos `BUILD SUCCESSFUL`; AVD encerrado pelo wrapper.
+- [x] APK local de validação, sem bump/publicação: v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `4C1D58A2BBCD427F94D8B6C86BEB3F929F039C4C16E4D25F360F86FFADAF48AA`.
+- [ ] Release oficial não foi criada. Quando houver release autorizada, notas devem listar precisamente as mudanças presentes e validadas no APK correspondente; sem alterações exclusivas do servidor.
+
+---
+
+## Trabalho APK sem release — Carregamento da fila offline
+
+- [x] Distinguir fila não carregada de fila vazia; expirar snapshot compartilhado após coleta parada para não mostrar dados obsoletos ao retornar.
+- [x] Mostrar progresso acessível antes do primeiro snapshot real do Media3; manter CTA “Explorar Catálogo” somente no estado vazio confirmado.
+- [x] Cobrir snapshots atrasados na primeira abertura e retomada, política loading/vazio/conteúdo e transições Compose; CTA “Explorar Catálogo” funciona no estado vazio.
+- [x] Gates APK: `testDebugUnitTest` (1.048 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:app:assembleRelease`; todos `BUILD SUCCESSFUL`.
+- [x] Android TV: 8/8 testes instrumentados aprovados; wrapper encerrou o AVD.
+- [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `66AACC03941830BE6EA4F78E173E6C2857B183F9C749000540BD42B3305A5943`.
+- [ ] Sem bump, pacote de distribuição ou publicação; notas oficiais só serão atualizadas junto de release autorizada e listarão apenas mudanças APK validadas.
+
+---
+
+## Trabalho APK sem release — Confirmação de agendamento na TV ao vivo
+
+- [x] Após agendar gravação, repetir consulta ao timer duas vezes com espera curta e limitada; estado local mantém “Agendado” durante propagação.
+- [x] Se servidor não retornar ID, oferecer “Verificar” sem fechar/reabrir EPG; desabilitar Cancelar/Verificar offline e indicar confirmação pendente.
+- [x] Invalidar consultas de timer após mudança de sessão, desconexão ou atualização concorrente; cancelar agendamento em trânsito ao trocar usuário; revalidar sessão e conectividade imediatamente antes de cancelar timer.
+- [x] Testes cobrem falhas/atraso, teto de consultas, retry manual, respostas obsoletas, corrida de sessão/rede no cancelamento e ações focáveis/indisponíveis offline.
+- [x] Gates APK sequenciais: `testDebugUnitTest` (1.046 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:app:assembleRelease`; todos `BUILD SUCCESSFUL`.
+- [x] Android TV: 13/13 testes instrumentados aprovados; AVD encerrado pelo wrapper.
+- [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `A26B12C791A7A86BA0007DDFF49E00E3E8799980DFF9C65F2219B5D2FAFC0CF7`.
+- [ ] Sem bump, pacote de distribuição ou publicação; notas oficiais só serão atualizadas junto a uma release autorizada e refletirão exatamente melhorias/correções incluídas e validadas no APK.
+
+---
+
+## Trabalho APK sem release — Legendas externas no player
+
+- [x] Preservar `DeliveryUrl` do DTO até o domínio e carregar legenda externa selecionada (SRT, VTT, ASS/SSA, TTML/DFXP) como sidecar Media3.
+- [x] Ao alternar faixa, anexar só a legenda externa selecionada; remover sidecar ao voltar para faixa embutida/desativada. IDs exclusivos evitam colisões com faixas do container.
+- [x] Resolver URLs relativas e da mesma origem com token atualizado; não enviar token para outra origem, rejeitar URLs externas com credenciais na URL e tratar URLs protocol-relative.
+- [x] Ocultar faixas externas no Cast, pois a conversão padrão Media3 não transfere configurações sidecar ao receiver; respeitar indisponibilidade offline.
+- [x] Gates APK sequenciais: `testDebugUnitTest` (1.066 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:app:assembleRelease`; todos `BUILD SUCCESSFUL`.
+- [x] Android TV: 27 testes instrumentados finalizados, 26 aprovados e 1 ignorado (alvo de toque Cast não aplicável à TV); wrapper encerra o AVD ao terminar.
+- [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `CE16D647748DD5C972DBA6FD38B841E1DFD6EE8459D0AD176078232C98D92385`.
+- [x] `ExternalSubtitlePlaybackIntegrationTest` passou no emulador Android TV: Media3 buscou mídia e SRT por rotas HTTP independentes, decodificou o cue e o `SubtitleView` do `PlayerView` renderizou pixels durante playback.
+- [ ] Validar a seleção pelo fluxo do `PlayerViewModel`, além do servidor Mulletaflix real e do receiver Cast; este teste usa configuração sidecar e servidor HTTP local determinístico. Sem bump, pacote de distribuição ou publicação. Notas oficiais serão atualizadas junto à próxima release autorizada e espelharão somente melhorias/correções realmente incluídas e validadas no APK.
+
+---
+
+## Trabalho APK sem release — Biblioteca de playlists
+
+- [x] Adicionar leitura paginada de itens de playlist via `Playlists/{playlistId}/Items`, sem mudança no servidor.
+- [x] Expor “Minhas playlists” em Configurações, com capas, acesso aos detalhes e reprodução direta.
+- [x] Cobrir mapeamento/API, validação de parâmetros, paginação, remoção de duplicados e estados vazios/carregamento/erro.
+- [x] Android TV: 16/16 testes instrumentados aprovados; emulador encerrado pelo wrapper.
+- [x] Gates APK: `testDebugUnitTest` (1.016 testes, 0 falhas/erros/skips), `:app:lintDebug`, `:app:assembleRelease`; `BUILD SUCCESSFUL`.
+- [x] Artefato local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `F933134DE84E0ADCDF1B1F6DD95EB4DEE07CE883895D16DF6A6EE94CE80A7B54`.
+- [ ] Sem bump, pacote de distribuição ou publicação. Atualizar notas fiéis ao diff somente junto da próxima release oficial do APK.
+
+## Trabalho APK sem release — Paginação e retry de playlists e busca
+
+- [x] Avançar os offsets de playlists e busca pela quantidade bruta recebida do servidor, não pela lista visível após deduplicação; busca conserva “Carregar mais” após páginas repetidas quando o total ainda indica resultados, permitindo chegar a itens posteriores sem paginação automática em loop.
+- [x] Preservar títulos já carregados ao falhar página da playlist, repetir no mesmo offset e mostrar carregamento durante retry.
+- [x] Cobrir duplicados, offsets, progresso, falha e retry: 92/92 testes unitários nos módulos `feature:item-detail` e `feature:search`.
+- [x] Android TV: 17/17 testes instrumentados aprovados; wrapper encerrou o emulador.
+- [x] Gates APK: `testDebugUnitTest` (1.062 testes, 0 falhas/erros/skips), `:app:lintDebug` e `:app:assembleRelease`; todos `BUILD SUCCESSFUL`.
+- [x] APK local de validação v1.3.55 (`versionCode=356`), 7.421.251 bytes, SHA-256 `9A26ED1BE5D909D3BC7FB847E6702151EA016AC7E48DE5E813A5BE28E6389F75`.
+- [ ] Sem bump, pacote de distribuição ou publicação nesta rodada. Na próxima release autorizada, notas devem descrever estas correções somente se presentes e validadas no APK publicado.
+
+## Trabalho APK sem release — Índice alfabético em tablet/TV
+
+- [x] Adicionar trilho de salto por letras presentes na biblioteca, normalizando acentos do português.
+- [x] Mostrar o índice somente em tablet/TV, com ordenação Nome ascendente e paginação concluída; saltos incluem cabeçalhos de erro/filtros.
+- [x] Controles com alvo mínimo de 48 dp e descrição acessível; testes unitários cobrem agrupamento de letras e offsets.
+- [x] Android TV: 16/16 testes instrumentados aprovados, incluindo salto real para letra com cabeçalhos; AVD fechado pelo wrapper.
+- [x] Gates: `testDebugUnitTest` (1.019 testes, 0 falhas/erros), `:app:lintDebug` e `:app:assembleRelease` com `BUILD SUCCESSFUL`.
+- [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `2879055D68161D93D176B0E33883EBFBEBD7C4FE55DD741F0D7AA2D5F52A399B`.
+- [ ] Sem bump ou publicação. Nenhuma versão foi liberada; notas oficiais serão atualizadas para descrever exatamente estes itens quando houver release autorizada.
+
+## Trabalho APK sem release — Reprodução da Home e atualização remota
+
+- [x] Separar a ação “Reproduzir” do destaque da Home de “Mais informações”; o primeiro abre a rota do player e o segundo mantém a rota de detalhes.
+- [x] Adicionar teste Compose das ações distintas; Home Android TV: 13/13 testes instrumentados aprovados.
+- [x] Ao falhar a atualização das sessões remotas, limpar a lista desatualizada e manter erro acionável; teste unitário cobre falha após sessão previamente carregada.
+- [x] Gates: `testDebugUnitTest` (1.020 testes, 0 falhas/erros), `:app:lintDebug` e `:app:assembleRelease` com `BUILD SUCCESSFUL`.
+- [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `EF55CB7221B6795B7BF115ED29E8541BE8EB2D7CE2D3ABAF3FE3D96C25774B76`.
+- [ ] Sem bump nem publicação. Notas da release oficial ficam pendentes e devem listar somente estas alterações e outras mudanças APK efetivamente incluídas/validadas.
+
+## Trabalho APK sem release — Erros parciais da Home
+
+- [x] Propagar falhas de Continuar Assistindo, Próximo Episódio e Minha Lista sem descartar as demais seções que carregaram.
+- [x] Exibir erro com “Tentar novamente” no local da seção; não mostrar “Nenhum conteúdo” quando existe mídia ou erro de seção.
+- [x] Cobrir os erros no caso de uso e ViewModel e a regra de Home realmente vazia com testes unitários.
+- [x] Gates após as alterações APK: `testDebugUnitTest` (1.023 testes, 0 falhas/erros), `:app:lintDebug`, `:app:assembleRelease` — `BUILD SUCCESSFUL`; Android TV Home 13/13.
+- [x] APK local de validação v1.3.55 (`versionCode=356`), 7.404.867 bytes, SHA-256 `7081D42AFCEC19DCE4EC3E6D80637FCC56FED8958A747EAFD982B854E83DB485`.
+- [ ] Sem bump nem publicação. As notas oficiais ficam pendentes e devem refletir precisamente todas as melhorias/correções do APK quando houver release autorizada.
+
+## Skills e metodologias do projeto
+
+- [x] Gauntlet Loop: Builder vs. Evaluator; aceitar qualidade somente com evidências dos comandos reais do projeto.
+- [x] Android/Clean Architecture: `android-dev`, `android-cli`, `android_ui_verification`, `android-clean-architecture`, `mobile-design`.
+- [x] Revisão e agentes: `cavecrew` + agente especialista Android/QA, quando disponíveis no ambiente.
+- [x] Fluxo de raciocínio: `fable-method`, `fable-loop`, `fable-judge`, `everything-claude-code`.
+- [x] Economia de contexto/memória: `caveman`, `caveman-compress`, `caveman-learn`.
+- [x] UI Android: Jetpack Compose, instrumentação em emuladores celular/tablet/Android TV, foco D-pad e acessibilidade.
+
 ---
 
 ## Trabalho APK v1.3.55 — Cache offline durável e comandos SyncPlay consistentes
@@ -2020,3 +2180,25 @@ Pendências relacionadas:
 - [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease` com código 0.
 - [x] Gerar e registrar o APK local `v1.3.35`, `versionCode=336`, 7.353.067 bytes, SHA-256 `9F87A81CE26E38933C07851AC14F49E7F0CDB28A409653783C694C91353AC5AF`.
 - [ ] Publicar release remota somente mediante autorização explícita; não publicar nesta rodada.
+
+## Estado APK validado — Hero, erros parciais da Home e sessões remotas
+- [x] Corrigir as ações do destaque da Home: `Reproduzir` abre o player e `Mais informações` abre os detalhes.
+- [x] Exibir falhas recuperáveis por seção na Home (Continuar assistindo, Próximos episódios, Favoritos e adicionados recentemente), preservando conteúdo válido já carregado e evitando estado vazio enganoso.
+- [x] Limpar sessões remotas obsoletas quando a atualização falha e fechar a confirmação de parada se a sessão desaparecer; impedir envio de STOP para sessão stale.
+- [x] Validar `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease`: todos concluídos com código 0; suíte unitária total: 1.025 testes, 0 falhas/erros.
+- [x] Validar testes instrumentados na Android TV: Home 13/13, SyncPlay 5/5 e Biblioteca 16/16; emulador encerrado após os testes.
+- [x] Registrar artefato local de validação, sem publicação: APK `v1.3.55`, `versionCode=356`, 7.404.867 bytes, SHA-256 `49C87BDF85609532084CCC774EDF98C36E26F2E652C400411A593AF268AAB751`.
+- [ ] Não houve bump de versão nem publicação nesta rodada. Ao atualizar uma release autorizada, atualizar as notas para descrever somente estas melhorias/correções efetivamente presentes e validadas no APK publicado; não incluir alterações exclusivas do servidor.
+
+## Correções de limites de busca local e remota (v1.3.55 — validação local)
+- [x] Impedir que a busca local avance quando a mídia não informa duração, não é seekable ou o player não oferece o comando de seek.
+- [x] Desabilitar slider e botões de avanço/retrocesso nessas condições; ocultar/bloquear skip de intro/créditos e gestos de busca sem duração válida.
+- [x] Evitar salvar progresso local inválido nessas condições, inclusive nas gravações forçadas ao pausar ou liberar o player.
+- [x] Limitar o avanço/retrocesso do SyncPlay remoto à duração conhecida, incluindo posição stale fora do intervalo e proteção contra overflow; preservar o passo quando o servidor não informa duração.
+- [x] Validar a suíte JVM completa: 1.034 testes, 0 falhas, 0 erros.
+- [x] Validar `:app:lintDebug` e `:app:assembleRelease` com código 0.
+- [x] Validar player na Android TV: 23 testes executados, 0 falhas e 1 skip (medição Cast requer serviços Cast); SyncPlay: 6 testes, 0 falhas/skip.
+- [x] Validar player no tablet: 23 testes, 0 falhas e 4 skips de foco remoto exclusivos da TV; emuladores encerrados após os testes.
+- [x] APK local de validação (sem bump/publicação): `v1.3.55`, `versionCode=356`, 7.404.867 bytes, SHA-256 `A2F125B0C8FBF35A063FD756BB27D9E29840C341F83BB5277E120319E132381D`.
+- [x] Ao atualizar uma release autorizada, as notas devem espelhar somente as melhorias/correções implementadas e validadas no APK correspondente; nenhuma alteração exclusiva do servidor deve constar.
+- [ ] Não houve bump nem publicação nesta rodada. Nas notas da próxima release autorizada, descrever precisamente os limites de busca local/remota e o progresso/skip, somente se presentes no APK publicado.

@@ -36,6 +36,16 @@ internal fun trackCandidatePosition(
     orderedServerIndices: List<Int>,
 ): Int? = orderedServerIndices.indexOf(serverIndex).takeIf { it >= 0 }
 
+/** Resolves one server stream to one Media3 group, even when group has many variants. */
+internal fun supportedTrackGroupPosition(
+    serverIndex: Int,
+    orderedServerIndices: List<Int>,
+    supportedTrackIndicesByGroup: List<List<Int>>,
+): Int? {
+    val position = trackCandidatePosition(serverIndex, orderedServerIndices) ?: return null
+    return position.takeIf { !supportedTrackIndicesByGroup.getOrNull(it).isNullOrEmpty() }
+}
+
 /**
  * Server indices of the streams of one type, in the order the container lists them.
  *

@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import retrofit2.http.GET
+import retrofit2.http.DELETE
+import retrofit2.http.Path
 import retrofit2.http.POST
 import retrofit2.http.Query
 
@@ -135,6 +137,17 @@ class LiveTvApiContractTest {
             .mapNotNull { annotations -> annotations.filterIsInstance<Query>().firstOrNull()?.value }
 
         assertEquals(listOf("IsScheduled"), queries)
+    }
+
+    @Test
+    fun `cancelling a scheduled recording deletes its timer by id`() {
+        val method = MulletaFlixApiService::class.java.methods.single { it.name == "cancelLiveTvTimer" }
+        val delete = method.getAnnotation(DELETE::class.java)
+        assertNotNull("cancelLiveTvTimer must be a DELETE", delete)
+        assertEquals("LiveTv/Timers/{timerId}", delete!!.value)
+        val pathParameters = method.parameterAnnotations
+            .flatMap { annotations -> annotations.filterIsInstance<Path>() }
+        assertEquals("timerId", pathParameters.single().value)
     }
 
     @Test

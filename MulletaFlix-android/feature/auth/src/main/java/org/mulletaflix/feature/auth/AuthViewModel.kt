@@ -511,7 +511,7 @@ class AuthViewModel @Inject constructor(
                     quickConnectPin = null,
                     quickConnectSecret = null,
                     quickConnectSecondsRemaining = null,
-                    error = "O código Quick Connect expirou. Gere um novo código.",
+                    error = QUICK_CONNECT_POLL_TIMEOUT_MESSAGE,
                 )
             }
         }
@@ -562,6 +562,8 @@ class AuthViewModel @Inject constructor(
 
 internal const val QUICK_CONNECT_MAX_POLL_ATTEMPTS = 100
 internal const val QUICK_CONNECT_POLL_INTERVAL_SECONDS = 3
+internal const val QUICK_CONNECT_POLL_TIMEOUT_MESSAGE =
+    "Não foi possível confirmar o Quick Connect no prazo. Verifique a conexão e gere um novo código."
 
 internal fun quickConnectDurationSeconds(): Int =
     QUICK_CONNECT_MAX_POLL_ATTEMPTS * QUICK_CONNECT_POLL_INTERVAL_SECONDS

@@ -1,17 +1,117 @@
 package org.mulletaflix.feature.downloads
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadRepository
 import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DownloadsViewModelTest {
+    private val dispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(dispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun `downloads return to loading on initial and resumed collection until a fresh snapshot arrives`() = runTest(dispatcher) {
+        var snapshotCount = 0
+        val repository = FakeDownloadRepository().apply {
+            downloadsFlow = flow {
+                val snapshot = ++snapshotCount
+                delay(250)
+                emit(
+                    if (snapshot == 1) emptyList()
+                    else listOf(
+                        DownloadEntry(
+                            "movie",
+                            "Filme",
+                            "https://server/movie",
+                            org.mulletaflix.domain.repository.DownloadState.Completed,
+                            100,
+                        ),
+                    ),
+                )
+                awaitCancellation()
+            }
+        }
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+        val collector = backgroundScope.launch(UnconfinedTestDispatcher(dispatcher.scheduler)) {
+            viewModel.downloadsState.collect {}
+        }
+
+        assertFalse(viewModel.downloadsState.value.isLoaded)
+        assertEquals(
+            DownloadsContentState.Loading,
+            downloadsContentState(viewModel.downloadsState.value.isLoaded, viewModel.downloadsState.value.entries.size),
+        )
+        advanceTimeBy(249)
+        runCurrent()
+        assertFalse(viewModel.downloadsState.value.isLoaded)
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertTrue(viewModel.downloadsState.value.isLoaded)
+        assertEquals(DownloadsContentState.Empty, downloadsContentState(true, 0))
+        collector.cancel()
+
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertFalse("o snapshot não deve ser reapresentado após a coleta expirar", viewModel.downloadsState.value.isLoaded)
+        assertEquals(DownloadsContentState.Loading, downloadsContentState(viewModel.downloadsState.value.isLoaded, 0))
+
+        val resumedCollector = backgroundScope.launch(UnconfinedTestDispatcher(dispatcher.scheduler)) {
+            viewModel.downloadsState.collect {}
+        }
+        runCurrent()
+        assertEquals(2, snapshotCount)
+        assertFalse(viewModel.downloadsState.value.isLoaded)
+        advanceTimeBy(249)
+        runCurrent()
+        assertFalse(viewModel.downloadsState.value.isLoaded)
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertTrue(viewModel.downloadsState.value.isLoaded)
+        assertEquals(DownloadsContentState.Content, downloadsContentState(true, 1))
+        resumedCollector.cancel()
+    }
+
+    @Test
+    fun `downloads content state separates loading empty and populated queue`() {
+        assertEquals(DownloadsContentState.Loading, downloadsContentState(isLoaded = false, itemCount = 0))
+        assertEquals(DownloadsContentState.Empty, downloadsContentState(isLoaded = true, itemCount = 0))
+        assertEquals(DownloadsContentState.Content, downloadsContentState(isLoaded = true, itemCount = 1))
+    }
+
     @Test
     fun `downloads content width adapts to phone tablet and tv`() {
         assertEquals(411, downloadsContentMaxWidthDp(411, isTelevision = false))
@@ -236,6 +336,7 @@ class DownloadsViewModelTest {
         private val failRetry: Boolean = false,
         private val failWifiOnly: Boolean = false,
     ) : DownloadRepository {
+        var downloadsFlow: Flow<List<DownloadEntry>> = flowOf(emptyList())
         var paused = false
         var resumed = false
         var retried = false
@@ -246,7 +347,7 @@ class DownloadsViewModelTest {
         var removedFailed = false
         private val queuePaused = MutableStateFlow(false)
 
-        override fun observeDownloads(): Flow<List<DownloadEntry>> = flowOf(emptyList())
+        override fun observeDownloads(): Flow<List<DownloadEntry>> = downloadsFlow
         override fun observeQueuePaused(): Flow<Boolean> = queuePaused
         override fun observeWifiOnly(): Flow<Boolean> = flowOf(wifiOnly)
         override fun setWifiOnly(enabled: Boolean): Result<Unit> {

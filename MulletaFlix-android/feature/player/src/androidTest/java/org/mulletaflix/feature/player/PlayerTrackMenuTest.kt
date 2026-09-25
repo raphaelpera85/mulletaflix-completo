@@ -55,6 +55,7 @@ class PlayerTrackMenuTest {
 
     @Test
     fun tvTrackRowsExposeTheFocusedLanguageToTheRemote() {
+        assumeTelevisionProfile()
         composeRule.setContent {
             MaterialTheme {
                 PlayerTrackMenu(
@@ -95,6 +96,30 @@ class PlayerTrackMenuTest {
         }
 
         composeRule.onAllNodesWithText("Idioma 19").assertCountEquals(1)
+    }
+
+    @Test
+    fun externalSubtitleIsClearlyMarkedInTrackMenu() {
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerTrackMenu(
+                    title = "Legendas",
+                    tracks = listOf(
+                        TrackInfo(
+                            index = 14,
+                            displayName = "Português (Brasil)",
+                            codec = "srt",
+                            isExternal = true,
+                        ),
+                    ),
+                    selectedIndex = 0,
+                    onSelect = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNode(hasText("Português (Brasil) • SRT • Externa")).assertHasClickAction()
     }
 
     @Test

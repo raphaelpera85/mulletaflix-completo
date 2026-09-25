@@ -30,6 +30,22 @@ class PlaylistRepositoryImplTest {
     }
 
     @Test
+    fun getPlaylistItems_mapsMediaAndPagingMetadata() = runTest {
+        coEvery { api.getPlaylistItems("pl-1", "user-1", 20, 10, true, true) } returns BaseItemDtoQueryResultDto(
+            items = listOf(BaseItemDto(id = "m-1", name = "Filme", type = "Movie")),
+            totalRecordCount = 31,
+            startIndex = 20,
+        )
+
+        val result = repository.getPlaylistItems("user-1", "pl-1", 20, 10).getOrThrow()
+
+        assertEquals("m-1", result.first.single().id)
+        assertEquals("Filme", result.first.single().name)
+        assertEquals(31, result.second)
+        coVerify(exactly = 1) { api.getPlaylistItems("pl-1", "user-1", 20, 10, true, true) }
+    }
+
+    @Test
     fun createPlaylist_returnsServerIdAndTrimsName() = runTest {
         coEvery { api.createPlaylist("Minha lista", "user-1", null) } returns PlaylistCreationResultDto("pl-2")
 

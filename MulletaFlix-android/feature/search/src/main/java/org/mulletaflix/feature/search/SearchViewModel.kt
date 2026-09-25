@@ -48,6 +48,8 @@ data class SearchState(
      * `false` para o botão não virar uma armadilha de tentar-e-falhar sem fim.
      */
     val hasMore: Boolean = false,
+    /** A última página falhou e pode ser repetida sem reiniciar a busca. */
+    val canRetryLoadMore: Boolean = false,
 ) {
     /**
      * A busca pede uma página por vez e o servidor conta quantos itens casam. Quando ele
@@ -75,6 +77,7 @@ class SearchViewModel @Inject constructor(
     private var currentUserId: String? = null
     private var searchGeneration = 0L
     private var historyGeneration = 0L
+    private var receivedSearchItemCount = 0
 
     init {
         viewModelScope.launch {
@@ -91,6 +94,7 @@ class SearchViewModel @Inject constructor(
                 val userChanged = currentUserId != userId
                 currentUserId = userId
                 if (userChanged) {
+                    receivedSearchItemCount = 0
                     searchJob?.cancel()
                     hintsJob?.cancel()
                     ++searchGeneration
@@ -99,6 +103,7 @@ class SearchViewModel @Inject constructor(
                             results = emptyList(),
                             totalMatching = null,
                             hasMore = false,
+                            canRetryLoadMore = false,
                             isLoadingMore = false,
                             isLoading = false,
                             isRefreshing = false,
@@ -122,6 +127,7 @@ class SearchViewModel @Inject constructor(
     }
 
     fun onQueryChange(newQuery: String) {
+        receivedSearchItemCount = 0
         // Uma pergunta nova invalida a contagem antiga: o total que estava na tela
         // respondia à busca anterior, e mantê-lo faria a linha "Mostrando 30 de 412"
         // falar de uma busca que já não é a do campo. A lista fica (evita a tela
@@ -135,6 +141,7 @@ class SearchViewModel @Inject constructor(
                 // `isLoadingMore` aqui, a resposta da página antiga seria descartada pela
                 // geração e a flag ficaria presa em `true` — botão girando para sempre.
                 hasMore = false,
+                canRetryLoadMore = false,
                 isLoadingMore = false,
                 hints = emptyList(),
                 isLoadingHints = false,
@@ -149,7 +156,7 @@ class SearchViewModel @Inject constructor(
             // generation moved on. Both flags have to be lowered here, or a
             // cancelled pull-to-refresh (`refreshSearch`) leaves its indicator
             // spinning with no request behind it.
-            _state.update { it.copy(results = emptyList(), totalMatching = null, hasMore = false, isLoadingMore = false, isLoading = false, isRefreshing = false, isLoadingHints = false, hints = emptyList(), error = null) }
+            _state.update { it.copy(results = emptyList(), totalMatching = null, hasMore = false, canRetryLoadMore = false, isLoadingMore = false, isLoading = false, isRefreshing = false, isLoadingHints = false, hints = emptyList(), error = null) }
             return
         }
 
@@ -166,12 +173,14 @@ class SearchViewModel @Inject constructor(
 
     fun search(query: String) {
         val normalizedQuery = normalizeSearchQuery(query) ?: return
+        receivedSearchItemCount = 0
         _state.update {
             it.copy(
                 query = normalizedQuery,
                 error = null,
                 totalMatching = null,
                 hasMore = false,
+                canRetryLoadMore = false,
                 isLoadingMore = false,
             )
         }
@@ -219,6 +228,7 @@ class SearchViewModel @Inject constructor(
     }
 
     fun setFilter(filter: SearchFilter?) {
+        receivedSearchItemCount = 0
         // Trocar o filtro troca a pergunta: o total da busca anterior não conta mais
         // nada sobre "só filmes" ou "só músicas".
         _state.update {
@@ -227,6 +237,7 @@ class SearchViewModel @Inject constructor(
                 error = null,
                 totalMatching = null,
                 hasMore = false,
+                canRetryLoadMore = false,
                 isLoadingMore = false,
                 hints = emptyList(),
                 isLoadingHints = false,
@@ -320,6 +331,7 @@ class SearchViewModel @Inject constructor(
                 hints = emptyList(),
                 isLoadingHints = false,
                 error = null,
+                canRetryLoadMore = false,
             )
         }
 
@@ -331,11 +343,13 @@ class SearchViewModel @Inject constructor(
             itemTypes = typeParam,
         ).onSuccess { results ->
             if (isCurrentSearch(query, filter, generation, userId)) {
+                receivedSearchItemCount = results.items.size
                 _state.update {
                     it.copy(
                         results = results.items,
                         totalMatching = results.totalMatching,
                         hasMore = results.isTruncated,
+                        canRetryLoadMore = false,
                         isLoading = false,
                         isRefreshing = false,
                         error = null,
@@ -360,6 +374,7 @@ class SearchViewModel @Inject constructor(
                         // Uma busca que falhou não oferece "carregar mais": a próxima
                         // página sairia da mesma busca quebrada.
                         hasMore = false,
+                        canRetryLoadMore = false,
                         isLoading = false,
                         isRefreshing = false,
                         error = "Erro ao buscar conteúdo",
@@ -375,26 +390,32 @@ class SearchViewModel @Inject constructor(
      * A lista é anexada, não trocada: o que já foi lido continua na tela com a posição
      * de rolagem. Três cuidados que a paginação da Biblioteca já tinha aprendido:
      *
-     *  - o `startIndex` é o **tamanho do que já chegou**, não `página × tamanho`: o
+     *  - o `startIndex` é a quantidade bruta de registros recebidos, não a quantidade
+     *    visível após deduplicação nem `página × tamanho`: o
      *    servidor pode devolver uma página menor que o pedido, e avançar pelo tamanho
      *    pedido pularia itens;
      *  - a página nova é **deduplicada por id**, porque uma busca com ordenação instável
      *    pode repetir um item entre páginas;
      *  - se a página voltar vazia, `hasMore` cai: insistir buscaria o mesmo vazio.
      */
-    fun loadMore() {
+    fun loadMore() = loadMorePage(retryFailedPage = false)
+
+    fun retryLoadMore() = loadMorePage(retryFailedPage = true)
+
+    private fun loadMorePage(retryFailedPage: Boolean) {
         val current = _state.value
-        if (!current.hasMore || current.isLoadingMore || current.isLoading || current.isRefreshing) return
+        val retryingFailedPage = retryFailedPage && current.canRetryLoadMore
+        if ((!current.hasMore && !retryingFailedPage) || current.isLoadingMore || current.isLoading || current.isRefreshing) return
         val query = current.query
         val filter = current.activeFilter
         if (query.isBlank() || current.isOffline) return
         val userId = currentUserId ?: return
-        val startIndex = current.results.size
+        val startIndex = receivedSearchItemCount
         val generation = searchGeneration
 
         // A flag sobe **antes** do lançamento: se subisse depois, uma resposta rápida
         // chegaria com `isLoadingMore` ainda falso e o botão continuaria clicável.
-        _state.update { it.copy(isLoadingMore = true, error = null) }
+        _state.update { it.copy(isLoadingMore = true, canRetryLoadMore = false, error = null) }
 
         viewModelScope.launch {
             val typeParam = filter.toApiItemType()
@@ -405,18 +426,20 @@ class SearchViewModel @Inject constructor(
                 startIndex = startIndex,
             ).onSuccess { page ->
                 if (!isCurrentSearch(query, filter, generation, userId)) return@onSuccess
+                receivedSearchItemCount += page.items.size
                 _state.update { state ->
                     val known = state.results.mapTo(mutableSetOf()) { it.id }
                     val appended = page.items.filter { known.add(it.id) }
                     val shown = state.results.size + appended.size
                     val reportedTotal = page.totalMatching
+                    val knownTotal = reportedTotal ?: state.totalMatching
                     state.copy(
                         results = state.results + appended,
                         totalMatching = reportedTotal ?: state.totalMatching,
-                        // Nada novo significa que insistir devolveria o mesmo: parar. E
-                        // quando o servidor contou, quem decide é a contagem.
-                        hasMore = appended.isNotEmpty() &&
-                            (reportedTotal == null || reportedTotal > shown),
+                        // Uma página duplicada ainda pode anteceder títulos novos. Como o
+                        // avanço é sempre solicitado pelo botão, não há loop automático.
+                        hasMore = page.items.isNotEmpty() && (knownTotal == null || knownTotal > shown),
+                        canRetryLoadMore = false,
                         isLoadingMore = false,
                     )
                 }
@@ -428,6 +451,7 @@ class SearchViewModel @Inject constructor(
                             // Uma página que falhou não deixa o botão tentando para
                             // sempre: o usuário pede de novo quando quiser.
                             hasMore = false,
+                            canRetryLoadMore = true,
                             error = "Não foi possível carregar mais resultados.",
                         )
                     }
@@ -457,4 +481,7 @@ class SearchViewModel @Inject constructor(
             _state.value.query == query &&
             _state.value.activeFilter == filter &&
             currentUserId == userId
+
+    private companion object {
+    }
 }

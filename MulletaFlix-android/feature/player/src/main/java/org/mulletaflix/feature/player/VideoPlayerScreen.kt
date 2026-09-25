@@ -81,6 +81,7 @@ internal const val PLAYER_TOP_BAR_ACTIONS_TEST_TAG = "player-top-bar-actions"
  * único de 40 dp — e "medir, não supor" era a pendência registrada desde a v1.2.73.
  */
 internal const val PLAYER_CAST_CONTROL_TEST_TAG = "player-cast-control"
+internal const val PLAYER_SEEK_BAR_TEST_TAG = "player-seek-bar"
 
 /** Tamanho visual do ícone de transmissão. O alvo de toque é medido à parte. */
 internal val CAST_CONTROL_VISUAL_SIZE = 40.dp
@@ -128,6 +129,7 @@ fun VideoPlayerScreen(
     }
     val latestPosition by rememberUpdatedState(state.currentPosition)
     val latestDuration by rememberUpdatedState(state.duration)
+    val latestSeekable by rememberUpdatedState(state.isSeekable)
     val latestPlaying by rememberUpdatedState(state.isPlaying)
     val latestPipEnabled by rememberUpdatedState(state.pictureInPictureEnabled)
     var gestureHint by remember { mutableStateOf<String?>(null) }
@@ -239,7 +241,7 @@ fun VideoPlayerScreen(
                     onDragCancel = {},
                     onDragEnd = {
                         if (state.isControlsLocked) return@detectDragGestures
-                        if (horizontalDrag) viewModel.seekTo(previewPosition)
+                        if (horizontalDrag && latestSeekable && latestDuration > 0L) viewModel.seekTo(previewPosition)
                     },
                     onDrag = { _, dragAmount ->
                         if (state.isControlsLocked) return@detectDragGestures
@@ -250,6 +252,7 @@ fun VideoPlayerScreen(
                         }
 
                         if (horizontalDrag) {
+                            if (!latestSeekable || latestDuration <= 0L) return@detectDragGestures
                             val delta = seekDeltaFromHorizontalDrag(
                                 dragPixels = totalDrag.x,
                                 viewportWidthPixels = size.width.toFloat(),
@@ -297,7 +300,7 @@ fun VideoPlayerScreen(
                         }
                     },
                     onDoubleTap = { offset ->
-                        if (state.isControlsLocked) return@detectTapGestures
+                        if (state.isControlsLocked || !latestSeekable || latestDuration <= 0L) return@detectTapGestures
                         val seekDelta = if (offset.x < size.width / 2f) -10_000L else 10_000L
                         val target = (latestPosition + seekDelta).coerceIn(
                             0L,
@@ -685,12 +688,12 @@ private fun PlayerOsd(
     var showSleepTimerMenu by remember { mutableStateOf(false) }
     var showAspectRatioMenu by remember { mutableStateOf(false) }
     var showStatsDialog by remember { mutableStateOf(false) }
-    var isSeeking by remember { mutableStateOf(false) }
-    var seekFraction by remember(state.duration) {
-        mutableFloatStateOf(
-            if (state.duration > 0) state.currentPosition.toFloat() / state.duration else 0f,
-        )
-    }
+    val menuSubtitleTracks = visibleSubtitleTracks(state.subtitleTracks, state.isCasting)
+    val visibleSubtitleSelection = visibleSubtitleSelectionIndex(
+        state.subtitleTracks,
+        state.selectedSubtitleIndex,
+        menuSubtitleTracks,
+    )
 
     Box(
         modifier = Modifier
@@ -746,17 +749,20 @@ private fun PlayerOsd(
                 IconButton(onClick = { showAspectRatioMenu = true }) {
                     Icon(Icons.Default.AspectRatio, contentDescription = "Proporção", tint = Color.White)
                 }
-                // Audio tracks
-                IconButton(
-                    onClick = { showAudioMenu = true },
-                    enabled = state.audioTracks.isNotEmpty(),
-                ) {
-                    Icon(Icons.Default.Audiotrack, contentDescription = "Áudio", tint = Color.White)
+                // Google Default Media Receiver does not expose audio track
+                // switching; keep the control hidden while remote playback is active.
+                if (!state.isCasting) {
+                    IconButton(
+                        onClick = { showAudioMenu = true },
+                        enabled = state.audioTracks.isNotEmpty(),
+                    ) {
+                        Icon(Icons.Default.Audiotrack, contentDescription = "Áudio", tint = Color.White)
+                    }
                 }
                 // Subtitles
                 IconButton(
                     onClick = { showSubtitleMenu = true },
-                    enabled = state.subtitleTracks.isNotEmpty(),
+                    enabled = menuSubtitleTracks.isNotEmpty(),
                 ) {
                     Icon(Icons.Default.ClosedCaption, contentDescription = "Legendas", tint = Color.White)
                 }
@@ -796,6 +802,7 @@ private fun PlayerOsd(
         PlayerTransportControls(
             modifier = Modifier.align(Alignment.Center),
             isPlaying = state.isPlaying,
+            canSeek = state.isSeekable,
             hasChapters = state.chapters.isNotEmpty(),
             onSeekBy = onSeekBy,
             onPrevious = onPrevious,
@@ -824,26 +831,12 @@ private fun PlayerOsd(
                 }
                 Text(state.duration.toTimeString(), color = Color.White.copy(0.7f), style = MaterialTheme.typography.labelMedium)
             }
-            // Seek bar
-            Slider(
-                value = if (isSeeking) seekFraction else {
-                    if (state.duration > 0) state.currentPosition.toFloat() / state.duration else 0f
-                },
-                onValueChange = { fraction ->
-                    isSeeking = true
-                    seekFraction = fraction
-                    onSeekPreview(seekPositionFromFraction(fraction, state.duration))
-                },
-                onValueChangeFinished = {
-                    isSeeking = false
-                    onSeekFinished(seekPositionFromFraction(seekFraction, state.duration))
-                },
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.secondary,
-                    activeTrackColor = MaterialTheme.colorScheme.secondary,
-                    inactiveTrackColor = Color.White.copy(0.3f)
-                ),
-                modifier = Modifier.fillMaxWidth()
+            PlayerSeekBar(
+                currentPositionMs = state.currentPosition,
+                durationMs = state.duration,
+                canSeek = state.isSeekable,
+                onSeekPreview = onSeekPreview,
+                onSeekFinished = onSeekFinished,
             )
         }
 
@@ -851,9 +844,19 @@ private fun PlayerOsd(
         if (showSubtitleMenu) {
             PlayerTrackMenu(
                 title = "Legendas",
-                tracks = state.subtitleTracks,
-                selectedIndex = state.selectedSubtitleIndex,
-                onSelect = { onSubtitleSelect(it); showSubtitleMenu = false },
+                tracks = menuSubtitleTracks,
+                selectedIndex = visibleSubtitleSelection,
+                onSelect = { visibleIndex ->
+                    val originalIndex = if (visibleIndex < 0) -1 else {
+                        originalSubtitleSelectionIndex(
+                            state.subtitleTracks,
+                            menuSubtitleTracks,
+                            visibleIndex,
+                        ) ?: return@PlayerTrackMenu
+                    }
+                    onSubtitleSelect(originalIndex)
+                    showSubtitleMenu = false
+                },
                 onDismiss = { showSubtitleMenu = false }
             )
         }
@@ -948,9 +951,51 @@ private fun PlayerOsd(
  * `PlayerOsd`, so they can be exercised directly in the future.
  */
 @Composable
+internal fun PlayerSeekBar(
+    currentPositionMs: Long,
+    durationMs: Long,
+    canSeek: Boolean,
+    onSeekPreview: (Long) -> Unit,
+    onSeekFinished: (Long) -> Unit,
+) {
+    var isSeeking by remember(durationMs, canSeek) { mutableStateOf(false) }
+    var seekFraction by remember(durationMs, canSeek) {
+        mutableFloatStateOf(
+            if (durationMs > 0L) (currentPositionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f,
+        )
+    }
+    Slider(
+        value = if (isSeeking) seekFraction else {
+            if (durationMs > 0L) (currentPositionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+        },
+        onValueChange = { fraction ->
+            val position = seekPositionFromFraction(fraction, durationMs) ?: return@Slider
+            isSeeking = true
+            seekFraction = fraction
+            onSeekPreview(position)
+        },
+        onValueChangeFinished = {
+            isSeeking = false
+            seekPositionFromFraction(seekFraction, durationMs)?.let(onSeekFinished)
+        },
+        enabled = isSeekAvailable(canSeek, durationMs),
+        colors = SliderDefaults.colors(
+            thumbColor = MaterialTheme.colorScheme.secondary,
+            activeTrackColor = MaterialTheme.colorScheme.secondary,
+            inactiveTrackColor = Color.White.copy(0.3f),
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PLAYER_SEEK_BAR_TEST_TAG)
+            .semantics { contentDescription = "Posição da reprodução" },
+    )
+}
+
+@Composable
 internal fun PlayerTransportControls(
     modifier: Modifier = Modifier,
     isPlaying: Boolean = false,
+    canSeek: Boolean = true,
     hasChapters: Boolean = false,
     onSeekBy: (Long) -> Unit = {},
     onPrevious: () -> Unit = {},
@@ -964,7 +1009,7 @@ internal fun PlayerTransportControls(
         horizontalArrangement = Arrangement.spacedBy(20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = { onSeekBy(-10_000L) }) {
+        IconButton(onClick = { onSeekBy(-10_000L) }, enabled = canSeek) {
             Icon(
                 Icons.Default.Replay10,
                 contentDescription = "Voltar 10 segundos",
@@ -1003,7 +1048,7 @@ internal fun PlayerTransportControls(
                 Icon(Icons.Default.FastForward, contentDescription = "Próximo Capítulo", tint = Color.White, modifier = Modifier.size(30.dp))
             }
         }
-        IconButton(onClick = { onSeekBy(10_000L) }) {
+        IconButton(onClick = { onSeekBy(10_000L) }, enabled = canSeek) {
             Icon(
                 Icons.Default.Forward10,
                 contentDescription = "Avançar 10 segundos",
