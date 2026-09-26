@@ -184,6 +184,7 @@ namespace MulletaFlix.Server
             services.AddSingleton<IJobQueue>(serviceProvider => serviceProvider.GetRequiredService<MulletaFlixJobQueue>());
 
             services.AddSingleton<MulletaFlix.Api.Caching.ItemsResponseCache>();
+            services.AddSingleton<MulletaFlix.Api.Caching.StreamStateCache>();
 
             // Book Reader services
             services.AddSingleton<MediaBrowser.Controller.Books.IBookConversionService, MulletaFlix.Server.Implementations.Books.BookConversionService>();

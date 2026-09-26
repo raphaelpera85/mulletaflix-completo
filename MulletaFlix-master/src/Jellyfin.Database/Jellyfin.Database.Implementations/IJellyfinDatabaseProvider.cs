@@ -71,20 +71,6 @@ public interface IMulletaFlixDatabaseProvider
     Task DeleteBackup(string key);
 
     /// <summary>
-    /// Runs a full-text search against BaseItems.
-    /// </summary>
-    /// <param name="context">The database context.</param>
-    /// <param name="searchTerm">The search term.</param>
-    /// <param name="userId">Optional user ID for filtering.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Queryable of BaseItemEntity matching the search term.</returns>
-    IQueryable<BaseItemEntity> FullTextSearch(
-        MulletaFlixDbContext context,
-        string searchTerm,
-        Guid? userId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Purges all data from the database.
     /// </summary>
     /// <param name="dbContext">The database context.</param>

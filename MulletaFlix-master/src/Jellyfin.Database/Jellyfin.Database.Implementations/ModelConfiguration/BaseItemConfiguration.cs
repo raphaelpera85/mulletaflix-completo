@@ -98,11 +98,16 @@ public class BaseItemConfiguration : IEntityTypeConfiguration<BaseItemEntity>
         //      query already gets an equal-or-better seek from that index.
         // Keeping it cost roughly 9 MB of index and one extra B-tree to maintain on every item write.
 
-        // Full-text search index for CleanName and OriginalTitle
-        // Note: MySQL FULLTEXT indexes do not support partial filters — filter removed intentionally.
-        builder.HasIndex(e => new { e.CleanName, e.OriginalTitle })
-            .HasDatabaseName("IX_BaseItems_FullTextSearch")
-            .HasAnnotation("MySql:FullTextIndex", true);
+        // Full-text search support (IX_BaseItems_FullTextSearch on CleanName/OriginalTitle with
+        // MySql:FullTextIndex) was removed: MySqlDatabaseProvider.FullTextSearch, the only method
+        // that queried it via MATCH...AGAINST, had zero callers anywhere in the codebase (verified
+        // via full-repo search — no controller/service ever invoked IJellyfinDatabaseProvider.
+        // FullTextSearch). Production search (InternalItemsQuery.SearchTerm) goes through
+        // BaseItemRepository.TranslateQuery.cs using EF.Functions.Like/.Contains on CleanName and
+        // OriginalTitle, which a FULLTEXT index does not accelerate. Removing the dead method and
+        // its unused index (see migration DropUnusedFullTextSearchIndex) eliminates real maintenance
+        // cost (FULLTEXT indexes are rebuilt on every insert/update to the indexed columns) with no
+        // functional loss.
 
         builder.HasData(new BaseItemEntity()
         {

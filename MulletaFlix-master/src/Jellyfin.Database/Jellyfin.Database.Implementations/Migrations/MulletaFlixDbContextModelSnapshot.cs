@@ -344,7 +344,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                         .HasColumnType("longtext");
 
                     b.Property<string>("OriginalTitle")
-                        .HasColumnType("varchar(255)");
+                        .HasColumnType("longtext");
 
                     b.Property<string>("Overview")
                         .HasColumnType("longtext");
@@ -458,10 +458,6 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("SeriesId");
 
                     b.HasIndex("SeriesName");
-
-                    b.HasIndex("CleanName", "OriginalTitle")
-                        .HasDatabaseName("IX_BaseItems_FullTextSearch")
-                        .HasAnnotation("MySql:FullTextIndex", true);
 
                     b.HasIndex("ExtraType", "OwnerId");
 
@@ -1579,7 +1575,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId", "DateCreated");
 
-                    b.ToTable("PlaybackReport");
+                    b.ToTable("PlaybackReport", (string)null);
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Preference", b =>

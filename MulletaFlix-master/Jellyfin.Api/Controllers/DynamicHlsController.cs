@@ -62,6 +62,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
     private readonly DynamicHlsHelper _dynamicHlsHelper;
     private readonly EncodingOptions _encodingOptions;
     private readonly TransientMediaItemRegistry _transientMediaItemRegistry;
+    private readonly MulletaFlix.Api.Caching.StreamStateCache _streamStateCache;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DynamicHlsController"/> class.
@@ -78,6 +79,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
     /// <param name="encodingHelper">Instance of <see cref="EncodingHelper"/>.</param>
     /// <param name="dynamicHlsPlaylistGenerator">Instance of <see cref="IDynamicHlsPlaylistGenerator"/>.</param>
     /// <param name="transientMediaItemRegistry">Registry for path-resolved items during playback.</param>
+    /// <param name="streamStateCache">Cache for reusing <see cref="StreamState"/> across segment requests of the same session.</param>
     public DynamicHlsController(
         ILibraryManager libraryManager,
         IUserManager userManager,
@@ -90,7 +92,8 @@ public class DynamicHlsController : BaseMulletaFlixApiController
         DynamicHlsHelper dynamicHlsHelper,
         EncodingHelper encodingHelper,
         IDynamicHlsPlaylistGenerator dynamicHlsPlaylistGenerator,
-        TransientMediaItemRegistry transientMediaItemRegistry)
+        TransientMediaItemRegistry transientMediaItemRegistry,
+        MulletaFlix.Api.Caching.StreamStateCache streamStateCache)
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
@@ -104,6 +107,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
         _encodingHelper = encodingHelper;
         _dynamicHlsPlaylistGenerator = dynamicHlsPlaylistGenerator;
         _transientMediaItemRegistry = transientMediaItemRegistry;
+        _streamStateCache = streamStateCache;
 
         _encodingOptions = serverConfigurationManager.GetEncodingOptions();
     }
@@ -1442,20 +1446,47 @@ public class DynamicHlsController : BaseMulletaFlixApiController
         var cancellationTokenSource = new CancellationTokenSource();
         var cancellationToken = cancellationTokenSource.Token;
 
-        var state = await StreamingHelpers.GetStreamingState(
-                streamingRequest,
-                HttpContext,
-                _mediaSourceManager,
-                _userManager,
-                _libraryManager,
-                _serverConfigurationManager,
-                _mediaEncoder,
-                _encodingHelper,
-                _transcodeManager,
-                TranscodingJobType,
-                cancellationToken,
-                _transientMediaItemRegistry)
-            .ConfigureAwait(false);
+        var cacheable = MulletaFlix.Api.Caching.StreamStateCache.IsCacheable(streamingRequest);
+        var cacheKey = cacheable ? MulletaFlix.Api.Caching.StreamStateCache.BuildCacheKey(streamingRequest) : null;
+
+        StreamState? state = null;
+        if (cacheKey is not null && _streamStateCache.TryGet(cacheKey, out var cachedState))
+        {
+            // Reuse the StreamState built for a previous segment of the same session: it was resolved with an
+            // identical cache key (see BuildCacheKey), meaning identical stream/track/bitrate selection, so the
+            // encoding decisions it holds are still valid for this segment. This is the actual perf win: without
+            // it, every single HLS segment request re-resolves the library item, re-attaches media source info
+            // (potentially probing the file) and recomputes all encoding parameters from scratch.
+            state = cachedState;
+
+            // Per-segment fields still need to reflect *this* request even though the rest of the state is reused.
+            state!.Request.CurrentRuntimeTicks = streamingRequest.CurrentRuntimeTicks;
+            state.Request.ActualSegmentLengthTicks = streamingRequest.ActualSegmentLengthTicks;
+            state.Request.StartTimeTicks = streamingRequest.StartTimeTicks;
+        }
+
+        if (state is null)
+        {
+            state = await StreamingHelpers.GetStreamingState(
+                    streamingRequest,
+                    HttpContext,
+                    _mediaSourceManager,
+                    _userManager,
+                    _libraryManager,
+                    _serverConfigurationManager,
+                    _mediaEncoder,
+                    _encodingHelper,
+                    _transcodeManager,
+                    TranscodingJobType,
+                    cancellationToken,
+                    _transientMediaItemRegistry)
+                .ConfigureAwait(false);
+
+            if (cacheKey is not null)
+            {
+                _streamStateCache.Set(cacheKey, state);
+            }
+        }
 
         var playlistPath = Path.ChangeExtension(state.OutputFilePath, ".m3u8");
 
@@ -1533,6 +1564,13 @@ public class DynamicHlsController : BaseMulletaFlixApiController
                 }
                 catch
                 {
+                    if (cacheKey is not null)
+                    {
+                        // Don't let a broken state (ffmpeg failed to start) linger in the cache for the
+                        // next segment request of this session to pick up.
+                        _streamStateCache.Invalidate(cacheKey);
+                    }
+
                     state.Dispose();
                     throw;
                 }
