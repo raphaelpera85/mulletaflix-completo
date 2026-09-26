@@ -48,7 +48,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     private readonly string _host;
     private readonly int _port;
     private readonly string _streamToken;
-    private readonly NebulaPlaybackCache? _playbackCache;
+    private NebulaPlaybackCache? _playbackCache;
     private readonly ILogger<NebulaHttpStreamServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _lifecycleLock = new();
@@ -59,6 +59,12 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     private bool _disposed;
 
     public bool IsRunning => _listener?.IsListening == true;
+
+    /// <summary>Atualiza a referência ao cache de reprodução.</summary>
+    public void SetPlaybackCache(NebulaPlaybackCache? cache)
+    {
+        _playbackCache = cache;
+    }
 
     /// <summary>Inicia, sem bloquear a reprodução, o pré-cache de todos os blocos da mídia.</summary>
     public async Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)

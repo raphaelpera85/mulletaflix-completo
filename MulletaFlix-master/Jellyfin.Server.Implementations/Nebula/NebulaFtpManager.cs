@@ -1126,8 +1126,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             // 4. Servidor FTP C# nativo
+            var effectiveCachePath = !string.IsNullOrWhiteSpace(config.PlaybackCachePath)
+                ? config.PlaybackCachePath
+                : _configManager.CommonApplicationPaths.CachePath;
+
             _playbackCache = new NebulaPlaybackCache(
-                _configManager.CommonApplicationPaths.CachePath,
+                effectiveCachePath,
                 _loggerFactory.CreateLogger<NebulaPlaybackCache>());
 
             _ftpServerHost = new NebulaFtpServerHost(
@@ -1396,6 +1400,135 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             _logger.LogWarning(ex, "Falha ao iniciar o pré-cache da mídia; a reprodução continuará sem pré-cache.");
             return false;
         }
+    }
+
+    public NebulaPlaybackCacheStatusDto GetPlaybackCacheStatus()
+    {
+        var configuredPath = Config.PlaybackCachePath ?? string.Empty;
+        var effectivePath = !string.IsNullOrWhiteSpace(configuredPath)
+            ? configuredPath
+            : _configManager.CommonApplicationPaths.CachePath;
+
+        var fullCachePath = Path.Combine(effectivePath, "nebula-playback");
+        long totalBytes = 0;
+        int fileCount = 0;
+        int activeLeases = 0;
+
+        if (_playbackCache != null)
+        {
+            totalBytes = _playbackCache.GetCacheSizeBytes();
+            fileCount = _playbackCache.GetCachedFilesCount();
+            activeLeases = _playbackCache.ActiveLeasesCount;
+            fullCachePath = _playbackCache.CachePath;
+        }
+        else if (Directory.Exists(fullCachePath))
+        {
+            try
+            {
+                var dirInfo = new DirectoryInfo(fullCachePath);
+                var files = dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).ToArray();
+                totalBytes = files.Sum(f => f.Length);
+                fileCount = files.Length;
+            }
+            catch
+            {
+            }
+        }
+
+        double freeGb = 0;
+        double totalGb = 0;
+        try
+        {
+            var driveRoot = Path.GetPathRoot(Path.GetFullPath(fullCachePath));
+            if (!string.IsNullOrEmpty(driveRoot))
+            {
+                var drive = new DriveInfo(driveRoot);
+                if (drive.IsReady)
+                {
+                    freeGb = Math.Round(drive.AvailableFreeSpace / 1024.0 / 1024.0 / 1024.0, 2);
+                    totalGb = Math.Round(drive.TotalSize / 1024.0 / 1024.0 / 1024.0, 2);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return new NebulaPlaybackCacheStatusDto
+        {
+            ConfiguredPath = configuredPath,
+            EffectivePath = fullCachePath,
+            TotalSizeBytes = totalBytes,
+            FormattedSize = FormatBytes(totalBytes),
+            CachedFilesCount = fileCount,
+            ActiveLeasesCount = activeLeases,
+            FreeSpaceGb = freeGb,
+            TotalSpaceGb = totalGb
+        };
+    }
+
+    public Task<bool> ClearPlaybackCacheAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _playbackCache?.ClearCache();
+            return Task.FromResult(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA] Falha ao limpar cache de reprodução.");
+            return Task.FromResult(false);
+        }
+    }
+
+    public Task<bool> UpdatePlaybackCachePathAsync(string newPath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var trimmed = newPath?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(trimmed))
+            {
+                Directory.CreateDirectory(trimmed);
+            }
+
+            var config = Config;
+            config.PlaybackCachePath = trimmed;
+            _configManager.SaveConfiguration("nebulaftp", config);
+
+            var effective = !string.IsNullOrWhiteSpace(trimmed)
+                ? trimmed
+                : _configManager.CommonApplicationPaths.CachePath;
+
+            var oldCache = _playbackCache;
+            var newCache = new NebulaPlaybackCache(effective, _loggerFactory.CreateLogger<NebulaPlaybackCache>());
+            _playbackCache = newCache;
+
+            oldCache?.Dispose();
+
+            _httpStreamServer?.SetPlaybackCache(newCache);
+
+            _logger.LogInformation("[NEBULA] Caminho do cache de reprodução atualizado para: {Path}", effective);
+            return Task.FromResult(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[NEBULA] Falha ao atualizar caminho do cache de reprodução para {Path}", newPath);
+            return Task.FromResult(false);
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] suffixes = ["B", "KB", "MB", "GB", "TB"];
+        int counter = 0;
+        decimal number = bytes;
+        while (Math.Round(number / 1024m) >= 1 && counter < suffixes.Length - 1)
+        {
+            number /= 1024m;
+            counter++;
+        }
+
+        return $"{number:n1} {suffixes[counter]}";
     }
 
     public async Task<bool> StartDownloaderAsync(CancellationToken cancellationToken = default)

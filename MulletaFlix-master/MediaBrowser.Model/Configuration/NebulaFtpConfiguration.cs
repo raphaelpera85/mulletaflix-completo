@@ -93,6 +93,12 @@ public class NebulaFtpConfiguration
 
     public string NebulaFolderPath { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Gets or sets the custom cache path for Nebula media playback chunks.
+    /// When empty, defaults to the server's cache path.
+    /// </summary>
+    public string PlaybackCachePath { get; set; } = string.Empty;
+
     public string[] MonitorPaths { get; set; } = ["D:\\midias"];
 
     public string[] StagePaths { get; set; } = ["E:\\NebulaStage", "F:\\NebulaStage", "I:\\NebulaStage"];

@@ -330,3 +330,28 @@ public class NebulaNotificationsSettingsRequest
 
     public string? PublicServerUrl { get; set; }
 }
+
+public sealed class NebulaPlaybackCacheStatusDto
+{
+    public string ConfiguredPath { get; set; } = string.Empty;
+
+    public string EffectivePath { get; set; } = string.Empty;
+
+    public long TotalSizeBytes { get; set; }
+
+    public string FormattedSize { get; set; } = "0 B";
+
+    public int CachedFilesCount { get; set; }
+
+    public int ActiveLeasesCount { get; set; }
+
+    public double FreeSpaceGb { get; set; }
+
+    public double TotalSpaceGb { get; set; }
+}
+
+public sealed class NebulaUpdatePlaybackCachePathRequest
+{
+    public string CachePath { get; set; } = string.Empty;
+}
+

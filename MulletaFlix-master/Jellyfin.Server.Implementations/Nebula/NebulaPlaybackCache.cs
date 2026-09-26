@@ -51,6 +51,108 @@ public sealed class NebulaPlaybackCache : IDisposable
         _cleanupTimer = new Timer(static state => ((NebulaPlaybackCache)state!).CleanupExpiredEntries(), this, DefaultCleanupInterval, DefaultCleanupInterval);
     }
 
+    /// <summary>
+    /// Caminho raiz do diretório de cache em disco.
+    /// </summary>
+    public string CachePath => _rootPath;
+
+    /// <summary>
+    /// Quantidade de mídias ativas atualmente em reprodução (com lease ativo).
+    /// </summary>
+    public int ActiveLeasesCount => _activeMedia.Count;
+
+    /// <summary>
+    /// Retorna o tamanho total ocupado em bytes pelo cache no disco.
+    /// </summary>
+    public long GetCacheSizeBytes()
+    {
+        try
+        {
+            if (!Directory.Exists(_rootPath))
+            {
+                return 0;
+            }
+
+            var dirInfo = new DirectoryInfo(_rootPath);
+            return dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(static f => f.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-CACHE] Falha ao calcular tamanho do cache.");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Retorna a quantidade total de arquivos em cache no disco.
+    /// </summary>
+    public int GetCachedFilesCount()
+    {
+        try
+        {
+            if (!Directory.Exists(_rootPath))
+            {
+                return 0;
+            }
+
+            var dirInfo = new DirectoryInfo(_rootPath);
+            return dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Count();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-CACHE] Falha ao contar arquivos do cache.");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Limpa todos os dados em cache no disco que não estejam sob lease ativo ou em prefetch.
+    /// </summary>
+    public void ClearCache()
+    {
+        try
+        {
+            if (!Directory.Exists(_rootPath))
+            {
+                return;
+            }
+
+            foreach (var directory in Directory.GetDirectories(_rootPath))
+            {
+                var mediaKey = Path.GetFileName(directory);
+                if (_activeMedia.ContainsKey(mediaKey) || _prefetches.ContainsKey(mediaKey))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                    {
+                        try
+                        {
+                            File.SetAttributes(file, FileAttributes.Normal);
+                        }
+                        catch
+                        {
+                        }
+                    }
+
+                    Directory.Delete(directory, recursive: true);
+                    _lastActivity.TryRemove(mediaKey, out _);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[NEBULA-CACHE] Falha ao limpar diretório de mídia {Directory}.", directory);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-CACHE] Falha ao limpar cache geral.");
+        }
+    }
+
     /// <summary>Marca uma mídia como em reprodução. Enquanto houver uma sessão, seus blocos não são removidos.</summary>
     public IDisposable Acquire(string mediaKey)
     {

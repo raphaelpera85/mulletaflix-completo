@@ -84,6 +84,44 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         return NoContent();
     }
 
+    [HttpGet("PlaybackCache")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<NebulaPlaybackCacheStatusDto> GetPlaybackCacheStatus()
+    {
+        var status = _nebulaManager.GetPlaybackCacheStatus();
+        return Ok(status);
+    }
+
+    [HttpPost("PlaybackCache/Clear")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<bool>> ClearPlaybackCache(CancellationToken cancellationToken)
+    {
+        var result = await _nebulaManager.ClearPlaybackCacheAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(result);
+    }
+
+    [HttpPost("PlaybackCache/Path")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<NebulaPlaybackCacheStatusDto>> UpdatePlaybackCachePath(
+        [FromBody] NebulaUpdatePlaybackCachePathRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return BadRequest();
+        }
+
+        var success = await _nebulaManager.UpdatePlaybackCachePathAsync(request.CachePath, cancellationToken).ConfigureAwait(false);
+        if (!success)
+        {
+            return BadRequest("Não foi possível atualizar o diretório de cache especificado.");
+        }
+
+        var status = _nebulaManager.GetPlaybackCacheStatus();
+        return Ok(status);
+    }
+
     [HttpPost("Config/Secrets")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

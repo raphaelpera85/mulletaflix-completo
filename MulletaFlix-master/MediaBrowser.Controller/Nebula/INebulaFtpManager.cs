@@ -25,6 +25,15 @@ public interface INebulaFtpManager
     /// <summary>Starts prefetching all Telegram chunks for the selected media in the background.</summary>
     Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default);
 
+    /// <summary>Obtém informações e status de armazenamento do cache de reprodução de mídia.</summary>
+    NebulaPlaybackCacheStatusDto GetPlaybackCacheStatus();
+
+    /// <summary>Limpa os arquivos em cache que não estejam atualmente em reprodução.</summary>
+    Task<bool> ClearPlaybackCacheAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Atualiza o diretório de destino do cache de reprodução de mídia.</summary>
+    Task<bool> UpdatePlaybackCachePathAsync(string newPath, CancellationToken cancellationToken = default);
+
     Task<bool> StopDownloaderAsync(CancellationToken cancellationToken = default);
 
     Task<bool> GenerateStrmAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);

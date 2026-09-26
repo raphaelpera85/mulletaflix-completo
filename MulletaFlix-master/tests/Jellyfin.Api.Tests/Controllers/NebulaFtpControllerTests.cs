@@ -131,4 +131,84 @@ public sealed class NebulaFtpControllerTests
         Assert.IsType<BadRequestObjectResult>(result);
         configuration.Verify(m => m.SaveConfiguration(It.IsAny<string>(), It.IsAny<object>()), Times.Never);
     }
+
+    [Fact]
+    public void GetPlaybackCacheStatus_ReturnsStatusFromManager()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var expected = new NebulaPlaybackCacheStatusDto
+        {
+            ConfiguredPath = @"D:\cache",
+            EffectivePath = @"D:\cache\nebula-playback",
+            TotalSizeBytes = 1048576,
+            FormattedSize = "1.0 MB",
+            CachedFilesCount = 4,
+            ActiveLeasesCount = 1,
+            FreeSpaceGb = 100.5,
+            TotalSpaceGb = 500.0
+        };
+        manager.Setup(m => m.GetPlaybackCacheStatus()).Returns(expected);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = controller.GetPlaybackCacheStatus();
+
+        var ok = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
+        Assert.Same(expected, ok.Value);
+    }
+
+    [Fact]
+    public async Task ClearPlaybackCache_CallsManagerAndReturnsOk()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        manager.Setup(m => m.ClearPlaybackCacheAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.ClearPlaybackCache(CancellationToken.None);
+
+        var ok = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
+        Assert.Equal(true, ok.Value);
+        manager.Verify(m => m.ClearPlaybackCacheAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdatePlaybackCachePath_WhenSuccessful_ReturnsUpdatedStatus()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var expected = new NebulaPlaybackCacheStatusDto
+        {
+            ConfiguredPath = @"E:\new-cache",
+            EffectivePath = @"E:\new-cache\nebula-playback"
+        };
+        manager.Setup(m => m.UpdatePlaybackCachePathAsync(@"E:\new-cache", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        manager.Setup(m => m.GetPlaybackCacheStatus()).Returns(expected);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.UpdatePlaybackCachePath(
+            new NebulaUpdatePlaybackCachePathRequest { CachePath = @"E:\new-cache" },
+            CancellationToken.None);
+
+        var ok = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
+        Assert.Same(expected, ok.Value);
+    }
+
+    [Fact]
+    public async Task UpdatePlaybackCachePath_WhenFailed_ReturnsBadRequest()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        manager.Setup(m => m.UpdatePlaybackCachePathAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.UpdatePlaybackCachePath(
+            new NebulaUpdatePlaybackCachePathRequest { CachePath = @"Z:\invalid" },
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
 }

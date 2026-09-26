@@ -145,6 +145,45 @@ public sealed class NebulaPlaybackCacheTests
         }
     }
 
+    [Fact]
+    public async Task CacheInspectionAndClearCacheWorkAsExpected()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            Assert.Equal(Path.Combine(root, "nebula-playback"), cache.CachePath);
+            Assert.Equal(0, cache.ActiveLeasesCount);
+            Assert.Equal(0, cache.GetCacheSizeBytes());
+            Assert.Equal(0, cache.GetCachedFilesCount());
+
+            using (var lease = cache.Acquire("active-media"))
+            {
+                Assert.Equal(1, cache.ActiveLeasesCount);
+                await cache.GetOrFetchChunkAsync("active-media", 0, 0, 10, _ => Task.FromResult(new byte[10]), CancellationToken.None);
+                await cache.GetOrFetchChunkAsync("idle-media", 0, 0, 20, _ => Task.FromResult(new byte[20]), CancellationToken.None);
+
+                Assert.Equal(30, cache.GetCacheSizeBytes());
+                Assert.Equal(2, cache.GetCachedFilesCount());
+
+                cache.ClearCache();
+
+                // active-media must NOT be deleted because it is leased; idle-media should be deleted
+                Assert.Equal(10, cache.GetCacheSizeBytes());
+                Assert.Equal(1, cache.GetCachedFilesCount());
+            }
+
+            Assert.Equal(0, cache.ActiveLeasesCount);
+            cache.ClearCache();
+            Assert.Equal(0, cache.GetCacheSizeBytes());
+            Assert.Equal(0, cache.GetCachedFilesCount());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "nebula-cache-tests", Guid.NewGuid().ToString("N"));
