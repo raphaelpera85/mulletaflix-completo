@@ -214,9 +214,15 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         EmitServer("INFO", "Signal handlers unavailable on this platform; use Ctrl+C to stop.");
         EmitServer("INFO", $"Iniciando queued_mongo_scanner ordenado pelo arquivo mais antigo baixado (intervalo=1s, max_por_iteracao={workerCount})");
 
-        // 4. Loop periódico de varredura do Staging e enfileiramento (resync completo a cada 10 min, queue check a cada 5s)
+        // 4. Loop periódico de varredura do Staging e enfileiramento (resync completo a cada 1h, queue check a cada 5s).
+        // O intervalo de resync completo foi ampliado de 10 minutos para 1 hora: a limpeza de
+        // diretórios órfãos e a resync completa do MongoDB são operações de I/O relativamente
+        // pesadas em uma biblioteca de staging grande, e não há necessidade documentada de uma
+        // cadência mais curta - novos arquivos continuam sendo detectados imediatamente pelo
+        // FileSystemWatcher e pela fila do MongoDB (verificada a cada 5s), então o resync
+        // completo só precisa corrigir divergências acumuladas, não novidades.
         var lastFullSync = DateTime.MinValue;
-        var fullSyncInterval = TimeSpan.FromMinutes(10);
+        var fullSyncInterval = TimeSpan.FromHours(1);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -556,50 +562,14 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
             try
             {
-                var directories = Directory.GetDirectories(stageRoot, "*", SearchOption.AllDirectories);
-                foreach (var dir in directories.OrderByDescending(d => d.Length))
-                {
-                    if (!Directory.Exists(dir))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
-                        var hasMedia = files.Any(NebulaMetadataExportService.IsMediaPayloadPath);
-                        var hasActiveDownloads = files.Any(f => f.EndsWith(".part", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".download", StringComparison.OrdinalIgnoreCase));
-
-                        // Computed from the same array instead of re-enumerating the whole sub-tree a
-                        // second time. The old code called GetFiles(dir, AllDirectories) again here,
-                        // which doubled the filesystem calls of a routine that is O(dirs x files) and
-                        // runs at startup and every 10 minutes on a staging volume holding a large
-                        // library. "No files besides the pending marker" is the same predicate as the
-                        // original "files.Length == 0 || all files are the marker".
-                        var filesExcludingMarker = files
-                            .Where(f => !string.Equals(Path.GetFileName(f), NebulaMetadataExportService.PendingMarkerFileName, StringComparison.OrdinalIgnoreCase))
-                            .ToArray();
-
-                        if (!hasMedia && !hasActiveDownloads)
-                        {
-                            NebulaMetadataExportService.RemovePendingMarker(dir);
-                        }
-
-                        if (filesExcludingMarker.Length == 0)
-                        {
-                            NebulaMetadataExportService.RemovePendingMarker(dir);
-                            if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
-                            {
-                                Directory.Delete(dir, true);
-                                _logger.LogInformation("[NEBULA-WATCHER] Diretório órfão de staging removido: {Dir}", dir);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "[NEBULA-WATCHER] Não foi possível remover diretório órfão: {Dir}", dir);
-                    }
-                }
+                // Single bottom-up pass: every directory is visited exactly once (post-order,
+                // children before parents) instead of the old O(dirs x files) approach, which
+                // re-enumerated the entire subtree of files for every single directory found by
+                // Directory.GetDirectories(stageRoot, "*", AllDirectories). By recursing depth
+                // first and aggregating the media/active-download/remaining-file flags upward,
+                // a directory already knows its subtree's state from its children's results
+                // without ever re-scanning a subtree that was already visited.
+                CleanDirectorySubtree(stageRoot, isStagingRoot: true);
             }
             catch (Exception ex)
             {
@@ -607,6 +577,92 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// Recursively visits <paramref name="dir"/> bottom-up, deleting it (and removing its
+    /// pending marker) when it turns out to be orphaned, and returns the aggregated state used
+    /// by the parent call to make the same decision without re-reading any file twice.
+    /// </summary>
+    private (bool HasMedia, bool HasActiveDownload, int RemainingFileCount) CleanDirectorySubtree(string dir, bool isStagingRoot)
+    {
+        var hasMedia = false;
+        var hasActiveDownload = false;
+        var remainingFileCount = 0;
+
+        IEnumerable<string> entries;
+        try
+        {
+            entries = Directory.EnumerateFileSystemEntries(dir);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-WATCHER] Não foi possível enumerar diretório: {Dir}", dir);
+
+            // Treat as non-orphan on enumeration failure so we never delete something we
+            // could not actually inspect.
+            return (true, true, 1);
+        }
+
+        foreach (var entry in entries)
+        {
+            if (Directory.Exists(entry))
+            {
+                var childResult = CleanDirectorySubtree(entry, isStagingRoot: false);
+                hasMedia |= childResult.HasMedia;
+                hasActiveDownload |= childResult.HasActiveDownload;
+                remainingFileCount += childResult.RemainingFileCount;
+                continue;
+            }
+
+            var isMarker = string.Equals(Path.GetFileName(entry), NebulaMetadataExportService.PendingMarkerFileName, StringComparison.OrdinalIgnoreCase);
+            if (!isMarker)
+            {
+                remainingFileCount++;
+            }
+
+            if (NebulaMetadataExportService.IsMediaPayloadPath(entry))
+            {
+                hasMedia = true;
+            }
+            else if (entry.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
+                || entry.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+                || entry.EndsWith(".download", StringComparison.OrdinalIgnoreCase))
+            {
+                hasActiveDownload = true;
+            }
+        }
+
+        // The staging root itself is never a candidate for marker removal or deletion; only
+        // its descendants are, exactly like the previous GetDirectories(..., AllDirectories)
+        // enumeration which never included the root path.
+        if (!isStagingRoot)
+        {
+            try
+            {
+                if (!hasMedia && !hasActiveDownload)
+                {
+                    NebulaMetadataExportService.RemovePendingMarker(dir);
+                }
+
+                if (remainingFileCount == 0)
+                {
+                    NebulaMetadataExportService.RemovePendingMarker(dir);
+                    if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                    {
+                        Directory.Delete(dir, true);
+                        _logger.LogInformation("[NEBULA-WATCHER] Diretório órfão de staging removido: {Dir}", dir);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[NEBULA-WATCHER] Não foi possível remover diretório órfão: {Dir}", dir);
+            }
+        }
+
+        return (hasMedia, hasActiveDownload, remainingFileCount);
+    }
+
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
