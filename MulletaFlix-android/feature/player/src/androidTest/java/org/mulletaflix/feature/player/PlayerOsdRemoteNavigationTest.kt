@@ -13,16 +13,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrElse
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.isFocused
-import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
@@ -30,7 +28,6 @@ import androidx.compose.ui.test.pressKey
 import androidx.media3.common.util.UnstableApi
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.cast.framework.CastContext
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -62,8 +59,9 @@ class PlayerOsdRemoteNavigationTest {
         assumeTelevisionProfile()
         // O MediaRouteButton exige o CastContext na thread principal, exatamente como em
         // PlayerCastControlTouchTargetTest.
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            runCatching { CastContext.getSharedInstance(it) }
+            runCatching { CastContext.getSharedInstance(context) }
         }
     }
 
@@ -107,6 +105,7 @@ class PlayerOsdRemoteNavigationTest {
                                 audioTracks = listOf(TrackInfo(index = 1, displayName = "Portugues")),
                                 subtitleTracks = listOf(TrackInfo(index = 2, displayName = "Portugues (CC)")),
                             ),
+                            isTelevision = true,
                             onBack = {},
                             onPlayPause = {},
                             onSeekPreview = {},
@@ -135,11 +134,6 @@ class PlayerOsdRemoteNavigationTest {
         composeRule.waitForIdle()
     }
 
-    private fun focusedContentDescriptions(): List<String> =
-        composeRule.onAllNodes(isFocused(), useUnmergedTree = true)
-            .fetchSemanticsNodes()
-            .flatMap { it.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() } }
-
     @Test
     fun tvRevealOsdMovesFocusToPauseButton() {
         setTelevisionPlayerContent()
@@ -161,18 +155,7 @@ class PlayerOsdRemoteNavigationTest {
         // (Voltar, Proporcao, Audio, Legendas, Qualidade, Velocidade etc.).
         composeRule.onRoot().performKeyInput { pressKey(Key.DirectionUp) }
         composeRule.waitForIdle()
-        val topBarDescriptions = setOf(
-            "Voltar", "Proporção", "Áudio", "Legendas", "Qualidade", "Velocidade",
-            "Temporizador de suspensão", "Estatísticas", "Bloquear controles",
-            "Transmitir", "Cast", "Cast devices",
-        )
-        val focused = focusedContentDescriptions()
-        assertTrue(
-            "D-pad CIMA deveria alcançar a barra superior, mas o foco ficou em $focused",
-            focused.any { candidate ->
-                topBarDescriptions.any { expected -> candidate.contains(expected, ignoreCase = true) }
-            },
-        )
+        composeRule.onNodeWithContentDescription("Áudio").assertIsFocused()
 
         // Volta ao centro e desce ate a barra de busca.
         composeRule.onRoot().performKeyInput { pressKey(Key.DirectionDown) }

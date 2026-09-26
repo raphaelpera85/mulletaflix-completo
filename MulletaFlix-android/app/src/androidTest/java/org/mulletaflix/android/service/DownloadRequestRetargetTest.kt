@@ -1,6 +1,7 @@
 package org.mulletaflix.android.service
 
 import androidx.media3.common.util.UnstableApi
+import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -79,6 +80,20 @@ class DownloadRequestRetargetTest {
         )
         assertEquals("user-1:item-1", request.id)
         assertEquals("http", request.uri.scheme)
+    }
+
+    @Test
+    fun episodeMetadataIsStoredWithTheDownloadRequest() {
+        val metadata = DownloadEpisodeMetadata("series-1", 3, 4)
+        val request = downloadRequestFor(
+            requestId = "user-1:episode-1",
+            storedUri = lanUrl,
+            baseUrl = "http://mulletaflix.duckdns.org:8096",
+            accessToken = "NEW",
+            episodeMetadata = metadata,
+        )
+
+        assertEquals(metadata, decodeDownloadEpisodeMetadata(request.data))
     }
 
     @Test

@@ -384,6 +384,88 @@ class HomeViewModelTest {
         assertEquals(profile, viewModel.state.value.userProfile)
     }
 
+    @Test fun `TV home refresh is not blocked by a slow profile response`() = runTest {
+        val profileStarted = CompletableDeferred<Unit>()
+        val releaseProfile = CompletableDeferred<Unit>()
+        var resumeCalls = 0
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                resumeCalls++
+                return Result.success(emptyList())
+            }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val authRepository = object : FakeAuthRepository() {
+            override suspend fun getCurrentUserProfile(): Result<UserProfile> {
+                profileStarted.complete(Unit)
+                releaseProfile.await()
+                return Result.success(UserProfile(id = "u1", name = "Raphael"))
+            }
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            authRepository,
+        )
+        runCurrent()
+        profileStarted.await()
+        assertEquals(1, resumeCalls)
+
+        viewModel.refreshIfIdle()
+        runCurrent()
+
+        assertEquals("TV must refresh catalog while profile request remains pending", 2, resumeCalls)
+        releaseProfile.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test fun `late profile response from previous session does not replace current profile`() = runTest {
+        val profileAStarted = CompletableDeferred<Unit>()
+        val releaseProfileA = CompletableDeferred<Unit>()
+        var profileCalls = 0
+        val authRepository = object : FakeAuthRepository() {
+            override suspend fun getCurrentUserProfile(): Result<UserProfile> {
+                profileCalls++
+                if (profileCalls == 1) {
+                    profileAStarted.complete(Unit)
+                    withContext(NonCancellable) { releaseProfileA.await() }
+                    return Result.success(UserProfile(id = "u1", name = "Perfil antigo"))
+                }
+                return Result.success(UserProfile(id = "u2", name = "Perfil atual"))
+            }
+        }
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val sessionRepository = FakeSessionRepository(userId = "u1")
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            sessionRepository,
+            FakeNetworkMonitor(),
+            authRepository,
+        )
+        runCurrent()
+        profileAStarted.await()
+
+        sessionRepository.userIdState.value = "u2"
+        runCurrent()
+        assertEquals("u2", viewModel.state.value.userProfile?.id)
+
+        releaseProfileA.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("u2", viewModel.state.value.userProfile?.id)
+        assertEquals("Perfil atual", viewModel.state.value.userProfile?.name)
+    }
+
     @Test fun `network monitor transitions update isOffline state`() = runTest {
         val networkMonitor = FakeNetworkMonitor(initialOnline = true)
         val repository = FakeMediaRepository()

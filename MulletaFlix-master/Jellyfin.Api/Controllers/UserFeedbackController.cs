@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Models.UserFeedbackDtos;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.Activity;
 using MulletaFlix.Database.Implementations.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -19,12 +20,27 @@ public class UserFeedbackController : BaseMulletaFlixApiController
 {
     private readonly IActivityManager _activityManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly INebulaFtpManager _nebulaFtpManager;
 
     /// <summary>Initializes a new instance of the <see cref="UserFeedbackController"/> class.</summary>
-    public UserFeedbackController(IActivityManager activityManager, ILibraryManager libraryManager)
+    public UserFeedbackController(IActivityManager activityManager, ILibraryManager libraryManager, INebulaFtpManager nebulaFtpManager)
     {
         _activityManager = activityManager;
         _libraryManager = libraryManager;
+        _nebulaFtpManager = nebulaFtpManager;
+    }
+
+    /// <summary>Searches STRM titles for the media-request autocomplete.</summary>
+    [HttpGet("MediaSuggestions")]
+    [ProducesResponseType(typeof(System.Collections.Generic.IReadOnlyList<MediaBrowser.Model.Nebula.NebulaMediaSuggestionDto>), StatusCodes.Status200OK)]
+    public IActionResult GetMediaSuggestions([FromQuery] string query, [FromQuery] int limit = 10)
+    {
+        if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+        {
+            return new OkObjectResult(Array.Empty<MediaBrowser.Model.Nebula.NebulaMediaSuggestionDto>());
+        }
+
+        return new OkObjectResult(_nebulaFtpManager.SearchMediaSuggestions(query, limit));
     }
 
     /// <summary>Creates a request for a title to be added to the server library.</summary>
@@ -50,6 +66,11 @@ public class UserFeedbackController : BaseMulletaFlixApiController
                 : mediaType,
             ShortOverview = details
         }).ConfigureAwait(false);
+
+        // Register the requested title with both Nebula queues. The downloader
+        // applies the title match as soon as it encounters a matching STRM, and
+        // the staging watcher promotes an already queued upload immediately.
+        _nebulaFtpManager.PrioritizeMedia(string.Empty, seriesName: title);
 
         return NoContent();
     }

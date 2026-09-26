@@ -26,8 +26,6 @@ export const useLogEntries = (
         queryKey: ['ActivityLogEntries', api?.basePath, requestParams],
         queryFn: ({ signal }) =>
             fetchLogEntries(api!, requestParams, { signal }),
-        enabled: !!api,
-        refetchOnMount: false
+        enabled: !!api
     });
 };
-

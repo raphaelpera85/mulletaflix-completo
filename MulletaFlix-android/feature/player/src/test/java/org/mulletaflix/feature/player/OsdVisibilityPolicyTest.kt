@@ -17,13 +17,18 @@ class OsdVisibilityPolicyTest {
     }
 
     @Test
+    fun `tv keeps auto hide armed after playback has started`() {
+        assertTrue(shouldAutoHidePlayerOsd(isPlaying = false, tvPlaybackHasStarted = true))
+    }
+
+    @Test
     fun `paused playback does not start auto hide`() {
         assertFalse(shouldAutoHidePlayerOsd(isPlaying = false))
     }
 
     @Test
-    fun `paused playback on tv keeps controls available`() {
-        assertFalse(shouldAutoHidePlayerOsd(isPlaying = false))
+    fun `tv pause before playback starts does not arm auto hide`() {
+        assertFalse(shouldAutoHidePlayerOsd(isPlaying = false, tvPlaybackHasStarted = false))
     }
 
     @Test

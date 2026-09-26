@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 import org.mulletaflix.domain.model.Playlist
 import org.mulletaflix.domain.model.primaryImageUrl
 import org.mulletaflix.domain.repository.AuthRepository
@@ -432,7 +433,28 @@ class ItemDetailViewModel @Inject constructor(
                 if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
                 preparation.fold(
                     onSuccess = { url ->
-                        manageDownloadsUseCase.enqueueWithMetadata(item.id, item.name, url, item.primaryImageUrl)
+                        val seriesId = item.seriesId
+                        val seasonNumber = item.parentIndexNumber
+                        val episodeNumber = item.indexNumber
+                        val episodeMetadata = if (
+                            item.type == MediaItemType.Episode &&
+                            !seriesId.isNullOrBlank() &&
+                            seasonNumber != null &&
+                            episodeNumber != null
+                        ) {
+                            DownloadEpisodeMetadata(
+                                seriesId = seriesId,
+                                seasonNumber = seasonNumber,
+                                episodeNumber = episodeNumber,
+                            )
+                        } else null
+                        manageDownloadsUseCase.enqueueWithMetadata(
+                            item.id,
+                            item.name,
+                            url,
+                            item.primaryImageUrl,
+                            episodeMetadata,
+                        )
                             .onSuccess {
                                 if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
                                     _state.update { it.copy(downloadMessage = "Download adicionado à fila.") }

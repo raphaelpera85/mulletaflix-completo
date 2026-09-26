@@ -138,4 +138,27 @@ class PlayerSeekControlsTest {
         compose.mainClock.advanceTimeBy(5_000L)
         compose.onNodeWithText("Controles do player").assertExists()
     }
+
+    @Test
+    fun tv_osd_auto_hides_after_playback_was_started_even_if_player_temporarily_pauses() {
+        var visible by mutableStateOf(true)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            MaterialTheme {
+                PlayerOsdAutoHideEffect(
+                    isVisible = visible,
+                    isPlaying = false,
+                    tvPlaybackHasStarted = true,
+                    onHide = { visible = false },
+                )
+                if (visible) Text("Controles do player")
+            }
+        }
+
+        compose.mainClock.advanceTimeBy(2_500L)
+        compose.onNodeWithText("Controles do player").assertExists()
+        compose.mainClock.advanceTimeBy(700L)
+        compose.waitForIdle()
+        compose.onAllNodesWithText("Controles do player").assertCountEquals(0)
+    }
 }

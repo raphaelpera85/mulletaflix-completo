@@ -330,7 +330,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     private async Task WorkerLoopAsync(NebulaFtpConfiguration config, CancellationToken cancellationToken)
     {
         var monitorSources = (config.MonitorPaths ?? Array.Empty<string>())
-            .Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p))
+            .Where(p => !string.IsNullOrWhiteSpace(p)
+                && Directory.Exists(p)
+                && !NebulaStagingWatcher.IsFileSystemRoot(p))
             .ToList();
 
         // Garante inclusão de D:\midias e D:\midias2 se existirem no sistema e não estiverem na lista
@@ -350,7 +352,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
 
         var stageRoots = (config.StagePaths ?? Array.Empty<string>())
-            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Where(p => !string.IsNullOrWhiteSpace(p)
+                && !NebulaStagingWatcher.IsFileSystemRoot(p))
             .ToList();
 
         if (stageRoots.Count == 0)

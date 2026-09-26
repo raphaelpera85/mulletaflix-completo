@@ -268,6 +268,7 @@ fun HomeScreen(
 
             // ── Recently Added (per library) ─────────────────────────────────
             state.recentlyAddedByLibrary.forEach { (libraryName, items) ->
+                if (isTelevision && !shouldShowRecentlyAddedLibrary(libraryName, state.libraries, isTelevision)) return@forEach
                 if (items.isNotEmpty()) {
                     item {
                         MediaSection(
@@ -325,10 +326,11 @@ fun HomeScreen(
             }
 
             // ── Library tiles ────────────────────────────────────────────────
-            if (state.libraries.isNotEmpty()) {
+            val visibleLibraries = homeLibrariesForDevice(state.libraries, isTelevision)
+            if (visibleLibraries.isNotEmpty()) {
                 item {
                     LibraryTiles(
-                        libraries = state.libraries,
+                        libraries = visibleLibraries,
                         layoutSpec = layoutSpec,
                         onLibraryClick = { library ->
                             if (shouldOpenLiveTv(library)) onLiveTvClick() else onLibraryClick(library.id)
@@ -736,6 +738,33 @@ private fun LibraryTiles(
 
 internal fun shouldOpenLiveTv(library: MediaItem): Boolean =
     library.collectionType.equals("livetv", ignoreCase = true)
+
+internal fun homeLibrariesForDevice(libraries: List<MediaItem>, isTelevision: Boolean): List<MediaItem> =
+    if (!isTelevision) {
+        libraries
+    } else {
+        libraries.filterNot { library ->
+            library.collectionType?.trim().equals("books", ignoreCase = true) ||
+                isBooksLibraryName(library.name)
+        }
+    }
+
+internal fun shouldShowRecentlyAddedLibrary(
+    libraryName: String,
+    libraries: List<MediaItem>,
+    isTelevision: Boolean,
+): Boolean {
+    if (!isTelevision) return true
+    val normalizedLibraryName = libraryName.trim()
+    val library = libraries.firstOrNull { it.name.trim().equals(normalizedLibraryName, ignoreCase = true) }
+    return library?.let { !isBooksLibrary(it) } ?: !isBooksLibraryName(libraryName)
+}
+
+private fun isBooksLibrary(library: MediaItem): Boolean =
+    library.collectionType?.trim().equals("books", ignoreCase = true) || isBooksLibraryName(library.name)
+
+internal fun isBooksLibraryName(name: String): Boolean =
+    name.trim().equals("Livros", ignoreCase = true) || name.trim().equals("Books", ignoreCase = true)
 
 private val MediaItem.runtimeMinutes: Int? get() =
     runtimeTicks?.div(600_000_000L)?.toInt()?.takeIf { it > 0 }

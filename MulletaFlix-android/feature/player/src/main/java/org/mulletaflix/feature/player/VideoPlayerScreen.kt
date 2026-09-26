@@ -34,6 +34,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -117,19 +120,36 @@ private val playerOsdRevealKeys = setOf(
     Key.NumPadEnter,
 )
 
-internal fun shouldAutoHidePlayerOsd(isPlaying: Boolean): Boolean = isPlaying
+internal fun shouldAutoHidePlayerOsd(
+    isPlaying: Boolean,
+    tvPlaybackHasStarted: Boolean = false,
+): Boolean = isPlaying || tvPlaybackHasStarted
 
 internal fun isPlayerOsdRevealKey(key: Key): Boolean = key in playerOsdRevealKeys
+
+@Composable
+internal fun PausePlaybackWhenActivityStops(onPause: () -> Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val latestOnPause by rememberUpdatedState(onPause)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) latestOnPause()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+}
 
 @Composable
 internal fun PlayerOsdAutoHideEffect(
     isVisible: Boolean,
     isPlaying: Boolean,
+    tvPlaybackHasStarted: Boolean = false,
     interactionRevision: Int = 0,
     onHide: () -> Unit,
 ) {
-    LaunchedEffect(isVisible, isPlaying, interactionRevision) {
-        if (isVisible && shouldAutoHidePlayerOsd(isPlaying)) {
+    LaunchedEffect(isVisible, isPlaying, tvPlaybackHasStarted, interactionRevision) {
+        if (isVisible && shouldAutoHidePlayerOsd(isPlaying, tvPlaybackHasStarted)) {
             delay(PLAYER_OSD_AUTO_HIDE_MILLIS)
             onHide()
         }
@@ -243,13 +263,17 @@ fun VideoPlayerScreen(
     }
 
     LaunchedEffect(itemId, offlineUri) {
-        if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId)
+        if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId, itemId)
         else viewModel.loadMedia(itemId)
     }
 
     // OSD visibility auto-hide
     var osdVisible by remember { mutableStateOf(true) }
     var osdInteractionRevision by remember { mutableIntStateOf(0) }
+    var tvPlaybackHasStarted by remember(itemId, offlineUri) { mutableStateOf(false) }
+    LaunchedEffect(state.isPlaying) {
+        if (state.isPlaying) tvPlaybackHasStarted = true
+    }
     val playerRootFocusRequester = remember { FocusRequester() }
     LaunchedEffect(isTelevision, osdVisible) {
         if (isTelevision && !osdVisible) playerRootFocusRequester.requestFocus()
@@ -262,6 +286,8 @@ fun VideoPlayerScreen(
             osdVisible = true
         }
     }
+
+    PausePlaybackWhenActivityStops(onPause = viewModel::pausePlayback)
 
     LaunchedEffect(activity, state.pictureInPictureEnabled, state.isPlaying, pipSourceRect) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -283,6 +309,7 @@ fun VideoPlayerScreen(
     PlayerOsdAutoHideEffect(
         isVisible = osdVisible,
         isPlaying = state.isPlaying,
+        tvPlaybackHasStarted = isTelevision && tvPlaybackHasStarted,
         interactionRevision = osdInteractionRevision,
         onHide = { osdVisible = false },
     )
@@ -564,7 +591,7 @@ fun VideoPlayerScreen(
                 message = state.error ?: "Erro de reprodução",
                 isTelevision = isTelevision,
                 onRetry = {
-                    if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId)
+                    if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId, itemId)
                     else viewModel.retryPlayback()
                 },
             )

@@ -72,6 +72,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private int _automaticMountFailures;
     private int _mountRetryScheduled;
     private readonly Dictionary<string, NebulaOperationReplay> _operationReplays = new(StringComparer.Ordinal);
+    private readonly object _mediaSuggestionsLock = new();
+    private IReadOnlyList<NebulaMediaSuggestionDto> _mediaSuggestions = Array.Empty<NebulaMediaSuggestionDto>();
+    private DateTime _mediaSuggestionsRefreshedUtc = DateTime.MinValue;
+    private static readonly TimeSpan MediaSuggestionsCacheDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan OperationReplayTtl = TimeSpan.FromMinutes(15);
 
     private readonly ConcurrentDictionary<string, NebulaWorkerItemDto> _activeUploads = new(StringComparer.OrdinalIgnoreCase);
@@ -487,6 +491,128 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     private NebulaFtpConfiguration Config =>
         _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
+
+    /// <inheritdoc />
+    public IReadOnlyList<NebulaMediaSuggestionDto> SearchMediaSuggestions(string query, int limit = 10)
+    {
+        if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+        {
+            return Array.Empty<NebulaMediaSuggestionDto>();
+        }
+
+        IReadOnlyList<NebulaMediaSuggestionDto> catalog;
+        lock (_mediaSuggestionsLock)
+        {
+            if (DateTime.UtcNow - _mediaSuggestionsRefreshedUtc >= MediaSuggestionsCacheDuration)
+            {
+                _mediaSuggestions = BuildMediaSuggestionsCatalog();
+                _mediaSuggestionsRefreshedUtc = DateTime.UtcNow;
+            }
+
+            catalog = _mediaSuggestions;
+        }
+
+        var normalizedQuery = NormalizeSuggestionText(query);
+        var safeLimit = Math.Clamp(limit, 1, 20);
+        return catalog
+            .Select(suggestion => (Suggestion: suggestion, Title: NormalizeSuggestionText(suggestion.Title)))
+            .Where(match => match.Title.Contains(normalizedQuery, StringComparison.Ordinal))
+            .OrderBy(match => match.Title.StartsWith(normalizedQuery, StringComparison.Ordinal) ? 0 : 1)
+            .ThenBy(match => match.Title.Length)
+            .Take(safeLimit)
+            .Select(match => match.Suggestion)
+            .ToArray();
+    }
+
+    private IReadOnlyList<NebulaMediaSuggestionDto> BuildMediaSuggestionsCatalog()
+    {
+        var suggestions = new Dictionary<string, NebulaMediaSuggestionDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var configuredRoot in Config.MonitorPaths ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(configuredRoot)
+                || NebulaStagingWatcher.IsFileSystemRoot(configuredRoot)
+                || !Directory.Exists(configuredRoot))
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var path in Directory.EnumerateFiles(configuredRoot, "*.strm", new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    IgnoreInaccessible = true,
+                    AttributesToSkip = FileAttributes.ReparsePoint
+                }))
+                {
+                    var normalizedPath = path.Replace('\\', '/');
+                    var mediaType = normalizedPath.Contains("/doramas/", StringComparison.OrdinalIgnoreCase) ? "Dorama"
+                        : normalizedPath.Contains("/novelas/", StringComparison.OrdinalIgnoreCase) ? "Novel"
+                        : normalizedPath.Contains("/anima", StringComparison.OrdinalIgnoreCase) ? "Animation"
+                        : normalizedPath.Contains("/filmes/", StringComparison.OrdinalIgnoreCase) ? "Movie"
+                        : "Series";
+
+                    AddMediaSuggestion(Path.GetFileNameWithoutExtension(path), mediaType, suggestions);
+
+                    // Episode STRMs are often named S01E01 or with an episode title.
+                    // Also index the nearest non-season folder so users can request a series.
+                    var root = Path.GetFullPath(configuredRoot);
+                    DirectoryInfo? directory = new DirectoryInfo(Path.GetDirectoryName(path)!);
+                    while (directory is not null && directory.FullName.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!IsGenericMediaFolder(directory.Name))
+                        {
+                            AddMediaSuggestion(directory.Name, mediaType, suggestions);
+                            break;
+                        }
+
+                        if (string.Equals(directory.FullName.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                        {
+                            break;
+                        }
+
+                        directory = directory.Parent;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[NEBULA-REQUESTS] Não foi possível indexar STRM em {Root}.", configuredRoot);
+            }
+        }
+
+        return suggestions.Values.OrderBy(item => item.Title, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static void AddMediaSuggestion(string rawTitle, string mediaType, IDictionary<string, NebulaMediaSuggestionDto> suggestions)
+    {
+        var title = rawTitle.Trim();
+        if (title.Length == 0 || suggestions.ContainsKey(title))
+        {
+            return;
+        }
+
+        var yearMatch = Regex.Match(title, @"(?<!\d)(?:19|20)\d{2}(?!\d)");
+        suggestions[title] = new NebulaMediaSuggestionDto
+        {
+            Title = title,
+            MediaType = mediaType,
+            Year = yearMatch.Success && int.TryParse(yearMatch.Value, out var year) ? year : null
+        };
+    }
+
+    private static bool IsGenericMediaFolder(string name)
+    {
+        return Regex.IsMatch(name, @"^(?:s\d{1,3}|season\s*\d{1,3}|temporada\s*\d{1,3}|specials?|extras?|episodes?|epis[oó]dios?)$", RegexOptions.IgnoreCase)
+            || Regex.IsMatch(name, @"^(?:series|tvshows|filmes|movies|novelas|doramas|anima[cç][oõ]es)$", RegexOptions.IgnoreCase);
+    }
+
+    private static string NormalizeSuggestionText(string value)
+    {
+        return Regex.Replace(value.Normalize(NormalizationForm.FormD), "\\p{Mn}", string.Empty)
+            .ToLowerInvariant()
+            .Trim();
+    }
 
     private static IEnumerable<string> GetDotEnvCandidates()
     {
@@ -1407,13 +1533,25 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     /// <inheritdoc />
     public void PrioritizeMedia(string mediaPath, string? seriesPath = null, string? seriesName = null)
     {
-        if (!Config.Enabled)
+        if (!Config.Enabled && !_isEnvioRunning && !_isDownloaderRunning)
         {
             return;
         }
 
         try
         {
+            if (string.IsNullOrWhiteSpace(mediaPath)
+                && string.IsNullOrWhiteSpace(seriesPath)
+                && !string.IsNullOrWhiteSpace(seriesName))
+            {
+                _downloaderEngine?.PrioritizeTarget(string.Empty, seriesName);
+                _stagingWatcher?.PrioritizeUpload(string.Empty, seriesName);
+                _logger.LogInformation(
+                    "[NEBULA-PRIORITY] Solicitação registrada para prioridade de download e upload: {Title}",
+                    seriesName.Trim());
+                AddDownloaderLog($"[PRIORIDADE] Solicitação registrada para download e envio: '{seriesName.Trim()}'.");
+            }
+
             if (!string.IsNullOrWhiteSpace(mediaPath))
             {
                 _downloaderEngine?.PrioritizeTarget(mediaPath, seriesName);
@@ -2176,7 +2314,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         _cleanupCts = new CancellationTokenSource();
 
         var sources = (config.MonitorPaths ?? Array.Empty<string>())
-            .Where(p => !string.IsNullOrWhiteSpace(p) && !p.StartsWith("N:", StringComparison.OrdinalIgnoreCase))
+            .Where(p => !string.IsNullOrWhiteSpace(p)
+                && !p.StartsWith("N:", StringComparison.OrdinalIgnoreCase)
+                && !NebulaStagingWatcher.IsFileSystemRoot(p))
             .ToList();
 
         if (sources.Count == 0)

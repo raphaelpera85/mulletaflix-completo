@@ -79,7 +79,9 @@ class HomeViewModel @Inject constructor(
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
     private var loadJob: Job? = null
+    private var profileJob: Job? = null
     private var loadGeneration = 0L
+    private var profileGeneration = 0L
     private var currentUserId: String? = null
     private var hasObservedSession = false
 
@@ -101,6 +103,9 @@ class HomeViewModel @Inject constructor(
                 if (userChanged) {
                     loadJob?.cancel()
                     ++loadGeneration
+                    profileJob?.cancel()
+                    profileJob = null
+                    ++profileGeneration
                     _state.update {
                         it.copy(
                             heroItem = null,
@@ -202,20 +207,12 @@ class HomeViewModel @Inject constructor(
                 _state.update { it.copy(isLoading = !refresh, error = null) }
             }
 
-            // Profile/avatar data is secondary to the catalog. Keep it in the
-            // same parent job for cancellation, but never make the Home feed
-            // wait for a slow profile endpoint before becoming usable.
-            val profileJob = launch {
-                authRepository.getCurrentUserProfile().getOrNull()?.let { profile ->
-                    if (isCurrentLoad(generation)) {
-                        _state.update { it.copy(userProfile = profile) }
-                    }
-                }
-            }
+            // The profile is secondary to the catalog. Keep it independent from
+            // the feed job so a slow avatar request cannot block TV auto-refresh.
+            loadUserProfile(userId)
             val result = getHomeFeedUseCase(userId)
 
             if (!isCurrentLoad(generation)) {
-                profileJob.cancel()
                 return@launch
             }
             result.onFailure { error ->
@@ -251,6 +248,23 @@ class HomeViewModel @Inject constructor(
                         )
                     }
                 }
+            }
+        }
+    }
+
+    private fun loadUserProfile(userId: String) {
+        if (profileJob?.isActive == true) return
+        val generation = profileGeneration
+        profileJob = viewModelScope.launch {
+            val profile = try {
+                authRepository.getCurrentUserProfile().getOrNull()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }
+            if (profile != null && generation == profileGeneration && currentUserId == userId) {
+                _state.update { it.copy(userProfile = profile) }
             }
         }
     }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Reflection;
@@ -23,6 +24,16 @@ public sealed class NebulaStagingWatcherTests
         "nebula-watcher-tests",
         "Season 01",
         "episode01.mkv");
+
+    [Fact]
+    public void FileSystemRoot_IsRejectedAsStagingRoot()
+    {
+        var root = Path.GetPathRoot(Environment.SystemDirectory);
+
+        Assert.False(string.IsNullOrWhiteSpace(root));
+        Assert.True(NebulaStagingWatcher.IsFileSystemRoot(root));
+        Assert.False(NebulaStagingWatcher.IsFileSystemRoot(Path.Combine(Path.GetTempPath(), "nebula-stage")));
+    }
 
     [Fact]
     public void RequeuedItem_KeepsTheQueueDedupeKey()

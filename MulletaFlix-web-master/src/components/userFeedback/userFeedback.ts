@@ -15,6 +15,12 @@ interface FeedbackPayload {
     Description?: string;
 }
 
+interface MediaSuggestion {
+    Title: string;
+    MediaType: string;
+    Year?: number;
+}
+
 function openFeedbackDialog(apiClient: ApiClient, options: {
     title: string;
     endpoint: string;
@@ -36,6 +42,128 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
 
     dialog.querySelector('.btnCancel')?.addEventListener('click', () => dialogHelper.close(dialog));
     const form = dialog.querySelector<HTMLFormElement>('form');
+    const titleInput = form?.querySelector<HTMLInputElement>('input[name="title"]');
+    if (titleInput) {
+        const mediaTypeSelect = form?.querySelector<HTMLSelectElement>('select[name="mediaType"]');
+        const yearInput = form?.querySelector<HTMLInputElement>('input[name="year"]');
+        const suggestions = document.createElement('div');
+        suggestions.className = 'userFeedbackSuggestions';
+        suggestions.id = 'userFeedbackMediaSuggestions';
+        suggestions.setAttribute('role', 'listbox');
+        suggestions.hidden = true;
+        suggestions.style.cssText = 'position:absolute;z-index:1100;left:0;right:0;top:100%;max-height:240px;overflow:auto;background:#242424;border:1px solid #555;border-radius:4px;box-shadow:0 4px 12px #0008';
+        const titleContainer = titleInput.closest<HTMLElement>('.inputContainer');
+        if (titleContainer) {
+            titleContainer.style.position = 'relative';
+            titleContainer.appendChild(suggestions);
+        }
+
+        let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+        let requestSequence = 0;
+        let activeIndex = -1;
+        const hideSuggestions = () => {
+            suggestions.hidden = true;
+            suggestions.replaceChildren();
+            activeIndex = -1;
+            titleInput.removeAttribute('aria-activedescendant');
+        };
+        const chooseSuggestion = (suggestion: MediaSuggestion) => {
+            titleInput.value = suggestion.Title;
+            if (mediaTypeSelect && Array.from(mediaTypeSelect.options).some(option => option.value === suggestion.MediaType)) {
+                mediaTypeSelect.value = suggestion.MediaType;
+                mediaTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (yearInput && suggestion.Year) yearInput.value = String(suggestion.Year);
+            hideSuggestions();
+        };
+
+        titleInput.setAttribute('role', 'combobox');
+        titleInput.setAttribute('aria-autocomplete', 'list');
+        titleInput.setAttribute('aria-controls', suggestions.id);
+        titleInput.setAttribute('aria-expanded', 'false');
+        titleInput.addEventListener('input', () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            const query = titleInput.value.trim();
+            if (query.length < 2) {
+                requestSequence++;
+                hideSuggestions();
+                titleInput.setAttribute('aria-expanded', 'false');
+                return;
+            }
+
+            const sequence = ++requestSequence;
+            debounceTimer = setTimeout(() => {
+                void apiClient.getJSON(apiClient.getUrl(`UserFeedback/MediaSuggestions?query=${encodeURIComponent(query)}&limit=10`))
+                    .then((response: unknown) => {
+                        const results = response as MediaSuggestion[];
+                        if (sequence !== requestSequence || titleInput.value.trim() !== query || !Array.isArray(results)) return;
+                        suggestions.replaceChildren();
+                        results.forEach((suggestion, index) => {
+                            const option = document.createElement('button');
+                            option.type = 'button';
+                            option.id = `media-suggestion-${sequence}-${index}`;
+                            option.setAttribute('role', 'option');
+                            option.setAttribute('aria-selected', 'false');
+                            option.style.cssText = 'display:block;width:100%;padding:10px 12px;text-align:left;color:inherit;background:transparent;border:0;cursor:pointer';
+                            const details = [suggestion.MediaType, suggestion.Year].filter(Boolean).join(' · ');
+                            option.textContent = details ? `${suggestion.Title} — ${details}` : suggestion.Title;
+                            option.addEventListener('mouseenter', () => {
+                                activeIndex = index;
+                                updateActiveOption();
+                            });
+                            option.addEventListener('mousedown', event => event.preventDefault());
+                            option.addEventListener('click', () => chooseSuggestion(suggestion));
+                            suggestions.appendChild(option);
+                        });
+                        suggestions.hidden = results.length === 0;
+                        titleInput.setAttribute('aria-expanded', String(results.length > 0));
+                        if (results.length === 0) titleInput.removeAttribute('aria-activedescendant');
+                    })
+                    .catch((error: unknown) => {
+                        if (sequence === requestSequence) hideSuggestions();
+                        console.debug('[UserFeedback] suggestion lookup failed', error);
+                    });
+            }, 250);
+        });
+
+        const updateActiveOption = () => {
+            const options = Array.from(suggestions.querySelectorAll<HTMLElement>('[role="option"]'));
+            options.forEach((option, index) => {
+                option.setAttribute('aria-selected', String(index === activeIndex));
+                option.style.background = index === activeIndex ? '#343434' : 'transparent';
+            });
+            const active = options[activeIndex];
+            if (active) {
+                titleInput.setAttribute('aria-activedescendant', active.id);
+                active.scrollIntoView({ block: 'nearest' });
+            } else {
+                titleInput.removeAttribute('aria-activedescendant');
+            }
+        };
+
+        titleInput.addEventListener('keydown', event => {
+            const options = suggestions.querySelectorAll<HTMLElement>('[role="option"]');
+            if (suggestions.hidden || options.length === 0) return;
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                activeIndex = (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+                updateActiveOption();
+            } else if (event.key === 'Enter' && activeIndex >= 0) {
+                event.preventDefault();
+                (options[activeIndex] as HTMLButtonElement).click();
+            } else if (event.key === 'Escape') {
+                hideSuggestions();
+                titleInput.setAttribute('aria-expanded', 'false');
+            }
+        });
+        titleInput.addEventListener('blur', () => {
+            window.setTimeout(() => {
+                hideSuggestions();
+                titleInput.setAttribute('aria-expanded', 'false');
+            }, 120);
+        });
+    }
+
     form?.addEventListener('submit', (event) => {
         event.preventDefault();
         if (!form.reportValidity()) return;
@@ -67,7 +195,7 @@ export function showMediaRequestDialog(apiClient: ApiClient): void {
     openFeedbackDialog(apiClient, {
         title: globalize.translate('MediaRequestTitle'),
         endpoint: 'UserFeedback/MediaRequests',
-        fields: `<div class="inputContainer"><input class="emby-input" name="title" maxlength="200" required placeholder="${escapeHtml(globalize.translate('MediaRequestName'))}" /></div>
+        fields: `<div class="inputContainer"><input class="emby-input" name="title" maxlength="200" required autocomplete="off" placeholder="${escapeHtml(globalize.translate('MediaRequestName'))}" /></div>
             <div class="selectContainer"><select is="emby-select" name="mediaType" class="emby-select" required aria-label="${escapeHtml(globalize.translate('MediaType'))}">
                 <option value="Movie">${escapeHtml(globalize.translate('MediaRequestTypeMovie'))}</option>
                 <option value="Series">${escapeHtml(globalize.translate('MediaRequestTypeSeries'))}</option>

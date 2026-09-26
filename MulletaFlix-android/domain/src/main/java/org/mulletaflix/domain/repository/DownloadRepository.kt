@@ -13,6 +13,13 @@ data class DownloadEntry(
     val contentLength: Long = 0L,
     /** Relative server image path saved with the download, when available. */
     val imageUrl: String? = null,
+    val episodeMetadata: DownloadEpisodeMetadata? = null,
+)
+
+data class DownloadEpisodeMetadata(
+    val seriesId: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
 )
 
 enum class DownloadState { Queued, Downloading, Completed, Failed, Removing }
@@ -23,7 +30,13 @@ interface DownloadRepository {
     fun observeWifiOnly(): Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false)
     fun setWifiOnly(enabled: Boolean): Result<Unit> = Result.success(Unit)
     fun enqueue(id: String, title: String, uri: String): Result<Unit>
-    fun enqueueWithMetadata(id: String, title: String, uri: String, imageUrl: String?): Result<Unit> =
+    fun enqueueWithMetadata(
+        id: String,
+        title: String,
+        uri: String,
+        imageUrl: String?,
+        episodeMetadata: DownloadEpisodeMetadata? = null,
+    ): Result<Unit> =
         enqueue(id, title, uri)
     fun retry(id: String, title: String, uri: String): Result<Unit>
     fun remove(id: String): Result<Unit>

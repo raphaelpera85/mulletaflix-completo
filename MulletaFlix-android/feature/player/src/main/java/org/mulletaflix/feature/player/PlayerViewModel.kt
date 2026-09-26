@@ -46,6 +46,7 @@ import org.mulletaflix.domain.model.UserMediaPreferenceScope
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.GetNextEpisodeUseCase
 import org.mulletaflix.domain.usecase.ManageSyncPlayUseCase
+import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 import org.mulletaflix.domain.repository.SyncPlayPlaybackStatus
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.OfflineDownloadCache
@@ -79,6 +80,7 @@ data class NextEpisodeInfo(
     val title: String,
     val episodeNumber: Int?,
     val seasonNumber: Int?,
+    val offlineUri: String? = null,
 )
 
 enum class SyncPlayConnectionState {
@@ -186,6 +188,7 @@ class PlayerViewModel @Inject constructor(
     private val manageSyncPlayUseCase: ManageSyncPlayUseCase,
     private val settingsRepository: SettingsRepository,
     private val getNextEpisodeUseCase: GetNextEpisodeUseCase,
+    private val manageDownloadsUseCase: ManageDownloadsUseCase,
     private val networkMonitor: NetworkMonitor,
     @param:ApplicationScope private val teardownScope: CoroutineScope,
 ) : ViewModel() {
@@ -1034,7 +1037,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     /** Plays a completed Media3 download through the shared cache, without server calls. */
-    fun loadOffline(uri: String, title: String) {
+    fun loadOffline(uri: String, title: String, downloadId: String? = null) {
         val previousStopJob = stopCurrentRemotePlaybackBeforeLoad()
         val loadGeneration = ++playbackLoadGeneration
         val sessionAtLoad = sessionGeneration
@@ -1092,6 +1095,22 @@ class PlayerViewModel @Inject constructor(
                 serverUrl = sessionRepository.getBaseUrl().first(),
             )
 
+            val downloadedEpisodes = runCatching { manageDownloadsUseCase.observeDownloads().first() }
+                .getOrDefault(emptyList())
+            val currentDownload = downloadId?.let { id ->
+                downloadedEpisodes.firstOrNull { entry -> entry.id == id && entry.uri == uri }
+            }
+            val nextDownloadedEpisode = nextCompletedDownloadedEpisode(currentDownload, downloadedEpisodes)
+                ?.let { entry ->
+                    NextEpisodeInfo(
+                        id = entry.id,
+                        title = entry.title,
+                        episodeNumber = entry.episodeMetadata?.episodeNumber,
+                        seasonNumber = entry.episodeMetadata?.seasonNumber,
+                        offlineUri = entry.uri,
+                    )
+                }
+
             localPlaybackKey = offlinePlaybackPositionKey(userId, uri)
             legacyLocalPlaybackKey = offlinePlaybackPositionKey(uri)
             lastLocalPositionPersistedAt = 0L
@@ -1115,7 +1134,7 @@ class PlayerViewModel @Inject constructor(
                 pictureInPictureEnabled = _state.value.pictureInPictureEnabled,
                 isNetworkMetered = _state.value.isNetworkMetered,
                 sleepTimer = _state.value.sleepTimerSelection(),
-            )
+            ).copy(nextEpisode = nextDownloadedEpisode)
             player.setMediaItem(
                 Media3Item.Builder()
                     .setUri(uri)
@@ -1221,6 +1240,11 @@ class PlayerViewModel @Inject constructor(
 
     fun togglePlayPause() {
         if (player.isPlaying) player.pause() else player.play()
+    }
+
+    /** Pause playback when the Android TV activity is sent to the background. */
+    fun pausePlayback() {
+        if (player.isPlaying || player.playWhenReady) player.pause()
     }
 
     fun seekTo(positionMs: Long) {
@@ -1980,7 +2004,7 @@ class PlayerViewModel @Inject constructor(
                 delay(1000)
             }
             _state.update { it.copy(nextEpisodeCountdown = null) }
-            loadMedia(next.id)
+            loadNextEpisode(next)
         }
     }
 
@@ -1988,7 +2012,12 @@ class PlayerViewModel @Inject constructor(
         val next = _state.value.nextEpisode ?: return
         nextEpisodeCountdownJob?.cancel()
         _state.update { it.copy(nextEpisodeCountdown = null) }
-        loadMedia(next.id)
+        loadNextEpisode(next)
+    }
+
+    private fun loadNextEpisode(next: NextEpisodeInfo) {
+        val offlineUri = next.offlineUri
+        if (offlineUri != null) loadOffline(offlineUri, next.title, next.id) else loadMedia(next.id)
     }
 
     fun cancelNextEpisodeCountdown() {

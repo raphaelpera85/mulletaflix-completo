@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.designsystem.media.retargetMediaUrl
 import org.mulletaflix.domain.repository.DownloadEntry
+import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 import org.mulletaflix.domain.repository.DownloadRepository
 import org.mulletaflix.domain.repository.DownloadState
 import java.util.concurrent.ConcurrentHashMap
@@ -116,7 +117,13 @@ class Media3DownloadRepository @Inject constructor(
         enqueueWithMetadata(id, title, uri, null).getOrThrow()
     }
 
-    override fun enqueueWithMetadata(id: String, title: String, uri: String, imageUrl: String?): Result<Unit> = runCatching {
+    override fun enqueueWithMetadata(
+        id: String,
+        title: String,
+        uri: String,
+        imageUrl: String?,
+        episodeMetadata: DownloadEpisodeMetadata?,
+    ): Result<Unit> = runCatching {
         require(id.isNotBlank()) { "O identificador da mídia é obrigatório." }
         require(uri.startsWith("http://") || uri.startsWith("https://")) { "A URL da mídia não é válida." }
         val userId = currentUserId ?: error("Faça login para baixar esta mídia.")
@@ -130,7 +137,9 @@ class Media3DownloadRepository @Inject constructor(
                 if (imageUrl.isNullOrBlank()) remove("image:$requestId") else putString("image:$requestId", imageUrl)
             }
             .apply()
-        addDownloadThroughService(downloadRequestFor(requestId, uri, currentBaseUrl, currentAccessToken))
+        addDownloadThroughService(
+            downloadRequestFor(requestId, uri, currentBaseUrl, currentAccessToken, episodeMetadata),
+        )
     }
 
     override fun retry(id: String, title: String, uri: String): Result<Unit> = runCatching {
@@ -151,7 +160,13 @@ class Media3DownloadRepository @Inject constructor(
         // The stored URL is re-pointed at the address in use now. It was captured when
         // the download was queued, and the app switches between the LAN and the public
         // address on its own — retrying the old one fails forever without saying why.
-        addDownloadThroughService(downloadRequestFor(requestId, uri, currentBaseUrl, currentAccessToken))
+        val episodeMetadata = manager.downloadIndex.getDownload(requestId)
+            ?.request
+            ?.data
+            ?.let(::decodeDownloadEpisodeMetadata)
+        addDownloadThroughService(
+            downloadRequestFor(requestId, uri, currentBaseUrl, currentAccessToken, episodeMetadata),
+        )
     }
 
     override fun remove(id: String): Result<Unit> = runCatching {
@@ -292,6 +307,7 @@ class Media3DownloadRepository @Inject constructor(
             ?: publicDownloadItemId(request.id, currentUserId.orEmpty()),
         title = titles[request.id] ?: metadata.getString("title:${request.id}", request.id).orEmpty(),
         imageUrl = metadata.getString("image:${request.id}", null),
+        episodeMetadata = decodeDownloadEpisodeMetadata(request.data),
         uri = request.uri.toString(),
         state = when (state) {
             Download.STATE_QUEUED, Download.STATE_RESTARTING -> DownloadState.Queued
@@ -350,7 +366,8 @@ internal fun downloadRequestFor(
     storedUri: String,
     baseUrl: String,
     accessToken: String?,
+    episodeMetadata: DownloadEpisodeMetadata? = null,
 ): DownloadRequest = DownloadRequest.Builder(
     requestId,
     Uri.parse(retargetMediaUrl(storedUri, baseUrl, accessToken)),
-).build()
+).setData(encodeDownloadEpisodeMetadata(episodeMetadata)).build()

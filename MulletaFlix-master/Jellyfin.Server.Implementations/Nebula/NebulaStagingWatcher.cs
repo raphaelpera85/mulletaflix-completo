@@ -102,6 +102,14 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 continue;
             }
 
+            if (IsFileSystemRoot(dir))
+            {
+                _logger.LogWarning(
+                    "[NEBULA-WATCHER] Raiz de volume ignorada como staging: {Dir}. Configure uma pasta de staging específica para evitar varrer o disco inteiro.",
+                    dir);
+                continue;
+            }
+
             try
             {
                 if (!Directory.Exists(dir))
@@ -371,16 +379,18 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         // 2. Restauração imediata de uploads pendentes do MongoDB
         await RestorePendingUploadsFromMongoAsync(cancellationToken).ConfigureAwait(false);
 
-        // Limpeza preventiva de pastas e marcadores órfãos legados
-        CleanOrphanStagingDirectories();
-
-        // 3. Inicialização dos workers paralelos de upload
+        // 3. Inicialização dos workers paralelos de upload. Os workers devem
+        // começar antes da limpeza: limpar uma árvore grande não pode bloquear
+        // o início de uploads que já foram restaurados da fila.
         _workerTasks.Clear();
         for (int i = 1; i <= workerCount; i++)
         {
             var workerId = i;
             _workerTasks.Add(Task.Run(() => UploadWorkerLoopAsync(workerId, cancellationToken), cancellationToken));
         }
+
+        // A limpeza é best-effort e roda depois que a capacidade de upload já está ativa.
+        CleanOrphanStagingDirectories();
 
         EmitServer("INFO", $"Workers de upload ativos: {workerCount} (configurados={workerCount}, transmissoes={workerCount}, bots={_botCount}).");
         EmitServer("INFO", "Signal handlers unavailable on this platform; use Ctrl+C to stop.");
@@ -428,6 +438,33 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             {
                 break;
             }
+        }
+    }
+
+    /// <summary>Determines whether a configured path points to a filesystem root.</summary>
+    internal static bool IsFileSystemRoot(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            var root = Path.GetPathRoot(fullPath);
+            if (string.IsNullOrEmpty(root))
+            {
+                return false;
+            }
+
+            var normalizedPath = Path.TrimEndingDirectorySeparator(fullPath);
+            var normalizedRoot = Path.TrimEndingDirectorySeparator(root);
+            return string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            return false;
         }
     }
 

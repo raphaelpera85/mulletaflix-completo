@@ -235,6 +235,45 @@ class ItemDetailViewModelTest {
     }
 
     @Test
+    fun `downloadItem persists series and episode coordinates`() = runTest {
+        val episode = MediaItem(
+            id = "episode-7",
+            name = "Episode 7",
+            type = MediaItemType.Episode,
+            seriesId = "series-1",
+            parentIndexNumber = 2,
+            indexNumber = 7,
+        )
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(episode)
+        }
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ): Result<PlaybackInfo> = Result.success(
+                PlaybackInfo(
+                    playSessionId = "session-1",
+                    mediaSources = listOf(MediaSource(id = "source-1", directStreamUrl = "https://server/episode.mkv")),
+                ),
+            )
+        }
+        val downloadRepo = FakeDownloadRepository()
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo, downloadRepo = downloadRepo)
+        advanceUntilIdle()
+
+        viewModel.loadItem(episode.id)
+        advanceUntilIdle()
+        viewModel.downloadItem()
+        advanceUntilIdle()
+
+        assertEquals(DownloadEpisodeMetadata("series-1", 2, 7), downloadRepo.lastEpisodeMetadata)
+    }
+
+    @Test
     fun `repeated download taps share one preparation request`() = runTest {
         val movie = MediaItem(id = "m1", name = "Test Movie", type = MediaItemType.Movie)
         val preparation = CompletableDeferred<Result<PlaybackInfo>>()
@@ -795,9 +834,17 @@ class ItemDetailViewModelTest {
 
     private open class FakeDownloadRepository : DownloadRepository {
         var lastImageUrl: String? = null
+        var lastEpisodeMetadata: DownloadEpisodeMetadata? = null
         override fun enqueue(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
-        override fun enqueueWithMetadata(id: String, title: String, uri: String, imageUrl: String?): Result<Unit> {
+        override fun enqueueWithMetadata(
+            id: String,
+            title: String,
+            uri: String,
+            imageUrl: String?,
+            episodeMetadata: org.mulletaflix.domain.repository.DownloadEpisodeMetadata?,
+        ): Result<Unit> {
             lastImageUrl = imageUrl
+            lastEpisodeMetadata = episodeMetadata
             return Result.success(Unit)
         }
         override fun retry(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
