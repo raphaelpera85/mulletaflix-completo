@@ -6,7 +6,7 @@ import com.squareup.moshi.JsonClass
 @JsonClass(generateAdapter = true)
 data class BaseItemDtoQueryResultDto(
     @Json(name = "Items") val items: List<BaseItemDto> = emptyList(),
-    @Json(name = "TotalRecordCount") val totalRecordCount: Int = 0,
+    @Json(name = "TotalRecordCount") val totalRecordCount: Int? = null,
     @Json(name = "StartIndex") val startIndex: Int = 0,
 )
 

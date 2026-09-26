@@ -81,5 +81,5 @@ data class MediaSegmentDto(
 @JsonClass(generateAdapter = true)
 data class MediaSegmentsQueryResultDto(
     @Json(name = "Items") val items: List<MediaSegmentDto> = emptyList(),
-    @Json(name = "TotalRecordCount") val totalRecordCount: Int = 0,
+    @Json(name = "TotalRecordCount") val totalRecordCount: Int? = null,
 )

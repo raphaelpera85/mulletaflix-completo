@@ -6,7 +6,7 @@ import com.squareup.moshi.JsonClass
 @JsonClass(generateAdapter = true)
 data class SearchHintResultDto(
     @Json(name = "SearchHints") val searchHints: List<SearchHintDto> = emptyList(),
-    @Json(name = "TotalRecordCount") val totalRecordCount: Int = 0,
+    @Json(name = "TotalRecordCount") val totalRecordCount: Int? = null,
 )
 
 @JsonClass(generateAdapter = true)

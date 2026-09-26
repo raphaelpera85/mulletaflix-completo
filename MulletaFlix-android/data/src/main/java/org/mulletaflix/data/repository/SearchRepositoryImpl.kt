@@ -51,7 +51,7 @@ class SearchRepositoryImpl @Inject constructor(
             // falta. Um total menor que o já paginado não é uma contagem, é uma
             // contradição — e aí "não sei" é mais honesto do que afirmar 0, que a tela
             // leria como "não há mais nada".
-            totalMatching = response.totalRecordCount.takeIf { it >= startIndex + items.size },
+            totalMatching = response.totalRecordCount?.takeIf { it >= startIndex + items.size },
         )
     }
 }

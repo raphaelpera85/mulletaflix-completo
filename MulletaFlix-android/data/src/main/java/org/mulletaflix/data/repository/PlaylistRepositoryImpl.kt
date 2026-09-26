@@ -18,7 +18,7 @@ class PlaylistRepositoryImpl @Inject constructor(
 
     override suspend fun getPlaylistItems(userId: String, playlistId: String, startIndex: Int, limit: Int): Result<Pair<List<MediaItem>, Int>> = suspendRunCatching {
         val response = api.getPlaylistItems(playlistId, userId, startIndex, limit)
-        response.items.map { it.toDomain() } to response.totalRecordCount
+        response.items.map { it.toDomain() } to (response.totalRecordCount ?: response.items.size)
     }
 
     override suspend fun createPlaylist(userId: String, name: String, itemId: String?): Result<Playlist> = suspendRunCatching {

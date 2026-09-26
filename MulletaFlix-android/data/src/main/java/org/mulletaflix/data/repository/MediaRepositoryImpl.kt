@@ -84,7 +84,7 @@ class MediaRepositoryImpl @Inject constructor(
             isPlayed = isPlayed,
             isFavorite = isFavorite,
         )
-        Pair(result.items.map { it.toDomain() }, result.totalRecordCount)
+        Pair(result.items.map { it.toDomain() }, result.totalRecordCount ?: result.items.size)
     }
 
     override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> =

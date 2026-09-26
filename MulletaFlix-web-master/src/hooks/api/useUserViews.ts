@@ -23,9 +23,9 @@ export const getUserViewsQuery = (
 ) => queryOptions({
     queryKey: [ 'User', api?.basePath, userId ?? params?.userId, 'Views', params ],
     queryFn: ({ signal }) => fetchUserViews(api!, params, { signal }),
-    // On initial page load we request user views 3x. Setting a 1 second stale time
-    // allows a single request to be made to resolve all 3.
-    staleTime: 1000, // 1 second
+    // F-4: Cache user views for 60 seconds to avoid repeating requests on every
+    // page transition and component mount across toolbar, drawer, and home sections.
+    staleTime: 60_000, // 60 seconds
     enabled: !!api && !!(userId ?? params?.userId)
 });
 

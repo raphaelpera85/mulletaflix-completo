@@ -92,79 +92,96 @@ public class ItemPersistenceService : IItemPersistenceService
 
         var relatedItems = descendantIds.ToArray();
 
-        // When batch-deleting, multiple items may have UserData for the same (UserId, CustomDataKey).
-        // Moving all of them to PlaceholderId would violate the UNIQUE constraint.
-        // Deduplicate by loading keys client-side, keeping the best row per group.
-        var batchUserData = context.UserData.WhereOneOrMany(relatedItems, e => e.ItemId);
-
-        var allRows = batchUserData
-            .Select(ud => new { ud.ItemId, ud.UserId, ud.CustomDataKey, ud.LastPlayedDate, ud.PlayCount })
-            .ToList();
-
-        var duplicateRows = allRows
-            .GroupBy(ud => new { ud.UserId, ud.CustomDataKey })
-            .Where(g => g.Count() > 1)
-            .SelectMany(g => g
-                .OrderByDescending(ud => ud.LastPlayedDate)
-                .ThenByDescending(ud => ud.PlayCount)
-                .Skip(1))
-            .ToList();
-
-        if (duplicateRows.Count > 0)
+        // Achado P1 / DeleteItem: chunk deletions in batches of 1,000 to avoid inlining tens
+        // of thousands of GUIDs in a single query (which can generate ~65MB SQL bursts and
+        // hit max_allowed_packet or transaction limits).
+        const int DeleteBatchSize = 1000;
+        for (var offset = 0; offset < relatedItems.Length; offset += DeleteBatchSize)
         {
-            var dupItemIds = duplicateRows.Select(d => d.ItemId).Distinct().ToList();
-            var candidates = context.UserData
-                .WhereOneOrMany(dupItemIds, ud => ud.ItemId)
+            var chunk = relatedItems.Length <= DeleteBatchSize
+                ? relatedItems
+                : relatedItems.Skip(offset).Take(DeleteBatchSize).ToArray();
+
+            // When batch-deleting, multiple items may have UserData for the same (UserId, CustomDataKey).
+            // Moving all of them to PlaceholderId would violate the UNIQUE constraint.
+            // Deduplicate by loading keys client-side, keeping the best row per group.
+            var batchUserData = context.UserData.WhereOneOrMany(chunk, e => e.ItemId);
+
+            var allRows = batchUserData
+                .Select(ud => new { ud.ItemId, ud.UserId, ud.CustomDataKey, ud.LastPlayedDate, ud.PlayCount })
                 .ToList();
-            var duplicateKeys = duplicateRows
-                .Select(d => (d.ItemId, d.UserId, d.CustomDataKey))
-                .ToHashSet();
-            var toDelete = candidates
-                .Where(ud => duplicateKeys.Contains((ud.ItemId, ud.UserId, ud.CustomDataKey)))
+
+            var duplicateRows = allRows
+                .GroupBy(ud => new { ud.UserId, ud.CustomDataKey })
+                .Where(g => g.Count() > 1)
+                .SelectMany(g => g
+                    .OrderByDescending(ud => ud.LastPlayedDate)
+                    .ThenByDescending(ud => ud.PlayCount)
+                    .Skip(1))
                 .ToList();
-            if (toDelete.Count > 0)
+
+            if (duplicateRows.Count > 0)
             {
-                context.UserData.RemoveRange(toDelete);
+                var dupItemIds = duplicateRows.Select(d => d.ItemId).Distinct().ToList();
+                var candidates = context.UserData
+                    .WhereOneOrMany(dupItemIds, ud => ud.ItemId)
+                    .ToList();
+                var duplicateKeys = duplicateRows
+                    .Select(d => (d.ItemId, d.UserId, d.CustomDataKey))
+                    .ToHashSet();
+                var toDelete = candidates
+                    .Where(ud => duplicateKeys.Contains((ud.ItemId, ud.UserId, ud.CustomDataKey)))
+                    .ToList();
+                if (toDelete.Count > 0)
+                {
+                    context.UserData.RemoveRange(toDelete);
+                }
             }
+
+            // Delete existing placeholder rows that would conflict with the incoming ones
+            context.UserData
+                .Join(
+                    batchUserData,
+                    placeholder => new { placeholder.UserId, placeholder.CustomDataKey },
+                    userData => new { userData.UserId, userData.CustomDataKey },
+                    (placeholder, userData) => placeholder)
+                .Where(e => e.ItemId == BaseItemRepository.PlaceholderId)
+                .ExecuteDelete();
+
+            batchUserData
+                .ExecuteUpdate(e => e
+                    .SetProperty(f => f.RetentionDate, date)
+                    .SetProperty(f => f.ItemId, BaseItemRepository.PlaceholderId));
+
+            context.AncestorIds.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.AncestorIds.WhereOneOrMany(chunk, e => e.ParentItemId).ExecuteDelete();
+            context.AttachmentStreamInfos.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.BaseItemImageInfos.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.BaseItemMetadataFields.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.BaseItemProviders.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.BaseItemTrailerTypes.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.Chapters.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.CustomItemDisplayPreferences.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.ItemDisplayPreferences.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.ItemValuesMap.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.LinkedChildren.WhereOneOrMany(chunk, e => e.ParentId).ExecuteDelete();
+            context.LinkedChildren.WhereOneOrMany(chunk, e => e.ChildId).ExecuteDelete();
+            context.BaseItems.WhereOneOrMany(chunk, e => e.Id).ExecuteDelete();
+            context.KeyframeData.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.MediaSegments.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            context.MediaStreamInfos.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+
+            var query = context.PeopleBaseItemMap.WhereOneOrMany(chunk, e => e.ItemId).Select(f => f.PeopleId).Distinct().ToArray();
+            context.PeopleBaseItemMap.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
+            if (query.Length > 0)
+            {
+                context.Peoples.WhereOneOrMany(query, e => e.Id).Where(e => e.BaseItems!.Count == 0).ExecuteDelete();
+            }
+
+            context.TrickplayInfos.WhereOneOrMany(chunk, e => e.ItemId).ExecuteDelete();
         }
 
-        // Delete existing placeholder rows that would conflict with the incoming ones
-        context.UserData
-            .Join(
-                batchUserData,
-                placeholder => new { placeholder.UserId, placeholder.CustomDataKey },
-                userData => new { userData.UserId, userData.CustomDataKey },
-                (placeholder, userData) => placeholder)
-            .Where(e => e.ItemId == BaseItemRepository.PlaceholderId)
-            .ExecuteDelete();
-
-        batchUserData
-            .ExecuteUpdate(e => e
-                .SetProperty(f => f.RetentionDate, date)
-                .SetProperty(f => f.ItemId, BaseItemRepository.PlaceholderId));
-
-        context.AncestorIds.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.AncestorIds.WhereOneOrMany(relatedItems, e => e.ParentItemId).ExecuteDelete();
-        context.AttachmentStreamInfos.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.BaseItemImageInfos.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.BaseItemMetadataFields.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.BaseItemProviders.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.BaseItemTrailerTypes.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.Chapters.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.CustomItemDisplayPreferences.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.ItemDisplayPreferences.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
         context.ItemValues.Where(e => e.BaseItemsMap!.Count == 0).ExecuteDelete();
-        context.ItemValuesMap.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.LinkedChildren.WhereOneOrMany(relatedItems, e => e.ParentId).ExecuteDelete();
-        context.LinkedChildren.WhereOneOrMany(relatedItems, e => e.ChildId).ExecuteDelete();
-        context.BaseItems.WhereOneOrMany(relatedItems, e => e.Id).ExecuteDelete();
-        context.KeyframeData.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.MediaSegments.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.MediaStreamInfos.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        var query = context.PeopleBaseItemMap.WhereOneOrMany(relatedItems, e => e.ItemId).Select(f => f.PeopleId).Distinct().ToArray();
-        context.PeopleBaseItemMap.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
-        context.Peoples.WhereOneOrMany(query, e => e.Id).Where(e => e.BaseItems!.Count == 0).ExecuteDelete();
-        context.TrickplayInfos.WhereOneOrMany(relatedItems, e => e.ItemId).ExecuteDelete();
         context.SaveChanges();
         transaction.Commit();
     }

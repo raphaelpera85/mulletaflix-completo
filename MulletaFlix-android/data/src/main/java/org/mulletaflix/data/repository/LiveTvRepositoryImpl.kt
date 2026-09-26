@@ -37,9 +37,9 @@ internal const val LIVE_TV_CHANNEL_BATCH_SIZE = 100
 internal fun hasMorePagesWithUnknownTotal(
     loadedItemCount: Int,
     receivedItemCount: Int,
-    totalItemCount: Int,
+    totalItemCount: Int?,
     pageSize: Int,
-): Boolean = if (totalItemCount > 0) {
+): Boolean = if (totalItemCount != null && totalItemCount > 0) {
     hasMorePages(loadedItemCount, receivedItemCount, totalItemCount)
 } else {
     receivedItemCount >= pageSize
@@ -49,7 +49,7 @@ internal fun hasMorePagesWithUnknownTotal(
 internal fun hasMoreChannelPages(
     loadedItemCount: Int,
     receivedItemCount: Int,
-    totalItemCount: Int,
+    totalItemCount: Int?,
 ): Boolean = hasMorePagesWithUnknownTotal(
     loadedItemCount = loadedItemCount,
     receivedItemCount = receivedItemCount,
@@ -132,7 +132,7 @@ class LiveTvRepositoryImpl @Inject constructor(
                 startIndex += page.items.size
                 pages++
             } while (
-                hasMorePages(programmes.size, page.items.size, page.totalRecordCount) &&
+                hasMorePages(programmes.size, page.items.size, page.totalRecordCount ?: 0) &&
                 pages < MAX_LIVE_TV_GUIDE_PAGES
             )
             programmes
