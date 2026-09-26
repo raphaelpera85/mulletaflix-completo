@@ -204,6 +204,32 @@ function enabled(): boolean {
 let rotationInterval: ReturnType<typeof setInterval> | null;
 let currentRotatingImages: string[] = [];
 let currentRotationIndex = -1;
+let isRotationPausedForVisibility = false;
+
+// F-10: pause the 10s full-screen backdrop rotation while the tab is in the
+// background. The rotation swaps a fullscreen image every 10s regardless of
+// whether the tab is visible, which wastes CPU (decode/paint) and network
+// (image fetch) in a background tab. `visibilitychange` lets us stop the
+// interval while hidden and resume immediately (with a fresh image, not a
+// stale timer) when the tab becomes visible again.
+if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            if (rotationInterval) {
+                clearInterval(rotationInterval);
+                rotationInterval = null;
+                isRotationPausedForVisibility = true;
+            }
+        } else if (isRotationPausedForVisibility) {
+            isRotationPausedForVisibility = false;
+            if (currentRotatingImages.length > 1 && enableRotation()) {
+                rotationInterval = setInterval(onRotationInterval, 10000);
+                onRotationInterval();
+            }
+        }
+    });
+}
+
 export function setBackdrops(items: any[], imageOptions?: any, isEnabled = false): void {
     if (isEnabled || enabled()) {
         const images = getImageUrls(items, imageOptions);
@@ -226,7 +252,7 @@ export function setBackdropImages(images: string[]): void {
     currentRotatingImages = images;
     currentRotationIndex = -1;
 
-    if (images.length > 1 && enableRotation()) {
+    if (images.length > 1 && enableRotation() && document.visibilityState !== 'hidden') {
         rotationInterval = setInterval(onRotationInterval, 10000);
     }
 
@@ -269,6 +295,7 @@ function clearRotation(): void {
     rotationInterval = null;
     currentRotatingImages = [];
     currentRotationIndex = -1;
+    isRotationPausedForVisibility = false;
 }
 
 export function setBackdrop(url: string | any, imageOptions?: any): void {

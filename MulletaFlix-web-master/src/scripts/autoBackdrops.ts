@@ -7,7 +7,34 @@ import { getBrandingOptionsQuery } from 'apps/dashboard/features/branding/api/us
 import { SPLASHSCREEN_URL } from 'constants/branding';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 
-const cache: Record<string, string> = {};
+// F-10: cache was a plain module-level object living in memory for the
+// lifetime of the module. Two problems: (1) it survives across totally
+// different library/parent contexts within the same SPA session without any
+// eviction (the `key` already encodes userId+types+parentId, but a session
+// that browses many libraries just keeps accumulating entries forever), and
+// (2) a page reload always starts cold, refetching backdrops shown seconds
+// earlier. sessionStorage keeps the same per-tab lifetime (cleared when the
+// tab closes) while surviving SPA navigation like the previous module object,
+// and gives an explicit, inspectable cache instead of an ever-growing object.
+const CACHE_PREFIX = 'autoBackdrops-';
+
+function readCache(key: string): string | null {
+    try {
+        return sessionStorage.getItem(CACHE_PREFIX + key);
+    } catch (e) {
+        // sessionStorage can throw in private-browsing/quota-exceeded scenarios
+        console.debug('[autoBackdrops] sessionStorage read failed', e);
+        return null;
+    }
+}
+
+function writeCache(key: string, value: string): void {
+    try {
+        sessionStorage.setItem(CACHE_PREFIX + key, value);
+    } catch (e) {
+        console.debug('[autoBackdrops] sessionStorage write failed', e);
+    }
+}
 
 function enabled(): boolean {
     return userSettings.enableBackdrops();
@@ -33,7 +60,7 @@ interface BackdropItemOptions {
 
 function getBackdropItemIds(apiClient: any, userId: string, types: string | null | undefined, parentId: string | undefined): Promise<BackdropImage[]> {
     const key = `backdrops2_${userId + (types || '') + (parentId || '')}`;
-    const data = cache[key];
+    const data = readCache(key);
 
     if (data) {
         console.debug(`Found backdrop id list in cache. Key: ${key}`);
@@ -58,7 +85,7 @@ function getBackdropItemIds(apiClient: any, userId: string, types: string | null
                 ServerId: i.ServerId
             };
         });
-        cache[key] = JSON.stringify(images);
+        writeCache(key, JSON.stringify(images));
         return images;
     });
 }
