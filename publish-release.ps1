@@ -143,7 +143,7 @@ A pasta Nebula agora organiza as mídias em quatro raízes distintas, nesta sequ
 - 18 testes de integração IntroSkipper cobrindo registro do plugin e migração SQLite→MariaDB.
 '@
 
-$bodyContent = $bodyContent.Replace('__TAG__', $Tag, [System.StringComparison]::Ordinal)
+$bodyContent = $bodyContent.Replace('__TAG__', $Tag)
 
 $releasePayloadJson = @{
     tag_name = $Tag
