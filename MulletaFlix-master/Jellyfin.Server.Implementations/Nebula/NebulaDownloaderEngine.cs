@@ -65,9 +65,150 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     private readonly HttpClient _httpClient;
     private readonly CancellationTokenSource _cts = new();
     private readonly FailureTracker _failureTracker = new();
+    private readonly ConcurrentDictionary<string, byte> _prioritizedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _prioritizedDirectories = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _prioritizedSeriesNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _wakeSignal = new(0, 1);
 
     private Task? _workerTask;
     private bool _isRunning;
+
+    /// <summary>
+    /// Registra um caminho de mídia, diretório ou nome de série para prioridade máxima de download.
+    /// </summary>
+    /// <param name="pathOrDir">Caminho do arquivo ou diretório da obra.</param>
+    /// <param name="seriesName">Nome opcional da série/obra.</param>
+    public void PrioritizeTarget(string pathOrDir, string? seriesName = null)
+    {
+        if (string.IsNullOrWhiteSpace(pathOrDir))
+        {
+            if (!string.IsNullOrWhiteSpace(seriesName))
+            {
+                _prioritizedSeriesNames.TryAdd(seriesName.Trim(), 0);
+                WakeUp();
+            }
+
+            return;
+        }
+
+        var trimmed = pathOrDir.Trim();
+        var full = Path.GetFullPath(trimmed);
+        if (File.Exists(full) || full.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) || SupportedMediaExtensions.Contains(Path.GetExtension(full)))
+        {
+            if (_prioritizedPaths.TryAdd(full, 0))
+            {
+                _logger.LogInformation("[NEBULA-DOWNLOADER][PRIORIDADE] Arquivo registrado com prioridade máxima: {Path}", full);
+                LogInfo($"[PRIORIDADE] Download priorizado: {Path.GetFileName(full)}");
+            }
+        }
+        else
+        {
+            if (_prioritizedDirectories.TryAdd(full, 0))
+            {
+                _logger.LogInformation("[NEBULA-DOWNLOADER][PRIORIDADE] Diretório registrado com prioridade máxima: {Dir}", full);
+                LogInfo($"[PRIORIDADE] Pasta/Série priorizada: {Path.GetFileName(full)}");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(seriesName))
+        {
+            _prioritizedSeriesNames.TryAdd(seriesName.Trim(), 0);
+        }
+
+        WakeUp();
+    }
+
+    /// <summary>
+    /// Verifica se o arquivo informado pertence a algum alvo prioritário registrado.
+    /// </summary>
+    /// <param name="filePath">Caminho completo do arquivo.</param>
+    /// <returns>True se o arquivo for prioritário.</returns>
+    public bool IsPathPrioritized(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return false;
+        }
+
+        var full = Path.GetFullPath(filePath);
+        if (_prioritizedPaths.ContainsKey(full))
+        {
+            return true;
+        }
+
+        foreach (var dir in _prioritizedDirectories.Keys)
+        {
+            if (IsPathWithinRoot(full, dir))
+            {
+                return true;
+            }
+        }
+
+        if (!_prioritizedSeriesNames.IsEmpty)
+        {
+            var fileName = Path.GetFileName(filePath);
+            var parentDir = Path.GetDirectoryName(filePath);
+            var segments = parentDir?.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
+            foreach (var series in _prioritizedSeriesNames.Keys)
+            {
+                foreach (var seg in segments)
+                {
+                    if (IsMatchingSeriesWord(seg, series))
+                    {
+                        return true;
+                    }
+                }
+
+                if (IsMatchingSeriesWord(fileName, series))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsMatchingSeriesWord(string text, string series)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(series))
+        {
+            return false;
+        }
+
+        var idx = text.IndexOf(series, StringComparison.OrdinalIgnoreCase);
+        while (idx >= 0)
+        {
+            var prevOk = idx == 0 || !char.IsLetterOrDigit(text[idx - 1]);
+            var nextIdx = idx + series.Length;
+            var nextOk = nextIdx >= text.Length || !char.IsLetterOrDigit(text[nextIdx]);
+            if (prevOk && nextOk)
+            {
+                return true;
+            }
+
+            idx = text.IndexOf(series, idx + 1, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Acorda o loop de espera do downloader imediatamente para processar mídias prioritárias sem aguardar o delay.
+    /// </summary>
+    public void WakeUp()
+    {
+        try
+        {
+            if (_wakeSignal.CurrentCount == 0)
+            {
+                _wakeSignal.Release();
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
 
     /// <summary>
     /// Evento disparado para atualizar o status do download em andamento.
@@ -288,24 +429,24 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     }
                 }
 
-                // Ordenar arquivos por categoria (Filmes -> Animações -> Series -> Novelas -> Porno -> Outros) e por ano decrescente (2026 -> 2025 -> ...)
+                // Ordenar arquivos dando prioridade máxima aos alvos prioritários, depois por categoria e ano decrescente
                 var prioritizedList = mediaFiles
                     .Select(path =>
                     {
-                        // Computed once. This used to call GetCategoryPriority twice per path — once
-                        // for the sort key and once for the display name — for every file, every
-                        // cycle.
                         var category = GetCategoryPriority(path);
+                        var isPriority = IsPathPrioritized(path);
                         return new
                         {
                             Path = path,
+                            IsPriority = isPriority,
                             Category = category,
                             CategoryName = GetCategoryDisplayName(category),
                             Year = ExtractMediaYear(Path.GetFileName(path), Path.GetDirectoryName(path) ?? string.Empty),
                             IsStrm = string.Equals(Path.GetExtension(path), ".strm", StringComparison.OrdinalIgnoreCase)
                         };
                     })
-                    .OrderBy(x => x.Category) // 1. Filmes -> 2. Anima\u00e7\u00f5es -> 3. Series -> 4. Novelas -> 5. Porno -> 6. Outros
+                    .OrderByDescending(x => x.IsPriority) // Prioritários vêm em primeiro lugar absoluto!
+                    .ThenBy(x => x.Category) // 1. Filmes -> 2. Animações -> 3. Series -> 4. Novelas -> 5. Porno -> 6. Outros
                     .ThenByDescending(x => x.Year) // Ano decrescente (2026 -> 2025 -> ...)
                     .ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
                     .ToList();
@@ -351,8 +492,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     CleanAllEmptySubdirectories(src);
                 }
 
-                // Aguarda 60 segundos antes de um novo ciclo de escaneamento
-                await Task.Delay(TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
+                // Aguarda 60 segundos antes de um novo ciclo de escaneamento, ou acorda imediatamente caso uma prioridade chegue
+                await _wakeSignal.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -455,7 +596,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         }
 
         // 2. Log de início do download exclusivo da mídia
-        LogInfo($"[1 MÍDIA POR VEZ] Iniciando download: {strmFileName} [{categoryName}{yearPart}] -> Stage: {targetStageStrmDir}");
+        var priorityPrefix = IsPathPrioritized(strmPath) ? "[PRIORIDADE MÁXIMA] " : "[1 MÍDIA POR VEZ] ";
+        LogInfo($"{priorityPrefix}Iniciando download: {strmFileName} [{categoryName}{yearPart}] -> Stage: {targetStageStrmDir}");
         OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
         {
             Name = strmFileName,
@@ -1968,6 +2110,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         await StopAsync().ConfigureAwait(false);
         _httpClient.Dispose();
         _cts.Dispose();
+        _wakeSignal.Dispose();
     }
 
     /// <inheritdoc />

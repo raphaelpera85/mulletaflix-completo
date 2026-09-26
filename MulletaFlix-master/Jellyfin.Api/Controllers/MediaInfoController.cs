@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -14,6 +14,7 @@ using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
@@ -40,18 +41,20 @@ public class MediaInfoController : BaseMulletaFlixApiController
     private readonly MediaInfoHelper _mediaInfoHelper;
     private readonly IUserManager _userManager;
     private readonly TransientMediaItemRegistry _transientMediaItemRegistry;
+    private readonly INebulaFtpManager _nebulaFtpManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaInfoController"/> class.
     /// </summary>
     /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
-        /// <param name="deviceManager">Instance of the <see cref="IDeviceManager"/> interface.</param>
-        /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
-        /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/> interface.</param>
+    /// <param name="deviceManager">Instance of the <see cref="IDeviceManager"/> interface.</param>
+    /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{MediaInfoController}"/> interface.</param>
     /// <param name="mediaInfoHelper">Instance of the <see cref="MediaInfoHelper"/>.</param>
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface..</param>
     /// <param name="transientMediaItemRegistry">Registry for path-resolved items during playback.</param>
+    /// <param name="nebulaFtpManager">Nebula priority and cache manager.</param>
     public MediaInfoController(
         IMediaSourceManager mediaSourceManager,
         IDeviceManager deviceManager,
@@ -60,7 +63,8 @@ public class MediaInfoController : BaseMulletaFlixApiController
         ILogger<MediaInfoController> logger,
         MediaInfoHelper mediaInfoHelper,
         IUserManager userManager,
-        TransientMediaItemRegistry transientMediaItemRegistry)
+        TransientMediaItemRegistry transientMediaItemRegistry,
+        INebulaFtpManager nebulaFtpManager)
     {
         _mediaSourceManager = mediaSourceManager;
         _deviceManager = deviceManager;
@@ -70,6 +74,7 @@ public class MediaInfoController : BaseMulletaFlixApiController
         _mediaInfoHelper = mediaInfoHelper;
         _userManager = userManager;
         _transientMediaItemRegistry = transientMediaItemRegistry;
+        _nebulaFtpManager = nebulaFtpManager;
     }
 
     /// <summary>
@@ -99,6 +104,8 @@ public class MediaInfoController : BaseMulletaFlixApiController
         {
             return NotFound();
         }
+
+        _nebulaFtpManager.PrioritizeItem(item);
 
         var info = await _mediaInfoHelper.GetPlaybackInfo(item, user).ConfigureAwait(false);
         _mediaInfoHelper.AppendPrebufferApiKey(info, User.GetToken());
@@ -208,6 +215,8 @@ public class MediaInfoController : BaseMulletaFlixApiController
                 return NotFound();
             }
         }
+
+        _nebulaFtpManager.PrioritizeItem(item);
 
         var info = await _mediaInfoHelper.GetPlaybackInfo(
                 item,

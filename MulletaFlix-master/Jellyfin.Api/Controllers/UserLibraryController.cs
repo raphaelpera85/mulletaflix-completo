@@ -115,6 +115,8 @@ public class UserLibraryController : BaseMulletaFlixApiController
             return NotFound();
         }
 
+        _nebulaFtpManager.PrioritizeItem(item);
+
         // Refresh stale or incomplete metadata before building the DTO so the detail page
         // can render overview, artwork and related fields without waiting for a manual scan.
         await RefreshItemOnDemandIfNeeded(item).ConfigureAwait(false);
@@ -217,6 +219,8 @@ public class UserLibraryController : BaseMulletaFlixApiController
         {
             return NotFound();
         }
+
+        _nebulaFtpManager.PrioritizeItem(item);
 
         if (item is Video && !string.IsNullOrWhiteSpace(item.Path))
         {

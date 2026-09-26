@@ -1,11 +1,24 @@
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Nebula;
 
 namespace MediaBrowser.Controller.Nebula;
 
 public interface INebulaFtpManager
 {
+    /// <summary>
+    /// Dá prioridade máxima de download e upload para a mídia solicitada (e todas as temporadas/episódios se for série/animação/novela/drama).
+    /// </summary>
+    void PrioritizeMedia(string mediaPath, string? seriesPath = null, string? seriesName = null);
+
+    /// <summary>
+    /// Dá prioridade máxima de download e upload para a mídia informada pelo BaseItem do Jellyfin.
+    /// Se o item for série, animação, novela ou drama (ou episódio/temporada pertencente a um deles),
+    /// dá prioridade para todos os arquivos de temporadas e episódios da obra.
+    /// </summary>
+    void PrioritizeItem(BaseItem item);
+
     Task<NebulaStatusDto> GetStatusAsync(CancellationToken cancellationToken = default);
 
     Task<NebulaComponentHealthDto> GetComponentHealthAsync(CancellationToken cancellationToken = default);

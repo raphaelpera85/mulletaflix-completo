@@ -15,6 +15,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.Configuration;
@@ -1400,6 +1402,238 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             _logger.LogWarning(ex, "Falha ao iniciar o pré-cache da mídia; a reprodução continuará sem pré-cache.");
             return false;
         }
+    }
+
+    /// <inheritdoc />
+    public void PrioritizeMedia(string mediaPath, string? seriesPath = null, string? seriesName = null)
+    {
+        if (!Config.Enabled)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(mediaPath))
+            {
+                _downloaderEngine?.PrioritizeTarget(mediaPath, seriesName);
+                _stagingWatcher?.PrioritizeUpload(mediaPath, seriesName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(seriesPath))
+            {
+                _downloaderEngine?.PrioritizeTarget(seriesPath, seriesName);
+                _stagingWatcher?.PrioritizeUpload(seriesPath, seriesName);
+
+                PrioritizeAllSeriesFiles(seriesPath, seriesName);
+            }
+
+            _downloaderEngine?.WakeUp();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-PRIORITY] Erro ao priorizar mídia: {Path}", mediaPath);
+        }
+    }
+
+    /// <inheritdoc />
+    public void PrioritizeItem(BaseItem item)
+    {
+        if (item == null || !Config.Enabled)
+        {
+            return;
+        }
+
+        try
+        {
+            bool isSeriesLike = item is Series or Season or Episode;
+            string? seriesPath = null;
+            string? seriesName = null;
+            string? mediaPath = item.Path;
+
+            if (item is Episode episode)
+            {
+                isSeriesLike = true;
+                var series = episode.Series ?? (_libraryManager != null && episode.SeriesId != Guid.Empty ? _libraryManager.GetItemById(episode.SeriesId) as Series : null);
+                if (series != null)
+                {
+                    seriesPath = series.Path;
+                    seriesName = series.Name;
+                }
+                else if (!string.IsNullOrWhiteSpace(episode.Path))
+                {
+                    var parent = Directory.GetParent(episode.Path);
+                    if (parent != null && parent.Name.StartsWith("Season", StringComparison.OrdinalIgnoreCase))
+                    {
+                        seriesPath = parent.Parent?.FullName;
+                        seriesName = parent.Parent?.Name;
+                    }
+                    else
+                    {
+                        seriesPath = parent?.FullName;
+                        seriesName = parent?.Name;
+                    }
+                }
+            }
+            else if (item is Season season)
+            {
+                isSeriesLike = true;
+                var series = season.Series;
+                seriesPath = series?.Path ?? Directory.GetParent(season.Path)?.FullName;
+                seriesName = series?.Name ?? Directory.GetParent(season.Path)?.Name;
+            }
+            else if (item is Series series)
+            {
+                isSeriesLike = true;
+                seriesPath = series.Path;
+                seriesName = series.Name;
+            }
+            else if (!string.IsNullOrWhiteSpace(item.Path))
+            {
+                var dir = Path.GetDirectoryName(item.Path);
+                var file = Path.GetFileName(item.Path);
+                var classified = NebulaUploadEngine.ClassifyMediaType(dir, file);
+                if (classified is "SERIE" or "NOVELA" or "ANIMACAO" or "DORAMA")
+                {
+                    isSeriesLike = true;
+                    var parent = Directory.GetParent(item.Path);
+                    if (parent != null && parent.Name.StartsWith("Season", StringComparison.OrdinalIgnoreCase))
+                    {
+                        seriesPath = parent.Parent?.FullName;
+                        seriesName = parent.Parent?.Name;
+                    }
+                    else
+                    {
+                        seriesPath = parent?.FullName;
+                        seriesName = parent?.Name;
+                    }
+                }
+            }
+
+            // Checa se a mídia ou a série existe nas pastas com strm
+            bool hasStrm = (!string.IsNullOrWhiteSpace(mediaPath) && (mediaPath.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) || File.Exists(Path.ChangeExtension(mediaPath, ".strm"))))
+                || (!string.IsNullOrWhiteSpace(seriesPath) && Directory.Exists(seriesPath) && Directory.EnumerateFiles(seriesPath, "*.strm", SearchOption.AllDirectories).Any())
+                || HasStrmInMonitorSources(item.Name, seriesName);
+
+            if (!hasStrm)
+            {
+                return;
+            }
+
+            if (isSeriesLike)
+            {
+                var name = seriesName ?? item.Name;
+                _logger.LogInformation("[NEBULA-PRIORITY] Solicitação de obra seriada ({Type}): '{Series}'. Priorizando todas as temporadas e episódios (.strm) no download e upload!", item.GetType().Name, name);
+                AddDownloaderLog($"[PRIORIDADE] Solicitação de obra: '{name}'. Priorizando todas as temporadas e episódios (.strm)!");
+                PrioritizeMedia(mediaPath ?? string.Empty, seriesPath, name);
+            }
+            else
+            {
+                _logger.LogInformation("[NEBULA-PRIORITY] Solicitação de mídia (.strm): '{Name}' ({Path}). Priorizando download e upload!", item.Name, mediaPath);
+                AddDownloaderLog($"[PRIORIDADE] Solicitação de mídia: '{item.Name}'. Priorizando download e upload!");
+                PrioritizeMedia(mediaPath ?? string.Empty, null, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-PRIORITY] Falha ao avaliar prioridade para o item: {Name}", item.Name);
+        }
+    }
+
+    private void PrioritizeAllSeriesFiles(string seriesPath, string? seriesName)
+    {
+        try
+        {
+            if (Directory.Exists(seriesPath))
+            {
+                foreach (var strm in Directory.EnumerateFiles(seriesPath, "*.strm", SearchOption.AllDirectories))
+                {
+                    _downloaderEngine?.PrioritizeTarget(strm, seriesName);
+                    _stagingWatcher?.PrioritizeUpload(strm, seriesName);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(seriesName))
+            {
+                var monitorSources = Config.MonitorPaths ?? Array.Empty<string>();
+                foreach (var src in monitorSources)
+                {
+                    if (!Directory.Exists(src))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        foreach (var catDir in Directory.EnumerateDirectories(src))
+                        {
+                            var targetSeriesDir = Path.Combine(catDir, seriesName);
+                            if (Directory.Exists(targetSeriesDir))
+                            {
+                                _downloaderEngine?.PrioritizeTarget(targetSeriesDir, seriesName);
+                                _stagingWatcher?.PrioritizeUpload(targetSeriesDir, seriesName);
+                                foreach (var strm in Directory.EnumerateFiles(targetSeriesDir, "*.strm", SearchOption.AllDirectories))
+                                {
+                                    _downloaderEngine?.PrioritizeTarget(strm, seriesName);
+                                    _stagingWatcher?.PrioritizeUpload(strm, seriesName);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[NEBULA-PRIORITY] Erro ao varrer monitor source {Src} para a série {Name}", src, seriesName);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-PRIORITY] Erro ao varrer arquivos da série {SeriesPath}", seriesPath);
+        }
+    }
+
+    private bool HasStrmInMonitorSources(string itemName, string? seriesName)
+    {
+        try
+        {
+            var monitorSources = Config.MonitorPaths ?? Array.Empty<string>();
+            foreach (var src in monitorSources)
+            {
+                if (!Directory.Exists(src))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(seriesName))
+                {
+                    foreach (var catDir in Directory.EnumerateDirectories(src))
+                    {
+                        var targetSeriesDir = Path.Combine(catDir, seriesName);
+                        if (Directory.Exists(targetSeriesDir))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                foreach (var file in Directory.EnumerateFiles(src, "*.strm", SearchOption.AllDirectories))
+                {
+                    var fName = Path.GetFileName(file);
+                    if ((!string.IsNullOrWhiteSpace(seriesName) && fName.Contains(seriesName, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrWhiteSpace(itemName) && fName.Contains(itemName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignora erro de acesso a disco
+        }
+
+        return false;
     }
 
     public NebulaPlaybackCacheStatusDto GetPlaybackCacheStatus()

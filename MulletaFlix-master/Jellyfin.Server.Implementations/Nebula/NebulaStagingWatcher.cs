@@ -22,7 +22,11 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
     private readonly int _botCount;
     private readonly List<FileSystemWatcher> _watchers = [];
     private readonly List<string> _stagingDirs = [];
+    private readonly ConcurrentQueue<NebulaUploadTaskItem> _priorityFiles = new();
     private readonly ConcurrentQueue<NebulaUploadTaskItem> _pendingFiles = new();
+    private readonly ConcurrentDictionary<string, byte> _prioritizedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _prioritizedDirectories = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _prioritizedSeriesNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _queuedFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _activeFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _cts = new();
@@ -138,6 +142,163 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         EnqueueFile(filePath);
     }
 
+    /// <summary>
+    /// Registra um caminho de mídia, diretório ou nome de série para prioridade máxima de upload.
+    /// </summary>
+    /// <param name="pathOrDir">Caminho do arquivo ou diretório.</param>
+    /// <param name="seriesName">Nome opcional da série.</param>
+    public void PrioritizeUpload(string pathOrDir, string? seriesName = null)
+    {
+        if (string.IsNullOrWhiteSpace(pathOrDir))
+        {
+            if (!string.IsNullOrWhiteSpace(seriesName))
+            {
+                _prioritizedSeriesNames.TryAdd(seriesName.Trim(), 0);
+                PromotePendingFilesToPriority();
+            }
+
+            return;
+        }
+
+        var trimmed = pathOrDir.Trim();
+        var full = Path.GetFullPath(trimmed);
+        if (File.Exists(full) || NebulaMetadataExportService.IsUploadablePath(full))
+        {
+            if (_prioritizedPaths.TryAdd(full, 0))
+            {
+                _logger.LogInformation("[NEBULA-WATCHER][PRIORIDADE] Arquivo prioritário registrado para upload: {Path}", full);
+            }
+        }
+        else
+        {
+            if (_prioritizedDirectories.TryAdd(full, 0))
+            {
+                _logger.LogInformation("[NEBULA-WATCHER][PRIORIDADE] Diretório prioritário registrado para upload: {Dir}", full);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(seriesName))
+        {
+            _prioritizedSeriesNames.TryAdd(seriesName.Trim(), 0);
+        }
+
+        PromotePendingFilesToPriority();
+    }
+
+    /// <summary>
+    /// Verifica se o arquivo informado pertence a algum alvo prioritário registrado para upload.
+    /// </summary>
+    /// <param name="filePath">Caminho completo do arquivo.</param>
+    /// <returns>True se o arquivo for prioritário.</returns>
+    public bool IsPathPrioritized(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return false;
+        }
+
+        var full = Path.GetFullPath(filePath);
+        if (_prioritizedPaths.ContainsKey(full))
+        {
+            return true;
+        }
+
+        foreach (var dir in _prioritizedDirectories.Keys)
+        {
+            if (IsPathWithin(full, dir))
+            {
+                return true;
+            }
+        }
+
+        if (!_prioritizedSeriesNames.IsEmpty)
+        {
+            var fileName = Path.GetFileName(filePath);
+            var parentDir = Path.GetDirectoryName(filePath);
+            var segments = parentDir?.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
+            foreach (var series in _prioritizedSeriesNames.Keys)
+            {
+                foreach (var seg in segments)
+                {
+                    if (IsMatchingSeriesWord(seg, series))
+                    {
+                        return true;
+                    }
+                }
+
+                if (IsMatchingSeriesWord(fileName, series))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsMatchingSeriesWord(string text, string series)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(series))
+        {
+            return false;
+        }
+
+        var idx = text.IndexOf(series, StringComparison.OrdinalIgnoreCase);
+        while (idx >= 0)
+        {
+            var prevOk = idx == 0 || !char.IsLetterOrDigit(text[idx - 1]);
+            var nextIdx = idx + series.Length;
+            var nextOk = nextIdx >= text.Length || !char.IsLetterOrDigit(text[nextIdx]);
+            if (prevOk && nextOk)
+            {
+                return true;
+            }
+
+            idx = text.IndexOf(series, idx + 1, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    private static bool IsPathWithin(string path, string parentDir)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var fullRoot = Path.GetFullPath(parentDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return fullPath.Equals(fullRoot, StringComparison.OrdinalIgnoreCase)
+                || fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private void PromotePendingFilesToPriority()
+    {
+        var temp = new List<NebulaUploadTaskItem>();
+        while (_pendingFiles.TryDequeue(out var item))
+        {
+            if (IsPathPrioritized(item.FilePath))
+            {
+                _priorityFiles.Enqueue(item);
+                _logger.LogInformation("[NEBULA-WATCHER][PRIORIDADE] Upload promovido para fila prioritária: {File}", item.FileName);
+                EmitServer("INFO", $"[PRIORIDADE] Upload promovido para envio rápido: {item.FileName}");
+            }
+            else
+            {
+                temp.Add(item);
+            }
+        }
+
+        foreach (var item in temp)
+        {
+            _pendingFiles.Enqueue(item);
+        }
+    }
+
     private void EnqueueFile(string fullPath, ObjectId? nodeId = null, string? parentId = null)
     {
         if (string.IsNullOrWhiteSpace(fullPath) ||
@@ -162,13 +323,24 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         var queueKey = Path.GetFullPath(fullPath);
         if (_queuedFiles.TryAdd(queueKey, 0))
         {
-            _pendingFiles.Enqueue(new NebulaUploadTaskItem
+            var item = new NebulaUploadTaskItem
             {
                 FilePath = fullPath,
                 FileName = fileName,
                 ParentId = parentId,
                 NodeId = nodeId
-            });
+            };
+
+            if (IsPathPrioritized(fullPath))
+            {
+                _priorityFiles.Enqueue(item);
+                _logger.LogInformation("[NEBULA-WATCHER][PRIORIDADE] Arquivo prioritário enfileirado para upload imediato: {File}", fileName);
+                EmitServer("INFO", $"[PRIORIDADE] Arquivo na fila de upload imediato: {fileName}");
+            }
+            else
+            {
+                _pendingFiles.Enqueue(item);
+            }
         }
     }
 
@@ -327,14 +499,32 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (_pendingFiles.TryDequeue(out var item))
+            var isPriorityItem = false;
+            if (_priorityFiles.TryDequeue(out var item))
+            {
+                isPriorityItem = true;
+            }
+            else if (!_pendingFiles.TryDequeue(out item))
+            {
+                item = null;
+            }
+
+            if (item != null)
             {
                 var requeued = false;
                 try
                 {
                     if (IsMetadataSidecar(item.FilePath) && HasPendingMetadataMarker(item.FilePath))
                     {
-                        _pendingFiles.Enqueue(item);
+                        if (isPriorityItem || IsPathPrioritized(item.FilePath))
+                        {
+                            _priorityFiles.Enqueue(item);
+                        }
+                        else
+                        {
+                            _pendingFiles.Enqueue(item);
+                        }
+
                         requeued = true;
                         await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
                         continue;
@@ -375,13 +565,30 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                             }
                         }
 
-                        _logger.LogInformation("[NEBULA-WATCHER][Worker #{Worker}] Processando arquivo para upload: {File} (Parent: {Parent})", workerId, item.FileName, parentId ?? "raiz");
+                        if (isPriorityItem || IsPathPrioritized(item.FilePath))
+                        {
+                            _logger.LogInformation("[NEBULA-WATCHER][Worker #{Worker}][PRIORIDADE] Processando arquivo para upload prioritário: {File} (Parent: {Parent})", workerId, item.FileName, parentId ?? "raiz");
+                            EmitServer("INFO", $"[PRIORIDADE] Worker #{workerId} iniciando envio prioritário de {item.FileName}");
+                        }
+                        else
+                        {
+                            _logger.LogInformation("[NEBULA-WATCHER][Worker #{Worker}] Processando arquivo para upload: {File} (Parent: {Parent})", workerId, item.FileName, parentId ?? "raiz");
+                        }
+
                         await _uploadEngine.ProcessFileUploadAsync(item.FilePath, item.FileName, parentId, workerId, cancellationToken).ConfigureAwait(false);
                     }
                     else if (File.Exists(item.FilePath))
                     {
                         // Arquivo ainda em gravação no disco: reinsere na fila com delay
-                        _pendingFiles.Enqueue(item);
+                        if (isPriorityItem || IsPathPrioritized(item.FilePath))
+                        {
+                            _priorityFiles.Enqueue(item);
+                        }
+                        else
+                        {
+                            _pendingFiles.Enqueue(item);
+                        }
+
                         requeued = true;
                         await Task.Delay(2000, cancellationToken).ConfigureAwait(false);
                     }
