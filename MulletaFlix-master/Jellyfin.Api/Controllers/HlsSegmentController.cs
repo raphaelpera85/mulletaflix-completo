@@ -152,19 +152,31 @@ public class HlsSegmentController : BaseMulletaFlixApiController
 
         var normalizedPlaylistId = playlistId;
 
-        var filePaths = _fileSystem.GetFilePaths(transcodeFolderPath);
-        // Add . to start of segment container for future use.
-        segmentContainer = segmentContainer.Insert(0, ".");
-        string? playlistPath = null;
-        foreach (var path in filePaths)
+        // Direct fast path: the legacy playlist for this segment is always written as
+        // "{playlistId}.m3u8" in the transcode folder (see GetHlsPlaylistLegacy above, which
+        // builds the exact same path). Try that first instead of enumerating the entire
+        // transcode directory (which can contain segments/playlists for every concurrent
+        // transcoding job) on every single segment request. Only fall back to the old
+        // directory scan if the expected file is missing, e.g. a differently-named artifact
+        // from an older/alternate encoder path.
+        var directPlaylistPath = Path.GetFullPath(Path.Combine(transcodeFolderPath, normalizedPlaylistId + ".m3u8"));
+        string? playlistPath = System.IO.File.Exists(directPlaylistPath) ? directPlaylistPath : null;
+
+        if (playlistPath is null)
         {
-            var pathExtension = Path.GetExtension(path);
-            if ((string.Equals(pathExtension, segmentContainer, StringComparison.OrdinalIgnoreCase)
-                 || string.Equals(pathExtension, ".m3u8", StringComparison.OrdinalIgnoreCase))
-                && path.Contains(normalizedPlaylistId, StringComparison.OrdinalIgnoreCase))
+            var filePaths = _fileSystem.GetFilePaths(transcodeFolderPath);
+            // Add . to start of segment container for future use.
+            var segmentExtension = segmentContainer.Insert(0, ".");
+            foreach (var path in filePaths)
             {
-                playlistPath = path;
-                break;
+                var pathExtension = Path.GetExtension(path);
+                if ((string.Equals(pathExtension, segmentExtension, StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(pathExtension, ".m3u8", StringComparison.OrdinalIgnoreCase))
+                    && path.Contains(normalizedPlaylistId, StringComparison.OrdinalIgnoreCase))
+                {
+                    playlistPath = path;
+                    break;
+                }
             }
         }
 
