@@ -301,16 +301,21 @@
 }
 
 .dashboardDocument .skinBody {
-    transition: left ease-in-out 0.3s, padding ease-in-out 0.3s;
+    // F-15: animate with `transform` (compositor-only) instead of `left`/`padding`
+    // (layout properties) so drawer open/close does not force a reflow of the
+    // whole page on every animation frame. `transform` keeps the same visual
+    // offset without repainting layout.
+    transition: transform ease-in-out 0.3s, padding ease-in-out 0.3s;
     position: absolute;
     top: 0;
     right: 0;
     bottom: 0;
     left: 0;
+    transform: translateX(0);
     pointer-events: none;
 
     [dir="rtl"] & {
-        transition: right ease-in-out 0.3s, padding ease-in-out 0.3s;
+        transform: translateX(0);
     }
 
     > .page {
@@ -360,11 +365,11 @@
 
     .dashboardDocument .skinBody {
         [dir="ltr"] & {
-            left: 20em;
+            transform: translateX(20em);
         }
 
         [dir="rtl"] & {
-            right: 20em;
+            transform: translateX(-20em);
         }
     }
 }

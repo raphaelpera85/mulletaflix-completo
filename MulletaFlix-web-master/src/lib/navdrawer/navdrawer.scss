@@ -12,20 +12,18 @@
     background-color: #fff;
     will-change: transform;
     display: flex;
-    transition: transform ease-out 40ms, left ease-out 260ms;
+    // F-15: the drawer's open/close animation is driven entirely by
+    // `transform: translateX(...)` in navdrawer.ts#animateToPosition; `left`/
+    // `right` are only ever set once (off-screen offset) in initElements and
+    // never transitioned afterwards. Dropping them from transition-property
+    // avoids the browser arming a layout-affecting transition for no visual
+    // gain and keeps the animation fully on the compositor.
+    transition: transform ease-out 40ms;
     z-index: 1099;
-
-    [div="rtl"] & {
-        transition: transform ease-out 40ms, right ease-out 260ms;
-    }
 }
 
 .touch-menu-la.transition {
-    transition: transform ease-out 240ms, left ease-out 260ms;
-
-    [div="rtl"] & {
-        transition: transform ease-out 240ms, right ease-out 260ms;
-    }
+    transition: transform ease-out 240ms;
 }
 
 .drawer-open {
