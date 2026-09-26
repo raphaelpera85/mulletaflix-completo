@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Text.Json.Serialization;
 using MulletaFlix.Data.Enums;
 using MediaBrowser.Model.Entities;
@@ -258,6 +259,38 @@ namespace MediaBrowser.Model.Dto
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Creates an independent copy of this instance, including deep copies
+        /// of its mutable collections (<see cref="MediaStreams"/>, <see cref="MediaAttachments"/>,
+        /// <see cref="Formats"/> and <see cref="RequiredHttpHeaders"/>).
+        /// </summary>
+        /// <remarks>
+        /// Replaces the previous JSON round-trip clone (serialize + deserialize) used by
+        /// <c>MediaInfoHelper.GetPlaybackInfo</c>, preserving the same isolation guarantee
+        /// without the serialization cost.
+        /// </remarks>
+        /// <returns>A cloned <see cref="MediaSourceInfo"/>.</returns>
+        public MediaSourceInfo Clone()
+        {
+            var clone = (MediaSourceInfo)MemberwiseClone();
+
+            clone.MediaStreams = MediaStreams is null
+                ? null
+                : new List<MediaStream>(MediaStreams.Select(static s => s.Clone()));
+
+            clone.MediaAttachments = MediaAttachments is null
+                ? null
+                : new List<MediaAttachment>(MediaAttachments.Select(static a => a.Clone()));
+
+            clone.Formats = Formats is null ? null : (string[])Formats.Clone();
+
+            clone.RequiredHttpHeaders = RequiredHttpHeaders is null
+                ? null
+                : new Dictionary<string, string>(RequiredHttpHeaders);
+
+            return clone;
         }
     }
 }

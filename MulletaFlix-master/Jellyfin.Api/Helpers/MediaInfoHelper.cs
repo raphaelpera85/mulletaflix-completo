@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Security.Claims;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
@@ -126,18 +125,16 @@ public class MediaInfoHelper
         {
             // Since we're going to be setting properties on MediaSourceInfos that come out of _mediaSourceManager, we should clone it
             // Should we move this directly into MediaSourceManager?
-            var mediaSourcesClone = JsonSerializer.Deserialize<MediaSourceInfo[]>(JsonSerializer.SerializeToUtf8Bytes(mediaSources));
-            if (mediaSourcesClone is not null)
-            {
-                // Carry over the default audio index source.
-                // This field is not intended to be exposed to API clients, but it is used internally by the server
-                for (int i = 0; i < mediaSourcesClone.Length && i < mediaSources.Length; i++)
-                {
-                    mediaSourcesClone[i].DefaultAudioIndexSource = mediaSources[i].DefaultAudioIndexSource;
-                }
+            var mediaSourcesClone = mediaSources.Select(static m => m.Clone()).ToArray();
 
-                result.MediaSources = mediaSourcesClone;
+            // Carry over the default audio index source.
+            // This field is not intended to be exposed to API clients, but it is used internally by the server
+            for (int i = 0; i < mediaSourcesClone.Length && i < mediaSources.Length; i++)
+            {
+                mediaSourcesClone[i].DefaultAudioIndexSource = mediaSources[i].DefaultAudioIndexSource;
             }
+
+            result.MediaSources = mediaSourcesClone;
 
             result.PlaySessionId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         }

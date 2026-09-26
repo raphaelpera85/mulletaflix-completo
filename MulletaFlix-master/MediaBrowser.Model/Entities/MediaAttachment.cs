@@ -46,4 +46,17 @@ public class MediaAttachment
     /// </summary>
     /// <value>The delivery URL.</value>
     public string? DeliveryUrl { get; set; }
+
+    /// <summary>
+    /// Creates an independent shallow copy of this instance.
+    /// </summary>
+    /// <remarks>
+    /// All members are value types or strings, so <see cref="MemberwiseClone"/>
+    /// already produces a fully independent copy.
+    /// </remarks>
+    /// <returns>A cloned <see cref="MediaAttachment"/>.</returns>
+    public MediaAttachment Clone()
+    {
+        return (MediaAttachment)MemberwiseClone();
+    }
 }

@@ -769,6 +769,19 @@ namespace MediaBrowser.Model.Entities
                    || codec.Contains("vobsub", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Creates an independent shallow copy of this instance.
+        /// </summary>
+        /// <remarks>
+        /// All members are value types, strings or immutable/simple types, so
+        /// <see cref="MemberwiseClone"/> already produces a fully independent copy.
+        /// </remarks>
+        /// <returns>A cloned <see cref="MediaStream"/>.</returns>
+        public MediaStream Clone()
+        {
+            return (MediaStream)MemberwiseClone();
+        }
+
         public bool SupportsSubtitleConversionTo(string toCodec)
         {
             if (!IsTextSubtitleStream)
