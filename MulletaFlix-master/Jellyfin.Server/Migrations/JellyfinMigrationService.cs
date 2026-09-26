@@ -352,18 +352,6 @@ internal class MulletaFlixMigrationService
                     logger.LogInformation("Seeding billing defaults for plans and gateways.");
                     await BillingSeedService.SeedAsync(billingDbContext).ConfigureAwait(false);
                 }
-
-                await InitializeDomainSchemasAsync(logger).ConfigureAwait(false);
-
-                logger.LogInformation("Migrating legacy media data to domain schemas.");
-                await DomainDataMigrator.MigrateAsync(
-                    _dbContextFactory,
-                    _moviesDbContextFactory,
-                    _seriesDbContextFactory,
-                    _channelsDbContextFactory,
-                    _booksDbContextFactory,
-                    logger,
-                    CancellationToken.None).ConfigureAwait(false);
             }
         }
     }
@@ -511,41 +499,6 @@ internal class MulletaFlixMigrationService
             Subtitles = left.Subtitles || right!.Subtitles,
             Trickplay = left.Trickplay || right!.Trickplay
         };
-    }
-
-    private async Task InitializeDomainSchemasAsync(ILogger logger)
-    {
-        var moviesCtx = await _moviesDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
-        await using (moviesCtx.ConfigureAwait(false))
-        {
-            await DomainSchemaInitializer.EnsureDomainTablesAsync(moviesCtx, CancellationToken.None)
-                .ConfigureAwait(false);
-            logger.LogInformation("Movies schema initialized.");
-        }
-
-        var seriesCtx = await _seriesDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
-        await using (seriesCtx.ConfigureAwait(false))
-        {
-            await DomainSchemaInitializer.EnsureDomainTablesAsync(seriesCtx, CancellationToken.None)
-                .ConfigureAwait(false);
-            logger.LogInformation("Series schema initialized.");
-        }
-
-        var channelsCtx = await _channelsDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
-        await using (channelsCtx.ConfigureAwait(false))
-        {
-            await DomainSchemaInitializer.EnsureDomainTablesAsync(channelsCtx, CancellationToken.None)
-                .ConfigureAwait(false);
-            logger.LogInformation("Channels schema initialized.");
-        }
-
-        var booksCtx = await _booksDbContextFactory.CreateDbContextAsync().ConfigureAwait(false);
-        await using (booksCtx.ConfigureAwait(false))
-        {
-            await DomainSchemaInitializer.EnsureDomainTablesAsync(booksCtx, CancellationToken.None)
-                .ConfigureAwait(false);
-            logger.LogInformation("Books schema initialized.");
-        }
     }
 
     private class InternalCodeMigration : IInternalMigration
