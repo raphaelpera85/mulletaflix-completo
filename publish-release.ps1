@@ -85,6 +85,9 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
+- **Correção na busca remota de imagens de títulos**: corrigido o defeito na tela de busca de novas imagens do título (dialog de busca com Fanart, TMDb, etc.) que renderizava apenas 1 cartão mesmo informando múltiplas imagens disponíveis (ex: "1-30 de 82"). As tags dos cartões HTML (`imageDownloader.ts`) agora possuem estrutura DOM balanceada com fechamento correto de `cardBox visualCardBox`, permitindo que todas as imagens paginadas apareçam lado a lado na grade visual.
+- **Nova tela de Cache de Reprodução Nebula no menu Reprodução**: criada a tela de gerenciamento de cache de mídia do catálogo Nebula em `/dashboard/playback/nebulacache`, acessível diretamente como submenu de "Reprodução" no drawer lateral. Apresenta cartões com espaço ocupado em disco, arquivos em cache, quantidade de reproduções ativas com leases protegidos, barra de porcentagem de uso do disco, seletor de diretório de cache (`DirectoryBrowser`) e botão para limpeza imediata de arquivos inativos.
+- **Endpoints de gerenciamento do Cache Nebula**: implementados os endpoints `GET /Nebula/Ftp/PlaybackCache` (consulta de status e armazenamento), `POST /Nebula/Ftp/PlaybackCache/Path` (atualização e migração do caminho de cache) e `POST /Nebula/Ftp/PlaybackCache/Clear` (limpeza segura de buffers inativos).
 - **Solicitações e reportes em todos os clientes**: usuários podem solicitar filmes, séries e outras mídias pela página inicial, e reportar falhas de reprodução diretamente no título. O painel de gestão ganhou telas separadas para acompanhar os envios; o servidor autentica e registra os relatos para consulta administrativa.
 
 - **Intro inicia sem esperar o pré-buffer**: buscar e preparar o cache da mídia principal não bloqueia mais a resposta da intro nativa; falhas de cache ficam isoladas e não retiram a intro da sequência. Os logs agora registram quando a intro é fornecida e quantas intros foram resolvidas para cada mídia.
