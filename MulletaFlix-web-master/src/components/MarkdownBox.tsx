@@ -21,6 +21,18 @@ const MarkdownBox: FC<MarkdownBoxProps> = ({
                 undefined
         }
         sx={{
+            overflowWrap: 'break-word',
+            wordBreak: 'break-word',
+            '& table': {
+                display: 'block',
+                overflowX: 'auto',
+                maxWidth: '100%'
+            },
+            '& pre': {
+                overflowX: 'auto',
+                maxWidth: '100%',
+                whiteSpace: 'pre-wrap'
+            },
             '> :first-child /* emotion-disable-server-rendering-unsafe-selector-warning-please-do-not-use-this-the-warning-exists-for-a-reason */': {
                 marginTop: 0,
                 paddingTop: 0

@@ -789,7 +789,7 @@ internal fun PlayerNextEpisodePrompt(
 
 @Composable
 @UnstableApi
-private fun PlayerOsd(
+internal fun PlayerOsd(
     state: PlayerState,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,

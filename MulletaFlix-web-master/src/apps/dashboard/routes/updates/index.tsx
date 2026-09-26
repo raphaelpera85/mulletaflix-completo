@@ -129,7 +129,7 @@ const Component = () => {
             title='Centro de Atualizações'
             className='mainAnimatedPage type-interior'
         >
-            <Box className='content-primary'>
+            <Box className='content-primary' sx={{ maxWidth: 1200, p: { xs: 2, md: 3 } }}>
                 <Stack spacing={3}>
                     <Stack direction='row' justifyContent='space-between' alignItems='center' flexWrap='wrap' gap={2}>
                         <Typography variant='h1'>

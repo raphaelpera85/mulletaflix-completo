@@ -17,6 +17,9 @@ $drawer-width: 240px;
 
     .skinBody {
         position: unset !important;
+        transform: none !important;
+        left: unset !important;
+        right: unset !important;
     }
 
     // Fix the padding of the metadata editor
