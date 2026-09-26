@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
   <PropertyGroup>
     <VersionPrefix>12.0.95</VersionPrefix>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
