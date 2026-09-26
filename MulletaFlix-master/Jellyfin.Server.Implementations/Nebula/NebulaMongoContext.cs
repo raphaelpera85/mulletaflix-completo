@@ -417,6 +417,52 @@ public sealed class NebulaMongoContext : IDisposable
             || path.StartsWith("/raphael/", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Verifica se existe pelo menos um arquivo com payload do Telegram descendente do caminho virtual informado.
+    /// Usado para ocultar pastas vazias (sem arquivos publicados) no sistema de arquivos virtual FTP.
+    /// </summary>
+    /// <param name="virtualPath">Caminho virtual POSIX do diretório (ex.: "/raphael/Series/Dark").</param>
+    /// <param name="cancellationToken">Token de cancelamento.</param>
+    /// <returns><see langword="true"/> se houver ao menos um arquivo com partes do Telegram sob esse caminho.</returns>
+    public async Task<bool> HasAnyFileDescendantAsync(string virtualPath, CancellationToken cancellationToken = default)
+    {
+        var norm = NormalizePath(virtualPath).TrimEnd('/');
+
+        // Variantes do caminho: com e sem o prefixo /raphael
+        var paths = new List<string> { norm };
+        if (IsRaphaelPath(norm) && norm.Length > "/raphael".Length)
+        {
+            paths.Add(norm["/raphael".Length..]);
+        }
+        else if (!IsRaphaelPath(norm) && norm != "/")
+        {
+            paths.Add($"/raphael{norm}");
+        }
+
+        // Filtro de payload: arquivo com partes publicadas no Telegram
+        var hasPartsFilter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Exists("parts", true),
+            Builders<BsonDocument>.Filter.Not(Builders<BsonDocument>.Filter.Size("parts", 0)));
+
+        // Para cada variante de caminho, verifica filhos diretos E descendentes via prefixo
+        var pathOrFilters = new List<FilterDefinition<BsonDocument>>();
+        foreach (var p in paths)
+        {
+            // Filhos diretos
+            pathOrFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", p));
+            // Descendentes: parent começa com "{p}/"
+            var escapedPrefix = System.Text.RegularExpressions.Regex.Escape(p + "/");
+            pathOrFilters.Add(Builders<BsonDocument>.Filter.Regex("parent", new BsonRegularExpression($"^{escapedPrefix}")));
+        }
+
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Or(pathOrFilters),
+            hasPartsFilter);
+
+        var count = await _filesCollection.CountDocumentsAsync(filter, new CountOptions { Limit = 1 }, cancellationToken).ConfigureAwait(false);
+        return count > 0;
+    }
+
+    /// <summary>
     /// Busca os nós filhos de um determinado pai (ID).
     /// </summary>
     public Task<IReadOnlyList<BsonDocument>> GetChildrenAsync(string? parentId, CancellationToken cancellationToken = default)
