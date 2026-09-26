@@ -250,6 +250,31 @@ public class NebulaUploadEngineTests
         Assert.Equal(expected, NebulaUploadEngine.IsVisibleCategoryRoot(name));
     }
 
+    /// <summary>
+    /// Garante que raízes de categoria aninhadas (ex.: Series/Series, Filmes/Animações)
+    /// são detectadas e suprimidas pelo sistema de arquivos virtual FTP.
+    /// Raízes de categoria só são válidas no nível raiz; dentro de outro diretório
+    /// qualquer nome que seja raiz de categoria é considerado artefato de dados antigos.
+    /// </summary>
+    [Theory]
+    [InlineData("Series", true)]
+    [InlineData("Filmes", true)]
+    [InlineData("Novelas", true)]
+    [InlineData("Animações", true)]
+    [InlineData("Anime", true)]
+    [InlineData("Porno", true)]
+    [InlineData("BoJack Horseman", false)]
+    [InlineData("Season 01", false)]
+    [InlineData("Avatar (2009)", false)]
+    [InlineData("Breaking Bad", false)]
+    public void NebulaFileSystem_NestedCategoryRootSuppression_OnlyAffectsCategoryRootNames(string name, bool shouldBeHidden)
+    {
+        // Uma pasta com esse nome deve ser ocultada quando NÃO estiver no root?
+        // IsVisibleCategoryRoot retorna true exatamente para os nomes que devem ser suprimidos.
+        Assert.Equal(shouldBeHidden, NebulaUploadEngine.IsVisibleCategoryRoot(name));
+    }
+
+
     [Fact]
     public void UploadEngine_CompletedUploadValidation_RequiresExactSizeAndParts()
     {

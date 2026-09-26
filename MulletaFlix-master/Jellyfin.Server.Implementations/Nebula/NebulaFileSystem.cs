@@ -103,8 +103,17 @@ public sealed class NebulaFileSystem : IUnixFileSystem
     public async Task<IUnixFileSystemEntry?> GetEntryByNameAsync(IUnixDirectoryEntry directoryEntry, string name, CancellationToken cancellationToken)
     {
         var dir = (NebulaDirectoryEntry)directoryEntry;
-        if ((dir.IsRoot || dir.FullVirtualPath == "/" || dir.FullVirtualPath.Equals(_userHomePath, StringComparison.OrdinalIgnoreCase)) &&
-            string.Equals(name, "strm", StringComparison.OrdinalIgnoreCase))
+        var parentIsRoot = dir.IsRoot || dir.FullVirtualPath == "/" || dir.FullVirtualPath.Equals(_userHomePath, StringComparison.OrdinalIgnoreCase);
+
+        if (parentIsRoot && string.Equals(name, "strm", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // Raízes de categoria (Series, Filmes, Novelas, Animações, Porno…) só são válidas
+        // no nível raiz. Uma pasta com esse nome aninhada dentro de outra (ex.: Series/Series)
+        // é um artefato de dados antigos e não deve ser navegável no disco N:.
+        if (!parentIsRoot && NebulaUploadEngine.IsVisibleCategoryRoot(name))
         {
             return null;
         }
@@ -169,6 +178,15 @@ public sealed class NebulaFileSystem : IUnixFileSystem
 
             if (isDir)
             {
+                // Raízes de categoria (Series, Filmes, Novelas, Animações, Porno…) só são válidas
+                // no nível raiz. Quando aparece um diretório com esse nome aninhado dentro de outro
+                // (ex.: Series/Series, Filmes/Animações), é um artefato de dados antigos e deve ser
+                // silenciosamente omitido do disco N:.
+                if (!isRoot && NebulaUploadEngine.IsVisibleCategoryRoot(name))
+                {
+                    continue;
+                }
+
                 // Oculta pastas que não têm nenhum arquivo com payload do Telegram (direto ou aninhado).
                 // Isso evita que pastas "fantasma" apareçam no disco N: quando ainda não há mídia publicada.
                 var hasFiles = await _mongoContext.HasAnyFileDescendantAsync(childVirtualPath, cancellationToken).ConfigureAwait(false);
