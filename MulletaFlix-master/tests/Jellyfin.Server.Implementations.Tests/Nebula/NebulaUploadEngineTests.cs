@@ -1080,6 +1080,9 @@ public class NebulaUploadEngineTests
     // Raiz de categoria duplicada nunca é preservada
     [InlineData(@"Series\Series\BoJack Horseman\Season 03", "BoJack Horseman - S03E11.mkv", "Series/BoJack Horseman/Season 03")]
     [InlineData(@"strm\Series\Dark\Season 1", "Dark.S01E01.mkv", "Series/Dark/Season 1")]
+    // Doramas roteados para Doramas
+    [InlineData(@"Doramas\The Guest (2025)\Season 01", "The.Guest.S01E01.mkv", "Doramas/The Guest (2025)/Season 01")]
+    [InlineData(@"Series\Doramas\Encounter (2021) (LEG)\Season 01", "Encounter.S01E01.mkv", "Doramas/Encounter (2021) (LEG)/Season 01")]
     public void NebulaUploadEngine_RouteMediaRelativeDirectory_FollowsCategoryRules(string? relDir, string filename, string expected)
     {
         var result = NebulaUploadEngine.RouteMediaRelativeDirectory(relDir, filename);
@@ -1105,6 +1108,9 @@ public class NebulaUploadEngineTests
     [InlineData("Anime/Dragon Ball Z", "Dragon Ball Z - Ep 01.mkv", "Nebula", "Animações", "Dragon Ball Z", "Season 01")]
     // Novelas sob Nebula/Novelas/NomeDaNovela/Season ##
     [InlineData("Novelas/Chiquititas/Temporada 1", "Chiquititas S01E01.mkv", "Nebula", "Novelas", "Chiquititas", "Season 01")]
+    // Doramas sob Nebula/Doramas/NomeDoDorama/Season ##
+    [InlineData("Doramas/The Guest/Season 01", "The Guest S01E01.mkv", "Nebula", "Doramas", "The Guest", "Season 01")]
+    [InlineData(@"Series\Doramas\Encounter\Season 01", "Encounter S01E01.mkv", "Nebula", "Doramas", "Encounter", "Season 01")]
     // Mesma árvore de destino para a mesma mídia, qualquer que seja a origem
     [InlineData(@"Series\Filmes\O Show dos Muppets (2026)", "O Show dos Muppets (2026).mkv", "Nebula", "Filmes", "O Show dos Muppets (2026)")]
     [InlineData(@"Series\Series\BoJack Horseman\Season 03", "BoJack Horseman - S03E11.mkv", "Nebula", "Series", "BoJack Horseman", "Season 03")]

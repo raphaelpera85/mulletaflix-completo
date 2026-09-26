@@ -171,11 +171,11 @@ function Move-TitleFolder($folderDoc, $targetRootDoc, [string]$targetRootName) {
     if (-not $DryRun) {
         # Atualiza parent do folderDoc para o id do targetRoot
         $setDoc = [MongoDB.Bson.BsonDocument]::new()
-        $setDoc.Add('parent', $targetRootDoc['_id'])
-        $setDoc.Add('modified_at', [System.DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+        $setDoc['parent'] = $targetRootDoc['_id']
+        $setDoc['modified_at'] = [System.DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
         $updateFolder = [MongoDB.Bson.BsonDocument]::new('$set', $setDoc)
         $filterFolder = [MongoDB.Bson.BsonDocument]::new('_id', $folderId)
-        $col.UpdateOne($filterFolder, $updateFolder)
+        $null = $col.UpdateOne($filterFolder, $updateFolder)
         
         # Atualiza caminhos virtuais legados dos descendentes
         $oldPrefix1 = "/raphael/Series/$folderName"
@@ -195,7 +195,7 @@ function Move-TitleFolder($folderDoc, $targetRootDoc, [string]$targetRootName) {
                 $currP.Replace($oldPrefix1, $newPrefix1)
             }
             $descSet = [MongoDB.Bson.BsonDocument]::new('parent', $newP)
-            $col.UpdateOne(
+            $null = $col.UpdateOne(
                 [MongoDB.Bson.BsonDocument]::new('_id', $desc['_id']),
                 [MongoDB.Bson.BsonDocument]::new('$set', $descSet)
             )
@@ -233,7 +233,7 @@ if ($null -ne $seriesUnderSeries) {
     # Exclui a pasta duplicada Series/Series
     Write-Host "Excluindo nó duplicado Series/Series..."
     if (-not $DryRun) {
-        $col.DeleteOne([MongoDB.Bson.BsonDocument]::new('_id', $seriesUnderSeries['_id']))
+        $null = $col.DeleteOne([MongoDB.Bson.BsonDocument]::new('_id', $seriesUnderSeries['_id']))
     }
 }
 
@@ -252,7 +252,7 @@ if ($null -ne $novelasUnderSeries) {
     }
     Write-Host "Excluindo nó duplicado Series/Novelas..."
     if (-not $DryRun) {
-        $col.DeleteOne([MongoDB.Bson.BsonDocument]::new('_id', $novelasUnderSeries['_id']))
+        $null = $col.DeleteOne([MongoDB.Bson.BsonDocument]::new('_id', $novelasUnderSeries['_id']))
     }
 }
 
@@ -273,14 +273,14 @@ foreach ($child in $seriesChildren) {
         if (-not $DryRun) {
             # Deleta subdiretórios órfãos (ex: Season 01, Season 02)
             $orArray = [MongoDB.Bson.BsonArray]::new()
-            $orArray.Add([MongoDB.Bson.BsonDocument]::new('parent', $child['_id']))
-            $orArray.Add([MongoDB.Bson.BsonDocument]::new('parent', $childVirtual))
-            $orArray.Add([MongoDB.Bson.BsonDocument]::new('parent', [MongoDB.Bson.BsonRegularExpression]::new('^' + [System.Text.RegularExpressions.Regex]::Escape($childVirtual))))
+            $null = $orArray.Add([MongoDB.Bson.BsonDocument]::new('parent', $child['_id']))
+            $null = $orArray.Add([MongoDB.Bson.BsonDocument]::new('parent', $childVirtual))
+            $null = $orArray.Add([MongoDB.Bson.BsonDocument]::new('parent', [MongoDB.Bson.BsonRegularExpression]::new('^' + [System.Text.RegularExpressions.Regex]::Escape($childVirtual))))
             $delManyFilter = [MongoDB.Bson.BsonDocument]::new('$or', $orArray)
-            $col.DeleteMany($delManyFilter)
+            $null = $col.DeleteMany($delManyFilter)
             
             # Deleta o nó do título
-            $col.DeleteOne([MongoDB.Bson.BsonDocument]::new('_id', $child['_id']))
+            $null = $col.DeleteOne([MongoDB.Bson.BsonDocument]::new('_id', $child['_id']))
         }
         $ghostFoldersDeleted++
         continue

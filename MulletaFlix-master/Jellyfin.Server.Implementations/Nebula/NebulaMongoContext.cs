@@ -1314,7 +1314,7 @@ public sealed class NebulaMongoContext : IDisposable
             static string ParentKey(BsonDocument doc)
                 => doc.TryGetValue("parent", out var parent) && !parent.IsBsonNull ? parent.ToString() : string.Empty;
 
-            var targetCategories = new[] { "Series", "Filmes", "Novelas", "Animações" };
+            var targetCategories = new[] { "Series", "Filmes", "Novelas", "Animações", "Doramas" };
 
             foreach (var cat in targetCategories)
             {

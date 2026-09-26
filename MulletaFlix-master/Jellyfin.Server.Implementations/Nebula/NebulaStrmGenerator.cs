@@ -62,7 +62,7 @@ public sealed class NebulaStrmGenerator
         // do caminho, garantindo uma única raiz por mídia (Filmes, Animações, Series ou Porno).
         var rawParts = NebulaUploadEngine.NormalizeMediaPathSegments(relativeDir);
 
-        if (mediaType is "SERIE" or "NOVELA" or "ANIMACAO")
+        if (mediaType is "SERIE" or "NOVELA" or "ANIMACAO" or "DORAMA")
         {
             string seriesName;
             string seasonFolder;
@@ -129,6 +129,7 @@ public sealed class NebulaStrmGenerator
             {
                 "NOVELA" => "Novelas",
                 "ANIMACAO" => "Animações",
+                "DORAMA" => "Doramas",
                 _ => "Series"
             };
 

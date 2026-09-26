@@ -154,6 +154,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         "novelas", "novela", "telenovelas", "telenovela"
     };
 
+    private static readonly HashSet<string> DoramaRootSegments = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "doramas", "dorama", "k-drama", "kdrama", "c-drama", "cdrama", "j-drama", "jdrama"
+    };
+
     /// <summary>
     /// Segmentos de pasta que declaram animação (animes e animação ocidental).
     /// A pasta monitorada pode trazer 'Animações', 'Animação' ou 'Anime'.
@@ -180,6 +185,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         "filmes", "filme", "movies", "movie",
         "series", "serie", "série",
         "novelas", "novela", "telenovelas", "telenovela",
+        "doramas", "dorama", "k-drama", "kdrama", "c-drama", "cdrama", "j-drama", "jdrama",
         "animacao", "animação", "animacoes", "animações", "animation", "animations", "anime", "animes",
         "porno", "porn", "adulto", "hentai", "erotico", "erótico", "xxx",
         "strm", "nebula"
@@ -233,7 +239,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// mais próximo da mídia vence (ex.: 'Series\Filmes\X' declara filme para o que está em X).
     /// </summary>
     /// <param name="segments">Segmentos do diretório relativo.</param>
-    /// <returns>'FILME', 'SERIE', 'NOVELA', 'ANIMACAO' ou 'PORNO' quando a pasta declara categoria.</returns>
+    /// <returns>'FILME', 'SERIE', 'NOVELA', 'DORAMA', 'ANIMACAO' ou 'PORNO' quando a pasta declara categoria.</returns>
     internal static string? DeclaredCategoryFromPath(IEnumerable<string> segments)
     {
         string? declared = null;
@@ -246,6 +252,10 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             else if (IsNovelaSegment(segment))
             {
                 declared = "NOVELA";
+            }
+            else if (IsDoramaSegment(segment))
+            {
+                declared = "DORAMA";
             }
             else if (IsAnimacaoSegment(segment))
             {
@@ -263,6 +273,16 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
         return declared;
     }
+
+    /// <summary>
+    /// Diz se o segmento de pasta declara um dorama / k-drama.
+    /// </summary>
+    private static bool IsDoramaSegment(string segment)
+        => DoramaRootSegments.Contains(segment)
+           || segment.StartsWith("dorama ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("doramas ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("kdrama ", StringComparison.OrdinalIgnoreCase)
+           || segment.StartsWith("k-drama ", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Diz se o segmento de pasta declara uma novela.
@@ -302,7 +322,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
            || segment.StartsWith("animações ", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Classifica deterministicamente o tipo da mídia: 'SERIE', 'NOVELA', 'ANIMACAO', 'PORNO' ou 'FILME'.
+    /// Classifica deterministicamente o tipo da mídia: 'SERIE', 'NOVELA', 'DORAMA', 'ANIMACAO', 'PORNO' ou 'FILME'.
     /// A árvore de pastas declarada manda mais que as palavras do título: um filme guardado
     /// em 'Series\Filmes\O Show dos Muppets (2026)' é FILME, um filme com ano no nome
     /// ('Temporada de Sangue (2025)') não vira série, e um título com 'Sex' ou 'Adult' no
@@ -326,12 +346,17 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 return "NOVELA";
             }
 
+            if (segments.Any(segment => DoramaRootSegments.Contains(segment)))
+            {
+                return "DORAMA";
+            }
+
             return segments.Any(segment => AnimacaoRootSegments.Contains(segment)) ? "ANIMACAO" : "SERIE";
         }
 
         // 2. Categoria declarada pela própria árvore de pastas.
         var declared = DeclaredCategoryFromPath(segments);
-        if ((declared == "SERIE" || declared == "NOVELA") && hasMovieYear)
+        if ((declared == "SERIE" || declared == "NOVELA" || declared == "DORAMA") && hasMovieYear)
         {
             // Título com ano de lançamento dentro de uma raiz de séries é filme.
             declared = "FILME";
@@ -365,6 +390,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             return "NOVELA";
         }
 
+        if (segments.Any(segment => DoramaRootSegments.Contains(segment)
+            || segment.Contains("dorama", StringComparison.OrdinalIgnoreCase)
+            || segment.Contains("k-drama", StringComparison.OrdinalIgnoreCase)
+            || segment.Contains("kdrama", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "DORAMA";
+        }
+
         if (segments.Any(IsAnimacaoSegment))
         {
             return "ANIMACAO";
@@ -384,6 +417,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// - ANIMACOES: ficam sob a pasta raiz 'Animações'
     /// - SERIES: ficam sob a pasta raiz 'Series', preservando todas as suas subpastas (ex: Temporada, Série)
     /// - NOVELAS: ficam sob a pasta raiz 'Novelas'
+    /// - DORAMAS: ficam sob a pasta raiz 'Doramas'
     /// - PORNO: ficam diretamente na pasta raiz 'Porno', sem subpastas.
     /// Toda mídia termina sob exatamente uma raiz de categoria, independente da árvore
     /// de origem ter vindo de outra raiz (ex.: filmes guardados dentro de 'Series\Filmes').
@@ -402,6 +436,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         {
             "SERIE" => "Series",
             "NOVELA" => "Novelas",
+            "DORAMA" => "Doramas",
             "ANIMACAO" => "Animações",
             _ => "Filmes"
         };
