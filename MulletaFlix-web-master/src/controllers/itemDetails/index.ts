@@ -70,7 +70,19 @@ function renderPoster(view: HTMLElement, item: any, apiClient: any): void {
         });
     }
 
+    // F-13: reserve the poster's box before the image loads to avoid CLS.
+    // `PrimaryImageAspectRatio` (width/height, as returned by the server for
+    // this item) is the real ratio when available; the classic Jellyfin
+    // poster ratio (2/3, i.e. width/height) is the fallback used elsewhere in
+    // the codebase (see imageLoader.ts#getPrimaryImageAspectRatio) for items
+    // that don't report one.
+    const aspectRatio = typeof item.PrimaryImageAspectRatio === 'number' && item.PrimaryImageAspectRatio > 0 ?
+        item.PrimaryImageAspectRatio :
+        (2 / 3);
+
     containers.forEach(container => {
+        container.style.aspectRatio = String(aspectRatio);
+
         if (imgUrl) {
             container.innerHTML = `<img class="itemDetailImage" src="${escapeHtml(imgUrl)}" alt="${escapeHtml(item.Name || '')}" />`;
             container.classList.remove('hide');

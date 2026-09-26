@@ -920,6 +920,10 @@
     display: block;
     width: 100% !important;
     height: auto;
+    /* F-13: fallback box so the poster reserves space before both the aspect-ratio
+     * set inline by renderPoster() (from item.PrimaryImageAspectRatio, itemDetails/index.ts)
+     * and the image itself have loaded, avoiding CLS on this high-traffic page. */
+    aspect-ratio: 2 / 3;
     border-radius: 0.4em;
     box-shadow: 0 0.1em 0.5em 0 rgba(0, 0, 0, 0.75);
 
