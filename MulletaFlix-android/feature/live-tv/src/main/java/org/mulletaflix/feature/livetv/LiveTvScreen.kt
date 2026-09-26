@@ -14,11 +14,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -37,6 +33,7 @@ import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.primaryImageUrl
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,42 +48,36 @@ fun LiveTvScreen(
         Configuration.UI_MODE_TYPE_TELEVISION
     var showGuide by remember { mutableStateOf(false) }
 
-    LaunchedEffect(lifecycleOwner, isTelevision) {
-        val refreshInterval = liveTvAutoRefreshIntervalMillis(isTelevision)
-        if (refreshInterval > 0L) {
-            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                if (refreshLiveTvImmediatelyOnResume(isTelevision)) {
-                    viewModel.refreshIfIdle()
-                }
-                while (isActive) {
-                    delay(refreshInterval)
-                    viewModel.refreshIfIdle()
-                }
-            }
-        }
-    }
+    LiveTvRefreshEffect(
+        lifecycleOwner = lifecycleOwner,
+        refreshIntervalMillis = liveTvAutoRefreshIntervalMillis(isTelevision),
+        refreshImmediately = refreshLiveTvImmediatelyOnResume(isTelevision),
+        onRefresh = viewModel::refreshIfIdle,
+    )
+    LiveTvRefreshEffect(
+        lifecycleOwner = lifecycleOwner,
+        refreshIntervalMillis = if (shouldRefreshLiveTvGuide(showGuide)) {
+            LIVE_TV_GUIDE_REFRESH_INTERVAL_MILLIS
+        } else {
+            0L
+        },
+        refreshImmediately = refreshLiveTvGuideImmediatelyOnResume(showGuide, isTelevision),
+        onRefresh = viewModel::loadGuide,
+    )
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("TV Ao Vivo & EPG") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
-                    }
+            LiveTvTopBar(
+                onBack = onBack,
+                onRefresh = viewModel::refresh,
+                onGuide = {
+                    showGuide = true
+                    if (isTelevision) viewModel.loadGuide()
                 },
-                actions = {
-                    IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) {
-                        Icon(Icons.Default.Refresh, "Atualizar canais")
-                    }
-                    IconButton(
-                        onClick = { showGuide = true; viewModel.loadGuide() },
-                        enabled = state.channels.isNotEmpty() && !state.isLoadingGuide
-                    ) {
-                        Icon(Icons.Default.CalendarMonth, "Guia EPG")
-                    }
-                }
+                isLoading = state.isLoading,
+                isLoadingGuide = state.isLoadingGuide,
+                hasChannels = state.channels.isNotEmpty(),
             )
-        }
+        },
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Text("Canais disponíveis", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(bottom = 8.dp)) }
@@ -110,11 +101,26 @@ fun LiveTvScreen(
                     }
                 }
             }
-            state.error?.let { error -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); TextButton(onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }
+            state.error?.let { error -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); GuideActionButton(isTelevision = isTelevision, onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }
             if (state.isLoading && state.channels.isEmpty()) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (!state.isLoading && state.channels.isEmpty() && state.error == null) item { EmptyLiveTvState() }
             items(state.channels, key = { it.id }) { channel ->
                 ChannelRow(channel, isTelevision = isTelevision, onPlay = { onChannelPlay(channel.id) })
+            }
+            // A falha das gravações não pode sumir com a seção: sem esta linha, um erro
+            // de rede era indistinguível de "você não tem gravações".
+            state.recordingsError?.let { message ->
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
+                            GuideActionButton(isTelevision = isTelevision, onClick = viewModel::refresh) { Text("Tentar novamente") }
+                        }
+                    }
+                }
             }
             if (state.recordings.isNotEmpty()) {
                 item {
@@ -131,7 +137,66 @@ fun LiveTvScreen(
             }
         }
     }
-    if (showGuide) AlertDialog(onDismissRequest = { showGuide = false }, title = { Text("Guia das próximas 24 horas") }, text = { GuideContent(state, onSchedule = viewModel::scheduleRecording) }, confirmButton = { TextButton(onClick = { showGuide = false }) { Text("Fechar") } })
+    if (showGuide) AlertDialog(
+        onDismissRequest = { showGuide = false; viewModel.closeGuide() },
+        title = { Text("Guia das próximas 24 horas") },
+        text = {
+            GuideContent(
+                state = state,
+                isTelevision = isTelevision,
+                onSchedule = viewModel::scheduleRecording,
+                onCancel = viewModel::cancelScheduledRecording,
+                onRetry = viewModel::loadGuide,
+                onRetryTimerLookup = viewModel::retryScheduledRecordingTimerLookup,
+            )
+        },
+        confirmButton = {
+            GuideActionButton(isTelevision = isTelevision, onClick = { showGuide = false; viewModel.closeGuide() }) {
+                Text("Fechar")
+            }
+        },
+    )
+}
+
+/**
+ * Top bar kept separate from the screen so TV remote actions can be verified
+ * without constructing a Hilt ViewModel or making a network request.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun LiveTvTopBar(
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onGuide: () -> Unit,
+    isLoading: Boolean,
+    isLoadingGuide: Boolean,
+    hasChannels: Boolean,
+) {
+    TopAppBar(
+        title = { Text("TV Ao Vivo & EPG") },
+        navigationIcon = {
+            MulletaFlixTopBarAction(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+            }
+        },
+        actions = {
+            MulletaFlixTopBarAction(
+                onClick = onRefresh,
+                busy = isLoading,
+                busyContentDescription = "Atualizar canais",
+            ) {
+                Icon(Icons.Default.Refresh, "Atualizar canais")
+            }
+            MulletaFlixTopBarAction(
+                onClick = onGuide,
+                enabled = hasChannels,
+                busy = isLoadingGuide,
+                busyContentDescription = "Guia EPG",
+            ) {
+                Icon(Icons.Default.CalendarMonth, "Guia EPG")
+            }
+        },
+    )
 }
 
 @Composable
@@ -152,7 +217,10 @@ private fun ChannelRow(channel: MediaItem, isTelevision: Boolean, onPlay: () -> 
             .scale(focusScale)
             .then(
                 if (isTelevision) {
-                    Modifier.onFocusChanged { isFocused = it.isFocused }.focusable()
+                    // No `focusable()`: the `clickable` below already provides a
+                    // focus target, and a second one on the same node swallowed the
+                    // remote's first press, so these rows needed two clicks to play.
+                    Modifier.onFocusChanged { isFocused = it.isFocused }
                 } else Modifier
             )
             .then(
@@ -175,7 +243,7 @@ private fun ChannelRow(channel: MediaItem, isTelevision: Boolean, onPlay: () -> 
                     maxLines = 2,
                 )
             }
-            IconButton(onClick = onPlay) {
+            MulletaFlixTopBarAction(onClick = onPlay) {
                 Icon(Icons.Default.PlayCircleOutline, "Assistir ${channel.name}", tint = MaterialTheme.colorScheme.secondary)
             }
         }
@@ -222,7 +290,10 @@ private fun RecordingRow(recording: MediaItem, isTelevision: Boolean, onPlay: ()
             .scale(focusScale)
             .then(
                 if (isTelevision) {
-                    Modifier.onFocusChanged { isFocused = it.isFocused }.focusable()
+                    // No `focusable()`: the `clickable` below already provides a
+                    // focus target, and a second one on the same node swallowed the
+                    // remote's first press, so these rows needed two clicks to play.
+                    Modifier.onFocusChanged { isFocused = it.isFocused }
                 } else Modifier
             )
             .then(
@@ -242,8 +313,8 @@ private fun RecordingRow(recording: MediaItem, isTelevision: Boolean, onPlay: ()
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(recording.name, style = MaterialTheme.typography.titleSmall)
-                recording.startDate?.let { date ->
-                    Text(date.replace('T', ' ').removeSuffix("Z"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                recordingStartLabel(recording.startDate)?.let { label ->
+                    Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 recording.overview?.takeIf(String::isNotBlank)?.let { overview ->
                     Text(overview, maxLines = 2, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -255,37 +326,131 @@ private fun RecordingRow(recording: MediaItem, isTelevision: Boolean, onPlay: ()
 }
 
 @Composable
-private fun GuideContent(state: LiveTvUiState, onSchedule: (MediaItem) -> Unit) {
-    when {
-        state.isLoadingGuide -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        state.guideError != null -> Text(state.guideError)
-        state.programs.isEmpty() -> Text("Nenhum programa encontrado para as próximas 24 horas.")
-        else -> LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 420.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(state.programs, key = { it.id }) { program ->
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                    Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(program.name, style = MaterialTheme.typography.bodyMedium)
-                            program.overview?.let { Text(it, maxLines = 2, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
-                        val canSchedule = !program.channelId.isNullOrBlank() && !program.startDate.isNullOrBlank() && !program.endDate.isNullOrBlank()
-                        if (canSchedule) {
-                            val scheduled = program.id in state.scheduledProgramIds
-                            val scheduling = program.id in state.schedulingProgramIds
-                            TextButton(onClick = { onSchedule(program) }, enabled = !scheduled && !scheduling) {
-                                Text(if (scheduled) "Agendado" else if (scheduling) "Agendando…" else "Gravar")
+internal fun GuideContent(
+    state: LiveTvUiState,
+    isTelevision: Boolean = false,
+    onSchedule: (MediaItem) -> Unit,
+    onCancel: (MediaItem) -> Unit,
+    onRetry: () -> Unit,
+    onRetryTimerLookup: (MediaItem) -> Unit,
+) {
+    Column {
+        // The error is a banner, not a replacement. It used to be rendered
+        // *instead of* the programmes, so one failed refresh discarded a guide
+        // the user was already reading and the dialog offered no way to retry.
+        state.guideError?.let { message ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = message,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                GuideActionButton(isTelevision = isTelevision, onClick = onRetry) {
+                    Text("Tentar novamente")
                 }
             }
         }
-}
+        state.recordingActionError?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+        }
+        when (guideBody(state.isLoadingGuide, state.programs.size)) {
+            GuideBody.LOADING -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            GuideBody.EMPTY -> Text("Nenhum programa encontrado para as próximas 24 horas.")
+            GuideBody.PROGRAMMES -> LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.programs, key = { it.id }) { program ->
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(program.name, style = MaterialTheme.typography.bodyMedium)
+                                program.overview?.let { Text(it, maxLines = 2, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            }
+                            val canSchedule = !program.channelId.isNullOrBlank() && !program.startDate.isNullOrBlank() && !program.endDate.isNullOrBlank()
+                            if (canSchedule) {
+                                val scheduled = program.id in state.scheduledProgramIds
+                                val scheduling = program.id in state.schedulingProgramIds
+                                if (scheduled) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("Agendado", style = MaterialTheme.typography.labelMedium)
+                                        if (program.id in state.scheduledProgramTimerIds) {
+                                            val cancelling = program.id in state.cancellingProgramIds
+                                            GuideActionButton(
+                                                isTelevision = isTelevision,
+                                                onClick = { onCancel(program) },
+                                                enabled = !cancelling && !state.isOffline,
+                                            ) {
+                                                Text(if (cancelling) "Cancelando…" else "Cancelar")
+                                            }
+                                        } else {
+                                            val resolvingTimer = program.id in state.resolvingTimerProgramIds
+                                            Text(
+                                                if (resolvingTimer) "Confirmando com o servidor…"
+                                                else "Aguardando confirmação do servidor",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            GuideActionButton(
+                                                isTelevision = isTelevision,
+                                                onClick = { onRetryTimerLookup(program) },
+                                                enabled = !resolvingTimer && !state.isOffline,
+                                            ) {
+                                                Text(if (resolvingTimer) "Verificando…" else "Verificar")
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    GuideActionButton(
+                                        isTelevision = isTelevision,
+                                        onClick = { onSchedule(program) },
+                                        enabled = !scheduling && !state.isOffline,
+                                    ) {
+                                        Text(if (scheduling) "Agendando…" else "Gravar")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun GuideActionButton(
+    isTelevision: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(
+                if (isTelevision && isFocused) {
+                    Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.small)
+                } else {
+                    Modifier
+                },
+            ),
+        content = content,
+    )
 }
 
 @Composable

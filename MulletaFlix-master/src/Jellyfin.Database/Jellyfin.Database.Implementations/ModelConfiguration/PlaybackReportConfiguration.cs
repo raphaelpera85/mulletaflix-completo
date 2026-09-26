@@ -12,6 +12,10 @@ public class PlaybackReportConfiguration : IEntityTypeConfiguration<PlaybackRepo
     /// <inheritdoc/>
     public void Configure(EntityTypeBuilder<PlaybackReport> builder)
     {
+        // Keep the physical name stable across MariaDB installations. Without an
+        // explicit name, older builds could generate/query a pluralized table
+        // (playbackreports), while the shipped migration creates PlaybackReport.
+        builder.ToTable("PlaybackReport");
         builder.HasIndex(entity => entity.DateCreated);
         builder.HasIndex(entity => entity.UserId);
         builder.HasIndex(entity => entity.ItemId);

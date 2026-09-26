@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -85,7 +85,7 @@ public class AudioHelper
         // CTS lifecycle is managed internally.
         var cancellationTokenSource = new CancellationTokenSource();
 
-        using var state = await StreamingHelpers.GetStreamingState(
+        await using var state = await StreamingHelpers.GetStreamingState(
                 streamingRequest,
                 _httpContextAccessor.HttpContext,
                 _mediaSourceManager,

@@ -1,5 +1,12 @@
 package org.mulletaflix.data.repository
 
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -265,4 +272,119 @@ class AppUpdateRepositoryTest {
             info.apkDownloadUrl,
         )
     }
+
+    @Test
+    fun `a release whose APK has no digest is still offered`() {
+        // GitHub sends an explicit `"digest": null` for an asset with no digest.
+        // On Android, org.json's `optString(key, fallback)` returns the *string*
+        // "null" for a JSON null, so the device treated the asset as having a
+        // malformed digest and skipped the release entirely: the updater said
+        // "already on the latest version" forever. The JVM org.json used by this
+        // test returns the fallback instead, which is why the divergence was
+        // invisible here — so `normalizedAssetDigest` normalises the literal for
+        // both platforms and is asserted directly.
+        val json = """
+            [{
+                "tag_name": "app-v1.4.0",
+                "assets": [{
+                    "name": "mulletaflix-app-v1.4.0.apk",
+                    "browser_download_url": "https://github.com/releases/download/app-v1.4.0/mulletaflix-app-v1.4.0.apk",
+                    "digest": null,
+                    "size": 7000000
+                }]
+            }]
+        """.trimIndent()
+
+        val info = repository.parseReleases(json, "1.3.9")
+
+        assertTrue("a release without a digest must still be offered", info.isUpdateAvailable)
+        assertEquals("1.4.0", info.latestVersion)
+        assertEquals(null, info.apkSha256)
+    }
+
+    @Test
+    fun `the literal null digest is treated as absent`() {
+        // What AOSP's org.json actually hands back for `"digest": null`.
+        val asset = org.json.JSONObject("""{"name":"a.apk","digest":null}""")
+        val explicitNull = org.json.JSONObject("""{"name":"a.apk","digest":"null"}""")
+        val valid = org.json.JSONObject(
+            """{"name":"a.apk","digest":"sha256:${"a".repeat(64)}"}""",
+        )
+        val blank = org.json.JSONObject("""{"name":"a.apk","digest":"   "}""")
+
+        assertEquals("", normalizedAssetDigest(asset))
+        assertEquals("", normalizedAssetDigest(explicitNull))
+        assertEquals("", normalizedAssetDigest(blank))
+        assertEquals("sha256:${"a".repeat(64)}", normalizedAssetDigest(valid))
+    }
+
+    /**
+     * Um corpo que a função **não conseguiu ler** não é a mesma coisa que "não há
+     * release nova". Antes, a exceção de parse era engolida e a função devolvia
+     * sucesso com `isUpdateAvailable = false`, então Ajustes dizia "Você já está na
+     * versão mais recente" — uma afirmação sobre uma resposta que ninguém leu.
+     */
+    @Test
+    fun `an unreadable body is a failure, not a claim of being up to date`() {
+        val thrown = runCatching { repository.parseReleases("nao e json", "1.2.72") }
+
+        assertTrue(
+            "uma resposta ilegível precisa virar erro, não \"já está atualizado\"",
+            thrown.isFailure,
+        )
+    }
+
+    @Test
+    fun `a well formed but empty list still means no update`() {
+        val info = repository.parseReleases("[]", "1.2.72")
+
+        assertFalse(info.isUpdateAvailable)
+        assertEquals("1.2.72", info.latestVersion)
+    }
+
+    @Test
+    fun `an unsuccessful GitHub response is closed`() {
+        val body = mockk<ResponseBody>(relaxed = true)
+        val response = httpResponse(code = 503, body = body)
+
+        val result = repository.parseResponse(response, "1.3.66")
+
+        assertTrue(result.isFailure)
+        assertEquals("Falha ao consultar releases: HTTP 503", result.exceptionOrNull()?.message)
+        verify(exactly = 1) { body.close() }
+    }
+
+    @Test
+    fun `a successful GitHub response is closed after parsing`() {
+        val body = mockk<ResponseBody>(relaxed = true)
+        every { body.string() } returns "[]"
+        val response = httpResponse(code = 200, body = body)
+
+        val result = repository.parseResponse(response, "1.3.66")
+
+        assertTrue(result.isSuccess)
+        assertFalse(result.getOrThrow().isUpdateAvailable)
+        verify(exactly = 1) { body.close() }
+    }
+
+    @Test
+    fun `a GitHub response is closed when its body cannot be parsed`() {
+        val body = mockk<ResponseBody>(relaxed = true)
+        every { body.string() } returns "not json"
+        val response = httpResponse(code = 200, body = body)
+
+        val result = runCatching { repository.parseResponse(response, "1.3.66") }
+
+        assertTrue(result.isFailure)
+        verify(exactly = 1) { body.close() }
+    }
+
+    private fun httpResponse(code: Int, body: ResponseBody): Response =
+        Response.Builder()
+            .request(Request.Builder().url("https://api.github.com/releases").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(code)
+            .message("test response")
+            .body(body)
+            .build()
 }

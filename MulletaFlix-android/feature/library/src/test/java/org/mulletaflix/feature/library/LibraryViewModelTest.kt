@@ -186,6 +186,25 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `refreshIfIdle does not replace the initial job before loading state is published`() = runTest {
+        val responseRelease = CompletableDeferred<Unit>()
+        media.blockLibraryId = "library-1"
+        media.blockedLibraryRelease = responseRelease
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        // The initial coroutine is active, but it has not reached the point
+        // where it publishes isLoading yet. This is the TV-entry race window.
+        viewModel.loadLibrary("library-1")
+        viewModel.refreshIfIdle("library-1")
+        runCurrent()
+
+        assertEquals(1, media.detailCalls)
+        responseRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
     fun `network recovery refreshes the loaded library once`() = runTest {
         val network = FakeNetworkMonitor(initialOnline = false)
         media.itemsByLibrary["library-1"] = listOf(MediaItem("item-1", "Item", MediaItemType.Movie)) to 2
@@ -334,6 +353,83 @@ class LibraryViewModelTest {
         assertEquals(1, media.lastStartIndex)
     }
 
+    /**
+     * "Aleatório" is `ORDER BY RANDOM()` on the server, so a request at an offset
+     * cuts a different shuffle: the accumulated list gains repeats and loses titles
+     * that were never shown, and the "loaded < total" check ends the catalogue early.
+     * The whole list therefore has to arrive in one request.
+     */
+    @Test
+    fun `a random ordering is fetched whole instead of paged by offset`() = runTest {
+        val whole = List(120) { MediaItem("item-$it", "Item $it", MediaItemType.Movie) }
+        media.responseSequence = ArrayDeque(
+            listOf(
+                CompletableDeferred(Result.success(listOf(whole.first()) to 120)),
+                CompletableDeferred(Result.success(whole to 120)),
+            ),
+        )
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(initialSort = "Random"),
+            networkMonitor = FakeNetworkMonitor(),
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals("the second request must ask for the whole library", 120, media.lastLimit)
+        assertEquals(120, viewModel.state.value.items.size)
+        assertEquals(false, viewModel.state.value.hasMore)
+
+        val callsAfterLoad = media.itemCalls
+        viewModel.loadMore()
+        advanceUntilIdle()
+        assertEquals("there is no page 2 to ask for", callsAfterLoad, media.itemCalls)
+    }
+
+    /**
+     * Two requests against an offset window are only disjoint when nothing changed on
+     * the server in between. A library scan that inserts a title at the top of a
+     * "date added" ordering shifts the window, so the tail of page 1 comes back as the
+     * head of page 2 — the grid renders `key = item.id`, so the repeat has to be
+     * dropped, and the offset has to keep advancing past every item the server handed
+     * over, duplicates included.
+     */
+    @Test
+    fun `a shifted page does not repeat an item and the offset keeps advancing`() = runTest {
+        val a = MediaItem("a", "A", MediaItemType.Movie)
+        val b = MediaItem("b", "B", MediaItemType.Movie)
+        val c = MediaItem("c", "C", MediaItemType.Movie)
+        val d = MediaItem("d", "D", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(a, b, c) to 10)
+        val viewModel = createViewModel()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        media.pages[3] = Result.success(listOf(c, d) to 10)
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(
+            "the repeated item must not be rendered twice",
+            listOf("a", "b", "c", "d"),
+            viewModel.state.value.items.map { it.id },
+        )
+
+        media.pages[5] = Result.success(emptyList<MediaItem>() to 10)
+        viewModel.loadMore()
+        advanceUntilIdle()
+        assertEquals(
+            "the next offset counts fetched items, not the deduplicated list",
+            5,
+            media.lastStartIndex,
+        )
+    }
+
     @Test
     fun `pagination clears loading state when the session has expired`() = runTest {
         val first = MediaItem("first", "First", MediaItemType.Movie)
@@ -452,6 +548,25 @@ class LibraryViewModelTest {
         )
     }
 
+    @Test
+    fun `a load started without a session does not leave the skeleton up`() = runTest {
+        // The TV screen starts the first load as soon as it is composed, which can
+        // beat the observer that publishes the saved user. `loadLibrary` raises the
+        // loading flags and only then discovers there is no session; the branch that
+        // reports "Sessão expirada" has to lower them, because no request is coming
+        // that would.
+        val auth = FakeAuthRepository()
+        auth.userIdState.value = null
+        val viewModel = createViewModel(auth = auth)
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals(false, viewModel.state.value.isLoading)
+        assertEquals(false, viewModel.state.value.isRefreshing)
+        assertEquals(LibraryViewModel.EXPIRED_SESSION_MESSAGE, viewModel.state.value.error)
+    }
+
     private class FakeMediaRepository : MediaRepository {
         val pages = mutableMapOf<Int, Result<Pair<List<MediaItem>, Int>>>()
         val itemsByLibrary = mutableMapOf<String, Pair<List<MediaItem>, Int>>()
@@ -462,20 +577,25 @@ class LibraryViewModelTest {
         var lastSort: String? = null
         var lastSortOrder: String? = null
         var lastStartIndex: Int = -1
+        var lastLimit: Int = -1
         var libraryCollectionType: String? = null
         var detailCalls: Int = 0
         var itemCalls: Int = 0
         var blockedLibraryRelease = CompletableDeferred<Unit>()
-        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> =
-            (itemsByLibrary[parentId]?.let { Result.success(it) } ?: pages[startIndex]).also {
-                itemCalls++
-                lastIsPlayed = isPlayed
-                lastIsFavorite = isFavorite
-                lastIncludeItemTypes = includeItemTypes
-                lastSort = sortBy
-                lastSortOrder = sortOrder
-                lastStartIndex = startIndex
-            } ?: Result.success(emptyList<MediaItem>() to 0)
+        var responseSequence: ArrayDeque<CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>>? = null
+        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> {
+            itemCalls++
+            lastIsPlayed = isPlayed
+            lastIsFavorite = isFavorite
+            lastIncludeItemTypes = includeItemTypes
+            lastSort = sortBy
+            lastSortOrder = sortOrder
+            lastStartIndex = startIndex
+            lastLimit = limit
+            return responseSequence?.removeFirstOrNull()?.let { deferred ->
+                withContext(NonCancellable) { deferred.await() }
+            } ?: itemsByLibrary[parentId]?.let { Result.success(it) } ?: pages[startIndex] ?: Result.success(emptyList<MediaItem>() to 0)
+        }
         override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
             detailCalls++
             if (itemId == blockLibraryId) {
@@ -499,12 +619,7 @@ class LibraryViewModelTest {
         override suspend fun markAsUnplayed(userId: String, itemId: String) = Result.success(Unit)
         override suspend fun markAsFavorite(userId: String, itemId: String) = Result.success(Unit)
         override suspend fun unmarkAsFavorite(userId: String, itemId: String) = Result.success(Unit)
-        override suspend fun search(userId: String, searchTerm: String, limit: Int, includeItemTypes: String?) = Result.success(emptyList<MediaItem>())
-        override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
-        override suspend fun getRecordings(userId: String) = Result.success(emptyList<MediaItem>())
-        override suspend fun getSuggestions(userId: String, itemId: String) = Result.success(emptyList<MediaItem>())
-        override fun observeFavorites(userId: String): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
-        override fun observeRecentlyWatched(userId: String): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
+        override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
     }
 
     private class FakeNetworkMonitor(initialOnline: Boolean = true) : NetworkMonitor {
@@ -528,8 +643,6 @@ class LibraryViewModelTest {
         var filters = initialFilters
         override fun getTheme() = MutableStateFlow(AppThemeSetting.Dark)
         override suspend fun setTheme(theme: AppThemeSetting) = Unit
-        override fun getMaxBitrate() = MutableStateFlow(0)
-        override suspend fun setMaxBitrate(bitrate: Int) = Unit
         override fun isPiPEnabled() = MutableStateFlow(true)
         override suspend fun setPiPEnabled(enabled: Boolean) = Unit
         override fun getPreferredAudioLanguage() = MutableStateFlow<String?>(null)

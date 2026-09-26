@@ -46,7 +46,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AccessSchedules", (string)null);
+                    b.ToTable("AccessSchedules");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ActionLog", b =>
@@ -169,7 +169,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("DateCreated");
 
-                    b.ToTable("ActivityLogs", (string)null);
+                    b.ToTable("ActivityLogs");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.AncestorId", b =>
@@ -184,7 +184,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ParentItemId");
 
-                    b.ToTable("AncestorIds", (string)null);
+                    b.ToTable("AncestorIds");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.AttachmentStreamInfo", b =>
@@ -212,7 +212,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId", "Index");
 
-                    b.ToTable("AttachmentStreamInfos", (string)null);
+                    b.ToTable("AttachmentStreamInfos");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.BaseItemEntity", b =>
@@ -465,12 +465,11 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ExtraType", "OwnerId");
 
+                    b.HasIndex("SortName", "Id");
+
                     b.HasIndex("TopParentId", "Id");
 
                     b.HasIndex("Type", "CleanName");
-
-                    b.HasIndex("TopParentId", "Type", "IsVirtualItem")
-                        .HasFilter("\"PrimaryVersionId\" IS NULL AND (\"OwnerId\" IS NULL OR \"ExtraType\" IS NOT NULL)");
 
                     b.HasIndex("Type", "TopParentId", "Id");
 
@@ -498,7 +497,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("Type", "TopParentId", "IsVirtualItem", "PresentationUniqueKey", "DateCreated");
 
-                    b.ToTable("BaseItems", (string)null);
+                    b.ToTable("BaseItems");
 
                     b.HasData(
                         new
@@ -547,7 +546,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId", "ImageType");
 
-                    b.ToTable("BaseItemImageInfos", (string)null);
+                    b.ToTable("BaseItemImageInfos");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.BaseItemMetadataField", b =>
@@ -562,7 +561,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.ToTable("BaseItemMetadataFields", (string)null);
+                    b.ToTable("BaseItemMetadataFields");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.BaseItemProvider", b =>
@@ -580,7 +579,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ProviderId", "ItemId", "ProviderValue");
 
-                    b.ToTable("BaseItemProviders", (string)null);
+                    b.ToTable("BaseItemProviders");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.BaseItemTrailerType", b =>
@@ -595,7 +594,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.ToTable("BaseItemTrailerTypes", (string)null);
+                    b.ToTable("BaseItemTrailerTypes");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Chapter", b =>
@@ -620,7 +619,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId", "ChapterIndex");
 
-                    b.ToTable("Chapters", (string)null);
+                    b.ToTable("Chapters");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.CustomItemDisplayPreferences", b =>
@@ -652,7 +651,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("UserId", "ItemId", "Client", "Key")
                         .IsUnique();
 
-                    b.ToTable("CustomItemDisplayPreferences", (string)null);
+                    b.ToTable("CustomItemDisplayPreferences");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.DiscountCoupon", b =>
@@ -712,7 +711,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("DiscountCoupons", (string)null);
+                    b.ToTable("DiscountCoupons");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.DisplayPreferences", b =>
@@ -770,7 +769,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("UserId", "ItemId", "Client")
                         .IsUnique();
 
-                    b.ToTable("DisplayPreferences", (string)null);
+                    b.ToTable("DisplayPreferences");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.HomeSection", b =>
@@ -794,7 +793,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("DisplayPreferencesId");
 
-                    b.ToTable("HomeSection", (string)null);
+                    b.ToTable("HomeSection");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ImageInfo", b =>
@@ -820,7 +819,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("ImageInfos", (string)null);
+                    b.ToTable("ImageInfos");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ItemDisplayPreferences", b =>
@@ -864,7 +863,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("ItemDisplayPreferences", (string)null);
+                    b.ToTable("ItemDisplayPreferences");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ItemValue", b =>
@@ -889,7 +888,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("Type", "Value")
                         .IsUnique();
 
-                    b.ToTable("ItemValues", (string)null);
+                    b.ToTable("ItemValues");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.ItemValueMap", b =>
@@ -904,7 +903,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.ToTable("ItemValuesMap", (string)null);
+                    b.ToTable("ItemValuesMap");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.KeyframeData", b =>
@@ -920,7 +919,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId");
 
-                    b.ToTable("KeyframeData", (string)null);
+                    b.ToTable("KeyframeData");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.LinkedChildEntity", b =>
@@ -971,7 +970,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("MediaSegments", (string)null);
+                    b.ToTable("MediaSegments");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.MediaStreamInfo", b =>
@@ -1122,7 +1121,9 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId", "StreamIndex");
 
-                    b.ToTable("MediaStreamInfos", (string)null);
+                    b.HasIndex("StreamType");
+
+                    b.ToTable("MediaStreamInfos");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.MidiaStorageOnlineMediaMetadata", b =>
@@ -1240,7 +1241,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("GatewayName")
                         .IsUnique();
 
-                    b.ToTable("PaymentGatewayConfigs", (string)null);
+                    b.ToTable("PaymentGatewayConfigs");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.PaymentTransaction", b =>
@@ -1336,7 +1337,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("PaymentTransactions", (string)null);
+                    b.ToTable("PaymentTransactions");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.People", b =>
@@ -1355,7 +1356,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("Peoples", (string)null);
+                    b.ToTable("Peoples");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.PeopleBaseItemMap", b =>
@@ -1383,7 +1384,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("ItemId", "SortOrder");
 
-                    b.ToTable("PeopleBaseItemMap", (string)null);
+                    b.ToTable("PeopleBaseItemMap");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Permission", b =>
@@ -1413,7 +1414,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                         .IsUnique()
                         .HasFilter("[UserId] IS NOT NULL");
 
-                    b.ToTable("Permissions", (string)null);
+                    b.ToTable("Permissions");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.PlaybackReport", b =>
@@ -1578,7 +1579,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId", "DateCreated");
 
-                    b.ToTable("PlaybackReport", (string)null);
+                    b.ToTable("PlaybackReport");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Preference", b =>
@@ -1609,7 +1610,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                         .IsUnique()
                         .HasFilter("[UserId] IS NOT NULL");
 
-                    b.ToTable("Preferences", (string)null);
+                    b.ToTable("Preferences");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.PricingPlan", b =>
@@ -1658,7 +1659,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("SortOrder");
 
-                    b.ToTable("PricingPlans", (string)null);
+                    b.ToTable("PricingPlans");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Security.ApiKey", b =>
@@ -1687,7 +1688,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("AccessToken")
                         .IsUnique();
 
-                    b.ToTable("ApiKeys", (string)null);
+                    b.ToTable("ApiKeys");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Security.Device", b =>
@@ -1740,7 +1741,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId", "DeviceId");
 
-                    b.ToTable("Devices", (string)null);
+                    b.ToTable("Devices");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.Security.DeviceOptions", b =>
@@ -1762,7 +1763,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("DeviceId")
                         .IsUnique();
 
-                    b.ToTable("DeviceOptions", (string)null);
+                    b.ToTable("DeviceOptions");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.TrickplayInfo", b =>
@@ -1793,7 +1794,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasKey("ItemId", "Width");
 
-                    b.ToTable("TrickplayInfos", (string)null);
+                    b.ToTable("TrickplayInfos");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.User", b =>
@@ -1916,7 +1917,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("Username")
                         .IsUnique();
 
-                    b.ToTable("Users", (string)null);
+                    b.ToTable("Users");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.UserData", b =>
@@ -1974,7 +1975,7 @@ namespace Jellyfin.Database.Implementations.Migrations
 
                     b.HasIndex("UserId", "Played", "ItemId");
 
-                    b.ToTable("UserData", (string)null);
+                    b.ToTable("UserData");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.UserLicense", b =>
@@ -2020,7 +2021,7 @@ namespace Jellyfin.Database.Implementations.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("UserLicenses", (string)null);
+                    b.ToTable("UserLicenses");
                 });
 
             modelBuilder.Entity("MulletaFlix.Database.Implementations.Entities.AccessSchedule", b =>

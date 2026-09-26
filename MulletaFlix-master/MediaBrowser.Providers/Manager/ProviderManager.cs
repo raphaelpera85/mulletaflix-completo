@@ -1272,10 +1272,15 @@ namespace MediaBrowser.Providers.Manager
                 return;
             }
 
-            _refreshQueue.Enqueue((itemId, options), priority);
-
+            // The enqueue must be inside the lock. System.Collections.Generic.PriorityQueue is not
+            // thread-safe, and QueueRefresh is called concurrently by the file monitor, the channel
+            // manager, cleanup tasks and API controllers. An unsynchronized Enqueue overlapping the
+            // drain loop's TryDequeue can corrupt the heap (silently dropped refreshes, wrong
+            // ordering, or an index exception).
             lock (_refreshQueueLock)
             {
+                _refreshQueue.Enqueue((itemId, options), priority);
+
                 if (!_isProcessingRefreshQueue)
                 {
                     _isProcessingRefreshQueue = true;
@@ -1300,14 +1305,26 @@ namespace MediaBrowser.Providers.Manager
             var tasks = new List<Task>();
             try
             {
-                // Drain the entire queue immediately, launching all items as tasks.
-                // Concurrency is gated inside ProcessRefreshItemAsync via _refreshConcurrency,
-                // allowing I/O idle time of one item to overlap with active processing of others.
-                while (_refreshQueue.TryDequeue(out var refreshItem, out _))
+                // Drain the entire queue, launching items as tasks. Concurrency is gated inside
+                // ProcessRefreshItemAsync via _refreshConcurrency, allowing I/O idle time of one
+                // item to overlap with active processing of others. Each TryDequeue is taken under
+                // _refreshQueueLock because PriorityQueue is not thread-safe against concurrent
+                // Enqueue from QueueRefresh. The lock is never held across an await, so the drain
+                // loop itself stays synchronous and short.
+                while (true)
                 {
                     if (_disposed)
                     {
                         return;
+                    }
+
+                    (Guid ItemId, MetadataRefreshOptions RefreshOptions) refreshItem;
+                    lock (_refreshQueueLock)
+                    {
+                        if (!_refreshQueue.TryDequeue(out refreshItem, out _))
+                        {
+                            break;
+                        }
                     }
 
                     tasks.Add(ProcessRefreshItemAsync(refreshItem, libraryManager, cancellationToken));

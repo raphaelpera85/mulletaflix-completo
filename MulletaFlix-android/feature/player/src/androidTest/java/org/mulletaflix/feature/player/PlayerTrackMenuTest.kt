@@ -4,10 +4,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -52,6 +54,34 @@ class PlayerTrackMenuTest {
     }
 
     @Test
+    fun tvTrackRowsExposeTheFocusedLanguageToTheRemote() {
+        assumeTelevisionProfile()
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerTrackMenu(
+                    title = "Legendas",
+                    tracks = listOf(
+                        TrackInfo(index = 0, displayName = "Português"),
+                        TrackInfo(index = 1, displayName = "Inglês"),
+                    ),
+                    selectedIndex = 0,
+                    allowNone = false,
+                    onSelect = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        val english = composeRule.onNode(
+            SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton) and
+                hasText("Inglês") and
+                hasClickAction(),
+        )
+        english.requestFocus()
+        english.assertIsFocused()
+    }
+
+    @Test
     fun longTrackListRendersAllOptionsInsideScrollableMenu() {
         composeRule.setContent {
             MaterialTheme {
@@ -66,6 +96,30 @@ class PlayerTrackMenuTest {
         }
 
         composeRule.onAllNodesWithText("Idioma 19").assertCountEquals(1)
+    }
+
+    @Test
+    fun externalSubtitleIsClearlyMarkedInTrackMenu() {
+        composeRule.setContent {
+            MaterialTheme {
+                PlayerTrackMenu(
+                    title = "Legendas",
+                    tracks = listOf(
+                        TrackInfo(
+                            index = 14,
+                            displayName = "Português (Brasil)",
+                            codec = "srt",
+                            isExternal = true,
+                        ),
+                    ),
+                    selectedIndex = 0,
+                    onSelect = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNode(hasText("Português (Brasil) • SRT • Externa")).assertHasClickAction()
     }
 
     @Test

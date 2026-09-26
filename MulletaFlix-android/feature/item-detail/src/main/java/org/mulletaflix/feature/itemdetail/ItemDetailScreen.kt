@@ -14,6 +14,10 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -30,6 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import org.mulletaflix.domain.model.*
 import org.mulletaflix.designsystem.components.MediaCard
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerId
@@ -54,6 +59,12 @@ fun ItemDetailScreen(
     viewModel: ItemDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val feedbackItemId = state.item?.id ?: itemId
+    var showIssueDialog by remember { mutableStateOf(false) }
+    var issueCategory by remember { mutableStateOf("Não reproduz") }
+    var issueDescription by remember { mutableStateOf("") }
+    var issueSubmitting by remember { mutableStateOf(false) }
+    var issueError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val serverUrl = LocalMulletaFlixServerUrl.current
     val serverId = LocalMulletaFlixServerId.current
@@ -74,6 +85,8 @@ fun ItemDetailScreen(
                 DetailHero(
                     item = item,
                     onBack = onBack,
+                    onRefresh = { viewModel.loadItem(itemId) },
+                    isRefreshing = state.isLoading,
                     onPlay = { onPlay(playbackTargetId(item, state.episodes)) },
                     playEnabled = canPlayItem(item, state.episodes),
                      onFavorite = { viewModel.toggleFavorite() },
@@ -98,6 +111,11 @@ fun ItemDetailScreen(
 
                 // ── Metadata pills ────────────────────────────────────────────
                 MetadataPills(item = item)
+                PlaybackIssueAction(
+                    itemName = item.name,
+                    onClick = { showIssueDialog = true; issueError = null },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
 
                 state.downloadMessage?.let { message ->
                     Text(message, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
@@ -173,6 +191,51 @@ fun ItemDetailScreen(
             )
         }
 
+        if (showIssueDialog) {
+            AlertDialog(
+                onDismissRequest = { showIssueDialog = false },
+                title = { Text("Reportar problema") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        var expanded by remember { mutableStateOf(false) }
+                        Box {
+                        OutlinedButton(onClick = { expanded = true }, enabled = !issueSubmitting) { Text(issueCategory) }
+                            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                listOf("Não reproduz", "Travamentos", "Sem áudio", "Áudio/legenda", "Qualidade", "Outro").forEach { category ->
+                                    DropdownMenuItem(text = { Text(category) }, onClick = { issueCategory = category; expanded = false })
+                                }
+                            }
+                        }
+                        OutlinedTextField(issueDescription, { issueDescription = it.take(1000) }, label = { Text("Descreva o problema (opcional)") }, minLines = 2, enabled = !issueSubmitting)
+                        issueError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                },
+                confirmButton = {
+                    TextButton(enabled = !issueSubmitting, onClick = {
+                        issueSubmitting = true
+                        issueError = null
+                        viewModel.reportPlaybackIssue(feedbackItemId, issueCategory, issueDescription) { result ->
+                            issueSubmitting = false
+                            result.onSuccess {
+                                showIssueDialog = false
+                                issueDescription = ""
+                            }.onFailure {
+                                issueError = if (it is kotlinx.coroutines.CancellationException) {
+                                    null
+                                } else {
+                                    it.localizedMessage ?: "Não foi possível enviar o relato. Tente novamente."
+                                }
+                            }
+                        }
+                    }) {
+                        if (issueSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text("Enviar")
+                    }
+                },
+                dismissButton = { TextButton(enabled = !issueSubmitting, onClick = { showIssueDialog = false; issueError = null }) { Text("Cancelar") } },
+            )
+        }
+
         // Loading overlay
         if (state.isLoading && state.item == null) {
             CircularProgressIndicator(
@@ -202,6 +265,8 @@ fun ItemDetailScreen(
 private fun DetailHero(
     item: MediaItem,
     onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    isRefreshing: Boolean,
     onPlay: () -> Unit,
     playEnabled: Boolean,
     onFavorite: () -> Unit,
@@ -235,12 +300,29 @@ private fun DetailHero(
         )
 
         // Back button
-        IconButton(
+        MulletaFlixTopBarAction(
             onClick = onBack,
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
                 .background(Color.Black.copy(0.4f), CircleShape)
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = Color.White)
+        }
+
+        // Metadata may be completed by the server after the detail was opened.
+        // Keep an explicit refresh action in the hero so the user can reconcile
+        // artwork, NFO-derived fields and episode lists without leaving the page.
+        MulletaFlixTopBarAction(
+            onClick = onRefresh,
+            busy = isRefreshing,
+            busyContentDescription = detailRefreshContentDescription(true),
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                .background(Color.Black.copy(0.4f), CircleShape),
+        ) {
+            Icon(
+                Icons.Default.Refresh,
+                contentDescription = detailRefreshContentDescription(isRefreshing),
+                tint = Color.White,
+            )
         }
 
         // Bottom content: keep the complete poster visible beside the metadata.
@@ -279,87 +361,139 @@ private fun DetailHero(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Action buttons row
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                // Play
-                Button(
-                    onClick = onPlay,
-                    enabled = playEnabled,
-                    colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed)
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text(if ((item.playbackPositionTicks ?: 0L) > 0L) "Continuar" else "Reproduzir")
-                }
-
-                // Favorite
-                 IconButton(
-                     onClick = onFavorite,
-                     enabled = !isFavoriteUpdating,
-                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
-                 ) {
-                     if (isFavoriteUpdating) {
-                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
-                     } else {
-                         Icon(
-                             if (item.isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                             contentDescription = if (item.isFavorite) "Remover dos favoritos" else "Adicionar aos favoritos",
-                             tint = if (item.isFavorite) Color(0xFFE53935) else Color.White
-                         )
-                     }
-                 }
-
-                // Mark watched
-                 IconButton(
-                     onClick = onMarkWatched,
-                     enabled = !isWatchedUpdating,
-                     modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
-                 ) {
-                     if (isWatchedUpdating) {
-                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
-                     } else {
-                         Icon(
-                             if (item.isPlayed) Icons.Default.CheckCircle else Icons.Outlined.CheckCircleOutline,
-                             contentDescription = if (item.isPlayed) "Marcar como não assistido" else "Marcar como assistido",
-                             tint = if (item.isPlayed) Color(0xFF4CAF50) else Color.White
-                         )
-                     }
-                 }
-
-                // Download for offline playback
-                IconButton(
-                    onClick = onDownload,
-                    enabled = !isDownloadPreparing,
-                    modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
-                ) {
-                    if (isDownloadPreparing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = Color.White,
-                        )
-                    } else {
-                        Icon(Icons.Default.Download, contentDescription = "Baixar para assistir offline", tint = Color.White)
-                    }
-                }
-
-                IconButton(
-                    onClick = onPlaylist,
-                    modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = "Adicionar à playlist", tint = Color.White)
-                }
-
-                IconButton(
-                    onClick = onShare,
-                    modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = "Compartilhar título", tint = Color.White)
-                }
-                }
+                DetailActionRow(
+                    item = item,
+                    playEnabled = playEnabled,
+                    isDownloadPreparing = isDownloadPreparing,
+                    isFavoriteUpdating = isFavoriteUpdating,
+                    isWatchedUpdating = isWatchedUpdating,
+                    onPlay = onPlay,
+                    onFavorite = onFavorite,
+                    onMarkWatched = onMarkWatched,
+                    onDownload = onDownload,
+                    onPlaylist = onPlaylist,
+                    onShare = onShare,
+                )
             }
+        }
+    }
+}
+
+internal fun detailRefreshContentDescription(isRefreshing: Boolean): String =
+    if (isRefreshing) "Atualizando detalhes" else "Atualizar detalhes"
+
+@Composable
+internal fun PlaybackIssueAction(
+    itemName: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TextButton(onClick = onClick, modifier = modifier) {
+        Icon(Icons.Default.ReportProblem, contentDescription = "Reportar problema de reprodução de $itemName")
+        Spacer(Modifier.width(8.dp))
+        Text("Reportar problema de reprodução")
+    }
+}
+
+/**
+ * A fileira de ações do cabeçalho de Detalhes.
+ *
+ * Extraída de [DetailHero] para poder ser medida: as três ações que atualizam
+ * estado trocavam o ícone por um `CircularProgressIndicator` **sem descrição**, e
+ * durante o pedido o botão ficava sem nome nenhum — quem usa leitor de tela ouvia
+ * apenas "botão". O contrato do componente já tem a resposta (`busy` +
+ * `busyContentDescription`), e é isso que o teste instrumentado prende.
+ */
+@Composable
+internal fun DetailActionRow(
+    item: MediaItem,
+    playEnabled: Boolean,
+    isDownloadPreparing: Boolean,
+    isFavoriteUpdating: Boolean,
+    isWatchedUpdating: Boolean,
+    onPlay: () -> Unit,
+    onFavorite: () -> Unit,
+    onMarkWatched: () -> Unit,
+    onDownload: () -> Unit,
+    onPlaylist: () -> Unit,
+    onShare: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Play
+        Button(
+            onClick = onPlay,
+            enabled = playEnabled,
+            colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed)
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Spacer(Modifier.width(4.dp))
+            Text(if ((item.playbackPositionTicks ?: 0L) > 0L) "Continuar" else "Reproduzir")
+        }
+
+        // Favorite
+        MulletaFlixTopBarAction(
+            onClick = onFavorite,
+            // `busy` mostra o spinner **e** mantém o nome. `enabled` sai porque um
+            // pedido em andamento não é indisponibilidade, e escurecer ali é o
+            // defeito do "símbolo de atualizar parado".
+            busy = isFavoriteUpdating,
+            busyContentDescription = if (item.isFavorite) {
+                "Removendo dos favoritos"
+            } else {
+                "Adicionando aos favoritos"
+            },
+            modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+        ) {
+            Icon(
+                if (item.isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                contentDescription = if (item.isFavorite) "Remover dos favoritos" else "Adicionar aos favoritos",
+                tint = if (item.isFavorite) Color(0xFFE53935) else Color.White
+            )
+        }
+
+        // Mark watched
+        MulletaFlixTopBarAction(
+            onClick = onMarkWatched,
+            busy = isWatchedUpdating,
+            busyContentDescription = if (item.isPlayed) {
+                "Marcando como não assistido"
+            } else {
+                "Marcando como assistido"
+            },
+            modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+        ) {
+            Icon(
+                if (item.isPlayed) Icons.Default.CheckCircle else Icons.Outlined.CheckCircleOutline,
+                contentDescription = if (item.isPlayed) "Marcar como não assistido" else "Marcar como assistido",
+                tint = if (item.isPlayed) Color(0xFF4CAF50) else Color.White
+            )
+        }
+
+        // Download for offline playback
+        MulletaFlixTopBarAction(
+            onClick = onDownload,
+            busy = isDownloadPreparing,
+            busyContentDescription = "Preparando o download",
+            modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+        ) {
+            Icon(Icons.Default.Download, contentDescription = "Baixar para assistir offline", tint = Color.White)
+        }
+
+        MulletaFlixTopBarAction(
+            onClick = onPlaylist,
+            modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+        ) {
+            Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = "Adicionar à playlist", tint = Color.White)
+        }
+
+        MulletaFlixTopBarAction(
+            onClick = onShare,
+            modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+        ) {
+            Icon(Icons.Default.Share, contentDescription = "Compartilhar título", tint = Color.White)
         }
     }
 }
@@ -445,7 +579,7 @@ private fun ExpandableOverview(text: String) {
     Column(
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable { expanded = !expanded }
+            .clickable(role = Role.Button) { expanded = !expanded }
     ) {
         Text(
             text = text,
@@ -534,12 +668,21 @@ private fun TrackListSection(tracks: List<MediaItem>, onTrackPlay: (String) -> U
 }
 
 @Composable
-private fun MediaInfoSection(item: MediaItem) {
+internal fun MediaInfoSection(item: MediaItem) {
     if (item.mediaStreams.isEmpty()) return
     var expanded by remember { mutableStateOf(false) }
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button) { expanded = !expanded }
+                // O rótulo nunca muda e o chevron é decorativo, então sem estado o
+                // leitor de tela anunciava "Informações Técnicas, botão" e o usuário
+                // não sabia se o bloco estava aberto nem o que o toque faria.
+                .semantics {
+                    role = Role.Button
+                    stateDescription = if (expanded) "Expandido" else "Recolhido"
+                },
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("Informações Técnicas", style = MaterialTheme.typography.titleSmall)
@@ -548,7 +691,9 @@ private fun MediaInfoSection(item: MediaItem) {
         if (expanded) {
             item.mediaStreams.forEach { stream ->
                 Text(
-                    text = "• ${stream.type.name}: ${stream.displayTitle ?: stream.codec ?: "-"}",
+                    // `type.name` é o nome do enum em Kotlin ("Video", "Audio") e era
+                    // lido literalmente por quem usa leitor de tela.
+                    text = "• ${streamTypeLabel(stream.type)}: ${stream.displayTitle ?: stream.codec ?: "-"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp)
@@ -561,6 +706,21 @@ private fun MediaInfoSection(item: MediaItem) {
 @Composable
 private fun SectionTitle(title: String) {
     Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+}
+
+/**
+ * O nome do tipo de faixa como texto, não como constante do Kotlin.
+ *
+ * `MediaStreamType.name` devolve "Video"/"Audio"/"Subtitle", e isso era lido
+ * literalmente dentro de "Informações Técnicas".
+ */
+internal fun streamTypeLabel(type: MediaStreamType): String = when (type) {
+    MediaStreamType.Video -> "Vídeo"
+    MediaStreamType.Audio -> "Áudio"
+    MediaStreamType.Subtitle -> "Legenda"
+    MediaStreamType.EmbeddedImage -> "Imagem embutida"
+    MediaStreamType.Attachment -> "Anexo"
+    MediaStreamType.Data -> "Dados"
 }
 
 @Composable

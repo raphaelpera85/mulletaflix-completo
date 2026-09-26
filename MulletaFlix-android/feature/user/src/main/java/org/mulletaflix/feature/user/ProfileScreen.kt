@@ -26,6 +26,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,6 +44,7 @@ import org.mulletaflix.designsystem.theme.readableTextOn
 import org.mulletaflix.domain.repository.AvailableUser
 import android.content.ClipData
 import kotlinx.coroutines.launch
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,7 +69,7 @@ fun ProfileScreen(
                 title = { Text("Meu Perfil", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     if (onBack != null) {
-                        IconButton(onClick = onBack) {
+                        MulletaFlixTopBarAction(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                         }
                     }
@@ -209,7 +213,7 @@ fun ProfileScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        IconButton(
+                        MulletaFlixTopBarAction(
                             onClick = {
                                 if (activeUrl.isNotBlank()) {
                                     clipboardManager?.setPrimaryClip(
@@ -303,42 +307,11 @@ fun ProfileScreen(
                                     userAvatarPath(user.id, user.primaryImageTag),
                                     LocalMulletaFlixAccessToken.current,
                                 )
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { viewModel.selectUserToSwitch(user) }
-                                        .padding(4.dp)
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primaryContainer,
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = user.name.firstOrNull()?.uppercase() ?: "U",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                            if (userAvatarUrl != null) {
-                                                AsyncImage(
-                                                    model = userAvatarUrl,
-                                                    contentDescription = user.name,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = user.name,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
+                                ProfileSwitcherItem(
+                                    user = user,
+                                    avatarUrl = userAvatarUrl,
+                                    onClick = viewModel::selectUserToSwitch,
+                                )
                             }
                         }
                     }
@@ -460,11 +433,65 @@ fun ProfileScreen(
 }
 
 @Composable
-private fun ProfilePrivilegeRow(title: String, enabled: Boolean) {
+internal fun ProfileSwitcherItem(
+    user: AvailableUser,
+    avatarUrl: String?,
+    modifier: Modifier = Modifier,
+    onClick: (AvailableUser) -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(
+                role = Role.Button,
+                onClickLabel = "Alternar para ${user.name}",
+                onClick = { onClick(user) },
+            )
+            .padding(4.dp),
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(48.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = user.name.firstOrNull()?.uppercase() ?: "U",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (avatarUrl != null) {
+                    AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = user.name,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+internal fun ProfilePrivilegeRow(title: String, enabled: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 6.dp)
+            // O visto verde e o X vermelho são a única indicação de que a conta pode
+            // ou não fazer isto. Sem estado, o leitor de tela anunciava só o nome do
+            // recurso ("Transmissão 4K HDR / Dolby Vision") e o usuário não descobria
+            // se tinha a permissão — a cor não chega a quem não enxerga.
+            .semantics { stateDescription = if (enabled) "Concedido" else "Negado" },
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -490,7 +517,7 @@ private fun ProfileOptionItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

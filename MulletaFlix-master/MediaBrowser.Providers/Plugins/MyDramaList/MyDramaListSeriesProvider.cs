@@ -18,8 +18,24 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
 {
     public class MyDramaListSeriesProvider : IRemoteMetadataProvider<Series, SeriesInfo>, IHasOrder
     {
+        /// <summary>
+        /// How long the provider stays quiet after the site refuses a request.
+        /// </summary>
+        /// <remarks>
+        /// mydramalist.com is served through Cloudflare, which answers requests coming from the .NET
+        /// HTTP stack with 403 while the very same URL returns 200 for curl or a browser — measured
+        /// against the site root, the search endpoint and a detail page, and with the browser user
+        /// agent already in place, so no header can fix it. Retrying once per title therefore cannot
+        /// succeed: it only wrote one ERROR line per series (thousands per scan) and burned a round
+        /// trip per item. After the first hard failure the provider reports the reason once and then
+        /// returns empty results without touching the network for this long.
+        /// </remarks>
+        public static readonly TimeSpan FailureCooldown = TimeSpan.FromMinutes(30);
+
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<MyDramaListSeriesProvider> _logger;
+
+        private long _quietUntilTicks;
 
         public MyDramaListSeriesProvider(IHttpClientFactory httpClientFactory, ILogger<MyDramaListSeriesProvider> logger)
         {
@@ -33,10 +49,28 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
         /// <inheritdoc />
         public int Order => 2;
 
+        /// <summary>
+        /// Gets a value indicating whether the provider is currently quiet because the site refused
+        /// a recent request.
+        /// </summary>
+        internal bool IsInFailureCooldown
+        {
+            get
+            {
+                var quietUntil = Interlocked.Read(ref _quietUntilTicks);
+                return quietUntil != 0 && new DateTime(quietUntil, DateTimeKind.Utc) > DateTime.UtcNow;
+            }
+        }
+
         /// <inheritdoc />
         public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(SeriesInfo searchInfo, CancellationToken cancellationToken)
         {
             var results = new List<RemoteSearchResult>();
+
+            if (IsInFailureCooldown)
+            {
+                return results;
+            }
 
             if (searchInfo.TryGetProviderId("MyDramaList", out var mdlId))
             {
@@ -44,6 +78,13 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
                 if (directResult != null)
                 {
                     results.Add(directResult);
+                    return results;
+                }
+
+                // The direct lookup just failed and armed the cooldown: do not turn around and hit
+                // the same host again for the search.
+                if (IsInFailureCooldown)
+                {
                     return results;
                 }
             }
@@ -77,7 +118,7 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error searching MyDramaList for: {Name}", searchInfo.Name);
+                EnterFailureCooldown(ex, "search");
             }
 
             return results;
@@ -90,6 +131,11 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
             {
                 QueriedById = false
             };
+
+            if (IsInFailureCooldown)
+            {
+                return result;
+            }
 
             var mdlId = info.GetProviderId("MyDramaList");
             if (string.IsNullOrEmpty(mdlId))
@@ -165,10 +211,35 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching MyDramaList metadata for: {Id}", mdlId);
+                EnterFailureCooldown(ex, "metadata");
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Starts the quiet period after a refused or failed request, logging the cause only once.
+        /// </summary>
+        /// <param name="exception">The failure that stopped the request.</param>
+        /// <param name="operation">The operation that failed, for the log message.</param>
+        private void EnterFailureCooldown(Exception exception, string operation)
+        {
+            var quietUntil = DateTime.UtcNow.Add(FailureCooldown);
+            var previous = Interlocked.Exchange(ref _quietUntilTicks, quietUntil.Ticks);
+
+            if (previous != 0 && new DateTime(previous, DateTimeKind.Utc) > DateTime.UtcNow)
+            {
+                // Already quiet: this failure was expected and was reported by the call that armed
+                // the cooldown. Logging it again is what produced one ERROR line per series.
+                _logger.LogDebug(exception, "MyDramaList is still unavailable while resolving {Operation}.", operation);
+                return;
+            }
+
+            _logger.LogWarning(
+                exception,
+                "MyDramaList refused a request while resolving {Operation}. Pausing this provider for {Minutes} minutes instead of retrying for every item.",
+                operation,
+                FailureCooldown.TotalMinutes);
         }
 
         private async Task<RemoteSearchResult?> GetDirectResult(string mdlId, CancellationToken cancellationToken)
@@ -201,7 +272,7 @@ namespace MediaBrowser.Providers.Plugins.MyDramaList
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get direct MyDramaList result for: {Id}", mdlId);
+                EnterFailureCooldown(ex, "direct result");
             }
 
             return null;

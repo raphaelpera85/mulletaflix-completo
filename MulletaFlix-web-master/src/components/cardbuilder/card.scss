@@ -50,12 +50,26 @@ button::-moz-focus-inner {
     justify-content: center;
 }
 
+/* The remote image picker renders its cards inside a dialog whose width depends on the window size
+ * and on browser zoom: `dialog-small` only sizes itself above 80em, and every sized dialog becomes
+ * fullscreen below that breakpoint. With the upstream flex row the cards were a fixed 18em, so on
+ * common window sizes the list showed a single card per row and the user had to page through the
+ * results one at a time. A grid with `auto-fill` derives the column count from the space that
+ * actually exists, which fixes the same problem at every width and zoom level. */
+.availableImagesList.vertical-wrap {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9em, 1fr));
+    gap: 0.5em;
+    justify-items: center;
+}
+
 /* Remote image results must not collapse when the source image has no
- * dimensions or fails lazy loading. */
+ * dimensions or fails lazy loading, so the card still fills its grid cell. */
 .availableImagesList > .remoteImageCard {
-    flex: 0 0 18em;
-    width: 18em;
-    min-width: 18em;
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    max-width: 14em;
 }
 
 .cardScalable {

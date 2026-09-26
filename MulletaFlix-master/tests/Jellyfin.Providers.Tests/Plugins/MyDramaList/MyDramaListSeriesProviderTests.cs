@@ -129,6 +129,78 @@ namespace Jellyfin.Providers.Tests.Plugins.MyDramaList
             Assert.Equal("https://i.mydramalist.com/DkmXYy_4f.jpg", primaryImg.Url);
         }
 
+        /// <summary>
+        /// Cloudflare answers every request from the .NET stack with 403, so a retry per title can
+        /// never succeed — it only logged one ERROR line per series (thousands per scan).
+        /// </summary>
+        [Fact]
+        public async Task GetSearchResults_WhenSiteRefuses_QueriesOnceAndReportsOnce()
+        {
+            // Arrange
+            var (httpClient, requestCount) = CreateCountingHttpClient(HttpStatusCode.Forbidden);
+            _httpClientFactoryMock.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+            var provider = new MyDramaListSeriesProvider(_httpClientFactoryMock.Object, _loggerMock.Object);
+
+            // Act
+            for (var i = 0; i < 5; i++)
+            {
+                var results = await provider.GetSearchResults(new SeriesInfo { Name = $"Serie {i}" }, CancellationToken.None);
+                Assert.Empty(results);
+            }
+
+            // Assert
+            Assert.Equal(1, requestCount());
+            Assert.True(provider.IsInFailureCooldown);
+            _loggerMock.Verify(
+                l => l.Log(
+                    LogLevel.Warning,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    It.IsAny<Exception>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+
+        [Fact]
+        public async Task GetSearchResults_WithSuccessfulResponse_DoesNotEnterCooldown()
+        {
+            // Arrange
+            var (httpClient, requestCount) = CreateCountingHttpClient(HttpStatusCode.OK);
+            _httpClientFactoryMock.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+            var provider = new MyDramaListSeriesProvider(_httpClientFactoryMock.Object, _loggerMock.Object);
+
+            // Act
+            await provider.GetSearchResults(new SeriesInfo { Name = "Hidden Love" }, CancellationToken.None);
+            await provider.GetSearchResults(new SeriesInfo { Name = "Hidden Love" }, CancellationToken.None);
+
+            // Assert
+            Assert.False(provider.IsInFailureCooldown);
+            Assert.Equal(2, requestCount());
+        }
+
+        [Fact]
+        public async Task GetMetadata_WhileInCooldown_ReturnsWithoutTouchingTheNetwork()
+        {
+            // Arrange
+            var (httpClient, requestCount) = CreateCountingHttpClient(HttpStatusCode.Forbidden);
+            _httpClientFactoryMock.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(httpClient);
+
+            var provider = new MyDramaListSeriesProvider(_httpClientFactoryMock.Object, _loggerMock.Object);
+            await provider.GetSearchResults(new SeriesInfo { Name = "Anna" }, CancellationToken.None);
+
+            var info = new SeriesInfo { Name = "Anna" };
+            info.SetProviderId("MyDramaList", "2365-anna");
+
+            // Act
+            var result = await provider.GetMetadata(info, CancellationToken.None);
+
+            // Assert
+            Assert.False(result.HasMetadata);
+            Assert.Equal(1, requestCount());
+        }
+
         private static HttpClient CreateMockHttpClient(string responseContent)
         {
             var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
@@ -145,6 +217,29 @@ namespace Jellyfin.Providers.Tests.Plugins.MyDramaList
                 });
 
             return new HttpClient(handlerMock.Object);
+        }
+
+        private static (HttpClient Client, Func<int> RequestCount) CreateCountingHttpClient(HttpStatusCode statusCode)
+        {
+            var requests = 0;
+            var handlerMock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+            handlerMock
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>())
+                .ReturnsAsync(() =>
+                {
+                    Interlocked.Increment(ref requests);
+                    return new HttpResponseMessage
+                    {
+                        StatusCode = statusCode,
+                        Content = new StringContent(string.Empty, Encoding.UTF8, "text/html")
+                    };
+                });
+
+            return (new HttpClient(handlerMock.Object), () => Volatile.Read(ref requests));
         }
     }
 }

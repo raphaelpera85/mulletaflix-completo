@@ -4,6 +4,7 @@ import layoutManager from '../../components/layoutManager';
 import inputManager from '../../scripts/inputManager';
 import focusManager from '../../components/focusManager';
 import browser from '../../scripts/browser';
+import { shouldEnableScrollButtons } from './scrollButtonPolicy';
 import 'webcomponents.js/webcomponents-lite';
 import './emby-scroller.scss';
 
@@ -113,22 +114,47 @@ function onInputCommand(this: ScrollerElement, e: InputCommandEvent): void {
         inputManager.on(this, onInputCommand as unknown as (e: Event) => void);
     }
 
-    const horizontal: boolean = this.getAttribute('data-horizontal') !== 'false';
+    initializeScroller(this);
+};
 
-    const slider = this.querySelector('.scrollSlider') as HTMLElement;
+function initializeScroller(scrollFrame: ScrollerElement): void {
+    if (scrollFrame.scroller) {
+        return;
+    }
+
+    const slider = scrollFrame.querySelector('.scrollSlider') as HTMLElement | null;
+    if (!slider) {
+        if (!scrollFrame.sliderObserver) {
+            scrollFrame.sliderObserver = new MutationObserver(() => {
+                if (scrollFrame.querySelector('.scrollSlider')) {
+                    scrollFrame.sliderObserver?.disconnect();
+                    scrollFrame.sliderObserver = null;
+                    initializeScroller(scrollFrame);
+                }
+            });
+            scrollFrame.sliderObserver.observe(scrollFrame, { childList: true, subtree: true });
+        }
+        return;
+    }
+
+    const horizontal: boolean = scrollFrame.getAttribute('data-horizontal') !== 'false';
 
     if (horizontal) {
         (slider.style as unknown as Record<string, string>)['white-space'] = 'nowrap';
     }
 
-    const scrollFrame = this;
-    const enableScrollButtons: boolean = layoutManager.desktop && !browser.touch && horizontal && this.getAttribute('data-scrollbuttons') !== 'false';
+    const enableScrollButtons = shouldEnableScrollButtons({
+        horizontal,
+        setting: scrollFrame.getAttribute('data-scrollbuttons'),
+        desktop: layoutManager.desktop,
+        touch: browser.touch
+    });
     const useNativeScroll: boolean = !enableScrollButtons;
 
     const options: Record<string, any> = {
         horizontal: horizontal,
         mouseDragging: 1,
-        mouseWheel: this.getAttribute('data-mousewheel') !== 'false',
+        mouseWheel: scrollFrame.getAttribute('data-mousewheel') !== 'false',
         touchDragging: 1,
         slidee: slider,
         scrollBy: 200,
@@ -136,10 +162,10 @@ function onInputCommand(this: ScrollerElement, e: InputCommandEvent): void {
         elasticBounds: 1,
         dragHandle: 1,
         autoImmediate: true,
-        skipSlideToWhenVisible: this.getAttribute('data-skipfocuswhenvisible') === 'true',
-        dispatchScrollEvent: enableScrollButtons || this.getAttribute('data-scrollevent') === 'true',
-        hideScrollbar: enableScrollButtons || this.getAttribute('data-hidescrollbar') === 'true',
-        allowNativeSmoothScroll: this.getAttribute('data-allownativesmoothscroll') === 'true' && useNativeScroll,
+        skipSlideToWhenVisible: scrollFrame.getAttribute('data-skipfocuswhenvisible') === 'true',
+        dispatchScrollEvent: enableScrollButtons || scrollFrame.getAttribute('data-scrollevent') === 'true',
+        hideScrollbar: enableScrollButtons || scrollFrame.getAttribute('data-hidescrollbar') === 'true',
+        allowNativeSmoothScroll: scrollFrame.getAttribute('data-allownativesmoothscroll') === 'true' && useNativeScroll,
         allowNativeScroll: useNativeScroll,
         forceHideScrollbars: enableScrollButtons,
         // In edge, with the native scroll, the content jumps around when hovering over the buttons
@@ -147,18 +173,18 @@ function onInputCommand(this: ScrollerElement, e: InputCommandEvent): void {
     };
 
     // If just inserted it might not have any height yet - yes this is a hack
-    this.scroller = new ScrollerFactory(scrollFrame, options);
-    this.scroller.init();
-    this.scroller.reload();
+    scrollFrame.scroller = new ScrollerFactory(scrollFrame, options);
+    scrollFrame.scroller.init();
+    scrollFrame.scroller.reload();
 
-    if (layoutManager.tv && this.getAttribute('data-centerfocus')) {
-        initCenterFocus(this, this.scroller);
+    if (layoutManager.tv && scrollFrame.getAttribute('data-centerfocus')) {
+        initCenterFocus(scrollFrame, scrollFrame.scroller);
     }
 
     if (enableScrollButtons) {
-        loadScrollButtons(this);
+        loadScrollButtons(scrollFrame);
     }
-};
+}
 
 function loadScrollButtons(buttonsScroller: ScrollerElement): void {
     import('../emby-scrollbuttons/emby-scrollbuttons').then(() => {
@@ -191,6 +217,9 @@ function loadScrollButtons(buttonsScroller: ScrollerElement): void {
         this.headroom = null;
     }
 
+    this.sliderObserver?.disconnect();
+    this.sliderObserver = null;
+
     const scrollerInstance = this.scroller;
     if (scrollerInstance) {
         scrollerInstance.destroy();
@@ -221,6 +250,7 @@ interface HeadroomInstance {
 interface ScrollerElement extends HTMLDivElement {
     scroller?: ScrollerInstance | null;
     headroom?: HeadroomInstance | null;
+    sliderObserver?: MutationObserver | null;
 }
 
 document.registerElement('emby-scroller', {

@@ -1,0 +1,5 @@
+ParserError: 
+Line |
+   1 |  . ase('ftp'); $m=$c.GetCollection([MongoDB.Bson.BsonDocument])('files') .
+     |                                                                ~
+     | Unexpected token '(' in expression or statement.

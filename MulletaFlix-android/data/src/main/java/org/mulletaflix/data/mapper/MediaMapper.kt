@@ -4,7 +4,6 @@ import org.mulletaflix.core.api.dto.BaseItemDto
 import org.mulletaflix.core.api.dto.MediaSourceDto
 import org.mulletaflix.core.api.dto.MediaStreamDto
 import org.mulletaflix.core.api.dto.PersonDto
-import org.mulletaflix.data.db.MediaItemEntity
 import org.mulletaflix.domain.model.*
 
 fun BaseItemDto.toDomain(): MediaItem {
@@ -147,6 +146,7 @@ fun MediaStreamDto.toDomain(): MediaStream {
         isDefault = isDefault,
         isForced = isForced,
         isExternal = isExternal,
+        deliveryUrl = deliveryUrl,
         height = height,
         width = width,
         bitRate = bitRate,
@@ -169,6 +169,8 @@ fun MediaSourceDto.toDomain(): MediaSource {
         supportsDirectStream = supportsDirectStream,
         supportsTranscoding = supportsTranscoding,
         mediaStreams = mediaStreams?.map { it.toDomain() } ?: emptyList(),
+        defaultAudioStreamIndex = defaultAudioStreamIndex,
+        defaultSubtitleStreamIndex = defaultSubtitleStreamIndex,
     )
 }
 
@@ -179,50 +181,5 @@ fun PersonDto.toDomain(): PersonInfo {
         type = type ?: "Actor",
         role = role,
         primaryImageTag = primaryImageTag,
-    )
-}
-
-fun MediaItemEntity.toDomain(): MediaItem {
-    return MediaItem(
-        id = id,
-        name = name,
-        type = runCatching { MediaItemType.valueOf(type) }.getOrDefault(MediaItemType.Unknown),
-        overview = overview,
-        year = year,
-        runtimeTicks = runtimeTicks,
-        isFavorite = isFavorite,
-        isPlayed = isPlayed,
-        playedPercentage = playedPercentage,
-        playbackPositionTicks = playbackPositionTicks,
-        seriesId = seriesId,
-        seriesName = seriesName,
-        seasonId = seasonId,
-        indexNumber = indexNumber,
-        parentIndexNumber = parentIndexNumber,
-        imageTags = primaryImageTag?.let { mapOf(ImageType.Primary to it) } ?: emptyMap(),
-        backdropImageTags = backdropImageTag?.let { listOf(it) } ?: emptyList(),
-    )
-}
-
-fun MediaItem.toEntity(userId: String = ""): MediaItemEntity {
-    return MediaItemEntity(
-        id = id,
-        name = name,
-        type = type.name,
-        overview = overview,
-        year = year,
-        runtimeTicks = runtimeTicks,
-        isFavorite = isFavorite,
-        isPlayed = isPlayed,
-        playedPercentage = playedPercentage,
-        playbackPositionTicks = playbackPositionTicks,
-        primaryImageTag = imageTags[ImageType.Primary],
-        backdropImageTag = backdropImageTags.firstOrNull(),
-        seriesId = seriesId,
-        seriesName = seriesName,
-        seasonId = seasonId,
-        indexNumber = indexNumber,
-        parentIndexNumber = parentIndexNumber,
-        userId = userId,
     )
 }

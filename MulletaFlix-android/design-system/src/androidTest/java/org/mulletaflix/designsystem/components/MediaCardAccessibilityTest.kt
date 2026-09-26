@@ -1,17 +1,21 @@
 package org.mulletaflix.designsystem.components
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
@@ -47,6 +51,7 @@ class MediaCardAccessibilityTest {
 
     @Test
     fun remoteFriendlyMediaCard_acceptsRemoteFocus() {
+        assumeTelevisionSurface()
         val focusRequester = FocusRequester()
 
         composeRule.setContent {
@@ -64,7 +69,12 @@ class MediaCardAccessibilityTest {
     }
 
     @Test
-    fun nonClickableMediaCard_doesNotExposeNestedClickAction() {
+    fun nonClickableMediaCard_isNotAnnouncedAsAButton() {
+        // O card não clicável publicava `role = Role.Button` sem ação nenhuma e com o
+        // mesmo rótulo da linha clicável que o contém: o leitor de tela encontrava o
+        // item duas vezes, e uma delas era um botão que não fazia nada. A expectativa
+        // anterior deste teste prendia justamente esse nó ("Abrir Linha de
+        // biblioteca" existindo, só sem ação de clique).
         composeRule.setContent {
             MediaCard(
                 title = "Linha de biblioteca",
@@ -73,11 +83,13 @@ class MediaCardAccessibilityTest {
             )
         }
 
-        val semantics = composeRule
-            .onNodeWithContentDescription("Abrir Linha de biblioteca")
-            .fetchSemanticsNode()
-            .config
-        assertFalse(semantics.contains(SemanticsActions.OnClick))
+        assertTrue(
+            "um card sem ação não pode anunciar o item; quem anuncia é a linha",
+            composeRule
+                .onAllNodes(hasContentDescription("Abrir Linha de biblioteca", substring = true))
+                .fetchSemanticsNodes()
+                .isEmpty(),
+        )
     }
 
     @Test
@@ -152,6 +164,45 @@ class MediaCardAccessibilityTest {
                 .single()
                 .windowed("Filme único".length)
                 .count { it == "Filme único" },
+        )
+    }
+
+    /**
+     * Uma capa que falha não pode mudar o tamanho do item.
+     *
+     * O aviso de acessibilidade do estado de falha já tinha teste; faltava a outra metade
+     * da promessa: "sem quebrar o scroll". O card dimensiona a arte por `aspectRatio`, não
+     * pela imagem — se dependesse da imagem, uma capa que não carrega deixaria o item com
+     * a altura do que sobrar e a fileira inteira pularia no meio da rolagem, empurrando o
+     * que o espectador estava prestes a tocar.
+     *
+     * **A asserção é uma faixa, e não um mínimo.** A primeira versão pedia `>= 180 dp` e
+     * não discriminava nada: sem o `aspectRatio`, o `fillMaxSize` interno estica a arte
+     * para a altura da tela e a medida sobe para 540 dp — que também passa de 180.
+     * Retrato é 2:3, então 120 dp de largura dão exatamente 180 dp de arte; o resto são o
+     * título (no máximo duas linhas) e o espaçamento. Medido: 540 dp sem o aspecto, e
+     * dentro da faixa com ele.
+     */
+    @Test
+    fun aFailedArtworkKeepsTheCardAtItsFullSize() {
+        composeRule.setContent {
+            MediaCard(
+                title = "Filme sem capa",
+                imageUrl = null,
+                shape = MediaCardShape.Portrait,
+                modifier = Modifier.width(120.dp),
+            )
+        }
+
+        val node = composeRule
+            .onNodeWithContentDescription("Abrir Filme sem capa", substring = true)
+            .fetchSemanticsNode()
+        val heightDp = with(composeRule.density) { node.boundsInRoot.height.toDp().value }
+
+        assertTrue(
+            "o card precisa ter a altura que o aspecto manda (180 dp de arte + título, " +
+                "até 260 dp); medido: ${heightDp}dp",
+            heightDp in 180f..260f,
         )
     }
 

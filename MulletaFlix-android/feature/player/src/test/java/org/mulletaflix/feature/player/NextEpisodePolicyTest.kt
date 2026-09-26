@@ -43,4 +43,39 @@ class NextEpisodePolicyTest {
         assertEquals("Episódio 10", formatNextEpisodeSubtitle(seasonNumber = null, episodeNumber = 10))
         assertEquals(null, formatNextEpisodeSubtitle(seasonNumber = null, episodeNumber = null))
     }
+
+    @Test
+    fun `a dismissed prompt stays dismissed after playback reached the end`() {
+        // Cancelling the countdown used to clear only `nextEpisodeCountdown`.
+        // `isPlaybackEnded` stays true at the end of an item, so the prompt came
+        // straight back and the cancel button looked dead.
+        assertFalse(
+            shouldShowNextEpisodePrompt(
+                hasNextEpisode = true,
+                isPlaybackEnded = true,
+                countdownActive = false,
+                dismissed = true,
+            ),
+        )
+        assertFalse(
+            shouldShowNextEpisodePrompt(
+                hasNextEpisode = true,
+                isPlaybackEnded = false,
+                countdownActive = true,
+                dismissed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `not dismissed yet keeps the prompt available`() {
+        assertTrue(
+            shouldShowNextEpisodePrompt(
+                hasNextEpisode = true,
+                isPlaybackEnded = true,
+                countdownActive = false,
+                dismissed = false,
+            ),
+        )
+    }
 }

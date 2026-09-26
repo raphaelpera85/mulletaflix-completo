@@ -14,6 +14,25 @@ namespace MulletaFlix.Providers.Tests.Manager
 {
     public class MetadataServiceTests
     {
+        [Fact]
+        public void HasProviderId_UsesExplicitRecognizedProviderId()
+        {
+            var lookup = new SeriesInfo();
+            lookup.SetProviderId("GoodShort", "goodshort-123");
+
+            Assert.True(MetadataService<Series, SeriesInfo>.HasProviderId(lookup, "goodshort"));
+            Assert.False(MetadataService<Series, SeriesInfo>.HasProviderId(lookup, "TheMovieDb"));
+        }
+
+        [Fact]
+        public void HasProviderId_IgnoresEmptyProviderId()
+        {
+            var lookup = new SeriesInfo();
+            lookup.ProviderIds["GoodShort"] = " ";
+
+            Assert.False(MetadataService<Series, SeriesInfo>.HasProviderId(lookup, "GoodShort"));
+        }
+
         [Theory]
         [InlineData(false, false)]
         [InlineData(true, false)]
@@ -385,4 +404,3 @@ namespace MulletaFlix.Providers.Tests.Manager
         }
     }
 }
-

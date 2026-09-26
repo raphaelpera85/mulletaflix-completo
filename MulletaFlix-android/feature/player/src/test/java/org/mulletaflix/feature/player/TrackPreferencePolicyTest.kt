@@ -61,10 +61,48 @@ class TrackPreferencePolicyTest {
     }
 
     @Test
+    fun `off is asked for as minus one, not as no preference`() {
+        // Null means "no preference" to Jellyfin: the server then computes a
+        // default from the user's subtitle mode and may burn a subtitle in.
+        // `MediaSourceManager.SetDefaultSubtitleStreamIndex` treats -1 as a
+        // remembered "no subtitles", which is what actually disables them.
+        assertEquals(
+            DISABLED_SUBTITLE_STREAM_INDEX,
+            requestedPreferredStreamIndex(streams, "off"),
+        )
+        assertEquals(
+            DISABLED_SUBTITLE_STREAM_INDEX,
+            requestedPreferredStreamIndex(streams, "none"),
+        )
+        assertEquals(
+            DISABLED_SUBTITLE_STREAM_INDEX,
+            requestedPreferredStreamIndex(streams, "Desativadas"),
+        )
+    }
+
+    @Test
     fun `track info keeps technical language separate from display label`() {
         val track = TrackInfo(index = 5, displayName = "Português (Brasil)", language = "pt-BR")
 
         assertEquals("pt-BR", track.language)
         assertEquals("Português (Brasil)", track.displayName)
+    }
+
+    @Test
+    fun `a track without a language is not worth remembering`() {
+        // The server may describe a track with neither Language nor
+        // DisplayLanguage. Persisting that null deleted the stored preference
+        // (`SettingsRepositoryImpl` drops blank values and then answers with its
+        // default, "por"), so the next item silently used the default track
+        // instead of the one the user had chosen.
+        assertNull(persistableTrackLanguage(null))
+        assertNull(persistableTrackLanguage(""))
+        assertNull(persistableTrackLanguage("   "))
+    }
+
+    @Test
+    fun `a described language is remembered without surrounding space`() {
+        assertEquals("spa", persistableTrackLanguage("spa"))
+        assertEquals("pt-BR", persistableTrackLanguage("  pt-BR  "))
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
@@ -560,8 +560,12 @@ public class SubtitleController : BaseMulletaFlixApiController
 
         if (!string.IsNullOrEmpty(fallbackFontPath))
         {
+            // FirstOrDefault, not First: a request for a font that is not installed used to throw
+            // InvalidOperationException from First() and surface as HTTP 500, which also made the
+            // null check on the next line unreachable. The intent below is clearly to fall through
+            // to the empty 200 that SubtitlesOctopus expects.
             var fontFile = _fileSystem.GetFiles(fallbackFontPath)
-                .First(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
             var fileSize = fontFile?.Length;
 
             if (fontFile is not null && fileSize is not null && fileSize > 0)

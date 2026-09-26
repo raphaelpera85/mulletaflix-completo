@@ -1,0 +1,23 @@
+MONGO_DOCUMENTS=17402
+UPLOADED_WITH_LOCAL_PATH=9838
+LOCAL_PATH_STRM=False COUNT=9838
+F:\NebulaStage\strm\Namorado Contratado (2025).mkv	Namorado Contratado (2025).mkv
+F:\NebulaStage\strm\No Amor e Na M£sica (2025).mkv	No Amor e Na M£sica (2025).mkv
+E:\NebulaStage\Filmes\A Maldiá∆o do Titanic (2022)\A Maldiá∆o do Titanic (2022).mkv	A Maldiá∆o do Titanic (2022).mkv
+F:\NebulaStage\strm\No Rastro do Perigo (2025).mkv	No Rastro do Perigo (2025).mkv
+E:\NebulaStage\Filmes\A Manobra da Tartaruga (2022)\A Manobra da Tartaruga (2022).mkv	A Manobra da Tartaruga (2022).mkv
+F:\NebulaStage\strm\Kneecap - M£sica e Liberdade (2024).mkv	Kneecap - M£sica e Liberdade (2024).mkv
+E:\NebulaStage\strm\O Aprendiz de Serial Killer (2025).mkv	O Aprendiz de Serial Killer (2025).mkv
+E:\NebulaStage\Filmes\A M†quina Infernal (2022)\A M†quina Infernal (2022).mkv	A M†quina Infernal (2022).mkv
+F:\NebulaStage\strm\O Bom Bandido (2025).mkv	O Bom Bandido (2025).mkv
+E:\NebulaStage\strm\O Caso dos Estrangeiros (2025).mkv	O Caso dos Estrangeiros (2025).mkv
+E:\NebulaStage\strm\O Telefone Preto 2 (2025).mkv	O Telefone Preto 2 (2025).mkv
+E:\NebulaStage\Filmes\A Revoluá∆o dos Bichos (2026)\A Revoluá∆o dos Bichos (2026).mkv	A Revoluá∆o dos Bichos (2026).mkv
+I:\NebulaStage\strm\strm\Outro Amor Fora do Tempo (2025).mkv	Outro Amor Fora do Tempo (2025).mkv
+I:\NebulaStage\strm\strm\Paix∆o Fora da Lei (2025).mkv	Paix∆o Fora da Lei (2025).mkv
+I:\NebulaStage\strm\strm\Plano em Fam°lia 2 (2025).mkv	Plano em Fam°lia 2 (2025).mkv
+I:\NebulaStage\strm\strm\Predador - Assassino de Assassinos (2025).mkv	Predador - Assassino de Assassinos (2025).mkv
+I:\NebulaStage\strm\strm\Predador - Terras Selvagens (2025).mkv	Predador - Terras Selvagens (2025).mkv
+I:\NebulaStage\strm\strm\Predadores (2025).mkv	Predadores (2025).mkv
+E:\NebulaStage\Filmes\A Suspeita (2022)\A Suspeita (2022).mkv	A Suspeita (2022).mkv
+I:\NebulaStage\strm\strm\Preparaá∆o para a Pr¢xima Vida (2025).mkv	Preparaá∆o para a Pr¢xima Vida (2025).mkv

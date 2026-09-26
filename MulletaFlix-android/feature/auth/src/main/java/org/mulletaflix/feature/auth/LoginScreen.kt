@@ -23,9 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -41,9 +43,18 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.designsystem.components.remoteFocusRing
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 internal const val REGISTER_DIALOG_CONTENT_DESCRIPTION = "Conteúdo do cadastro; deslize verticalmente para ver mais"
+internal const val LOGIN_USERNAME_TEST_TAG = "auth.login.username"
+internal const val LOGIN_PASSWORD_TEST_TAG = "auth.login.password"
+internal const val LOGIN_SUBMIT_TEST_TAG = "auth.login.submit"
+internal const val QUICK_CONNECT_TAB_TEST_TAG = "auth.quick_connect.tab"
+internal const val QUICK_CONNECT_INITIATE_TEST_TAG = "auth.quick_connect.initiate"
+internal const val QUICK_CONNECT_RETRY_AVAILABILITY_TEST_TAG = "auth.quick_connect.retry_availability"
+internal const val QUICK_CONNECT_CODE_TEST_TAG = "auth.quick_connect.code"
 
 /**
  * Login screen — first authentication step after server is selected.
@@ -58,6 +69,7 @@ internal const val REGISTER_DIALOG_CONTENT_DESCRIPTION = "Conteúdo do cadastro;
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
+    switchingServer: Boolean = false,
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -65,8 +77,15 @@ fun LoginScreen(
     val context = LocalContext.current
     var showRegisterDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.isAuthenticated) {
-        if (state.isAuthenticated) onLoginSuccess()
+    // Quick Connect is scoped to this authentication surface. Leaving the
+    // screen must not leave a background poll that can authenticate a later
+    // session or keep the network active after navigation.
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.cancelQuickConnect() }
+    }
+
+    LaunchedEffect(state.isAuthenticated, switchingServer) {
+        if (shouldAutoAdvanceAuthScreen(state.isAuthenticated, switchingServer)) onLoginSuccess()
     }
 
     Box(
@@ -110,6 +129,9 @@ fun LoginScreen(
 
             // ── Tab Selector (Login / Quick Connect) ──────────────────────────
             var selectedTab by remember { mutableIntStateOf(0) }
+            LaunchedEffect(selectedTab) {
+                if (selectedTab == 0) viewModel.cancelQuickConnect()
+            }
             PrimaryTabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -121,10 +143,20 @@ fun LoginScreen(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
             ) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    modifier = Modifier.remoteFocusRing(RoundedCornerShape(12.dp)),
+                ) {
                     Text("Entrar", modifier = Modifier.padding(vertical = 12.dp))
                 }
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    modifier = Modifier
+                        .remoteFocusRing(RoundedCornerShape(12.dp))
+                        .testTag(QUICK_CONNECT_TAB_TEST_TAG),
+                ) {
                     Text("Quick Connect", modifier = Modifier.padding(vertical = 12.dp))
                 }
             }
@@ -149,10 +181,12 @@ fun LoginScreen(
                         pin = state.quickConnectPin,
                         isLoading = state.isLoading,
                         isWaiting = state.isWaitingForQuickConnect,
-                        isAvailable = state.isQuickConnectAvailable != false,
+                        isAvailable = state.isQuickConnectAvailable,
+                        availabilityError = state.quickConnectAvailabilityError,
                         secondsRemaining = state.quickConnectSecondsRemaining,
                         error = state.error,
                         onInitiate = { viewModel.initiateQuickConnect() },
+                        onRetryAvailability = { viewModel.retryQuickConnectAvailability() },
                         onCancel = { viewModel.cancelQuickConnect() },
                         onCopyPin = { pin ->
                             val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
@@ -186,7 +220,7 @@ fun LoginScreen(
 }
 
 @Composable
-private fun PasswordLoginForm(
+internal fun PasswordLoginForm(
     username: String,
     password: String,
     isLoading: Boolean,
@@ -203,7 +237,8 @@ private fun PasswordLoginForm(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.semantics { testTagsAsResourceId = true },
     ) {
         // User avatars (if server has multiple users)
         if (users.isNotEmpty()) {
@@ -219,7 +254,7 @@ private fun PasswordLoginForm(
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(LOGIN_USERNAME_TEST_TAG),
             enabled = !isLoading,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.secondary,
@@ -234,7 +269,7 @@ private fun PasswordLoginForm(
             label = { Text("Senha") },
             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
             trailingIcon = {
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                MulletaFlixTopBarAction(onClick = { passwordVisible = !passwordVisible }) {
                     Icon(
                         if (passwordVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                         contentDescription = if (passwordVisible) "Ocultar senha" else "Mostrar senha"
@@ -248,7 +283,7 @@ private fun PasswordLoginForm(
                 imeAction = ImeAction.Done
             ),
             keyboardActions = KeyboardActions(onDone = { onLogin() }),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag(LOGIN_PASSWORD_TEST_TAG),
             enabled = !isLoading,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.secondary,
@@ -267,7 +302,9 @@ private fun PasswordLoginForm(
             enabled = !isLoading && username.isNotBlank(),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(52.dp)
+                .remoteFocusRing(RoundedCornerShape(12.dp))
+                .testTag(LOGIN_SUBMIT_TEST_TAG),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MulletaFlixRed),
         ) {
@@ -281,7 +318,10 @@ private fun PasswordLoginForm(
         OutlinedButton(
             onClick = onRegister,
             enabled = !isLoading,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .remoteFocusRing(RoundedCornerShape(12.dp)),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.secondary),
         ) {
@@ -333,7 +373,7 @@ internal fun RegisterDialog(
                     singleLine = true,
                     enabled = !isLoading,
                     trailingIcon = {
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        MulletaFlixTopBarAction(onClick = { passwordVisible = !passwordVisible }) {
                             Icon(
                                 if (passwordVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                                 contentDescription = if (passwordVisible) "Ocultar senha" else "Mostrar senha",
@@ -351,7 +391,7 @@ internal fun RegisterDialog(
                     singleLine = true,
                     enabled = !isLoading,
                     trailingIcon = {
-                        IconButton(onClick = { confirmationVisible = !confirmationVisible }) {
+                        MulletaFlixTopBarAction(onClick = { confirmationVisible = !confirmationVisible }) {
                             Icon(
                                 if (confirmationVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                                 contentDescription = if (confirmationVisible) "Ocultar confirmação" else "Mostrar confirmação",
@@ -366,24 +406,36 @@ internal fun RegisterDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onRegister(username, password, confirmation) }, enabled = !isLoading) {
+            Button(
+                onClick = { onRegister(username, password, confirmation) },
+                enabled = !isLoading,
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(12.dp)),
+            ) {
                 if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 else Text("Cadastrar")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isLoading) { Text("Voltar") } },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isLoading,
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(12.dp)),
+            ) { Text("Voltar") }
+        },
     )
 }
 
 @Composable
-private fun QuickConnectForm(
+internal fun QuickConnectForm(
     pin: String?,
-    isAvailable: Boolean,
+    isAvailable: Boolean?,
+    availabilityError: String?,
     isLoading: Boolean,
     isWaiting: Boolean,
     secondsRemaining: Int?,
     error: String?,
     onInitiate: () -> Unit,
+    onRetryAvailability: () -> Unit,
     onCancel: () -> Unit,
     onCopyPin: (String) -> Unit,
 ) {
@@ -398,9 +450,13 @@ private fun QuickConnectForm(
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.secondary,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 8.sp
+                letterSpacing = 8.sp,
+                modifier = Modifier.testTag(QUICK_CONNECT_CODE_TEST_TAG),
             )
-            OutlinedButton(onClick = { onCopyPin(pin) }) {
+            OutlinedButton(
+                onClick = { onCopyPin(pin) },
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(12.dp)),
+            ) {
                 Icon(Icons.Default.ContentCopy, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Copiar código")
@@ -416,7 +472,25 @@ private fun QuickConnectForm(
                     )
                 }
             }
-            OutlinedButton(onClick = onCancel) { Text("Cancelar") }
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(12.dp)),
+            ) { Text("Cancelar") }
+        } else if (isAvailable == null && availabilityError == null) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp))
+            Text("Verificando Quick Connect…", color = Color.White.copy(0.8f), style = MaterialTheme.typography.bodyMedium)
+        } else if (isAvailable == null) {
+            Text(
+                availabilityError ?: "Não foi possível verificar o Quick Connect.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            OutlinedButton(
+                onClick = onRetryAvailability,
+                modifier = Modifier
+                    .remoteFocusRing(RoundedCornerShape(12.dp))
+                    .testTag(QUICK_CONNECT_RETRY_AVAILABILITY_TEST_TAG),
+            ) { Text("Tentar novamente") }
         } else if (!isAvailable) {
             Icon(Icons.Default.QrCode2, contentDescription = "Quick Connect", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(64.dp))
             Text("Quick Connect está desativado neste servidor.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
@@ -424,7 +498,16 @@ private fun QuickConnectForm(
         } else {
             Text("Gera um código de 6 dígitos para entrar sem senha.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(0.8f))
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            Button(onClick = onInitiate, enabled = !isLoading, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp)) {
+            Button(
+                onClick = onInitiate,
+                enabled = !isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .remoteFocusRing(RoundedCornerShape(12.dp))
+                    .testTag(QUICK_CONNECT_INITIATE_TEST_TAG),
+                shape = RoundedCornerShape(12.dp),
+            ) {
                 if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                 else Text("Gerar Código Quick Connect")
             }
@@ -447,10 +530,16 @@ private fun UserAvatarRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
         ) {
             users.take(6).forEach { user ->
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(72.dp).clickable { onUserSelect(user) },
-                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .width(72.dp)
+                            .clickable { onUserSelect(user) }
+                            .semantics(mergeDescendants = true) {
+                                contentDescription = "Selecionar ${user.name}"
+                            }
+                            .remoteFocusRing(RoundedCornerShape(18.dp)),
+                    ) {
                     val imagePath = user.primaryImageTag?.let { tag ->
                         "Users/${user.id}/Images/Primary?tag=$tag"
                     }

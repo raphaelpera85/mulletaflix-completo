@@ -14,7 +14,7 @@ android {
         applicationId = "org.mulletaflix.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 249
+        versionCode = 373
         versionName = libs.versions.appVersion.get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -128,6 +128,9 @@ dependencies {
     // Tests
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // `AppUpdateDownloader` é uma classe final com `Context` no construtor: para testar o
+    // fluxo do aviso de atualização sem Android, ela entra como mock.
+    testImplementation(libs.mockk)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.espresso.core)

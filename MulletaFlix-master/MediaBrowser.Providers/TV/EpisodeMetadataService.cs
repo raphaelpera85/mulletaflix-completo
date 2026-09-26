@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.IO;
@@ -40,9 +41,9 @@ public class EpisodeMetadataService : MetadataService<Episode, EpisodeInfo>
     }
 
     /// <inheritdoc />
-    protected override ItemUpdateType BeforeSaveInternal(Episode item, bool isFullRefresh, ItemUpdateType updateType)
+    protected override async Task<ItemUpdateType> BeforeSaveInternalAsync(Episode item, bool isFullRefresh, ItemUpdateType updateType)
     {
-        var updatedType = base.BeforeSaveInternal(item, isFullRefresh, updateType);
+        var updatedType = await base.BeforeSaveInternalAsync(item, isFullRefresh, updateType).ConfigureAwait(false);
 
         var seriesName = item.FindSeriesName();
         if (!string.Equals(item.SeriesName, seriesName, StringComparison.Ordinal))

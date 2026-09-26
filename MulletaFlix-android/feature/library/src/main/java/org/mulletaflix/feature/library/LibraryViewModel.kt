@@ -9,6 +9,11 @@ import kotlinx.coroutines.launch
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.LibraryBrowseTypes
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.paging.appendDistinctBy
+import org.mulletaflix.domain.paging.hasMorePages
+import org.mulletaflix.domain.paging.shouldRequestNextPage
+import org.mulletaflix.domain.paging.singleRequestItemLimit
+import org.mulletaflix.domain.paging.supportsOffsetPaging
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
@@ -50,6 +55,17 @@ class LibraryViewModel @Inject constructor(
     private var currentIncludeItemTypes: String = LibraryBrowseTypes.DEFAULT
     private val pageSize = 40
     private var loadJob: Job? = null
+
+    /**
+     * How many items the server has actually handed over, which is the offset the
+     * next page starts at.
+     *
+     * It is not `items.size`: the list drops entries whose id is already present, so
+     * after a shifted window the two numbers differ. Using the deduplicated size as
+     * an offset would ask for a window that starts before the end of the previous
+     * one, and a page made only of duplicates would leave the offset standing still.
+     */
+    private var fetchedItemCount = 0
     private var requestGeneration: Long = 0L
     private var sortPreferenceReady = false
     private var sortOrderPreferenceReady = false
@@ -60,6 +76,9 @@ class LibraryViewModel @Inject constructor(
         const val FILTER_FAVORITES = "Favoritos"
         const val FILTER_PLAYED = "Assistidos"
         const val FILTER_UNPLAYED = "Não assistidos"
+
+        /** Shown whenever a load is started without a usable session. */
+        const val EXPIRED_SESSION_MESSAGE = "Sessão expirada. Entre novamente."
         private val SUPPORTED_FILTERS = listOf(FILTER_FAVORITES, FILTER_PLAYED, FILTER_UNPLAYED)
     }
 
@@ -83,6 +102,7 @@ class LibraryViewModel @Inject constructor(
                     loadJob?.cancel()
                     ++requestGeneration
                     currentLibraryId = null
+                    fetchedItemCount = 0
                     _state.update {
                         it.copy(
                             items = emptyList(),
@@ -146,6 +166,7 @@ class LibraryViewModel @Inject constructor(
         // the old items, so the next page would be requested at an offset that
         // skips the new library's first items.
         if (switchedLibrary) {
+            fetchedItemCount = 0
             _state.update {
                 it.copy(
                     items = emptyList(),
@@ -161,7 +182,17 @@ class LibraryViewModel @Inject constructor(
             // the user's selection.
             libraryQueryPreferencesReady.filter { it }.first()
             val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull() ?: run {
-                _state.update { it.copy(isLoading = false, isRefreshing = false, error = "Sessão expirada. Entre novamente.") }
+                // Reached when the session is gone and the user observer has not
+                // published the null yet. Releasing ownership lets the flag fall,
+                // so the screen shows the sign-in message instead of a spinner
+                // waiting on a request that nothing will ever start.
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = EXPIRED_SESSION_MESSAGE,
+                    )
+                }
                 return@launch
             }
             _state.update { it.copy(isLoading = true, isRefreshing = true, error = null) }
@@ -183,13 +214,35 @@ class LibraryViewModel @Inject constructor(
                 limit = pageSize,
                 isPlayed = playedFilter(_state.value.activeFilters),
                 isFavorite = favoriteFilter(_state.value.activeFilters),
-            ).onSuccess { (items, total) ->
+            ).onSuccess { (firstPageItems, total) ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
+                // "Aleatório" is `ORDER BY RANDOM()` on the server: a second request at
+                // an offset would cut a *different* permutation, so there is no page 2
+                // to ask for. The whole list has to arrive in one request, and the
+                // first response is what tells us how big it is.
+                val items = if (supportsOffsetPaging(_state.value.sortBy.apiValue) || total <= firstPageItems.size) {
+                    firstPageItems
+                } else {
+                    getLibraryItemsUseCase(
+                        userId = userId,
+                        libraryId = libraryId,
+                        includeItemTypes = currentIncludeItemTypes,
+                        sortBy = _state.value.sortBy.apiValue,
+                        sortOrder = _state.value.sortOrder.apiValue,
+                        startIndex = 0,
+                        limit = singleRequestItemLimit(_state.value.sortBy.apiValue, pageSize, total),
+                        isPlayed = playedFilter(_state.value.activeFilters),
+                        isFavorite = favoriteFilter(_state.value.activeFilters),
+                    ).getOrNull()?.first ?: firstPageItems
+                }
+                if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
+                fetchedItemCount = items.size
                 _state.update {
                     it.copy(
                         libraryName = libName,
                         items = items,
-                        hasMore = hasMoreLibraryPages(items.size, items.size, total),
+                        hasMore = supportsOffsetPaging(it.sortBy.apiValue) &&
+                            hasMorePages(items.size, items.size, total),
                         isLoading = false,
                         isRefreshing = false,
                         error = null,
@@ -209,7 +262,17 @@ class LibraryViewModel @Inject constructor(
      */
     fun refreshIfIdle(libraryId: String) {
         val current = _state.value
-        if (current.isOffline || (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))) return
+        // `loadLibrary` starts a coroutine before persisted query preferences
+        // have necessarily emitted. During that short window the state still
+        // reports idle even though a request job already exists. TV enters a
+        // library with both the initial load and the foreground refresh effect
+        // active, so checking the job prevents the refresh from cancelling the
+        // first request and starting a duplicate one.
+        if (
+            current.isOffline ||
+            loadJob?.isActive == true ||
+            (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))
+        ) return
         loadLibrary(libraryId)
     }
 
@@ -220,13 +283,17 @@ class LibraryViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        error = "Sessão expirada. Entre novamente.",
+                        error = EXPIRED_SESSION_MESSAGE,
                     )
                 }
             }
             return
         }
-        if (!shouldRequestNextLibraryPage(_state.value.isLoading, _state.value.hasMore)) return
+        if (!shouldRequestNextPage(_state.value.isLoading, _state.value.hasMore)) return
+        // Nothing to page through in a permutation the server redraws per request.
+        // `hasMore` is already false for that ordering; this keeps a state that
+        // disagrees from issuing the broken offset request.
+        if (!supportsOffsetPaging(_state.value.sortBy.apiValue)) return
 
         // Mark the state before launching the coroutine. Compose can request the
         // sentinel item more than once during a fast scroll/recomposition; the
@@ -239,15 +306,25 @@ class LibraryViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        error = "Sessão expirada. Entre novamente.",
+                        error = EXPIRED_SESSION_MESSAGE,
                     )
                 }
                 return@launch
             }
-            if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@launch
-            // Page from the number of items actually loaded: the server may cap
-            // a page below the requested size, which would otherwise skip items.
-            val requestedStartIndex = _state.value.items.size
+            if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) {
+                // This page no longer owns the state: either a newer request has
+                // taken over the flags, or the session went away and nothing is
+                // left to lower them. Only the second case is ours to fix.
+                if (currentUserId == null) {
+                    _state.update { it.copy(isLoading = false) }
+                }
+                return@launch
+            }
+            // Page from the number of items actually fetched: the server may cap a
+            // page below the requested size, which would otherwise skip items, and
+            // the visible list is deduplicated, which would otherwise make the
+            // offset stop advancing.
+            val requestedStartIndex = fetchedItemCount
             getLibraryItemsUseCase(
                 userId = userId,
                 libraryId = libId,
@@ -260,11 +337,12 @@ class LibraryViewModel @Inject constructor(
                 isFavorite = favoriteFilter(_state.value.activeFilters),
             ).onSuccess { (newItems, total) ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onSuccess
-                val combined = _state.value.items + newItems
+                fetchedItemCount += newItems.size
+                val combined = appendDistinctBy(_state.value.items, newItems) { it.id }
                 _state.update {
                     it.copy(
                         items = combined,
-                        hasMore = hasMoreLibraryPages(combined.size, newItems.size, total),
+                        hasMore = hasMorePages(fetchedItemCount, newItems.size, total),
                         isLoading = false,
                         error = null,
                     )

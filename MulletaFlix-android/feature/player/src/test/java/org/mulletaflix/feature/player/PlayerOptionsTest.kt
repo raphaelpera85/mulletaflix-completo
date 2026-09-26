@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.domain.model.MediaStream
@@ -10,12 +11,17 @@ class PlayerOptionsTest {
 
     @Test
     fun `cast action communicates whether a receiver session is active`() {
+        // Só o rótulo visível: a `contentDescription` fixa em pt-BR saiu porque era um
+        // terceiro nome para o mesmo controle, competindo com o rótulo e com a
+        // descrição localizada que o `MediaRouteButton` do Media3 já publica.
         assertEquals("Transmitir", castActionLabel(isCasting = false))
         assertEquals("Transmitindo", castActionLabel(isCasting = true))
-        assertEquals(
-            "Transmitindo para dispositivo compatível",
-            castActionContentDescription(isCasting = true),
-        )
+    }
+
+    @Test
+    fun `quality control is available locally but not during cast`() {
+        assertTrue(qualityControlAvailable(isCasting = false))
+        assertFalse(qualityControlAvailable(isCasting = true))
     }
 
     @Test
@@ -128,5 +134,76 @@ class PlayerOptionsTest {
         assertEquals(VideoAspectRatio.FILL, normalizeAspectRatioPreference("FILL"))
         assertEquals(VideoAspectRatio.FIT, normalizeAspectRatioPreference(null))
         assertEquals(VideoAspectRatio.FIT, normalizeAspectRatioPreference("unknown"))
+    }
+
+    @Test
+    fun `a resolution the server really offers can be selected and kept`() {
+        // Tracks below 480p keep their own height instead of being bucketed onto
+        // a ladder rung. `qualityOptions` named them "360p"/"240p",
+        // `normalizeQualityPreference` did not recognise those names and answered
+        // "Auto" — so picking 360p stored "Auto" and the radio jumped back to
+        // Automatic.
+        val streams = listOf(360, 288, 240, 480, 720).mapIndexed { index, height ->
+            MediaStream(index = index, type = MediaStreamType.Video, height = height)
+        }
+        val offered = qualityOptions(streams)
+
+        assertEquals(listOf("720p", "480p", "360p", "288p", "240p"), offered)
+
+        offered.forEach { quality ->
+            assertEquals(
+                "\"$quality\" must survive being stored, or choosing it is discarded",
+                quality,
+                normalizeQualityPreference(quality),
+            )
+            assertEquals(
+                "\"$quality\" must stay selected once the title offers it",
+                quality,
+                effectiveQualitySelection(quality, offered),
+            )
+        }
+    }
+
+    @Test
+    fun `an unlisted resolution still caps the stream it names`() {
+        // Falling through to "no cap" would serve 4K to someone who asked for 360p.
+        val constraint = videoQualityConstraint("360p")
+        assertEquals(360, constraint.maxHeight)
+        assertTrue("an unlisted height must not be left uncapped", constraint.maxBitrate < Int.MAX_VALUE)
+        assertEquals(360, videoQualityConstraint("360P").maxHeight)
+    }
+
+    @Test
+    fun `implausible quality values are still rejected`() {
+        assertEquals("Auto", normalizeQualityPreference("9999p"))
+        assertEquals("Auto", normalizeQualityPreference("0p"))
+        assertEquals("Auto", normalizeQualityPreference("360"))
+        assertEquals("Auto", normalizeQualityPreference("360px"))
+    }
+
+    @Test
+    fun `the applied quality is always one the menu can show`() {
+        // The stored preference may name a resolution this title does not offer.
+        // `applyQuality` used to write it raw, so the state claimed "4K" while the
+        // menu — built from `qualityMenuOptions(availableQualities)` — had no
+        // matching row and the control appeared unset.
+        val offered = listOf("1080p", "720p")
+        val menu = qualityMenuOptions(offered)
+
+        listOf("4K", "1440p", "1080p", "720p", "Auto", null, "unsupported").forEach { stored ->
+            val applied = appliedQualitySelection(stored, offered)
+
+            assertTrue(
+                "quality \"$stored\" applied as \"$applied\", which the menu does not offer",
+                menu.contains(applied),
+            )
+        }
+    }
+
+    @Test
+    fun `a resolution the title does offer is kept when applied`() {
+        assertEquals("720p", appliedQualitySelection("720p", listOf("1080p", "720p")))
+        assertEquals("Auto", appliedQualitySelection("4K", listOf("1080p", "720p")))
+        assertEquals("Auto", appliedQualitySelection("720p", emptyList()))
     }
 }

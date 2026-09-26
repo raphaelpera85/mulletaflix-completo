@@ -43,6 +43,8 @@ export const ASYNC_ADMIN_ROUTES: AsyncRoute[] = [
     { path: 'users/backup', page: 'users/backup', type: AppType.Dashboard },
     { path: 'users/licenses', page: 'users/licenses', type: AppType.Dashboard },
     { path: 'users/:userId/:tab', page: 'users/edit', type: AppType.Dashboard },
+    { path: 'media-requests', page: 'user-feedback/requests', type: AppType.Dashboard },
+    { path: 'playback-issues', page: 'user-feedback/reports', type: AppType.Dashboard },
     { path: UPDATES_ROUTE, type: AppType.Dashboard },
     { path: PLAYBACK_REPORTS_ROUTE, type: AppType.Dashboard }
 ];

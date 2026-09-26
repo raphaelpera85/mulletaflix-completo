@@ -130,6 +130,14 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         _masterTask = Task.Run(() => RunMasterLoopAsync(actualWorkers, _cts.Token));
     }
 
+    /// <summary>
+    /// Enfileira imediatamente uma mídia que o downloader já registrou no MongoDB.
+    /// </summary>
+    public void EnqueueMediaFromDownloader(string filePath)
+    {
+        EnqueueFile(filePath);
+    }
+
     private void EnqueueFile(string fullPath, ObjectId? nodeId = null, string? parentId = null)
     {
         if (string.IsNullOrWhiteSpace(fullPath) ||

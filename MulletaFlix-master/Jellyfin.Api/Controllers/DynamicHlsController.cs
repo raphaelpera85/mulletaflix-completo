@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
@@ -61,6 +61,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
     private readonly IDynamicHlsPlaylistGenerator _dynamicHlsPlaylistGenerator;
     private readonly DynamicHlsHelper _dynamicHlsHelper;
     private readonly EncodingOptions _encodingOptions;
+    private readonly TransientMediaItemRegistry _transientMediaItemRegistry;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DynamicHlsController"/> class.
@@ -76,6 +77,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
     /// <param name="dynamicHlsHelper">Instance of <see cref="DynamicHlsHelper"/>.</param>
     /// <param name="encodingHelper">Instance of <see cref="EncodingHelper"/>.</param>
     /// <param name="dynamicHlsPlaylistGenerator">Instance of <see cref="IDynamicHlsPlaylistGenerator"/>.</param>
+    /// <param name="transientMediaItemRegistry">Registry for path-resolved items during playback.</param>
     public DynamicHlsController(
         ILibraryManager libraryManager,
         IUserManager userManager,
@@ -87,7 +89,8 @@ public class DynamicHlsController : BaseMulletaFlixApiController
         ILogger<DynamicHlsController> logger,
         DynamicHlsHelper dynamicHlsHelper,
         EncodingHelper encodingHelper,
-        IDynamicHlsPlaylistGenerator dynamicHlsPlaylistGenerator)
+        IDynamicHlsPlaylistGenerator dynamicHlsPlaylistGenerator,
+        TransientMediaItemRegistry transientMediaItemRegistry)
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
@@ -100,6 +103,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
         _dynamicHlsHelper = dynamicHlsHelper;
         _encodingHelper = encodingHelper;
         _dynamicHlsPlaylistGenerator = dynamicHlsPlaylistGenerator;
+        _transientMediaItemRegistry = transientMediaItemRegistry;
 
         _encodingOptions = serverConfigurationManager.GetEncodingOptions();
     }
@@ -292,7 +296,8 @@ public class DynamicHlsController : BaseMulletaFlixApiController
                 _encodingHelper,
                 _transcodeManager,
                 TranscodingJobType,
-                cancellationToken)
+                cancellationToken,
+                _transientMediaItemRegistry)
             .ConfigureAwait(false);
 
         TranscodingJob? job = null;
@@ -1387,7 +1392,7 @@ public class DynamicHlsController : BaseMulletaFlixApiController
 
     private async Task<ActionResult> GetVariantPlaylistInternal(StreamingRequestDto streamingRequest, CancellationTokenSource cancellationTokenSource)
     {
-        using var state = await StreamingHelpers.GetStreamingState(
+        await using var state = await StreamingHelpers.GetStreamingState(
                 streamingRequest,
                 HttpContext,
                 _mediaSourceManager,
@@ -1398,7 +1403,8 @@ public class DynamicHlsController : BaseMulletaFlixApiController
                 _encodingHelper,
                 _transcodeManager,
                 TranscodingJobType,
-                cancellationTokenSource.Token)
+                cancellationTokenSource.Token,
+                _transientMediaItemRegistry)
             .ConfigureAwait(false);
         var mediaSourceId = state.BaseRequest.MediaSourceId;
         double fps = state.TargetFramerate ?? 0.0f;
@@ -1447,7 +1453,8 @@ public class DynamicHlsController : BaseMulletaFlixApiController
                 _encodingHelper,
                 _transcodeManager,
                 TranscodingJobType,
-                cancellationToken)
+                cancellationToken,
+                _transientMediaItemRegistry)
             .ConfigureAwait(false);
 
         var playlistPath = Path.ChangeExtension(state.OutputFilePath, ".m3u8");
@@ -2080,4 +2087,3 @@ public class DynamicHlsController : BaseMulletaFlixApiController
         }
     }
 }
-

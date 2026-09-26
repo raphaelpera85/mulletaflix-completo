@@ -796,7 +796,52 @@ public sealed class NebulaMongoContext : IDisposable
             Builders<BsonDocument>.Filter.Eq("status", "completed"));
 
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        var match = await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        if (match != null || (!pathOrName.Contains('/', StringComparison.Ordinal) && !pathOrName.Contains('\\', StringComparison.Ordinal)))
+        {
+            return match;
+        }
+
+        var segments = pathOrName.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length > 0 && segments[0].Length == 2 && segments[0][1] == ':')
+        {
+            segments = segments[1..];
+        }
+
+        if (segments.Length == 0)
+        {
+            return null;
+        }
+
+        string? parentId = null;
+        var parentPath = "/";
+        for (var index = 0; index < segments.Length; index++)
+        {
+            var node = await FindByNameAndParentAsync(segments[index], parentId, parentPath, cancellationToken).ConfigureAwait(false);
+            if (node is null)
+            {
+                return null;
+            }
+
+            var isLast = index == segments.Length - 1;
+            if (isLast)
+            {
+                return string.Equals(node.GetValue("type", string.Empty).AsString, "dir", StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(node.GetValue("status", string.Empty).AsString, "completed", StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : node;
+            }
+
+            if (!string.Equals(node.GetValue("type", string.Empty).AsString, "dir", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            parentId = node.GetValue("_id").ToString();
+            parentPath = NormalizePath(parentPath.TrimEnd('/') + "/" + segments[index]);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1053,6 +1098,77 @@ public sealed class NebulaMongoContext : IDisposable
         result.Success = true;
         result.Message = $"Varredura concluída: {result.Moved} grupo(s) de novela movido(s) para Novelas.";
         _logger.LogInformation("[NEBULA-MONGO] {Message}", result.Message);
+        return result;
+    }
+
+    /// <summary>
+    /// Remove a categoria legada Series/Animações. O Nebula mantém uma biblioteca
+    /// própria em Animações; deixar esse nó dentro de Series faz o Jellyfin expô-lo
+    /// como uma série recente no aplicativo.
+    /// </summary>
+    public async Task<NebulaAnimacaoMigrationResult> NormalizeAnimacoesLibraryAsync(CancellationToken cancellationToken = default)
+    {
+        var result = new NebulaAnimacaoMigrationResult { Success = false };
+        var documents = await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+
+        static string ParentKey(BsonDocument doc)
+            => doc.TryGetValue("parent", out var parent) && !parent.IsBsonNull ? parent.ToString() : string.Empty;
+
+        var seriesRoots = documents.Where(d =>
+            d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+            && d.GetValue("name", string.Empty).AsString.Equals("Series", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        foreach (var seriesRoot in seriesRoots)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var seriesParent = ParentKey(seriesRoot);
+            var animationRoot = documents.FirstOrDefault(d =>
+                d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                && d.GetValue("name", string.Empty).AsString.Equals("Animações", StringComparison.OrdinalIgnoreCase)
+                && ParentKey(d).Equals(seriesParent, StringComparison.OrdinalIgnoreCase));
+
+            if (animationRoot == null)
+            {
+                continue;
+            }
+
+            var duplicate = documents.FirstOrDefault(d =>
+                d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                && d.GetValue("name", string.Empty).AsString.Equals("Animações", StringComparison.OrdinalIgnoreCase)
+                && ParentKey(d).Equals(seriesRoot.GetValue("_id").ToString(), StringComparison.OrdinalIgnoreCase));
+
+            if (duplicate == null)
+            {
+                continue;
+            }
+
+            var duplicateId = duplicate.GetValue("_id");
+            var children = documents.Where(d => ParentKey(d).Equals(duplicateId.ToString(), StringComparison.OrdinalIgnoreCase)).ToList();
+            foreach (var child in children)
+            {
+                var update = Builders<BsonDocument>.Update
+                    .Set("parent", animationRoot.GetValue("_id"))
+                    .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                var updateResult = await _filesCollection.UpdateOneAsync(
+                    Builders<BsonDocument>.Filter.Eq("_id", child.GetValue("_id")),
+                    update,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (updateResult.ModifiedCount > 0)
+                {
+                    result.Moved++;
+                }
+            }
+
+            var duplicateFilter = Builders<BsonDocument>.Filter.Eq("_id", duplicateId);
+            var deleteResult = await _filesCollection.DeleteOneAsync(duplicateFilter, cancellationToken).ConfigureAwait(false);
+            result.DuplicateRemoved |= deleteResult.DeletedCount > 0;
+        }
+
+        result.Success = true;
+        result.Message = result.Moved == 0 && !result.DuplicateRemoved
+            ? "Nenhum nó duplicado Series/Animações encontrado."
+            : $"Biblioteca normalizada: {result.Moved} grupo(s) movido(s) para Animações e nó duplicado removido: {result.DuplicateRemoved}.";
+        _logger.LogInformation("[NEBULA-ANIMACOES] {Message}", result.Message);
         return result;
     }
 

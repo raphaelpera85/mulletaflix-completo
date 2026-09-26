@@ -11,9 +11,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.NetworkMonitor
@@ -28,10 +30,18 @@ data class HomeState(
     val nextUpItems: List<MediaItem> = emptyList(),
     val favoriteItems: List<MediaItem> = emptyList(),
     val recentlyAddedByLibrary: Map<String, List<MediaItem>> = emptyMap(),
+    val recentlyAddedErrorsByLibrary: Map<String, String> = emptyMap(),
     val liveTvChannels: List<MediaItem> = emptyList(),
     val libraries: List<MediaItem> = emptyList(),
     val userProfile: UserProfile? = null,
     val error: String? = null,
+    val resumeError: String? = null,
+    val nextUpError: String? = null,
+    val favoritesError: String? = null,
+    /** Não nulo quando só as bibliotecas falharam; o resto da Home pode estar certo. */
+    val librariesError: String? = null,
+    /** Não nulo quando só a TV ao vivo falhou. Zero canais por **sucesso** não é erro. */
+    val liveTvError: String? = null,
 )
 
 @HiltViewModel
@@ -40,7 +50,31 @@ class HomeViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val networkMonitor: NetworkMonitor,
     private val authRepository: AuthRepository,
+    private val userFeedbackRepository: UserFeedbackRepository = object : UserFeedbackRepository {
+        override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
+        override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
+    },
 ) : ViewModel() {
+
+    private var mediaRequestSubmitting = false
+
+    fun requestMedia(title: String, mediaType: String, year: Int?, notes: String, onComplete: (Result<Unit>) -> Unit) {
+        if (mediaRequestSubmitting) return
+        mediaRequestSubmitting = true
+        viewModelScope.launch {
+            val result = try {
+                userFeedbackRepository.requestMedia(title.trim(), mediaType, year, notes.trim())
+            } catch (cancelled: CancellationException) {
+                onComplete(Result.failure(cancelled))
+                throw cancelled
+            } catch (error: Throwable) {
+                Result.failure(error)
+            } finally {
+                mediaRequestSubmitting = false
+            }
+            onComplete(result)
+        }
+    }
 
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
@@ -74,12 +108,18 @@ class HomeViewModel @Inject constructor(
                             nextUpItems = emptyList(),
                             favoriteItems = emptyList(),
                             recentlyAddedByLibrary = emptyMap(),
+                            recentlyAddedErrorsByLibrary = emptyMap(),
                             liveTvChannels = emptyList(),
                             libraries = emptyList(),
                             userProfile = null,
                             isLoading = false,
                             isRefreshing = false,
                             error = null,
+                            resumeError = null,
+                            nextUpError = null,
+                            favoritesError = null,
+                            librariesError = null,
+                            liveTvError = null,
                         )
                     }
                 }
@@ -101,13 +141,32 @@ class HomeViewModel @Inject constructor(
      */
     fun refreshIfIdle() {
         val current = _state.value
-        if (current.isLoading || current.isRefreshing) return
+        // A foreground refresh can arrive immediately after the initial
+        // coroutine is created, before that coroutine publishes isLoading.
+        // Treat the active Job as authoritative so TV never replaces the
+        // first Home request with a duplicate one.
+        if (loadJob?.isActive == true || current.isLoading || current.isRefreshing) return
         refresh()
     }
 
     private fun loadHome(refresh: Boolean = false) {
         val generation = ++loadGeneration
         loadJob = viewModelScope.launch {
+            // Um aviso de seção pertence à carga que o produziu. Sem esta limpeza, uma
+            // falha da TV ao vivo sobrevivia à carga seguinte e aparecia **ao lado** do
+            // erro do feed inteiro — os dois cartões juntos, que é exatamente o que a
+            // `HomeScreen` documenta como impossível. Vale para as três saídas daqui
+            // para baixo: offline, sessão expirada e falha total.
+            _state.update {
+                it.copy(
+                    resumeError = null,
+                    nextUpError = null,
+                    favoritesError = null,
+                    recentlyAddedErrorsByLibrary = emptyMap(),
+                    librariesError = null,
+                    liveTvError = null,
+                )
+            }
             // Do not enqueue a request while the monitor already reports the
             // device offline. Reading the current value here also closes the
             // small startup race between the session collector and the
@@ -180,9 +239,15 @@ class HomeViewModel @Inject constructor(
                             nextUpItems = feed.nextUpItems,
                             favoriteItems = feed.favoriteItems,
                             recentlyAddedByLibrary = feed.recentlyAddedByLibrary,
+                            recentlyAddedErrorsByLibrary = feed.recentlyAddedErrorsByLibrary,
                             liveTvChannels = feed.liveTvChannels,
                             libraries = feed.libraries,
                             error = null,
+                            resumeError = feed.resumeError,
+                            nextUpError = feed.nextUpError,
+                            favoritesError = feed.favoritesError,
+                            librariesError = feed.librariesError,
+                            liveTvError = feed.liveTvError,
                         )
                     }
                 }

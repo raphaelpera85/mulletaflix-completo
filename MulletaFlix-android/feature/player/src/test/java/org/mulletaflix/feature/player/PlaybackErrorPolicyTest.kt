@@ -2,6 +2,8 @@ package org.mulletaflix.feature.player
 
 import androidx.media3.common.PlaybackException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackErrorPolicyTest {
@@ -35,5 +37,21 @@ class PlaybackErrorPolicyTest {
             "Não foi possível reproduzir esta mídia.",
             userFacingPlaybackError(PlaybackException.ERROR_CODE_UNSPECIFIED, "  "),
         )
+    }
+
+    /**
+     * Some Media3 codes put the URL they failed on inside `localizedMessage`, and a
+     * playback URL carries the session token as `api_key`. Every code known to do
+     * that has a curated message above, so this is the net under the list: a code
+     * nobody has mapped yet must not be able to put a token on screen.
+     */
+    @Test
+    fun `an unmapped failure never shows a token`() {
+        val message = userFacingPlaybackError(
+            PlaybackException.ERROR_CODE_UNSPECIFIED,
+            "Failed to open http://192.168.15.9:8096/Videos/x/stream?api_key=super-secret&Static=true",
+        )
+        assertFalse("the session token reached the screen: $message", message.contains("super-secret"))
+        assertTrue(message.contains("api_key=<redacted>"))
     }
 }

@@ -36,7 +36,6 @@ import { ActionData } from 'types/actionData';
 const BRANDING_CONFIG_KEY = 'branding';
 type BrandingOptionsWithTheme = BrandingOptions & {
     DefaultTheme?: string;
-    IntroEnabled?: boolean;
     IntroPath?: string;
     PrebufferEnabled?: boolean;
     PrebufferSizeMb?: number;
@@ -54,7 +53,6 @@ const BrandingOption = {
     DefaultTheme: 'DefaultTheme',
     LoginDisclaimer: 'LoginDisclaimer',
     SplashscreenEnabled: 'SplashscreenEnabled',
-    IntroEnabled: 'IntroEnabled',
     IntroPath: 'IntroPath',
     PrebufferEnabled: 'PrebufferEnabled',
     PrebufferSizeMb: 'PrebufferSizeMb',
@@ -79,7 +77,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         DefaultTheme: data.DefaultTheme?.toString(),
         LoginDisclaimer: data.LoginDisclaimer?.toString(),
         SplashscreenEnabled: data.SplashscreenEnabled?.toString() === 'on',
-        IntroEnabled: data.IntroEnabled?.toString() === 'on',
         IntroPath: data.IntroPath?.toString(),
         PrebufferEnabled: data.PrebufferEnabled?.toString() === 'on',
         PrebufferSizeMb: Number(data.PrebufferSizeMb || 32),
@@ -377,10 +374,7 @@ export const Component = () => {
 
                             <Typography variant='h2'>Intro e pre-buffer STRM</Typography>
 
-                            <FormControlLabel
-                                control={<Switch name={BrandingOption.IntroEnabled} defaultChecked={brandingOptions.IntroEnabled ?? (Boolean(brandingOptions.IntroPath))} />}
-                                label='Ativar intro nativa antes das midias'
-                            />
+                            <Alert severity='info'>A intro nativa incluida no MulletaFlix sera reproduzida automaticamente antes de cada midia.</Alert>
 
                             <TextField
                                 fullWidth

@@ -3,8 +3,14 @@ package org.mulletaflix.android.network
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.mulletaflix.feature.auth.ServerInfo
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class LanServerRecoveryPolicyTest {
     @Test
     fun `switches when discovery finds a different LAN endpoint`() {
@@ -86,6 +92,15 @@ class LanServerRecoveryPolicyTest {
     }
 
     @Test
+    fun `recognizes private IPv6 LAN addresses and keeps unspecified address non dialable`() {
+        assertTrue(isLocalServerUrl("http://[fd12:3456::20]:8096"))
+        assertTrue(isLocalServerUrl("http://[fe80::20]:8096"))
+        assertTrue(isLocalServerUrl("http://[::]:8096"))
+        assertFalse(isDialableServerUrl("http://[::]:8096"))
+        assertTrue(isDialableServerUrl("http://[fd12:3456::20]:8096"))
+    }
+
+    @Test
     fun `selects the authenticated server when multiple LAN servers advertise`() {
         val other = ServerInfo("Outro", "http://192.168.1.10:8096", serverId = "other")
         val expected = ServerInfo("MulletaFlix", "http://192.168.1.20:8096", serverId = "mulletaflix")
@@ -118,9 +133,91 @@ class LanServerRecoveryPolicyTest {
     }
 
     @Test
-    fun `only the latest active scan can apply its endpoint`() {
+    fun `never switches the saved server to a non local address`() {
+        // The locality check was missing in this direction while the opposite
+        // one had it, so any host that answered the discovery probe could replace
+        // the saved endpoint — and every later request, Authorization header
+        // included, went to that address.
+        assertFalse(
+            shouldSwitchToLan("http://192.168.1.20:8096", "http://203.0.113.9:8096"),
+        )
+        assertFalse(
+            shouldSwitchToLan("http://mulletaflix.duckdns.org:8096", "http://8.8.8.8:8096"),
+        )
+    }
+
+    @Test
+    fun `never switches to a listen-only address`() {
+        // `0.0.0.0` means "any local address": a server advertising it cannot be
+        // dialled, and it is classified as local, so it needs its own guard.
+        assertFalse(
+            shouldSwitchToLan("http://192.168.1.20:8096", "http://0.0.0.0:8096"),
+        )
+        assertTrue(isLocalServerUrl("http://0.0.0.0:8096"))
+        assertFalse(isDialableServerUrl("http://0.0.0.0:8096"))
+        assertTrue(isDialableServerUrl("http://192.168.1.20:8096"))
+    }
+
+    @Test
+    fun `a public responder is not a LAN candidate`() {
+        val remote = ServerInfo("Remoto", "http://203.0.113.9:8096")
+
+        assertTrue(selectAuthenticatedLanServer(listOf(remote), null) == null)
+    }
+
+    @Test
+    fun `a listen-only responder is not a LAN candidate`() {
+        val wildcard = ServerInfo("Curinga", "http://0.0.0.0:8096")
+
+        assertTrue(selectAuthenticatedLanServer(listOf(wildcard), null) == null)
+    }
+
+    @Test
+    fun `only the latest active scan can probe or apply its endpoint`() {
         assertTrue(isCurrentLanScan(scanGeneration = 4, latestGeneration = 4, isStarted = true))
         assertFalse(isCurrentLanScan(scanGeneration = 3, latestGeneration = 4, isStarted = true))
         assertFalse(isCurrentLanScan(scanGeneration = 4, latestGeneration = 4, isStarted = false))
+    }
+
+    @Test
+    fun `a superseded scan is rejected before network discovery`() = runTest {
+        var latestScan = 7L
+        val probe = async {
+            shouldRunDebouncedLanScan(
+                scanGeneration = 7L,
+                latestGeneration = { latestScan },
+                isStarted = { true },
+                debounceMs = 350L,
+            )
+        }
+
+        runCurrent()
+        latestScan = 8L
+        advanceTimeBy(350L)
+        runCurrent()
+
+        assertFalse(probe.await())
+    }
+
+    @Test
+    fun `current scan starts probing only after debounce window`() = runTest {
+        val probe = async {
+            shouldRunDebouncedLanScan(
+                scanGeneration = 8L,
+                latestGeneration = { 8L },
+                isStarted = { true },
+                debounceMs = 350L,
+            )
+        }
+
+        runCurrent()
+        assertFalse(probe.isCompleted)
+        advanceTimeBy(349L)
+        runCurrent()
+        assertFalse(probe.isCompleted)
+        advanceTimeBy(1L)
+        runCurrent()
+
+        assertTrue(probe.await())
     }
 }

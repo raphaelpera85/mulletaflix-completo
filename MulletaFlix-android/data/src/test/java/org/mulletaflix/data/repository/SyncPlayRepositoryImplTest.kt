@@ -11,6 +11,8 @@ import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.dto.GroupInfoDto
 import org.mulletaflix.core.api.dto.JoinGroupRequestDto
 import org.mulletaflix.core.api.dto.NewGroupRequestDto
+import org.mulletaflix.core.api.dto.SyncPlayPlaybackStatusDto
+import org.mulletaflix.domain.repository.SyncPlayPlaybackStatus
 
 class SyncPlayRepositoryImplTest {
 
@@ -25,8 +27,6 @@ class SyncPlayRepositoryImplTest {
                 groupName = "Family Movie Night",
                 state = "Playing",
                 participants = listOf("User1", "User2"),
-                playingItemId = "item-99",
-                positionTicks = 1200000000L
             )
         )
 
@@ -70,4 +70,51 @@ class SyncPlayRepositoryImplTest {
         assertTrue(result.isSuccess)
         coVerify(exactly = 1) { api.leaveSyncPlayGroup() }
     }
+
+    @Test
+    fun reportBuffering_mapsAllFieldsToServerContract() = runTest {
+        val status = samplePlaybackStatus()
+        coEvery { api.reportSyncPlayBuffering(any()) } returns Unit
+
+        val result = repository.reportBuffering(status)
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 1) {
+            api.reportSyncPlayBuffering(
+                SyncPlayPlaybackStatusDto(
+                    whenUtc = status.whenUtc,
+                    positionTicks = status.positionTicks,
+                    isPlaying = status.isPlaying,
+                    playlistItemId = status.playlistItemId,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun reportReady_mapsAllFieldsToServerContract() = runTest {
+        val status = samplePlaybackStatus()
+        coEvery { api.reportSyncPlayReady(any()) } returns Unit
+
+        val result = repository.reportReady(status)
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 1) {
+            api.reportSyncPlayReady(
+                SyncPlayPlaybackStatusDto(
+                    whenUtc = status.whenUtc,
+                    positionTicks = status.positionTicks,
+                    isPlaying = status.isPlaying,
+                    playlistItemId = status.playlistItemId,
+                ),
+            )
+        }
+    }
+
+    private fun samplePlaybackStatus() = SyncPlayPlaybackStatus(
+        whenUtc = "2026-09-24T12:30:00.000Z",
+        positionTicks = 42_000_000L,
+        isPlaying = true,
+        playlistItemId = "e7b83cbe1f782b329a2490a40252e46a",
+    )
 }

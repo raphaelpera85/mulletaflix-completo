@@ -63,7 +63,7 @@ class ServerSelectionPolicyTest {
 
     @Test
     fun `public endpoint is automatically verified after empty discovery`() {
-        val state = AuthState(serverUrl = DEFAULT_MULLETAFLIX_SERVER_URL)
+        val state = AuthState(serverUrl = DEFAULT_MULLETAFLIX_SERVER_URL, savedServersLoaded = true)
 
         assertEquals(
             DEFAULT_MULLETAFLIX_SERVER_URL,
@@ -73,11 +73,45 @@ class ServerSelectionPolicyTest {
 
     @Test
     fun `automatic verification waits while discovery is running or editing`() {
-        val state = AuthState(isDiscovering = true)
+        val state = AuthState(isDiscovering = true, savedServersLoaded = true)
 
         assertEquals(null, automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false))
         assertEquals(null, automaticServerCandidate(state.copy(isDiscovering = false), manuallyEdited = true, connectionStarted = false))
         assertEquals(null, automaticServerCandidate(state.copy(isDiscovering = false), manuallyEdited = false, connectionStarted = true))
+    }
+
+    @Test
+    fun `automatic verification prefers the server it is already logged into`() {
+        // A decisão que este arquivo existe para tomar, aplicada também ao endereço
+        // que a tela conecta sozinha: numa rede com dois servidores compatíveis, o
+        // primeiro a responder não pode tomar o lugar do servidor da conta.
+        val unrelated = ServerInfo("Other Server", "http://192.168.1.20:8096", serverId = "other-id")
+        val matching = ServerInfo("MulletaFlix LAN", "http://192.168.1.10:8096", serverId = "saved-id")
+        val saved = ServerInfo("MulletaFlix Cloud", DEFAULT_MULLETAFLIX_SERVER_URL, serverId = "saved-id")
+        val state = AuthState(
+            discoveredServers = listOf(unrelated, matching),
+            savedServers = listOf(saved),
+            savedServersLoaded = true,
+        )
+
+        assertEquals(
+            matching.url,
+            automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false),
+        )
+    }
+
+    @Test
+    fun `automatic verification keeps the first LAN server when nothing identifies it`() {
+        // Primeira configuração: não há identidade para casar, e o primeiro
+        // endereço compatível continua sendo a resposta honesta.
+        val first = ServerInfo("First LAN", "http://192.168.1.20:8096")
+        val second = ServerInfo("Second LAN", "http://192.168.1.10:8096")
+        val state = AuthState(discoveredServers = listOf(first, second), savedServersLoaded = true)
+
+        assertEquals(
+            first.url,
+            automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false),
+        )
     }
 
     @Test
@@ -93,5 +127,46 @@ class ServerSelectionPolicyTest {
         val lan = ServerInfo("LAN", "http://192.168.1.10:8096")
 
         assertEquals(DEFAULT_MULLETAFLIX_SERVER_URL, fallbackServerCandidate(AuthState(savedServers = listOf(lan)), lan.url))
+    }
+
+    @Test
+    fun `any discovered lan endpoint can trigger public fallback`() {
+        val first = ServerInfo("Other LAN", "http://192.168.1.20:8096")
+        val selected = ServerInfo("MulletaFlix LAN", "http://192.168.1.10:8096")
+
+        assertEquals(
+            true,
+            shouldTryFallbackAfterDiscoveryFailure(
+                discovered = listOf(first, selected),
+                failedEndpoint = selected.url,
+            ),
+        )
+    }
+
+    @Test
+    fun `public endpoint failure does not start another fallback`() {
+        val lan = ServerInfo("MulletaFlix LAN", "http://192.168.1.10:8096")
+
+        assertEquals(
+            false,
+            shouldTryFallbackAfterDiscoveryFailure(
+                discovered = listOf(lan),
+                failedEndpoint = DEFAULT_MULLETAFLIX_SERVER_URL,
+            ),
+        )
+    }
+
+    @Test
+    fun `automatic verification waits for persisted servers before selecting a LAN endpoint`() {
+        val unrelated = ServerInfo("Other LAN", "http://192.168.1.20:8096", serverId = "other-id")
+        val state = AuthState(
+            discoveredServers = listOf(unrelated),
+            savedServersLoaded = false,
+        )
+
+        assertEquals(
+            null,
+            automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false),
+        )
     }
 }

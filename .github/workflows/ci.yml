@@ -217,3 +217,45 @@ jobs:
           path: MulletaFlix-android/app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
 
+  ios-build-test:
+    name: iOS Core tests & Xcode build
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: MulletaFlix-iOS
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate privacy manifest registration
+        run: |
+          plutil -lint PrivacyInfo.xcprivacy
+          test "$(plutil -extract NSPrivacyTracking raw -o - PrivacyInfo.xcprivacy)" = "false"
+          plutil -extract NSPrivacyAccessedAPITypes xml1 -o - PrivacyInfo.xcprivacy | grep -q NSPrivacyAccessedAPICategoryUserDefaults
+          grep -q "PrivacyInfo.xcprivacy in Resources" MulletaFlix.xcodeproj/project.pbxproj
+          grep -q "files = (A00000000000000000000009);" MulletaFlix.xcodeproj/project.pbxproj
+
+      - name: Run Swift package tests
+        run: swift test --enable-code-coverage
+
+      - name: Build iOS simulator target
+        run: >
+          xcodebuild
+          -project MulletaFlix.xcodeproj
+          -scheme MulletaFlix
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+          -resultBundlePath xcodebuild-results.xcresult
+          build
+
+      - name: Upload iOS validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mulletaflix-ios-validation
+          path: |
+            MulletaFlix-iOS/.build/**
+            MulletaFlix-iOS/xcodebuild-results.xcresult
+          if-no-files-found: warn

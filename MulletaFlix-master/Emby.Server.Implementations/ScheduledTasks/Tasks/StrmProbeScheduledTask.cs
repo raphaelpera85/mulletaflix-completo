@@ -67,19 +67,49 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Query all movies and episodes.
-            var items = _itemRepository.GetItemList(new InternalItemsQuery
+            // Page through movies and episodes instead of materialising the whole library.
+            // This used to load every Movie and Episode entity (the entire library) purely to keep
+            // the few unprobed STRM items that survive the filter below — one of the largest peak
+            // memory contributors on a host that was paging hard enough to freeze the process for
+            // 50-100 seconds at a time.
+            const int PageSize = 500;
+            var query = new InternalItemsQuery
             {
                 CollapseBoxSetItems = false,
                 Recursive = true,
                 DtoOptions = new MediaBrowser.Controller.Dto.DtoOptions(false),
-                IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode }
-            });
+                IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode },
+                Limit = PageSize
+            };
 
-            // Filter for remote STRM files that don't have media streams identified yet.
-            var strmItems = items
-                .Where(x => x.IsShortcut && x.GetMediaStreams().Count == 0)
-                .ToList();
+            // Only the filtered STRM set is materialised, because the enqueued job captures it.
+            var strmItems = new List<BaseItem>();
+            var seenIds = new HashSet<Guid>();
+            var scannedItems = 0;
+            var startIndex = 0;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                query.StartIndex = startIndex;
+                var page = _itemRepository.GetItemList(query);
+                if (page.Count == 0)
+                {
+                    break;
+                }
+
+                scannedItems += page.Count;
+
+                foreach (var x in page)
+                {
+                    if (x.IsShortcut && x.GetMediaStreams().Count == 0 && seenIds.Add(x.Id))
+                    {
+                        strmItems.Add(x);
+                    }
+                }
+
+                startIndex += PageSize;
+            }
 
             if (strmItems.Count == 0)
             {
@@ -88,7 +118,7 @@ namespace Emby.Server.Implementations.ScheduledTasks.Tasks
                 return;
             }
 
-            var totalLibraryItems = items.Count;
+            var totalLibraryItems = scannedItems;
             var correlationId = $"strm-probe-scheduled-task";
 
             // If a probe job is already running in the queue, cancel it or wait.

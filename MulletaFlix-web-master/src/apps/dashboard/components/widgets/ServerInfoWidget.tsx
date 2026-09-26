@@ -5,12 +5,14 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Stack from '@mui/material/Stack';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Skeleton from '@mui/material/Skeleton';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import { useSystemInfo } from 'hooks/useSystemInfo';
 import { getDisplayVersion } from 'utils/versions';
+import { useServerUpdateInfo } from 'apps/dashboard/features/updates/api/useServerUpdateInfo';
 
 type ServerInfoWidgetProps = {
     onScanLibrariesClick?: () => void;
@@ -26,6 +28,7 @@ const ServerInfoWidget = ({
     isScanning
 }: ServerInfoWidgetProps) => {
     const { data: systemInfo, isPending } = useSystemInfo();
+    const { data: updateInfo } = useServerUpdateInfo();
 
     const displayServerVersion = getDisplayVersion(systemInfo?.Version);
     const displayWebVersion = getDisplayVersion(__PACKAGE_JSON_VERSION__);
@@ -56,7 +59,19 @@ const ServerInfoWidget = ({
                                 ) : (
                                     <>
                                         <Typography>{systemInfo?.ServerName}</Typography>
-                                        <Typography>{displayServerVersion}</Typography>
+                                        <Stack direction='row' spacing={1} alignItems='center' flexWrap='wrap'>
+                                            <Typography>{displayServerVersion}</Typography>
+                                            {updateInfo?.UpdateAvailable && (
+                                                <Chip
+                                                    label={`${globalize.translate('LabelUpdateAvailable')}${updateInfo.AvailableVersion ? `: ${getDisplayVersion(updateInfo.AvailableVersion)}` : ''}`}
+                                                    color='warning'
+                                                    size='small'
+                                                    component='a'
+                                                    href='#/dashboard/updates'
+                                                    clickable
+                                                />
+                                            )}
+                                        </Stack>
                                     </>
                                 )}
                                 <Typography>{displayWebVersion}</Typography>

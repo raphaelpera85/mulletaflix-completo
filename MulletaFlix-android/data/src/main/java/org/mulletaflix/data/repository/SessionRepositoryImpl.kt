@@ -44,18 +44,30 @@ class SessionRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * O `DeviceId` é resolvido uma vez por processo.
+     *
+     * Ver [SingleFlightId]: sem isso, as requisições paralelas do primeiro boot
+     * criavam um UUID cada uma e o aparelho se apresentava ao servidor como dois
+     * dispositivos diferentes.
+     */
+    private val deviceId = SingleFlightId(
+        read = { context.dataStore.data.first()[PreferencesKeys.DEVICE_ID] },
+        write = { generatedId ->
+            context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.DEVICE_ID] = generatedId
+            }
+        },
+        newId = { UUID.randomUUID().toString() },
+    )
+
     override fun getDeviceId(): Flow<String> {
         return flow {
-            val storedId = context.dataStore.data.first()[PreferencesKeys.DEVICE_ID]
-            val deviceId = storedId ?: UUID.randomUUID().toString().also { generatedId ->
-                context.dataStore.edit { preferences ->
-                    preferences[PreferencesKeys.DEVICE_ID] = generatedId
-                }
-            }
-            emit(deviceId)
+            val resolved = deviceId.get()
+            emit(resolved)
             emitAll(
                 context.dataStore.data.map { preferences ->
-                    preferences[PreferencesKeys.DEVICE_ID] ?: deviceId
+                    preferences[PreferencesKeys.DEVICE_ID] ?: resolved
                 }
             )
         }
@@ -88,6 +100,17 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override suspend fun saveSession(serverUrl: String, token: String, userId: String, userName: String?, deviceId: String) {
+        saveSession(serverUrl, token, userId, userName, null, deviceId)
+    }
+
+    override suspend fun saveSession(
+        serverUrl: String,
+        token: String,
+        userId: String,
+        userName: String?,
+        serverId: String?,
+        deviceId: String,
+    ) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SERVER_URL] = serverUrl.trimEnd('/')
             preferences[PreferencesKeys.ACCESS_TOKEN] = token
@@ -102,6 +125,8 @@ class SessionRepositoryImpl @Inject constructor(
                 preferences.remove(PreferencesKeys.USER_NAME)
             }
             preferences[PreferencesKeys.DEVICE_ID] = deviceId
+            if (serverId.isNullOrBlank()) preferences.remove(PreferencesKeys.SERVER_ID)
+            else preferences[PreferencesKeys.SERVER_ID] = serverId
         }
     }
 

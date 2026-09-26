@@ -3,8 +3,8 @@ package org.mulletaflix.feature.library
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -24,8 +24,11 @@ import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.ServerVerification
+import org.mulletaflix.domain.repository.AppThemeSetting
+import org.mulletaflix.domain.repository.SettingsRepository
 import org.mulletaflix.domain.repository.UserSession
 import org.mulletaflix.domain.usecase.GetFavoriteItemsUseCase
+import org.mulletaflix.core.common.network.NetworkMonitor
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FavoritesViewModelTest {
@@ -39,9 +42,11 @@ class FavoritesViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun createViewModel() = FavoritesViewModel(
+    private fun createViewModel(networkMonitor: NetworkMonitor = FakeNetworkMonitor()) = FavoritesViewModel(
         getFavoriteItemsUseCase = GetFavoriteItemsUseCase(media),
         authRepository = FakeAuthRepository(),
+        settingsRepository = FakeSettingsRepository(),
+        networkMonitor = networkMonitor,
     )
 
     @Test
@@ -65,6 +70,43 @@ class FavoritesViewModelTest {
         assertTrue(!viewModel.state.value.hasMore)
     }
 
+    /**
+     * The server can insert or remove a favourite between two requests, which shifts
+     * the offset window: the tail of page 1 comes back as the head of page 2. The grid
+     * renders `key = item.id`, and the offset has to keep advancing past every item the
+     * server handed over — duplicates included — or the same window is requested
+     * forever.
+     */
+    @Test
+    fun `a shifted page does not repeat a favorite and the offset keeps advancing`() = runTest {
+        val a = MediaItem("a", "A", MediaItemType.Movie)
+        val b = MediaItem("b", "B", MediaItemType.Movie)
+        val c = MediaItem("c", "C", MediaItemType.Movie)
+        val d = MediaItem("d", "D", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(a, b, c) to 10)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        media.pages[3] = Result.success(listOf(c, d) to 10)
+        viewModel.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(
+            "the repeated favorite must not be rendered twice",
+            listOf("a", "b", "c", "d"),
+            viewModel.state.value.items.map { it.id },
+        )
+
+        media.pages[5] = Result.success(emptyList<MediaItem>() to 10)
+        viewModel.loadMore()
+        advanceUntilIdle()
+        assertEquals(
+            "the next offset counts fetched items, not the deduplicated list",
+            5,
+            media.lastStartIndex,
+        )
+    }
+
     @Test
     fun `pagination failure preserves loaded favorites and exposes retryable error`() = runTest {
         val first = MediaItem("one", "One", MediaItemType.Movie)
@@ -84,7 +126,7 @@ class FavoritesViewModelTest {
     @Test
     fun `missing session finishes loading and exposes reauthentication state`() = runTest {
         val auth = FakeAuthRepository().apply { userIdState.value = null }
-        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth)
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository(), FakeNetworkMonitor())
 
         advanceUntilIdle()
 
@@ -144,12 +186,33 @@ class FavoritesViewModelTest {
     }
 
     @Test
+    fun `refreshes favorites when network returns after an outage`() = runTest {
+        val stale = MediaItem("stale", "Stale", MediaItemType.Movie)
+        val fresh = MediaItem("fresh", "Fresh", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(stale) to 1)
+        val network = FakeNetworkMonitor(initialOnline = false)
+        val viewModel = createViewModel(network)
+
+        advanceUntilIdle()
+        assertEquals(listOf(stale), viewModel.state.value.items)
+        assertEquals(true, viewModel.state.value.isOffline)
+        media.pages[0] = Result.success(listOf(fresh) to 1)
+
+        network.setOnline(true)
+        advanceUntilIdle()
+
+        assertEquals(listOf(fresh), viewModel.state.value.items)
+        assertEquals(false, viewModel.state.value.isOffline)
+        assertEquals(2, media.pageRequestCountFor(0))
+    }
+
+    @Test
     fun `late favorites response from a previous user cannot replace current session`() = runTest {
         val oldResponse = CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>()
         val old = MediaItem("old", "Conta antiga", MediaItemType.Movie)
         media.responseSequence = ArrayDeque(listOf(oldResponse))
         val auth = FakeAuthRepository()
-        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth)
+        val viewModel = FavoritesViewModel(GetFavoriteItemsUseCase(media), auth, FakeSettingsRepository(), FakeNetworkMonitor())
         runCurrent()
 
         auth.userIdState.value = "user-2"
@@ -161,6 +224,15 @@ class FavoritesViewModelTest {
 
         assertTrue(viewModel.state.value.items.isEmpty())
         assertEquals(false, viewModel.state.value.hasMore)
+    }
+
+    private class FakeNetworkMonitor(initialOnline: Boolean = true) : NetworkMonitor {
+        private val online = MutableStateFlow(initialOnline)
+        override val isOnline: Flow<Boolean> = online
+
+        fun setOnline(value: Boolean) {
+            online.value = value
+        }
     }
 
     private class FakeMediaRepository : MediaRepository {
@@ -196,12 +268,7 @@ class FavoritesViewModelTest {
         override suspend fun markAsUnplayed(userId: String, itemId: String) = Result.success(Unit)
         override suspend fun markAsFavorite(userId: String, itemId: String) = Result.success(Unit)
         override suspend fun unmarkAsFavorite(userId: String, itemId: String) = Result.success(Unit)
-        override suspend fun search(userId: String, searchTerm: String, limit: Int, includeItemTypes: String?) = Result.success(emptyList<MediaItem>())
-        override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
-        override suspend fun getRecordings(userId: String) = Result.success(emptyList<MediaItem>())
-        override suspend fun getSuggestions(userId: String, itemId: String) = Result.success(emptyList<MediaItem>())
-        override fun observeFavorites(userId: String): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
-        override fun observeRecentlyWatched(userId: String): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
+        override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
     }
 
     private class FakeAuthRepository : AuthRepository {
@@ -217,5 +284,39 @@ class FavoritesViewModelTest {
         override suspend fun checkQuickConnect(secret: String) = Result.success(null)
         override suspend fun logout() = Result.success(Unit)
         override suspend fun setServerUrl(url: String) = Unit
+    }
+
+    private class FakeSettingsRepository : SettingsRepository {
+        override fun getTheme() = MutableStateFlow(AppThemeSetting.Dark)
+        override suspend fun setTheme(theme: AppThemeSetting) = Unit
+        override fun isPiPEnabled() = MutableStateFlow(true)
+        override suspend fun setPiPEnabled(enabled: Boolean) = Unit
+        override fun getPreferredAudioLanguage() = MutableStateFlow<String?>(null)
+        override suspend fun setPreferredAudioLanguage(language: String?) = Unit
+        override fun getPreferredSubtitleLanguage() = MutableStateFlow<String?>(null)
+        override suspend fun setPreferredSubtitleLanguage(language: String?) = Unit
+        override fun isAutoPlayEnabled() = MutableStateFlow(true)
+        override suspend fun setAutoPlayEnabled(enabled: Boolean) = Unit
+        override fun isSkipIntroEnabled() = MutableStateFlow(true)
+        override suspend fun setSkipIntroEnabled(enabled: Boolean) = Unit
+        override fun getDefaultQuality() = MutableStateFlow("Auto")
+        override suspend fun setDefaultQuality(quality: String) = Unit
+        override fun getDefaultPlaybackSpeed() = MutableStateFlow(1f)
+        override suspend fun setDefaultPlaybackSpeed(speed: Float) = Unit
+        override suspend fun clearLocalPreferences() = Unit
+        override fun getSubtitleFontSize() = MutableStateFlow(100)
+        override suspend fun setSubtitleFontSize(size: Int) = Unit
+        override fun getDefaultAspectRatio() = MutableStateFlow("FIT")
+        override suspend fun setDefaultAspectRatio(aspectRatio: String) = Unit
+        override fun isLibraryGridViewEnabled() = MutableStateFlow(true)
+        override suspend fun setLibraryGridViewEnabled(enabled: Boolean) = Unit
+        override fun getLibraryGridDensity() = MutableStateFlow(LIBRARY_GRID_DENSITY_COMFORTABLE)
+        override suspend fun setLibraryGridDensity(density: String) = Unit
+        override fun getDefaultLibrarySort() = MutableStateFlow("SortName")
+        override suspend fun setDefaultLibrarySort(sortBy: String) = Unit
+        override fun getDefaultLibrarySortOrder() = MutableStateFlow("Ascending")
+        override suspend fun setDefaultLibrarySortOrder(sortOrder: String) = Unit
+        override fun getDefaultLibraryFilters() = MutableStateFlow(emptySet<String>())
+        override suspend fun setDefaultLibraryFilters(filters: Set<String>) = Unit
     }
 }

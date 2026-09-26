@@ -48,6 +48,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     private readonly string _host;
     private readonly int _port;
     private readonly string _streamToken;
+    private readonly NebulaPlaybackCache? _playbackCache;
     private readonly ILogger<NebulaHttpStreamServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _lifecycleLock = new();
@@ -59,6 +60,79 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
 
     public bool IsRunning => _listener?.IsListening == true;
 
+    /// <summary>Inicia, sem bloquear a reprodução, o pré-cache de todos os blocos da mídia.</summary>
+    public async Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)
+    {
+        if (_playbackCache is null || string.IsNullOrWhiteSpace(mediaPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var identifier = await ResolveMediaIdentifierAsync(mediaPath, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(identifier))
+            {
+                return false;
+            }
+
+            var doc = await _mongoContext.FindFileByVirtualPathOrNameAsync(identifier, cancellationToken).ConfigureAwait(false);
+            if (doc is null)
+            {
+                return false;
+            }
+
+            var (parts, totalSize) = BuildStreamParts(doc);
+            if (totalSize <= 0 || parts.Count == 0 || parts.Any(part => string.IsNullOrWhiteSpace(part.FileId) || part.ChatId == 0 || part.MessageId == 0))
+            {
+                return false;
+            }
+
+            await using var stream = new NebulaChunkedStream(_telegramPool, parts, totalSize, _logger, _playbackCache, GetMediaCacheKey(doc));
+            _logger.LogInformation("[NEBULA-PLAYBACK-CACHE] Pré-cache iniciado no começo da intro para {MediaName} ({Size} bytes).", doc.GetValue("name", "media.bin").AsString, totalSize);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-PLAYBACK-CACHE] Não foi possível antecipar o cache para {MediaPath}; a reprodução seguirá normalmente.", mediaPath);
+            return false;
+        }
+    }
+
+    private static async Task<string?> ResolveMediaIdentifierAsync(string mediaPath, CancellationToken cancellationToken)
+    {
+        var candidate = mediaPath;
+        if (File.Exists(mediaPath) && string.Equals(Path.GetExtension(mediaPath), ".strm", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = (await File.ReadAllTextAsync(mediaPath, cancellationToken).ConfigureAwait(false)).Trim();
+        }
+
+        if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            var query = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var parameter in query)
+            {
+                var separator = parameter.IndexOf('=', StringComparison.Ordinal);
+                var key = separator < 0 ? parameter : parameter[..separator];
+                if (!string.Equals(Uri.UnescapeDataString(key), "id", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var value = separator < 0 ? string.Empty : parameter[(separator + 1)..];
+                return Uri.UnescapeDataString(value.Replace('+', ' '));
+            }
+
+            return null;
+        }
+
+        return candidate;
+    }
+
     /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaHttpStreamServer"/>.
     /// </summary>
@@ -69,13 +143,15 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         int port,
         ILogger<NebulaHttpStreamServer> logger,
         string streamToken = "",
-        int maxActiveConnections = 32)
+        int maxActiveConnections = 32,
+        NebulaPlaybackCache? playbackCache = null)
     {
         _mongoContext = mongoContext ?? throw new ArgumentNullException(nameof(mongoContext));
         _telegramPool = telegramPool ?? throw new ArgumentNullException(nameof(telegramPool));
         _host = string.IsNullOrWhiteSpace(host) ? "127.0.0.1" : host;
         _port = port > 0 ? port : 2123;
         _logger = logger;
+        _playbackCache = playbackCache;
         _streamToken = streamToken ?? string.Empty;
         _streamConcurrency = new SemaphoreSlim(Math.Clamp(maxActiveConnections, 1, 4096));
     }
@@ -376,68 +452,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         }
 
         var fileName = doc.TryGetValue("name", out var nVal) && nVal.IsString ? nVal.AsString : "media.bin";
-        var localPath = doc.TryGetValue("local_path", out var lpVal) && lpVal.IsString ? lpVal.AsString : null;
-
-        var partsList = new List<NebulaStreamPart>();
-        if (doc.TryGetValue("parts", out var partsValue) && partsValue.IsBsonArray && partsValue.AsBsonArray.Count > 0)
-        {
-            var partsArray = partsValue.AsBsonArray;
-            foreach (var partElement in partsArray)
-            {
-                if (partElement is not BsonDocument partDoc)
-                {
-                    continue;
-                }
-
-                var partFileId = partDoc.Contains("tg_file_id") ? partDoc.GetValue("tg_file_id").AsString : (partDoc.Contains("tg_file") ? partDoc.GetValue("tg_file").AsString : string.Empty);
-                var botIndex = partDoc.Contains("bot_index") ? partDoc.GetValue("bot_index").ToInt32() : -1;
-                var chatId = partDoc.Contains("tg_chat_id") ? partDoc.GetValue("tg_chat_id").ToInt64() : (partDoc.Contains("tg_chat") ? partDoc.GetValue("tg_chat").ToInt64() : 0L);
-                var messageId = partDoc.Contains("tg_message_id") ? checked((int)partDoc.GetValue("tg_message_id").ToInt64()) : (partDoc.Contains("tg_message") ? checked((int)partDoc.GetValue("tg_message").ToInt64()) : 0);
-                var partNum = partDoc.Contains("part_number") ? partDoc.GetValue("part_number").ToInt32() : (partDoc.Contains("part_id") ? partDoc.GetValue("part_id").ToInt32() : partsList.Count);
-                var partSize = partDoc.Contains("size") ? partDoc.GetValue("size").ToInt64() : (partDoc.Contains("file_size") ? partDoc.GetValue("file_size").ToInt64() : 16L * 1024L * 1024L);
-
-                partsList.Add(new NebulaStreamPart
-                {
-                    PartIndex = partNum,
-                    FileOffset = 0,
-                    Size = partSize,
-                    FileId = partFileId,
-                    BotIndex = botIndex,
-                    ChatId = chatId,
-                    MessageId = messageId,
-                    LocalPath = localPath
-                });
-            }
-
-            long sortedOffset = 0;
-            foreach (var part in partsList.OrderBy(part => part.PartIndex))
-            {
-                part.FileOffset = sortedOffset;
-                sortedOffset += part.Size;
-            }
-        }
-        else
-        {
-            var chatId = doc.Contains("tg_chat_id") ? doc.GetValue("tg_chat_id").ToInt64() : (doc.Contains("tg_chat") ? doc.GetValue("tg_chat").ToInt64() : 0L);
-            var messageId = doc.Contains("tg_message_id") ? checked((int)doc.GetValue("tg_message_id").ToInt64()) : (doc.Contains("tg_message") ? checked((int)doc.GetValue("tg_message").ToInt64()) : 0);
-            var fileId = doc.Contains("tg_file_id") ? doc.GetValue("tg_file_id").AsString : (doc.Contains("tg_file") ? doc.GetValue("tg_file").AsString : string.Empty);
-            var botIndex = doc.Contains("bot_index") ? doc.GetValue("bot_index").ToInt32() : -1;
-            var fileSize = doc.Contains("size") ? doc.GetValue("size").ToInt64() : (doc.Contains("file_size") ? doc.GetValue("file_size").ToInt64() : 0L);
-
-            partsList.Add(new NebulaStreamPart
-            {
-                PartIndex = 0,
-                FileOffset = 0,
-                Size = fileSize,
-                FileId = fileId,
-                BotIndex = botIndex,
-                ChatId = chatId,
-                MessageId = messageId,
-                LocalPath = localPath
-            });
-        }
-
-        var totalSize = doc.Contains("size") ? doc.GetValue("size").ToInt64() : (doc.Contains("file_size") ? doc.GetValue("file_size").ToInt64() : partsList.Sum(p => p.Size));
+        var (partsList, totalSize) = BuildStreamParts(doc);
         if (totalSize <= 0)
         {
             response.StatusCode = (int)HttpStatusCode.NotFound;
@@ -478,7 +493,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             return;
         }
 
-        await using var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger);
+        await using var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger, _playbackCache, GetMediaCacheKey(doc));
         stream.Seek(start, SeekOrigin.Begin);
 
         // Rented instead of allocated: a fresh 128 KB array per request means roughly one gigabyte of
@@ -507,6 +522,61 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         }
 
         response.Close();
+    }
+
+    private static (List<NebulaStreamPart> Parts, long TotalSize) BuildStreamParts(BsonDocument doc)
+    {
+        var localPath = doc.TryGetValue("local_path", out var pathValue) && pathValue.IsString ? pathValue.AsString : null;
+        var parts = new List<NebulaStreamPart>();
+        if (doc.TryGetValue("parts", out var partsValue) && partsValue.IsBsonArray && partsValue.AsBsonArray.Count > 0)
+        {
+            foreach (var element in partsValue.AsBsonArray)
+            {
+                if (element is not BsonDocument partDoc)
+                {
+                    continue;
+                }
+
+                parts.Add(new NebulaStreamPart
+                {
+                    PartIndex = partDoc.Contains("part_number") ? partDoc.GetValue("part_number").ToInt32() : (partDoc.Contains("part_id") ? partDoc.GetValue("part_id").ToInt32() : parts.Count),
+                    Size = partDoc.Contains("size") ? partDoc.GetValue("size").ToInt64() : (partDoc.Contains("file_size") ? partDoc.GetValue("file_size").ToInt64() : 16L * 1024L * 1024L),
+                    FileId = partDoc.Contains("tg_file_id") ? partDoc.GetValue("tg_file_id").AsString : (partDoc.Contains("tg_file") ? partDoc.GetValue("tg_file").AsString : string.Empty),
+                    BotIndex = partDoc.Contains("bot_index") ? partDoc.GetValue("bot_index").ToInt32() : -1,
+                    ChatId = partDoc.Contains("tg_chat_id") ? partDoc.GetValue("tg_chat_id").ToInt64() : (partDoc.Contains("tg_chat") ? partDoc.GetValue("tg_chat").ToInt64() : 0L),
+                    MessageId = partDoc.Contains("tg_message_id") ? checked((int)partDoc.GetValue("tg_message_id").ToInt64()) : (partDoc.Contains("tg_message") ? checked((int)partDoc.GetValue("tg_message").ToInt64()) : 0),
+                    LocalPath = localPath
+                });
+            }
+
+            long offset = 0;
+            foreach (var part in parts.OrderBy(part => part.PartIndex))
+            {
+                part.FileOffset = offset;
+                offset += part.Size;
+            }
+        }
+        else
+        {
+            parts.Add(new NebulaStreamPart
+            {
+                PartIndex = 0,
+                Size = doc.Contains("size") ? doc.GetValue("size").ToInt64() : (doc.Contains("file_size") ? doc.GetValue("file_size").ToInt64() : 0L),
+                FileId = doc.Contains("tg_file_id") ? doc.GetValue("tg_file_id").AsString : (doc.Contains("tg_file") ? doc.GetValue("tg_file").AsString : string.Empty),
+                BotIndex = doc.Contains("bot_index") ? doc.GetValue("bot_index").ToInt32() : -1,
+                ChatId = doc.Contains("tg_chat_id") ? doc.GetValue("tg_chat_id").ToInt64() : (doc.Contains("tg_chat") ? doc.GetValue("tg_chat").ToInt64() : 0L),
+                MessageId = doc.Contains("tg_message_id") ? checked((int)doc.GetValue("tg_message_id").ToInt64()) : (doc.Contains("tg_message") ? checked((int)doc.GetValue("tg_message").ToInt64()) : 0),
+                LocalPath = localPath
+            });
+        }
+
+        var totalSize = doc.Contains("size") ? doc.GetValue("size").ToInt64() : (doc.Contains("file_size") ? doc.GetValue("file_size").ToInt64() : parts.Sum(part => part.Size));
+        return (parts, totalSize);
+    }
+
+    private static string GetMediaCacheKey(BsonDocument doc)
+    {
+        return doc.TryGetValue("_id", out var id) ? id.ToString() : doc.GetValue("name", "media.bin").AsString;
     }
 
     private static bool TryParseRange(string? rangeHeader, long totalSize, out long start, out long end, out bool isRange)

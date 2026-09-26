@@ -77,17 +77,43 @@ function reloadBrowsableImages(page: HTMLElement, apiClient: any): void {
     }
 
     void loading.withLoading(() => apiClient.getAvailableRemoteImages(options)).then(function (result: any) {
-        renderRemoteImages(page, apiClient, result, browsableImageType, options.startIndex!, options.limit!);
+        const images = Array.isArray(result?.Images) ? result.Images : [];
+        const totalRecordCount = Number(result?.TotalRecordCount) || 0;
+        const expectedPageLength = Math.min(options.limit!, Math.max(totalRecordCount - options.startIndex!, 0));
 
-        (page.querySelector('#selectBrowsableImageType') as HTMLSelectElement).value = browsableImageType;
+        // Some server/client combinations return the correct total but an incomplete
+        // page. That made the dialog show "1-30 de 56" while rendering only one card.
+        // Retry once without server-side pagination and slice the complete result locally.
+        const pageResultPromise = expectedPageLength > images.length && totalRecordCount > images.length ? (() => {
+            const completeOptions = {
+                ...options,
+                startIndex: 0,
+                limit: totalRecordCount
+            };
 
-        const providersHtml = result.Providers.map(function (p: string) {
-            return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
-        }).join('');
+            return apiClient.getAvailableRemoteImages(completeOptions).then(function (completeResult: any) {
+                const completeImages = Array.isArray(completeResult?.Images) ? completeResult.Images : [];
+                return {
+                    ...completeResult,
+                    TotalRecordCount: totalRecordCount,
+                    Images: completeImages.slice(options.startIndex!, options.startIndex! + options.limit!)
+                };
+            });
+        })() : Promise.resolve(result);
 
-        const selectImageProvider = page.querySelector('#selectImageProvider') as HTMLSelectElement;
-        selectImageProvider.innerHTML = '<option value="">' + globalize.translate('All') + '</option>' + providersHtml;
-        selectImageProvider.value = provider;
+        return pageResultPromise.then(function (pageResult: any) {
+            renderRemoteImages(page, apiClient, pageResult, browsableImageType, options.startIndex!, options.limit!);
+
+            (page.querySelector('#selectBrowsableImageType') as HTMLSelectElement).value = browsableImageType;
+
+            const providersHtml = result.Providers.map(function (p: string) {
+                return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
+            }).join('');
+
+            const selectImageProvider = page.querySelector('#selectImageProvider') as HTMLSelectElement;
+            selectImageProvider.innerHTML = '<option value="">' + globalize.translate('All') + '</option>' + providersHtml;
+            selectImageProvider.value = provider;
+        });
     }).catch((error: unknown) => {
         console.error('Failed to load remote images', error);
         toast(globalize.translate('ErrorDefault'));

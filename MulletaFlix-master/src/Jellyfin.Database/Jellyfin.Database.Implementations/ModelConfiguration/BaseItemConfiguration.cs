@@ -70,6 +70,14 @@ public class BaseItemConfiguration : IEntityTypeConfiguration<BaseItemEntity>
         builder.HasIndex(e => new { e.MediaType, e.TopParentId, e.IsVirtualItem, e.PresentationUniqueKey });
         // sorted library queries (e.g., Series sorted by SortName)
         builder.HasIndex(e => new { e.Type, e.TopParentId, e.SortName });
+        // Default ordering. ApplyOrder falls back to ORDER BY SortName when no type/parent is
+        // pinned, and IX_BaseItems_Type_TopParentId_SortName only serves the sort when BOTH of its
+        // leading columns are equality-bound (verified with EXPLAIN: the pinned case is
+        // "Using index", the default case degrades to "Using filesort" over all 78k rows). Without
+        // an index whose leading column is SortName, every page of the default ordering sorts the
+        // whole table, and OFFSET produces the identical plan, so page N costs the same as page 1.
+        // Id second keeps the id-only projections (GetItemIdsList, QueryFiltersLegacy) covering.
+        builder.HasIndex(e => new { e.SortName, e.Id });
         // NextUp: per-series episode ordering (index seek + range scan on season/episode)
         builder.HasIndex(e => new { e.Type, e.SeriesPresentationUniqueKey, e.ParentIndexNumber, e.IndexNumber });
         // ByName queries: WHERE Type = X AND CleanName IN (...)
@@ -79,9 +87,16 @@ public class BaseItemConfiguration : IEntityTypeConfiguration<BaseItemEntity>
         // Latest TV: episode count per season, season count per series
         builder.HasIndex(e => e.SeasonId);
         builder.HasIndex(e => e.SeriesId);
+
         // Items/Counts: SELECT Type, COUNT(*) GROUP BY Type filtered by TopParentId.
-        builder.HasIndex(e => new { e.TopParentId, e.Type, e.IsVirtualItem })
-            .HasFilter("\"PrimaryVersionId\" IS NULL AND (\"OwnerId\" IS NULL OR \"ExtraType\" IS NOT NULL)");
+        // This used to declare a second index on (TopParentId, Type, IsVirtualItem) with a
+        // HasFilter(...) partial-index predicate. Two reasons it was removed:
+        //   1. MariaDB has no partial indexes, so the filter was silently ignored and the index was
+        //      created full-sized anyway (verified against the live DDL: plan KEY, no WHERE clause).
+        //   2. Its columns are an exact leftmost prefix of
+        //      IX_BaseItems_TopParentId_Type_IsVirtualItem_DateCreated declared below, so the count
+        //      query already gets an equal-or-better seek from that index.
+        // Keeping it cost roughly 9 MB of index and one extra B-tree to maintain on every item write.
 
         // Full-text search index for CleanName and OriginalTitle
         // Note: MySQL FULLTEXT indexes do not support partial filters — filter removed intentionally.

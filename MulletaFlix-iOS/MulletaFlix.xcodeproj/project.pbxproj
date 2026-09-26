@@ -1,0 +1,74 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000001 /* MulletaFlixApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* MulletaFlixApp.swift */; };
+		A00000000000000000000002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* RootView.swift */; };
+		A00000000000000000000003 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000003 /* HomeView.swift */; };
+		A00000000000000000000004 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000004 /* AppModel.swift */; };
+		A00000000000000000000005 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000005 /* Models.swift */; };
+		A00000000000000000000006 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000006 /* APIClient.swift */; };
+		A00000000000000000000007 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000007 /* SessionStore.swift */; };
+		A00000000000000000000008 /* SyncPlayRealtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000009 /* SyncPlayRealtime.swift */; };
+		A00000000000000000000009 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000010 /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B00000000000000000000000 /* MulletaFlix.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MulletaFlix.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B00000000000000000000001 /* MulletaFlixApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MulletaFlixApp.swift; sourceTree = "<group>"; };
+		B00000000000000000000002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		B00000000000000000000003 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		B00000000000000000000004 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		B00000000000000000000005 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		B00000000000000000000006 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		B00000000000000000000007 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		B00000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B00000000000000000000009 /* SyncPlayRealtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPlayRealtime.swift; sourceTree = "<group>"; };
+		B00000000000000000000010 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C00000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D00000000000000000000001 = {isa = PBXGroup; children = (D00000000000000000000002, D00000000000000000000003, B00000000000000000000008, B00000000000000000000010, D00000000000000000000004); sourceTree = "<group>"; };
+		D00000000000000000000002 /* App */ = {isa = PBXGroup; children = (B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004); path = App; sourceTree = "<group>"; };
+		D00000000000000000000003 /* MulletaFlixCore */ = {isa = PBXGroup; children = (B00000000000000000000005, B00000000000000000000006, B00000000000000000000007, B00000000000000000000009); path = Sources/MulletaFlixCore; sourceTree = "<group>"; };
+		D00000000000000000000004 /* Products */ = {isa = PBXGroup; children = (B00000000000000000000000); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E00000000000000000000001 /* MulletaFlix */ = {isa = PBXNativeTarget; buildConfigurationList = F00000000000000000000002; buildPhases = (C00000000000000000000002, C00000000000000000000001, C00000000000000000000003); buildRules = (); dependencies = (); name = MulletaFlix; productName = MulletaFlix; productReference = B00000000000000000000000; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E00000000000000000000000 /* Project object */ = {isa = PBXProject; attributes = {LastUpgradeCheck = 1600; TargetAttributes = {E00000000000000000000001 = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = F00000000000000000000001; compatibilityVersion = "Xcode 3.2"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = D00000000000000000000001; productRefGroup = D00000000000000000000004; projectDirPath = ""; projectRoot = ""; targets = (E00000000000000000000001); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C00000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000009); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C00000000000000000000003 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001, A00000000000000000000002, A00000000000000000000003, A00000000000000000000004, A00000000000000000000005, A00000000000000000000006, A00000000000000000000007, A00000000000000000000008); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		F00000000000000000000003 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 18.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = org.mulletaflix.ios; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; };
+		F00000000000000000000004 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_TEAM = ""; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 18.0; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = org.mulletaflix.ios; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; };
+		F00000000000000000000005 /* Project Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 6.0; }; };
+		F00000000000000000000006 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 6.0; }; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F00000000000000000000001 /* Project configuration list */ = {isa = XCConfigurationList; buildConfigurations = (F00000000000000000000005, F00000000000000000000006); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		F00000000000000000000002 /* Target configuration list */ = {isa = XCConfigurationList; buildConfigurations = (F00000000000000000000003, F00000000000000000000004); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = E00000000000000000000000 /* Project object */;
+}

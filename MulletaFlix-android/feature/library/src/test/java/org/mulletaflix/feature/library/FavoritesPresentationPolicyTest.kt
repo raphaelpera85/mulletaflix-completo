@@ -6,8 +6,16 @@ import org.junit.Test
 class FavoritesPresentationPolicyTest {
     @Test
     fun `tv uses a denser adaptive favorites grid`() {
-        assertEquals(7, favoritesGridColumns(1008, isTelevision = true))
+        assertEquals(5, favoritesGridColumns(480, isTelevision = true))
+        assertEquals(10, favoritesGridColumns(1008, isTelevision = true))
         assertEquals(4, favoritesGridColumns(600, isTelevision = false))
+    }
+
+    @Test
+    fun `compact preference is shared by phone tablet and tv favorites`() {
+        assertEquals(4, favoritesGridColumns(411, isTelevision = false, density = LIBRARY_GRID_DENSITY_COMPACT))
+        assertEquals(5, favoritesGridColumns(600, isTelevision = false, density = LIBRARY_GRID_DENSITY_COMPACT))
+        assertEquals(6, favoritesGridColumns(480, isTelevision = true, density = LIBRARY_GRID_DENSITY_COMPACT))
     }
 
     @Test

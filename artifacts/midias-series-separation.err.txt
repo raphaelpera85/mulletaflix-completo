@@ -1,0 +1,15 @@
+New-Item: D:\Users\Raphael\Documents\Projetos\mulletaflix\.tmp-separate-midias-series.ps1:12
+Line |
+  12 |    New-Item -ItemType Directory -LiteralPath $plan.Destination -Force  .
+     |                                 ~~~~~~~~~~~~
+     | A parameter cannot be found that matches parameter name 'LiteralPath'.
+New-Item: D:\Users\Raphael\Documents\Projetos\mulletaflix\.tmp-separate-midias-series.ps1:12
+Line |
+  12 |    New-Item -ItemType Directory -LiteralPath $plan.Destination -Force  .
+     |                                 ~~~~~~~~~~~~
+     | A parameter cannot be found that matches parameter name 'LiteralPath'.
+New-Item: D:\Users\Raphael\Documents\Projetos\mulletaflix\.tmp-separate-midias-series.ps1:12
+Line |
+  12 |    New-Item -ItemType Directory -LiteralPath $plan.Destination -Force  .
+     |                                 ~~~~~~~~~~~~
+     | A parameter cannot be found that matches parameter name 'LiteralPath'.

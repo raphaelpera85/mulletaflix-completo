@@ -81,6 +81,9 @@ public sealed class NebulaChunkedStream : Stream
     private readonly IReadOnlyList<NebulaStreamPart> _parts;
     private readonly long _totalLength;
     private readonly ILogger _logger;
+    private readonly NebulaPlaybackCache? _playbackCache;
+    private readonly string _mediaKey;
+    private readonly IDisposable? _playbackLease;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly CancellationTokenSource _streamCts = new();
 
@@ -98,11 +101,16 @@ public sealed class NebulaChunkedStream : Stream
         NebulaTelegramPool? telegramPool,
         IEnumerable<NebulaStreamPart> parts,
         long? totalLength,
-        ILogger logger)
+        ILogger logger,
+        NebulaPlaybackCache? playbackCache = null,
+        string? mediaKey = null)
     {
         _telegramPool = telegramPool;
         _parts = parts.OrderBy(p => p.PartIndex).ToList();
         _logger = logger;
+        _playbackCache = playbackCache;
+        _mediaKey = string.IsNullOrWhiteSpace(mediaKey) ? "unknown-media" : mediaKey;
+        _playbackLease = _playbackCache?.Acquire(_mediaKey);
 
         if (_parts.Count > 0)
         {
@@ -112,6 +120,11 @@ public sealed class NebulaChunkedStream : Stream
         else
         {
             _totalLength = totalLength ?? 0;
+        }
+
+        if (_playbackCache != null && _parts.Count > 0)
+        {
+            _playbackCache.StartPrefetch(_mediaKey, PrefetchWholeMediaAsync);
         }
     }
 
@@ -449,7 +462,15 @@ public sealed class NebulaChunkedStream : Stream
             }
         }
 
-        var chunkData = await FetchChunkDataAsync(part, chunkIndex, cancellationToken).ConfigureAwait(false);
+        var chunkData = _playbackCache == null
+            ? await FetchChunkDataAsync(part, chunkIndex, cancellationToken).ConfigureAwait(false)
+            : await _playbackCache.GetOrFetchChunkAsync(
+                _mediaKey,
+                part.PartIndex,
+                chunkIndex,
+                GetChunkLength(part, chunkIndex),
+                token => FetchChunkDataAsync(part, chunkIndex, token),
+                cancellationToken).ConfigureAwait(false);
         if (chunkData == null || chunkData.Length == 0)
         {
             _logger.LogError("[NEBULA-STREAM] Falha ao obter chunk {Key} do Telegram após múltiplas tentativas.", cacheKey);
@@ -558,6 +579,41 @@ public sealed class NebulaChunkedStream : Stream
         return chunkData ?? Array.Empty<byte>();
     }
 
+    private int GetChunkLength(NebulaStreamPart part, int chunkIndex)
+    {
+        var offset = (long)chunkIndex * ChunkSize;
+        return (int)Math.Min(ChunkSize, Math.Max(0, part.Size - offset));
+    }
+
+    private async Task PrefetchWholeMediaAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var part in _parts)
+            {
+                var chunks = (int)Math.Ceiling((double)part.Size / ChunkSize);
+                for (var chunkIndex = 0; chunkIndex < chunks; chunkIndex++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    _ = await _playbackCache!.GetOrFetchChunkAsync(
+                        _mediaKey,
+                        part.PartIndex,
+                        chunkIndex,
+                        GetChunkLength(part, chunkIndex),
+                        token => FetchChunkDataAsync(part, chunkIndex, token),
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-STREAM-PREFETCH] Pré-cache da mídia {MediaKey} interrompido.", _mediaKey);
+        }
+    }
+
     private void EnsureNotDisposed()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -574,8 +630,9 @@ public sealed class NebulaChunkedStream : Stream
             {
                 try
                 {
-                    _streamCts.Cancel();
-                    _streamCts.Dispose();
+                _streamCts.Cancel();
+                _streamCts.Dispose();
+                _playbackLease?.Dispose();
                 }
                 catch
                 {

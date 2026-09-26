@@ -72,6 +72,19 @@ namespace MediaBrowser.MediaEncoding.Encoder
         private readonly ConcurrentDictionary<string, CachedMediaInfo> _probeCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly TimeSpan ProbeCacheTtl = TimeSpan.FromMinutes(30);
 
+        /// <summary>
+        /// Hard cap on retained local probe entries. Entries were only ever dropped lazily when the
+        /// same path was probed again after the TTL, so a large library or a scan that walks many
+        /// items kept every MediaInfo graph alive for the process lifetime.
+        /// </summary>
+        private const int MaxProbeCacheEntries = 4096;
+
+        /// <summary>
+        /// Hard cap on retained remote (STRM / HTTP) probe entries. Kept smaller because those
+        /// results are requested for a narrow set of URLs but are the most expensive to hold.
+        /// </summary>
+        private const int MaxRemoteProbeCacheEntries = 1024;
+
         // Separate cache for remote URLs (STRM files). Uses URL as key, no LastWriteTime check.
         // TTL matches local file cache (30 min) — covers typical viewing sessions.
         private readonly ConcurrentDictionary<string, CachedMediaInfo> _remoteProbeCache = new(StringComparer.OrdinalIgnoreCase);
@@ -531,6 +544,8 @@ namespace MediaBrowser.MediaEncoding.Encoder
                         Result = remoteResult,
                         CachedAt = DateTime.UtcNow
                     };
+
+                    PruneProbeCache(_remoteProbeCache, MaxRemoteProbeCacheEntries);
                 }
 
                 return remoteResult;
@@ -566,7 +581,51 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 LastWriteTime = lastWrite
             };
 
+            PruneProbeCache(_probeCache, MaxProbeCacheEntries);
+
             return result;
+        }
+
+        /// <summary>
+        /// Keeps a probe cache bounded so long-running servers do not accumulate every probed
+        /// MediaInfo graph. Expired entries are evicted first; if the cache is still over the cap,
+        /// the least recently cached entries are removed.
+        /// </summary>
+        /// <param name="cache">The probe cache to prune.</param>
+        /// <param name="maxEntries">The maximum number of entries to retain.</param>
+        private void PruneProbeCache(ConcurrentDictionary<string, CachedMediaInfo> cache, int maxEntries)
+        {
+            if (cache.Count <= maxEntries)
+            {
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            var overflow = cache.Count - maxEntries;
+            var expired = 0;
+
+            foreach (var entry in cache)
+            {
+                if (now - entry.Value.CachedAt >= ProbeCacheTtl && cache.TryRemove(entry.Key, out _))
+                {
+                    expired++;
+                }
+            }
+
+            if (expired >= overflow || cache.Count <= maxEntries)
+            {
+                return;
+            }
+
+            var toRemove = cache.Count - maxEntries;
+            foreach (var key in cache
+                .OrderBy(entry => entry.Value.CachedAt)
+                .Take(toRemove)
+                .Select(entry => entry.Key)
+                .ToArray())
+            {
+                cache.TryRemove(key, out _);
+            }
         }
 
         internal string GetExtraArguments(MediaInfoRequest request)

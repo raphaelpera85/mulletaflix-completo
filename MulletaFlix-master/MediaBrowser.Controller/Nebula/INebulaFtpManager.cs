@@ -22,6 +22,9 @@ public interface INebulaFtpManager
 
     Task<bool> StartDownloaderAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Starts prefetching all Telegram chunks for the selected media in the background.</summary>
+    Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default);
+
     Task<bool> StopDownloaderAsync(CancellationToken cancellationToken = default);
 
     Task<bool> GenerateStrmAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);
@@ -29,6 +32,8 @@ public interface INebulaFtpManager
     Task<bool> PruneCompletedAsync(string? idempotencyKey = null, CancellationToken cancellationToken = default);
 
     Task<NebulaNovelaMigrationResult> ScanAndMoveNovelasAsync(CancellationToken cancellationToken = default);
+
+    Task<NebulaAnimacaoMigrationResult> NormalizeAnimacoesLibraryAsync(CancellationToken cancellationToken = default);
 
     System.Collections.Generic.List<NebulaBotDto> GetBots();
 

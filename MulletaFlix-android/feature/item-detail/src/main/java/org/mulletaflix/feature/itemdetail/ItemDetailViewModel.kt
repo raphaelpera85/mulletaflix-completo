@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
@@ -14,6 +15,7 @@ import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
+import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 import org.mulletaflix.domain.usecase.ManagePlaylistUseCase
@@ -53,6 +55,10 @@ class ItemDetailViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
     private val authRepository: AuthRepository,
     private val playbackRepository: PlaybackRepository,
+    private val userFeedbackRepository: UserFeedbackRepository = object : UserFeedbackRepository {
+        override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
+        override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
+    },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ItemDetailState())
@@ -70,6 +76,33 @@ class ItemDetailViewModel @Inject constructor(
     private var watchedJob: Job? = null
     private var favoriteMutationGeneration = 0L
     private var watchedMutationGeneration = 0L
+    private var playbackIssueSubmitting = false
+
+    fun reportPlaybackIssue(
+        itemId: String,
+        category: String,
+        description: String,
+        onComplete: (Result<Unit>) -> Unit,
+    ) {
+        if (playbackIssueSubmitting) return
+        playbackIssueSubmitting = true
+        viewModelScope.launch {
+            val result = try {
+                userFeedbackRepository.reportPlaybackIssue(itemId, category, description.trim())
+            } catch (cancelled: CancellationException) {
+                onComplete(Result.failure(cancelled))
+                throw cancelled
+            } catch (error: Throwable) {
+                Result.failure(error)
+            } finally {
+                playbackIssueSubmitting = false
+            }
+            result.onSuccess {
+                _state.update { it.copy(interactionMessage = "Relato enviado. Obrigado pelo aviso.") }
+            }
+            onComplete(result)
+        }
+    }
 
     init {
         viewModelScope.launch {

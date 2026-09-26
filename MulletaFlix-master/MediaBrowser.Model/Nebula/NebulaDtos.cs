@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using MediaBrowser.Model.Configuration;
 
 namespace MediaBrowser.Model.Nebula;
 
@@ -9,6 +10,14 @@ public sealed class NebulaNovelaMigrationResult
     public int Scanned { get; set; }
     public int Moved { get; set; }
     public int AlreadyInNovelas { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
+public sealed class NebulaAnimacaoMigrationResult
+{
+    public bool Success { get; set; }
+    public int Moved { get; set; }
+    public bool DuplicateRemoved { get; set; }
     public string Message { get; set; } = string.Empty;
 }
 
@@ -195,7 +204,7 @@ public class NebulaSupabaseStatusDto
 
     public bool AutoBackupEnabled { get; set; } = true;
 
-    public int AutoBackupIntervalHours { get; set; } = 24;
+    public int AutoBackupIntervalHours { get; set; } = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
 
     public DateTime? LastBackupTime { get; set; }
 

@@ -1,10 +1,11 @@
-﻿#pragma warning disable RS0030 // Do not use banned APIs
+#pragma warning disable RS0030 // Do not use banned APIs
 
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BitFaster.Caching.Lru;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
@@ -50,6 +51,14 @@ namespace Emby.Server.Implementations.Library
         /// <inheritdoc />
         public void SaveUserData(User user, BaseItem item, UserItemData userData, UserDataSaveReason reason, CancellationToken cancellationToken)
         {
+            // Kept for the synchronous callers. Delegating keeps exactly one implementation so the
+            // two paths cannot drift; async request paths should call SaveUserDataAsync instead.
+            SaveUserDataAsync(user, item, userData, reason, cancellationToken).GetAwaiter().GetResult();
+        }
+
+        /// <inheritdoc />
+        public async Task SaveUserDataAsync(User user, BaseItem item, UserItemData userData, UserDataSaveReason reason, CancellationToken cancellationToken)
+        {
             ArgumentNullException.ThrowIfNull(userData);
 
             ArgumentNullException.ThrowIfNull(item);
@@ -58,40 +67,49 @@ namespace Emby.Server.Implementations.Library
 
             var lockIndex = item.Id.GetHashCode() & 7;
             var saveLock = _saveUserDataLocks[lockIndex];
-            saveLock.Wait(cancellationToken);
+
+            // WaitAsync instead of Wait: this is called from SessionManager on every playback
+            // progress report (roughly every 10 seconds per active client), so blocking the thread
+            // here is the most frequent thread-pool stall in the server. With only 8 stripes over a
+            // Guid space two unrelated items routinely share a stripe, so the wait is not rare.
+            await saveLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 var keys = item.GetUserDataKeys().Distinct(StringComparer.Ordinal).ToArray();
 
-                using var dbContext = _repository.CreateDbContext();
-                using var transaction = dbContext.Database.BeginTransaction();
-                var existingEntries = dbContext.UserData
-                    .Where(f => f.ItemId == item.Id && f.UserId == user.Id)
-                    .ToList()
-                    .Where(f => keys.Contains(f.CustomDataKey))
-                    .ToDictionary(f => f.CustomDataKey, StringComparer.Ordinal);
-
-                foreach (var key in keys)
+                var dbContext = await _repository.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                await using (dbContext.ConfigureAwait(false))
                 {
-                    userData.Key = key;
-                    var userDataEntry = Map(userData, user.Id, item.Id);
-                    if (existingEntries.TryGetValue(key, out var existingEntry))
+                    await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                    var existingEntries = (await dbContext.UserData
+                        .Where(f => f.ItemId == item.Id && f.UserId == user.Id)
+                        .ToListAsync(cancellationToken)
+                        .ConfigureAwait(false))
+                        .Where(f => keys.Contains(f.CustomDataKey))
+                        .ToDictionary(f => f.CustomDataKey, StringComparer.Ordinal);
+
+                    foreach (var key in keys)
                     {
-                        ApplyUserData(existingEntry, userDataEntry);
+                        userData.Key = key;
+                        var userDataEntry = Map(userData, user.Id, item.Id);
+                        if (existingEntries.TryGetValue(key, out var existingEntry))
+                        {
+                            ApplyUserData(existingEntry, userDataEntry);
+                        }
+                        else
+                        {
+                            dbContext.UserData.Add(userDataEntry);
+                        }
                     }
-                    else
-                    {
-                        dbContext.UserData.Add(userDataEntry);
-                    }
+
+                    await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+                    var userId = user.InternalId;
+                    var cacheKey = GetCacheKey(userId, item.Id);
+                    _cache.AddOrUpdate(cacheKey, userData);
+                    item.UserData = await dbContext.UserData.Where(e => e.ItemId == item.Id).AsNoTracking().ToArrayAsync(cancellationToken).ConfigureAwait(false); // rehydrate the cached userdata
                 }
-
-                dbContext.SaveChanges();
-                transaction.Commit();
-
-                var userId = user.InternalId;
-                var cacheKey = GetCacheKey(userId, item.Id);
-                _cache.AddOrUpdate(cacheKey, userData);
-                item.UserData = dbContext.UserData.Where(e => e.ItemId == item.Id).AsNoTracking().ToArray(); // rehydrate the cached userdata
 
                 UserDataSaved?.Invoke(this, new UserDataSaveEventArgs
                 {

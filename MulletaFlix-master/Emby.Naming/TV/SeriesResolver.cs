@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
 using Emby.Naming.Common;
@@ -21,7 +22,7 @@ namespace Emby.Naming.TV
         /// Regex that matches titles with year in parentheses. Captures the title (which may be
         /// numeric) before the year, i.e. turns "1923 (2022)" into "1923".
         /// </summary>
-        [GeneratedRegex(@"(?<title>.+?)\s*\(\d{4}\)")]
+        [GeneratedRegex(@"(?<title>.+?)\s*\((?<year>\d{4})\)")]
         private static partial Regex TitleWithYearRegex();
 
         /// <summary>
@@ -33,6 +34,7 @@ namespace Emby.Naming.TV
         public static SeriesInfo Resolve(NamingOptions options, string path)
         {
             string seriesName = Path.GetFileName(path);
+            int? year = null;
 
             // First check if the filename matches a title with year pattern (handles numeric titles)
             if (!string.IsNullOrEmpty(seriesName))
@@ -41,9 +43,11 @@ namespace Emby.Naming.TV
                 if (titleWithYearMatch.Success)
                 {
                     seriesName = titleWithYearMatch.Groups["title"].Value.Trim();
+                    year = ParseYear(titleWithYearMatch.Groups["year"].Value);
                     return new SeriesInfo(path)
                     {
-                        Name = seriesName
+                        Name = seriesName,
+                        Year = year
                     };
                 }
             }
@@ -59,14 +63,31 @@ namespace Emby.Naming.TV
 
             if (!string.IsNullOrEmpty(seriesName))
             {
+                // The year belongs to the item, not to its title. It used to be stripped from the name
+                // and thrown away, which made "A Agencia (2020)" and "A Agencia (2024)" resolve to
+                // identical lookup info: no year reached the providers, both folders matched the same
+                // series, and the two shows ended up sharing a presentation unique key.
+                var yearInName = TitleWithYearRegex().Match(seriesName);
+                if (yearInName.Success)
+                {
+                    seriesName = yearInName.Groups["title"].Value.Trim();
+                    year = ParseYear(yearInName.Groups["year"].Value);
+                }
+
                 seriesName = SeriesNameRegex().Replace(seriesName, "${a} ${b}").Trim();
                 seriesName = TitleNormalization.RemoveTrailingReleaseTags(seriesName);
             }
 
             return new SeriesInfo(path)
             {
-                Name = seriesName
+                Name = seriesName,
+                Year = year
             };
+        }
+
+        private static int? ParseYear(string value)
+        {
+            return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var year) ? year : null;
         }
     }
 }

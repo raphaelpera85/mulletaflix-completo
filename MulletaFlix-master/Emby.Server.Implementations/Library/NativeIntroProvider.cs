@@ -44,11 +44,6 @@ public sealed class NativeIntroProvider : IIntroProvider
     public async Task<IEnumerable<IntroInfo>> GetIntros(BaseItem item, User user)
     {
         var options = _configurationManager.GetConfiguration<BrandingOptions>("branding");
-        if (options is not null && !options.IntroEnabled)
-        {
-            return [];
-        }
-
         string introPath = null;
         if (!string.IsNullOrWhiteSpace(options?.IntroPath))
         {
@@ -76,9 +71,25 @@ public sealed class NativeIntroProvider : IIntroProvider
             }
         }
 
-        await _prebufferManager.PrepareAsync(item).ConfigureAwait(false);
+        // Preparing the main media is opportunistic: slow STRM/Nebula reads must not
+        // delay (or prevent) returning the intro that the web player needs to start.
+        _ = Task.Run(() => PrepareMainMediaAsync(item));
+
+        _logger.LogInformation("Providing native intro for {ItemName}", item.Name);
 
         return [new IntroInfo { Path = introPath }];
+    }
+
+    private async Task PrepareMainMediaAsync(BaseItem item)
+    {
+        try
+        {
+            await _prebufferManager.PrepareAsync(item).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Main media pre-buffer failed while preparing intro for {ItemName}; continuing with intro", item.Name);
+        }
     }
 
     private string ResolveDefaultNativeIntro()
@@ -169,4 +180,3 @@ public sealed class NativeIntroProvider : IIntroProvider
         return files[Random.Shared.Next(files.Length)];
     }
 }
-

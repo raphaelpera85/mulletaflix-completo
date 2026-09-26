@@ -306,7 +306,7 @@ namespace MediaBrowser.Providers.Manager
         /// <returns>ItemUpdateType.</returns>
         private async Task<ItemUpdateType> BeforeSave(TItemType item, bool isFullRefresh, ItemUpdateType currentUpdateType)
         {
-            var updateType = BeforeSaveInternal(item, isFullRefresh, currentUpdateType);
+            var updateType = await BeforeSaveInternalAsync(item, isFullRefresh, currentUpdateType).ConfigureAwait(false);
 
             updateType |= item.OnMetadataChanged();
 
@@ -321,7 +321,7 @@ namespace MediaBrowser.Providers.Manager
             return updateType;
         }
 
-        protected virtual ItemUpdateType BeforeSaveInternal(TItemType item, bool isFullRefresh, ItemUpdateType updateType)
+        protected virtual async Task<ItemUpdateType> BeforeSaveInternalAsync(TItemType item, bool isFullRefresh, ItemUpdateType updateType)
         {
             if (EnableUpdateMetadataFromChildren(item, isFullRefresh, updateType))
             {
@@ -357,7 +357,11 @@ namespace MediaBrowser.Providers.Manager
                     if (item is Video video)
                     {
                         Logger.LogInformation("File changed, pruning extracted data: {Path}", item.Path);
-                        ExternalDataManager.DeleteExternalItemDataAsync(video, CancellationToken.None).GetAwaiter().GetResult();
+
+                        // Await the prune instead of blocking the thread pool. The cancellation token is
+                        // deliberately None: pruning must run to completion or the extracted data (keyframes,
+                        // segments, trickplay, chapters) is left partially deleted.
+                        await ExternalDataManager.DeleteExternalItemDataAsync(video, CancellationToken.None).ConfigureAwait(false);
                     }
 
                     updateType |= ItemUpdateType.MetadataImport;
@@ -958,7 +962,10 @@ namespace MediaBrowser.Providers.Manager
                 }
             }
 
-            // Merge results in original provider priority order.
+            // Merge results in original provider priority order. When an item was
+            // identified by a provider id, that provider is authoritative for the
+            // title and image set. Other providers may still enrich missing fields,
+            // but must not replace the identified title or its artwork.
             foreach (var (_, provider, result, error) in providerResults.OrderBy(r => r.index))
             {
                 if (error is not null)
@@ -976,14 +983,16 @@ namespace MediaBrowser.Providers.Manager
 
                 result.Provider = provider.Name;
 
-                var foundImageTypes = await SaveRemoteResultImages(item, result, options, provider.Name, cancellationToken).ConfigureAwait(false);
+                var isIdentifiedProvider = HasProviderId(id, provider.Name);
+
+                var foundImageTypes = await SaveRemoteResultImages(item, result, options, provider.Name, isIdentifiedProvider, cancellationToken).ConfigureAwait(false);
                 if (foundImageTypes.Count > 0)
                 {
                     imageService.UpdateReplaceImages(options, foundImageTypes);
                     refreshResult.UpdateType |= ItemUpdateType.ImageUpdate;
                 }
 
-                MergeData(result, temp, [], replaceData, false);
+                MergeData(result, temp, [], replaceData || isIdentifiedProvider, false);
                 MergeNewData(temp.Item, id);
 
                 refreshResult.UpdateType |= ItemUpdateType.MetadataDownload;
@@ -992,11 +1001,19 @@ namespace MediaBrowser.Providers.Manager
             return refreshResult;
         }
 
+        internal static bool HasProviderId(TIdType lookupInfo, string providerName)
+        {
+            return lookupInfo?.ProviderIds is not null
+                && lookupInfo.ProviderIds.TryGetValue(providerName, out var providerId)
+                && !string.IsNullOrWhiteSpace(providerId);
+        }
+
         private async Task<List<ImageType>> SaveRemoteResultImages(
             TItemType item,
             MetadataResult<TItemType> result,
             MetadataRefreshOptions options,
             string providerName,
+            bool isIdentifiedProvider,
             CancellationToken cancellationToken)
         {
             if (result.RemoteImages.Count == 0)
@@ -1009,7 +1026,8 @@ namespace MediaBrowser.Providers.Manager
             // may throttle the burst, leaving items with only a poster or no
             // image at all.
             var imagesToDownload = result.RemoteImages
-                .Where(img => !item.ImageInfos.Any(x => x.Type == img.Type) || options.IsReplacingImage(img.Type))
+                .Where(img => !item.ImageInfos.Any(x => x.Type == img.Type)
+                    || (isIdentifiedProvider && options.IsReplacingImage(img.Type)))
                 .ToList();
 
             if (imagesToDownload.Count == 0)
@@ -1022,6 +1040,7 @@ namespace MediaBrowser.Providers.Manager
             foreach (var remoteImage in imagesToDownload)
             {
                 var saved = false;
+                var sawRateLimit = false;
                 for (var attempt = 1; attempt <= 3 && !saved; attempt++)
                 {
                     try
@@ -1032,6 +1051,7 @@ namespace MediaBrowser.Providers.Manager
                     }
                     catch (HttpRequestException ex) when (attempt < 3 && !cancellationToken.IsCancellationRequested)
                     {
+                        sawRateLimit = true;
                         Logger.LogWarning(
                             ex,
                             "Retrying {ImageType} image from {Provider} ({Attempt}/3): {Url}",
@@ -1053,9 +1073,13 @@ namespace MediaBrowser.Providers.Manager
                     }
                 }
 
-                // Keep a small gap between provider requests to avoid rate-limit
-                // bursts while still completing all image types in one refresh.
-                if (!cancellationToken.IsCancellationRequested)
+                // Only back off after an actual failure signal. This used to sleep 100 ms after
+                // every image unconditionally, which capped the whole server at 10 images per second
+                // no matter how many cores were idle, and the item held one of the 32
+                // _refreshConcurrency slots for the whole time. Images that save on the first try are
+                // already paced by their own network round trip, and the retry backoff above still
+                // protects the provider when it does push back.
+                if (sawRateLimit && !cancellationToken.IsCancellationRequested)
                 {
                     await Task.Delay(100, cancellationToken).ConfigureAwait(false);
                 }

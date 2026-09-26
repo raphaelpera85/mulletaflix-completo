@@ -17,6 +17,7 @@ using MulletaFlix.Api.Auth.UserPermissionPolicy;
 using MulletaFlix.Api.Constants;
 using MulletaFlix.Api.Controllers;
 using MulletaFlix.Api.Formatters;
+using MulletaFlix.Api.Helpers;
 using MulletaFlix.Api.ModelBinders;
 using MulletaFlix.Data.Enums;
 using MulletaFlix.Database.Implementations.Enums;
@@ -110,6 +111,8 @@ namespace MulletaFlix.Server.Extensions
         /// <returns>The MVC builder.</returns>
         public static IMvcBuilder AddMulletaFlixApi(this IServiceCollection serviceCollection, IEnumerable<Assembly> pluginAssemblies, NetworkConfiguration config)
         {
+            serviceCollection.AddSingleton<TransientMediaItemRegistry>();
+
             IMvcBuilder mvcBuilder = serviceCollection
                 .AddCors()
                 .AddTransient<ICorsPolicyProvider, CorsPolicyProvider>()
@@ -357,4 +360,3 @@ namespace MulletaFlix.Server.Extensions
         }
     }
 }
-

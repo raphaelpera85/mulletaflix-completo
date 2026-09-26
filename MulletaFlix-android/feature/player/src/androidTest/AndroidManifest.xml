@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Manifesto do APK de teste de `:feature:player`.
+
+  Existe por um motivo só: o `MediaRouteButton` do Media3 se recusa a compor sem o
+  Cast SDK inicializado, e a inicialização lê o `OptionsProvider` deste metadado. Em
+  produção quem o declara é o `:app` (`MulletaFlixCastOptionsProvider`), que este
+  módulo não pode enxergar. Sem isto, o teste que **mede o alvo de toque** do controle
+  de transmissão morre em `IllegalStateException: Must initialize Cast prior to using
+  it` — que foi exatamente o que aconteceu na primeira tentativa, na v1.2.83/84.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true">
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="org.mulletaflix.feature.player.TestCastOptionsProvider" />
+    </application>
+</manifest>

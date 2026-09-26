@@ -1,8 +1,10 @@
 package org.mulletaflix.data.repository
 
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.dto.AuthenticateByNameDto
@@ -14,6 +16,7 @@ import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.UserSession
+import org.mulletaflix.domain.repository.shouldClearSessionForServerChange
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,12 +26,21 @@ class AuthRepositoryImpl @Inject constructor(
     private val sessionRepository: SessionRepository,
 ) : AuthRepository {
 
-    override suspend fun verifyServer(url: String): Result<ServerVerification> = runCatching {
+    override suspend fun verifyServer(url: String): Result<ServerVerification> = suspendRunCatching {
+        val cleanUrl = url.trimEnd('/')
         val previousUrl = sessionRepository.getBaseUrl().first()
-        sessionRepository.setBaseUrl(url.trimEnd('/'))
+        val sessionServerId = sessionRepository.getServerId().first()
+        sessionRepository.setBaseUrl(cleanUrl)
         try {
             val startedAt = System.nanoTime()
             val info = api.getPublicSystemInfo()
+            // O endereço foi reescrito antes de a verificação terminar. Se o servidor
+            // verificado for outro, a sessão guardada (token e usuário) ainda é do
+            // servidor anterior e passaria a ser enviada para o host novo: o app
+            // acreditaria estar autenticado onde não tem sessão nenhuma.
+            if (shouldClearSessionForServerChange(sessionServerId, info.id)) {
+                sessionRepository.clearSession()
+            }
             ServerVerification(
                 name = info.serverName ?: info.productName ?: "MulletaFlix Server",
                 version = info.version,
@@ -36,17 +48,19 @@ class AuthRepositoryImpl @Inject constructor(
                 serverId = info.id,
             )
         } catch (error: Throwable) {
-            sessionRepository.setBaseUrl(previousUrl)
+            // `setBaseUrl` é `suspend` e grava no DataStore: numa corrotina já
+            // cancelada ele lança antes de escrever, e a restauração não acontecia.
+            withContext(NonCancellable) { sessionRepository.setBaseUrl(previousUrl) }
             throw error
         }
     }
 
-    override suspend fun register(username: String, password: String): Result<RegistrationResult> = runCatching {
+    override suspend fun register(username: String, password: String): Result<RegistrationResult> = suspendRunCatching {
         val response = api.registerUser(RegisterUserDto(name = username.trim().lowercase(), password = password))
         RegistrationResult(success = response.success, message = response.message)
     }
 
-    override suspend fun login(username: String, password: String): Result<UserSession> = runCatching {
+    override suspend fun login(username: String, password: String): Result<UserSession> = suspendRunCatching {
         val deviceId = sessionRepository.getDeviceId().first()
         val serverUrl = sessionRepository.getBaseUrl().first()
         val result = api.authenticateByName(AuthenticateByNameDto(username = username, pw = password))
@@ -62,9 +76,9 @@ class AuthRepositoryImpl @Inject constructor(
             token = token,
             userId = userId,
             userName = userName,
+            serverId = result.serverId,
             deviceId = deviceId,
         )
-        sessionRepository.setServerId(result.serverId)
 
         UserSession(
             userId = userId,
@@ -74,7 +88,7 @@ class AuthRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun getAvailableUsers(): Result<List<AvailableUser>> = runCatching {
+    override suspend fun getAvailableUsers(): Result<List<AvailableUser>> = suspendRunCatching {
         api.getPublicUsers().map { user ->
             AvailableUser(
                 id = user.id,
@@ -84,24 +98,29 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun isQuickConnectEnabled(): Result<Boolean> = runCatching {
+    override suspend fun isQuickConnectEnabled(): Result<Boolean> = suspendRunCatching {
         api.isQuickConnectEnabled()
     }
 
-    override suspend fun initiateQuickConnect(): Result<QuickConnectState> = runCatching {
+    override suspend fun initiateQuickConnect(): Result<QuickConnectState> = suspendRunCatching {
         val res = api.initiateQuickConnect()
+        val code = res.code.trim()
+        val secret = res.secret.trim()
+        require(code.isNotEmpty() && secret.isNotEmpty()) {
+            "O servidor retornou um código Quick Connect inválido"
+        }
         QuickConnectState(
-            code = res.code,
-            secret = res.secret,
+            code = code,
+            secret = secret,
             isAuthorized = res.authenticated,
         )
     }
 
-    override suspend fun checkQuickConnect(secret: String): Result<UserSession?> = runCatching {
+    override suspend fun checkQuickConnect(secret: String): Result<UserSession?> = suspendRunCatching {
         val serverUrl = sessionRepository.getBaseUrl().first()
         val deviceId = sessionRepository.getDeviceId().first()
         val status = api.connectQuickConnect(secret = secret)
-        if (!status.authenticated) return@runCatching null
+        if (!status.authenticated) return@suspendRunCatching null
 
         val res = api.authenticateWithQuickConnect(QuickConnectDto(secret = secret))
         val token = res.accessToken
@@ -113,9 +132,9 @@ class AuthRepositoryImpl @Inject constructor(
                 token = token,
                 userId = user.id,
                 userName = user.name,
+                serverId = res.serverId,
                 deviceId = deviceId,
             )
-            sessionRepository.setServerId(res.serverId)
             UserSession(
                 userId = user.id,
                 userName = user.name,
@@ -127,11 +146,11 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun logout(): Result<Unit> = runCatching {
+    override suspend fun logout(): Result<Unit> = suspendRunCatching {
         sessionRepository.clearSession()
     }
 
-    override suspend fun getCurrentUserProfile(): Result<org.mulletaflix.domain.model.UserProfile> = runCatching {
+    override suspend fun getCurrentUserProfile(): Result<org.mulletaflix.domain.model.UserProfile> = suspendRunCatching {
         val userDto = api.getCurrentUser()
         org.mulletaflix.domain.model.UserProfile(
             id = userDto.id,

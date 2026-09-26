@@ -32,6 +32,7 @@ import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadState
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,7 +42,8 @@ fun DownloadsScreen(
     onExploreClick: () -> Unit = {},
     viewModel: DownloadsViewModel = hiltViewModel()
 ) {
-    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
+    val downloadsState by viewModel.downloadsState.collectAsStateWithLifecycle()
+    val downloads = downloadsState.entries
     val queuePaused by viewModel.queuePaused.collectAsStateWithLifecycle()
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
     val actionMessage by viewModel.actionMessage.collectAsStateWithLifecycle()
@@ -73,12 +75,12 @@ fun DownloadsScreen(
             TopAppBar(
                 title = { Text("Downloads Offline") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    MulletaFlixTopBarAction(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showStorageSummary = true }) {
+                    MulletaFlixTopBarAction(onClick = { showStorageSummary = true }) {
                         Icon(Icons.Default.Storage, contentDescription = "Ver armazenamento offline")
                     }
                 }
@@ -95,9 +97,10 @@ fun DownloadsScreen(
                 availableWidthDp = maxWidth.value.toInt(),
                 isTelevision = isTelevision,
             ).dp
-            if (downloads.isEmpty()) {
-                EmptyDownloads(onExploreClick = onExploreClick)
-            } else {
+            DownloadsQueueContent(
+                state = downloadsState,
+                onExploreClick = onExploreClick,
+            ) {
                 LazyColumn(
                     Modifier
                         .fillMaxSize()
@@ -244,6 +247,35 @@ fun DownloadsScreen(
 }
 
 @Composable
+internal fun DownloadsQueueContent(
+    state: DownloadsUiState,
+    onExploreClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    when (downloadsContentState(state.isLoaded, state.entries.size)) {
+        DownloadsContentState.Loading -> DownloadsLoadingState()
+        DownloadsContentState.Empty -> EmptyDownloads(onExploreClick = onExploreClick)
+        DownloadsContentState.Content -> content()
+    }
+}
+
+@Composable
+internal fun DownloadsLoadingState() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator()
+        Text(
+            text = "Carregando downloads offline…",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
 internal fun StorageSummaryDialog(
     summary: DownloadStorageSummary,
     onDismiss: () -> Unit,
@@ -335,7 +367,7 @@ internal fun DownloadSearchField(
         },
         trailingIcon = if (query.isNotEmpty()) {
             {
-                IconButton(onClick = onClear) {
+                MulletaFlixTopBarAction(onClick = onClear) {
                     Icon(Icons.Default.Clear, contentDescription = "Limpar busca")
                 }
             }
@@ -376,7 +408,7 @@ internal fun OfflineSummary(
                     )
                 }
                 if (hasActiveDownloads) {
-                    IconButton(onClick = if (queuePaused) onResume else onPause) {
+                    MulletaFlixTopBarAction(onClick = if (queuePaused) onResume else onPause) {
                         Icon(
                             if (queuePaused) Icons.Default.PlayArrow else Icons.Default.Pause,
                             contentDescription = if (queuePaused) "Retomar downloads" else "Pausar downloads",
@@ -440,7 +472,9 @@ internal fun DownloadRow(
     val remotePlayModifier = if (focusFriendly && canPlay) {
         Modifier
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
+            // No `focusable()`: `clickable` already provides a focus target, and a
+            // second one on the same node swallowed the remote's first press (the
+            // row needed two clicks to start playback).
             .clickable(onClick = onPlay)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
@@ -466,7 +500,11 @@ internal fun DownloadRow(
             if (imageModel != null) {
                 AsyncImage(
                     model = imageModel,
-                    contentDescription = entry.title,
+                    // Decorativa: o título já está no `Text` ao lado, e a linha
+                    // inteira já se anuncia com "Reproduzir X offline". Com a
+                    // descrição aqui, o leitor de tela parava duas vezes no mesmo
+                    // título — e na TV a linha mescla os dois e sai "…offline, X".
+                    contentDescription = null,
                     contentScale = offlineArtworkContentScale(),
                     modifier = Modifier.size(width = 56.dp, height = 80.dp),
                 )
@@ -494,16 +532,16 @@ internal fun DownloadRow(
                 }
             }
             if (entry.state == DownloadState.Completed && !focusFriendly) {
-                IconButton(onClick = onPlay) {
+                MulletaFlixTopBarAction(onClick = onPlay) {
                     Icon(Icons.Default.PlayArrow, "Reproduzir offline")
                 }
             }
             if (entry.state == DownloadState.Failed) {
-                IconButton(onClick = onRetry) {
+                MulletaFlixTopBarAction(onClick = onRetry) {
                     Icon(Icons.Default.Refresh, "Tentar download novamente")
                 }
             }
-            IconButton(onClick = onRemove) {
+            MulletaFlixTopBarAction(onClick = onRemove) {
                 Icon(Icons.Default.Delete, "Remover", tint = MaterialTheme.colorScheme.error)
             }
         }

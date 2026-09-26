@@ -52,6 +52,7 @@ export const useServerUpdateInfo = () => {
         queryKey: ['UpdateInfo', api?.basePath],
         queryFn: ({ signal }) => fetchUpdateInfo(api!, signal),
         enabled: !!api,
+        refetchOnWindowFocus: true,
         retry: 2
     });
 };
@@ -90,4 +91,3 @@ export const useApplyUpdate = () => {
         }
     });
 };
-

@@ -80,6 +80,12 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     public event Action<string>? OnLog;
 
     /// <summary>
+    /// Evento disparado quando uma mídia local está pronta para upload.
+    /// O watcher usa o caminho para inserir o arquivo imediatamente na fila.
+    /// </summary>
+    public event Action<string>? OnUploadReady;
+
+    /// <summary>
     /// Inicializa uma nova instância de <see cref="NebulaDownloaderEngine"/>.
     /// </summary>
     public NebulaDownloaderEngine(
@@ -506,6 +512,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             try
             {
                 await EnqueueFileInMongoAsync(targetMediaFilePath, relPath, cancellationToken).ConfigureAwait(false);
+                NotifyUploadReady(targetMediaFilePath);
             }
             catch (Exception ex)
             {
@@ -651,6 +658,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             try
             {
                 await EnqueueFileInMongoAsync(targetMediaFilePath, relPath, cancellationToken).ConfigureAwait(false);
+                NotifyUploadReady(targetMediaFilePath);
                 LogInfo($"[NEBULA-FEEDER] Mídia física {mediaFileName} enfileirada no MongoDB com sucesso.");
             }
             catch (Exception ex)
@@ -1293,6 +1301,18 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         else
         {
             _logger.LogDebug("[NEBULA-FEEDER] Mídia {Name} já foi enfileirada por outro produtor; ignorando duplicata.", fileName);
+        }
+    }
+
+    private void NotifyUploadReady(string filePath)
+    {
+        try
+        {
+            OnUploadReady?.Invoke(filePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-DOWNLOADER] Falha ao sinalizar mídia pronta para a fila de upload: {Path}", filePath);
         }
     }
 

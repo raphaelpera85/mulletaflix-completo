@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -289,7 +290,11 @@ public class ItemPersistenceService : IItemPersistenceService
 
         var lockIndex = items.Count > 0 ? (items[0].Id.GetHashCode() & 15) : 0;
         var updateLock = _updateOrInsertLocks[lockIndex];
-        updateLock.WaitAsync(cancellationToken).GetAwaiter().GetResult();
+
+        // This whole path is intentionally synchronous (called from library scans and scheduled
+        // tasks). Use the blocking Wait instead of the async-over-sync WaitAsync().GetResult()
+        // pattern to avoid spinning the async state machine and holding a thread longer than needed.
+        updateLock.Wait(cancellationToken);
         try
         {
             for (var attempt = 1; attempt <= 3; attempt++)
@@ -302,7 +307,22 @@ public class ItemPersistenceService : IItemPersistenceService
                 catch (DbUpdateException ex) when (attempt < 3 && IsTransientMetadataConflict(ex))
                 {
                     _logger.LogWarning(ex, "Transient metadata conflict detected on attempt {Attempt} while saving items. Retrying...", attempt);
+
+                    // Short bounded backoff for a genuinely rare path (deadlock / lock-wait timeout).
+                    // This is not on the request hot path and is reached only on transient DB conflicts.
                     Thread.Sleep(attempt * 75);
+                }
+                catch (Exception ex) when (attempt < 3 && IsTransientConnectionFailure(ex))
+                {
+                    // The MariaDB connection itself failed (pool exhausted, connect timeout, socket
+                    // reset during the TLS handshake). The statement never ran, so replaying it is
+                    // safe, and without this the whole metadata save for the item was lost and the
+                    // library scan reported "Error while performing a library operation".
+                    _logger.LogWarning(ex, "Transient MariaDB connection failure on attempt {Attempt} while saving items. Retrying...", attempt);
+
+                    // Longer than the metadata-conflict backoff: a saturated pool needs a moment to
+                    // hand a connection back.
+                    Thread.Sleep(attempt * 150);
                 }
             }
         }
@@ -333,7 +353,13 @@ public class ItemPersistenceService : IItemPersistenceService
         using var transaction = context.Database.BeginTransaction();
 
         var ids = tuples.Select(f => f.Item.Id).ToArray();
-        var existingItems = context.BaseItems.Where(e => Enumerable.Contains(ids, e.Id)).Select(f => f.Id).ToHashSet();
+
+        // Fetch the *tracked* entities rather than just their ids. Change detection needs the
+        // original values, and it is what lets an unchanged rescan skip the UPDATE entirely
+        // instead of rewriting every column (and therefore every one of the 26 secondary indexes).
+        var existingItems = context.BaseItems
+            .Where(e => Enumerable.Contains(ids, e.Id))
+            .ToDictionary(e => e.Id);
 
         // 1. Save Base Item Entities
         SaveBaseItemEntities(context, tuples, existingItems);
@@ -375,6 +401,49 @@ public class ItemPersistenceService : IItemPersistenceService
             // 1213 = Deadlock found when trying to get lock
             // 1205 = Lock wait timeout exceeded
             return mySqlException.Number is 1062 or 1452 or 1213 or 1205;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether a save failed because the MariaDB connection did, rather than because the
+    /// statement was rejected.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// These failures never reach <see cref="DbUpdateException"/>: the driver throws before the
+    /// statement is sent. Observed shapes are an <see cref="InvalidOperationException"/> from EF
+    /// ("An exception has been raised that is likely due to a transient failure") wrapping a
+    /// <see cref="MySqlException"/>, and a bare <see cref="MySqlException"/> ("Connect Timeout
+    /// expired. All pooled connections are in use." / "Couldn't connect to server"). None of them
+    /// were retried before, so a single blip discarded the item's whole metadata save.
+    /// </para>
+    /// <para>
+    /// <see cref="MySqlException"/> is the exception type of the MySqlConnector driver, which is
+    /// what talks to MariaDB; the transient flag and the server error codes it carries are the
+    /// MariaDB ones.
+    /// </para>
+    /// </remarks>
+    /// <param name="exception">The exception thrown by the save.</param>
+    /// <returns><see langword="true"/> when the operation is worth replaying.</returns>
+    internal static bool IsTransientConnectionFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is MySqlException mySqlException)
+            {
+                // 1040 = Too many connections, 1042 = Unable to connect to host,
+                // 1043 = Bad handshake, 2002/2003 = can't connect, 2006 = server gone away,
+                // 2013 = lost connection during query.
+                return mySqlException.IsTransient
+                    || mySqlException.Number is 1040 or 1042 or 1043 or 2002 or 2003 or 2006 or 2013;
+            }
+
+            if (current is SocketException or TimeoutException)
+            {
+                return true;
+            }
         }
 
         return false;
@@ -476,9 +545,9 @@ public class ItemPersistenceService : IItemPersistenceService
     private void SaveBaseItemEntities(
         MulletaFlixDbContext context,
         List<(BaseItemDto Item, List<Guid>? AncestorIds, BaseItemDto TopParent, IEnumerable<string> UserDataKey, List<string> InheritedTags)> tuples,
-        HashSet<Guid> existingItems)
+        Dictionary<Guid, BaseItemEntity> existingItems)
     {
-        var existingIdsList = existingItems.ToList();
+        var existingIdsList = existingItems.Keys.ToList();
         var existingProviders = existingIdsList.Count > 0
             ? context.BaseItemProviders
                 .AsNoTracking()
@@ -502,7 +571,7 @@ public class ItemPersistenceService : IItemPersistenceService
             var entity = BaseItemMapper.Map(item.Item, _appHost);
             entity.TopParentId = item.TopParent?.Id;
 
-            if (!existingItems.Contains(entity.Id))
+            if (!existingItems.TryGetValue(entity.Id, out var current))
             {
                 context.BaseItems.Add(entity);
             }
@@ -514,6 +583,20 @@ public class ItemPersistenceService : IItemPersistenceService
                 var currentTrailerTypes = entity.TrailerTypes?.ToArray();
 
                 ClearTrackedNavigationProperties(entity);
+
+                // The rows below are about to be re-inserted through AddRange, which runs them
+                // through the EF graph attacher. Every one of them was mapped with "Item" pointing
+                // at the fresh instance created for this scan, so the attacher would follow that
+                // navigation, try to track a second BaseItemEntity with the Id that is already
+                // tracked (the row fetched into existingItems) and abort the whole save with
+                // IdentityMap.ThrowIdentityConflict. Replacing the navigation with the explicit
+                // foreign key keeps the relationship and removes the graph edge.
+                DetachItemBackReferences(
+                    entity.Id,
+                    providers: currentProviders,
+                    lockedFields: currentLockedFields,
+                    images: currentImages,
+                    trailerTypes: currentTrailerTypes);
 
                 // Check if Providers changed
                 var oldProviders = existingProviders.GetValueOrDefault(entity.Id) ?? new List<BaseItemProvider>();
@@ -563,7 +646,14 @@ public class ItemPersistenceService : IItemPersistenceService
                     }
                 }
 
-                context.BaseItems.Attach(entity).State = EntityState.Modified;
+                // Copy the mapped values onto the already-tracked instance. EF compares them with the
+                // originals and marks only the columns that actually differ, so an unchanged rescan
+                // produces either a narrow UPDATE or no UPDATE at all. The previous
+                // Attach(entity).State = Modified marked all ~70 properties dirty, which forced a
+                // full-column UPDATE — and therefore a write to all 26 secondary indexes — for every
+                // item on every scan. That write amplification is what grew baseitems to 264 MB of
+                // index against 55 MB of data.
+                context.Entry(current).CurrentValues.SetValues(entity);
             }
         }
     }
@@ -574,6 +664,75 @@ public class ItemPersistenceService : IItemPersistenceService
         entity.LockedFields = null;
         entity.Images = null;
         entity.TrailerTypes = null;
+    }
+
+    /// <summary>
+    /// Replaces the parent navigation of child rows that are about to be re-inserted with the
+    /// explicit foreign key.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="BaseItemMapper.Map(BaseItemDto, IServerApplicationHost?)"/> wires every child row
+    /// back to the <see cref="BaseItemEntity"/> instance it just created — for providers it does not
+    /// even set <c>ItemId</c>, because EF used to derive the key from the navigation. That is fine
+    /// while the parent is new and untracked, but when the parent already exists the row is added
+    /// next to the instance fetched into <c>existingItems</c>, and the graph attacher then reports
+    /// "The instance of entity type 'BaseItemEntity' cannot be tracked because another instance with
+    /// the same key value for {'Id'} is already being tracked" — losing the entire metadata save.
+    /// </para>
+    /// <para>
+    /// Clearing the navigation and writing the key explicitly removes the graph edge while keeping
+    /// the relationship intact. It is the same shape <see cref="BaseItemMapper.MapImageToEntity"/>
+    /// already uses for images.
+    /// </para>
+    /// </remarks>
+    /// <param name="itemId">Id of the parent item the rows belong to.</param>
+    /// <param name="providers">Provider rows to detach.</param>
+    /// <param name="lockedFields">Locked metadata field rows to detach.</param>
+    /// <param name="images">Image rows to detach.</param>
+    /// <param name="trailerTypes">Trailer type rows to detach.</param>
+    internal static void DetachItemBackReferences(
+        Guid itemId,
+        BaseItemProvider[]? providers = null,
+        BaseItemMetadataField[]? lockedFields = null,
+        BaseItemImageInfo[]? images = null,
+        BaseItemTrailerType[]? trailerTypes = null)
+    {
+        if (providers is not null)
+        {
+            foreach (var provider in providers)
+            {
+                provider.ItemId = itemId;
+                provider.Item = null!;
+            }
+        }
+
+        if (lockedFields is not null)
+        {
+            foreach (var lockedField in lockedFields)
+            {
+                lockedField.ItemId = itemId;
+                lockedField.Item = null!;
+            }
+        }
+
+        if (images is not null)
+        {
+            foreach (var image in images)
+            {
+                image.ItemId = itemId;
+                image.Item = null!;
+            }
+        }
+
+        if (trailerTypes is not null)
+        {
+            foreach (var trailerType in trailerTypes)
+            {
+                trailerType.ItemId = itemId;
+                trailerType.Item = null!;
+            }
+        }
     }
 
     private void SaveItemValues(
@@ -650,17 +809,28 @@ public class ItemPersistenceService : IItemPersistenceService
             return;
         }
 
-        var commandText = new StringBuilder("INSERT IGNORE INTO `ItemValues` (`ItemValueId`, `Type`, `Value`, `CleanValue`) VALUES ");
-        var parameters = new List<object>(allListedItemValues.Count * 4);
+        // Insert in a deterministic order. INSERT IGNORE that hits a duplicate key takes a shared
+        // lock on the conflicting row in the unique (Type, Value) index, so two concurrent
+        // transactions inserting the same value set in different orders acquire those locks in
+        // opposite directions and deadlock — which is what the retry helper in MulletaFlixDbContext
+        // (error 1213/1205) has been absorbing ~14 times a day. Sorting by the same key in every
+        // transaction removes the circular wait without changing which rows are written.
+        var orderedValues = allListedItemValues
+            .OrderBy(v => v.MagicNumber)
+            .ThenBy(v => v.Value.GetCleanValue(), StringComparer.Ordinal)
+            .ToArray();
 
-        for (var index = 0; index < allListedItemValues.Count; index++)
+        var commandText = new StringBuilder("INSERT IGNORE INTO `ItemValues` (`ItemValueId`, `Type`, `Value`, `CleanValue`) VALUES ");
+        var parameters = new List<object>(orderedValues.Length * 4);
+
+        for (var index = 0; index < orderedValues.Length; index++)
         {
             if (index > 0)
             {
                 commandText.Append(", ");
             }
 
-            var value = allListedItemValues[index];
+            var value = orderedValues[index];
             commandText.Append("(@p").Append(index).Append("_id, @p").Append(index).Append("_type, @p").Append(index).Append("_value, @p").Append(index).Append("_cleanValue)");
             parameters.Add(new MySqlParameter($"@p{index}_id", MySqlDbType.VarChar) { Value = Guid.NewGuid().ToString() });
             parameters.Add(new MySqlParameter($"@p{index}_type", MySqlDbType.Int32) { Value = (int)value.MagicNumber });

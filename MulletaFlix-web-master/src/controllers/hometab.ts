@@ -7,6 +7,7 @@ import homeSections from '../components/homesections/homesections';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import Events from '../utils/events';
 import { EventType } from '../constants/eventType';
+import { showMediaRequestDialog } from '../components/userFeedback/userFeedback';
 
 import '../elements/emby-itemscontainer/emby-itemscontainer';
 
@@ -27,6 +28,10 @@ class HomeTab {
         this.sectionsRendered = false;
         this.paused = false;
         this._onThemeChange = this.onThemeChange.bind(this);
+
+        view.querySelector<HTMLButtonElement>('.btnMediaRequest')?.addEventListener('click', () => {
+            if (this.apiClient) showMediaRequestDialog(this.apiClient);
+        });
 
         view.querySelector('.sections')?.addEventListener('settingschange', onHomeScreenSettingsChanged.bind(this));
         Events.on(document, EventType.THEME_CHANGE, this._onThemeChange);

@@ -286,9 +286,12 @@ namespace MulletaFlix.Server.Helpers
             // costs no memory.
             yield return "--innodb-io-capacity=2000";
 
-            // Above the 200 the application's connection pool may open, so a burst can never
-            // be rejected with "Too many connections". Peak observed: 71 concurrent threads.
-            // Idle connections cost little; the per-connection buffers are what matter.
+            // Must exceed the total the application can open. MySqlConnector pools are keyed by
+            // connection string, so the main schema and each plugin schema (introskipper) get their
+            // own pool, each capped at MaxPoolSize (100) in MySqlDatabaseProvider. Two pools reach
+            // ~200; the remaining 100 keep room for administrative clients and tools. This was 151
+            // against a 200-per-pool ceiling, and the server really did saturate it: measured
+            // Max_used_connections=152 with 83 aborted connects and /health returning 503.
             yield return "--max-connections=300";
 
             // Descriptors for the index and table set of a library this size.

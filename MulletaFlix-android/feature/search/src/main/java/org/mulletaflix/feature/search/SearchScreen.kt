@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -36,11 +37,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.designsystem.components.MediaCard
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.MediaCardShape
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.domain.model.*
+
+/** Tag do controle de "carregar mais", para o teste medir o estado do botão. */
+internal const val LOAD_MORE_TEST_TAG = "search-load-more"
 
 /**
  * Universal search screen.
@@ -65,6 +72,7 @@ fun SearchScreen(
     var isListening by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf<String?>(null) }
     var showClearHistoryConfirmation by rememberSaveable { mutableStateOf(false) }
+    val resultsScrollState = rememberSearchScrollState()
     val speechRecognizer = remember(context) {
         runCatching {
             if (SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -127,14 +135,14 @@ fun SearchScreen(
                     onExpandedChange = {},
                     placeholder = { Text("Buscar filmes, séries, músicas...") },
                     leadingIcon = {
-                        IconButton(onClick = onBack) {
+                        MulletaFlixTopBarAction(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                         }
                     },
                     trailingIcon = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (speechRecognizer != null) {
-                                IconButton(
+                                MulletaFlixTopBarAction(
                                     onClick = {
                                         voiceError = null
                                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -143,17 +151,21 @@ fun SearchScreen(
                                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         }
                                     },
-                                    enabled = !isListening,
+                                    // `busy`, não `enabled`: o microfone está trabalhando,
+                                    // não indisponível. Com `enabled = false` o indicador
+                                    // ficava a 38% de opacidade e o botão perdia o nome
+                                    // acessível — o contrato do componente reserva `enabled`
+                                    // para "não há no que agir".
+                                    busy = isListening,
+                                    busyContentDescription = "Ouvindo…",
                                 ) {
-                                    if (isListening) {
-                                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                    } else {
-                                        Icon(Icons.Default.Mic, contentDescription = "Buscar por voz")
-                                    }
+                                    // O indicador de "ouvindo" é o do próprio componente
+                                    // quando `busy`, e ele mantém o nome acessível.
+                                    Icon(Icons.Default.Mic, contentDescription = "Buscar por voz")
                                 }
                             }
                             if (state.query.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.onQueryChange("") }) {
+                                MulletaFlixTopBarAction(onClick = { viewModel.onQueryChange("") }) {
                                     Icon(Icons.Default.Close, contentDescription = "Limpar")
                                 }
                             }
@@ -173,6 +185,18 @@ fun SearchScreen(
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+            )
+        }
+
+        if (state.hints.isNotEmpty() || state.isLoadingHints) {
+            SearchHintPanel(
+                hints = state.hints,
+                isLoading = state.isLoadingHints,
+                onHintClick = { hint ->
+                    viewModel.search(hint.name)
+                    onItemClick(hint.id)
+                },
+                focusFriendly = isTelevision,
             )
         }
 
@@ -276,7 +300,10 @@ fun SearchScreen(
                 onRefresh = viewModel::refreshSearch,
                 modifier = Modifier.fillMaxSize(),
             ) {
-            LazyColumn {
+            LazyColumn(state = resultsScrollState) {
+                searchTruncationNotice(state.results.size, state.totalMatching)?.let { notice ->
+                    item { SearchTruncationBanner(notice) }
+                }
                 if (state.error != null) {
                     item {
                         Card(
@@ -288,11 +315,17 @@ fun SearchScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    text = "Não foi possível atualizar a busca.",
+                                    text = if (state.canRetryLoadMore) {
+                                        "Não foi possível carregar mais resultados."
+                                    } else {
+                                        "Não foi possível atualizar a busca."
+                                    },
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.weight(1f),
                                 )
-                                TextButton(onClick = viewModel::retrySearch) { Text("Tentar") }
+                                TextButton(
+                                    onClick = if (state.canRetryLoadMore) viewModel::retryLoadMore else viewModel::retrySearch,
+                                ) { Text("Tentar") }
                             }
                         }
                     }
@@ -308,7 +341,9 @@ fun SearchScreen(
                         )
                     }
                     item {
+                        val carouselScrollState = rememberSearchCarouselScrollState()
                         LazyRow(
+                            state = carouselScrollState,
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.padding(bottom = 8.dp)
@@ -333,6 +368,14 @@ fun SearchScreen(
                         }
                     }
                 }
+                if (state.hasMore || state.isLoadingMore) {
+                    item {
+                        LoadMoreRow(
+                            isLoading = state.isLoadingMore,
+                            onLoadMore = viewModel::loadMore,
+                        )
+                    }
+                }
                 item { Spacer(modifier = Modifier.height(80.dp)) }
             }
             }
@@ -348,6 +391,113 @@ fun SearchScreen(
             },
             onDismiss = { showClearHistoryConfirmation = false },
         )
+    }
+}
+
+/**
+ * O controle de "carregar mais", no fim da lista.
+ *
+ * A busca mostrava 30 de 412 e a única saída era "refine a busca" — o que é um conselho
+ * ruim para quem sabe o que procura. Isto é o resto da resposta.
+ *
+ * Enquanto carrega, o botão vira um indicador **no lugar dele**, e não uma tela cheia de
+ * spinner: o que já foi lido precisa continuar visível, com a posição de rolagem.
+ */
+@Composable
+internal fun LoadMoreRow(
+    isLoading: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .size(32.dp)
+                    .testTag(LOAD_MORE_TEST_TAG),
+            )
+        } else {
+            Button(
+                onClick = onLoadMore,
+                modifier = Modifier.testTag(LOAD_MORE_TEST_TAG),
+            ) {
+                Text("Carregar mais")
+            }
+        }
+    }
+}
+
+/**
+ * Linha que admite que a lista está incompleta.
+ *
+ * Recebe a frase pronta de [searchTruncationNotice] em vez de recalcular aqui: quem
+ * decide se há truncamento (e se o servidor contou alguma coisa) é a política, que é
+ * testável sem Compose.
+ */
+@Composable
+internal fun SearchTruncationBanner(notice: String) {
+    Text(
+        text = notice,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+internal fun SearchHintPanel(
+    hints: List<org.mulletaflix.domain.repository.SearchHintItem>,
+    isLoading: Boolean,
+    onHintClick: (org.mulletaflix.domain.repository.SearchHintItem) -> Unit,
+    focusFriendly: Boolean,
+    state: LazyListState = rememberSearchScrollState(),
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        if (isLoading && hints.isEmpty()) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        LazyColumn(
+            state = state,
+            modifier = Modifier.heightIn(max = 280.dp),
+            contentPadding = PaddingValues(vertical = 4.dp),
+        ) {
+            items(hints, key = { it.id }) { hint ->
+                var isFocused by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .clickable(onClick = { onHintClick(hint) })
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Abrir sugestão ${hint.name}"
+                        }
+                        .then(
+                            if (focusFriendly && isFocused) {
+                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
+                            } else Modifier
+                        )
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                        Text(hint.name, style = MaterialTheme.typography.bodyLarge)
+                        val detail = listOfNotNull(hint.type, hint.year?.toString()).joinToString(" • ")
+                        if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -390,8 +540,10 @@ internal fun SearchHistory(
     onRemoveItem: (String) -> Unit,
     onClearHistory: () -> Unit,
     focusFriendly: Boolean = false,
+    state: LazyListState = rememberSearchScrollState(),
 ) {
     LazyColumn(
+        state = state,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 80.dp),
     ) {
@@ -425,7 +577,10 @@ internal fun SearchHistory(
                             if (focusFriendly) {
                                 Modifier
                                     .onFocusChanged { isFocused = it.isFocused }
-                                    .focusable()
+                                    // No `focusable()`: `clickable` already provides
+                                    // a focus target, and a second one on the same
+                                    // node swallowed the remote's first press (the
+                                    // row needed two clicks to activate).
                                     .clickable { onItemClick(query) }
                                     .semantics {
                                         role = Role.Button
@@ -447,7 +602,7 @@ internal fun SearchHistory(
                 ) {
                     Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(query, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(horizontal = 12.dp))
-                    IconButton(onClick = { onRemoveItem(query) }) {
+                    MulletaFlixTopBarAction(onClick = { onRemoveItem(query) }) {
                         Icon(
                             Icons.Default.Close,
                             contentDescription = "Remover da busca",

@@ -62,6 +62,14 @@ data class PlaybackStopInfoDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class SyncPlayPlaybackStatusDto(
+    @Json(name = "When") val whenUtc: String,
+    @Json(name = "PositionTicks") val positionTicks: Long,
+    @Json(name = "IsPlaying") val isPlaying: Boolean,
+    @Json(name = "PlaylistItemId") val playlistItemId: String,
+)
+
+@JsonClass(generateAdapter = true)
 data class MediaSegmentDto(
     @Json(name = "Id") val id: String? = null,
     @Json(name = "ItemId") val itemId: String? = null,

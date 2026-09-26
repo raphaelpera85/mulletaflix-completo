@@ -1,0 +1,5 @@
+Get-ChildItem: D:\Users\Raphael\Documents\Projetos\mulletaflix\.tmp-clean-midias-series.ps1:13
+Line |
+  13 |  . remaining=@(Get-ChildItem -LiteralPath $root -Directory -Recurse -For .
+     |                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | O sistema n∆o pode encontrar o arquivo especificado.

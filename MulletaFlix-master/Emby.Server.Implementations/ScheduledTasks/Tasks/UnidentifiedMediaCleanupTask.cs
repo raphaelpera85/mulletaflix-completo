@@ -66,21 +66,48 @@ public class UnidentifiedMediaCleanupTask : IScheduledTask
 
         var types = new[] { BaseItemKind.Movie, BaseItemKind.Series, BaseItemKind.Episode };
 
-        var items = _libraryManager.GetItemList(new InternalItemsQuery
+        const int PageSize = 500;
+        var query = new InternalItemsQuery
         {
             IncludeItemTypes = types,
             Recursive = true,
             IsVirtualItem = false,
+            Limit = PageSize,
             DtoOptions = new DtoOptions
             {
                 EnableImages = false,
                 Fields = new[] { ItemFields.ProviderIds }
             }
-        });
+        };
 
-        var unidentified = items
-            .Where(i => i.ProviderIds is null || i.ProviderIds.Count == 0)
-            .ToList();
+        // Page the scan instead of materialising the whole library. This used to load every Movie,
+        // Series and Episode at once and then keep a second list of the unidentified subset — one of
+        // the largest peak-memory contributors on a host that was paging hard enough to freeze the
+        // process for 50-100 seconds at a time. Only the unidentified subset is retained now, which
+        // is the small fraction that actually needs a refresh.
+        var unidentified = new List<BaseItem>();
+        var startIndex = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            query.StartIndex = startIndex;
+            var page = _libraryManager.GetItemList(query);
+            if (page.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var item in page)
+            {
+                if (item.ProviderIds is null || item.ProviderIds.Count == 0)
+                {
+                    unidentified.Add(item);
+                }
+            }
+
+            startIndex += PageSize;
+        }
 
         _logger.LogInformation(
             "UnidentifiedMediaCleanup: Found {Count} unidentified items. Processing...",

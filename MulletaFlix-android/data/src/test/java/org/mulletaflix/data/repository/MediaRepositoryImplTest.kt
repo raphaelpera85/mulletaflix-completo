@@ -2,10 +2,7 @@ package org.mulletaflix.data.repository
 
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -14,14 +11,11 @@ import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.dto.BaseItemDto
 import org.mulletaflix.core.api.dto.BaseItemDtoQueryResultDto
 import org.mulletaflix.core.api.dto.UserItemDataDto
-import org.mulletaflix.data.db.MediaItemDao
-import org.mulletaflix.data.db.MediaItemEntity
 
 class MediaRepositoryImplTest {
 
     private val api = mockk<MulletaFlixApiService>()
-    private val dao = mockk<MediaItemDao>()
-    private val repository = MediaRepositoryImpl(api, dao)
+    private val repository = MediaRepositoryImpl(api)
 
     private val sampleDto = BaseItemDto(
         id = "movie-1",
@@ -177,37 +171,5 @@ class MediaRepositoryImplTest {
 
         assertTrue(result.isSuccess)
         coVerify(exactly = 1) { api.markAsFavorite("user-1", "movie-1") }
-    }
-
-    @Test
-    fun observeFavorites_mapsEntitiesFromDao() = runTest {
-        val entity = MediaItemEntity(
-            id = "fav-1",
-            name = "Interstellar",
-            type = "Movie",
-            overview = "Space exploration",
-            year = 2014,
-            runtimeTicks = null,
-            isFavorite = true,
-            isPlayed = false,
-            playedPercentage = null,
-            playbackPositionTicks = null,
-            primaryImageTag = null,
-            backdropImageTag = null,
-            seriesId = null,
-            seriesName = null,
-            seasonId = null,
-            indexNumber = null,
-            parentIndexNumber = null,
-            userId = "user-1"
-        )
-        every { dao.observeFavorites("user-1") } returns flowOf(listOf(entity))
-
-        val favoritesFlow = repository.observeFavorites("user-1")
-        val list = favoritesFlow.first()
-
-        assertEquals(1, list.size)
-        assertEquals("fav-1", list[0].id)
-        assertEquals("Interstellar", list[0].name)
     }
 }

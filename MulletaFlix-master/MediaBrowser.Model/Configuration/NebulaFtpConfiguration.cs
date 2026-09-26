@@ -4,6 +4,8 @@ namespace MediaBrowser.Model.Configuration;
 
 public class NebulaFtpConfiguration
 {
+    public const int DefaultSupabaseAutoBackupIntervalHours = 1;
+
     // Nebula is an optional integration. Keep new installations healthy until
     // the operator explicitly configures and enables its external services.
     public bool Enabled { get; set; }
@@ -113,7 +115,7 @@ public class NebulaFtpConfiguration
 
     public bool SupabaseAutoBackup { get; set; } = true;
 
-    public int SupabaseAutoBackupIntervalHours { get; set; } = 24;
+    public int SupabaseAutoBackupIntervalHours { get; set; } = DefaultSupabaseAutoBackupIntervalHours;
 
     public DateTime? SupabaseLastBackupTime { get; set; }
 

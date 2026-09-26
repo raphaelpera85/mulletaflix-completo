@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
@@ -83,44 +83,44 @@ public class PeopleValidationTask : IScheduledTask, IConfigurableScheduledTask
                     .Where(e => e.Count() > 1)
                     .Select(e => e.Select(f => f.Id).ToArray());
 
-            var total = dupQuery.Count();
+            // Snapshot the duplicate groups exactly once, in a deterministic order.
+            // The previous loop paged with Take(PartitionSize) and no Skip or cursor, so it only
+            // advanced as a side effect of the ExecuteDelete below. Any group whose duplicates could
+            // not be deleted (for example when a PeopleBaseItemMap row still references it, or the
+            // update/delete affected zero rows) kept returning the same first page, and because
+            // itemCounter stayed equal to PartitionSize the do/while never terminated. It also
+            // re-ran the full GROUP BY over Peoples for every page, which is quadratic in the number
+            // of duplicate groups. Materialising the groups removes both problems: every group is
+            // processed once and the task always terminates.
+            var duplicateGroups = await dupQuery
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var total = duplicateGroups.Count;
 
             const int PartitionSize = 100;
-            var iterator = 0;
-            int itemCounter;
-            var buffer = ArrayPool<Guid[]>.Shared.Rent(PartitionSize)!;
-            try
+            for (var offset = 0; offset < duplicateGroups.Count; offset += PartitionSize)
             {
-                do
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var batchSize = Math.Min(PartitionSize, duplicateGroups.Count - offset);
+
+                for (var i = 0; i < batchSize; i++)
                 {
-                    itemCounter = 0;
-                    await foreach (var item in dupQuery
-                        .Take(PartitionSize)
-                        .AsAsyncEnumerable()
-                        .WithCancellation(cancellationToken)
-                        .ConfigureAwait(false))
+                    var item = duplicateGroups[offset + i];
+                    if (item.Length < 2)
                     {
-                        buffer[itemCounter++] = item;
+                        continue;
                     }
 
-                    for (int i = 0; i < itemCounter; i++)
-                    {
-                        var item = buffer[i];
-                        var reference = item[0];
-                        var dupsList = item[1..].ToList();
-                        await context.PeopleBaseItemMap.WhereOneOrMany(dupsList, e => e.PeopleId)
-                            .ExecuteUpdateAsync(e => e.SetProperty(f => f.PeopleId, reference), cancellationToken)
-                            .ConfigureAwait(false);
-                        await context.Peoples.Where(e => dupsList.Contains(e.Id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-                        subProgress.Report(100f / total * ((iterator * PartitionSize) + i));
-                    }
-
-                    iterator++;
-                } while (itemCounter == PartitionSize && !cancellationToken.IsCancellationRequested);
-            }
-            finally
-            {
-                ArrayPool<Guid[]>.Shared.Return(buffer);
+                    var reference = item[0];
+                    var dupsList = item[1..].ToList();
+                    await context.PeopleBaseItemMap.WhereOneOrMany(dupsList, e => e.PeopleId)
+                        .ExecuteUpdateAsync(e => e.SetProperty(f => f.PeopleId, reference), cancellationToken)
+                        .ConfigureAwait(false);
+                    await context.Peoples.Where(e => dupsList.Contains(e.Id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+                    subProgress.Report(100f / total * (offset + i));
+                }
             }
 
             subProgress.Report(100);

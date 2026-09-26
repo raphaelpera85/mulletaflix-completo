@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.library
 
 import androidx.compose.foundation.*
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material.icons.Icons
@@ -14,6 +15,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.zIndex
@@ -22,17 +24,18 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import android.content.res.Configuration
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import org.mulletaflix.designsystem.components.MediaCard
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.MediaCardShape
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.designsystem.components.remoteFocusRing
 import org.mulletaflix.domain.model.*
 
 /**
@@ -59,6 +62,7 @@ fun LibraryScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
+    val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600 && !isTelevision
 
     // A library must be populated as soon as its destination is entered. The
     // TV refresh loop is intentionally periodic, so relying on it for the
@@ -67,45 +71,41 @@ fun LibraryScreen(
         viewModel.loadLibrary(libraryId)
     }
 
-    LaunchedEffect(libraryId, lifecycleOwner, isTelevision) {
-        val refreshInterval = libraryAutoRefreshIntervalMillis(isTelevision)
-        if (refreshInterval > 0L) {
-            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                if (libraryRefreshImmediatelyOnResume(isTelevision)) {
-                    viewModel.refreshIfIdle(libraryId)
-                }
-                while (isActive) {
-                    delay(refreshInterval)
-                    viewModel.refreshIfIdle(libraryId)
-                }
-            }
-        }
-    }
+    TvRefreshEffect(
+        lifecycleOwner = lifecycleOwner,
+        refreshIntervalMillis = libraryAutoRefreshIntervalMillis(isTelevision),
+        refreshImmediately = libraryRefreshImmediatelyOnResume(isTelevision),
+        onRefresh = { viewModel.refreshIfIdle(libraryId) },
+    )
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(state.libraryName) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
+                    MulletaFlixTopBarAction(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.loadLibrary(libraryId) }, enabled = !state.isLoading) {
+                    MulletaFlixTopBarAction(
+                        onClick = { viewModel.loadLibrary(libraryId) },
+                        busy = state.isLoading,
+                        busyContentDescription = "Atualizar biblioteca",
+                    ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Atualizar biblioteca")
                     }
                     // View toggle (grid / list)
-                    IconButton(onClick = viewModel::toggleView) {
+                    MulletaFlixTopBarAction(onClick = viewModel::toggleView) {
                         Icon(if (state.isGridView) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView, contentDescription = "Alternar visualização")
                     }
                     // Sort
-                    IconButton(onClick = viewModel::showSortMenu) {
+                    MulletaFlixTopBarAction(onClick = viewModel::showSortMenu) {
                         Icon(
                             Icons.AutoMirrored.Filled.Sort,
                             contentDescription = "Ordenar: ${state.sortBy.label}, ${state.sortOrder.label}",
                         )
                     }
                     // Filter
-                    IconButton(onClick = viewModel::showFilterMenu) {
+                    MulletaFlixTopBarAction(onClick = viewModel::showFilterMenu) {
                         Icon(Icons.Default.FilterList, contentDescription = "Filtrar")
                     }
                 }
@@ -129,7 +129,10 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(loadError, color = MaterialTheme.colorScheme.error)
-                    Button(onClick = { viewModel.loadLibrary(libraryId) }) {
+                    Button(
+                        onClick = { viewModel.loadLibrary(libraryId) },
+                        modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+                    ) {
                         Text("Tentar novamente")
                     }
                 }
@@ -148,13 +151,20 @@ fun LibraryScreen(
                     if (tvColumns > 0) {
                         GridCells.Fixed(tvColumns)
                     } else {
-                        GridCells.Adaptive(minSize = libraryGridMinSizeDp(state.gridDensity).dp)
+                        GridCells.Adaptive(
+                            minSize = libraryGridMinSizeDp(
+                                state.gridDensity,
+                                isTablet = isTablet,
+                            ).dp,
+                        )
                     }
                 } else {
                     GridCells.Fixed(1)
                 }
 
+                val gridState = rememberLibraryGridScrollState()
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = columns,
                     contentPadding = PaddingValues(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -169,7 +179,10 @@ fun LibraryScreen(
                             ) {
                                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(loadError, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
-                                    TextButton(onClick = { viewModel.loadLibrary(libraryId) }) { Text("Tentar novamente") }
+                                    TextButton(
+                                        onClick = { viewModel.loadLibrary(libraryId) },
+                                        modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+                                    ) { Text("Tentar novamente") }
                                 }
                             }
                         }
@@ -226,6 +239,20 @@ fun LibraryScreen(
                         Spacer(modifier = Modifier.height(80.dp))
                     }
                 }
+                if ((isTelevision || isTablet) && !state.hasMore && state.sortBy == SortOption.Name &&
+                    state.sortOrder == SortOrder.Ascending
+                ) {
+                    val letterTargets = remember(state.items) { libraryLetterTargets(state.items) }
+                    if (letterTargets.isNotEmpty()) {
+                        LibraryLetterRail(
+                            targets = letterTargets,
+                            hasLoadError = loadError != null,
+                            hasActiveFilters = state.activeFilters.isNotEmpty(),
+                            gridState = gridState,
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp),
+                        )
+                    }
+                }
             }
 
             if (state.isOffline) {
@@ -262,7 +289,48 @@ fun LibraryScreen(
 }
 
 @Composable
+internal fun LibraryLetterRail(
+    targets: List<LibraryLetterTarget>,
+    hasLoadError: Boolean,
+    hasActiveFilters: Boolean,
+    gridState: LazyGridState,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    Column(
+            modifier = modifier
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(12.dp))
+            .padding(vertical = 4.dp)
+            .widthIn(min = 48.dp, max = 48.dp)
+            .heightIn(max = 600.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        targets.forEach { target ->
+            TextButton(
+                onClick = {
+                    val absoluteIndex = libraryGridTargetIndex(
+                        target.itemIndex,
+                        hasLoadError,
+                        hasActiveFilters,
+                    )
+                    scope.launch { gridState.animateScrollToItem(absoluteIndex) }
+                },
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .remoteFocusRing(RoundedCornerShape(8.dp))
+                    .semantics { contentDescription = "Ir para letra ${target.letter}" },
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Text(target.letter, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
 internal fun LibraryOfflineBanner(
+    message: String = "Sem conexão. A biblioteca será atualizada quando a rede voltar.",
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -283,12 +351,15 @@ internal fun LibraryOfflineBanner(
                 tint = MaterialTheme.colorScheme.onErrorContainer,
             )
             Text(
-                text = "Sem conexão. A biblioteca será atualizada quando a rede voltar.",
+                text = message,
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onRetry) {
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+            ) {
                 Text("Tentar novamente")
             }
         }
@@ -296,7 +367,7 @@ internal fun LibraryOfflineBanner(
 }
 
 @Composable
-private fun FilterDialog(
+internal fun FilterDialog(
     activeFilters: List<String>,
     onToggle: (String) -> Unit,
     onClear: () -> Unit,
@@ -317,6 +388,12 @@ private fun FilterDialog(
                         selected = filter in activeFilters,
                         onClick = { onToggle(filter) },
                         label = { Text(filter) },
+                        modifier = Modifier
+                            .remoteFocusRing(RoundedCornerShape(8.dp))
+                            .semantics {
+                                selected = filter in activeFilters
+                                contentDescription = "Filtro $filter"
+                            },
                         leadingIcon = if (filter in activeFilters) {
                             { Icon(Icons.Default.Check, contentDescription = null) }
                         } else null,
@@ -325,10 +402,18 @@ private fun FilterDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Fechar") }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+            ) { Text("Fechar") }
         },
         dismissButton = if (activeFilters.isNotEmpty()) {
-            { TextButton(onClick = onClear) { Text("Limpar") } }
+            {
+                TextButton(
+                    onClick = onClear,
+                    modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+                ) { Text("Limpar") }
+            }
         } else null,
     )
 }
@@ -341,9 +426,10 @@ private fun LibraryListRow(item: MediaItem, focusFriendly: Boolean, onClick: () 
             .fillMaxWidth()
             .then(
                 if (focusFriendly) {
-                    Modifier
-                        .onFocusChanged { isFocused = it.isFocused }
-                        .focusable()
+                    // No `focusable()`: the `clickable` below already provides a
+                    // focus target, and a second one on the same node swallowed the
+                    // remote's first press, so a library row needed two clicks.
+                    Modifier.onFocusChanged { isFocused = it.isFocused }
                 } else {
                     Modifier
                 },
@@ -397,10 +483,16 @@ private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> 
             AssistChip(
                 onClick = { onRemoveFilter(filter) },
                 label = { Text(filter) },
-                trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remover", modifier = Modifier.size(16.dp)) }
+                modifier = Modifier
+                    .remoteFocusRing(RoundedCornerShape(8.dp))
+                    .semantics { contentDescription = "Remover filtro $filter" },
+                trailingIcon = { Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp)) }
             )
         }
-        TextButton(onClick = onClearAll) { Text("Limpar") }
+        TextButton(
+            onClick = onClearAll,
+            modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+        ) { Text("Limpar") }
     }
 }
 
@@ -419,6 +511,15 @@ internal fun SortDropdown(
             DropdownMenuItem(
                 text = { Text(option.label) },
                 leadingIcon = { if (selectedOption == option) Icon(Icons.Default.Check, contentDescription = null) },
+                // `DropdownMenuItem` do material3 1.4.0 não tem parâmetro `selected`,
+                // então a única marca do campo ativo era um visto sem descrição: o
+                // leitor de tela lia os nomes e nunca dizia qual estava escolhido.
+                modifier = Modifier
+                    .remoteFocusRing(RoundedCornerShape(8.dp))
+                    .semantics {
+                        selected = selectedOption == option
+                        contentDescription = "Ordenar por ${option.label}"
+                    },
                 onClick = { selectedOption = option },
             )
         }
@@ -433,6 +534,12 @@ internal fun SortDropdown(
                     )
                 },
                 trailingIcon = { if (selectedOrder == order) Icon(Icons.Default.Check, contentDescription = null) },
+                modifier = Modifier
+                    .remoteFocusRing(RoundedCornerShape(8.dp))
+                    .semantics {
+                        selected = selectedOrder == order
+                        contentDescription = "Ordem ${order.label}"
+                    },
                 onClick = { selectedOrder = order },
             )
         }
@@ -440,6 +547,7 @@ internal fun SortDropdown(
         DropdownMenuItem(
             text = { Text("Aplicar") },
             leadingIcon = { Icon(Icons.Default.Check, contentDescription = null) },
+            modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
             onClick = { onApply(selectedOption, selectedOrder); onDismiss() },
         )
     }

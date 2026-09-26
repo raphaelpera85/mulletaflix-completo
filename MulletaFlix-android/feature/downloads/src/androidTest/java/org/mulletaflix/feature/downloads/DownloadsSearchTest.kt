@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.downloads
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -21,6 +22,40 @@ import org.mulletaflix.domain.repository.DownloadState
 class DownloadsSearchTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun queueContentTransitionsFromLoadingToConfirmedEmptyToContent() {
+        var state by mutableStateOf(DownloadsUiState())
+        var explored = false
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsQueueContent(
+                    state = state,
+                    onExploreClick = { explored = true },
+                ) {
+                    Text("Fila carregada")
+                }
+            }
+        }
+
+        composeRule.onNodeWithText("Carregando downloads offline…").assertExists()
+        composeRule.onAllNodesWithText("Nenhum download concluído").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Fila carregada").assertCountEquals(0)
+
+        state = DownloadsUiState(isLoaded = true)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Nenhum download concluído").assertExists()
+        composeRule.onNodeWithText("Explorar Catálogo").performClick()
+        composeRule.runOnIdle { check(explored) }
+
+        state = DownloadsUiState(
+            entries = listOf(DownloadEntry("movie", "Filme", "https://server/movie", DownloadState.Completed, 100)),
+            isLoaded = true,
+        )
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Fila carregada").assertExists()
+        composeRule.onAllNodesWithText("Nenhum download concluído").assertCountEquals(0)
+    }
 
     @Test
     fun searchFieldShowsClearActionAfterTyping() {

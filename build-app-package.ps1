@@ -43,9 +43,19 @@ function Normalize-AppVersion {
 
 if (-not $Version) {
     $gradleFile = Join-Path $androidDir 'app\build.gradle.kts'
+    $versionCatalogFile = Join-Path $androidDir 'gradle\libs.versions.toml'
     if (Test-Path -LiteralPath $gradleFile) {
         $content = Get-Content -LiteralPath $gradleFile -Raw
         if ($content -match 'versionName\s*=\s*"([^"]+)"') {
+            $Version = $Matches[1]
+        }
+    }
+    # The app uses the version catalog indirection (`libs.versions.appVersion`)
+    # instead of a literal versionName. Read that source of truth before the
+    # legacy fallback, otherwise a valid release is mislabeled as 1.0.0.
+    if (-not $Version -and (Test-Path -LiteralPath $versionCatalogFile)) {
+        $catalog = Get-Content -LiteralPath $versionCatalogFile -Raw
+        if ($catalog -match '(?m)^appVersion\s*=\s*"([^"]+)"\s*$') {
             $Version = $Matches[1]
         }
     }

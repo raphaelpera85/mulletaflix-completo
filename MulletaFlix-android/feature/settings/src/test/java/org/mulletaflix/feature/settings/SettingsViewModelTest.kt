@@ -3,10 +3,13 @@ package org.mulletaflix.feature.settings
 import android.content.Context
 import io.mockk.mockk
 import io.mockk.every
+import io.mockk.coVerify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -19,7 +22,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.File
 import java.nio.file.Files
+import org.mulletaflix.core.common.update.AppUpdateDownloader
+import org.mulletaflix.core.common.update.DownloadState
 import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.domain.model.AppUpdateInfo
 import org.mulletaflix.domain.model.LibrarySortField
@@ -60,6 +66,7 @@ class SettingsViewModelTest {
         assertEquals(MulletaFlixThemeVariant.Dark, state.theme)
         assertTrue(state.autoPlay)
         assertTrue(state.skipIntro)
+        assertFalse(state.automaticIntroSkip)
         assertTrue(state.pictureInPicture)
         assertEquals("FIT", state.aspectRatio)
     }
@@ -91,12 +98,15 @@ class SettingsViewModelTest {
 
         viewModel.setAutoPlay(false)
         viewModel.setSkipIntro(false)
+        viewModel.setAutomaticIntroSkip(true)
         viewModel.setPictureInPicture(false)
         viewModel.setDefaultPlaybackSpeed(1.5f)
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.autoPlay)
         assertFalse(viewModel.state.value.skipIntro)
+        assertTrue(viewModel.state.value.automaticIntroSkip)
+        assertTrue(settingsRepo.automaticIntroSkip)
         assertFalse(viewModel.state.value.pictureInPicture)
         assertEquals(1.5f, viewModel.state.value.defaultSpeed, 0.01f)
     }
@@ -207,7 +217,58 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Português (Brasil)", viewModel.state.value.audioLanguage)
-        assertEquals("por", settingsRepo.audioLanguage)
+        // Canonical ISO 639-1 from the shared catalogue, matching what the
+        // player writes and what the stream matcher compares against.
+        assertEquals("pt", settingsRepo.audioLanguage)
+    }
+
+    @Test
+    fun `every language the player can store is displayed and preserved`() = runTest {
+        // The player saves whatever code the server reported. Previously only
+        // por/pt/eng/en were recognised, so Spanish, French and German were all
+        // shown as "Idioma original" — and confirming that value wrote
+        // `original`, discarding the real choice.
+        listOf(
+            "por" to "Português (Brasil)",
+            "pt-br" to "Português (Brasil)",
+            "eng" to "English",
+            "en-US" to "English",
+            "spa" to "Español",
+            "es" to "Español",
+            "fra" to "Français",
+            "deu" to "Deutsch",
+            "original" to "Idioma original",
+        ).forEach { (stored, expectedLabel) ->
+            val settingsRepo = FakeSettingsRepository().apply { audioLanguage = stored }
+            val authRepo = FakeAuthRepository()
+            val viewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
+            advanceUntilIdle()
+
+            assertEquals("stored <$stored> was displayed wrongly", expectedLabel, viewModel.state.value.audioLanguage)
+
+            // Confirming the displayed value must keep the same language.
+            viewModel.setAudioLanguage(viewModel.state.value.audioLanguage)
+            advanceUntilIdle()
+            assertEquals(
+                "confirming the value shown for <$stored> changed the stored language",
+                expectedLabel,
+                viewModel.state.value.audioLanguage,
+            )
+        }
+    }
+
+    @Test
+    fun `subtitle language keeps its own off state`() = runTest {
+        val settingsRepo = FakeSettingsRepository()
+        val authRepo = FakeAuthRepository()
+        val viewModel = SettingsViewModel(context, settingsRepo, authRepo, LogoutUseCase(authRepo))
+        advanceUntilIdle()
+
+        viewModel.setSubtitleLanguage("Desativadas")
+        advanceUntilIdle()
+
+        assertEquals("Desativadas", viewModel.state.value.subtitleLanguage)
+        assertEquals("off", settingsRepo.subtitleLanguage)
     }
 
     @Test
@@ -414,6 +475,163 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `clearing all local data also clears the search history`() = runTest {
+        // "Limpar Todos os Dados Locais" limpava preferências e caches, mas o histórico
+        // de busca vive em outro armazenamento e sobrevivia: os termos buscados
+        // reapareciam no próximo login do mesmo usuário.
+        val cacheRoot = Files.createTempDirectory("mulletaflix-settings-search-test").toFile()
+        val downloads = cacheRoot.resolve("downloads").apply { mkdirs() }
+        every { context.cacheDir } returns cacheRoot
+        val history = RecordingSearchHistoryRepository()
+        val authRepo = FakeAuthRepository()
+        val viewModel = SettingsViewModel(
+            context,
+            FakeSettingsRepository(),
+            authRepo,
+            LogoutUseCase(authRepo),
+            searchHistoryRepository = history,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+
+        viewModel.clearAllCache()
+        advanceUntilIdle()
+
+        assertEquals("Dados locais limpos. Você saiu da conta.", viewModel.state.value.cacheStatusMessage)
+        assertEquals(
+            "o histórico do usuário que estava na sessão precisa ser apagado",
+            listOf("u1"),
+            history.clearedFor,
+        )
+        assertTrue("os downloads não fazem parte da limpeza", downloads.exists())
+        cacheRoot.deleteRecursively()
+    }
+
+    @Test
+    fun `a second update download in the same frame is ignored`() = runTest {
+        // O botão fica desabilitado durante o download, mas isso é lido na composição:
+        // dois toques no mesmo frame passavam os dois, e o segundo download apaga o
+        // arquivo que o primeiro já abriu.
+        val updateRepository = object : AppUpdateRepository {
+            override suspend fun checkForUpdate(currentVersion: String): Result<AppUpdateInfo> =
+                Result.success(
+                    AppUpdateInfo(
+                        isUpdateAvailable = true,
+                        currentVersion = currentVersion,
+                        latestVersion = "9.9.9",
+                        apkDownloadUrl = "https://example.invalid/app.apk",
+                    ),
+                )
+        }
+        val downloader = mockk<AppUpdateDownloader>()
+        every { downloader.downloadApk(any(), any(), any()) } returns flow {
+            // Um download que nunca termina mantém a operação em andamento.
+            emit(DownloadState.Downloading(progress = 0.1f, bytesDownloaded = 1, totalBytes = 10))
+            awaitCancellation()
+        }
+        val authRepo = FakeAuthRepository()
+        val viewModel = SettingsViewModel(
+            context,
+            FakeSettingsRepository(),
+            authRepo,
+            LogoutUseCase(authRepo),
+            checkAppUpdateUseCase = CheckAppUpdateUseCase(updateRepository),
+            appUpdateDownloader = downloader,
+            ioDispatcher = dispatcher,
+        )
+        advanceUntilIdle()
+        viewModel.checkForUpdates("1.0.0")
+        advanceUntilIdle()
+        viewModel.downloadAndInstallUpdate { true }
+        viewModel.downloadAndInstallUpdate { true }
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { downloader.downloadApk(any(), any(), any()) }
+        assertTrue(viewModel.state.value.isDownloadingUpdate)
+    }
+
+    @Test
+    fun `a completed download closes the dialog and reports the install start`() = runTest {
+        val viewModel = viewModelWithCompletedDownload()
+        viewModel.checkForUpdates("1.0.0")
+        advanceUntilIdle()
+
+        viewModel.downloadAndInstallUpdate { true }
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertFalse(state.isDownloadingUpdate)
+        assertFalse(state.showUpdateDialog)
+        assertEquals("Download concluído. Iniciando instalação...", state.updateStatusMessage)
+        assertEquals(null, state.updateErrorMessage)
+    }
+
+    @Test
+    fun `a refused install keeps the dialog and explains the permission step`() = runTest {
+        // `false` não é falha: é a resposta do sistema quando falta a permissão de
+        // fontes desconhecidas — a tela precisa dizer isso, e não fingir sucesso.
+        val viewModel = viewModelWithCompletedDownload()
+        viewModel.checkForUpdates("1.0.0")
+        advanceUntilIdle()
+
+        viewModel.downloadAndInstallUpdate { false }
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertFalse(state.isDownloadingUpdate)
+        assertTrue(state.showUpdateDialog)
+        assertEquals(
+            "Permita a instalação de fontes desconhecidas e tente novamente.",
+            state.updateErrorMessage,
+        )
+    }
+
+    @Test
+    fun `an installer exception surfaces its detail as the error`() = runTest {
+        val viewModel = viewModelWithCompletedDownload()
+        viewModel.checkForUpdates("1.0.0")
+        advanceUntilIdle()
+
+        viewModel.downloadAndInstallUpdate { throw IllegalStateException("sem fileprovider") }
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertFalse(state.isDownloadingUpdate)
+        assertTrue(state.showUpdateDialog)
+        assertEquals("sem fileprovider", state.updateErrorMessage)
+    }
+
+    /** ViewModel com uma atualização disponível e um download que já terminou. */
+    @Suppress("SameParameterValue")
+    private fun viewModelWithCompletedDownload(): SettingsViewModel {
+        val updateRepository = object : AppUpdateRepository {
+            override suspend fun checkForUpdate(currentVersion: String): Result<AppUpdateInfo> =
+                Result.success(
+                    AppUpdateInfo(
+                        isUpdateAvailable = true,
+                        currentVersion = currentVersion,
+                        latestVersion = "9.9.9",
+                        apkDownloadUrl = "https://example.invalid/app.apk",
+                    ),
+                )
+        }
+        val downloader = mockk<AppUpdateDownloader>().apply {
+            every { downloadApk(any(), any(), any()) } returns
+                flowOf(DownloadState.Completed(File("mulletaflix-app-v9.9.9.apk")))
+        }
+        val authRepo = FakeAuthRepository()
+        return SettingsViewModel(
+            context,
+            FakeSettingsRepository(),
+            authRepo,
+            LogoutUseCase(authRepo),
+            checkAppUpdateUseCase = CheckAppUpdateUseCase(updateRepository),
+            appUpdateDownloader = downloader,
+            ioDispatcher = dispatcher,
+        )
+    }
+
+    @Test
     fun `repository exception resets checking state with a friendly error`() = runTest {
         val updateRepository = object : AppUpdateRepository {
             override suspend fun checkForUpdate(currentVersion: String): Result<AppUpdateInfo> {
@@ -445,11 +663,27 @@ class SettingsViewModelTest {
         )
     }
 
+    /** Registra qual usuário teve o histórico de busca apagado. */
+    private class RecordingSearchHistoryRepository : SearchHistoryRepository {
+        val clearedFor = mutableListOf<String?>()
+
+        override fun observeHistory(userId: String?): Flow<List<String>> = flowOf(emptyList())
+
+        override suspend fun add(userId: String?, query: String) = Unit
+
+        override suspend fun remove(userId: String?, query: String) = Unit
+
+        override suspend fun clear(userId: String?) {
+            clearedFor += userId
+        }
+    }
+
     private class FakeSettingsRepository : SettingsRepository {
         var localPreferencesCleared: Boolean = false
         var currentTheme: AppThemeSetting = AppThemeSetting.Dark
         var autoPlay: Boolean = true
         var skipIntro: Boolean = true
+        var automaticIntroSkip: Boolean = false
         var pip: Boolean = true
         var quality: String = "Auto"
         var speed: Float = 1.0f
@@ -462,8 +696,6 @@ class SettingsViewModelTest {
         override fun getTheme(): Flow<AppThemeSetting> = MutableStateFlow(currentTheme)
         override suspend fun setTheme(theme: AppThemeSetting) { currentTheme = theme }
 
-        override fun getMaxBitrate(): Flow<Int> = flowOf(0)
-        override suspend fun setMaxBitrate(bitrate: Int) = Unit
 
         override fun isPiPEnabled(): Flow<Boolean> = MutableStateFlow(pip)
         override suspend fun setPiPEnabled(enabled: Boolean) { pip = enabled }
@@ -471,14 +703,17 @@ class SettingsViewModelTest {
         override fun getPreferredAudioLanguage(): Flow<String?> = flowOf(audioLanguage)
         override suspend fun setPreferredAudioLanguage(language: String?) { audioLanguage = language }
 
-        override fun getPreferredSubtitleLanguage(): Flow<String?> = flowOf("pt-br")
-        override suspend fun setPreferredSubtitleLanguage(language: String?) = Unit
+        var subtitleLanguage: String? = "pt-br"
+        override fun getPreferredSubtitleLanguage(): Flow<String?> = flowOf(subtitleLanguage)
+        override suspend fun setPreferredSubtitleLanguage(language: String?) { subtitleLanguage = language }
 
         override fun isAutoPlayEnabled(): Flow<Boolean> = MutableStateFlow(autoPlay)
         override suspend fun setAutoPlayEnabled(enabled: Boolean) { autoPlay = enabled }
 
         override fun isSkipIntroEnabled(): Flow<Boolean> = MutableStateFlow(skipIntro)
         override suspend fun setSkipIntroEnabled(enabled: Boolean) { skipIntro = enabled }
+        override fun isAutomaticIntroSkipEnabled(): Flow<Boolean> = MutableStateFlow(automaticIntroSkip)
+        override suspend fun setAutomaticIntroSkipEnabled(enabled: Boolean) { automaticIntroSkip = enabled }
 
         override fun getDefaultQuality(): Flow<String> = MutableStateFlow(quality)
         override suspend fun setDefaultQuality(quality: String) { this.quality = quality }

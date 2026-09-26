@@ -37,6 +37,7 @@ const SearchResultsRow: FC<SearchResultsRowProps> = ({ title, items = [], cardOp
                 is='emby-scroller'
                 data-horizontal='true'
                 data-centerfocus='card'
+                data-scrollbuttons='true'
                 className='padded-top-focusscale padded-bottom-focusscale'
             >
                 <div
@@ -49,4 +50,3 @@ const SearchResultsRow: FC<SearchResultsRowProps> = ({ title, items = [], cardOp
 };
 
 export default memo(SearchResultsRow);
-

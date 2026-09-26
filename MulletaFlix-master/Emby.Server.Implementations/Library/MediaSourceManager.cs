@@ -400,9 +400,23 @@ namespace Emby.Server.Implementations.Library
             }
         }
 
+        /// <summary>
+        /// MD5 of a media source provider's type name, memoized per type. The value is constant for
+        /// the process lifetime, but it used to be recomputed — a hash plus a 32-character hex
+        /// allocation — once per media source on every playback-info request, and once per provider
+        /// on every live-stream open. The produced value is byte-identical to the previous inline
+        /// expression, which matters because it forms the persisted LiveStreamId prefix.
+        /// </summary>
+        private static readonly ConcurrentDictionary<Type, string> _providerKeyHashes = new();
+
+        private static string GetProviderKeyHash(IMediaSourceProvider provider)
+            => _providerKeyHashes.GetOrAdd(
+                provider.GetType(),
+                static type => type.FullName!.GetMD5().ToString("N", CultureInfo.InvariantCulture));
+
         private static void SetKeyProperties(IMediaSourceProvider provider, MediaSourceInfo mediaSource)
         {
-            var prefix = provider.GetType().FullName.GetMD5().ToString("N", CultureInfo.InvariantCulture) + LiveStreamIdDelimiter;
+            var prefix = GetProviderKeyHash(provider) + LiveStreamIdDelimiter;
 
             if (!string.IsNullOrEmpty(mediaSource.OpenToken) && !mediaSource.OpenToken.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
@@ -1014,7 +1028,7 @@ namespace Emby.Server.Implementations.Library
 
             var keys = key.Split(LiveStreamIdDelimiter, 2);
 
-            var provider = _providers.FirstOrDefault(i => string.Equals(i.GetType().FullName.GetMD5().ToString("N", CultureInfo.InvariantCulture), keys[0], StringComparison.OrdinalIgnoreCase));
+            var provider = _providers.FirstOrDefault(i => string.Equals(GetProviderKeyHash(i), keys[0], StringComparison.OrdinalIgnoreCase));
 
             var splitIndex = key.IndexOf(LiveStreamIdDelimiter, StringComparison.Ordinal);
             var keyId = key.Substring(splitIndex + 1);

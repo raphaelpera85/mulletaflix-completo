@@ -2,6 +2,7 @@ package org.mulletaflix.domain.repository
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import org.mulletaflix.domain.model.UserMediaPreferenceScope
 
 enum class AppThemeSetting {
     Dark,
@@ -18,23 +19,30 @@ interface SettingsRepository {
     fun getTheme(): Flow<AppThemeSetting>
     suspend fun setTheme(theme: AppThemeSetting)
 
-    fun getMaxBitrate(): Flow<Int>
-    suspend fun setMaxBitrate(bitrate: Int)
-
     fun isPiPEnabled(): Flow<Boolean>
     suspend fun setPiPEnabled(enabled: Boolean)
 
     fun getPreferredAudioLanguage(): Flow<String?>
     suspend fun setPreferredAudioLanguage(language: String?)
+    fun getPreferredAudioLanguage(scope: UserMediaPreferenceScope): Flow<String?> = getPreferredAudioLanguage()
+    suspend fun setPreferredAudioLanguage(scope: UserMediaPreferenceScope, language: String?) =
+        setPreferredAudioLanguage(language)
 
     fun getPreferredSubtitleLanguage(): Flow<String?>
     suspend fun setPreferredSubtitleLanguage(language: String?)
+    fun getPreferredSubtitleLanguage(scope: UserMediaPreferenceScope): Flow<String?> = getPreferredSubtitleLanguage()
+    suspend fun setPreferredSubtitleLanguage(scope: UserMediaPreferenceScope, language: String?) =
+        setPreferredSubtitleLanguage(language)
 
     fun isAutoPlayEnabled(): Flow<Boolean>
     suspend fun setAutoPlayEnabled(enabled: Boolean)
 
     fun isSkipIntroEnabled(): Flow<Boolean>
     suspend fun setSkipIntroEnabled(enabled: Boolean)
+
+    /** Automatic intro skipping is opt-in; existing installations keep manual controls only. */
+    fun isAutomaticIntroSkipEnabled(): Flow<Boolean> = flowOf(false)
+    suspend fun setAutomaticIntroSkipEnabled(enabled: Boolean) = Unit
 
     fun getDefaultQuality(): Flow<String>
     suspend fun setDefaultQuality(quality: String)

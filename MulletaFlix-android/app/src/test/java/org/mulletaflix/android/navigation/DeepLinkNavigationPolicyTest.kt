@@ -118,4 +118,56 @@ class DeepLinkNavigationPolicyTest {
         assertNotEquals(first, second)
         assertTrue(shouldDeliverMediaDeepLink(second.sequence, first.sequence, second.itemId))
     }
+
+    @Test
+    fun `a link from another server is not opened against this library`() {
+        // `ShareItemContent` writes `&serverId=` so the recipient does not
+        // resolve the id against their own library; the value used to be parsed
+        // and dropped, so the wrong item opened.
+        assertFalse(shouldOpenLinkOnCurrentServer("server-B", "server-A"))
+    }
+
+    @Test
+    fun `a link from this server opens normally`() {
+        assertTrue(shouldOpenLinkOnCurrentServer("server-A", "server-A"))
+        assertTrue("a server id is case insensitive", shouldOpenLinkOnCurrentServer("SERVER-A", "server-a"))
+        assertTrue(shouldOpenLinkOnCurrentServer(" server-A ", "server-A"))
+    }
+
+    @Test
+    fun `an unknown server id on either side never blocks a link`() {
+        // Servers that do not report a ServerId must not lose link support.
+        assertTrue(shouldOpenLinkOnCurrentServer(null, "server-A"))
+        assertTrue(shouldOpenLinkOnCurrentServer("server-A", null))
+        assertTrue(shouldOpenLinkOnCurrentServer("  ", "server-A"))
+    }
+
+    @Test
+    fun `mismatched server redirects from media routes to server selection`() {
+        assertTrue(
+            shouldRedirectToServerSelectionForDeepLinkMismatch(
+                currentRoute = MulletaFlixRoute.HOME,
+                linkServerId = "server-B",
+                sessionServerId = "server-A",
+            ),
+        )
+    }
+
+    @Test
+    fun `mismatched server does not interrupt auth routes`() {
+        assertFalse(
+            shouldRedirectToServerSelectionForDeepLinkMismatch(
+                currentRoute = MulletaFlixRoute.LOGIN,
+                linkServerId = "server-B",
+                sessionServerId = "server-A",
+            ),
+        )
+        assertFalse(
+            shouldRedirectToServerSelectionForDeepLinkMismatch(
+                currentRoute = MulletaFlixRoute.SERVER_SELECTION,
+                linkServerId = "server-B",
+                sessionServerId = "server-A",
+            ),
+        )
+    }
 }

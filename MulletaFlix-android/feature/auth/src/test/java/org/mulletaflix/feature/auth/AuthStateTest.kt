@@ -6,6 +6,11 @@ import org.junit.Test
 class AuthStateTest {
 
     @Test
+    fun `default public server does not advertise an unverified version`() {
+        assertEquals(null, AuthState().savedServers.single().version)
+    }
+
+    @Test
     fun `automatic selection waits for discovery before using public endpoint`() {
         val state = AuthState(isDiscovering = true)
 
@@ -18,6 +23,7 @@ class AuthStateTest {
         val state = AuthState(
             serverUrl = DEFAULT_MULLETAFLIX_SERVER_URL,
             discoveredServers = listOf(lan),
+            savedServersLoaded = true,
         )
 
         assertEquals(lan.url, automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false))

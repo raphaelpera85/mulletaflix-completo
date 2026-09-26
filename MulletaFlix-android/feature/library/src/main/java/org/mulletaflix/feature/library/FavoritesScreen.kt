@@ -21,7 +21,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -36,16 +35,14 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import android.content.res.Configuration
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MediaCardShape
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.domain.model.cardMetadata
@@ -65,32 +62,35 @@ fun FavoritesScreen(
     val configuration = LocalConfiguration.current
     val isTelevision = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
-    val gridColumns = favoritesGridColumns(configuration.screenWidthDp, isTelevision)
+    val gridColumns = favoritesGridColumns(
+        widthDp = configuration.screenWidthDp,
+        isTelevision = isTelevision,
+        density = state.gridDensity,
+    )
+    val gridState = rememberLibraryGridScrollState()
 
-    LaunchedEffect(lifecycleOwner, isTelevision) {
-        val refreshInterval = favoritesAutoRefreshIntervalMillis(isTelevision)
-        if (refreshInterval > 0L) {
-            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                viewModel.refreshIfIdle()
-                while (isActive) {
-                    delay(refreshInterval)
-                    viewModel.refreshIfIdle()
-                }
-            }
-        }
-    }
+    TvRefreshEffect(
+        lifecycleOwner = lifecycleOwner,
+        refreshIntervalMillis = favoritesAutoRefreshIntervalMillis(isTelevision),
+        refreshImmediately = isTelevision,
+        onRefresh = viewModel::refreshIfIdle,
+    )
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Minha Lista") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    MulletaFlixTopBarAction(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
                 actions = {
-                    IconButton(onClick = viewModel::refresh, enabled = !state.isLoading) {
+                    MulletaFlixTopBarAction(
+                        onClick = viewModel::refresh,
+                        busy = state.isLoading,
+                        busyContentDescription = "Atualizar Minha Lista",
+                    ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Atualizar Minha Lista")
                     }
                 },
@@ -111,13 +111,23 @@ fun FavoritesScreen(
                 state.items.isEmpty() ->
                     EmptyFavoritesState()
                 else ->
-                    FavoritesGrid(state.items, state.hasMore, state.isLoading, gridColumns, isTelevision, onItemClick, viewModel::loadMore)
+                    FavoritesGrid(state.items, state.hasMore, state.isLoading, gridColumns, isTelevision, gridState, onItemClick, viewModel::loadMore)
             }
             if (state.error != null && state.items.isNotEmpty()) {
                 FavoritesInlineError(
                     message = state.error!!,
                     onRetry = viewModel::refresh,
                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                )
+            }
+            if (state.isOffline) {
+                LibraryOfflineBanner(
+                    message = "Sem conexão. Minha Lista será atualizada quando a rede voltar.",
+                    onRetry = viewModel::refresh,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(12.dp)
+                        .zIndex(1f),
                 )
             }
         }
@@ -156,10 +166,12 @@ private fun FavoritesGrid(
     isLoading: Boolean,
     gridColumns: Int,
     isTelevision: Boolean,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onItemClick: (String) -> Unit,
     onLoadMore: () -> Unit,
 ) {
     LazyVerticalGrid(
+        state = gridState,
         columns = GridCells.Fixed(gridColumns),
         contentPadding = PaddingValues(8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -235,7 +235,9 @@ namespace Emby.Server.Implementations.Collections
             List<BaseItem>? itemList = null;
 
             var linkedChildrenList = collection.GetLinkedChildren();
-            var currentLinkedChildrenIds = linkedChildrenList.Select(i => i.Id).ToList();
+            // HashSet, not List: this is only ever probed with Contains inside the loop below, so a
+            // List made adding N items O(N^2) Guid comparisons on the thread handling the request.
+            var currentLinkedChildrenIds = linkedChildrenList.Select(i => i.Id).ToHashSet();
 
             foreach (var id in ids)
             {

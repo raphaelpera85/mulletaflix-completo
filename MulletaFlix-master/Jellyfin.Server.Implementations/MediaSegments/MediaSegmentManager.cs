@@ -229,7 +229,12 @@ public class MediaSegmentManager : IMediaSegmentManager
 
             if (typeFilter is not null)
             {
-                query = query.Where(e => typeFilter.Contains(e.Type));
+                // Materialize the filter before composing the EF expression and
+                // qualify Contains explicitly. Otherwise the compiler can bind
+                // to MemoryExtensions.Contains(ReadOnlySpan<T>), which EF tries
+                // to evaluate as a LINQ parameter and cannot materialize.
+                var segmentTypes = typeFilter.ToArray();
+                query = query.Where(e => Enumerable.Contains(segmentTypes, e.Type));
             }
 
             if (filterByProvider)
@@ -310,4 +315,3 @@ public class MediaSegmentManager : IMediaSegmentManager
             .GetMD5()
             .ToString("N", CultureInfo.InvariantCulture);
 }
-

@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Dlna;
@@ -8,7 +9,7 @@ namespace MediaBrowser.Controller.Streaming;
 /// <summary>
 /// The stream state dto.
 /// </summary>
-public class StreamState : EncodingJobInfo, IDisposable
+public class StreamState : EncodingJobInfo, IDisposable, IAsyncDisposable
 {
     private readonly IMediaSourceManager _mediaSourceManager;
     private readonly ITranscodeManager _transcodeManager;
@@ -168,11 +169,14 @@ public class StreamState : EncodingJobInfo, IDisposable
         if (disposing)
         {
             // REVIEW: Is this the right place for this?
-            if (MediaSource.RequiresClosing
-                && string.IsNullOrWhiteSpace(Request.LiveStreamId)
-                && !string.IsNullOrWhiteSpace(MediaSource.LiveStreamId))
+            if (RequiresClosingLiveStream)
             {
-                _mediaSourceManager.CloseLiveStream(MediaSource.LiveStreamId).GetAwaiter().GetResult();
+                // Deliberately NOT blocking. This runs on the request thread as the playback request
+                // ends, and CloseLiveStream is an async operation whose continuation needs the same
+                // thread pool; blocking here is the classic mechanism behind Kestrel's "heartbeat
+                // ... could be caused by thread pool starvation" warnings. Callers that can await
+                // should use DisposeAsync, which closes the live stream properly instead.
+                _ = CloseLiveStreamInBackgroundAsync(MediaSource.LiveStreamId!);
             }
         }
 
@@ -180,4 +184,48 @@ public class StreamState : EncodingJobInfo, IDisposable
 
         _disposed = true;
     }
+
+    /// <summary>
+    /// Asynchronously disposes the stream state, awaiting the live-stream close.
+    /// </summary>
+    /// <returns>A task representing the disposal.</returns>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (RequiresClosingLiveStream)
+        {
+            await CloseLiveStreamAsync(MediaSource.LiveStreamId!).ConfigureAwait(false);
+        }
+
+        TranscodingJob = null;
+
+        _disposed = true;
+
+        GC.SuppressFinalize(this);
+    }
+
+    private bool RequiresClosingLiveStream =>
+        MediaSource.RequiresClosing
+        && string.IsNullOrWhiteSpace(Request.LiveStreamId)
+        && !string.IsNullOrWhiteSpace(MediaSource.LiveStreamId);
+
+    private async Task CloseLiveStreamAsync(string liveStreamId)
+    {
+        try
+        {
+            await _mediaSourceManager.CloseLiveStream(liveStreamId).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Best effort: the request is already ending, so a failure to close must not turn into
+            // a request failure. It is surfaced through the media source manager's own logging.
+        }
+    }
+
+    private Task CloseLiveStreamInBackgroundAsync(string liveStreamId)
+        => Task.Run(() => CloseLiveStreamAsync(liveStreamId));
 }

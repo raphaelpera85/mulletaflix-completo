@@ -44,7 +44,10 @@ data class AuthState(
         ServerInfo(
             name = "MulletaFlix Oficial (Nuvem)",
             url = DEFAULT_MULLETAFLIX_SERVER_URL,
-            version = "12.0.2",
+            // The public endpoint can be updated independently of the APK.
+            // Show a version only after the server handshake verifies it;
+            // keeping a historical value here misleads users before connect.
+            version = null,
         )
     ),
     val availableUsers: List<AuthUser> = emptyList(),
@@ -53,8 +56,11 @@ data class AuthState(
     val quickConnectSecondsRemaining: Int? = null,
     val isWaitingForQuickConnect: Boolean = false,
     val isQuickConnectAvailable: Boolean? = null,
+    val quickConnectAvailabilityError: String? = null,
     val discoveredServers: List<ServerInfo> = emptyList(),
     val isDiscovering: Boolean = false,
+    /** True after the persisted server list has emitted, including an empty list. */
+    val savedServersLoaded: Boolean = false,
     val isRegistering: Boolean = false,
 )
 
@@ -93,6 +99,9 @@ class AuthViewModel @Inject constructor(
                             serverUrl = if (hasLocalServer) it.serverUrl else url,
                         )
                     }
+                    // A saved public URL must not trigger requests while discovery
+                    // has already selected a different LAN endpoint.
+                    if (_state.value.serverUrl != url) return@collect
                     loadAvailableUsers(url)
                     loadQuickConnectAvailability(_state.value.serverUrl ?: url)
                 }
@@ -100,8 +109,10 @@ class AuthViewModel @Inject constructor(
         }
         viewModelScope.launch {
             authRepository.getSavedServers().collect { servers ->
-                if (servers.isNotEmpty()) {
-                    _state.update { current ->
+                _state.update { current ->
+                    if (servers.isEmpty()) {
+                        current.copy(savedServersLoaded = true)
+                    } else {
                         val mapped = servers.map { s ->
                             ServerInfo(
                                 name = s.name,
@@ -113,6 +124,7 @@ class AuthViewModel @Inject constructor(
                         }
                         current.copy(
                             savedServers = mapped,
+                            savedServersLoaded = true,
                             serverUrl = preferredServerUrl(
                                 discovered = current.discoveredServers,
                                 saved = mapped,
@@ -177,12 +189,35 @@ class AuthViewModel @Inject constructor(
     private fun loadQuickConnectAvailability(serverUrl: String) {
         quickConnectAvailabilityJob?.cancel()
         val generation = ++quickConnectAvailabilityGeneration
+        _state.update {
+            it.copy(
+                isQuickConnectAvailable = null,
+                quickConnectAvailabilityError = null,
+            )
+        }
         quickConnectAvailabilityJob = viewModelScope.launch {
             authRepository.isQuickConnectEnabled().onSuccess { available ->
                 if (generation != quickConnectAvailabilityGeneration || _state.value.serverUrl != serverUrl) return@onSuccess
-                _state.update { it.copy(isQuickConnectAvailable = available) }
+                _state.update {
+                    it.copy(
+                        isQuickConnectAvailable = available,
+                        quickConnectAvailabilityError = null,
+                    )
+                }
+            }.onFailure { error ->
+                if (generation != quickConnectAvailabilityGeneration || _state.value.serverUrl != serverUrl) return@onFailure
+                _state.update {
+                    it.copy(
+                        isQuickConnectAvailable = null,
+                        quickConnectAvailabilityError = serverConnectionErrorMessage(error),
+                    )
+                }
             }
         }
+    }
+
+    fun retryQuickConnectAvailability() {
+        _state.value.serverUrl?.takeIf(String::isNotBlank)?.let(::loadQuickConnectAvailability)
     }
 
     fun discoverLocalServers() {
@@ -191,13 +226,26 @@ class AuthViewModel @Inject constructor(
         discoveryJob = viewModelScope.launch {
             try {
                 val servers = localServerDiscovery.discover()
+                val current = _state.value
+                val selectedUrl = preferredServerUrl(servers, current.savedServers, current.serverUrl)
+                val endpointChanged = selectedUrl != current.serverUrl
+                if (endpointChanged) {
+                    // Discovery may replace the public fallback with a LAN endpoint
+                    // before the UI starts verification. Never carry data from the
+                    // previous endpoint across that boundary.
+                    invalidateAvailableUsersForEndpoint()
+                    quickConnectAvailabilityJob?.cancel()
+                    quickConnectAvailabilityGeneration += 1
+                }
                 _state.update { current ->
                     current.copy(
                         isDiscovering = false,
                         // Prefer the LAN address over the public DuckDNS fallback.
                         // This keeps playback inside the local network whenever the
                         // server advertises itself there.
-                        serverUrl = preferredServerUrl(servers, current.savedServers, current.serverUrl),
+                        serverUrl = selectedUrl,
+                        isQuickConnectAvailable = if (endpointChanged) null else current.isQuickConnectAvailable,
+                        quickConnectAvailabilityError = if (endpointChanged) null else current.quickConnectAvailabilityError,
                         // Keep LAN results even when the URL is already saved.
                         // The UI uses this list to trigger the automatic LAN
                         // connection on every startup.
@@ -246,7 +294,12 @@ class AuthViewModel @Inject constructor(
             // Do not keep showing users from the previous server while this
             // endpoint is being verified or when its verification fails.
             invalidateAvailableUsersForEndpoint()
-            _state.update { it.copy(isQuickConnectAvailable = null) }
+            _state.update {
+                it.copy(
+                    isQuickConnectAvailable = null,
+                    quickConnectAvailabilityError = null,
+                )
+            }
             verifyServerUseCase(cleanUrl)
                 .onSuccess { verification ->
                     if (generation != connectionGeneration) return@onSuccess
@@ -284,7 +337,7 @@ class AuthViewModel @Inject constructor(
                 }
                 .onFailure { err ->
                     if (generation != connectionGeneration) return@onFailure
-                    _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Servidor não encontrado ou indisponível") }
+                    _state.update { it.copy(isLoading = false, error = serverConnectionErrorMessage(err)) }
                     onFailure()
                 }
         }
@@ -312,8 +365,15 @@ class AuthViewModel @Inject constructor(
             return
         }
 
+        // O botão "Entrar" fica desabilitado enquanto autentica, mas isso é lido na
+        // composição: dois toques no mesmo frame passam os dois, e o campo de senha
+        // ainda tem um segundo caminho (o "Done" do teclado). Duas autenticações
+        // criam duas sessões no servidor e deixam a última resposta — inclusive uma
+        // falha — sobrescrever a outra. O flag é marcado antes de lançar a corrotina.
+        if (_state.value.isLoading) return
+
+        _state.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
             loginUseCase(username, password)
                 .onSuccess {
                     _state.update {
@@ -327,8 +387,7 @@ class AuthViewModel @Inject constructor(
                 }
                 .onFailure { err ->
                     val message = (err as? HttpException)?.let { authenticationErrorMessage(it.code()) }
-                        ?: err.localizedMessage
-                        ?: "Falha na autenticação"
+                        ?: serverConnectionErrorMessage(err)
                     _state.update { it.copy(isLoading = false, error = message) }
                 }
         }
@@ -347,8 +406,13 @@ class AuthViewModel @Inject constructor(
             }
         }
 
+        // Mesma janela da autenticação, com uma consequência pior: o segundo
+        // cadastro volta do servidor como "usuário já existe" e escreve esse erro
+        // por cima do sucesso que já navegou para a tela seguinte.
+        if (_state.value.isRegistering) return
+
+        _state.update { it.copy(isRegistering = true, error = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isRegistering = true, error = null) }
             registerUseCase(cleanUsername, password)
                 .onSuccess { result ->
                     if (result.success) {
@@ -359,7 +423,7 @@ class AuthViewModel @Inject constructor(
                     }
                 }
                 .onFailure { err ->
-                    _state.update { it.copy(isRegistering = false, error = err.localizedMessage ?: "Ocorreu um erro durante o cadastro") }
+                    _state.update { it.copy(isRegistering = false, error = serverConnectionErrorMessage(err)) }
                 }
         }
     }
@@ -399,7 +463,7 @@ class AuthViewModel @Inject constructor(
                 }
                 .onFailure { err ->
                     if (isActive && generation == quickConnectGeneration) {
-                        _state.update { it.copy(isLoading = false, error = err.localizedMessage ?: "Falha ao iniciar Quick Connect") }
+                        _state.update { it.copy(isLoading = false, error = serverConnectionErrorMessage(err)) }
                     }
                 }
         }
@@ -415,6 +479,15 @@ class AuthViewModel @Inject constructor(
                 quickConnectSecret = null,
                 quickConnectSecondsRemaining = null,
                 isWaitingForQuickConnect = false,
+                // Cancelling invalidates the request that raised this flag, and
+                // both of that request's terminal branches skip the clear once
+                // the generation moved on. `initiateQuickConnect` awaits a call
+                // the repository wraps in `runCatching`, so a cancelled request
+                // surfaces as `onFailure` rather than a cancellation — the
+                // spinner used to stay up forever after "Cancelar", leaving the
+                // "Entrar" and Quick Connect buttons disabled with no way out
+                // short of restarting the app.
+                isLoading = false,
             )
         }
     }
@@ -438,7 +511,7 @@ class AuthViewModel @Inject constructor(
                     quickConnectPin = null,
                     quickConnectSecret = null,
                     quickConnectSecondsRemaining = null,
-                    error = "O código Quick Connect expirou. Gere um novo código.",
+                    error = QUICK_CONNECT_POLL_TIMEOUT_MESSAGE,
                 )
             }
         }
@@ -489,6 +562,8 @@ class AuthViewModel @Inject constructor(
 
 internal const val QUICK_CONNECT_MAX_POLL_ATTEMPTS = 100
 internal const val QUICK_CONNECT_POLL_INTERVAL_SECONDS = 3
+internal const val QUICK_CONNECT_POLL_TIMEOUT_MESSAGE =
+    "Não foi possível confirmar o Quick Connect no prazo. Verifique a conexão e gere um novo código."
 
 internal fun quickConnectDurationSeconds(): Int =
     QUICK_CONNECT_MAX_POLL_ATTEMPTS * QUICK_CONNECT_POLL_INTERVAL_SECONDS

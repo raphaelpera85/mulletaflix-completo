@@ -94,3 +94,66 @@ val BlueRadianceColorScheme = darkColorScheme(
     error = MulletaFlixError,
     onError = MulletaFlixOnError,
 )
+
+/**
+ * WMC theme (Windows Media Center).
+ *
+ * Shares the cinematic dark base with [DarkColorScheme] and tints the chrome blue, which
+ * is what Windows Media Center's own shell looked like. It used to map straight to
+ * [DarkColorScheme], so choosing "WMC" in Ajustes changed nothing at all — the screen
+ * claimed a theme the app did not apply.
+ *
+ * The accent stays the brand red: the promise is a tint on the surfaces, not a different
+ * brand.
+ */
+val WmcColorScheme = darkColorScheme(
+    primary = MulletaFlixBlack,
+    onPrimary = Color.White,
+    primaryContainer = MulletaFlixRedDark,
+    onPrimaryContainer = Color.White,
+    secondary = MulletaFlixRedAccessible,
+    onSecondary = Color.White,
+    secondaryContainer = MulletaFlixRedDark,
+    onSecondaryContainer = Color.White,
+    background = WmcBackground,
+    onBackground = DarkOnBackground,
+    surface = WmcSurface,
+    onSurface = DarkOnSurface,
+    surfaceVariant = WmcSurfaceVariant,
+    onSurfaceVariant = DarkOnSurfaceVariant,
+    outline = DarkOutline,
+    outlineVariant = DarkOutlineVariant,
+    error = MulletaFlixError,
+    onError = MulletaFlixOnError,
+    errorContainer = MulletaFlixErrorContainer,
+    onErrorContainer = MulletaFlixOnErrorContainer,
+)
+
+/**
+ * AppleTV theme.
+ *
+ * tvOS keeps a near-black, slightly cool and slightly lighter chrome than a pure black
+ * cinematic surface. Same story as [WmcColorScheme]: it was an alias for the dark theme.
+ */
+val AppleTvColorScheme = darkColorScheme(
+    primary = MulletaFlixBlack,
+    onPrimary = Color.White,
+    primaryContainer = MulletaFlixRedDark,
+    onPrimaryContainer = Color.White,
+    secondary = MulletaFlixRedAccessible,
+    onSecondary = Color.White,
+    secondaryContainer = MulletaFlixRedDark,
+    onSecondaryContainer = Color.White,
+    background = AppleTvBackground,
+    onBackground = DarkOnBackground,
+    surface = AppleTvSurface,
+    onSurface = DarkOnSurface,
+    surfaceVariant = AppleTvSurfaceVariant,
+    onSurfaceVariant = DarkOnSurfaceVariant,
+    outline = DarkOutline,
+    outlineVariant = DarkOutlineVariant,
+    error = MulletaFlixError,
+    onError = MulletaFlixOnError,
+    errorContainer = MulletaFlixErrorContainer,
+    onErrorContainer = MulletaFlixOnErrorContainer,
+)

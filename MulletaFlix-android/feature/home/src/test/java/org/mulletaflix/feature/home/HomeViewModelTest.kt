@@ -4,7 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -14,6 +13,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,6 +32,7 @@ import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.SavedServer
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
+import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -40,6 +41,65 @@ class HomeViewModelTest {
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
+
+    @Test fun `media request trims fields and sends only once while request is pending`() = runTest {
+        val response = CompletableDeferred<Result<Unit>>()
+        var requestCount = 0
+        var received: List<Any?>? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
+                requestCount++
+                received = listOf(title, mediaType, year, notes)
+                return response.await()
+            }
+            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.success(Unit)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), FakeSessionRepository(userId = null),
+            FakeNetworkMonitor(), FakeAuthRepository(), feedback,
+        )
+        viewModel.requestMedia("  Duna  ", "Filme", 2024, "  legendas  ") {}
+        viewModel.requestMedia("Duna", "Filme", 2024, "legendas") {}
+        runCurrent()
+
+        assertEquals(1, requestCount)
+        assertEquals(listOf("Duna", "Filme", 2024, "legendas"), received)
+        response.complete(Result.success(Unit))
+        advanceUntilIdle()
+    }
+
+    @Test fun `media request can be retried after cancellation`() = runTest {
+        var requestCount = 0
+        var completionCount = 0
+        var firstCompletionError: Throwable? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
+                requestCount++
+                if (requestCount == 1) throw CancellationException("request cancelled")
+                return Result.success(Unit)
+            }
+            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.success(Unit)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), FakeSessionRepository(userId = null),
+            FakeNetworkMonitor(), FakeAuthRepository(), feedback,
+        )
+
+        viewModel.requestMedia("Duna", "Filme", null, "") {
+            completionCount++
+            firstCompletionError = it.exceptionOrNull()
+        }
+        runCurrent()
+        assertTrue(firstCompletionError is CancellationException)
+        viewModel.requestMedia("Duna", "Filme", null, "") { result ->
+            completionCount++
+            assertTrue(result.isSuccess)
+        }
+        advanceUntilIdle()
+
+        assertEquals(2, requestCount)
+        assertEquals(2, completionCount)
+    }
 
     @Test fun `session expiry stops home loading without requesting content`() = runTest {
         val repository = FakeMediaRepository()
@@ -52,6 +112,195 @@ class HomeViewModelTest {
         assertTrue(!viewModel.state.value.isLoading)
     }
 
+    /**
+     * Uma falha só das bibliotecas precisa chegar à tela.
+     *
+     * Sem isto a Home ficava sem bloco de biblioteca, sem erro e sem "tentar
+     * novamente" — exatamente a tela de quem não tem biblioteca nenhuma.
+     */
+    @Test fun `a libraries failure reaches the screen while the rest of home loads`() = runTest {
+        val movie = MediaItem("m1", "Movie 1", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(listOf(movie))
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("HTTP 500"))
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(
+            "o resto da Home precisa ter carregado: ${state.resumeItems.size} itens",
+            1,
+            state.resumeItems.size,
+        )
+        assertEquals(null, state.error)
+        assertEquals("HTTP 500", state.librariesError)
+        assertEquals(0, state.libraries.size)
+    }
+
+    @Test fun `independent home section failures reach UI state without failing the feed`() = runTest {
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("resume offline"))
+            override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("next offline"))
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ): Result<Pair<List<MediaItem>, Int>> = Result.failure(IllegalStateException("favorites offline"))
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(null, state.error)
+        assertEquals("resume offline", state.resumeError)
+        assertEquals("next offline", state.nextUpError)
+        assertEquals("favorites offline", state.favoritesError)
+        assertEquals(false, state.isLoading)
+    }
+
+    @Test fun `an offline reload clears the previous live tv failure`() = runTest {
+        // O caminho que discrimina é este: uma recarga que **volta cedo** e não produz
+        // feed nenhum. A primeira versão deste teste deixava a segunda carga ter
+        // sucesso, e aí o `onSuccess` já sobrescrevia o aviso antigo — ele passava com
+        // e sem a correção, ou seja, não provava nada.
+        val movie = MediaItem("m1", "Movie 1", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(listOf(movie))
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) =
+                Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> =
+                Result.failure(IllegalStateException("HTTP 500"))
+        }
+        val networkMonitor = FakeNetworkMonitor(initialOnline = true)
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            networkMonitor,
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+        assertEquals("HTTP 500", viewModel.state.value.liveTvError)
+
+        networkMonitor.setOnline(false)
+        advanceUntilIdle()
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertTrue("a recarga precisa ter sido barrada pela rede", viewModel.state.value.isOffline)
+        assertEquals(
+            "a carga nem chegou a perguntar nada: o aviso da carga anterior não é desta",
+            null,
+            viewModel.state.value.liveTvError,
+        )
+    }
+
+    @Test fun `a whole feed failure does not leave a stale live tv warning`() = runTest {
+        var wholeFeedFails = false
+        val movie = MediaItem("m1", "Movie 1", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> =
+                if (wholeFeedFails) Result.failure(IllegalStateException("Servidor fora do ar"))
+                else Result.success(listOf(movie))
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String): Result<List<MediaItem>> =
+                if (wholeFeedFails) Result.failure(IllegalStateException("Servidor fora do ar"))
+                else Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) =
+                Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> =
+                if (wholeFeedFails) Result.failure(IllegalStateException("Servidor fora do ar"))
+                else Result.failure(IllegalStateException("HTTP 500"))
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+        assertEquals("HTTP 500", viewModel.state.value.liveTvError)
+
+        wholeFeedFails = true
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        // O erro do feed inteiro já ocupa a tela. Um aviso de seção sobrevivente
+        // apareceria ao lado dele — os dois cartões juntos, que é o que a HomeScreen
+        // documenta como impossível.
+        assertTrue("o feed inteiro precisa ter falhado", viewModel.state.value.error != null)
+        assertEquals(null, viewModel.state.value.liveTvError)
+        assertEquals(null, viewModel.state.value.librariesError)
+    }
+
+    @Test fun `a reload clears the previous libraries failure`() = runTest {
+        var failLibraries = true
+        val movie = MediaItem("m1", "Movie 1", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val library = MediaItem("lib1", "Filmes", org.mulletaflix.domain.model.MediaItemType.CollectionFolder)
+        val repository = object : FakeMediaRepository() {
+            // Uma seção qualquer precisa continuar funcionando: se *tudo* estiver
+            // vazio, o use case lança (é o caso da Home sem catálogo nenhum) e o
+            // aviso de bibliotecas nem chega a existir.
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(listOf(movie))
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) =
+                Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String): Result<List<MediaItem>> =
+                if (failLibraries) Result.failure(IllegalStateException("HTTP 500"))
+                else Result.success(listOf(library))
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+        val first = viewModel.state.value
+        assertEquals(
+            "esperado o aviso de bibliotecas; erro global=${first.error}",
+            "HTTP 500",
+            first.librariesError,
+        )
+
+        failLibraries = false
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.librariesError)
+        assertEquals(1, viewModel.state.value.libraries.size)
+    }
+
     @Test fun `partial section failure such as live tv does not crash home screen`() = runTest {
         val movie = MediaItem("m1", "Movie 1", org.mulletaflix.domain.model.MediaItemType.Movie)
         val lib = MediaItem("lib1", "Filmes", org.mulletaflix.domain.model.MediaItemType.CollectionFolder)
@@ -60,7 +309,7 @@ class HomeViewModelTest {
             override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
             override suspend fun getLibraries(userId: String) = Result.success(listOf(lib))
             override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(listOf(movie))
-            override suspend fun getLiveTvChannels(userId: String) = Result.failure<List<MediaItem>>(Exception("Live TV disabled on server"))
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.failure<List<MediaItem>>(Exception("Live TV disabled on server"))
         }
         val useCase = GetHomeFeedUseCase(repository)
         val profile = UserProfile(id = "u1", name = "Raphael", primaryImageTag = "avatar-tag")
@@ -72,7 +321,28 @@ class HomeViewModelTest {
         assertEquals(1, viewModel.state.value.resumeItems.size)
         assertEquals(1, viewModel.state.value.libraries.size)
         assertEquals(0, viewModel.state.value.liveTvChannels.size)
+        // A falha da TV ao vivo não pode virar "esta conta não tem canais": sem esta
+        // linha o carrossel sumia e nada na tela explicava a diferença.
+        assertEquals("Live TV disabled on server", viewModel.state.value.liveTvError)
         assertEquals(profile, viewModel.state.value.userProfile)
+    }
+
+    @Test fun `a server without live tv does not raise the live tv error`() = runTest {
+        val lib = MediaItem("lib1", "Filmes", org.mulletaflix.domain.model.MediaItemType.CollectionFolder)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(listOf(lib))
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val useCase = GetHomeFeedUseCase(repository)
+        val viewModel = HomeViewModel(useCase, FakeSessionRepository(userId = "u1"), FakeNetworkMonitor(), FakeAuthRepository())
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.error)
+        assertEquals(null, viewModel.state.value.liveTvError)
+        assertTrue(viewModel.state.value.liveTvChannels.isEmpty())
     }
 
     @Test fun `home feed becomes usable before a slow profile response`() = runTest {
@@ -84,7 +354,7 @@ class HomeViewModelTest {
             override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
             override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
             override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
-            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
         }
         val profile = UserProfile(id = "u1", name = "Raphael")
         val authRepository = object : FakeAuthRepository(profile) {
@@ -139,7 +409,7 @@ class HomeViewModelTest {
 
             override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
             override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
-            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
             override suspend fun getItems(
                 userId: String,
                 parentId: String?,
@@ -189,7 +459,7 @@ class HomeViewModelTest {
             override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
             override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
             override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
-            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
         }
         val viewModel = HomeViewModel(
             GetHomeFeedUseCase(repository),
@@ -200,6 +470,39 @@ class HomeViewModelTest {
         runCurrent()
 
         viewModel.refreshIfIdle()
+
+        assertEquals(1, resumeCalls)
+        responseRelease.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test fun `refreshIfIdle keeps the initial Home job while state is still idle`() = runTest {
+        val responseRelease = CompletableDeferred<Unit>()
+        var resumeCalls = 0
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                resumeCalls++
+                responseRelease.await()
+                return Result.success(emptyList())
+            }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        runCurrent()
+
+        // Start the initial job and immediately let the foreground effect try
+        // to refresh before the request has published its loading state.
+        viewModel.refreshIfIdle()
+        runCurrent()
 
         assertEquals(1, resumeCalls)
         responseRelease.complete(Unit)
@@ -222,7 +525,7 @@ class HomeViewModelTest {
 
             override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
             override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
-            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
             override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?) = Result.success(emptyList<MediaItem>() to 0)
         }
         val viewModel = HomeViewModel(
@@ -257,7 +560,7 @@ class HomeViewModelTest {
 
             override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
             override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
-            override suspend fun getLiveTvChannels(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
         }
         val session = FakeSessionRepository("u1")
         val viewModel = HomeViewModel(
@@ -330,11 +633,6 @@ class HomeViewModelTest {
         override suspend fun markAsUnplayed(userId: String, itemId: String): Result<Unit> = unavailable()
         override suspend fun markAsFavorite(userId: String, itemId: String): Result<Unit> = unavailable()
         override suspend fun unmarkAsFavorite(userId: String, itemId: String): Result<Unit> = unavailable()
-        override suspend fun search(userId: String, searchTerm: String, limit: Int, includeItemTypes: String?): Result<List<MediaItem>> = unavailable()
-        override suspend fun getLiveTvChannels(userId: String): Result<List<MediaItem>> = unavailable()
-        override suspend fun getRecordings(userId: String): Result<List<MediaItem>> = unavailable()
-        override suspend fun getSuggestions(userId: String, itemId: String): Result<List<MediaItem>> = unavailable()
-        override fun observeFavorites(userId: String): Flow<List<MediaItem>> = emptyFlow()
-        override fun observeRecentlyWatched(userId: String): Flow<List<MediaItem>> = emptyFlow()
+        override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> = unavailable()
     }
 }

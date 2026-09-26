@@ -2,6 +2,8 @@ package org.mulletaflix.domain.usecase
 
 import org.mulletaflix.domain.repository.SyncPlayGroup
 import org.mulletaflix.domain.repository.SyncPlayRepository
+import org.mulletaflix.domain.repository.SyncPlayPlaybackCommand
+import org.mulletaflix.domain.repository.SyncPlayPlaybackStatus
 import javax.inject.Inject
 
 /**
@@ -28,4 +30,13 @@ class ManageSyncPlayUseCase @Inject constructor(
     }
 
     suspend fun leaveGroup(): Result<Unit> = syncPlayRepository.leaveGroup()
+
+    suspend fun sendPlaybackCommand(command: SyncPlayPlaybackCommand): Result<Unit> =
+        syncPlayRepository.sendPlaybackCommand(command)
+
+    suspend fun reportBuffering(status: SyncPlayPlaybackStatus): Result<Unit> =
+        syncPlayRepository.reportBuffering(status)
+
+    suspend fun reportReady(status: SyncPlayPlaybackStatus): Result<Unit> =
+        syncPlayRepository.reportReady(status)
 }

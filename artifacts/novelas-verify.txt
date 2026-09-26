@@ -1,0 +1,6 @@
+Raiz 'Novelas'...........: id=6ab31afa36783409c9924fee parent=/raphael
+Títulos migrados.........: 176/176
+Filhos em Series.........: 2598 documentos / 2591 nomes distintos
+Filhos em Novelas........: 176 documentos / 176 nomes distintos
+Descendentes com pai legado apontando para Series: 0
+VERIFICAÇÃO: OK — nenhum problema encontrado.

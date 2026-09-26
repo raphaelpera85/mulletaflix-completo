@@ -15,6 +15,7 @@ android {
     buildFeatures { compose = true }
 }
 dependencies {
+    implementation(project(":core:common"))
     implementation(project(":core:api"))
     implementation(project(":domain"))
     implementation(project(":design-system"))
@@ -35,4 +36,6 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.ui.test.junit4)
 }

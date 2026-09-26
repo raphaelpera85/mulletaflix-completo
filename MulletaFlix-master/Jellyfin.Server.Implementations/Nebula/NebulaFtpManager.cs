@@ -47,6 +47,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private NebulaUploadEngine? _uploadEngine;
     private NebulaFtpServerHost? _ftpServerHost;
     private NebulaHttpStreamServer? _httpStreamServer;
+    private NebulaPlaybackCache? _playbackCache;
     private NebulaStagingWatcher? _stagingWatcher;
     private NebulaSupabaseSyncService? _supabaseSyncService;
     private NebulaDownloaderEngine? _downloaderEngine;
@@ -1024,6 +1025,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 novelaMigration.Success ? "INFO" : "WARNING",
                 $"[NEBULA-NOVELAS] {novelaMigration.Message}");
 
+            var animacaoMigration = await _mongoContext.NormalizeAnimacoesLibraryAsync(cancellationToken).ConfigureAwait(false);
+            EmitServerLog(
+                animacaoMigration.Success ? "INFO" : "WARNING",
+                $"[NEBULA-ANIMACOES] {animacaoMigration.Message}");
+
             // 1.1 Sincronizador com Supabase e verificação de prioridade do banco (restauração se Mongo estiver vazio)
             if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
             {
@@ -1118,10 +1124,15 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             // 4. Servidor FTP C# nativo
+            _playbackCache = new NebulaPlaybackCache(
+                _configManager.CommonApplicationPaths.CachePath,
+                _loggerFactory.CreateLogger<NebulaPlaybackCache>());
+
             _ftpServerHost = new NebulaFtpServerHost(
                 _mongoContext,
                 _telegramPool,
                 _uploadEngine, // pode ser null em streamOnly
+                _playbackCache,
                 _loggerFactory.CreateLogger<NebulaFtpServerHost>(),
                 _loggerFactory.CreateLogger<NebulaFileSystem>(),
                 _loggerFactory.CreateLogger<NebulaFtpMembershipProvider>(),
@@ -1139,7 +1150,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 config.HttpStreamPort,    // HTTP Stream port (default 2123 for MulletaFlix)
                 _loggerFactory.CreateLogger<NebulaHttpStreamServer>(),
                 config.HttpStreamToken,
-                config.MaxActiveConnections);
+                config.MaxActiveConnections,
+                _playbackCache);
             _httpStreamServer.Start();
 
             if (poolInitTask != null)
@@ -1170,10 +1182,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             {
                 if (config.SupabaseAutoBackup)
                 {
-                    const int intervalMinutes = 24 * 60;
+                    var intervalMinutes = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours * 60;
                     _supabaseSyncService.StartContinuousSync(config.SupabaseUrl, config.SupabaseKey, intervalMinutes: intervalMinutes, progressAction: AddServerLog);
-                    config.SupabaseAutoBackupIntervalHours = 24;
-                    AddServerLog("[SUPABASE] Serviço de sincronização contínua e backup automático ativado (Intervalo: 24 horas).");
+                    config.SupabaseAutoBackupIntervalHours = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
+                    AddServerLog("[SUPABASE] Serviço de sincronização contínua e backup automático ativado (Intervalo: 1 hora).");
                 }
                 else
                 {
@@ -1332,6 +1344,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _httpStreamServer = null;
             }
 
+            _playbackCache?.Dispose();
+            _playbackCache = null;
+
             if (_uploadEngine != null)
             {
                 await _uploadEngine.DisposeAsync().ConfigureAwait(false);
@@ -1359,6 +1374,25 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             _envioLock.Release();
+        }
+    }
+
+    public async Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)
+    {
+        var streamServer = _httpStreamServer;
+        if (streamServer is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await streamServer.StartPlaybackPrefetchAsync(mediaPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Falha ao iniciar o pré-cache da mídia; a reprodução continuará sem pré-cache.");
+            return false;
         }
     }
 
@@ -1448,6 +1482,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _telegramPool,
                 _loggerFactory.CreateLogger<NebulaDownloaderEngine>(),
                 _metadataExportService);
+            _downloaderEngine.OnUploadReady += filePath => _stagingWatcher?.EnqueueMediaFromDownloader(filePath);
             _downloaderEngine.OnLog += msg => AddDownloaderLog(msg);
             _downloaderEngine.OnProgressChanged += st =>
             {
@@ -1747,6 +1782,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
 
         return await mongo.ScanAndMoveNovelasAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<NebulaAnimacaoMigrationResult> NormalizeAnimacoesLibraryAsync(CancellationToken cancellationToken = default)
+    {
+        var mongo = _mongoContext;
+        if (mongo == null)
+        {
+            return new NebulaAnimacaoMigrationResult
+            {
+                Success = false,
+                Message = "O MongoDB do Nebula ainda não está inicializado. Inicie o envio e tente novamente."
+            };
+        }
+
+        return await mongo.NormalizeAnimacoesLibraryAsync(cancellationToken).ConfigureAwait(false);
     }
 
 
@@ -3148,7 +3198,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         config.MaxWorkers = Math.Clamp(config.MaxWorkers, 1, 64);
         config.ChunkSizeMb = Math.Clamp(config.ChunkSizeMb, 1, 512);
         config.DownloadParts = Math.Clamp(config.DownloadParts, 1, 32);
-        config.SupabaseAutoBackupIntervalHours = 24;
+        // Earlier versions forced this value to 24 on every startup. Normalize old
+        // configurations to the new hourly schedule instead of retaining that legacy value.
+        config.SupabaseAutoBackupIntervalHours = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
         return config;
     }
 

@@ -3,6 +3,7 @@ package org.mulletaflix.feature.home
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -16,18 +17,18 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +47,9 @@ import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.userAvatarPath
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
+import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.designsystem.components.isTelevisionDevice
+import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 /**
  * Home screen — the first screen users see after login.
@@ -63,36 +67,36 @@ import org.mulletaflix.designsystem.components.MulletaFlixWordmark
 @Composable
 fun HomeScreen(
     onItemClick: (String) -> Unit,
+    onPlayItemClick: (String) -> Unit,
     onLibraryClick: (String) -> Unit,
     onLiveTvClick: () -> Unit,
     navController: NavController,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var showRequestDialog by remember { mutableStateOf(false) }
+    var requestTitle by remember { mutableStateOf("") }
+    var requestType by remember { mutableStateOf("Série") }
+    var requestYear by remember { mutableStateOf("") }
+    var requestNotes by remember { mutableStateOf("") }
+    var requestMessage by remember { mutableStateOf<String?>(null) }
+    var requestSubmitting by remember { mutableStateOf(false) }
+    val requestYearNumber = requestYear.toIntOrNull()
+    val requestYearValid = requestYear.isBlank() || (requestYearNumber != null && requestYearNumber in 1888..2200)
     val lifecycleOwner = LocalLifecycleOwner.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-            Configuration.UI_MODE_TYPE_TELEVISION
+        val isTelevision = isTelevisionDevice()
+        val homeScrollState = rememberHomeScrollState()
         val layoutSpec = homeLayoutSpec(
             homeDeviceClass(maxWidth.value.roundToInt(), isTelevision),
         )
 
-        LaunchedEffect(lifecycleOwner, isTelevision) {
-            val refreshInterval = homeAutoRefreshIntervalMillis(isTelevision)
-            if (refreshInterval > 0L) {
-                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                    if (refreshHomeImmediatelyOnResume(isTelevision)) {
-                        // Do not wait for the first interval when a TV is
-                        // opened or returns from standby/another app.
-                        viewModel.refreshIfIdle()
-                    }
-                    while (isActive) {
-                        delay(refreshInterval)
-                        viewModel.refreshIfIdle()
-                    }
-                }
-            }
-        }
+        TvRefreshEffect(
+            lifecycleOwner = lifecycleOwner,
+            refreshIntervalMillis = homeAutoRefreshIntervalMillis(isTelevision),
+            refreshImmediately = refreshHomeImmediatelyOnResume(isTelevision),
+            onRefresh = viewModel::refreshIfIdle,
+        )
 
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
@@ -103,6 +107,7 @@ fun HomeScreen(
                 .align(Alignment.TopCenter),
         ) {
             LazyColumn(
+                state = homeScrollState,
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
@@ -119,6 +124,9 @@ fun HomeScreen(
                     onFavorites = { navController.navigate("main/favorites") },
                     onSettings = { navController.navigate("main/settings") },
                     onProfile = { navController.navigate("main/profile") },
+                    onRefresh = { viewModel.refresh() },
+                    onRequestMedia = { showRequestDialog = true },
+                    isRefreshing = state.isRefreshing,
                 )
             }
 
@@ -161,32 +169,12 @@ fun HomeScreen(
 
             state.error?.let { message ->
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                        ),
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "Não foi possível carregar o conteúdo",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                text = message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                            TextButton(
-                                onClick = viewModel::refresh,
-                                modifier = Modifier.padding(top = 4.dp),
-                            ) {
-                                Text("Tentar novamente")
-                            }
-                        }
-                    }
+                    HomeLoadErrorCard(
+                        title = "Não foi possível carregar o conteúdo",
+                        message = message,
+                        isTelevision = isTelevision,
+                        onRetry = viewModel::refresh,
+                    )
                 }
             }
 
@@ -196,7 +184,7 @@ fun HomeScreen(
                     HeroBanner(
                         item = hero,
                         heightDp = layoutSpec.heroHeightDp,
-                        onPlay = { onItemClick(hero.id) },
+                        onPlay = { onPlayItemClick(hero.id) },
                         onMoreInfo = { onItemClick(hero.id) }
                     )
                 }
@@ -211,8 +199,20 @@ fun HomeScreen(
                         cardShape = null,
                         cardWidth = null,
                         layoutSpec = layoutSpec,
-                        onItemClick = onItemClick
+                        onItemClick = onItemClick,
+                        onResumeItemClick = onPlayItemClick,
                     )
+                }
+            } else {
+                state.resumeError?.let { message ->
+                    item {
+                        HomeLoadErrorCard(
+                            title = "Não foi possível carregar Continuar Assistindo",
+                            message = message,
+                            isTelevision = isTelevision,
+                            onRetry = viewModel::refresh,
+                        )
+                    }
                 }
             }
 
@@ -228,6 +228,17 @@ fun HomeScreen(
                         onItemClick = onItemClick
                     )
                 }
+            } else {
+                state.nextUpError?.let { message ->
+                    item {
+                        HomeLoadErrorCard(
+                            title = "Não foi possível carregar Próximo Episódio",
+                            message = message,
+                            isTelevision = isTelevision,
+                            onRetry = viewModel::refresh,
+                        )
+                    }
+                }
             }
 
             // ── My List / Favorites ─────────────────────────────────────────
@@ -242,19 +253,43 @@ fun HomeScreen(
                         onItemClick = onItemClick,
                     )
                 }
+            } else {
+                state.favoritesError?.let { message ->
+                    item {
+                        HomeLoadErrorCard(
+                            title = "Não foi possível carregar Minha Lista",
+                            message = message,
+                            isTelevision = isTelevision,
+                            onRetry = viewModel::refresh,
+                        )
+                    }
+                }
             }
 
             // ── Recently Added (per library) ─────────────────────────────────
             state.recentlyAddedByLibrary.forEach { (libraryName, items) ->
-                item {
-                    MediaSection(
-                        title = "Adicionados Recentemente — $libraryName",
-                        items = items,
-                        cardShape = MediaCardShape.Portrait,
-                        cardWidth = 130.dp,
-                        layoutSpec = layoutSpec,
-                        onItemClick = onItemClick
-                    )
+                if (items.isNotEmpty()) {
+                    item {
+                        MediaSection(
+                            title = "Adicionados Recentemente — $libraryName",
+                            items = items,
+                            cardShape = MediaCardShape.Portrait,
+                            cardWidth = 130.dp,
+                            layoutSpec = layoutSpec,
+                            onItemClick = onItemClick,
+                        )
+                    }
+                } else {
+                    state.recentlyAddedErrorsByLibrary[libraryName]?.let { message ->
+                        item {
+                            HomeLoadErrorCard(
+                                title = "Não foi possível carregar Adicionados Recentemente — $libraryName",
+                                message = message,
+                                isTelevision = isTelevision,
+                                onRetry = viewModel::refresh,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -273,6 +308,22 @@ fun HomeScreen(
                 }
             }
 
+            // A falha ao buscar os canais some do mesmo jeito que "este servidor não tem
+            // TV ao vivo": o carrossel não é desenhado e nada explica a diferença. Como
+            // o servidor com TV desligada responde **sucesso com zero canais**, dá para
+            // distinguir os dois casos — e o erro fica exatamente onde o carrossel
+            // estaria, para não sugerir que o problema é das bibliotecas abaixo.
+            state.liveTvError?.let { message ->
+                item {
+                    HomeLoadErrorCard(
+                        title = "Não foi possível carregar a TV ao vivo",
+                        message = message,
+                        isTelevision = isTelevision,
+                        onRetry = viewModel::refresh,
+                    )
+                }
+            }
+
             // ── Library tiles ────────────────────────────────────────────────
             if (state.libraries.isNotEmpty()) {
                 item {
@@ -286,9 +337,23 @@ fun HomeScreen(
                 }
             }
 
-            if (!state.isLoading && state.error == null && state.heroItem == null &&
-                state.resumeItems.isEmpty() && state.libraries.isEmpty()
-            ) {
+            // Sem esta linha, uma falha ao listar as bibliotecas desenhava exatamente
+            // a Home de quem não tem biblioteca nenhuma: sem bloco, sem erro e sem
+            // como tentar de novo. `state.error` continua sendo a falha do feed
+            // inteiro — os dois não podem aparecer juntos, porque quando o feed
+            // inteiro falha não há `HomeFeed` para carregar `librariesError`.
+            state.librariesError?.let { message ->
+                item {
+                    HomeLoadErrorCard(
+                        title = "Não foi possível carregar suas bibliotecas",
+                        message = message,
+                        isTelevision = isTelevision,
+                        onRetry = viewModel::refresh,
+                    )
+                }
+            }
+
+            if (shouldShowEmptyHomeState(state)) {
                 item {
                     EmptyHomeState(modifier = Modifier.fillMaxWidth().padding(32.dp))
                 }
@@ -299,7 +364,117 @@ fun HomeScreen(
             }
         }
     }
+    if (showRequestDialog) {
+        AlertDialog(
+            onDismissRequest = { showRequestDialog = false },
+            title = { Text("Solicitar mídia") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(requestTitle, { requestTitle = it.take(200) }, label = { Text("Título") }, singleLine = true, enabled = !requestSubmitting)
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
+                        OutlinedButton(onClick = { expanded = true }, enabled = !requestSubmitting) { Text(requestType) }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            listOf("Filme", "Série", "Animação", "Novela", "Dorama", "Livro", "Música", "Outro").forEach { type ->
+                                DropdownMenuItem(text = { Text(type) }, onClick = { requestType = type; expanded = false })
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        requestYear,
+                        { requestYear = it.filter(Char::isDigit).take(4) },
+                        label = { Text("Ano (opcional)") },
+                        supportingText = { if (!requestYearValid) Text("Informe um ano entre 1888 e 2200.") },
+                        isError = !requestYearValid,
+                        singleLine = true,
+                        enabled = !requestSubmitting,
+                    )
+                    OutlinedTextField(requestNotes, { requestNotes = it.take(1000) }, label = { Text("Detalhes (opcional)") }, minLines = 2, enabled = !requestSubmitting)
+                    requestMessage?.let { Text(it, color = if (requestSubmitting) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = requestTitle.isNotBlank() && requestYearValid && !requestSubmitting, onClick = {
+                    requestSubmitting = true
+                    requestMessage = "Enviando solicitação…"
+                    viewModel.requestMedia(requestTitle, requestType, requestYear.toIntOrNull(), requestNotes) { result ->
+                        requestSubmitting = false
+                        result.onSuccess {
+                            showRequestDialog = false
+                            requestTitle = ""
+                            requestYear = ""
+                            requestNotes = ""
+                            requestMessage = null
+                        }.onFailure {
+                            requestMessage = if (it is kotlinx.coroutines.CancellationException) {
+                                null
+                            } else {
+                                it.localizedMessage ?: "Não foi possível enviar. Tente novamente."
+                            }
+                        }
+                    }
+                }) {
+                    if (requestSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Text("Enviar")
+                }
+            },
+            dismissButton = { TextButton(enabled = !requestSubmitting, onClick = { showRequestDialog = false; requestMessage = null }) { Text("Cancelar") } },
+        )
+    }
 
+}
+
+/**
+ * O cartão de erro da Home, com o "Tentar novamente" que o torna recuperável.
+ *
+ * Duas falhas diferentes usam o mesmo desenho: o feed inteiro (`state.error`) e
+ * só as bibliotecas (`state.librariesError`). Antes existia um desenho para a
+ * primeira e **nenhum** para a segunda, e uma falha ao listar as bibliotecas
+ * desenhava a Home de quem não tem biblioteca.
+ */
+@Composable
+internal fun HomeLoadErrorCard(
+    title: String,
+    message: String,
+    isTelevision: Boolean = false,
+    onRetry: () -> Unit,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .onFocusChanged { isFocused = it.isFocused }
+                    .then(
+                        if (isTelevision && isFocused) {
+                            Modifier.border(2.dp, MulletaFlixRed, MaterialTheme.shapes.small)
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                Text("Tentar novamente")
+            }
+        }
+    }
 }
 
 @Composable
@@ -331,7 +506,7 @@ private fun EmptyHomeState(modifier: Modifier = Modifier) {
 // ── Hero Banner ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun HeroBanner(
+internal fun HeroBanner(
     item: MediaItem,
     heightDp: Int,
     onPlay: () -> Unit,
@@ -440,7 +615,7 @@ private fun HeroBanner(
 // ── Media Section (horizontal scroll) ────────────────────────────────────────
 
 @Composable
-private fun MediaSection(
+internal fun MediaSection(
     title: String,
     items: List<MediaItem>,
     cardShape: MediaCardShape?,
@@ -448,7 +623,9 @@ private fun MediaSection(
     layoutSpec: HomeLayoutSpec,
     onItemClick: (String) -> Unit,
     isLive: Boolean = false,
+    onResumeItemClick: ((String) -> Unit)? = null,
 ) {
+    val carouselScrollState = rememberHomeCarouselScrollState()
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
         Text(
             text = title,
@@ -457,6 +634,7 @@ private fun MediaSection(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
         LazyRow(
+            state = carouselScrollState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -466,28 +644,53 @@ private fun MediaSection(
             ) { item ->
                 val resolvedShape = cardShape ?: defaultMediaSectionShape(item)
                 val resolvedWidth = (cardWidth ?: if (resolvedShape == MediaCardShape.Portrait) 130.dp else 240.dp) * layoutSpec.cardScale
-                MediaCard(
-                    title = item.name,
-                    imageUrl = item.primaryImageUrl,
-                    metadata = item.cardMetadata(),
-                    shape = resolvedShape,
-                    progress = item.playbackProgressFraction(),
-                    isWatched = item.isPlayed,
-                    isFavorite = item.isFavorite,
-                    unplayedCount = item.unplayedItemCount ?: 0,
-                    isLive = isLive,
-                     qualityBadge = when {
-                         item.has4K -> "4K"
-                         item.hasHD -> "HD"
-                         else -> null
-                     },
-                     focusFriendly = layoutSpec.usesFocusFriendlySpacing,
-                     onClick = { onItemClick(item.id) },
-                    modifier = Modifier.width(resolvedWidth)
-                )
+                Column(modifier = Modifier.width(resolvedWidth)) {
+                    MediaCard(
+                        title = item.name,
+                        imageUrl = item.primaryImageUrl,
+                        metadata = item.cardMetadata(),
+                        shape = resolvedShape,
+                        progress = item.playbackProgressFraction(),
+                        isWatched = item.isPlayed,
+                        isFavorite = item.isFavorite,
+                        unplayedCount = item.unplayedItemCount ?: 0,
+                        isLive = isLive,
+                        qualityBadge = when {
+                            item.has4K -> "4K"
+                            item.hasHD -> "HD"
+                            else -> null
+                        },
+                        focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                        onClick = { onItemClick(item.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (onResumeItemClick != null && item.hasResumablePlaybackPosition()) {
+                        Button(
+                            onClick = { onResumeItemClick(item.id) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                                .heightIn(min = 48.dp)
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = "Retomar ${item.name}"
+                                },
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Retomar", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+internal fun MediaItem.hasResumablePlaybackPosition(): Boolean {
+    if (isPlayed) return false
+    val positionTicks = playbackPositionTicks ?: userProgress?.playbackPositionTicks ?: return false
+    val durationTicks = runtimeTicks
+    return positionTicks > 0L && (durationTicks == null || durationTicks <= 0L || positionTicks < durationTicks)
 }
 
 internal fun defaultMediaSectionShape(item: MediaItem): MediaCardShape =
@@ -501,6 +704,7 @@ private fun LibraryTiles(
     layoutSpec: HomeLayoutSpec,
     onLibraryClick: (MediaItem) -> Unit,
 ) {
+    val carouselScrollState = rememberHomeCarouselScrollState()
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
         Text(
             text = "Minhas Bibliotecas",
@@ -509,6 +713,7 @@ private fun LibraryTiles(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
         LazyRow(
+            state = carouselScrollState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -536,7 +741,7 @@ private val MediaItem.runtimeMinutes: Int? get() =
     runtimeTicks?.div(600_000_000L)?.toInt()?.takeIf { it > 0 }
 
 @Composable
-private fun HomeTopBar(
+internal fun HomeTopBar(
     profile: UserProfile?,
     layoutSpec: HomeLayoutSpec,
     onSearch: () -> Unit,
@@ -545,6 +750,9 @@ private fun HomeTopBar(
     onFavorites: () -> Unit,
     onSettings: () -> Unit,
     onProfile: () -> Unit,
+    onRefresh: () -> Unit,
+    onRequestMedia: () -> Unit = {},
+    isRefreshing: Boolean,
 ) {
     val serverUrl = LocalMulletaFlixServerUrl.current
     val accessToken = LocalMulletaFlixAccessToken.current
@@ -571,22 +779,51 @@ private fun HomeTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            IconButton(onClick = onSearch) {
+            HomeTopBarAction(focusFriendly = layoutSpec.usesFocusFriendlySpacing, onClick = onRequestMedia) {
+                Icon(Icons.Default.AddCircle, contentDescription = "Solicitar mídia", tint = MaterialTheme.colorScheme.onBackground)
+            }
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onSearch,
+            ) {
                 Icon(Icons.Default.Search, contentDescription = "Buscar", tint = MaterialTheme.colorScheme.onBackground)
             }
-            IconButton(onClick = onLiveTv) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onLiveTv,
+            ) {
                 Icon(Icons.Default.Tv, contentDescription = "TV Ao Vivo", tint = MaterialTheme.colorScheme.onBackground)
             }
-            IconButton(onClick = onDownloads) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onDownloads,
+            ) {
                 Icon(Icons.Default.FileDownload, contentDescription = "Downloads", tint = MaterialTheme.colorScheme.onBackground)
             }
-            IconButton(onClick = onFavorites) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onFavorites,
+            ) {
                 Icon(Icons.Default.Favorite, contentDescription = "Minha Lista", tint = MaterialTheme.colorScheme.secondary)
             }
-            IconButton(onClick = onSettings) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onSettings,
+            ) {
                 Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = MaterialTheme.colorScheme.onBackground)
             }
-            IconButton(onClick = onProfile) {
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onRefresh,
+                busy = isRefreshing,
+                busyContentDescription = "Atualizando Home",
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Atualizar Home", tint = MaterialTheme.colorScheme.onBackground)
+            }
+            HomeTopBarAction(
+                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                onClick = onProfile,
+            ) {
                 if (avatarUrl == null) {
                     Icon(
                         Icons.Default.AccountCircle,
@@ -610,4 +847,26 @@ private fun HomeTopBar(
             }
         }
     }
+}
+
+/**
+ * One top-bar action. The focus treatment lives in `:design-system`, shared with
+ * every other screen's top bar — this wrapper only binds the Home layout's
+ * TV spacing to it.
+ */
+@Composable
+private fun HomeTopBarAction(
+    focusFriendly: Boolean,
+    onClick: () -> Unit,
+    busy: Boolean = false,
+    busyContentDescription: String? = null,
+    content: @Composable () -> Unit,
+) {
+    MulletaFlixTopBarAction(
+        onClick = onClick,
+        focusFriendly = focusFriendly,
+        busy = busy,
+        busyContentDescription = busyContentDescription,
+        content = content,
+    )
 }

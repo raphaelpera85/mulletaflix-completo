@@ -8,6 +8,8 @@ class TrackLabelPolicyTest {
     fun `translates bare server language codes`() {
         assertEquals("Português (Brasil)", friendlyTrackName(displayName = "pt-BR", language = null, fallback = "Áudio 1"))
         assertEquals("English", friendlyTrackName(displayName = null, language = "eng", fallback = "Legenda 1"))
+        assertEquals("Nederlands", friendlyTrackName(displayName = null, language = "nld", fallback = "Legenda 1"))
+        assertEquals("日本語", friendlyTrackName(displayName = null, language = "jpn", fallback = "Áudio 1"))
     }
 
     @Test

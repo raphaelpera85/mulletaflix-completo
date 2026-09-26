@@ -87,4 +87,18 @@ class MediaDeepLinkTest {
             extractMediaLink("mulletaflix://details/movie-555"),
         )
     }
+
+    @Test
+    fun `the parsed server id reaches the pending request`() {
+        // It used to be dropped here, which is why a link generated on another
+        // server opened an unrelated item against this library.
+        val request = mediaDeepLinkRequest(
+            rawUri = "mulletaflix://details?id=movie-123&serverId=server-B",
+            sequence = 7L,
+        )
+
+        assertEquals("movie-123", request?.itemId)
+        assertEquals("server-B", request?.serverId)
+        assertEquals(7L, request?.sequence)
+    }
 }

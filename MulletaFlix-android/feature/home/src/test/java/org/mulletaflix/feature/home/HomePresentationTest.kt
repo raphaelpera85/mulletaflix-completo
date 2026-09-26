@@ -1,10 +1,13 @@
 package org.mulletaflix.feature.home
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.UserProgress
 import org.mulletaflix.domain.model.cardMetadata
 
 class HomePresentationTest {
@@ -51,6 +54,80 @@ class HomePresentationTest {
         assertEquals(
             null,
             MediaItem("episode", "Episódio", MediaItemType.Episode, indexNumber = 7).cardMetadata(),
+        )
+    }
+
+    @Test
+    fun `resume action requires a positive saved position and an unfinished item`() {
+        assertTrue(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 10,
+            ).hasResumablePlaybackPosition(),
+        )
+        assertTrue(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                userProgress = UserProgress(playbackPositionTicks = 10),
+            ).hasResumablePlaybackPosition(),
+        )
+        assertTrue(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 9,
+                runtimeTicks = 10,
+            ).hasResumablePlaybackPosition(),
+        )
+        assertFalse(MediaItem("movie", "Filme", MediaItemType.Movie).hasResumablePlaybackPosition())
+        assertFalse(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 0,
+            ).hasResumablePlaybackPosition(),
+        )
+        assertFalse(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = -1,
+                userProgress = UserProgress(playbackPositionTicks = 10),
+            ).hasResumablePlaybackPosition(),
+        )
+        assertFalse(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 10,
+                runtimeTicks = 10,
+            ).hasResumablePlaybackPosition(),
+        )
+        assertFalse(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 11,
+                runtimeTicks = 10,
+            ).hasResumablePlaybackPosition(),
+        )
+        assertFalse(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 10,
+                isPlayed = true,
+            ).hasResumablePlaybackPosition(),
         )
     }
 }

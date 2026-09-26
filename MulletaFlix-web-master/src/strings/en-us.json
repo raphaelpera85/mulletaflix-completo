@@ -1951,5 +1951,21 @@
     "NoUnidentifiedItems": "No unidentified {0} found. All items have been matched.",
     "ItemsFound": "{0} items found",
     "MessageLicenseTimeRemaining": "Seu acesso expira em {0}.",
-    "MessageLicenseExpired": "Seu acesso expirou. Entre em contato com o administrador."
+    "MessageLicenseExpired": "Seu acesso expirou. Entre em contato com o administrador.",
+    "MediaRequestTitle": "Request media",
+    "MediaRequestName": "Movie, show, or other media title",
+    "MediaRequestTypeMovie": "Movie",
+    "MediaRequestTypeSeries": "Series",
+    "MediaRequestTypeAnimation": "Animation",
+    "MediaRequestTypeNovel": "Telenovela",
+    "MediaRequestTypeDorama": "Dorama",
+    "PlaybackIssueTitle": "Report an issue with this title",
+    "PlaybackIssueDetails": "Describe the issue (optional)",
+    "PlaybackIssueCategoryPlayback": "Playback error or failure",
+    "PlaybackIssueCategoryMedia": "Missing or incorrect media",
+    "PlaybackIssueCategoryMetadata": "Incorrect title or information",
+    "UserFeedbackSent": "Submitted successfully.",
+    "UserFeedbackSendFailed": "Could not submit. Please try again.",
+    "MediaRequestsAdminTitle": "Media requests",
+    "PlaybackIssuesAdminTitle": "Reported errors and bugs"
 }

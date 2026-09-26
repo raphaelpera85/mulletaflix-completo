@@ -7,7 +7,28 @@ import { queryClient } from 'utils/query/queryClient';
 import { getBrandingOptionsQuery } from 'apps/dashboard/features/branding/api/useBrandingOptions';
 import { getDefaultTheme } from './settings/webSettings';
 
-async function getBrandingDefaultThemeId(): Promise<string | undefined> {
+/**
+ * The branding default theme is a server setting, not a per-page value, and it does not change
+ * during a session. It used to be re-resolved on every page navigation: `viewbeforeshow` calls
+ * applyTheme for each page, and the underlying branding query declares no stale time of its own, so
+ * once the global window elapsed every navigation refetched it. Caching the promise here keeps that
+ * down to a single lookup per page load.
+ */
+let brandingDefaultThemePromise: Promise<string | undefined> | undefined;
+
+function getBrandingDefaultThemeId(): Promise<string | undefined> {
+    // Only cache once there is an API client to resolve against. Before sign-in there is nothing to
+    // ask, and caching that would pin the fallback theme for the rest of the session — the branding
+    // default would then never be applied to the user who signs in afterwards.
+    if (!ServerConnections.getCurrentApi()) {
+        return Promise.resolve(undefined);
+    }
+
+    brandingDefaultThemePromise ??= loadBrandingDefaultThemeId();
+    return brandingDefaultThemePromise;
+}
+
+async function loadBrandingDefaultThemeId(): Promise<string | undefined> {
     const api = ServerConnections.getCurrentApi();
 
     if (!api) {

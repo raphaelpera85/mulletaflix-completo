@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -26,6 +27,7 @@ import org.mulletaflix.domain.repository.*
 import org.mulletaflix.domain.usecase.LoginUseCase
 import org.mulletaflix.domain.usecase.RegisterUseCase
 import org.mulletaflix.domain.usecase.VerifyServerUseCase
+import retrofit2.HttpException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthViewModelTest {
@@ -103,6 +105,7 @@ class AuthViewModelTest {
 
     @Test
     fun `quick connect availability is exposed and disabled servers get a clear message`() = runTest {
+        coEvery { discovery.discover(any()) } returns emptyList()
         val authRepo = object : FakeAuthRepository() {
             override suspend fun isQuickConnectEnabled(): Result<Boolean> = Result.success(false)
         }
@@ -117,6 +120,31 @@ class AuthViewModelTest {
             "Quick Connect está desativado neste servidor. Use usuário e senha.",
             viewModel.state.value.error,
         )
+    }
+
+    @Test
+    fun `quick connect availability failure can be retried`() = runTest {
+        coEvery { discovery.discover(any()) } returns emptyList()
+        var availabilityCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun isQuickConnectEnabled(): Result<Boolean> =
+                if (++availabilityCalls == 1) {
+                    Result.failure(IllegalStateException("timeout"))
+                } else {
+                    Result.success(true)
+                }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.isQuickConnectAvailable)
+        assertEquals("Não foi possível conectar ao servidor. Verifique a conexão e tente novamente.", viewModel.state.value.quickConnectAvailabilityError)
+
+        viewModel.retryQuickConnectAvailability()
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.state.value.isQuickConnectAvailable)
+        assertNull(viewModel.state.value.quickConnectAvailabilityError)
     }
 
     @Test
@@ -140,6 +168,73 @@ class AuthViewModelTest {
         assertEquals(1, checkCalls)
         assertTrue(viewModel.state.value.isAuthenticated)
         assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectSecret)
+    }
+
+    @Test
+    fun `quick connect poll timeout does not claim server confirmed expiration after network failures`() = runTest {
+        var checkCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                checkCalls++
+                return Result.failure(java.io.IOException("offline"))
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(QUICK_CONNECT_MAX_POLL_ATTEMPTS, checkCalls)
+        assertEquals(QUICK_CONNECT_POLL_TIMEOUT_MESSAGE, viewModel.state.value.error)
+        assertFalse(viewModel.state.value.error.orEmpty().contains("expirou", ignoreCase = true))
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectPin)
+        assertNull(viewModel.state.value.quickConnectSecret)
+    }
+
+    @Test
+    fun `transient quick connect poll failure can recover and authenticate`() = runTest {
+        var checkCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> =
+                when (++checkCalls) {
+                    1 -> Result.failure(java.io.IOException("temporary network failure"))
+                    else -> Result.success(UserSession("u1", "Raphael", "token", "s1"))
+                }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(2, checkCalls)
+        assertTrue(viewModel.state.value.isAuthenticated)
+        assertNull(viewModel.state.value.error)
+    }
+
+    @Test
+    fun `server confirmed quick connect expiration remains terminal`() = runTest {
+        val expired = HttpException(retrofit2.Response.error<Any>(404, "".toResponseBody()))
+        var checkCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                checkCalls++
+                return Result.failure(expired)
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertEquals(1, checkCalls)
+        assertEquals("O código Quick Connect expirou. Gere um novo código.", viewModel.state.value.error)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+        assertNull(viewModel.state.value.quickConnectPin)
         assertNull(viewModel.state.value.quickConnectSecret)
     }
 
@@ -193,6 +288,38 @@ class AuthViewModelTest {
         assertEquals(0, pollCalls)
         assertFalse(viewModel.state.value.isWaitingForQuickConnect)
         assertNull(viewModel.state.value.quickConnectSecret)
+    }
+
+    @Test
+    fun `cancelling quick connect clears the loading state its request left behind`() = runTest {
+        // Measured defect: "Gerar Código Quick Connect" then "Cancelar" left
+        // `isLoading` true forever. `cancelQuickConnectPolling` invalidated the
+        // request, whose only clearers are guarded by the generation it just
+        // bumped, and the repository's `runCatching` turns the cancellation into
+        // `onFailure` rather than a cancellation. The login buttons are disabled
+        // while `isLoading` is true, so the screen was stuck until an app restart.
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun initiateQuickConnect(): Result<QuickConnectState> {
+                withContext(NonCancellable) { delay(100) }
+                return Result.success(QuickConnectState("654321", "cancelled-secret", false))
+            }
+        }
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        viewModel.initiateQuickConnect()
+        runCurrent()
+        assertTrue("the initiate request must show progress", viewModel.state.value.isLoading)
+
+        viewModel.cancelQuickConnect()
+        advanceUntilIdle()
+
+        assertFalse(
+            "Cancel must clear the spinner; it invalidates the only request that raised it",
+            viewModel.state.value.isLoading,
+        )
+        assertNull(viewModel.state.value.quickConnectSecret)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
     }
 
     @Test
@@ -369,6 +496,25 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `switching from public fallback to LAN clears endpoint scoped login state`() = runTest {
+        coEvery { discovery.discover(any()) } returns listOf(
+            ServerInfo("LAN Server", "http://192.168.1.10:8096", serverId = "lan-id"),
+        )
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun getAvailableUsers(): Result<List<AvailableUser>> =
+                Result.success(listOf(AvailableUser(id = "public-user", name = "Public User")))
+        }
+
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals("http://192.168.1.10:8096", viewModel.state.value.serverUrl)
+        assertTrue(viewModel.state.value.availableUsers.isEmpty())
+        assertNull(viewModel.state.value.isQuickConnectAvailable)
+        assertNull(viewModel.state.value.quickConnectAvailabilityError)
+    }
+
+    @Test
     fun `connecting to a new endpoint refreshes the available user picker`() = runTest {
         var availableUsersCalls = 0
         val authRepo = object : FakeAuthRepository() {
@@ -448,6 +594,95 @@ class AuthViewModelTest {
 
         assertEquals("http://new-server:8096", viewModel.state.value.serverUrl)
         assertFalse(viewModel.state.value.savedServers.any { it.url == "http://old-server:8096" })
+    }
+
+    /**
+     * O botão "Entrar" fica desabilitado enquanto autentica, mas isso é lido na
+     * composição: dois toques no mesmo frame passam os dois, e o campo de senha
+     * tem ainda o "Done" do teclado como segundo caminho. Duas autenticações
+     * criam duas sessões no servidor.
+     */
+    @Test
+    fun `two taps in the same frame authenticate once`() = runTest {
+        val gate = CompletableDeferred<Result<UserSession>>()
+        var loginCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun login(username: String, password: String): Result<UserSession> {
+                loginCalls++
+                return gate.await()
+            }
+        }
+        val viewModel = createViewModel(authRepo = authRepo)
+        advanceUntilIdle()
+
+        viewModel.onUsernameChange("raphael")
+        viewModel.onPasswordChange("password123")
+        viewModel.login()
+        viewModel.login()
+
+        gate.complete(Result.success(UserSession("u1", "raphael", "tok", "s1")))
+        advanceUntilIdle()
+
+        assertEquals(1, loginCalls)
+        assertTrue(viewModel.state.value.isAuthenticated)
+    }
+
+    /**
+     * A consequência do cadastro duplicado é pior que a do login duplicado: o
+     * segundo pedido volta como "usuário já existe" e escreve esse erro por cima
+     * do sucesso que já navegou.
+     */
+    @Test
+    fun `two taps in the same frame register once and keep the success`() = runTest {
+        val gate = CompletableDeferred<Result<RegistrationResult>>()
+        var registerCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun register(username: String, password: String): Result<RegistrationResult> {
+                registerCalls++
+                return gate.await()
+            }
+        }
+        val viewModel = createViewModel(authRepo = authRepo)
+        advanceUntilIdle()
+
+        var navigated = 0
+        viewModel.register("raphael", "password123") { navigated++ }
+        viewModel.register("raphael", "password123") { navigated++ }
+
+        gate.complete(Result.success(RegistrationResult(true)))
+        advanceUntilIdle()
+
+        assertEquals(1, registerCalls)
+        assertEquals(1, navigated)
+        assertNull(viewModel.state.value.error)
+    }
+
+    @Test
+    fun `a rejected second tap does not lock the login button`() = runTest {
+        val gate = CompletableDeferred<Result<UserSession>>()
+        var loginCalls = 0
+        val authRepo = object : FakeAuthRepository() {
+            override suspend fun login(username: String, password: String): Result<UserSession> {
+                loginCalls++
+                if (loginCalls == 1) return gate.await()
+                return Result.success(UserSession("u1", username, "tok", "s1"))
+            }
+        }
+        val viewModel = createViewModel(authRepo = authRepo)
+        advanceUntilIdle()
+
+        viewModel.onUsernameChange("raphael")
+        viewModel.onPasswordChange("password123")
+        viewModel.login()
+        viewModel.login()
+        gate.complete(Result.failure(IllegalStateException("rede")))
+        advanceUntilIdle()
+
+        // A guarda não pode virar cadeado: depois da resposta o próximo envio volta.
+        assertFalse(viewModel.state.value.isLoading)
+        viewModel.login()
+        advanceUntilIdle()
+        assertEquals(2, loginCalls)
     }
 
     private open class FakeAuthRepository : AuthRepository {

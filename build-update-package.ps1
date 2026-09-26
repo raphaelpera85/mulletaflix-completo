@@ -12,7 +12,8 @@
 param(
     [string]$Version,
     [string]$OutputDir,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$SkipInstaller
 )
 
 $ErrorActionPreference = 'Stop'
@@ -211,4 +212,22 @@ finally {
     if (Test-Path -LiteralPath $tempPackageDir) {
         Remove-Item -LiteralPath $tempPackageDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+# 3. Build the Windows installer executable from the same stage so every release
+# ships both artifacts: the in-place update zip and the standalone installer.
+# Releases 12.0.46-12.0.62 shipped without the installer because no step built it.
+if ($SkipInstaller) {
+    Write-Host ""
+    Write-Host "Instalador ignorado (-SkipInstaller)." -ForegroundColor Yellow
+    Write-Host "Aviso: publish-release.ps1 recusa publicar uma release sem o instalador Windows." -ForegroundColor Yellow
+} else {
+    $installerScript = Join-Path $projectRoot 'build-mulletaflix-installer.ps1'
+    if (-not (Test-Path -LiteralPath $installerScript)) {
+        throw "build-mulletaflix-installer.ps1 not found: $installerScript"
+    }
+
+    Write-Host ""
+    Write-Host "Building Windows installer from stage..." -ForegroundColor Cyan
+    & $installerScript
 }

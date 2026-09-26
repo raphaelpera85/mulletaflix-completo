@@ -52,7 +52,8 @@ function Get-BootState {
 }
 
 try {
-    $existing = (& $adb devices) | Select-String -SimpleMatch $serial
+    $serialPattern = '^\s*' + [regex]::Escape($serial) + '\s'
+    $existing = (& $adb devices) | Where-Object { $_ -match $serialPattern }
     if (-not $existing) {
         $emulatorProcess = Start-Process -FilePath $emulator -ArgumentList @(
             "-avd", $AvdName,
@@ -60,7 +61,7 @@ try {
             "-no-snapshot",
             "-no-boot-anim",
             "-gpu", "swiftshader_indirect"
-        ) -WindowStyle Hidden -PassThru
+        ) -WindowStyle Normal -PassThru
         $startedHere = $true
     }
 
@@ -82,7 +83,14 @@ finally {
         # Capture and stop descendants before the emulator exits, otherwise
         # the parent relationship can disappear before cleanup is collected.
         Stop-StartedEmulatorTree -RootProcess $emulatorProcess
-        & $adb -s $serial emu kill 2>$null | Out-Null
+        try {
+            # The emulator may already have exited after Gradle disconnects;
+            # cleanup is idempotent and must not turn a successful test run
+            # into a false-negative wrapper failure.
+            & $adb -s $serial emu kill 2>$null | Out-Null
+        } catch {
+            # The process tree cleanup above is authoritative in this case.
+        }
         Start-Sleep -Milliseconds 500
         Stop-StartedEmulatorTree -RootProcess $emulatorProcess
     }

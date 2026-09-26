@@ -121,6 +121,38 @@ function normalizeAddress(address: string): string {
     return address;
 }
 
+function isLoopbackAddress(address: string | undefined): boolean {
+    if (!address) {
+        return false;
+    }
+
+    try {
+        const hostname = new URL(address).hostname.toLowerCase();
+        return hostname === 'localhost'
+            || hostname === '[::1]'
+            || hostname === '::1'
+            || hostname.startsWith('127.');
+    } catch {
+        return false;
+    }
+}
+
+function getBrowserServerAddress(): string | undefined {
+    if (typeof window === 'undefined' || !window.location || !/^https?:$/.test(window.location.protocol)) {
+        return undefined;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    if (isLoopbackAddress(currentUrl.origin)) {
+        return undefined;
+    }
+
+    // Keep reverse-proxy prefixes while removing the web client path.
+    const webPathIndex = currentUrl.pathname.indexOf('/web');
+    const basePath = webPathIndex >= 0 ? currentUrl.pathname.slice(0, webPathIndex) : '';
+    return `${currentUrl.origin}${basePath}`;
+}
+
 function sortByAccess(a: ServerInfo, b: ServerInfo): number {
     return (b.DateLastAccessed || 0) - (a.DateLastAccessed || 0);
 }
@@ -584,6 +616,18 @@ export default class ConnectionManager {
             const addresses: Array<{ url: string; mode: number; timeout: number }> = [];
             const addressesStrings: string[] = [];
 
+            // A browser opened through a public URL must not reuse a stale
+            // localhost address saved by a previous local connection.
+            const browserAddress = getBrowserServerAddress();
+            if (browserAddress && isLoopbackAddress(serverInfo.ManualAddress)) {
+                addresses.push({
+                    url: browserAddress,
+                    mode: ConnectionMode.Manual,
+                    timeout: 0
+                });
+                addressesStrings.push(browserAddress);
+            }
+
             // the timeouts are a small hack to try and ensure the remote address doesn't resolve first
 
             // manualAddressOnly is used for the local web app that always connects to a fixed address
@@ -689,6 +733,12 @@ export default class ConnectionManager {
             }
 
             updateServerInfo(server, systemInfo);
+
+            if (connectionMode === ConnectionMode.Manual
+                && isLoopbackAddress(server.ManualAddress)
+                && !isLoopbackAddress(serverUrl)) {
+                server.ManualAddress = serverUrl;
+            }
 
             server.LastConnectionMode = connectionMode;
 
