@@ -24,6 +24,15 @@ button::-moz-focus-inner {
     contain: layout style;
     flex-shrink: 0;
     font-weight: inherit !important;
+    /* F-7: grids render every item at once (no virtualization). content-visibility
+     * skips layout/paint/rendering work for cards that are off-screen, which is a
+     * no-JS way to get most of virtualization's benefit for grids of up to ~100
+     * cards. contain-intrinsic-size reserves an approximate box (backdrop/16:9
+     * shape is the most common) so the browser doesn't have to lay out the card
+     * to know its size before deciding it's off-screen, which would otherwise
+     * cause scroll position/height to jump as cards enter the viewport. */
+    content-visibility: auto;
+    contain-intrinsic-size: 100% 200px;
 }
 
 .card:not(.show-animation) {
