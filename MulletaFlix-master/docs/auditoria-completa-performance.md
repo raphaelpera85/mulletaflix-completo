@@ -1722,5 +1722,19 @@ banco (causa raiz já corrigida em rodadas anteriores), gap de Cast/Chromecast n
 índice da Database Wave 3 (exige janela de manutenção dedicada) e a decisão sobre quais dos commits
 pendentes em `main` vão para `release/v12.0.92`.
 
+## Rodada 32 — B-1 (já corrigido), H-7, H-5, H-10 executados
+
+Processo: reler o código atual de cada arquivo (`git log --oneline -3 -- <arquivo>` + leitura
+completa) antes de editar, corrigir, `dotnet build MulletaFlix.sln -c Debug`, rodar os testes reais
+focados, um commit por achado. Ordem seguida: B-1 (P0) → H-7 (checando duplicação com B-6 primeiro) →
+H-5 → H-10.
+
+| Item | Arquivo | O que mudou | Verificação | Commit |
+| --- | --- | --- | --- | --- |
+| **B-1** | `ProviderManager.cs:1275-1341` | **Já corrigido, sem ação nesta rodada.** Leitura completa do `QueueRefresh`/`StartProcessingRefreshQueue` mostrou que tanto o `Enqueue` (linha 1282) quanto o `TryDequeue` (linha 1324) já estão dentro de `lock (_refreshQueueLock)`, com comentários explicando exatamente o risco de corrupção do heap que a auditoria descreve (`git blame` aponta commit `309027ff6` de 23/09, já em `main`). O achado descrevia um estado anterior do código; hoje o `PriorityQueue` já é acessado de forma serializada. Nenhum novo commit criado para não duplicar trabalho já existente | `git blame -L 1275,1290` confirma o lock já presente nos dois pontos citados pela auditoria | *(nenhum — já resolvido em `309027ff6`)* |
+| **H-7** | `Jellyfin.Server.Implementations/Trickplay/TrickplayManager.cs` | Verificado primeiro se B-6 (commit `5e16d97e`, rodada anterior) já cobria o achado: B-6 só cacheou `GetTrickplayManifest`, mas `GetTrickplayTilePathAsync` (chamado por tile) e `GetHlsPlaylist` chamam `GetTrickplayResolutions` diretamente, fora do manifest, continuando sem cache — não era duplicado. Adicionado cache em `IMemoryCache` por itemId (mesmo TTL de 10min), com invalidação explícita em `SaveTrickplayInfo`/`DeleteTrickplayDataAsync` ao lado da invalidação do manifest existente | Build 0 erros, 806 avisos preexistentes (não regressão). Sem suíte dedicada a Trickplay no repo (`search_files *Trickplay*` em `tests/` = 0 arquivos) | `f5d3f60d` |
+| **H-5** | `MediaBrowser.MediaEncoding/Subtitles/SubtitleEncoder.cs`, `Jellyfin.Api/Controllers/SubtitleController.cs` | `SubtitleEncoder.GetSubtitles` ganhou `IMemoryCache` injetado, cacheando os bytes resultantes por `(mediaSourceId, subtitleStreamIndex, outputFormat, startTimeTicks, endTimeTicks, preserveOriginalTimestamps)` por 10min — evita re-resolver o media source (`allowMediaProbe:true`) e re-parsear o arquivo inteiro em pedidos repetidos da mesma janela. `SubtitleController.GetSubtitle` calcula um ETag forte (SHA-256) sobre os mesmos parâmetros, responde 304 quando `If-None-Match` bate, e define `Cache-Control: public, max-age=86400` nas respostas 200 | Build 0 erros. `Jellyfin.MediaEncoding.Tests` filtro `SubtitleEncoderTests` 4/4. `Jellyfin.Api.Tests` filtro `SubtitleControllerTests` 2/2 | `29961fcd` |
+| **H-10** | `Jellyfin.Api/Controllers/HlsSegmentController.cs:155` | `GetHlsVideoSegmentLegacy` chamava `_fileSystem.GetFilePaths` no diretório de transcode inteiro por request de segmento, comparando `Path.GetExtension`+`Contains` entrada por entrada. `GetHlsPlaylistLegacy` (mesma classe) já constrói exatamente o mesmo caminho como `Path.Combine(transcodePath, playlistId + ".m3u8")`. Adicionado esse caminho direto como fast path (`File.Exists`), com fallback preservado para a enumeração antiga do diretório caso o arquivo direto não exista | Build 0 erros. Sem teste dedicado a `HlsSegmentController` no repo (`search_files *HlsSegment*` = 0 arquivos); suíte completa `Jellyfin.Api.Tests` 148/148 (sem regressão nos demais controllers) | `e41dcdc5` |
+
 
 
