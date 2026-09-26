@@ -53,7 +53,10 @@ export const Component: FC = () => {
                 sx={{
                     display: 'flex',
                     flexDirection: 'column',
-                    minHeight: '100%'
+                    // The legacy page container uses absolutely-positioned pages.
+                    // A percentage minimum height has no definite containing height,
+                    // so the main area collapses and clips dashboard tables.
+                    minHeight: '100vh'
                 }}
             >
                 <StrictMode>

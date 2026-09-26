@@ -87,70 +87,7 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- **Nebula inicia uploads sem esperar a limpeza**: workers de envio agora são ativados antes da limpeza de staging, e raízes de volume como `D:\` são rejeitadas como staging para evitar varreduras recursivas do disco inteiro antes dos envios.
-- **Priorização de Mídia STRM e Séries no Nebula**: ao solicitar a reprodução ou detalhes de uma mídia que possua arquivos `.strm`, o motor Nebula concede prioridade imediata de download e upload para esses arquivos. Para séries, animações, novelas e dramas, a priorização é estendida automaticamente para todas as temporadas e episódios correspondentes do título, destravando o ciclo do downloader instantaneamente.
-- **Solicitações aparecem atualizadas e entram na prioridade Nebula**: as telas administrativas de solicitações e reportes recarregam dados recentes ao serem abertas; ao gravar uma solicitação, o título também é registrado nas filas de prioridade de download STRM e upload, inclusive quando o Nebula foi iniciado manualmente.
-- **Autocomplete para solicitações de mídia**: o formulário consulta o catálogo STRM monitorado com debounce, sugere título/categoria/ano e permite seleção por teclado; a busca autenticada retorna apenas metadados, nunca caminhos locais, e títulos ausentes continuam podendo ser solicitados.
-- **Correção visual no Painel de Administração e Centro de Atualizações**: corrigido o deslocamento duplicado no layout das telas do dashboard (provocado por `transform: translateX(20em)` na classe legada `.skinBody`), que criava um vão preto vazio de mais de 300px à esquerda e projetava o conteúdo e cartões para fora da tela à direita. A estrutura CSS do dashboard agora neutraliza transformações legadas, alinha o conteúdo diretamente após a barra de navegação lateral (drawer) e adiciona quebra responsiva de tabelas e textos longos de changelog no componente Markdown.
-- **Correção na busca remota de imagens de títulos**: corrigido o defeito na tela de busca de novas imagens do título (dialog de busca com Fanart, TMDb, etc.) que renderizava apenas 1 cartão mesmo informando múltiplas imagens disponíveis (ex: "1-30 de 82"). As tags dos cartões HTML (`imageDownloader.ts`) agora possuem estrutura DOM balanceada com fechamento correto de `cardBox visualCardBox`, permitindo que todas as imagens paginadas apareçam lado a lado na grade visual.
-- **Nova tela de Cache de Reprodução Nebula no menu Reprodução**: criada a tela de gerenciamento de cache de mídia do catálogo Nebula em `/dashboard/playback/nebulacache`, acessível diretamente como submenu de "Reprodução" no drawer lateral. Apresenta cartões com espaço ocupado em disco, arquivos em cache, quantidade de reproduções ativas com leases protegidos, barra de porcentagem de uso do disco, seletor de diretório de cache (`DirectoryBrowser`) e botão para limpeza imediata de arquivos inativos.
-- **Endpoints de gerenciamento do Cache Nebula**: implementados os endpoints `GET /Nebula/Ftp/PlaybackCache` (consulta de status e armazenamento), `POST /Nebula/Ftp/PlaybackCache/Path` (atualização e migração do caminho de cache) e `POST /Nebula/Ftp/PlaybackCache/Clear` (limpeza segura de buffers inativos).
-- **Solicitações e reportes em todos os clientes**: usuários podem solicitar filmes, séries e outras mídias pela página inicial, e reportar falhas de reprodução diretamente no título. O painel de gestão ganhou telas separadas para acompanhar os envios; o servidor autentica e registra os relatos para consulta administrativa.
-
-- **Intro inicia sem esperar o pré-buffer**: buscar e preparar o cache da mídia principal não bloqueia mais a resposta da intro nativa; falhas de cache ficam isoladas e não retiram a intro da sequência. Os logs agora registram quando a intro é fornecida e quantas intros foram resolvidas para cada mídia.
-
-- **Backup MongoDB → Supabase a cada hora**: sincronização automática agora executa em intervalo fixo de 60 minutos. Configurações antigas que impunham 24 horas são migradas para o ciclo horário; usuários do aplicativo continuam fora deste backup.
-- **Pré-buffer de reprodução valida a resposta**: a fonte da mídia só é mantida para o player depois que o endpoint de streaming responde com sucesso e entrega bytes; respostas HTTP de erro deixam o player buscar uma fonte nova, em vez de provocar “não foi possível encontrar uma fonte de mídia válida”. A sondagem usa apenas 64 KB e cancela o restante.
-- **Falha na intro não bloqueia a mídia**: quando o servidor rejeita a fonte de vídeo da intro nativa, a reprodução não exibe o erro genérico nem engole a rejeição; o player tenta iniciar imediatamente o episódio ou filme já pré-carregado.
-- **Reprodução da intro corrigida**: intros nativas resolvidas por caminho agora são registradas como itens transitórios quando a API as entrega ao player. A consulta posterior de PlaybackInfo pelo ID e o streaming usam o mesmo registro, evitando o erro de “não foi possível encontrar uma fonte de mídia válida”.
-- **PlaybackInfo POST reconhece a intro transitória**: o endpoint usado pelo player web agora procura a intro no registro temporário antes de tentar resolver um caminho. Isso evita a falha de fonte de mídia para a intro nativa que não está cadastrada na biblioteca persistente.
-- **Intro nativa automática antes de cada mídia**: o servidor usa a intro incluída no pacote por padrão, mesmo quando a configuração antiga ainda a marcava como desativada. A tela de Marca agora informa que a execução é automática e mantém o caminho apenas para uma intro personalizada.
-- **Pré-cache começa junto com a intro**: ao iniciar a reprodução, o servidor resolve o arquivo STRM da mídia selecionada e baixa em segundo plano todas as partes do Telegram para o cache local temporário, reduzindo esperas e travamentos durante o vídeo. Falhas no pré-cache não interrompem a reprodução.
-- **Cache local durante a reprodução Nebula**: ao iniciar uma mídia, o servidor mantém o streaming normal e pré-carrega os blocos do Telegram em `cache\nebula-playback`, servindo os próximos blocos do disco quando disponíveis. O cache é compartilhado entre STRM HTTP e a montagem FTP N:, protegido por sessão ativa e removido após uma hora sem atividade.
-- **Dois arquivos nesta release**: o instalador executável `mulletaflix_<versao>_windows-x64.exe`, para instalação limpa em uma máquina nova, e o pacote de atualização in-place `mulletaflix-update-win-x64.zip`, para quem já tem o servidor instalado. Desde a 12.0.63 o instalador executável é publicado junto de toda release de servidor.
-- **Varredura de séries não perde mais metadados**: ao regravar um item que já existia e cuja metadata mudou (provedores, campos travados ou trailers), as linhas filhas eram mapeadas apontando de volta para a instância nova do item. O EF seguia essa navegação, tentava rastrear uma segunda instância com o mesmo `Id` de uma linha já carregada do banco e abortava tudo com "cannot be tracked because another instance with the same key value for {'Id'} is already being tracked". O item deixava de ser salvo e a varredura registrava "Error while performing a library operation". A navegação agora é substituída pela chave estrangeira explícita antes da reinserção.
-- **Fim do esgotamento do pool do MariaDB**: cada arquivo indexado disparava uma verificação própria que esperava 10 segundos e depois rodava um `RefreshMetadata` completo. Numa varredura de milhares de séries, isso virava milhares de atualizações simultâneas e o pool batia no teto. O sintoma era "Connect Timeout expired. All pooled connections are in use.". As verificações agora passam por um limite de 4 simultâneas.
-- **Falha transitória de conexão deixa de descartar o item**: erros de conexão do MariaDB (pool esgotado, timeout, socket resetado) agora entram no retry com backoff maior, em vez de descartar o salvamento do item silenciosamente.
-- **MyDramaList para de inundar o log**: o provider agora reporta a primeira recusa 403 uma única vez e fica quieto por 30 minutos, devolvendo resultado vazio sem tocar na rede.
-- **Boot do cliente web quase 2 MB mais leve**: o logo de boot era um PNG de 1.003 KB; virou WebP de 53 KB. Tráfego antes do primeiro render: 4.139 KB → 2.243 KB.
-- **Log do banco corrigido**: o servidor dizia "MySQL database: mulletaflix" na inicialização; o motor é o MariaDB 11.4 embutido.
-
----
-
-## 🆕 Novidades desta versão
-
-### 🗄️ MariaDB como único banco de dados
-
-- **SQLite removido por completo** do servidor. O MulletaFlix agora roda exclusivamente em MariaDB.
-- Eliminadas todas as referências ao SQLite: provider, NuGet packages, migrações legadas e helpers.
-- **IntroSkipper corrigido para MariaDB**: queries reescritas para `IReadOnlySet` — resolvido erro em produção *"ReadOnlySpan<Guid>.op_Implicit could not be translated"*.
-- **Ferramenta de migração incluída** (`tools/MulletaFlix.IntroSkipperMigration`): importa bancos SQLite legados para o MariaDB. Idempotente, nunca sobrescreve dados existentes.
-- **MariaDB otimizado**: `max_connections 300` · `innodb_io_capacity 2000` · `lock-wait-timeout 25s` · buffer pool 256 MB · redo log 128 MB.
-
-### 📁 Nebula: pastas STRM separadas por categoria
-
-A pasta Nebula agora organiza as mídias em quatro raízes distintas, nesta sequência de download:
-
-| # | Categoria | Pasta STRM |
-|---|-----------|-----------|
-| 1 | Filmes | `Nebula\Filmes\` |
-| 2 | Animações | `Nebula\Animações\` |
-| 3 | Séries | `Nebula\Series\` |
-| 4 | Novelas | `Nebula\Novelas\` |
-
-- **Novelas e Animações ganham raízes próprias** separadas de Séries.
-- **Migração automática no startup**: novelas dentro de `Series` no MongoDB são detectadas e movidas para `Novelas`. Também disponível via `POST /Nebula/Actions/ScanNovelas`.
-- **Ciclo de cleanup ajustado de 30 s → 15 min**: elimina a principal causa de pressão de memória em máquinas com ~16 GB.
-- **Correção: duplo-upload de arquivos**: a chave de dedupe da fila não era removida ao reenfileirar sidecars, permitindo upload duplicado do mesmo arquivo.
-- **Download com envio imediato**: mídias encontradas pelo download que já estão disponíveis localmente e precisam somente de envio agora são registradas no MongoDB e colocadas diretamente na fila de upload do Nebula, sem aguardar o scanner periódico.
-- **Identificação automática corrige nome e capa**: GoodShort, ShortMax, DramaFinds e DramaBox agora substituem os metadados e a imagem antigos ao aplicar uma identificação confirmada, evitando que uma capa ou título de outra mídia permaneça no item reconhecido.
-- **Título e capa permanecem da mesma fonte reconhecida**: quando a identificação traz um `ProviderId`, o provider correspondente passa a ser a autoridade para nome e imagens; os demais providers só enriquecem campos e completam artes ausentes, evitando título antigo com capa nova ou nova sobrescrita da capa correta.
-- **Dashboard informa atualização disponível**: o bloco Servidor agora consulta o status de atualização, mostra a versão disponível ao lado da versão instalada e abre o Centro de Atualizações ao clicar no aviso.
-
-### 🧪 Cobertura de testes
-
-- 254 testes unitários Nebula passando (0 falhas).
-- 18 testes de integração IntroSkipper cobrindo registro do plugin e migração SQLite→MariaDB.
+- Correção de layout do dashboard: a altura mínima da aplicação agora usa a altura da viewport, evitando que o contêiner principal colapse e oculte a grade de solicitações mesmo quando a API retorna títulos.
 '@
 
 $bodyContent = $bodyContent.Replace('__TAG__', $Tag)
