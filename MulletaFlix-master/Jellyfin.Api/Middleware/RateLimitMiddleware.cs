@@ -128,14 +128,49 @@ public class RateLimitMiddleware
     }
 
     internal static bool IsPathOrDescendant(string path, string route)
-        => string.Equals(path, route, StringComparison.OrdinalIgnoreCase)
-            || path.StartsWith(route + "/", StringComparison.OrdinalIgnoreCase);
+    {
+        var pathSpan = path.AsSpan();
+        var routeSpan = route.AsSpan();
+
+        if (pathSpan.Equals(routeSpan, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Avoids the `route + "/"` string allocation on every call: compare the route prefix and
+        // the boundary separator as two spans instead of concatenating a throwaway string first.
+        return pathSpan.Length > routeSpan.Length
+            && pathSpan[routeSpan.Length] == '/'
+            && pathSpan[..routeSpan.Length].Equals(routeSpan, StringComparison.OrdinalIgnoreCase);
+    }
 
     internal static bool IsStaticWebAssetPath(string path)
-        => StaticWebPaths.Any(route => IsPathOrDescendant(path, route));
+    {
+        // A `foreach` avoids the per-request closure allocation that `Array.Any(route => ...)`
+        // would create by capturing `path`.
+        foreach (var route in StaticWebPaths)
+        {
+            if (IsPathOrDescendant(path, route))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     internal static bool IsPublicBootstrapPath(string path)
-        => PublicBootstrapPaths.Any(route => IsPathOrDescendant(path, route));
+    {
+        foreach (var route in PublicBootstrapPaths)
+        {
+            if (IsPathOrDescendant(path, route))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     internal static bool IsLoopback(string ip)
         => IPAddress.TryParse(ip, out var address) && IPAddress.IsLoopback(address);
