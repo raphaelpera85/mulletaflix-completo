@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Page from 'components/Page';
 import globalize from 'lib/globalize';
 import Box from '@mui/material/Box';
@@ -29,13 +30,24 @@ interface UnidentifiedItem {
     DateCreated: string;
 }
 
+async function fetchUnidentifiedItems(mediaType: string): Promise<UnidentifiedItem[]> {
+    const api = ServerConnections.getCurrentApi();
+    if (!api) throw new Error('No API available');
+    const baseUrl = api.basePath;
+    const token = api.accessToken;
+    const resp = await fetch(baseUrl + '/Items/Unidentified?mediaType=' + mediaType, {
+        headers: { Authorization: 'MediaBrowser Token="' + token + '"' }
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const result: unknown = await resp.json();
+    if (!Array.isArray(result)) {
+        throw new Error('Invalid unidentified media response');
+    }
+    return result as UnidentifiedItem[];
+}
+
 export const Component = () => {
     const [tab, setTab] = useState(0);
-    const [items, setItems] = useState<UnidentifiedItem[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [lastUpdate, setLastUpdate] = useState<string | null>(null);
-    const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const mediaType = tab === 0 ? 'Movies' : 'Series';
     const typeLabel = tab === 0 ? globalize.translate('Movies') : globalize.translate('Series');
@@ -44,71 +56,33 @@ export const Component = () => {
         setTab(value);
     }, []);
 
-    const fetchItems = useCallback(async (silent = false) => {
-        if (!silent) setLoading(true);
-        setError(null);
-        try {
-            const api = ServerConnections.getCurrentApi();
-            if (!api) throw new Error('No API available');
-            const baseUrl = api.basePath;
-            const token = api.accessToken;
-            const resp = await fetch(baseUrl + '/Items/Unidentified?mediaType=' + mediaType, {
-                headers: { Authorization: 'MediaBrowser Token="' + token + '"' }
-            });
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const result: unknown = await resp.json();
-            if (!Array.isArray(result)) {
-                throw new Error('Invalid unidentified media response');
-            }
-            setItems(result as UnidentifiedItem[]);
-            setLastUpdate(new Date().toLocaleTimeString());
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to fetch items');
-        } finally {
-            setLoading(false);
-        }
-    }, [mediaType]);
+    // F-12: this was the only screen in the app polling manually with
+    // setInterval + setItems(newArray), which forced a full re-render on
+    // every 15s tick even when the API returned the exact same items. useQuery
+    // with its default `structuralSharing` keeps the previous object/array
+    // references for parts of the response that didn't change, so consumers
+    // (and React) can bail out of re-rendering when nothing actually changed.
+    // It also gives us window-focus refetch and default background-pause of
+    // refetchInterval for free, replacing the manual visibilitychange/focus
+    // listeners that used to be needed.
+    const {
+        data: items,
+        isLoading: loading,
+        error: queryError,
+        dataUpdatedAt,
+        refetch
+    } = useQuery({
+        queryKey: ['UnidentifiedItems', mediaType],
+        queryFn: () => fetchUnidentifiedItems(mediaType),
+        refetchInterval: POLL_INTERVAL
+    });
+
+    const error = queryError instanceof Error ? queryError.message : (queryError ? 'Failed to fetch items' : null);
+    const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null;
 
     const onRefreshClick = useCallback(() => {
-        void fetchItems();
-    }, [fetchItems]);
-
-    const stopPolling = useCallback(() => {
-        if (pollingRef.current !== null) {
-            clearInterval(pollingRef.current);
-            pollingRef.current = null;
-        }
-    }, []);
-
-    const startPolling = useCallback(() => {
-        stopPolling();
-        pollingRef.current = setInterval(() => {
-            void fetchItems(true);
-        }, POLL_INTERVAL);
-    }, [fetchItems, stopPolling]);
-
-    useEffect(() => {
-        void fetchItems();
-        startPolling();
-        const onFocus = () => {
-            void fetchItems(true);
-        };
-        const onVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                void fetchItems(true);
-                startPolling();
-            } else {
-                stopPolling();
-            }
-        };
-        window.addEventListener('focus', onFocus);
-        document.addEventListener('visibilitychange', onVisibilityChange);
-        return () => {
-            window.removeEventListener('focus', onFocus);
-            document.removeEventListener('visibilitychange', onVisibilityChange);
-            stopPolling();
-        };
-    }, [fetchItems, startPolling, stopPolling]);
+        void refetch();
+    }, [refetch]);
 
     return (
         <Page
@@ -167,13 +141,13 @@ export const Component = () => {
                     </Alert>
                 )}
 
-                {!loading && !error && items.length === 0 && (
+                {!loading && !error && (items?.length ?? 0) === 0 && (
                     <Alert severity='success'>
                         {globalize.translate('NoUnidentifiedItems', typeLabel)}
                     </Alert>
                 )}
 
-                {!loading && !error && items.length > 0 && (
+                {!loading && !error && items && items.length > 0 && (
                     <>
                         <Typography variant='subtitle1' sx={{ mb: 1 }}>
                             {items.length} {globalize.translate('ItemsFound', typeLabel)}
