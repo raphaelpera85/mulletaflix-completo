@@ -288,15 +288,27 @@ public class ItemPersistenceService : IItemPersistenceService
         ArgumentNullException.ThrowIfNull(items);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var lockIndex = items.Count > 0 ? (items[0].Id.GetHashCode() & 15) : 0;
-        var updateLock = _updateOrInsertLocks[lockIndex];
+        // Every item in the batch can hash to a different lock stripe. Picking the stripe from
+        // just items[0] let two batches that share no items but disagree only on their *first*
+        // element run UpdateOrInsertItemsCore concurrently while both touch an item that hashes
+        // to a stripe neither of them locked, risking a lost update. Instead, collect every
+        // distinct stripe touched by the batch and acquire them all, always in ascending index
+        // order, so two batches with overlapping stripe sets can never deadlock on each other.
+        var lockIndices = items.Count > 0
+            ? items.Select(e => e.Id.GetHashCode() & 15).Distinct().Order().ToArray()
+            : [0];
 
         // This whole path is intentionally synchronous (called from library scans and scheduled
         // tasks). Use the blocking Wait instead of the async-over-sync WaitAsync().GetResult()
         // pattern to avoid spinning the async state machine and holding a thread longer than needed.
-        updateLock.Wait(cancellationToken);
+        var acquiredCount = 0;
         try
         {
+            for (; acquiredCount < lockIndices.Length; acquiredCount++)
+            {
+                _updateOrInsertLocks[lockIndices[acquiredCount]].Wait(cancellationToken);
+            }
+
             for (var attempt = 1; attempt <= 3; attempt++)
             {
                 try
@@ -328,7 +340,10 @@ public class ItemPersistenceService : IItemPersistenceService
         }
         finally
         {
-            updateLock.Release();
+            for (var i = acquiredCount - 1; i >= 0; i--)
+            {
+                _updateOrInsertLocks[lockIndices[i]].Release();
+            }
         }
     }
 
