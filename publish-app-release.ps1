@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Publishes the MulletaFlix Android App release to GitHub Releases.
 .DESCRIPTION
@@ -16,6 +16,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
 function Normalize-AppVersion {

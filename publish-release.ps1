@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Tag,
     [string]$Title,
@@ -10,6 +10,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
 # Default the release identity to the server version the checkout currently builds.
