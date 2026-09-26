@@ -43,6 +43,7 @@ public static class StreamingHelpers
     /// <param name="transcodingJobType">The <see cref="TranscodingJobType"/>.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/>.</param>
     /// <param name="transientMediaItemRegistry">Optional registry for path-resolved playback items.</param>
+    /// <param name="preresolvedMediaSource">Optional <see cref="MediaSourceInfo"/> already resolved by the caller, avoiding a second lookup.</param>
     /// <returns>A <see cref="Task"/> containing the current <see cref="StreamState"/>.</returns>
     public static async Task<StreamState> GetStreamingState(
         StreamingRequestDto streamingRequest,
@@ -56,7 +57,8 @@ public static class StreamingHelpers
         ITranscodeManager transcodeManager,
         TranscodingJobType transcodingJobType,
         CancellationToken cancellationToken,
-        TransientMediaItemRegistry? transientMediaItemRegistry = null)
+        TransientMediaItemRegistry? transientMediaItemRegistry = null,
+        MediaSourceInfo? preresolvedMediaSource = null)
     {
         var httpRequest = httpContext.Request;
         if (!string.IsNullOrWhiteSpace(streamingRequest.Params))
@@ -121,33 +123,42 @@ public static class StreamingHelpers
         MediaSourceInfo? mediaSource = null;
         if (string.IsNullOrWhiteSpace(streamingRequest.LiveStreamId))
         {
-            var currentJob = !string.IsNullOrWhiteSpace(streamingRequest.PlaySessionId)
-                ? transcodeManager.GetTranscodingJob(streamingRequest.PlaySessionId)
-                : null;
-
-            if (currentJob is not null)
+            if (preresolvedMediaSource is not null)
             {
-                mediaSource = currentJob.MediaSource;
+                // The caller already resolved the media source (e.g. via MediaInfoHelper.GetPlaybackInfo)
+                // and applied device-specific data to it, so avoid resolving it a second time here.
+                mediaSource = preresolvedMediaSource;
             }
-
-            if (mediaSource is null)
+            else
             {
-                dynamic mediaSourceManagerImpl = mediaSourceManager;
-                IReadOnlyList<MediaSourceInfo> mediaSources = await mediaSourceManagerImpl.GetPlaybackMediaSources(
-                    item,
-                    null,
-                    false,
-                    false,
-                    cancellationToken,
-                    httpContext.User.GetToken()).ConfigureAwait(false);
+                var currentJob = !string.IsNullOrWhiteSpace(streamingRequest.PlaySessionId)
+                    ? transcodeManager.GetTranscodingJob(streamingRequest.PlaySessionId)
+                    : null;
 
-                mediaSource = string.IsNullOrEmpty(streamingRequest.MediaSourceId)
-                    ? mediaSources[0]
-                    : mediaSources.FirstOrDefault(i => string.Equals(i.Id, streamingRequest.MediaSourceId, StringComparison.Ordinal));
-
-                if (mediaSource is null && Guid.Parse(streamingRequest.MediaSourceId).Equals(streamingRequest.Id))
+                if (currentJob is not null)
                 {
-                    mediaSource = mediaSources[0];
+                    mediaSource = currentJob.MediaSource;
+                }
+
+                if (mediaSource is null)
+                {
+                    dynamic mediaSourceManagerImpl = mediaSourceManager;
+                    IReadOnlyList<MediaSourceInfo> mediaSources = await mediaSourceManagerImpl.GetPlaybackMediaSources(
+                        item,
+                        null,
+                        false,
+                        false,
+                        cancellationToken,
+                        httpContext.User.GetToken()).ConfigureAwait(false);
+
+                    mediaSource = string.IsNullOrEmpty(streamingRequest.MediaSourceId)
+                        ? mediaSources[0]
+                        : mediaSources.FirstOrDefault(i => string.Equals(i.Id, streamingRequest.MediaSourceId, StringComparison.Ordinal));
+
+                    if (mediaSource is null && Guid.Parse(streamingRequest.MediaSourceId).Equals(streamingRequest.Id))
+                    {
+                        mediaSource = mediaSources[0];
+                    }
                 }
             }
         }

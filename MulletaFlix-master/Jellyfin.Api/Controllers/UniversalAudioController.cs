@@ -254,7 +254,9 @@ public class UniversalAudioController : BaseMulletaFlixApiController
             Context = EncodingContext.Static
         };
 
-        return await _audioHelper.GetAudioStream(TranscodingJobType.Progressive, audioStreamingDto).ConfigureAwait(false);
+        // Reuse the media source already resolved above via MediaInfoHelper.GetPlaybackInfo instead of
+        // letting AudioHelper/StreamingHelpers resolve it a second time for the same request (H-8).
+        return await _audioHelper.GetAudioStream(TranscodingJobType.Progressive, audioStreamingDto, mediaSource).ConfigureAwait(false);
     }
 
     private DeviceProfile GetDeviceProfile(
