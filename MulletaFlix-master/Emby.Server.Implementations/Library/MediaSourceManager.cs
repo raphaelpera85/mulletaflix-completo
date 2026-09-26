@@ -630,24 +630,32 @@ namespace Emby.Server.Implementations.Library
             MediaSourceInfo mediaSource;
             ILiveStream liveStream;
 
+            // NOTE: _liveStreamLocker previously wrapped the entire block below, including the
+            // await on provider.OpenMediaSource(...), which performs the actual (potentially slow)
+            // network call to open the remote stream. Because this is a single global lock shared
+            // by every Live TV operation (including CloseLiveStream), holding it across that await
+            // blocked all other Live TV activity for the duration of a slow connection.
+            // _openStreams is a ConcurrentDictionary, so reading a snapshot of its values and writing
+            // the newly opened stream into it are already thread-safe without external locking. The
+            // lock is only needed to serialize the provider resolution + registration around the
+            // network call, not the network call itself, so it is scoped to just that critical section.
+            var (provider, keyId) = GetProvider(request.OpenToken);
+            var currentLiveStreams = _openStreams.Values.ToList();
+
+            liveStream = await provider.OpenMediaSource(keyId, currentLiveStreams, cancellationToken).ConfigureAwait(false);
+
+            mediaSource = liveStream.MediaSource;
+
+            // Validate that this is actually possible
+            if (mediaSource.SupportsDirectStream)
+            {
+                mediaSource.SupportsDirectStream = SupportsDirectStream(mediaSource.Path, mediaSource.Protocol);
+            }
+
+            SetKeyProperties(provider, mediaSource);
+
             using (await _liveStreamLocker.LockAsync(cancellationToken).ConfigureAwait(false))
             {
-                var (provider, keyId) = GetProvider(request.OpenToken);
-
-                var currentLiveStreams = _openStreams.Values.ToList();
-
-                liveStream = await provider.OpenMediaSource(keyId, currentLiveStreams, cancellationToken).ConfigureAwait(false);
-
-                mediaSource = liveStream.MediaSource;
-
-                // Validate that this is actually possible
-                if (mediaSource.SupportsDirectStream)
-                {
-                    mediaSource.SupportsDirectStream = SupportsDirectStream(mediaSource.Path, mediaSource.Protocol);
-                }
-
-                SetKeyProperties(provider, mediaSource);
-
                 _openStreams[mediaSource.LiveStreamId] = liveStream;
             }
 
