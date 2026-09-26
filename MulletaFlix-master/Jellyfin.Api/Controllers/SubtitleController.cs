@@ -565,6 +565,10 @@ public class SubtitleController : BaseMulletaFlixApiController
         Response.Headers.CacheControl = "public, max-age=86400";
     }
 
+    private static (string Path, DateTime CachedUtc, FontFile[] Fonts, string ETag)? _fallbackFontCache;
+    private static readonly Lock _fallbackFontCacheLock = new();
+    private static readonly TimeSpan FallbackFontCacheDuration = TimeSpan.FromMinutes(5);
+
     /// <summary>
     /// Gets a list of available fallback font files.
     /// </summary>
@@ -573,46 +577,85 @@ public class SubtitleController : BaseMulletaFlixApiController
     [HttpGet("FallbackFont/Fonts")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public IEnumerable<FontFile> GetFallbackFontList()
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    public ActionResult<IEnumerable<FontFile>> GetFallbackFontList()
     {
         var encodingOptions = _serverConfigurationManager.GetEncodingOptions();
         var fallbackFontPath = encodingOptions.FallbackFontPath;
 
-        if (!string.IsNullOrEmpty(fallbackFontPath))
-        {
-            var files = _fileSystem.GetFiles(fallbackFontPath, new[] { ".woff", ".woff2", ".ttf", ".otf" }, false, false);
-            var fontFiles = files
-                .Select(i => new FontFile
-                {
-                    Name = i.Name,
-                    Size = i.Length,
-                    DateCreated = _fileSystem.GetCreationTimeUtc(i),
-                    DateModified = _fileSystem.GetLastWriteTimeUtc(i)
-                })
-                .OrderBy(i => i.Size)
-                .ThenBy(i => i.Name)
-                .ThenByDescending(i => i.DateModified)
-                .ThenByDescending(i => i.DateCreated);
-            // max total size 20M
-            const int MaxSize = 20971520;
-            var sizeCounter = 0L;
-            foreach (var fontFile in fontFiles)
-            {
-                sizeCounter += fontFile.Size;
-                if (sizeCounter >= MaxSize)
-                {
-                    _logger.LogWarning("Some fonts will not be sent due to size limitations");
-                    yield break;
-                }
-
-                yield return fontFile;
-            }
-        }
-        else
+        if (string.IsNullOrEmpty(fallbackFontPath))
         {
             _logger.LogWarning("The path of fallback font folder has not been set");
             encodingOptions.EnableFallbackFont = false;
+            return Ok((IEnumerable<FontFile>)Array.Empty<FontFile>());
         }
+
+        var now = DateTime.UtcNow;
+        FontFile[] fontFiles;
+        string etag;
+
+        lock (_fallbackFontCacheLock)
+        {
+            if (_fallbackFontCache is { } cached
+                && string.Equals(cached.Path, fallbackFontPath, StringComparison.OrdinalIgnoreCase)
+                && now - cached.CachedUtc < FallbackFontCacheDuration)
+            {
+                fontFiles = cached.Fonts;
+                etag = cached.ETag;
+            }
+            else
+            {
+                var files = _fileSystem.GetFiles(fallbackFontPath, new[] { ".woff", ".woff2", ".ttf", ".otf" }, false, false);
+                var orderedFiles = files
+                    .Select(i => new FontFile
+                    {
+                        Name = i.Name,
+                        Size = i.Length,
+                        DateCreated = _fileSystem.GetCreationTimeUtc(i),
+                        DateModified = _fileSystem.GetLastWriteTimeUtc(i)
+                    })
+                    .OrderBy(i => i.Size)
+                    .ThenBy(i => i.Name)
+                    .ThenByDescending(i => i.DateModified)
+                    .ThenByDescending(i => i.DateCreated);
+
+                const int MaxSize = 20971520;
+                var sizeCounter = 0L;
+                var list = new List<FontFile>();
+                foreach (var fontFile in orderedFiles)
+                {
+                    sizeCounter += fontFile.Size;
+                    if (sizeCounter >= MaxSize)
+                    {
+                        _logger.LogWarning("Some fonts will not be sent due to size limitations");
+                        break;
+                    }
+
+                    list.Add(fontFile);
+                }
+
+                fontFiles = list.ToArray();
+                var rawHash = string.Join(';', fontFiles.Select(f => $"{f.Name}_{f.Size}_{f.DateModified.Ticks}"));
+                var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(rawHash));
+                etag = "\"" + Convert.ToHexString(hashBytes) + "\"";
+
+                _fallbackFontCache = (fallbackFontPath, now, fontFiles, etag);
+            }
+        }
+
+        var ifNoneMatch = Request.Headers.IfNoneMatch.ToString();
+        if (!string.IsNullOrEmpty(ifNoneMatch)
+            && (string.Equals(ifNoneMatch, etag, StringComparison.Ordinal)
+                || string.Equals(ifNoneMatch, etag.Trim('\"'), StringComparison.Ordinal)))
+        {
+            Response.Headers.ETag = etag;
+            Response.Headers.CacheControl = "public, max-age=300";
+            return StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        Response.Headers.ETag = etag;
+        Response.Headers.CacheControl = "public, max-age=300";
+        return Ok((IEnumerable<FontFile>)fontFiles);
     }
 
     /// <summary>

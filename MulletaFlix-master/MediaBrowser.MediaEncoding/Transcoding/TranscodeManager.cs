@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -45,12 +46,21 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     private readonly IMediaSourceManager _mediaSourceManager;
     private readonly IAttachmentExtractor _attachmentExtractor;
 
-    private readonly List<TranscodingJob> _activeTranscodingJobs = new();
+    // Keyed by output path with a case-insensitive comparer to preserve the original semantics of
+    // the `List<TranscodingJob>` + StringComparison.OrdinalIgnoreCase lookups it replaces.
+    private readonly ConcurrentDictionary<string, TranscodingJob> _activeTranscodingJobs = new(StringComparer.OrdinalIgnoreCase);
     private readonly AsyncKeyedLocker<string> _transcodingLocks = new(o =>
     {
         o.PoolSize = 20;
         o.PoolInitialFill = 1;
     });
+
+    /// <summary>
+    /// Bounds the number of ffmpeg processes that can run at the same time. <see langword="null"/>
+    /// when <see cref="MediaBrowser.Model.Configuration.EncodingOptions.MaxConcurrentTranscodingJobs"/> is unset, which preserves the
+    /// historical unbounded behavior.
+    /// </summary>
+    private readonly SemaphoreSlim? _transcodeJobSemaphore;
 
     private readonly Version _maxFFmpegCkeyPauseSupported = new Version(6, 1);
 
@@ -91,6 +101,12 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         _attachmentExtractor = attachmentExtractor;
 
         _logger = loggerFactory.CreateLogger<TranscodeManager>();
+
+        var maxConcurrentTranscodingJobs = serverConfigurationManager.GetEncodingOptions().MaxConcurrentTranscodingJobs;
+        _transcodeJobSemaphore = maxConcurrentTranscodingJobs > 0
+            ? new SemaphoreSlim(maxConcurrentTranscodingJobs, maxConcurrentTranscodingJobs)
+            : null;
+
         DeleteEncodedMediaCache();
         _sessionManager.PlaybackProgress += OnPlaybackProgress;
         _sessionManager.PlaybackStart += OnPlaybackProgress;
@@ -99,19 +115,25 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     /// <inheritdoc />
     public TranscodingJob? GetTranscodingJob(string playSessionId)
     {
-        lock (_activeTranscodingJobs)
+        foreach (var job in _activeTranscodingJobs.Values)
         {
-            return _activeTranscodingJobs.FirstOrDefault(j => string.Equals(j.PlaySessionId, playSessionId, StringComparison.OrdinalIgnoreCase));
+            if (string.Equals(job.PlaySessionId, playSessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                return job;
+            }
         }
+
+        return null;
     }
 
     /// <inheritdoc />
     public TranscodingJob? GetTranscodingJob(string path, TranscodingJobType type)
     {
-        lock (_activeTranscodingJobs)
-        {
-            return _activeTranscodingJobs.FirstOrDefault(j => j.Type == type && string.Equals(j.Path, path, StringComparison.OrdinalIgnoreCase));
-        }
+        // The dictionary is keyed by output path, so this is a single lookup rather than the
+        // full linear scan a `List<TranscodingJob>` under a lock used to require.
+        return _activeTranscodingJobs.TryGetValue(path, out var job) && job.Type == type
+            ? job
+            : null;
     }
 
     /// <inheritdoc />
@@ -121,17 +143,16 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
         _logger.LogDebug("PingTranscodingJob PlaySessionId={0} isUsedPaused: {1}", playSessionId, isUserPaused);
 
-        List<TranscodingJob> jobs;
-
-        lock (_activeTranscodingJobs)
+        // This is really only needed for HLS.
+        // Progressive streams can stop on their own reliably.
+        // ConcurrentDictionary.Values takes a lock-free snapshot, so no explicit lock is needed here.
+        foreach (var job in _activeTranscodingJobs.Values)
         {
-            // This is really only needed for HLS.
-            // Progressive streams can stop on their own reliably.
-            jobs = _activeTranscodingJobs.Where(j => string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
+            if (!string.Equals(playSessionId, job.PlaySessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
 
-        foreach (var job in jobs)
-        {
             if (isUserPaused.HasValue)
             {
                 _logger.LogDebug("Setting job.IsUserPaused to {0}. jobId: {1}", isUserPaused, job.Id);
@@ -206,16 +227,13 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     /// <inheritdoc />
     public Task KillTranscodingJobs(string deviceId, string? playSessionId, Func<string, bool> deleteFiles)
     {
-        var jobs = new List<TranscodingJob>();
-
-        lock (_activeTranscodingJobs)
-        {
-            // This is really only needed for HLS.
-            // Progressive streams can stop on their own reliably.
-            jobs.AddRange(_activeTranscodingJobs.Where(j => string.IsNullOrWhiteSpace(playSessionId)
+        // This is really only needed for HLS.
+        // Progressive streams can stop on their own reliably.
+        var jobs = _activeTranscodingJobs.Values
+            .Where(j => string.IsNullOrWhiteSpace(playSessionId)
                 ? string.Equals(deviceId, j.DeviceId, StringComparison.OrdinalIgnoreCase)
-                : string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase)));
-        }
+                : string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         return Task.WhenAll(GetKillJobs());
 
@@ -234,16 +252,14 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
         _logger.LogDebug("KillTranscodingJob - JobId {0} PlaySessionId {1}. Killing transcoding", job.Id, job.PlaySessionId);
 
-        lock (_activeTranscodingJobs)
+        if (job.Path is not null)
         {
-            _activeTranscodingJobs.Remove(job);
+            _activeTranscodingJobs.TryRemove(job.Path, out _);
+        }
 
-            if (job.CancellationTokenSource?.IsCancellationRequested == false)
-            {
-#pragma warning disable CA1849 // Can't await in lock block
-                job.CancellationTokenSource.Cancel();
-#pragma warning restore CA1849
-            }
+        if (job.CancellationTokenSource?.IsCancellationRequested == false)
+        {
+            job.CancellationTokenSource.Cancel();
         }
 
         job.Stop();
@@ -497,7 +513,27 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
         await logStream.WriteAsync(commandLineLogMessageBytes, cancellationTokenSource.Token).ConfigureAwait(false);
 
-        process.Exited += (_, _) => OnFfMpegProcessExited(process, transcodingJob, state);
+        var semaphoreAcquired = false;
+        if (_transcodeJobSemaphore is not null)
+        {
+            await _transcodeJobSemaphore.WaitAsync(cancellationTokenSource.Token).ConfigureAwait(false);
+            semaphoreAcquired = true;
+        }
+
+        var released = 0;
+        void ReleaseJobSemaphore()
+        {
+            if (semaphoreAcquired && Interlocked.Exchange(ref released, 1) == 0)
+            {
+                _transcodeJobSemaphore?.Release();
+            }
+        }
+
+        process.Exited += (_, _) =>
+        {
+            ReleaseJobSemaphore();
+            OnFfMpegProcessExited(process, transcodingJob, state);
+        };
 
         try
         {
@@ -507,6 +543,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         {
             _logger.LogError(ex, "Error starting FFmpeg");
             OnTranscodeFailedToStart(outputPath, transcodingJobType, state);
+            ReleaseJobSemaphore();
 
             throw;
         }
@@ -597,28 +634,25 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         StreamState state,
         CancellationTokenSource cancellationTokenSource)
     {
-        lock (_activeTranscodingJobs)
+        var job = new TranscodingJob(_loggerFactory.CreateLogger<TranscodingJob>())
         {
-            var job = new TranscodingJob(_loggerFactory.CreateLogger<TranscodingJob>())
-            {
-                Type = type,
-                Path = path,
-                Process = process,
-                ActiveRequestCount = 1,
-                DeviceId = deviceId,
-                CancellationTokenSource = cancellationTokenSource,
-                Id = transcodingJobId,
-                PlaySessionId = playSessionId,
-                LiveStreamId = liveStreamId,
-                MediaSource = state.MediaSource
-            };
+            Type = type,
+            Path = path,
+            Process = process,
+            ActiveRequestCount = 1,
+            DeviceId = deviceId,
+            CancellationTokenSource = cancellationTokenSource,
+            Id = transcodingJobId,
+            PlaySessionId = playSessionId,
+            LiveStreamId = liveStreamId,
+            MediaSource = state.MediaSource
+        };
 
-            _activeTranscodingJobs.Add(job);
+        _activeTranscodingJobs[job.Path!] = job;
 
-            ReportTranscodingProgress(job, state, null, null, null, null, null);
+        ReportTranscodingProgress(job, state, null, null, null, null, null);
 
-            return job;
-        }
+        return job;
     }
 
     /// <inheritdoc />
@@ -634,14 +668,9 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
     private void OnTranscodeFailedToStart(string path, TranscodingJobType type, StreamState state)
     {
-        lock (_activeTranscodingJobs)
+        if (_activeTranscodingJobs.TryGetValue(path, out var job) && job.Type == type)
         {
-            var job = _activeTranscodingJobs.FirstOrDefault(j => j.Type == type && string.Equals(j.Path, path, StringComparison.OrdinalIgnoreCase));
-
-            if (job is not null)
-            {
-                _activeTranscodingJobs.Remove(job);
-            }
+            _activeTranscodingJobs.TryRemove(path, out _);
         }
 
         if (!string.IsNullOrWhiteSpace(state.Request.DeviceId))
@@ -699,24 +728,18 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     /// <inheritdoc />
     public TranscodingJob? OnTranscodeBeginRequest(string path, TranscodingJobType type)
     {
-        lock (_activeTranscodingJobs)
+        if (!_activeTranscodingJobs.TryGetValue(path, out var job) || job.Type != type)
         {
-            var job = _activeTranscodingJobs
-                .FirstOrDefault(j => j.Type == type && string.Equals(j.Path, path, StringComparison.OrdinalIgnoreCase));
-
-            if (job is null)
-            {
-                return null;
-            }
-
-            job.ActiveRequestCount++;
-            if (string.IsNullOrWhiteSpace(job.PlaySessionId) || job.Type == TranscodingJobType.Progressive)
-            {
-                job.StopKillTimer();
-            }
-
-            return job;
+            return null;
         }
+
+        job.ActiveRequestCount++;
+        if (string.IsNullOrWhiteSpace(job.PlaySessionId) || job.Type == TranscodingJobType.Progressive)
+        {
+            job.StopKillTimer();
+        }
+
+        return job;
     }
 
     private void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
@@ -765,6 +788,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     {
         _sessionManager.PlaybackProgress -= OnPlaybackProgress;
         _sessionManager.PlaybackStart -= OnPlaybackProgress;
+        _transcodeJobSemaphore?.Dispose();
         _transcodingLocks.Dispose();
     }
 }

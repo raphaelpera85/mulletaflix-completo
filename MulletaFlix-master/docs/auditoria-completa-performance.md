@@ -1736,5 +1736,95 @@ H-5 → H-10.
 | **H-5** | `MediaBrowser.MediaEncoding/Subtitles/SubtitleEncoder.cs`, `Jellyfin.Api/Controllers/SubtitleController.cs` | `SubtitleEncoder.GetSubtitles` ganhou `IMemoryCache` injetado, cacheando os bytes resultantes por `(mediaSourceId, subtitleStreamIndex, outputFormat, startTimeTicks, endTimeTicks, preserveOriginalTimestamps)` por 10min — evita re-resolver o media source (`allowMediaProbe:true`) e re-parsear o arquivo inteiro em pedidos repetidos da mesma janela. `SubtitleController.GetSubtitle` calcula um ETag forte (SHA-256) sobre os mesmos parâmetros, responde 304 quando `If-None-Match` bate, e define `Cache-Control: public, max-age=86400` nas respostas 200 | Build 0 erros. `Jellyfin.MediaEncoding.Tests` filtro `SubtitleEncoderTests` 4/4. `Jellyfin.Api.Tests` filtro `SubtitleControllerTests` 2/2 | `29961fcd` |
 | **H-10** | `Jellyfin.Api/Controllers/HlsSegmentController.cs:155` | `GetHlsVideoSegmentLegacy` chamava `_fileSystem.GetFilePaths` no diretório de transcode inteiro por request de segmento, comparando `Path.GetExtension`+`Contains` entrada por entrada. `GetHlsPlaylistLegacy` (mesma classe) já constrói exatamente o mesmo caminho como `Path.Combine(transcodePath, playlistId + ".m3u8")`. Adicionado esse caminho direto como fast path (`File.Exists`), com fallback preservado para a enumeração antiga do diretório caso o arquivo direto não exista | Build 0 erros. Sem teste dedicado a `HlsSegmentController` no repo (`search_files *HlsSegment*` = 0 arquivos); suíte completa `Jellyfin.Api.Tests` 148/148 (sem regressão nos demais controllers) | `e41dcdc5` |
 
+## Rodada 33 — F-1 reavaliado após F-3 aliviar RootAppRouter, aplicado
+
+A Rodada 26 tinha implementado, medido e revertido o F-1 (`src/index.tsx`): adiantar
+`import('./RootAppRouter')` para logo depois de `appHost.init()` ficou ~50ms mais lento (290ms
+antes vs 343ms depois, faixas sem sobreposição), porque na época `RootAppRouter.tsx` importava
+estaticamente as 4 árvores de rotas (`DASHBOARD_APP_ROUTES`/`EXPERIMENTAL_APP_ROUTES`/
+`STABLE_APP_ROUTES`/`WIZARD_APP_ROUTES`), arrastando MUI inteiro — paralelizar só competia por
+banda com os próprios assets do caminho crítico.
+
+Essa premissa mudou nesta mesma sessão: a Rodada 31 (F-3/FRONT-1, commit `79284557`) removeu
+exatamente esses imports estáticos, trocando por `patchRoutesOnNavigation` (lazy nativo do React
+Router). Confirmado por leitura do `RootAppRouter.tsx` atual: o chunk `RootAppRouter-*.js` caiu
+para **8.40 KB (3.42 KB gzip)** — não arrasta mais o grafo inteiro da aplicação.
+
+### Processo e medição
+
+Reli `src/index.tsx` (linhas 1-120) e `RootAppRouter.tsx` por completo antes de mexer — nenhum
+commit concorrente havia tocado esses arquivos desde a Rodada 31. O arnês `verify-web-boot.mjs`
+da Rodada 26 ainda existe no repo e o servidor real (`127.0.0.1:8096`, v12.0.92) estava disponível,
+então a medição pôde reusar o mesmo método: `npm run build:production` (gera `dist/` completo
+incluindo `config.json`, sem o qual o arnês cai em fallthrough para o servidor e invalida a
+comparação), depois `WEB_LATENCY_MS=40 node verify-web-boot.mjs`, 8 execuções por lado (ambiente
+mais ruidoso que a Rodada 26 — servidor com outra carga concorrente, por isso mais amostras).
+
+| | primeiro render (ms), 8 execuções |
+| --- | --- |
+| antes (import após loadPlugins, como a Rodada 26 deixou) | 401, 334, 606, 444, 534, 367, 366, 388 — média 430, mediana 394,5 |
+| depois (import em paralelo com loadCoreDictionary) | 254, 325, 558, 428, 378, 442, 386, 389 — média 395, mediana 387,5 |
+
+Ao contrário da Rodada 26, as faixas se sobrepõem — o ambiente está ruidoso demais (variação de
+~350ms dentro do mesmo lado) para cravar um ganho estatístico só pela medição. Mas, diferente da
+Rodada 26, também **não há sinal de regressão**: nenhuma faixa "depois" fica sistematicamente
+acima da faixa "antes", e média/mediana melhoram levemente. A decisão de aplicar não se apoia só
+no ruído da medição, e sim na mudança estrutural comprovada por leitura de código e pelo tamanho
+do chunk: o import agora resolve um módulo de 8,4 KB, não um grafo de ~200 chunks — o mecanismo
+que causou a regressão medida na Rodada 26 (contenção de banda com o grafo inteiro) não existe
+mais.
+
+### Implementação
+
+`import('./RootAppRouter')` passou a ser disparado (sem `await` imediato) logo depois de
+`serverAddress()`, guardando a Promise numa variável; o `await` sobre essa Promise só acontece
+depois de `loadPlugins()`, imediatamente antes de `renderApp()` — mantendo a garantia de que o
+router está pronto antes do primeiro render. `loadPlugins()` **não** foi movido — continua na
+mesma posição relativa, só o import do router passou a começar antes em vez de depois dele.
+
+### Portão da rodada 33
+
+```text
+npm run build:check      # tsc --noEmit limpo
+npm run build:production # dist gerado, RootAppRouter-*.js 8.40 KB / gzip 3.42 KB
+npm test                 # vitest 26 arquivos / 208 testes, 0 falhas
+node verify-web-boot.mjs # BOOT OK (servidor real 127.0.0.1:8096, 8x cada lado, ver tabela acima)
+```
+
+Commit: `4d3cbe85` (`MulletaFlix-web-master`, `src/index.tsx`).
+
+---
+
+## Rodada 34 — Evicção de Cache (5m), Concorrência de Transcode (H-13) e Caching de Fontes de Legenda com ETag (H-15)
+
+### Contexto e Motivação
+1. **Evicção de Cache Ativo (5 min)**: O disco de staging e cache de streaming acumulavam dados temporários por horas/anos (`mount_drive_n.py` com `--vfs-cache-max-age 87600h`, e `NebulaPlaybackCache` com cleanup a cada 1h e retenção de 1h), gerando esgotamento de espaço em disco no host.
+2. **H-13 (Transcoding Concurrency & Locks)**: `TranscodeManager._activeTranscodingJobs` utilizava dicionário comum protegido por múltiplos blocos `lock (_activeTranscodingJobs)` em caminhos críticos de kill e início de transcode, além de não possuir limitação configurável de transcodificações simultâneas (`MaxConcurrentTranscodingJobs`), podendo sobrecarregar o hardware com múltiplos processos FFmpeg concorrentes.
+3. **H-15 (Subtitle Fallback Fonts Caching + ETag)**: `SubtitleController.GetFallbackFontList()` escaneava o disco, filtrava extensões e computava limites de tamanho a cada requisição de cliente sem cache ou cabeçalhos HTTP (`ETag`, `Cache-Control`), forçando I/O redundante em bibliotecas com legendas customizadas.
+
+### Alterações Realizadas
+1. **`NebulaPlaybackCache.cs`**:
+   - `DefaultEntryLifetime` e `DefaultCleanupInterval` reduzidos de 1h para 5 minutos.
+   - Sweep com tratamento defensivo por diretório (`try/catch` granular), verificação de leases ativos, requisições inflight e prefetch antes de desalocar arquivos.
+   - Remoção de flags de somente leitura antes de deletar arquivos temporários bloqueados.
+2. **`mount_drive_n.py`**:
+   - `--vfs-cache-max-age` reduzido de 87600h para `10m`.
+3. **`TranscodeManager.cs` & `EncodingOptions.cs` (H-13)**:
+   - Adicionado `MaxConcurrentTranscodingJobs` em `EncodingOptions`.
+   - `_activeTranscodingJobs` migrado para `ConcurrentDictionary<string, TranscodingJob>(StringComparer.OrdinalIgnoreCase)`.
+   - Locks eliminados em `KillTranscodingJobs`, `KillTranscodingJob`, `OnTranscodeBeginning`, `OnTranscodeFailedToStart` e `OnTranscodeBeginRequest`.
+   - Adicionado semáforo assíncrono `_transcodeJobSemaphore` gerenciando o teto de processos FFmpeg simultâneos com liberação atômica via `Interlocked.Exchange`.
+4. **`SubtitleController.cs` (H-15)**:
+   - Cache deslizante estático em memória (TTL de 5 minutos) para a lista ordenada de fontes de fallback.
+   - ETag SHA-256 gerado a partir de nomes, tamanhos e `DateModified.Ticks` dos arquivos de fonte.
+   - Suporte a requisições condicionais via `If-None-Match`, retornando `304 Not Modified` e cabeçalho `Cache-Control: public, max-age=300`.
+
+### Portão de Testes e Evidências
+- `tests/Jellyfin.Server.Implementations.Tests`: 926 aprovados, 0 falhas, 38 ignorados (código 0).
+- `tests/Jellyfin.MediaEncoding.Tests`: 66 aprovados, 0 falhas (código 0).
+- `tests/Jellyfin.Api.Tests`: 166 aprovados, 0 falhas (código 0).
+- `build-update-package.ps1`: Pacote de atualização zip e executável compilados com sucesso.
+
+
 
 

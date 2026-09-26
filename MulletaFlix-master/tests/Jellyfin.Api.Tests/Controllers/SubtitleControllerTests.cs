@@ -56,16 +56,105 @@ public class SubtitleControllerTests
         Assert.IsType<NotFoundResult>(result);
     }
 
-    private static SubtitleController CreateController(ILibraryManager libraryManager)
+    [Fact]
+    public void GetFallbackFontList_WhenPathEmpty_ReturnsEmptyArray()
+    {
+        var configManager = new Mock<IServerConfigurationManager>();
+        configManager.Setup(c => c.GetConfiguration("encoding"))
+            .Returns(new MediaBrowser.Model.Configuration.EncodingOptions { FallbackFontPath = string.Empty });
+
+        var controller = CreateController(configManager: configManager.Object);
+
+        var result = controller.GetFallbackFontList();
+
+        var okResult = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
+        var fonts = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<MediaBrowser.Model.Subtitles.FontFile>>(okResult.Value);
+        Assert.Empty(fonts);
+    }
+
+    [Fact]
+    public void GetFallbackFontList_WhenCalled_ReturnsOkWithETagAndCacheHeaders()
+    {
+        var fontDir = @"C:\fonts";
+        var configManager = new Mock<IServerConfigurationManager>();
+        configManager.Setup(c => c.GetConfiguration("encoding"))
+            .Returns(new MediaBrowser.Model.Configuration.EncodingOptions { FallbackFontPath = fontDir });
+
+        var fileSystem = new Mock<IFileSystem>();
+        var sampleFile = new FileSystemMetadata
+        {
+            FullName = @"C:\fonts\test.ttf",
+            Name = "test.ttf",
+            Length = 1024
+        };
+        fileSystem.Setup(f => f.GetFiles(fontDir, It.IsAny<System.Collections.Generic.IReadOnlyList<string>>(), false, false))
+            .Returns(new[] { sampleFile });
+        fileSystem.Setup(f => f.GetCreationTimeUtc(sampleFile)).Returns(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        fileSystem.Setup(f => f.GetLastWriteTimeUtc(sampleFile)).Returns(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var controller = CreateController(configManager: configManager.Object, fileSystem: fileSystem.Object);
+
+        var result = controller.GetFallbackFontList();
+
+        var okResult = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
+        var fonts = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<MediaBrowser.Model.Subtitles.FontFile>>(okResult.Value);
+        Assert.Single(fonts);
+
+        var responseHeaders = controller.Response.Headers;
+        Assert.True(responseHeaders.ContainsKey("ETag"));
+        Assert.Equal("public, max-age=300", responseHeaders.CacheControl.ToString());
+    }
+
+    [Fact]
+    public void GetFallbackFontList_WhenIfNoneMatchMatches_Returns304NotModified()
+    {
+        var fontDir = @"C:\fonts";
+        var configManager = new Mock<IServerConfigurationManager>();
+        configManager.Setup(c => c.GetConfiguration("encoding"))
+            .Returns(new MediaBrowser.Model.Configuration.EncodingOptions { FallbackFontPath = fontDir });
+
+        var fileSystem = new Mock<IFileSystem>();
+        var sampleFile = new FileSystemMetadata
+        {
+            FullName = @"C:\fonts\test.ttf",
+            Name = "test.ttf",
+            Length = 1024
+        };
+        fileSystem.Setup(f => f.GetFiles(fontDir, It.IsAny<System.Collections.Generic.IReadOnlyList<string>>(), false, false))
+            .Returns(new[] { sampleFile });
+        fileSystem.Setup(f => f.GetCreationTimeUtc(sampleFile)).Returns(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        fileSystem.Setup(f => f.GetLastWriteTimeUtc(sampleFile)).Returns(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        // Call once to discover the ETag
+        var controller1 = CreateController(configManager: configManager.Object, fileSystem: fileSystem.Object);
+        controller1.GetFallbackFontList();
+        var etag = controller1.Response.Headers.ETag.ToString();
+        Assert.False(string.IsNullOrEmpty(etag));
+
+        // Call second time with If-None-Match header
+        var controller2 = CreateController(configManager: configManager.Object, fileSystem: fileSystem.Object);
+        controller2.Request.Headers.IfNoneMatch = etag;
+
+        var result2 = controller2.GetFallbackFontList();
+
+        var statusCodeResult = Assert.IsType<StatusCodeResult>(result2.Result);
+        Assert.Equal(StatusCodes.Status304NotModified, statusCodeResult.StatusCode);
+        Assert.Equal("public, max-age=300", controller2.Response.Headers.CacheControl.ToString());
+    }
+
+    private static SubtitleController CreateController(
+        ILibraryManager? libraryManager = null,
+        IServerConfigurationManager? configManager = null,
+        IFileSystem? fileSystem = null)
     {
         return new SubtitleController(
-            Mock.Of<IServerConfigurationManager>(),
-            libraryManager,
+            configManager ?? Mock.Of<IServerConfigurationManager>(),
+            libraryManager ?? Mock.Of<ILibraryManager>(),
             Mock.Of<ISubtitleManager>(),
             Mock.Of<ISubtitleEncoder>(),
             Mock.Of<IMediaSourceManager>(),
             Mock.Of<IProviderManager>(),
-            Mock.Of<IFileSystem>(),
+            fileSystem ?? Mock.Of<IFileSystem>(),
             Mock.Of<ILogger<SubtitleController>>())
         {
             ControllerContext = new ControllerContext

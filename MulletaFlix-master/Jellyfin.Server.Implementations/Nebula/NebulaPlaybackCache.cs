@@ -13,13 +13,23 @@ namespace Jellyfin.Server.Implementations.Nebula;
 
 /// <summary>
 /// Cache compartilhado, temporário e em disco para blocos de mídias reproduzidas pelo Nebula.
-/// O cache é separado por mídia e expira uma hora depois da última atividade.
+/// O cache é separado por mídia e expira 5 minutos depois da última atividade não utilizada.
 /// </summary>
 public sealed class NebulaPlaybackCache : IDisposable
 {
-    private static readonly TimeSpan EntryLifetime = TimeSpan.FromHours(1);
+    /// <summary>
+    /// Tempo de expiração padrão de entradas de reprodução não utilizadas (5 minutos).
+    /// </summary>
+    public static readonly TimeSpan DefaultEntryLifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Intervalo padrão do timer de limpeza periódica do cache (5 minutos).
+    /// </summary>
+    public static readonly TimeSpan DefaultCleanupInterval = TimeSpan.FromMinutes(5);
+
     private readonly string _rootPath;
     private readonly ILogger<NebulaPlaybackCache> _logger;
+    private readonly TimeSpan _entryLifetime;
     private readonly ConcurrentDictionary<string, int> _activeMedia = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, DateTime> _lastActivity = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Lazy<Task<byte[]>>> _inflight = new(StringComparer.Ordinal);
@@ -27,7 +37,7 @@ public sealed class NebulaPlaybackCache : IDisposable
     private readonly Timer _cleanupTimer;
     private int _disposed;
 
-    public NebulaPlaybackCache(string cachePath, ILogger<NebulaPlaybackCache> logger)
+    public NebulaPlaybackCache(string cachePath, ILogger<NebulaPlaybackCache> logger, TimeSpan? entryLifetime = null)
     {
         if (string.IsNullOrWhiteSpace(cachePath))
         {
@@ -36,8 +46,9 @@ public sealed class NebulaPlaybackCache : IDisposable
 
         _rootPath = Path.Combine(cachePath, "nebula-playback");
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _entryLifetime = entryLifetime ?? DefaultEntryLifetime;
         Directory.CreateDirectory(_rootPath);
-        _cleanupTimer = new Timer(static state => ((NebulaPlaybackCache)state!).CleanupExpiredEntries(), this, EntryLifetime, EntryLifetime);
+        _cleanupTimer = new Timer(static state => ((NebulaPlaybackCache)state!).CleanupExpiredEntries(), this, DefaultCleanupInterval, DefaultCleanupInterval);
     }
 
     /// <summary>Marca uma mídia como em reprodução. Enquanto houver uma sessão, seus blocos não são removidos.</summary>
@@ -118,33 +129,102 @@ public sealed class NebulaPlaybackCache : IDisposable
             return;
         }
 
-        var cutoff = (nowUtc ?? DateTime.UtcNow) - EntryLifetime;
+        var cutoff = (nowUtc ?? DateTime.UtcNow) - _entryLifetime;
         try
         {
+            if (!Directory.Exists(_rootPath))
+            {
+                return;
+            }
+
             foreach (var directory in Directory.EnumerateDirectories(_rootPath))
             {
-                var mediaKey = Path.GetFileName(directory);
-                if (_activeMedia.ContainsKey(mediaKey))
+                try
                 {
-                    continue;
-                }
+                    var mediaKey = Path.GetFileName(directory);
+                    if (_activeMedia.ContainsKey(mediaKey))
+                    {
+                        continue;
+                    }
 
-                var lastActivity = _lastActivity.TryGetValue(mediaKey, out var tracked)
-                    ? tracked
-                    : Directory.GetLastWriteTimeUtc(directory);
-                if (lastActivity > cutoff)
+                    if (_prefetches.ContainsKey(mediaKey))
+                    {
+                        continue;
+                    }
+
+                    if (_inflight.Keys.Any(k => k.StartsWith(mediaKey + ":", StringComparison.Ordinal)))
+                    {
+                        continue;
+                    }
+
+                    var lastActivity = _lastActivity.TryGetValue(mediaKey, out var tracked)
+                        ? tracked
+                        : GetDirectoryLastActivityUtc(directory);
+                    if (lastActivity > cutoff)
+                    {
+                        continue;
+                    }
+
+                    DeleteDirectorySafe(directory);
+                    _lastActivity.TryRemove(mediaKey, out _);
+                    _logger.LogInformation("[NEBULA-CACHE] Cache de reprodução expirado (> 5 min sem uso) removido: {MediaKey}", mediaKey);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    continue;
+                    _logger.LogDebug(ex, "[NEBULA-CACHE] Não foi possível remover o diretório de cache {Directory}.", directory);
                 }
-
-                Directory.Delete(directory, recursive: true);
-                _lastActivity.TryRemove(mediaKey, out _);
-                _logger.LogInformation("[NEBULA-CACHE] Cache de reprodução expirado removido: {MediaKey}", mediaKey);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _logger.LogDebug(ex, "[NEBULA-CACHE] Não foi possível concluir a limpeza do cache de reprodução.");
+            _logger.LogDebug(ex, "[NEBULA-CACHE] Não foi possível concluir a enumeração do cache de reprodução.");
+        }
+    }
+
+    private static DateTime GetDirectoryLastActivityUtc(string directory)
+    {
+        var latest = Directory.GetLastWriteTimeUtc(directory);
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly))
+            {
+                var fileTime = File.GetLastWriteTimeUtc(file);
+                if (fileTime > latest)
+                {
+                    latest = fileTime;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        return latest;
+    }
+
+    private static void DeleteDirectorySafe(string directory)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                    File.Delete(file);
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (DirectoryNotFoundException)
+        {
         }
     }
 

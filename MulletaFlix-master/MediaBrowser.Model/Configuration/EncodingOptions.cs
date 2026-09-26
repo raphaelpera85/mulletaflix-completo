@@ -125,6 +125,17 @@ public class EncodingOptions
     public int SegmentKeepSeconds { get; set; }
 
     /// <summary>
+    /// Gets or sets the maximum number of FFmpeg transcoding jobs allowed to run at the same time.
+    /// </summary>
+    /// <remarks>
+    /// Zero or a negative value means unlimited, which is the historical (unbounded) behavior.
+    /// Each concurrent job is a full ffmpeg process competing for CPU/IO, so an admin running on
+    /// modest hardware may want to cap this rather than let every simultaneous stream spawn its
+    /// own encoder unconditionally.
+    /// </remarks>
+    public int MaxConcurrentTranscodingJobs { get; set; }
+
+    /// <summary>
     /// Gets or sets the hardware acceleration type.
     /// </summary>
     public HardwareAccelerationType HardwareAccelerationType { get; set; }
