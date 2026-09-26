@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Net;
 using Microsoft.AspNetCore.Http;
@@ -70,10 +71,12 @@ public class AudioHelper
     /// </summary>
     /// <param name="transcodingJobType">Transcoding job type.</param>
     /// <param name="streamingRequest">Streaming controller.Request dto.</param>
+    /// <param name="preresolvedMediaSource">Optional <see cref="MediaSourceInfo"/> already resolved by the caller (e.g. UniversalAudioController via MediaInfoHelper), avoiding a duplicate resolution.</param>
     /// <returns>A <see cref="Task"/> containing the resulting <see cref="ActionResult"/>.</returns>
     public async Task<ActionResult> GetAudioStream(
         TranscodingJobType transcodingJobType,
-        StreamingRequestDto streamingRequest)
+        StreamingRequestDto streamingRequest,
+        MediaSourceInfo? preresolvedMediaSource = null)
     {
         if (_httpContextAccessor.HttpContext is null)
         {
@@ -96,7 +99,8 @@ public class AudioHelper
                 _encodingHelper,
                 _transcodeManager,
                 transcodingJobType,
-                cancellationTokenSource.Token)
+                cancellationTokenSource.Token,
+                preresolvedMediaSource: preresolvedMediaSource)
             .ConfigureAwait(false);
 
         if (streamingRequest.Static && state.DirectStreamProvider is not null)
