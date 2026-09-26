@@ -237,7 +237,7 @@ function getRemoteImageBodyHtml(safeImageUrl: string, shape: string): string {
         '<div class="cardImageContainer lazy" data-src="' + escapeHtml(safeImageUrl) + '" style="background-position:center center;background-size:contain;"></div>' :
         '<a is="emby-linkbutton" target="_blank" rel="noopener noreferrer" href="' + escapeHtml(safeImageUrl) + '" class="button-link cardImageContainer lazy" data-src="' + escapeHtml(safeImageUrl) + '" style="background-position:center center;background-size:contain"></a>';
 
-    return '<div class="cardBox visualCardBox"><div class="cardScalable visualCardBox-cardScalable" style="background-color:transparent;">'
+    return '<div class="cardScalable visualCardBox-cardScalable" style="background-color:transparent;">'
         + '<div class="cardPadder-' + shape + '"></div><div class="cardContent">'
         + image + '</div></div>';
 }
@@ -288,7 +288,7 @@ function getRemoteImageFooterHtml(image: RemoteImage, enableFooterButtons: boole
 
     if (enableFooterButtons) {
         footer += '<div class="cardText cardTextCentered">'
-            + `<button is="paper-icon-button-light" class="btnDownloadRemoteImage autoSize" raised" title="${escapeHtml(globalize.translate('Download'))}"><span class="material-icons cloud_download" aria-hidden="true"></span></button>`
+            + `<button is="paper-icon-button-light" class="btnDownloadRemoteImage autoSize" raised title="${escapeHtml(globalize.translate('Download'))}"><span class="material-icons cloud_download" aria-hidden="true"></span></button>`
             + '</div>';
     }
 
@@ -323,8 +323,10 @@ function getRemoteImageHtml(image: RemoteImage, imageType: string): string {
         '<div class="' + cssClass + '"';
 
     return openingTag + attributes + '>'
+        + '<div class="cardBox visualCardBox">'
         + getRemoteImageBodyHtml(safeImageUrl, shape)
         + getRemoteImageFooterHtml(image, !layoutManager.tv)
+        + '</div>'
         + '</' + tagName + '>';
 }
 

@@ -38,7 +38,8 @@ const PLAYBACK_PATHS = [
     '/dashboard/playback/transcoding',
     '/dashboard/playback/resume',
     '/dashboard/playback/streaming',
-    '/dashboard/playback/trickplay'
+    '/dashboard/playback/trickplay',
+    '/dashboard/playback/nebulacache'
 ];
 
 const TOOLS_PATHS = [
@@ -258,6 +259,9 @@ const ServerDrawerSection = () => {
                     </ListItemLink>
                     <ListItemLink to='/dashboard/playback/trickplay' sx={{ pl: 4 }}>
                         <ListItemText inset primary={globalize.translate('Trickplay')} />
+                    </ListItemLink>
+                    <ListItemLink to='/dashboard/playback/nebulacache' sx={{ pl: 4 }}>
+                        <ListItemText inset primary='Cache Nebula' />
                     </ListItemLink>
                 </List>
             </Collapse>
