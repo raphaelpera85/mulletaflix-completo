@@ -6,7 +6,7 @@ import { getItemsApi } from '@jellyfin/sdk/lib/utils/api/items-api';
 import { queryOptions, useQuery } from '@tanstack/react-query';
 
 import { useApi } from 'hooks/useApi';
-import { getUserViewsQuery } from 'hooks/api/useUserViews';
+import { useUserViews } from 'hooks/api/useUserViews';
 
 const countTypes = [
     BaseItemKind.Movie,
@@ -98,7 +98,7 @@ const fetchLibraryItemCounts = async (
 
 export const useLibraryItemCounts = () => {
     const { api, user } = useApi();
-    const viewsQuery = useQuery(getUserViewsQuery(api, { userId: user?.Id }, user?.Id));
+    const viewsQuery = useUserViews({ userId: user?.Id });
     const viewIds = (viewsQuery.data?.Items ?? [])
         .map((view) => view.Id)
         .filter((id): id is string => !!id);
