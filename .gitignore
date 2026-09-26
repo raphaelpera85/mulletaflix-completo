@@ -62,3 +62,8 @@ MulletaFlix-android/.gradle/
 MulletaFlix-android/.kotlin/
 MulletaFlix-android/**/build/
 MulletaFlix-android/local.properties
+
+# Backups/snapshots grandes de biblioteca (arquivos > 100MB que o GitHub recusa)
+artifacts/*/files.jsonl
+artifacts/backup-*/
+artifacts/wrong-library-backup*/
