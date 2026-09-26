@@ -32,6 +32,18 @@ android {
                 keyAlias = System.getenv("KEY_ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
             } else {
+                // Achado de seguranca da auditoria de setembro/2026
+                // (claude/AUDITORIA-COMPLETA-2026-09.md): sem KEYSTORE_PATH valido, o
+                // build de release cai para a chave de DEBUG. Mantido de proposito para
+                // nao quebrar o fluxo de release atual, mas o aviso abaixo torna isso
+                // visivel em todo build em vez de um fallback silencioso.
+                logger.warn(
+                    "AVISO DE SEGURANCA: KEYSTORE_PATH nao definido ou arquivo " +
+                        "inexistente. O build de RELEASE sera assinado com a chave de " +
+                        "DEBUG do Android, nao com a chave de producao. Defina " +
+                        "KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS e KEY_PASSWORD " +
+                        "antes de publicar este APK como release oficial."
+                )
                 initWith(getByName("debug"))
             }
         }

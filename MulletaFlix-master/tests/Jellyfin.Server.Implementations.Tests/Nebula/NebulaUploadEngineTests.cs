@@ -274,7 +274,6 @@ public class NebulaUploadEngineTests
         Assert.Equal(shouldBeHidden, NebulaUploadEngine.IsVisibleCategoryRoot(name));
     }
 
-
     [Fact]
     public void UploadEngine_CompletedUploadValidation_RequiresExactSizeAndParts()
     {

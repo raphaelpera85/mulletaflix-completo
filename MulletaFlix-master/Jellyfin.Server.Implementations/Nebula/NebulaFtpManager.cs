@@ -1030,6 +1030,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 animacaoMigration.Success ? "INFO" : "WARNING",
                 $"[NEBULA-ANIMACOES] {animacaoMigration.Message}");
 
+            await _mongoContext.NormalizeDuplicateCategoryRootsAsync(cancellationToken).ConfigureAwait(false);
+
             // 1.1 Sincronizador com Supabase e verificação de prioridade do banco (restauração se Mongo estiver vazio)
             if (!string.IsNullOrWhiteSpace(config.SupabaseUrl) && !string.IsNullOrWhiteSpace(config.SupabaseKey))
             {

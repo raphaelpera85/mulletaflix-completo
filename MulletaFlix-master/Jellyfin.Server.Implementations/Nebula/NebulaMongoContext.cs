@@ -1116,6 +1116,51 @@ public sealed class NebulaMongoContext : IDisposable
             foreach (var candidateId in candidates)
             {
                 var candidate = byId[candidateId];
+                var candidateName = candidate.GetValue("name", string.Empty).AsString;
+
+                // Se o candidato for a própria pasta de agrupamento "Novelas" sob "Series",
+                // não devemos movê-la como subpasta (o que criaria Novelas/Novelas).
+                // Em vez disso, movemos todos os seus filhos diretamente para novelaRoot
+                // e excluímos o nó duplicado da pasta Novelas sob Series.
+                if (candidate.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                    && candidateName.Equals("Novelas", StringComparison.OrdinalIgnoreCase))
+                {
+                    var childrenOfDuplicate = documents.Where(d =>
+                        !d.GetValue("_id").Equals(candidate.GetValue("_id"))
+                        && ParentKey(d).Equals(candidate.GetValue("_id").ToString(), StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    foreach (var childOfDup in childrenOfDuplicate)
+                    {
+                        var updateChild = Builders<BsonDocument>.Update
+                            .Set("parent", novelaRoot.GetValue("_id"))
+                            .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                        var updRes = await _filesCollection.UpdateOneAsync(
+                            Builders<BsonDocument>.Filter.Eq("_id", childOfDup.GetValue("_id")), updateChild, new UpdateOptions(), cancellationToken).ConfigureAwait(false);
+                        if (updRes.ModifiedCount > 0)
+                        {
+                            result.Moved++;
+                        }
+                    }
+
+                    // Corrige caminhos legados que continham .../Series/Novelas/... -> .../Novelas/...
+                    var dupOldPrefix = $"{seriesPath}/{candidateName}".Trim('/');
+                    var dupNewPrefix = ResolvePath(novelaRoot).Trim('/');
+                    foreach (var descendant in documents.Where(d => ParentKey(d).Replace('\\', '/').Trim('/').StartsWith(dupOldPrefix + "/", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        await _filesCollection.UpdateOneAsync(
+                            Builders<BsonDocument>.Filter.Eq("_id", descendant.GetValue("_id")),
+                            Builders<BsonDocument>.Update.Set("parent", ParentKey(descendant).Replace('\\', '/').Trim('/')[dupOldPrefix.Length..].Insert(0, dupNewPrefix)),
+                            new UpdateOptions(),
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
+                    // Remove a pasta duplicada Novelas sob Series
+                    await _filesCollection.DeleteOneAsync(
+                        Builders<BsonDocument>.Filter.Eq("_id", candidate.GetValue("_id")), cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 var update = Builders<BsonDocument>.Update
                     .Set("parent", novelaRoot.GetValue("_id"))
                     .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
@@ -1137,6 +1182,44 @@ public sealed class NebulaMongoContext : IDisposable
                         new UpdateOptions(),
                         cancellationToken).ConfigureAwait(false);
                 }
+            }
+
+            // Normaliza caso já existisse uma pasta Novelas/Novelas sob a raiz de novelas
+            var dupUnderNovela = documents.FirstOrDefault(d =>
+                d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                && d.GetValue("name", string.Empty).AsString.Equals("Novelas", StringComparison.OrdinalIgnoreCase)
+                && ParentKey(d).Equals(novelaRoot.GetValue("_id").ToString(), StringComparison.OrdinalIgnoreCase));
+            if (dupUnderNovela != null)
+            {
+                var childrenOfDup = documents.Where(d =>
+                    !d.GetValue("_id").Equals(dupUnderNovela.GetValue("_id"))
+                    && ParentKey(d).Equals(dupUnderNovela.GetValue("_id").ToString(), StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                foreach (var c in childrenOfDup)
+                {
+                    await _filesCollection.UpdateOneAsync(
+                        Builders<BsonDocument>.Filter.Eq("_id", c.GetValue("_id")),
+                        Builders<BsonDocument>.Update
+                            .Set("parent", novelaRoot.GetValue("_id"))
+                            .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds()),
+                        new UpdateOptions(),
+                        cancellationToken).ConfigureAwait(false);
+                    result.Moved++;
+                }
+
+                var dupOld = $"{ResolvePath(novelaRoot)}/Novelas".Trim('/');
+                var dupNew = ResolvePath(novelaRoot).Trim('/');
+                foreach (var descendant in documents.Where(d => ParentKey(d).Replace('\\', '/').Trim('/').StartsWith(dupOld + "/", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await _filesCollection.UpdateOneAsync(
+                        Builders<BsonDocument>.Filter.Eq("_id", descendant.GetValue("_id")),
+                        Builders<BsonDocument>.Update.Set("parent", ParentKey(descendant).Replace('\\', '/').Trim('/')[dupOld.Length..].Insert(0, dupNew)),
+                        new UpdateOptions(),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                await _filesCollection.DeleteOneAsync(
+                    Builders<BsonDocument>.Filter.Eq("_id", dupUnderNovela.GetValue("_id")), cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -1216,6 +1299,85 @@ public sealed class NebulaMongoContext : IDisposable
             : $"Biblioteca normalizada: {result.Moved} grupo(s) movido(s) para Animações e nó duplicado removido: {result.DuplicateRemoved}.";
         _logger.LogInformation("[NEBULA-ANIMACOES] {Message}", result.Message);
         return result;
+    }
+
+    /// <summary>
+    /// Normaliza pastas duplicadas onde uma raiz de categoria aparece dentro de si mesma
+    /// (ex.: Series/Series, Filmes/Filmes). Promove os nós filhos para a raiz correta e
+    /// remove a pasta duplicada intermediária.
+    /// </summary>
+    public async Task NormalizeDuplicateCategoryRootsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var documents = await GetAllFilesForSyncAsync(cancellationToken).ConfigureAwait(false);
+            static string ParentKey(BsonDocument doc)
+                => doc.TryGetValue("parent", out var parent) && !parent.IsBsonNull ? parent.ToString() : string.Empty;
+
+            var targetCategories = new[] { "Series", "Filmes", "Novelas", "Animações" };
+
+            foreach (var cat in targetCategories)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var catRoots = documents.Where(d =>
+                    d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                    && d.GetValue("name", string.Empty).AsString.Equals(cat, StringComparison.OrdinalIgnoreCase)
+                    && (string.IsNullOrEmpty(ParentKey(d)) || ParentKey(d) == "/" || ParentKey(d).Equals("/raphael", StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+
+                foreach (var root in catRoots)
+                {
+                    var rootId = root.GetValue("_id").ToString();
+                    var duplicate = documents.FirstOrDefault(d =>
+                        d.GetValue("type", string.Empty).AsString.Equals("dir", StringComparison.OrdinalIgnoreCase)
+                        && d.GetValue("name", string.Empty).AsString.Equals(cat, StringComparison.OrdinalIgnoreCase)
+                        && ParentKey(d).Equals(rootId, StringComparison.OrdinalIgnoreCase));
+
+                    if (duplicate == null)
+                    {
+                        continue;
+                    }
+
+                    var dupId = duplicate.GetValue("_id");
+                    var children = documents.Where(d => ParentKey(d).Equals(dupId.ToString(), StringComparison.OrdinalIgnoreCase)).ToList();
+                    foreach (var child in children)
+                    {
+                        var update = Builders<BsonDocument>.Update
+                            .Set("parent", root.GetValue("_id"))
+                            .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                        await _filesCollection.UpdateOneAsync(
+                            Builders<BsonDocument>.Filter.Eq("_id", child.GetValue("_id")), update, new UpdateOptions(), cancellationToken).ConfigureAwait(false);
+                    }
+
+                    // Ajusta caminhos virtuais legados: .../{cat}/{cat}/ -> .../{cat}/
+                    var oldSub = $"{cat}/{cat}";
+                    foreach (var descendant in documents.Where(d => ParentKey(d).Replace('\\', '/').Trim('/').Contains(oldSub, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var currentParent = ParentKey(descendant).Replace('\\', '/');
+                        var updatedParent = System.Text.RegularExpressions.Regex.Replace(
+                            currentParent,
+                            $@"(?i)(/|^){System.Text.RegularExpressions.Regex.Escape(cat)}/{System.Text.RegularExpressions.Regex.Escape(cat)}(/|$)",
+                            $"$1{cat}$2");
+                        if (!string.Equals(currentParent, updatedParent, StringComparison.OrdinalIgnoreCase))
+                        {
+                            await _filesCollection.UpdateOneAsync(
+                                Builders<BsonDocument>.Filter.Eq("_id", descendant.GetValue("_id")),
+                                Builders<BsonDocument>.Update.Set("parent", updatedParent),
+                                new UpdateOptions(),
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+
+                    await _filesCollection.DeleteOneAsync(
+                        Builders<BsonDocument>.Filter.Eq("_id", dupId), cancellationToken).ConfigureAwait(false);
+                    _logger.LogInformation("[NEBULA-MONGO] Pasta duplicada {Category}/{Category} eliminada e nós promovidos.", cat, cat);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-MONGO] Erro ao normalizar raízes de categorias duplicadas.");
+        }
     }
 
     /// <summary>
