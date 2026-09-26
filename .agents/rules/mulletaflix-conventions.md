@@ -149,4 +149,39 @@ for (var attempt = 1; attempt <= 3; attempt++)
   3. Seletor de diretórios nativo (`DirectoryBrowser`).
   4. Ação de limpeza imediata segura para arquivos não vinculados a reproduções em andamento.
 
+---
+
+## 9. Preservação de Codificação UTF-8 em Scripts de Automação e Release (.ps1)
+
+### 9.1 Assinatura Mandatória UTF-8 BOM em Scripts com Texto
+- Todos os scripts PowerShell (`publish-release.ps1`, `publish-app-release.ps1`, `build-update-package.ps1`, etc.) que contenham strings literais em português (com acentuação ou caracteres especiais) devem ser obrigatoriamente salvos com a marca de ordem de bytes **UTF-8 BOM** (`0xEF, 0xBB, 0xBF`).
+- **Causa Raiz & Sintoma**: O Windows PowerShell 5.1 (`powershell.exe`) decodifica scripts sem BOM através da página de código ANSI local (`Windows-1252`). Quando caracteres UTF-8 de 2 bytes (como `ç` `0xC3 0xA7` e `ã` `0xC3 0xA3`) são lidos em ANSI, tornam-se `Ã§` e `Ã£`. Ao transmitir payloads JSON para a API do GitHub via `[System.Text.Encoding]::UTF8.GetBytes()`, esses caracteres são codificados uma segunda vez, provocando o fenômeno de **mojibake** na interface de atualizações.
+- Todo script de release deve declarar no topo:
+  ```powershell
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  $OutputEncoding = [System.Text.Encoding]::UTF8
+  ```
+
+---
+
+## 10. Isolamento de Layout do Dashboard React MUI (.dashboardDocument vs .skinBody)
+
+### 10.1 Proibição de Transform no Container .skinBody do Dashboard
+- No cliente Web, páginas do Painel de Administração (`.dashboardDocument`) utilizam a estrutura React MUI onde o recuo da navegação lateral é provido por `.mainAnimatedPage` (`left: $drawer-width` = 240px).
+- A classe legada de páginas do Jellyfin `.dashboardDocument .skinBody` **nunca deve utilizar `transform: translateX(...)`** para representar abertura/fechamento de menu. No CSS, a propriedade `transform` continua atuando sobre elementos mesmo quando `position: unset !important` é aplicado.
+- **Sintoma de Violação**: Aplicar `transform: translateX(20em)` em `.skinBody` gera um deslocamento cumulativo de 320px + 240px = 560px. Isso empurra o conteúdo da tela para a direita, gerando um vazio escuro desnecessário entre o botão de voltar do cabeçalho e os cartões, além de forçar o corte do conteúdo à direita fora dos limites visíveis da viewport.
+- O arquivo `AppOverrides.scss` deve manter neutralização explícita:
+  ```scss
+  .dashboardDocument .skinBody {
+      position: unset !important;
+      transform: none !important;
+      left: unset !important;
+      right: unset !important;
+  }
+  ```
+
+### 10.2 Prevenção de Overflow Horizontal em Textos e Markdown
+- Elementos que renderizam conteúdo dinâmico externo (ex: `MarkdownBox`, tabelas de changelog, blocos `<pre>`) devem conter `overflowWrap: 'break-word'`, `wordBreak: 'break-word'` e rolagem horizontal contida em blocos tabulares (`overflowX: 'auto'`), garantindo que nenhuma tabela de changelog estoure a largura máxima da tela.
+
+
 
