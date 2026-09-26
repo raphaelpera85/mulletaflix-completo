@@ -38,8 +38,10 @@ public sealed class DisplayPreferencesManager : IDisplayPreferencesManager
         {
             prefs = new DisplayPreferences(userId, itemId, client);
             dbContext.DisplayPreferences.Add(prefs);
-            // TODO: Convert to async to avoid deadlock risk. Sync-over-async from interface constraint.
-            dbContext.SaveChangesAsync(default).GetAwaiter().GetResult();
+            // This method and the DbContext it uses are entirely synchronous (sync CreateDbContext,
+            // no transaction awaited anywhere in this call graph), so call the genuine synchronous
+            // SaveChanges API instead of blocking on the async one (sync-over-async / Achado B-7).
+            dbContext.SaveChanges();
         }
 
         return prefs;
@@ -56,8 +58,9 @@ public sealed class DisplayPreferencesManager : IDisplayPreferencesManager
         {
             prefs = new ItemDisplayPreferences(userId, Guid.Empty, client);
             dbContext.ItemDisplayPreferences.Add(prefs);
-            // TODO: Convert to async to avoid deadlock risk. Sync-over-async from interface constraint.
-            dbContext.SaveChangesAsync(default).GetAwaiter().GetResult();
+            // See GetDisplayPreferences above: this call graph is entirely synchronous, so use the
+            // genuine synchronous SaveChanges API instead of sync-over-async (Achado B-7).
+            dbContext.SaveChanges();
         }
 
         return prefs;
@@ -100,8 +103,9 @@ public sealed class DisplayPreferencesManager : IDisplayPreferencesManager
                 .Add(new CustomItemDisplayPreferences(userId, itemId, client, key, value));
         }
 
-        // TODO: Convert to async to avoid deadlock risk. Sync-over-async from interface constraint.
-        dbContext.SaveChangesAsync(default).GetAwaiter().GetResult();
+        // See GetDisplayPreferences above: this call graph is entirely synchronous, so use the
+        // genuine synchronous SaveChanges API instead of sync-over-async (Achado B-7).
+        dbContext.SaveChanges();
     }
 
     /// <inheritdoc/>
@@ -109,8 +113,9 @@ public sealed class DisplayPreferencesManager : IDisplayPreferencesManager
     {
         using var dbContext = _dbContextFactory.CreateDbContext();
         dbContext.DisplayPreferences.Attach(displayPreferences).State = EntityState.Modified;
-        // TODO: Convert to async to avoid deadlock risk. Sync-over-async from interface constraint.
-        dbContext.SaveChangesAsync(default).GetAwaiter().GetResult();
+        // See GetDisplayPreferences above: this call graph is entirely synchronous, so use the
+        // genuine synchronous SaveChanges API instead of sync-over-async (Achado B-7).
+        dbContext.SaveChanges();
     }
 
     /// <inheritdoc/>
@@ -118,8 +123,9 @@ public sealed class DisplayPreferencesManager : IDisplayPreferencesManager
     {
         using var dbContext = _dbContextFactory.CreateDbContext();
         dbContext.ItemDisplayPreferences.Attach(itemDisplayPreferences).State = EntityState.Modified;
-        // TODO: Convert to async to avoid deadlock risk. Sync-over-async from interface constraint.
-        dbContext.SaveChangesAsync(default).GetAwaiter().GetResult();
+        // See GetDisplayPreferences above: this call graph is entirely synchronous, so use the
+        // genuine synchronous SaveChanges API instead of sync-over-async (Achado B-7).
+        dbContext.SaveChanges();
     }
 }
 

@@ -78,7 +78,10 @@ public class ChapterRepository : IChapterRepository
             context.Chapters.Add(Map(chapter, i, itemId));
         }
 
-        context.SaveChangesAsync(default).GetAwaiter().GetResult();
+        // This method, its DbContext and its transaction are all synchronous (see the async
+        // SaveChaptersAsync sibling below for the real async path); use the genuine synchronous
+        // SaveChanges API instead of sync-over-async (Achado B-7).
+        context.SaveChanges();
         transaction.Commit();
     }
 

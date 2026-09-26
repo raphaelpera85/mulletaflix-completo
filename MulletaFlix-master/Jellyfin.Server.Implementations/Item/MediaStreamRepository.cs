@@ -44,7 +44,10 @@ public class MediaStreamRepository : IMediaStreamRepository
 
         context.MediaStreamInfos.Where(e => e.ItemId.Equals(id)).ExecuteDelete();
         context.MediaStreamInfos.AddRange(streams.Select(f => Map(f, id)));
-        context.SaveChangesAsync(default).GetAwaiter().GetResult();
+        // This method, its DbContext and its transaction are all synchronous (see the async
+        // SaveMediaStreamsAsync sibling below for the real async path); use the genuine
+        // synchronous SaveChanges API instead of sync-over-async (Achado B-7).
+        context.SaveChanges();
 
         transaction.Commit();
     }

@@ -172,7 +172,9 @@ public class LinkedChildrenService : ILinkedChildrenService
             existingLink.ChildType = dbChildType;
         }
 
-        context.SaveChangesAsync(default).GetAwaiter().GetResult();
+        // This method and its DbContext are entirely synchronous; use the genuine synchronous
+        // SaveChanges API instead of sync-over-async (Achado B-7).
+        context.SaveChanges();
     }
 }
 

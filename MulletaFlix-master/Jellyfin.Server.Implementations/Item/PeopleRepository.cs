@@ -136,8 +136,9 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
             .Where(e => !existingPersons.Any(f => string.Equals(f.Name, e.Name, StringComparison.OrdinalIgnoreCase) && f.PersonType == e.Type.ToString()))
             .Select(Map);
         context.Peoples.AddRange(toAdd);
-        // TODO: Convert UpdatePeople to async to avoid deadlock risk. Sync-over-async from interface constraint.
-        context.SaveChangesAsync(default).GetAwaiter().GetResult();
+        // The DbContext, transaction, and this entire method are synchronous; call the genuine
+        // synchronous SaveChanges API instead of blocking on the async one (sync-over-async / Achado B-7).
+        context.SaveChanges();
 
         var personsEntities = toAdd.Concat(existingPersons).ToArray();
 
@@ -176,8 +177,8 @@ public class PeopleRepository(IDbContextFactory<MulletaFlixDbContext> dbProvider
 
         context.PeopleBaseItemMap.RemoveRange(existingMaps);
 
-        // TODO: Convert UpdatePeople to async to avoid deadlock risk. Sync-over-async from interface constraint.
-        context.SaveChangesAsync(default).GetAwaiter().GetResult();
+        // See the AddRange call above: this method and its DbContext are entirely synchronous.
+        context.SaveChanges();
         transaction.Commit();
     }
 
