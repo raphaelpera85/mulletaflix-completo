@@ -53,6 +53,14 @@ public class TrickplayManager : ITrickplayManager
     // data is never observed and repeated polls are served from memory instead of the DB.
     private static readonly TimeSpan _manifestCacheTtl = TimeSpan.FromMinutes(10);
 
+    // GetTrickplayResolutions is called per tile request (GetTrickplayTilePathAsync,
+    // GetHlsPlaylist) and by GetTrickplayManifest on a cache miss, each hitting the DB with a
+    // brand new DbContext. A scrub gesture in the player can fire hundreds of tile requests in
+    // quick succession, so cache the resolutions per item id with the same TTL/invalidation
+    // rules as the manifest cache (see GetManifestCacheKey usages) to avoid a DB round-trip per
+    // tile.
+    private static string GetResolutionsCacheKey(Guid itemId) => $"trickplay-resolutions_{itemId:N}";
+
     /// <summary>
     /// Initializes a new instance of the <see cref="TrickplayManager"/> class.
     /// </summary>
@@ -517,6 +525,12 @@ public class TrickplayManager : ITrickplayManager
     /// <inheritdoc />
     public async Task<Dictionary<int, TrickplayInfo>> GetTrickplayResolutions(Guid itemId)
     {
+        var resolutionsCacheKey = GetResolutionsCacheKey(itemId);
+        if (_memoryCache.TryGetValue(resolutionsCacheKey, out Dictionary<int, TrickplayInfo>? cachedResolutions) && cachedResolutions is not null)
+        {
+            return cachedResolutions;
+        }
+
         var trickplayResolutions = new Dictionary<int, TrickplayInfo>();
 
         var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
@@ -533,6 +547,8 @@ public class TrickplayManager : ITrickplayManager
                 trickplayResolutions[info.Width] = info;
             }
         }
+
+        _memoryCache.Set(resolutionsCacheKey, trickplayResolutions, _manifestCacheTtl);
 
         return trickplayResolutions;
     }
@@ -574,9 +590,11 @@ public class TrickplayManager : ITrickplayManager
             await dbContext.SaveChangesAsync().ConfigureAwait(false);
         }
 
-        // Invalidate the cached manifest so the next poll (e.g. GET /Sessions) observes
-        // the freshly written trickplay data instead of a stale cached entry.
+        // Invalidate the cached manifest and resolutions so the next poll (e.g. GET /Sessions)
+        // and the next tile/playlist request observe the freshly written trickplay data instead
+        // of a stale cached entry.
         _memoryCache.Remove(GetManifestCacheKey(info.ItemId));
+        _memoryCache.Remove(GetResolutionsCacheKey(info.ItemId));
     }
 
     /// <inheritdoc />
@@ -586,6 +604,7 @@ public class TrickplayManager : ITrickplayManager
         await dbContext.TrickplayInfos.Where(i => i.ItemId.Equals(itemId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
 
         _memoryCache.Remove(GetManifestCacheKey(itemId));
+        _memoryCache.Remove(GetResolutionsCacheKey(itemId));
     }
 
     /// <inheritdoc />
