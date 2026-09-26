@@ -467,6 +467,7 @@ class SearchViewModel @Inject constructor(
         SearchFilter.Music -> "Audio"
         SearchFilter.Albums -> "MusicAlbum"
         SearchFilter.Artists -> "MusicArtist"
+        SearchFilter.Books -> "Book"
         SearchFilter.People -> "Person"
         null -> null
     }

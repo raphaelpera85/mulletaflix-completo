@@ -1924,5 +1924,21 @@
     "LabelProgressAndSpeed": "Progresso / velocidade",
     "LabelReasons": "Motivos",
     "LabelPlayerSizes": "Dimensões do Reprodutor",
-    "LabelPlaybackQuality": "Quadros perdidos / corrompidos"
+    "LabelPlaybackQuality": "Quadros perdidos / corrompidos",
+    "MediaRequestTitle": "Solicitar inclusão de mídia",
+    "MediaRequestName": "Nome do filme, série ou outra mídia",
+    "MediaRequestTypeMovie": "Filme",
+    "MediaRequestTypeSeries": "Série",
+    "MediaRequestTypeAnimation": "Animação",
+    "MediaRequestTypeNovel": "Novela",
+    "MediaRequestTypeDorama": "Dorama",
+    "PlaybackIssueTitle": "Reportar problema neste título",
+    "PlaybackIssueDetails": "Descreva o problema (opcional)",
+    "PlaybackIssueCategoryPlayback": "Erro ou falha na reprodução",
+    "PlaybackIssueCategoryMedia": "Mídia ausente ou incorreta",
+    "PlaybackIssueCategoryMetadata": "Nome ou informações incorretas",
+    "UserFeedbackSent": "Enviado com sucesso.",
+    "UserFeedbackSendFailed": "Não foi possível enviar. Tente novamente.",
+    "MediaRequestsAdminTitle": "Solicitações de mídias",
+    "PlaybackIssuesAdminTitle": "Erros e bugs reportados"
 }

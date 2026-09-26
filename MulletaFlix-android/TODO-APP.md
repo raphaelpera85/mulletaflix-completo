@@ -2,6 +2,99 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## APK local v1.3.72 — Espaço por download e OSD de TV
+
+### Notas do candidato
+
+- Cada download mostra o espaço já armazenado no dispositivo e, quando conhecido, o tamanho total do arquivo.
+- A fila pode ser ordenada por maior ou menor uso; itens sem tamanho medido ficam no fim e empates seguem o título.
+- Durante a reprodução na Android TV, os controles do player desaparecem após 3 segundos e voltam com as setas/OK do controle remoto; em pausa, permanecem visíveis.
+- Cancelar uma operação de SyncPlay libera o controle para uma nova tentativa.
+- Mantém no APK candidato o Quick Connect e os formulários de solicitação de mídia/relato de reprodução da v1.3.71; o envio de feedback ainda depende das rotas correspondentes no servidor.
+
+### Validação
+
+- [x] Consulta à API confirmou a release de APK anterior `app-v1.3.70`; a tag `app-v1.3.71` não existe no GitHub.
+- [x] Testes JVM cobrem ordenação, tamanhos ausentes/negativos, totais conhecidos, visibilidade do OSD na reprodução/pausa e teclas de revelação.
+- [x] Teste Compose com relógio virtual confirma OSD oculto depois de 3 s reproduzindo e visível durante pausa.
+- [x] Downloads instrumentados em telefone, tablet e TV: 10/10 em cada perfil, 0 falhas/ignorados.
+- [x] Player instrumentado em Android TV: 31 cenários, 30 aprovados e 1 ignorado (Cast indisponível nesse perfil), 0 falhas.
+- [x] Suíte JVM completa: 1.112 testes, 0 falhas, 0 erros, 0 ignorados; `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK local v1.3.72 (`versionCode=373`), pacote `org.mulletaflix.android`, assinatura v2 válida, 7.437.635 bytes, SHA-256 `143650D41584B67012B92046013B237FB07C889AF93B27E4FFF91771E0D25F97`.
+- [ ] Não publicar até confirmar que os endpoints de feedback do servidor foram implantados; esta rodada mantém escopo somente APK.
+
+### Correção local posterior — foco e temporizador do OSD na Android TV
+
+- A tela do player agora recebe foco de controle remoto e cada tecla de navegação/seleção reinicia os 3 segundos de inatividade; controles não desaparecem no meio da navegação. Reprodução pausada continua mantendo o OSD aberto.
+- Regressão Compose cobre o reinício do temporizador após interação; a suíte instrumentada do player na TV executou 32 testes, 31 aprovados e 1 ignorado (receptor Cast indisponível), sem falhas. Suíte JVM do módulo player aprovada.
+- `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`; emulador Android TV encerrado pelo wrapper.
+- O APK/hash listado acima é o candidato anterior à correção e **não contém esta alteração**. Nenhuma nova versão/release foi criada nem publicada; gerar APK candidato atualizado exige revisar a versão/artefato antes da próxima release.
+
+### Filtros avançados da Biblioteca — alteração local sem release
+
+- A Biblioteca permite filtrar por gêneros, anos e classificação indicativa. Os critérios ficam em edição até confirmar; cancelar descarta alterações, limpar remove filtros ativos e anos inválidos impedem a aplicação.
+- Os filtros são encaminhados à API no formato esperado pelo servidor: gêneros/classificações separados por `|` e anos por vírgula. Valores ativos são mantidos ao paginar e combinados com favoritos/assistidos.
+- `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`; cobertura de filtros e contrato da API incluídos.
+- Biblioteca instrumentada na Android TV: 20/20 testes, 0 ignorados e 0 falhas. Testes do diálogo no tablet: 5 cenários, 4 executados e aprovados; o caso exclusivo de D-pad foi corretamente ignorado nesse perfil.
+- A versão oficial anterior continua sendo `v1.3.70`; nenhum version bump, APK de release ou publicação foi feito nesta alteração. O APK debug local não substitui nem atualiza o candidato de release acima.
+
+## Release v1.3.71 — Quick Connect e feedback de mídia
+
+### Notas do APK
+
+- A contagem do Quick Connect agora usa prazo monotônico e considera o tempo das consultas de rede; ao atingir o prazo durante uma consulta pendente, a contagem some e a tela continua aguardando a resposta.
+- A Home inclui atalho para solicitar filmes, séries e outros tipos de mídia; formulário valida ano e mantém falhas visíveis para nova tentativa.
+- A tela de cada título permite reportar problema de reprodução; o relato inclui ID, categoria e descrição, com confirmação apenas após envio bem-sucedido.
+
+### Validação
+
+- [x] Release oficial anterior conferida pela API antes do bump: `app-v1.3.70`, um APK, 7.437.635 bytes, SHA-256 `535A911170AE519229E985C893697954BE336DABCA1E34DEE983265CEA6F91A5`; notas remotas conferidas.
+- [x] Teste de regressão cobre consulta de autenticação que segue pendente após o prazo local; timer oculto até a resposta, e timeout neutro após retorno sem autorização.
+- [x] Testes Compose de autenticação aprovados em celular, tablet e Android TV: 10/10 por AVD, 0 skips e 0 falhas; AVDs encerrados pelo wrapper.
+- [x] Testes JVM de Home e detalhe verificam payload, remoção de espaços e bloqueio de envios duplicados; Quick Connect continua coberto.
+- [x] Suíte JVM completa: 1.103 testes, 0 falhas, 0 erros, 0 ignorados; lint debug e build release concluídos.
+- [x] Testes Compose de Home e detalhe aprovados em telefone, tablet e TV; casos exclusivos de TV foram ignorados nos outros perfis, sem falhas.
+- [x] APK conferido: `versionName=1.3.71`, `versionCode=372`, pacote `org.mulletaflix.android`, assinatura v2 válida e igual à v1.3.70 (certificado SHA-256 `224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`), artefato `mulletaflix-app-v1.3.71.apk`, 7.437.635 bytes, SHA-256 `AC7D72B541466635616DFB62CA0684C554B4945D1FE82BE41CAFB68BBF62BAFD`.
+- [ ] Release oficial APK-only: aguardar confirmação de que as rotas autenticadas de feedback estão implantadas no servidor; servidor ficou fora do escopo desta tarefa.
+
+## Release v1.3.70 — Filtro de livros na busca
+
+### Notas do APK
+
+- A busca universal agora permite filtrar apenas livros; as sugestões também ficam limitadas a livros quando esse filtro está ativo.
+
+### Validação
+
+- [x] Release anterior conferida pela API do GitHub antes do bump: `app-v1.3.69`, um APK, 7.437.635 bytes, SHA-256 `7395E9450D7B080BEAE7A1199858638EA9B535CE3A883A223E8475A26BD597AC`; a tag `app-v1.3.70` não existia.
+- [x] Teste unitário verifica envio de `Book` na busca e mantém apenas sugestões `Book` quando há tipos mistos.
+- [x] Testes Compose instrumentados aprovados: toque/seleção em tablet; em Android TV, D-pad percorre de “Tudo” até “Livros” na fileira estreita com rolagem e ativa pelo centro. Cenário de foco de TV foi ignorado no perfil tablet; AVDs encerrados após os testes.
+- [x] Suíte JVM completa: 1.099 testes, 0 falhas, 0 erros, 0 ignorados; `:app:lintDebug` e `:app:assembleRelease` concluídos com `BUILD SUCCESSFUL`.
+- [x] APK conferido: `versionName=1.3.70`, `versionCode=371`, 7.437.635 bytes, SHA-256 `535A911170AE519229E985C893697954BE336DABCA1E34DEE983265CEA6F91A5`; assinatura v2 válida, pacote `org.mulletaflix.android`, certificado igual à v1.3.69.
+- [x] Release oficial [app-v1.3.70](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.3.70) publicada somente com o APK; API autenticada confirma asset único `mulletaflix-app-v1.3.70.apk`, 7.437.635 bytes, hash local/remoto `535A911170AE519229E985C893697954BE336DABCA1E34DEE983265CEA6F91A5` e notas idênticas ao item acima.
+
+## Validação de feedback dependente do servidor
+
+- [ ] Validar envio autenticado de `UserFeedback/MediaRequests` e `UserFeedback/PlaybackIssues` em um servidor que tenha esses endpoints implantados; o código do servidor está apenas no checkout local e não foi publicado nesta tarefa.
+- [ ] Confirmar no painel do servidor que solicitações e relatos ficam registrados para administração.
+
+## Release v1.3.69 — Retomar reprodução pela Home
+
+### Notas do APK
+
+- Na seção “Continuar Assistindo”, o botão “Retomar” abre o player diretamente na mídia com progresso salvo; tocar no restante do card continua abrindo os detalhes.
+- “Retomar” só aparece para mídia não concluída com posição positiva e, quando a duração é conhecida, ainda abaixo do fim.
+
+### Validação
+
+- [x] Release anterior verificada pela API autenticada antes do bump: `app-v1.3.68`, um APK, 7.437.635 bytes, SHA-256 `36A02EA2089B68A37772A64E5394A2B8E013A5F51B9BC24F6FF2104034AF0CFA`; `app-v1.3.69` ainda não existe.
+- [x] Suíte JVM completa: 1.098 testes, 0 falhas, 0 erros, 0 ignorados; `:app:lintDebug` passou.
+- [x] Home instrumentada aprovada nos AVDs telefone e tablet (ações de toque/alvo mínimo) e Android TV (D-pad do card ao botão e ativação pelo centro); os três emuladores foram encerrados ao final.
+- [x] `:app:assembleRelease` concluiu com `BUILD SUCCESSFUL`; APK validado com `versionName=1.3.69`, `versionCode=370`, 7.437.635 bytes, SHA-256 `7395E9450D7B080BEAE7A1199858638EA9B535CE3A883A223E8475A26BD597AC`; assinatura APK v2 válida e certificado igual ao da versão anterior.
+- [x] Release oficial [app-v1.3.69](https://github.com/raphaelpera85/mulletaflix-completo/releases/tag/app-v1.3.69) publicada somente com `mulletaflix-app-v1.3.69.apk`; API autenticada confirma asset único, tamanho/hash idênticos ao APK local e notas exatamente iguais aos dois itens acima.
+- [x] APK v1.3.69 validado e release oficial APK-only conferida via API; notas remotas correspondem literalmente aos dois itens acima.
+
+---
+
 ## Release v1.3.68 — Melhorias de perfil, rede local e controles de reprodução
 
 ### Notas do APK

@@ -111,4 +111,29 @@ class RemotePlaybackHttpContractTest {
         assertEquals("user-1", url.queryParameter("controllingUserId"))
         assertEquals(null, url.queryParameter("seekPositionTicks"))
     }
+
+    @Test
+    fun `library query sends genre year and official rating facets with server delimiters`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"Items":[],"TotalRecordCount":0}"""))
+
+        api().getItems(
+            userId = "user-1",
+            parentId = "library-1",
+            genres = "Drama|Ação",
+            years = "2023,2024",
+            officialRatings = "PG-13|TV-MA",
+            isPlayed = false,
+            isFavorite = true,
+        )
+
+        val request = server.takeRequest()
+        val url = requireNotNull(request.requestUrl)
+        assertEquals("GET", request.method)
+        assertEquals("/Users/user-1/Items", url.encodedPath)
+        assertEquals("Drama|Ação", url.queryParameter("Genres"))
+        assertEquals("2023,2024", url.queryParameter("Years"))
+        assertEquals("PG-13|TV-MA", url.queryParameter("OfficialRatings"))
+        assertEquals("false", url.queryParameter("IsPlayed"))
+        assertEquals("true", url.queryParameter("IsFavorite"))
+    }
 }

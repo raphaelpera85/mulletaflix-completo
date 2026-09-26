@@ -410,6 +410,7 @@ class UseCaseTest {
                 limit: Int,
                 genres: String?,
                 years: String?,
+                officialRatings: String?,
                 isPlayed: Boolean?,
                 isFavorite: Boolean?,
             ): Result<Pair<List<MediaItem>, Int>> = Result.failure(IllegalStateException("favoritos indisponíveis"))
@@ -461,6 +462,7 @@ class UseCaseTest {
                 limit: Int,
                 genres: String?,
                 years: String?,
+                officialRatings: String?,
                 isPlayed: Boolean?,
                 isFavorite: Boolean?,
             ): Result<Pair<List<MediaItem>, Int>> = Result.success(listOf(favorite) to 1)
@@ -551,6 +553,7 @@ class UseCaseTest {
                 limit: Int,
                 genres: String?,
                 years: String?,
+                officialRatings: String?,
                 isPlayed: Boolean?,
                 isFavorite: Boolean?,
             ): Result<Pair<List<MediaItem>, Int>> {
@@ -683,6 +686,7 @@ class UseCaseTest {
                 limit: Int,
                 genres: String?,
                 years: String?,
+                officialRatings: String?,
                 isPlayed: Boolean?,
                 isFavorite: Boolean?,
             ): Result<Pair<List<MediaItem>, Int>> {
@@ -843,7 +847,7 @@ class UseCaseTest {
         override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
         override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
         override suspend fun getLibraries(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
-        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> = Result.success(Pair(emptyList(), 0))
+        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> = Result.success(Pair(emptyList(), 0))
         override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.failure(NotImplementedError())
         override suspend fun getSimilarItems(userId: String, itemId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
         override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(emptyList())

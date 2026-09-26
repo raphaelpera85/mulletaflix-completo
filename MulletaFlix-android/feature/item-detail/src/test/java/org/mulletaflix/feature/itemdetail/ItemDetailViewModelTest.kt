@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -46,6 +47,10 @@ class ItemDetailViewModelTest {
         playbackRepo: PlaybackRepository = FakePlaybackRepository(),
         downloadRepo: DownloadRepository = FakeDownloadRepository(),
         playlistRepo: PlaylistRepository = FakePlaylistRepository(),
+        feedbackRepo: UserFeedbackRepository = object : UserFeedbackRepository {
+            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.success(Unit)
+        },
     ): ItemDetailViewModel {
         return ItemDetailViewModel(
             getItemDetailUseCase = GetItemDetailUseCase(mediaRepo),
@@ -56,7 +61,61 @@ class ItemDetailViewModelTest {
             mediaRepository = mediaRepo,
             authRepository = authRepo,
             playbackRepository = playbackRepo,
+            userFeedbackRepository = feedbackRepo,
         )
+    }
+
+    @Test
+    fun `playback report sends current title and trimmed description and returns result`() = runTest {
+        var received: List<String?>? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?): Result<Unit> {
+                received = listOf(itemId, category, description)
+                return Result.success(Unit)
+            }
+        }
+        val viewModel = createViewModel(FakeMediaRepository(), feedbackRepo = feedback)
+        var succeeded = false
+
+        viewModel.reportPlaybackIssue("movie-42", "Sem áudio", "  Som ausente  ") { succeeded = it.isSuccess }
+        advanceUntilIdle()
+
+        assertEquals(listOf("movie-42", "Sem áudio", "Som ausente"), received)
+        assertTrue(succeeded)
+        assertEquals("Relato enviado. Obrigado pelo aviso.", viewModel.state.value.interactionMessage)
+    }
+
+    @Test
+    fun `playback issue can be retried after cancellation`() = runTest {
+        var requestCount = 0
+        var completionCount = 0
+        var firstCompletionError: Throwable? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?): Result<Unit> {
+                requestCount++
+                if (requestCount == 1) throw CancellationException("request cancelled")
+                return Result.success(Unit)
+            }
+        }
+        val viewModel = createViewModel(FakeMediaRepository(), feedbackRepo = feedback)
+
+        viewModel.reportPlaybackIssue("movie-42", "Sem áudio", "") {
+            completionCount++
+            firstCompletionError = it.exceptionOrNull()
+        }
+        runCurrent()
+        assertTrue(firstCompletionError is CancellationException)
+        viewModel.reportPlaybackIssue("movie-42", "Sem áudio", "") { result ->
+            completionCount++
+            assertTrue(result.isSuccess)
+        }
+        advanceUntilIdle()
+
+        assertEquals(2, requestCount)
+        assertEquals(2, completionCount)
+        assertEquals("Relato enviado. Obrigado pelo aviso.", viewModel.state.value.interactionMessage)
     }
 
     @Test
@@ -450,7 +509,7 @@ class ItemDetailViewModelTest {
         val tracks = listOf(MediaItem(id = "tr-1", name = "Track", type = MediaItemType.Audio))
         val mediaRepo = object : FakeMediaRepository() {
             override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.success(album)
-            override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> {
+            override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> {
                 lastItemsParentId = parentId
                 lastItemsIncludeItemTypes = includeItemTypes
                 return Result.success(Pair(tracks, tracks.size))
@@ -685,7 +744,7 @@ class ItemDetailViewModelTest {
         override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
         override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
         override suspend fun getLibraries(userId: String): Result<List<MediaItem>> = Result.success(emptyList())
-        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> = Result.success(Pair(emptyList(), 0))
+        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> = Result.success(Pair(emptyList(), 0))
         override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = Result.failure(NotImplementedError())
         override suspend fun getSimilarItems(userId: String, itemId: String, limit: Int): Result<List<MediaItem>> = Result.success(emptyList())
         override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(emptyList())

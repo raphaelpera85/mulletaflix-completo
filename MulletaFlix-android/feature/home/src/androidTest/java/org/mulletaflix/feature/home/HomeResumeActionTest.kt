@@ -18,6 +18,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.compose.ui.unit.dp
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
 
@@ -101,7 +102,10 @@ class HomeResumeActionTest {
 
         val resumeButton = composeRule.onNodeWithContentDescription("Retomar Filme para TV")
         resumeButton.assertIsDisplayed()
-        resumeButton.requestFocus()
+        val mediaCard = composeRule.onNodeWithContentDescription("Abrir Filme para TV, 25% reproduzido")
+        mediaCard.requestFocus()
+        mediaCard.assertIsFocused()
+        mediaCard.performKeyInput { pressKey(Key.DirectionDown) }
         resumeButton.assertIsFocused()
         resumeButton.performKeyInput { pressKey(Key.DirectionCenter) }
 
@@ -109,5 +113,34 @@ class HomeResumeActionTest {
             assertEquals(listOf("tv-resume"), resumedIds)
             assertTrue(resumedIds.size == 1)
         }
+    }
+
+    @Test
+    fun resumeButtonMeetsMinimumTouchTarget() {
+        composeRule.setContent {
+            MaterialTheme {
+                MediaSection(
+                    title = "Continuar Assistindo",
+                    items = listOf(
+                        MediaItem(
+                            id = "phone-resume",
+                            name = "Filme no telefone",
+                            type = MediaItemType.Movie,
+                            playbackPositionTicks = 10,
+                        ),
+                    ),
+                    cardShape = null,
+                    cardWidth = null,
+                    layoutSpec = homeLayoutSpec(HomeDeviceClass.PHONE),
+                    onItemClick = {},
+                    onResumeItemClick = {},
+                )
+            }
+        }
+
+        val bounds = composeRule.onNodeWithContentDescription("Retomar Filme no telefone")
+            .fetchSemanticsNode().boundsInRoot
+        val minimumHeightPx = with(composeRule.density) { 48.dp.toPx() }
+        assertTrue("Resume button height was ${bounds.height}, expected at least $minimumHeightPx", bounds.height >= minimumHeightPx)
     }
 }

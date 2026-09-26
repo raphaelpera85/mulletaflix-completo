@@ -20,6 +20,9 @@ class GetLibraryItemsUseCase @Inject constructor(
         limit: Int = 40,
         isPlayed: Boolean? = null,
         isFavorite: Boolean? = null,
+        genres: String? = null,
+        years: String? = null,
+        officialRatings: String? = null,
     ): Result<Pair<List<MediaItem>, Int>> = runCatching {
         require(userId.isNotBlank()) { "O identificador do usuário é obrigatório." }
         require(libraryId.isNotBlank()) { "O identificador da biblioteca é obrigatório." }
@@ -36,6 +39,9 @@ class GetLibraryItemsUseCase @Inject constructor(
             limit = limit,
             isPlayed = isPlayed,
             isFavorite = isFavorite,
+            genres = genres,
+            years = years,
+            officialRatings = officialRatings,
         ).getOrThrow()
     }
 }

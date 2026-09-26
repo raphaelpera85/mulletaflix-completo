@@ -1,7 +1,10 @@
 package org.mulletaflix.feature.auth
 
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -12,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -38,11 +42,14 @@ class AuthViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
+        mockkObject(QuickConnectMonotonicClock)
+        every { QuickConnectMonotonicClock.nowMillis() } returns 0L
         coEvery { discovery.discover(any()) } returns listOf(ServerInfo(name = "LAN Server", url = "http://192.168.1.10:8096"))
     }
 
     @After
     fun tearDown() {
+        unmockkObject(QuickConnectMonotonicClock)
         Dispatchers.resetMain()
     }
 
@@ -192,6 +199,61 @@ class AuthViewModelTest {
         assertFalse(viewModel.state.value.isWaitingForQuickConnect)
         assertNull(viewModel.state.value.quickConnectPin)
         assertNull(viewModel.state.value.quickConnectSecret)
+    }
+
+    @Test
+    fun `quick connect hides expired countdown but keeps a slow final poll pending`() = runTest {
+        every { QuickConnectMonotonicClock.nowMillis() } answers { testScheduler.currentTime }
+        val viewModel = createViewModel(object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                delay(QUICK_CONNECT_DURATION_MILLIS * 2)
+                return Result.success(null)
+            }
+        })
+
+        try {
+            advanceUntilIdle()
+            viewModel.initiateQuickConnect()
+            runCurrent()
+
+            advanceTimeBy(QUICK_CONNECT_POLL_INTERVAL_MILLIS)
+            runCurrent()
+            advanceTimeBy(QUICK_CONNECT_DURATION_MILLIS - QUICK_CONNECT_POLL_INTERVAL_MILLIS)
+            runCurrent()
+
+            assertTrue(viewModel.state.value.isWaitingForQuickConnect)
+            assertNull(viewModel.state.value.quickConnectSecondsRemaining)
+            assertNull(viewModel.state.value.error)
+
+            advanceTimeBy(QUICK_CONNECT_REQUEST_TIMEOUT_MILLIS + QUICK_CONNECT_POLL_INTERVAL_MILLIS)
+            runCurrent()
+
+            assertFalse(viewModel.state.value.isWaitingForQuickConnect)
+            assertEquals(QUICK_CONNECT_POLL_TIMEOUT_MESSAGE, viewModel.state.value.error)
+            assertNull(viewModel.state.value.quickConnectSecondsRemaining)
+        } finally {
+            viewModel.cancelQuickConnect()
+        }
+    }
+
+    @Test
+    fun `hung quick connect request is cancelled and later poll can authenticate`() = runTest {
+        var checkCalls = 0
+        val viewModel = createViewModel(object : FakeAuthRepository() {
+            override suspend fun checkQuickConnect(secret: String): Result<UserSession?> {
+                checkCalls++
+                if (checkCalls == 1) delay(QUICK_CONNECT_REQUEST_TIMEOUT_MILLIS * 2)
+                return Result.success(UserSession("u1", "Raphael", "token", "s1"))
+            }
+        })
+
+        advanceUntilIdle()
+        viewModel.initiateQuickConnect()
+        advanceUntilIdle()
+
+        assertTrue(checkCalls >= 2)
+        assertTrue(viewModel.state.value.isAuthenticated)
+        assertFalse(viewModel.state.value.isWaitingForQuickConnect)
     }
 
     @Test

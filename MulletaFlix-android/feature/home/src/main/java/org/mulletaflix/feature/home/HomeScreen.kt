@@ -74,6 +74,15 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var showRequestDialog by remember { mutableStateOf(false) }
+    var requestTitle by remember { mutableStateOf("") }
+    var requestType by remember { mutableStateOf("Série") }
+    var requestYear by remember { mutableStateOf("") }
+    var requestNotes by remember { mutableStateOf("") }
+    var requestMessage by remember { mutableStateOf<String?>(null) }
+    var requestSubmitting by remember { mutableStateOf(false) }
+    val requestYearNumber = requestYear.toIntOrNull()
+    val requestYearValid = requestYear.isBlank() || (requestYearNumber != null && requestYearNumber in 1888..2200)
     val lifecycleOwner = LocalLifecycleOwner.current
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isTelevision = isTelevisionDevice()
@@ -116,6 +125,7 @@ fun HomeScreen(
                     onSettings = { navController.navigate("main/settings") },
                     onProfile = { navController.navigate("main/profile") },
                     onRefresh = { viewModel.refresh() },
+                    onRequestMedia = { showRequestDialog = true },
                     isRefreshing = state.isRefreshing,
                 )
             }
@@ -353,6 +363,63 @@ fun HomeScreen(
             item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
+    }
+    if (showRequestDialog) {
+        AlertDialog(
+            onDismissRequest = { showRequestDialog = false },
+            title = { Text("Solicitar mídia") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(requestTitle, { requestTitle = it.take(200) }, label = { Text("Título") }, singleLine = true, enabled = !requestSubmitting)
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
+                        OutlinedButton(onClick = { expanded = true }, enabled = !requestSubmitting) { Text(requestType) }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            listOf("Filme", "Série", "Animação", "Novela", "Dorama", "Livro", "Música", "Outro").forEach { type ->
+                                DropdownMenuItem(text = { Text(type) }, onClick = { requestType = type; expanded = false })
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        requestYear,
+                        { requestYear = it.filter(Char::isDigit).take(4) },
+                        label = { Text("Ano (opcional)") },
+                        supportingText = { if (!requestYearValid) Text("Informe um ano entre 1888 e 2200.") },
+                        isError = !requestYearValid,
+                        singleLine = true,
+                        enabled = !requestSubmitting,
+                    )
+                    OutlinedTextField(requestNotes, { requestNotes = it.take(1000) }, label = { Text("Detalhes (opcional)") }, minLines = 2, enabled = !requestSubmitting)
+                    requestMessage?.let { Text(it, color = if (requestSubmitting) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = requestTitle.isNotBlank() && requestYearValid && !requestSubmitting, onClick = {
+                    requestSubmitting = true
+                    requestMessage = "Enviando solicitação…"
+                    viewModel.requestMedia(requestTitle, requestType, requestYear.toIntOrNull(), requestNotes) { result ->
+                        requestSubmitting = false
+                        result.onSuccess {
+                            showRequestDialog = false
+                            requestTitle = ""
+                            requestYear = ""
+                            requestNotes = ""
+                            requestMessage = null
+                        }.onFailure {
+                            requestMessage = if (it is kotlinx.coroutines.CancellationException) {
+                                null
+                            } else {
+                                it.localizedMessage ?: "Não foi possível enviar. Tente novamente."
+                            }
+                        }
+                    }
+                }) {
+                    if (requestSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Text("Enviar")
+                }
+            },
+            dismissButton = { TextButton(enabled = !requestSubmitting, onClick = { showRequestDialog = false; requestMessage = null }) { Text("Cancelar") } },
+        )
     }
 
 }
@@ -619,8 +686,12 @@ internal fun MediaSection(
     }
 }
 
-internal fun MediaItem.hasResumablePlaybackPosition(): Boolean =
-    !isPlayed && (playbackPositionTicks ?: userProgress?.playbackPositionTicks ?: 0L) > 0L
+internal fun MediaItem.hasResumablePlaybackPosition(): Boolean {
+    if (isPlayed) return false
+    val positionTicks = playbackPositionTicks ?: userProgress?.playbackPositionTicks ?: return false
+    val durationTicks = runtimeTicks
+    return positionTicks > 0L && (durationTicks == null || durationTicks <= 0L || positionTicks < durationTicks)
+}
 
 internal fun defaultMediaSectionShape(item: MediaItem): MediaCardShape =
     if (item.type.usesPosterArtwork()) MediaCardShape.Portrait else MediaCardShape.Landscape
@@ -680,6 +751,7 @@ internal fun HomeTopBar(
     onSettings: () -> Unit,
     onProfile: () -> Unit,
     onRefresh: () -> Unit,
+    onRequestMedia: () -> Unit = {},
     isRefreshing: Boolean,
 ) {
     val serverUrl = LocalMulletaFlixServerUrl.current
@@ -707,6 +779,9 @@ internal fun HomeTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            HomeTopBarAction(focusFriendly = layoutSpec.usesFocusFriendlySpacing, onClick = onRequestMedia) {
+                Icon(Icons.Default.AddCircle, contentDescription = "Solicitar mídia", tint = MaterialTheme.colorScheme.onBackground)
+            }
             HomeTopBarAction(
                 focusFriendly = layoutSpec.usesFocusFriendlySpacing,
                 onClick = onSearch,

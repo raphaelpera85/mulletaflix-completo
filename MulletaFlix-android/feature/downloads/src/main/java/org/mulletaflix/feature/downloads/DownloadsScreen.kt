@@ -53,8 +53,12 @@ fun DownloadsScreen(
         Configuration.UI_MODE_TYPE_TELEVISION
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf(DownloadStatusFilter.All) }
-    val filteredDownloads = remember(downloads, searchQuery, statusFilter) {
-        filterDownloads(downloads, searchQuery, statusFilter)
+    var storageOrder by rememberSaveable { mutableStateOf(DownloadStorageOrder.LargestFirst) }
+    val filteredDownloads = remember(downloads, searchQuery, statusFilter, storageOrder) {
+        sortDownloadsByStorage(
+            filterDownloads(downloads, searchQuery, statusFilter),
+            storageOrder,
+        )
     }
     var itemPendingDeletion by remember { mutableStateOf<DownloadEntry?>(null) }
     var showClearCompletedConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -120,6 +124,12 @@ fun DownloadsScreen(
                         DownloadFilterRow(
                             selectedFilter = statusFilter,
                             onFilterSelected = { statusFilter = it },
+                        )
+                    }
+                    item {
+                        DownloadStorageSortRow(
+                            selectedOrder = storageOrder,
+                            onOrderSelected = { storageOrder = it },
                         )
                     }
                     item {
@@ -336,6 +346,31 @@ internal fun DownloadFilterRow(
     }
 }
 
+@Composable
+internal fun DownloadStorageSortRow(
+    selectedOrder: DownloadStorageOrder,
+    onOrderSelected: (DownloadStorageOrder) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            text = "Ordenar por espaço usado",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(DownloadStorageOrder.entries.size) { index ->
+                val order = DownloadStorageOrder.entries[index]
+                FilterChip(
+                    selected = order == selectedOrder,
+                    onClick = { onOrderSelected(order) },
+                    label = { Text(order.label) },
+                )
+            }
+        }
+    }
+}
+
 private fun emptyFilterMessage(query: String, filter: DownloadStatusFilter): String {
     val normalizedQuery = query.trim()
     return when {
@@ -478,7 +513,7 @@ internal fun DownloadRow(
             .clickable(onClick = onPlay)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
-                contentDescription = "Reproduzir ${entry.title} offline"
+                contentDescription = "Reproduzir ${entry.title} offline. ${downloadStorageLabel(entry)}"
             }
     } else {
         Modifier
@@ -523,6 +558,11 @@ internal fun DownloadRow(
                     statusText(entry),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    downloadStorageLabel(entry),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (entry.state == DownloadState.Downloading || entry.state == DownloadState.Queued) {
                     LinearProgressIndicator(

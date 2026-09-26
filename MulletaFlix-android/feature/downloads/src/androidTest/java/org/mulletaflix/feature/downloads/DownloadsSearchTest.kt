@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -113,6 +114,48 @@ class DownloadsSearchTest {
     }
 
     @Test
+    fun storageOrderOptionsCanBeSelected() {
+        var selected by mutableStateOf(DownloadStorageOrder.LargestFirst)
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadStorageSortRow(
+                    selectedOrder = selected,
+                    onOrderSelected = { selected = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Maior primeiro").assertIsSelected()
+        composeRule.onNodeWithText("Menor primeiro").performClick().assertIsSelected()
+        composeRule.runOnIdle { check(selected == DownloadStorageOrder.SmallestFirst) }
+    }
+
+    @Test
+    fun downloadRowShowsPerTitleStorageAndKnownTotal() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadRow(
+                    entry = DownloadEntry(
+                        id = "movie",
+                        title = "Filme",
+                        uri = "file:///movie",
+                        state = DownloadState.Completed,
+                        percent = 100,
+                        bytesDownloaded = 1_048_576,
+                        contentLength = 2_097_152,
+                    ),
+                    imageModel = null,
+                    onPlay = {},
+                    onRetry = {},
+                    onRemove = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("No dispositivo: 1,0 MB de 2,0 MB").assertExists()
+    }
+
+    @Test
     fun retryAllButtonIsShownOnlyWhenThereAreFailedDownloads() {
         var retryCount = 0
         var downloads by mutableStateOf(
@@ -212,7 +255,7 @@ class DownloadsSearchTest {
             }
         }
 
-        composeRule.onNodeWithContentDescription("Reproduzir Filme offline").performClick()
+        composeRule.onNodeWithContentDescription("Reproduzir Filme offline. No dispositivo: 0 B").performClick()
 
         composeRule.runOnIdle { check(played) }
     }

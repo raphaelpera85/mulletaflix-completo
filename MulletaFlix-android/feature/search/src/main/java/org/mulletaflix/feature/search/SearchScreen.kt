@@ -201,26 +201,10 @@ fun SearchScreen(
         }
 
         // ── Filter chips ────────────────────────────────────────────────────
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 8.dp)
-        ) {
-            item {
-                FilterChip(
-                    selected = state.activeFilter == null,
-                    onClick = { viewModel.setFilter(null) },
-                    label = { Text("Tudo") }
-                )
-            }
-            items(SearchFilter.values().toList()) { filter ->
-                FilterChip(
-                    selected = state.activeFilter == filter,
-                    onClick = { viewModel.setFilter(filter) },
-                    label = { Text(filter.label) }
-                )
-            }
-        }
+        SearchFilterChips(
+            activeFilter = state.activeFilter,
+            onFilterSelected = viewModel::setFilter,
+        )
 
         if (state.isOffline) {
             Card(
@@ -623,7 +607,35 @@ enum class SearchFilter(val label: String) {
     Music("Músicas"),
     Albums("Álbuns"),
     Artists("Artistas"),
+    Books("Livros"),
     People("Pessoas"),
+}
+
+@Composable
+internal fun SearchFilterChips(
+    activeFilter: SearchFilter?,
+    onFilterSelected: (SearchFilter?) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(bottom = 8.dp),
+    ) {
+        item {
+            FilterChip(
+                selected = activeFilter == null,
+                onClick = { onFilterSelected(null) },
+                label = { Text("Tudo") },
+            )
+        }
+        items(SearchFilter.values().toList()) { filter ->
+            FilterChip(
+                selected = activeFilter == filter,
+                onClick = { onFilterSelected(filter) },
+                label = { Text(filter.label) },
+            )
+        }
+    }
 }
 
 private fun MediaItemType.toGroupLabel() = when (this) {

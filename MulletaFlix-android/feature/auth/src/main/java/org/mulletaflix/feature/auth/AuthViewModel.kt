@@ -1,5 +1,6 @@
 package org.mulletaflix.feature.auth
 
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,7 +11,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.usecase.LoginUseCase
 import org.mulletaflix.domain.usecase.RegisterUseCase
@@ -452,14 +455,10 @@ class AuthViewModel @Inject constructor(
                             isWaitingForQuickConnect = true,
                         )
                     }
-                    if (qc.isAuthorized) {
-                        // Some server versions authorize the code during the
-                        // initiate call. Authenticate immediately instead of
-                        // making the user wait for the first polling interval.
-                        checkQuickConnect(qc.secret, generation)
-                    } else {
-                        pollQuickConnect(qc.secret, generation)
-                    }
+                    // Some server versions authorize during initiation, so
+                    // check immediately; all checks still share the same
+                    // deadline and bounded request timeout.
+                    pollQuickConnect(qc.secret, generation, pollImmediately = qc.isAuthorized)
                 }
                 .onFailure { err ->
                     if (isActive && generation == quickConnectGeneration) {
@@ -492,28 +491,60 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    private suspend fun pollQuickConnect(secret: String, generation: Long) {
-        var attempts = 0
-        while (currentCoroutineContext().isActive && generation == quickConnectGeneration && attempts < QUICK_CONNECT_MAX_POLL_ATTEMPTS) {
-            delay(3000)
-            if (!currentCoroutineContext().isActive || generation != quickConnectGeneration) return
-            attempts++
-            _state.update {
-                it.copy(quickConnectSecondsRemaining = quickConnectRemainingSeconds(attempts))
+    private suspend fun pollQuickConnect(
+        secret: String,
+        generation: Long,
+        pollImmediately: Boolean = false,
+    ) = coroutineScope {
+        val deadlineMillis = QuickConnectMonotonicClock.nowMillis() + QUICK_CONNECT_DURATION_MILLIS
+        val countdownJob = launch {
+            while (currentCoroutineContext().isActive && generation == quickConnectGeneration) {
+                val remainingMillis = (deadlineMillis - QuickConnectMonotonicClock.nowMillis()).coerceAtLeast(0L)
+                val remainingSeconds = quickConnectRemainingSeconds(remainingMillis)
+                _state.update { current ->
+                    if (generation == quickConnectGeneration && current.isWaitingForQuickConnect) {
+                        current.copy(quickConnectSecondsRemaining = remainingSeconds.takeIf { it > 0 })
+                    } else {
+                        current
+                    }
+                }
+                if (remainingMillis == 0L) break
+                delay(minOf(1_000L, remainingMillis))
             }
-            if (checkQuickConnect(secret, generation)) return
         }
 
-        if (currentCoroutineContext().isActive && generation == quickConnectGeneration) {
-            _state.update {
-                it.copy(
-                    isWaitingForQuickConnect = false,
-                    quickConnectPin = null,
-                    quickConnectSecret = null,
-                    quickConnectSecondsRemaining = null,
-                    error = QUICK_CONNECT_POLL_TIMEOUT_MESSAGE,
-                )
+        try {
+            var attempts = 0
+            while (
+                currentCoroutineContext().isActive &&
+                generation == quickConnectGeneration &&
+                attempts < QUICK_CONNECT_MAX_POLL_ATTEMPTS
+            ) {
+                val remainingMillis = deadlineMillis - QuickConnectMonotonicClock.nowMillis()
+                if (remainingMillis <= 0L) break
+                if (!(pollImmediately && attempts == 0)) {
+                    delay(minOf(QUICK_CONNECT_POLL_INTERVAL_MILLIS, remainingMillis))
+                }
+                if (!currentCoroutineContext().isActive || generation != quickConnectGeneration) return@coroutineScope
+                attempts++
+                withTimeoutOrNull(QUICK_CONNECT_REQUEST_TIMEOUT_MILLIS) {
+                    checkQuickConnect(secret, generation)
+                }?.let { if (it) return@coroutineScope }
             }
+
+            if (currentCoroutineContext().isActive && generation == quickConnectGeneration) {
+                _state.update {
+                    it.copy(
+                        isWaitingForQuickConnect = false,
+                        quickConnectPin = null,
+                        quickConnectSecret = null,
+                        quickConnectSecondsRemaining = null,
+                        error = QUICK_CONNECT_POLL_TIMEOUT_MESSAGE,
+                    )
+                }
+            }
+        } finally {
+            countdownJob.cancel()
         }
     }
 
@@ -562,14 +593,23 @@ class AuthViewModel @Inject constructor(
 
 internal const val QUICK_CONNECT_MAX_POLL_ATTEMPTS = 100
 internal const val QUICK_CONNECT_POLL_INTERVAL_SECONDS = 3
+internal const val QUICK_CONNECT_POLL_INTERVAL_MILLIS = QUICK_CONNECT_POLL_INTERVAL_SECONDS * 1_000L
+internal const val QUICK_CONNECT_REQUEST_TIMEOUT_MILLIS = 30_000L
+internal const val QUICK_CONNECT_DURATION_MILLIS = QUICK_CONNECT_MAX_POLL_ATTEMPTS * QUICK_CONNECT_POLL_INTERVAL_MILLIS
 internal const val QUICK_CONNECT_POLL_TIMEOUT_MESSAGE =
     "Não foi possível confirmar o Quick Connect no prazo. Verifique a conexão e gere um novo código."
 
 internal fun quickConnectDurationSeconds(): Int =
     QUICK_CONNECT_MAX_POLL_ATTEMPTS * QUICK_CONNECT_POLL_INTERVAL_SECONDS
 
-internal fun quickConnectRemainingSeconds(attempt: Int): Int =
-    (quickConnectDurationSeconds() - attempt * QUICK_CONNECT_POLL_INTERVAL_SECONDS).coerceAtLeast(0)
+internal fun quickConnectRemainingSeconds(remainingMillis: Long): Int {
+    val boundedMillis = remainingMillis.coerceAtLeast(0L)
+    return ((boundedMillis + 999L) / 1_000L).toInt()
+}
+
+internal object QuickConnectMonotonicClock {
+    fun nowMillis(): Long = SystemClock.elapsedRealtime()
+}
 
 internal fun quickConnectTerminalErrorMessage(error: Throwable): String? = when {
     error is HttpException && error.code() == 404 ->

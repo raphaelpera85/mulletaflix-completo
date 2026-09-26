@@ -75,6 +75,15 @@ class HomePresentationTest {
                 userProgress = UserProgress(playbackPositionTicks = 10),
             ).hasResumablePlaybackPosition(),
         )
+        assertTrue(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 9,
+                runtimeTicks = 10,
+            ).hasResumablePlaybackPosition(),
+        )
         assertFalse(MediaItem("movie", "Filme", MediaItemType.Movie).hasResumablePlaybackPosition())
         assertFalse(
             MediaItem(
@@ -91,6 +100,24 @@ class HomePresentationTest {
                 MediaItemType.Movie,
                 playbackPositionTicks = -1,
                 userProgress = UserProgress(playbackPositionTicks = 10),
+            ).hasResumablePlaybackPosition(),
+        )
+        assertFalse(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 10,
+                runtimeTicks = 10,
+            ).hasResumablePlaybackPosition(),
+        )
+        assertFalse(
+            MediaItem(
+                "movie",
+                "Filme",
+                MediaItemType.Movie,
+                playbackPositionTicks = 11,
+                runtimeTicks = 10,
             ).hasResumablePlaybackPosition(),
         )
         assertFalse(

@@ -152,7 +152,7 @@ class SyncPlayViewModel @Inject constructor(
         val userId = currentUserId
         val generation = sessionGeneration
         _state.update { it.copy(isSubmitting = true, error = null) }
-        viewModelScope.launch {
+        launchSubmission(userId, generation) {
             manageSyncPlayUseCase.createGroup(name)
                 .onSuccess {
                     if (!isCurrentSession(userId, generation)) return@onSuccess
@@ -181,7 +181,7 @@ class SyncPlayViewModel @Inject constructor(
         val userId = currentUserId
         val generation = sessionGeneration
         _state.update { it.copy(isSubmitting = true, error = null) }
-        viewModelScope.launch {
+        launchSubmission(userId, generation) {
             manageSyncPlayUseCase.joinGroup(groupId)
                 .onSuccess {
                     if (!isCurrentSession(userId, generation)) return@onSuccess
@@ -202,7 +202,7 @@ class SyncPlayViewModel @Inject constructor(
         val userId = currentUserId
         val generation = sessionGeneration
         _state.update { it.copy(isSubmitting = true, error = null) }
-        viewModelScope.launch {
+        launchSubmission(userId, generation) {
             manageSyncPlayUseCase.leaveGroup()
                 .onSuccess {
                     if (!isCurrentSession(userId, generation)) return@onSuccess
@@ -223,7 +223,7 @@ class SyncPlayViewModel @Inject constructor(
         val userId = currentUserId
         val generation = sessionGeneration
         _state.update { it.copy(isSubmitting = true, error = null) }
-        viewModelScope.launch {
+        launchSubmission(userId, generation) {
             manageSyncPlayUseCase.sendPlaybackCommand(command)
                 .onSuccess {
                     if (isCurrentSession(userId, generation)) {
@@ -236,6 +236,20 @@ class SyncPlayViewModel @Inject constructor(
                         _state.update { it.copy(isSubmitting = false, error = e.message ?: "Não foi possível controlar a reprodução da sala.") }
                     }
                 }
+        }
+    }
+
+    private fun launchSubmission(userId: String?, generation: Long, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+            } finally {
+                if (isCurrentSession(userId, generation)) {
+                    _state.update { current ->
+                        if (current.isSubmitting) current.copy(isSubmitting = false) else current
+                    }
+                }
+            }
         }
     }
 

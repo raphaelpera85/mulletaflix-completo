@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -108,6 +109,30 @@ class LoginFormSemanticsTest {
         composeRule.onNodeWithText(QUICK_CONNECT_POLL_TIMEOUT_MESSAGE).assertIsDisplayed()
         composeRule.onNodeWithTag(QUICK_CONNECT_INITIATE_TEST_TAG).performClick()
         composeRule.runOnIdle { assertTrue(initiated) }
+    }
+
+    @Test
+    fun quickConnectKeepsWaitingWithoutShowingAnExpiredCountdown() {
+        composeRule.setContent {
+            MaterialTheme {
+                QuickConnectForm(
+                    pin = "123456",
+                    isAvailable = true,
+                    availabilityError = null,
+                    isLoading = false,
+                    isWaiting = true,
+                    secondsRemaining = null,
+                    error = null,
+                    onInitiate = {},
+                    onRetryAvailability = {},
+                    onCancel = {},
+                    onCopyPin = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Aguardando autorização...").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Expira em 0:00").assertCountEquals(0)
     }
 
     @Test

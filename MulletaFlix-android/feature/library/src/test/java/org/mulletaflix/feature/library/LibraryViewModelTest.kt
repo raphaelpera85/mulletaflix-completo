@@ -44,12 +44,15 @@ class LibraryViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    private fun createViewModel(auth: AuthRepository = FakeAuthRepository()): LibraryViewModel {
+    private fun createViewModel(
+        auth: AuthRepository = FakeAuthRepository(),
+        settings: FakeSettingsRepository = FakeSettingsRepository(),
+    ): LibraryViewModel {
         return LibraryViewModel(
             getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
             getItemDetailUseCase = GetItemDetailUseCase(media),
             authRepository = auth,
-            settingsRepository = FakeSettingsRepository(),
+            settingsRepository = settings,
             networkMonitor = FakeNetworkMonitor(),
         )
     }
@@ -326,6 +329,65 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `library facets combine with status filters persist and survive pagination`() = runTest {
+        val first = MediaItem("first", "First", MediaItemType.Movie)
+        media.pages[0] = Result.success(listOf(first) to 2)
+        media.pages[1] = Result.success(listOf(MediaItem("second", "Second", MediaItemType.Movie)) to 2)
+        val settings = FakeSettingsRepository()
+        val viewModel = createViewModel(settings = settings)
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertTrue(
+            viewModel.applyFilters(
+                basicFilters = setOf(LibraryViewModel.FILTER_FAVORITES, LibraryViewModel.FILTER_PLAYED),
+                facets = LibraryFacetFilters(
+                    genres = " Drama, Ação, Drama ",
+                    years = "2023, 2024",
+                    officialRatings = "PG-13, TV-MA",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("Drama|Ação", media.lastGenres)
+        assertEquals("2023,2024", media.lastYears)
+        assertEquals("PG-13|TV-MA", media.lastOfficialRatings)
+        assertEquals(true, media.lastIsPlayed)
+        assertEquals(true, media.lastIsFavorite)
+        assertTrue("library_genres:Drama|Ação" in settings.filters)
+        assertTrue("library_years:2023,2024" in settings.filters)
+        assertTrue("library_ratings:PG-13|TV-MA" in settings.filters)
+
+        viewModel.loadMore()
+        advanceUntilIdle()
+        assertEquals("Drama|Ação", media.lastGenres)
+        assertEquals("2023,2024", media.lastYears)
+        assertEquals("PG-13|TV-MA", media.lastOfficialRatings)
+        assertEquals(true, media.lastIsPlayed)
+        assertEquals(true, media.lastIsFavorite)
+
+        viewModel.removeFilter("library_genres:Drama|Ação")
+        advanceUntilIdle()
+        assertEquals(null, media.lastGenres)
+        assertEquals("2023,2024", media.lastYears)
+        assertTrue("library_genres:Drama|Ação" !in settings.filters)
+    }
+
+    @Test
+    fun `invalid year selection does not replace active filters`() = runTest {
+        val viewModel = createViewModel()
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        viewModel.toggleFilter(LibraryViewModel.FILTER_FAVORITES)
+        advanceUntilIdle()
+        val activeBefore = viewModel.state.value.activeFilters
+
+        assertEquals(false, viewModel.applyFilters(emptySet(), LibraryFacetFilters(years = "20xx")))
+        assertEquals(activeBefore, viewModel.state.value.activeFilters)
+    }
+
+    @Test
     fun `library browse request is restricted to the library item types`() = runTest {
         media.libraryCollectionType = "tvshows"
         media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
@@ -573,6 +635,9 @@ class LibraryViewModelTest {
         var blockLibraryId: String? = null
         var lastIsPlayed: Boolean? = null
         var lastIsFavorite: Boolean? = null
+        var lastGenres: String? = null
+        var lastYears: String? = null
+        var lastOfficialRatings: String? = null
         var lastIncludeItemTypes: String? = null
         var lastSort: String? = null
         var lastSortOrder: String? = null
@@ -583,10 +648,13 @@ class LibraryViewModelTest {
         var itemCalls: Int = 0
         var blockedLibraryRelease = CompletableDeferred<Unit>()
         var responseSequence: ArrayDeque<CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>>? = null
-        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> {
+        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> {
             itemCalls++
             lastIsPlayed = isPlayed
             lastIsFavorite = isFavorite
+            lastGenres = genres
+            lastYears = years
+            lastOfficialRatings = officialRatings
             lastIncludeItemTypes = includeItemTypes
             lastSort = sortBy
             lastSortOrder = sortOrder

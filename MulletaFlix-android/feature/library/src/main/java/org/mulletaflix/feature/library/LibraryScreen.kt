@@ -277,7 +277,7 @@ fun LibraryScreen(
             if (state.showFilterMenu) {
                 FilterDialog(
                     activeFilters = state.activeFilters,
-                    onToggle = viewModel::toggleFilter,
+                    onApply = viewModel::applyFilters,
                     onClear = viewModel::clearFilters,
                     onDismiss = viewModel::hideFilterMenu,
                 )
@@ -369,52 +369,104 @@ internal fun LibraryOfflineBanner(
 @Composable
 internal fun FilterDialog(
     activeFilters: List<String>,
-    onToggle: (String) -> Unit,
+    onApply: (Collection<String>, LibraryFacetFilters) -> Unit,
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val filters = listOf(
-        LibraryViewModel.FILTER_FAVORITES,
-        LibraryViewModel.FILTER_PLAYED,
-        LibraryViewModel.FILTER_UNPLAYED,
-    )
+    var selectedBasicFilters by remember(activeFilters) {
+        mutableStateOf(activeFilters.filter { it in LibraryViewModel.BASIC_FILTERS }.toSet())
+    }
+    var facets by remember(activeFilters) { mutableStateOf(facetFiltersFromActive(activeFilters)) }
+    val validYears = isValidLibraryYearInput(facets.years)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Filtrar biblioteca") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                filters.forEach { filter ->
+            Column(
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                LibraryViewModel.BASIC_FILTERS.forEach { filter ->
                     FilterChip(
-                        selected = filter in activeFilters,
-                        onClick = { onToggle(filter) },
+                        selected = filter in selectedBasicFilters,
+                        onClick = {
+                            selectedBasicFilters = if (filter in selectedBasicFilters) {
+                                selectedBasicFilters - filter
+                            } else if (filter == LibraryViewModel.FILTER_PLAYED || filter == LibraryViewModel.FILTER_UNPLAYED) {
+                                (selectedBasicFilters - LibraryViewModel.FILTER_PLAYED - LibraryViewModel.FILTER_UNPLAYED) + filter
+                            } else {
+                                selectedBasicFilters + filter
+                            }
+                        },
                         label = { Text(filter) },
                         modifier = Modifier
                             .remoteFocusRing(RoundedCornerShape(8.dp))
                             .semantics {
-                                selected = filter in activeFilters
+                                selected = filter in selectedBasicFilters
                                 contentDescription = "Filtro $filter"
                             },
-                        leadingIcon = if (filter in activeFilters) {
+                        leadingIcon = if (filter in selectedBasicFilters) {
                             { Icon(Icons.Default.Check, contentDescription = null) }
                         } else null,
                     )
                 }
+                if (activeFilters.isNotEmpty()) {
+                    TextButton(
+                        onClick = onClear,
+                        modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+                    ) { Text("Limpar filtros") }
+                }
+                OutlinedTextField(
+                    value = facets.genres,
+                    onValueChange = { facets = facets.copy(genres = it) },
+                    label = { Text("Gêneros") },
+                    placeholder = { Text("Drama, Ação") },
+                    supportingText = { Text("Separe vários gêneros por vírgula.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().semantics {
+                        contentDescription = "Filtrar por gêneros, separados por vírgula"
+                    },
+                )
+                OutlinedTextField(
+                    value = facets.years,
+                    onValueChange = { facets = facets.copy(years = it) },
+                    label = { Text("Anos") },
+                    placeholder = { Text("2024, 2025") },
+                    supportingText = {
+                        Text(if (validYears) "Use anos com quatro dígitos, separados por vírgula." else "Cada ano deve conter quatro dígitos.")
+                    },
+                    isError = !validYears,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().semantics {
+                        contentDescription = "Filtrar por anos, separados por vírgula"
+                    },
+                )
+                OutlinedTextField(
+                    value = facets.officialRatings,
+                    onValueChange = { facets = facets.copy(officialRatings = it) },
+                    label = { Text("Classificação indicativa") },
+                    placeholder = { Text("12, 16, PG-13") },
+                    supportingText = { Text("Separe várias classificações por vírgula.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().semantics {
+                        contentDescription = "Filtrar por classificação indicativa, separados por vírgula"
+                    },
+                )
             }
         },
         confirmButton = {
             TextButton(
+                onClick = { onApply(selectedBasicFilters, facets) },
+                enabled = validYears,
+                modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
+            ) { Text("Aplicar filtros") }
+        },
+        dismissButton = {
+            TextButton(
                 onClick = onDismiss,
                 modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
-            ) { Text("Fechar") }
+            ) { Text("Cancelar") }
         },
-        dismissButton = if (activeFilters.isNotEmpty()) {
-            {
-                TextButton(
-                    onClick = onClear,
-                    modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
-                ) { Text("Limpar") }
-            }
-        } else null,
     )
 }
 
@@ -482,7 +534,7 @@ private fun ActiveFiltersRow(filters: List<String>, onRemoveFilter: (String) -> 
         filters.forEach { filter ->
             AssistChip(
                 onClick = { onRemoveFilter(filter) },
-                label = { Text(filter) },
+                label = { Text(libraryFacetFilterLabel(filter)) },
                 modifier = Modifier
                     .remoteFocusRing(RoundedCornerShape(8.dp))
                     .semantics { contentDescription = "Remover filtro $filter" },

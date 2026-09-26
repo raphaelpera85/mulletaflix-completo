@@ -14,11 +14,12 @@ class QuickConnectPolicyTest {
     }
 
     @Test
-    fun `remaining time is bounded and decreases by polling interval`() {
-        assertEquals(300, quickConnectRemainingSeconds(0))
-        assertEquals(297, quickConnectRemainingSeconds(1))
-        assertEquals(0, quickConnectRemainingSeconds(100))
-        assertEquals(0, quickConnectRemainingSeconds(101))
+    fun `remaining time rounds up from a monotonic deadline`() {
+        assertEquals(300, quickConnectRemainingSeconds(300_000))
+        assertEquals(298, quickConnectRemainingSeconds(297_500))
+        assertEquals(1, quickConnectRemainingSeconds(1))
+        assertEquals(0, quickConnectRemainingSeconds(0))
+        assertEquals(0, quickConnectRemainingSeconds(-1))
     }
 
     @Test

@@ -1113,6 +1113,16 @@ final class AppModel {
         return await client.playbackURL(for: item)
     }
 
+    func submitMediaRequest(title: String, mediaType: String, year: Int?, notes: String) async throws {
+        guard let client else { throw APIError.serverMessage("Conecte-se ao servidor para enviar a solicitação.") }
+        try await client.requestMedia(title: title, mediaType: mediaType, year: year, notes: notes)
+    }
+
+    func submitPlaybackIssue(item: MediaItem, category: String, description: String) async throws {
+        guard let client else { throw APIError.serverMessage("Conecte-se ao servidor para enviar o relato.") }
+        try await client.reportPlaybackIssue(itemID: item.id, category: category, description: description)
+    }
+
     func lyrics(for item: MediaItem) async -> [LyricLine] {
         guard let client else { return [] }
         return (try? await client.lyrics(itemID: item.id)) ?? []

@@ -64,6 +64,7 @@ class MediaRepositoryImpl @Inject constructor(
         limit: Int,
         genres: String?,
         years: String?,
+        officialRatings: String?,
         isPlayed: Boolean?,
         isFavorite: Boolean?,
     ): Result<Pair<List<MediaItem>, Int>> = suspendRunCatching {
@@ -79,6 +80,7 @@ class MediaRepositoryImpl @Inject constructor(
             limit = limit,
             genres = genres,
             years = years,
+            officialRatings = officialRatings,
             isPlayed = isPlayed,
             isFavorite = isFavorite,
         )

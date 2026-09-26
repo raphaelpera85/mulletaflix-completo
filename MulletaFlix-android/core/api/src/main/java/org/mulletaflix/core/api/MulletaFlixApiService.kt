@@ -53,6 +53,12 @@ const val MAX_LIVE_TV_RECORDINGS_PAGES = 20
  */
 interface MulletaFlixApiService {
 
+    @POST("UserFeedback/MediaRequests")
+    suspend fun requestMedia(@Body body: MediaRequestDto)
+
+    @POST("UserFeedback/PlaybackIssues")
+    suspend fun reportPlaybackIssue(@Body body: PlaybackIssueDto)
+
     // ── Authentication ──────────────────────────────────────────────────────
 
     @POST("Users/AuthenticateByName")

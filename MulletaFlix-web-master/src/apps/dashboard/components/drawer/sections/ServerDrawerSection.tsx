@@ -43,6 +43,8 @@ const PLAYBACK_PATHS = [
 
 const TOOLS_PATHS = [
     '/dashboard/playback-reports',
+    '/dashboard/media-requests',
+    '/dashboard/playback-issues',
     '/dashboard/syncplay',
     '/dashboard/updates'
 ];
@@ -55,6 +57,8 @@ const USERS_PATHS = [
 ];
 
 const PLAYBACK_REPORTS_PATH = '/dashboard/playback-reports';
+const MEDIA_REQUESTS_PATH = '/dashboard/media-requests';
+const PLAYBACK_ISSUES_PATH = '/dashboard/playback-issues';
 const SYNCPLAY_PATH = '/dashboard/syncplay';
 const UPDATES_PATH = '/dashboard/updates';
 
@@ -204,6 +208,14 @@ const ServerDrawerSection = () => {
             </ListItem>
             <Collapse in={isToolsSectionOpen} timeout='auto' unmountOnExit>
                 <List component='div' disablePadding>
+                    <ListItemLink to={MEDIA_REQUESTS_PATH} sx={{ pl: 4 }}>
+                        <ListItemIcon><LibraryAdd /></ListItemIcon>
+                        <ListItemText inset primary={globalize.translate('MediaRequestsAdminTitle')} />
+                    </ListItemLink>
+                    <ListItemLink to={PLAYBACK_ISSUES_PATH} sx={{ pl: 4 }}>
+                        <ListItemIcon><HelpOutline /></ListItemIcon>
+                        <ListItemText inset primary={globalize.translate('PlaybackIssuesAdminTitle')} />
+                    </ListItemLink>
                     <ListItemLink to={PLAYBACK_REPORTS_PATH} sx={{ pl: 4 }}>
                         <ListItemText inset primary='Playback Reports' />
                     </ListItemLink>

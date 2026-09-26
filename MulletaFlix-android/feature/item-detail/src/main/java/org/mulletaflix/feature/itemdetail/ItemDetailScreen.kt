@@ -36,7 +36,6 @@ import org.mulletaflix.domain.model.*
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.MediaCardShape
-import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerId
 import org.mulletaflix.designsystem.media.resolveMediaUrl
@@ -60,6 +59,12 @@ fun ItemDetailScreen(
     viewModel: ItemDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val feedbackItemId = state.item?.id ?: itemId
+    var showIssueDialog by remember { mutableStateOf(false) }
+    var issueCategory by remember { mutableStateOf("Não reproduz") }
+    var issueDescription by remember { mutableStateOf("") }
+    var issueSubmitting by remember { mutableStateOf(false) }
+    var issueError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val serverUrl = LocalMulletaFlixServerUrl.current
     val serverId = LocalMulletaFlixServerId.current
@@ -106,6 +111,11 @@ fun ItemDetailScreen(
 
                 // ── Metadata pills ────────────────────────────────────────────
                 MetadataPills(item = item)
+                PlaybackIssueAction(
+                    itemName = item.name,
+                    onClick = { showIssueDialog = true; issueError = null },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
 
                 state.downloadMessage?.let { message ->
                     Text(message, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
@@ -178,6 +188,51 @@ fun ItemDetailScreen(
                 onDismiss = viewModel::closePlaylistPicker,
                 onPlaylistSelected = viewModel::addToPlaylist,
                 onCreate = viewModel::createPlaylist,
+            )
+        }
+
+        if (showIssueDialog) {
+            AlertDialog(
+                onDismissRequest = { showIssueDialog = false },
+                title = { Text("Reportar problema") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        var expanded by remember { mutableStateOf(false) }
+                        Box {
+                        OutlinedButton(onClick = { expanded = true }, enabled = !issueSubmitting) { Text(issueCategory) }
+                            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                listOf("Não reproduz", "Travamentos", "Sem áudio", "Áudio/legenda", "Qualidade", "Outro").forEach { category ->
+                                    DropdownMenuItem(text = { Text(category) }, onClick = { issueCategory = category; expanded = false })
+                                }
+                            }
+                        }
+                        OutlinedTextField(issueDescription, { issueDescription = it.take(1000) }, label = { Text("Descreva o problema (opcional)") }, minLines = 2, enabled = !issueSubmitting)
+                        issueError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                },
+                confirmButton = {
+                    TextButton(enabled = !issueSubmitting, onClick = {
+                        issueSubmitting = true
+                        issueError = null
+                        viewModel.reportPlaybackIssue(feedbackItemId, issueCategory, issueDescription) { result ->
+                            issueSubmitting = false
+                            result.onSuccess {
+                                showIssueDialog = false
+                                issueDescription = ""
+                            }.onFailure {
+                                issueError = if (it is kotlinx.coroutines.CancellationException) {
+                                    null
+                                } else {
+                                    it.localizedMessage ?: "Não foi possível enviar o relato. Tente novamente."
+                                }
+                            }
+                        }
+                    }) {
+                        if (issueSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Text("Enviar")
+                    }
+                },
+                dismissButton = { TextButton(enabled = !issueSubmitting, onClick = { showIssueDialog = false; issueError = null }) { Text("Cancelar") } },
             )
         }
 
@@ -326,6 +381,19 @@ private fun DetailHero(
 
 internal fun detailRefreshContentDescription(isRefreshing: Boolean): String =
     if (isRefreshing) "Atualizando detalhes" else "Atualizar detalhes"
+
+@Composable
+internal fun PlaybackIssueAction(
+    itemName: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TextButton(onClick = onClick, modifier = modifier) {
+        Icon(Icons.Default.ReportProblem, contentDescription = "Reportar problema de reprodução de $itemName")
+        Spacer(Modifier.width(8.dp))
+        Text("Reportar problema de reprodução")
+    }
+}
 
 /**
  * A fileira de ações do cabeçalho de Detalhes.

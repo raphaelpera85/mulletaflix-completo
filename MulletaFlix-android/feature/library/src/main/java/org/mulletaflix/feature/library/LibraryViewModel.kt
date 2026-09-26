@@ -76,10 +76,11 @@ class LibraryViewModel @Inject constructor(
         const val FILTER_FAVORITES = "Favoritos"
         const val FILTER_PLAYED = "Assistidos"
         const val FILTER_UNPLAYED = "Não assistidos"
+        val BASIC_FILTERS = listOf(FILTER_FAVORITES, FILTER_PLAYED, FILTER_UNPLAYED)
 
         /** Shown whenever a load is started without a usable session. */
         const val EXPIRED_SESSION_MESSAGE = "Sessão expirada. Entre novamente."
-        private val SUPPORTED_FILTERS = listOf(FILTER_FAVORITES, FILTER_PLAYED, FILTER_UNPLAYED)
+        private val SUPPORTED_FILTERS = BASIC_FILTERS
     }
 
     init {
@@ -203,6 +204,7 @@ class LibraryViewModel @Inject constructor(
             val library = libResult.getOrNull()
             val libName = library?.name ?: "Biblioteca"
             currentIncludeItemTypes = LibraryBrowseTypes.forCollectionType(library?.collectionType)
+            val facets = facetFiltersForRequest(_state.value.activeFilters)
 
             getLibraryItemsUseCase(
                 userId = userId,
@@ -214,6 +216,9 @@ class LibraryViewModel @Inject constructor(
                 limit = pageSize,
                 isPlayed = playedFilter(_state.value.activeFilters),
                 isFavorite = favoriteFilter(_state.value.activeFilters),
+                genres = facets.genres.ifBlank { null },
+                years = facets.years.ifBlank { null },
+                officialRatings = facets.officialRatings.ifBlank { null },
             ).onSuccess { (firstPageItems, total) ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
                 // "Aleatório" is `ORDER BY RANDOM()` on the server: a second request at
@@ -233,6 +238,9 @@ class LibraryViewModel @Inject constructor(
                         limit = singleRequestItemLimit(_state.value.sortBy.apiValue, pageSize, total),
                         isPlayed = playedFilter(_state.value.activeFilters),
                         isFavorite = favoriteFilter(_state.value.activeFilters),
+                        genres = facets.genres.ifBlank { null },
+                        years = facets.years.ifBlank { null },
+                        officialRatings = facets.officialRatings.ifBlank { null },
                     ).getOrNull()?.first ?: firstPageItems
                 }
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
@@ -325,6 +333,7 @@ class LibraryViewModel @Inject constructor(
             // the visible list is deduplicated, which would otherwise make the
             // offset stop advancing.
             val requestedStartIndex = fetchedItemCount
+            val facets = facetFiltersForRequest(_state.value.activeFilters)
             getLibraryItemsUseCase(
                 userId = userId,
                 libraryId = libId,
@@ -335,6 +344,9 @@ class LibraryViewModel @Inject constructor(
                 limit = pageSize,
                 isPlayed = playedFilter(_state.value.activeFilters),
                 isFavorite = favoriteFilter(_state.value.activeFilters),
+                genres = facets.genres.ifBlank { null },
+                years = facets.years.ifBlank { null },
+                officialRatings = facets.officialRatings.ifBlank { null },
             ).onSuccess { (newItems, total) ->
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libId)) return@onSuccess
                 fetchedItemCount += newItems.size
@@ -397,6 +409,15 @@ class LibraryViewModel @Inject constructor(
         currentLibraryId?.let { loadLibrary(it) }
     }
 
+    fun applyFilters(basicFilters: Collection<String>, facets: LibraryFacetFilters): Boolean {
+        val normalizedFacets = normalizeLibraryFacetFilters(facets) ?: return false
+        val nextFilters = orderedFilters(activeFiltersWithFacets(basicFilters, normalizedFacets))
+        _state.update { it.copy(activeFilters = nextFilters, showFilterMenu = false) }
+        persistFilters(nextFilters)
+        currentLibraryId?.let { loadLibrary(it) }
+        return true
+    }
+
     fun setSortBy(option: SortOption) {
         _state.update { it.copy(sortBy = option, showSortMenu = false) }
         viewModelScope.launch { settingsRepository.setDefaultLibrarySort(option.apiValue) }
@@ -443,7 +464,7 @@ class LibraryViewModel @Inject constructor(
     }
 
     private fun orderedFilters(filters: Collection<String>): List<String> =
-        SUPPORTED_FILTERS.filter { it in filters }
+        SUPPORTED_FILTERS.filter { it in filters } + libraryFacetFiltersInServerOrder(filters)
 
     private fun playedFilter(filters: List<String>): Boolean? = when {
         FILTER_PLAYED in filters -> true

@@ -43,6 +43,11 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.pointer.pointerInput
@@ -98,9 +103,34 @@ internal const val PLAYBACK_STATS_CONTENT_DESCRIPTION = "Dados técnicos da míd
 internal const val PLAYER_OSD_AUTO_HIDE_MILLIS = 3000L
 private const val NOTIFICATION_PROMPT_PREFERENCES = "player_notification_preferences"
 private const val NOTIFICATION_PROMPT_DISMISSED_KEY = "permission_prompt_dismissed"
+private val playerOsdRevealKeys = setOf(
+    Key.DirectionUp,
+    Key.DirectionDown,
+    Key.DirectionLeft,
+    Key.DirectionRight,
+    Key.DirectionCenter,
+    Key.Enter,
+    Key.NumPadEnter,
+)
 
-internal fun shouldAutoHidePlayerOsd(isTelevision: Boolean, isPlaying: Boolean): Boolean =
-    !isTelevision && isPlaying
+internal fun shouldAutoHidePlayerOsd(isPlaying: Boolean): Boolean = isPlaying
+
+internal fun isPlayerOsdRevealKey(key: Key): Boolean = key in playerOsdRevealKeys
+
+@Composable
+internal fun PlayerOsdAutoHideEffect(
+    isVisible: Boolean,
+    isPlaying: Boolean,
+    interactionRevision: Int = 0,
+    onHide: () -> Unit,
+) {
+    LaunchedEffect(isVisible, isPlaying, interactionRevision) {
+        if (isVisible && shouldAutoHidePlayerOsd(isPlaying)) {
+            delay(PLAYER_OSD_AUTO_HIDE_MILLIS)
+            onHide()
+        }
+    }
+}
 
 /**
  * Full-screen video player screen using Media3 / ExoPlayer.
@@ -215,6 +245,11 @@ fun VideoPlayerScreen(
 
     // OSD visibility auto-hide
     var osdVisible by remember { mutableStateOf(true) }
+    var osdInteractionRevision by remember { mutableIntStateOf(0) }
+    val playerRootFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(isTelevision) {
+        if (isTelevision) playerRootFocusRequester.requestFocus()
+    }
     LaunchedEffect(isInPictureInPictureMode) {
         if (isInPictureInPictureMode) {
             osdVisible = false
@@ -241,12 +276,12 @@ fun VideoPlayerScreen(
             activity?.setPictureInPictureParams(params)
         }
     }
-    LaunchedEffect(osdVisible, state.isPlaying, isTelevision) {
-        if (osdVisible && shouldAutoHidePlayerOsd(isTelevision, state.isPlaying)) {
-            delay(PLAYER_OSD_AUTO_HIDE_MILLIS)
-            osdVisible = false
-        }
-    }
+    PlayerOsdAutoHideEffect(
+        isVisible = osdVisible,
+        isPlaying = state.isPlaying,
+        interactionRevision = osdInteractionRevision,
+        onHide = { osdVisible = false },
+    )
 
     // PiP on back when playing
     BackHandler(enabled = state.isPlaying && !isInPictureInPictureMode) {
@@ -267,6 +302,31 @@ fun VideoPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .then(
+                if (isTelevision) {
+                    Modifier
+                        .focusRequester(playerRootFocusRequester)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown || !isPlayerOsdRevealKey(event.key)) {
+                                return@onPreviewKeyEvent false
+                            }
+                            osdInteractionRevision++
+                            if (!osdVisible) {
+                                osdVisible = true
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        .clickable(
+                            interactionSource = null,
+                            indication = null,
+                            onClick = { if (!osdVisible) osdVisible = true },
+                        )
+                } else {
+                    Modifier
+                },
+            )
             .pointerInput(Unit) {
                 var startX = 0f
                 var startPosition = 0L

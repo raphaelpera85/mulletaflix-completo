@@ -48,7 +48,7 @@ class HomeTopBarFocusTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun showTopBar(focusFriendly: Boolean) {
+    private fun showTopBar(focusFriendly: Boolean, onRequestMedia: () -> Unit = {}) {
         val spec = if (focusFriendly) {
             homeLayoutSpec(HomeDeviceClass.TV)
         } else {
@@ -67,11 +67,22 @@ class HomeTopBarFocusTest {
                         onSettings = {},
                         onProfile = {},
                         onRefresh = {},
+                        onRequestMedia = onRequestMedia,
                         isRefreshing = false,
                     )
                 }
             }
         }
+    }
+
+    @Test
+    fun requestMediaActionHasAccessibleNameAndOpensRequestFlow() {
+        var requestCount = 0
+        showTopBar(focusFriendly = false, onRequestMedia = { requestCount++ })
+
+        composeRule.onNodeWithContentDescription("Solicitar mídia").performClick()
+
+        assertEquals(1, requestCount)
     }
 
     /** Average `red - green` over the node, which is ~0 for grey and high for the red ring. */

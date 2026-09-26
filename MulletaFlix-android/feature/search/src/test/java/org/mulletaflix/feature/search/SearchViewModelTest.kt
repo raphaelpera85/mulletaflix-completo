@@ -70,6 +70,28 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `book filter sends Book type to search and suggestions`() = runTest {
+        searchRepository.hints = listOf(
+            SearchHintItem("book-1", "Duna", "Book", 1965, null),
+            SearchHintItem("movie-1", "Duna", "Movie", 2021, null),
+        )
+        viewModel.setFilter(SearchFilter.Books)
+        viewModel.onQueryChange("duna")
+
+        advanceTimeBy(180)
+        runCurrent()
+        assertEquals(
+            listOf("book-1" to "Book"),
+            viewModel.state.value.hints.map { it.id to it.type },
+        )
+
+        advanceUntilIdle()
+
+        assertEquals("Book", searchRepository.itemTypes)
+        assertEquals(SearchFilter.Books, viewModel.state.value.activeFilter)
+    }
+
+    @Test
     fun `type ahead loads deduplicated filtered hints before the full search`() = runTest {
         searchRepository.hints = listOf(
             SearchHintItem("movie-1", "Matrix", "Movie", 1999, null),

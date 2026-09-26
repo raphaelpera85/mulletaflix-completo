@@ -28,6 +28,78 @@ enum IOSVideoAspectRatio: String, CaseIterable, Identifiable {
     }
 }
 
+private struct MediaRequestForm: View {
+    let model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var type = "Série"
+    @State private var year = ""
+    @State private var notes = ""
+    @State private var message: String?
+    @State private var sending = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Título", text: $title)
+                Picker("Tipo", selection: $type) {
+                    ForEach(["Filme", "Série", "Animação", "Novela", "Doramas", "Outro"], id: \.self) { Text($0) }
+                }
+                TextField("Ano (opcional)", text: $year).keyboardType(.numberPad)
+                TextField("Detalhes adicionais", text: $notes, axis: .vertical).lineLimit(3...6)
+                if let message { Text(message).foregroundStyle(.secondary) }
+                Button(sending ? "Enviando…" : "Enviar solicitação") {
+                    Task {
+                        sending = true
+                        defer { sending = false }
+                        do {
+                            try await model.submitMediaRequest(title: title, mediaType: type, year: Int(year), notes: notes)
+                            dismiss()
+                        } catch { message = error.localizedDescription }
+                    }
+                }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
+            }
+            .navigationTitle("Solicitar mídia")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } }
+        }
+    }
+}
+
+private struct PlaybackIssueForm: View {
+    let item: MediaItem
+    let model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var category = "Não reproduz"
+    @State private var description = ""
+    @State private var message: String?
+    @State private var sending = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Text(item.name).font(.headline)
+                Picker("Problema", selection: $category) {
+                    ForEach(["Não reproduz", "Travamentos", "Sem áudio", "Áudio/legenda", "Qualidade", "Outro"], id: \.self) { Text($0) }
+                }
+                TextField("Descreva o problema", text: $description, axis: .vertical).lineLimit(3...6)
+                if let message { Text(message).foregroundStyle(.secondary) }
+                Button(sending ? "Enviando…" : "Enviar relato") {
+                    Task {
+                        sending = true
+                        defer { sending = false }
+                        do {
+                            try await model.submitPlaybackIssue(item: item, category: category, description: description)
+                            dismiss()
+                        } catch { message = error.localizedDescription }
+                    }
+                }.disabled(sending)
+            }
+            .navigationTitle("Reportar problema")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } }
+        }
+    }
+}
+
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
@@ -957,6 +1029,7 @@ private final class IOSVoiceSearchController: NSObject, ObservableObject {
 
 struct HomeDashboard: View {
     let model: AppModel
+    @State private var showingMediaRequest = false
 
     var body: some View {
         ScrollView {
@@ -996,6 +1069,13 @@ struct HomeDashboard: View {
             .padding(.vertical)
         }
         .navigationTitle("Início")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showingMediaRequest = true } label: { Label("Solicitar mídia", systemImage: "plus.circle") }
+                    .accessibilityIdentifier("home.mediaRequest")
+            }
+        }
+        .sheet(isPresented: $showingMediaRequest) { MediaRequestForm(model: model) }
     }
 
     private var homeItemsAreEmpty: Bool {
@@ -1308,6 +1388,7 @@ struct ItemDetailView: View {
     @State private var showPlaylistSheet = false
     @State private var newPlaylistName = ""
     @State private var lyricsTrack: MediaItem?
+    @State private var showingPlaybackIssue = false
 
     var body: some View {
         let displayedItem = detailItem ?? item
@@ -1319,6 +1400,10 @@ struct ItemDetailView: View {
                     .frame(maxWidth: 220)
                     .frame(maxWidth: .infinity)
                 Text(displayedItem.name).font(.title.bold())
+                Button { showingPlaybackIssue = true } label: {
+                    Label("Reportar problema de reprodução", systemImage: "exclamationmark.bubble")
+                }
+                .accessibilityIdentifier("item.reportPlaybackIssue")
                 if let metadata = detailMetadata(for: displayedItem), !metadata.isEmpty {
                     Text(metadata)
                         .font(.subheadline)
@@ -1476,6 +1561,7 @@ struct ItemDetailView: View {
             .padding()
         }
         .navigationTitle(displayedItem.name)
+        .sheet(isPresented: $showingPlaybackIssue) { PlaybackIssueForm(item: displayedItem, model: model) }
         .navigationBarTitleDisplayMode(.inline)
         .task {
             let loaded = await model.loadDetail(for: item)

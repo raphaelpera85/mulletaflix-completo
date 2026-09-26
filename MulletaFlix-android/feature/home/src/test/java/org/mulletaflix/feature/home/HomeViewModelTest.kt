@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -31,6 +32,7 @@ import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.SavedServer
 import org.mulletaflix.domain.repository.ServerVerification
 import org.mulletaflix.domain.repository.UserSession
+import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -39,6 +41,65 @@ class HomeViewModelTest {
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
+
+    @Test fun `media request trims fields and sends only once while request is pending`() = runTest {
+        val response = CompletableDeferred<Result<Unit>>()
+        var requestCount = 0
+        var received: List<Any?>? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
+                requestCount++
+                received = listOf(title, mediaType, year, notes)
+                return response.await()
+            }
+            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.success(Unit)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), FakeSessionRepository(userId = null),
+            FakeNetworkMonitor(), FakeAuthRepository(), feedback,
+        )
+        viewModel.requestMedia("  Duna  ", "Filme", 2024, "  legendas  ") {}
+        viewModel.requestMedia("Duna", "Filme", 2024, "legendas") {}
+        runCurrent()
+
+        assertEquals(1, requestCount)
+        assertEquals(listOf("Duna", "Filme", 2024, "legendas"), received)
+        response.complete(Result.success(Unit))
+        advanceUntilIdle()
+    }
+
+    @Test fun `media request can be retried after cancellation`() = runTest {
+        var requestCount = 0
+        var completionCount = 0
+        var firstCompletionError: Throwable? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
+                requestCount++
+                if (requestCount == 1) throw CancellationException("request cancelled")
+                return Result.success(Unit)
+            }
+            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.success(Unit)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), FakeSessionRepository(userId = null),
+            FakeNetworkMonitor(), FakeAuthRepository(), feedback,
+        )
+
+        viewModel.requestMedia("Duna", "Filme", null, "") {
+            completionCount++
+            firstCompletionError = it.exceptionOrNull()
+        }
+        runCurrent()
+        assertTrue(firstCompletionError is CancellationException)
+        viewModel.requestMedia("Duna", "Filme", null, "") { result ->
+            completionCount++
+            assertTrue(result.isSuccess)
+        }
+        advanceUntilIdle()
+
+        assertEquals(2, requestCount)
+        assertEquals(2, completionCount)
+    }
 
     @Test fun `session expiry stops home loading without requesting content`() = runTest {
         val repository = FakeMediaRepository()
@@ -105,6 +166,7 @@ class HomeViewModelTest {
                 limit: Int,
                 genres: String?,
                 years: String?,
+                officialRatings: String?,
                 isPlayed: Boolean?,
                 isFavorite: Boolean?,
             ): Result<Pair<List<MediaItem>, Int>> = Result.failure(IllegalStateException("favorites offline"))
@@ -361,6 +423,7 @@ class HomeViewModelTest {
                 limit: Int,
                 genres: String?,
                 years: String?,
+                officialRatings: String?,
                 isPlayed: Boolean?,
                 isFavorite: Boolean?,
             ) = Result.success(emptyList<MediaItem>() to 0)
@@ -465,7 +528,7 @@ class HomeViewModelTest {
             override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
             override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
             override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
-            override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?) = Result.success(emptyList<MediaItem>() to 0)
+            override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?) = Result.success(emptyList<MediaItem>() to 0)
         }
         val viewModel = HomeViewModel(
             GetHomeFeedUseCase(repository),
@@ -562,7 +625,7 @@ class HomeViewModelTest {
         override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> = unavailable()
         override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> = unavailable()
         override suspend fun getLibraries(userId: String): Result<List<MediaItem>> = unavailable()
-        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> = unavailable()
+        override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> = unavailable()
         override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> = unavailable()
         override suspend fun getSimilarItems(userId: String, itemId: String, limit: Int): Result<List<MediaItem>> = unavailable()
         override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = unavailable()

@@ -103,6 +103,7 @@ class MediaRepositoryImplTest {
                 limit = 20,
                 genres = null,
                 years = null,
+                officialRatings = null,
                 isPlayed = null,
                 isFavorite = null
             )
@@ -120,6 +121,7 @@ class MediaRepositoryImplTest {
             limit = 20,
             genres = null,
             years = null,
+            officialRatings = null,
             isPlayed = null,
             isFavorite = null
         )
@@ -128,6 +130,63 @@ class MediaRepositoryImplTest {
         val (items, total) = result.getOrThrow()
         assertEquals(1, items.size)
         assertEquals(42, total)
+    }
+
+    @Test
+    fun getItems_forwardsGenresYearsAndOfficialRatings() = runTest {
+        coEvery {
+            api.getItems(
+                userId = "user-1",
+                parentId = "folder-1",
+                includeItemTypes = "Movie",
+                sortBy = "SortName",
+                sortOrder = "Ascending",
+                filters = null,
+                searchTerm = null,
+                startIndex = 0,
+                limit = 20,
+                genres = "Drama|Ação",
+                years = "2023,2024",
+                officialRatings = "PG-13|TV-MA",
+                isPlayed = true,
+                isFavorite = true,
+            )
+        } returns BaseItemDtoQueryResultDto(items = listOf(sampleDto), totalRecordCount = 1)
+
+        val result = repository.getItems(
+            userId = "user-1",
+            parentId = "folder-1",
+            includeItemTypes = "Movie",
+            sortBy = "SortName",
+            sortOrder = "Ascending",
+            startIndex = 0,
+            limit = 20,
+            genres = "Drama|Ação",
+            years = "2023,2024",
+            officialRatings = "PG-13|TV-MA",
+            isPlayed = true,
+            isFavorite = true,
+        )
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 1) {
+            api.getItems(
+                userId = "user-1",
+                parentId = "folder-1",
+                includeItemTypes = "Movie",
+                sortBy = "SortName",
+                sortOrder = "Ascending",
+                filters = null,
+                searchTerm = null,
+                startIndex = 0,
+                limit = 20,
+                genres = "Drama|Ação",
+                years = "2023,2024",
+                officialRatings = "PG-13|TV-MA",
+                isPlayed = true,
+                isFavorite = true,
+            )
+        }
     }
 
     @Test

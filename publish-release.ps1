@@ -85,6 +85,8 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
+- **Solicitações e reportes em todos os clientes**: usuários podem solicitar filmes, séries e outras mídias pela página inicial, e reportar falhas de reprodução diretamente no título. O painel de gestão ganhou telas separadas para acompanhar os envios; o servidor autentica e registra os relatos para consulta administrativa.
+
 - **Intro inicia sem esperar o pré-buffer**: buscar e preparar o cache da mídia principal não bloqueia mais a resposta da intro nativa; falhas de cache ficam isoladas e não retiram a intro da sequência. Os logs agora registram quando a intro é fornecida e quantas intros foram resolvidas para cada mídia.
 
 - **Backup MongoDB → Supabase a cada hora**: sincronização automática agora executa em intervalo fixo de 60 minutos. Configurações antigas que impunham 24 horas são migradas para o ciclo horário; usuários do aplicativo continuam fora deste backup.

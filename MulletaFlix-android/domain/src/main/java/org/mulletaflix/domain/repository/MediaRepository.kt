@@ -34,6 +34,7 @@ interface MediaRepository {
         limit: Int = 40,
         genres: String? = null,
         years: String? = null,
+        officialRatings: String? = null,
         isPlayed: Boolean? = null,
         isFavorite: Boolean? = null,
     ): Result<Pair<List<MediaItem>, Int>>   // items + total count

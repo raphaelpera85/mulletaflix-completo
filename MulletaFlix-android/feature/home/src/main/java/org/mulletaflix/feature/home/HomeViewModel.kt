@@ -11,9 +11,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
+import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.NetworkMonitor
@@ -48,7 +50,31 @@ class HomeViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val networkMonitor: NetworkMonitor,
     private val authRepository: AuthRepository,
+    private val userFeedbackRepository: UserFeedbackRepository = object : UserFeedbackRepository {
+        override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
+        override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
+    },
 ) : ViewModel() {
+
+    private var mediaRequestSubmitting = false
+
+    fun requestMedia(title: String, mediaType: String, year: Int?, notes: String, onComplete: (Result<Unit>) -> Unit) {
+        if (mediaRequestSubmitting) return
+        mediaRequestSubmitting = true
+        viewModelScope.launch {
+            val result = try {
+                userFeedbackRepository.requestMedia(title.trim(), mediaType, year, notes.trim())
+            } catch (cancelled: CancellationException) {
+                onComplete(Result.failure(cancelled))
+                throw cancelled
+            } catch (error: Throwable) {
+                Result.failure(error)
+            } finally {
+                mediaRequestSubmitting = false
+            }
+            onComplete(result)
+        }
+    }
 
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()

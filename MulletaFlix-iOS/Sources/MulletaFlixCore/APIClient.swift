@@ -62,6 +62,22 @@ public actor APIClient {
         self.accessToken = accessToken
     }
 
+    public func requestMedia(title: String, mediaType: String, year: Int?, notes: String) async throws {
+        struct Body: Encodable {
+            let title: String; let mediaType: String; let year: Int?; let notes: String
+            enum CodingKeys: String, CodingKey { case title = "Title"; case mediaType = "MediaType"; case year = "Year"; case notes = "Notes" }
+        }
+        try await perform(path: "UserFeedback/MediaRequests", method: "POST", body: Body(title: title, mediaType: mediaType, year: year, notes: notes))
+    }
+
+    public func reportPlaybackIssue(itemID: String, category: String, description: String) async throws {
+        struct Body: Encodable {
+            let itemID: String; let category: String; let description: String
+            enum CodingKeys: String, CodingKey { case itemID = "ItemId"; case category = "Category"; case description = "Description" }
+        }
+        try await perform(path: "UserFeedback/PlaybackIssues", method: "POST", body: Body(itemID: itemID, category: category, description: description))
+    }
+
     public func authenticate(username: String, password: String) async throws -> UserSession {
         struct Credentials: Encodable {
             let username: String

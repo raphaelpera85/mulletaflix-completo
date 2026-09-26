@@ -1,4 +1,5 @@
 import escapeHtml from 'escape-html';
+import { showPlaybackIssueDialog } from 'components/userFeedback/userFeedback';
 
 import autoFocuser from 'components/autoFocuser';
 import { clearBackdrop, setBackdrops } from 'components/backdrop/backdrop';
@@ -343,6 +344,11 @@ function setupButtons(view: HTMLElement, item: any, apiClient: any): void {
     const btnUserRating = view.querySelector<HTMLButtonElement>('.btnUserRating');
     const btnMoreCommands = view.querySelector<HTMLButtonElement>('.btnMoreCommands');
     const btnDownload = view.querySelector<HTMLButtonElement>('.btnDownload');
+    const btnPlaybackIssue = view.querySelector<HTMLButtonElement>('.btnPlaybackIssue');
+
+    if (btnPlaybackIssue) {
+        btnPlaybackIssue.onclick = () => showPlaybackIssueDialog(apiClient, item);
+    }
 
     const isResumable = (item.UserData?.PlaybackPositionTicks ?? 0) > 0;
 

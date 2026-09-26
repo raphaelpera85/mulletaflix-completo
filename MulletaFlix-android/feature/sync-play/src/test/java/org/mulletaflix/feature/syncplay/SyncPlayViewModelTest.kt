@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.syncplay
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -169,6 +170,22 @@ class SyncPlayViewModelTest {
         assertEquals(2, repository.createCalls)
     }
 
+    @Test fun `cancelled room creation releases submission guard for retry`() = runTest {
+        val repository = FakeRepository(emptyList(), cancelFirstCreate = true)
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+
+        viewModel.createGroup("Sala")
+        advanceUntilIdle()
+        assertEquals(false, viewModel.state.value.isSubmitting)
+
+        viewModel.createGroup("Sala")
+        advanceUntilIdle()
+
+        assertEquals(2, repository.createCalls)
+        assertEquals(false, viewModel.state.value.isSubmitting)
+    }
+
     @Test fun `playback command is sent only once while submitting`() = runTest {
         val gate = CompletableDeferred<Result<Unit>>()
         val repository = FakeRepository(listOf(SyncPlayGroup("g1", "Filme", "Playing", emptyList())), commandGate = gate)
@@ -191,6 +208,7 @@ class SyncPlayViewModelTest {
         private val joinGate: CompletableDeferred<Result<Unit>>? = null,
         private val leaveGate: CompletableDeferred<Result<Unit>>? = null,
         private val commandGate: CompletableDeferred<Result<Unit>>? = null,
+        private val cancelFirstCreate: Boolean = false,
     ) : SyncPlayRepository, SessionRepository {
         var listCalls = 0
         var createCalls = 0
@@ -204,6 +222,7 @@ class SyncPlayViewModelTest {
         }
         override suspend fun createGroup(name: String): Result<Unit> {
             createCalls++
+            if (cancelFirstCreate && createCalls == 1) throw CancellationException("request cancelled")
             return createGate?.await() ?: Result.success(Unit)
         }
         override suspend fun joinGroup(groupId: String): Result<Unit> {
