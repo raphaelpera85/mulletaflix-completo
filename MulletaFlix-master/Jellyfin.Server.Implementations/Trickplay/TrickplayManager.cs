@@ -19,6 +19,7 @@ using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using MulletaFlix.Database.Implementations;
 using MulletaFlix.Database.Implementations.Entities;
@@ -39,9 +40,18 @@ public class TrickplayManager : ITrickplayManager
     private readonly IDbContextFactory<MulletaFlixDbContext> _dbProvider;
     private readonly IApplicationPaths _appPaths;
     private readonly IPathManager _pathManager;
+    private readonly IMemoryCache _memoryCache;
 
     private static readonly AsyncNonKeyedLocker _resourcePool = new(1);
     private static readonly string[] _trickplayImgExtensions = [".jpg"];
+
+    // Trickplay manifests are written to rarely (only during library scans / trickplay
+    // generation) but are read on every session poll (e.g. GET /Sessions) via
+    // DtoService.GetBaseItemDtoAsync -> GetTrickplayManifest. Without caching, each poll
+    // triggers a full DB round-trip per media source. Cache per item id and invalidate the
+    // entry explicitly whenever trickplay data for that item is written or deleted, so stale
+    // data is never observed and repeated polls are served from memory instead of the DB.
+    private static readonly TimeSpan _manifestCacheTtl = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TrickplayManager"/> class.
@@ -55,6 +65,7 @@ public class TrickplayManager : ITrickplayManager
     /// <param name="dbProvider">The database provider.</param>
     /// <param name="appPaths">The application paths.</param>
     /// <param name="pathManager">The path manager.</param>
+    /// <param name="memoryCache">The memory cache used to avoid re-resolving trickplay manifests on every session poll.</param>
     public TrickplayManager(
         ILogger<TrickplayManager> logger,
         IMediaEncoder mediaEncoder,
@@ -64,7 +75,8 @@ public class TrickplayManager : ITrickplayManager
         IImageEncoder imageEncoder,
         IDbContextFactory<MulletaFlixDbContext> dbProvider,
         IApplicationPaths appPaths,
-        IPathManager pathManager)
+        IPathManager pathManager,
+        IMemoryCache memoryCache)
     {
         _logger = logger;
         _mediaEncoder = mediaEncoder;
@@ -75,7 +87,10 @@ public class TrickplayManager : ITrickplayManager
         _dbProvider = dbProvider;
         _appPaths = appPaths;
         _pathManager = pathManager;
+        _memoryCache = memoryCache;
     }
+
+    private static string GetManifestCacheKey(Guid itemId) => $"trickplay-manifest_{itemId:N}";
 
     /// <inheritdoc />
     public async Task MoveGeneratedTrickplayDataAsync(Video video, LibraryOptions libraryOptions, CancellationToken cancellationToken)
@@ -558,6 +573,10 @@ public class TrickplayManager : ITrickplayManager
 
             await dbContext.SaveChangesAsync().ConfigureAwait(false);
         }
+
+        // Invalidate the cached manifest so the next poll (e.g. GET /Sessions) observes
+        // the freshly written trickplay data instead of a stale cached entry.
+        _memoryCache.Remove(GetManifestCacheKey(info.ItemId));
     }
 
     /// <inheritdoc />
@@ -565,11 +584,19 @@ public class TrickplayManager : ITrickplayManager
     {
         var dbContext = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await dbContext.TrickplayInfos.Where(i => i.ItemId.Equals(itemId)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+
+        _memoryCache.Remove(GetManifestCacheKey(itemId));
     }
 
     /// <inheritdoc />
     public async Task<Dictionary<string, Dictionary<int, TrickplayInfo>>> GetTrickplayManifest(BaseItem item)
     {
+        var cacheKey = GetManifestCacheKey(item.Id);
+        if (_memoryCache.TryGetValue(cacheKey, out Dictionary<string, Dictionary<int, TrickplayInfo>>? cachedManifest) && cachedManifest is not null)
+        {
+            return cachedManifest;
+        }
+
         var trickplayManifest = new Dictionary<string, Dictionary<int, TrickplayInfo>>();
         foreach (var mediaSource in item.GetMediaSources(false))
         {
@@ -585,6 +612,8 @@ public class TrickplayManager : ITrickplayManager
                 trickplayManifest[mediaSource.Id] = trickplayResolutions;
             }
         }
+
+        _memoryCache.Set(cacheKey, trickplayManifest, _manifestCacheTtl);
 
         return trickplayManifest;
     }
