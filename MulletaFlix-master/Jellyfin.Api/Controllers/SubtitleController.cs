@@ -254,6 +254,12 @@ public class SubtitleController : BaseMulletaFlixApiController
 
         if (string.Equals(format, "vtt", StringComparison.OrdinalIgnoreCase) && addVttTimeMap)
         {
+            var etag = BuildSubtitleETag(itemId.Value, mediaSourceId, index.Value, format, startPositionTicks, endPositionTicks ?? 0, copyTimestamps, addVttTimeMap);
+            if (IsNotModified(etag))
+            {
+                return NotModifiedResult(etag);
+            }
+
             Stream stream = await EncodeSubtitles(item, mediaSourceId, index.Value, format, startPositionTicks, endPositionTicks, copyTimestamps).ConfigureAwait(false);
             await using (stream.ConfigureAwait(false))
             {
@@ -263,20 +269,30 @@ public class SubtitleController : BaseMulletaFlixApiController
 
                 text = text.Replace("WEBVTT", "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000", StringComparison.Ordinal);
 
+                ApplySubtitleCacheHeaders(etag);
                 return File(Encoding.UTF8.GetBytes(text), MimeTypes.GetMimeType("file." + format));
             }
         }
 
-        return File(
-            await EncodeSubtitles(
+        {
+            var etag = BuildSubtitleETag(itemId.Value, mediaSourceId, index.Value, format, startPositionTicks, endPositionTicks ?? 0, copyTimestamps, addVttTimeMap);
+            if (IsNotModified(etag))
+            {
+                return NotModifiedResult(etag);
+            }
+
+            var stream = await EncodeSubtitles(
                 item,
                 mediaSourceId,
                 index.Value,
                 format,
                 startPositionTicks,
                 endPositionTicks,
-                copyTimestamps).ConfigureAwait(false),
-            MimeTypes.GetMimeType("file." + format));
+                copyTimestamps).ConfigureAwait(false);
+
+            ApplySubtitleCacheHeaders(etag);
+            return File(stream, MimeTypes.GetMimeType("file." + format));
+        }
     }
 
     /// <summary>
@@ -491,6 +507,62 @@ public class SubtitleController : BaseMulletaFlixApiController
             endPositionTicks ?? 0,
             copyTimestamps,
             CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Each HLS subtitle segment request re-resolves the media source and re-parses the entire
+    /// subtitle file server-side (see <see cref="MediaBrowser.MediaEncoding.Subtitles.SubtitleEncoder"/>'s
+    /// per-request cache), but without an HTTP cache header the client re-requests every segment
+    /// on every seek/replay with no way to short-circuit via a conditional GET. The window
+    /// parameters fully determine the produced content, so a strong ETag derived from them is
+    /// safe: an unchanged request always yields byte-identical output.
+    /// </summary>
+    private static string BuildSubtitleETag(
+        Guid itemId,
+        string? mediaSourceId,
+        int index,
+        string format,
+        long startPositionTicks,
+        long endPositionTicks,
+        bool copyTimestamps,
+        bool addVttTimeMap)
+    {
+        var raw = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0:N}_{1}_{2}_{3}_{4}_{5}_{6}_{7}",
+            itemId,
+            mediaSourceId,
+            index,
+            format,
+            startPositionTicks,
+            endPositionTicks,
+            copyTimestamps,
+            addVttTimeMap);
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+        return "\"" + Convert.ToHexString(hash) + "\"";
+    }
+
+    private bool IsNotModified(string etag)
+    {
+        var requestETag = Request.Headers.IfNoneMatch.ToString();
+        return !string.IsNullOrEmpty(requestETag) && string.Equals(requestETag, etag, StringComparison.Ordinal);
+    }
+
+    private ActionResult NotModifiedResult(string etag)
+    {
+        ApplySubtitleCacheHeaders(etag);
+        return StatusCode(StatusCodes.Status304NotModified);
+    }
+
+    private void ApplySubtitleCacheHeaders(string etag)
+    {
+        Response.Headers.ETag = etag;
+
+        // The encoded segment for a given (mediaSourceId, streamIndex, format, start, end) window
+        // never changes once produced, so it can be cached aggressively; a short max-age still
+        // lets clients revalidate quickly if the underlying subtitle track is edited/replaced.
+        Response.Headers.CacheControl = "public, max-age=86400";
     }
 
     /// <summary>

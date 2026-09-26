@@ -25,6 +25,7 @@ using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Nikse.SubtitleEdit.Core.Common;
 using Nikse.SubtitleEdit.Core.SubtitleFormats;
@@ -43,6 +44,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
         private readonly ISubtitleParser _subtitleParser;
         private readonly IPathManager _pathManager;
         private readonly IServerConfigurationManager _serverConfigurationManager;
+        private readonly IMemoryCache _memoryCache;
 
         /// <summary>
         /// The _semaphoreLocks.
@@ -53,6 +55,14 @@ namespace MediaBrowser.MediaEncoding.Subtitles
             o.PoolInitialFill = 1;
         });
 
+        // Every HLS subtitle segment request (up to ~240 per movie) re-resolves the playback
+        // media source (allowMediaProbe:true) and re-parses the entire subtitle file just to
+        // slice out one time window. Cache the encoded bytes per
+        // (mediaSourceId, subtitleStreamIndex, outputFormat, startTimeTicks, endTimeTicks,
+        // preserveOriginalTimestamps) so repeated segment requests for the same window are
+        // served from memory instead of re-probing and re-parsing.
+        private static readonly TimeSpan _subtitleCacheTtl = TimeSpan.FromMinutes(10);
+
         public SubtitleEncoder(
             ILogger<SubtitleEncoder> logger,
             IFileSystem fileSystem,
@@ -61,7 +71,8 @@ namespace MediaBrowser.MediaEncoding.Subtitles
             IMediaSourceManager mediaSourceManager,
             ISubtitleParser subtitleParser,
             IPathManager pathManager,
-            IServerConfigurationManager serverConfigurationManager)
+            IServerConfigurationManager serverConfigurationManager,
+            IMemoryCache memoryCache)
         {
             _logger = logger;
             _fileSystem = fileSystem;
@@ -71,6 +82,20 @@ namespace MediaBrowser.MediaEncoding.Subtitles
             _subtitleParser = subtitleParser;
             _pathManager = pathManager;
             _serverConfigurationManager = serverConfigurationManager;
+            _memoryCache = memoryCache;
+        }
+
+        internal static string GetSubtitleCacheKey(
+            string mediaSourceId,
+            int subtitleStreamIndex,
+            string outputFormat,
+            long startTimeTicks,
+            long endTimeTicks,
+            bool preserveOriginalTimestamps)
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"subtitle-encode_{mediaSourceId}_{subtitleStreamIndex}_{outputFormat}_{startTimeTicks}_{endTimeTicks}_{preserveOriginalTimestamps}");
         }
 
         private MemoryStream ConvertSubtitles(
@@ -124,6 +149,12 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                 throw new ArgumentNullException(nameof(mediaSourceId));
             }
 
+            var cacheKey = GetSubtitleCacheKey(mediaSourceId, subtitleStreamIndex, outputFormat, startTimeTicks, endTimeTicks, preserveOriginalTimestamps);
+            if (_memoryCache.TryGetValue<byte[]>(cacheKey, out var cachedBytes) && cachedBytes is not null)
+            {
+                return new MemoryStream(cachedBytes, 0, cachedBytes.Length, false, true);
+            }
+
             var mediaSources = await _mediaSourceManager.GetPlaybackMediaSources(item, null, true, false, cancellationToken).ConfigureAwait(false);
 
             var mediaSource = mediaSources
@@ -135,6 +166,8 @@ namespace MediaBrowser.MediaEncoding.Subtitles
             var (stream, info) = await GetSubtitleStream(mediaSource, subtitleStream, cancellationToken)
                         .ConfigureAwait(false);
 
+            byte[] resultBytes;
+
             // Return the original if the same format is being requested
             // Character encoding was already handled in GetSubtitleStream
             // ASS is a superset of SSA, skipping the conversion and preserving the styles
@@ -142,13 +175,25 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                 || (string.Equals(info.Format, SubtitleFormat.SSA, StringComparison.OrdinalIgnoreCase)
                     && string.Equals(outputFormat, SubtitleFormat.ASS, StringComparison.OrdinalIgnoreCase)))
             {
-                return stream;
+                using (stream)
+                {
+                    using var buffer = new MemoryStream();
+                    await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+                    resultBytes = buffer.ToArray();
+                }
+            }
+            else
+            {
+                using (stream)
+                using (var converted = ConvertSubtitles(stream, info, outputFormat, startTimeTicks, endTimeTicks, preserveOriginalTimestamps))
+                {
+                    resultBytes = converted.ToArray();
+                }
             }
 
-            using (stream)
-            {
-                return ConvertSubtitles(stream, info, outputFormat, startTimeTicks, endTimeTicks, preserveOriginalTimestamps);
-            }
+            _memoryCache.Set(cacheKey, resultBytes, _subtitleCacheTtl);
+
+            return new MemoryStream(resultBytes, 0, resultBytes.Length, false, true);
         }
 
         private async Task<(Stream Stream, SubtitleInfo Info)> GetSubtitleStream(
