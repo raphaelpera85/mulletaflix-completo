@@ -124,3 +124,29 @@ for (var attempt = 1; attempt <= 3; attempt++)
 - Modificações ou cópias de binários para `C:\Program Files\MulletaFlix\Server\` exigem privilégios elevados de Administrador (UAC).
 - O disparador de in-place update deve sempre invocar o PowerShell com `Verb = "runas"` para garantir que o Robocopy conclua a substituição sem erro 5 (`Acesso negado`).
 
+---
+
+## 7. Integridade de DOM em Templates de Cartões e Listas (MulletaFlix Web)
+
+### 7.1 Fechamento Estrito e Simetria de Tags Estruturais
+- Funções TypeScript/JavaScript que geram HTML através de concatenação de strings para cartões repetidos (como `imageDownloader.ts`, `imageeditor.ts`, etc.) devem obrigatoriamente manter paridade exata entre tags de abertura e fechamento (`<div class="cardBox visualCardBox">`, `<div class="cardScalable">`, `<div class="cardFooter">`).
+- **Sintoma de Violação**: Abertura de container de cartão sem o `</div>` de fechamento provoca o aninhamento recursivo dos itens pelo parser do navegador: o primeiro cartão se torna pai do segundo, que se torna pai do terceiro, fazendo com que apenas 1 cartão apareça visível na tela e todos os demais colapsem internamente.
+- Todo cartão de listagem ou grade deve ser gerado como um elemento irmão autocontido e fechado.
+
+---
+
+## 8. Arquitetura de Cache de Reprodução Nebula (.NET & Web)
+
+### 8.1 Proteção de Mídias em Execução (Active Leases)
+- Os arquivos temporários e partes de vídeo baixadas sob demanda pelo `NebulaHttpStreamServer` ou montagem STRM ficam sob custódia do `NebulaPlaybackCache`.
+- Arquivos com leituras ativas mantêm uma trava lógica (`ActiveLeasesCount`). Qualquer rotina de limpeza (periódica de 5 minutos, expiração por inatividade de 1 hora ou invocação via `POST /Nebula/Ftp/PlaybackCache/Clear`) deve obrigatoriamente ignorar e preservar arquivos com lease ativo.
+
+### 8.2 Configuração Centralizada de Armazenamento de Cache
+- O caminho do cache do Nebula deve ser dinamicamente configurável via `POST /Nebula/Ftp/PlaybackCache/Path`.
+- Na interface Web do Painel de Administração, a tela de configuração deve residir no submenu **Reprodução > Cache Nebula** (`/dashboard/playback/nebulacache`), disponibilizando:
+  1. Indicadores de espaço ocupado, arquivos em cache e leases ativos.
+  2. Barra de porcentagem de utilização do volume de armazenamento.
+  3. Seletor de diretórios nativo (`DirectoryBrowser`).
+  4. Ação de limpeza imediata segura para arquivos não vinculados a reproduções em andamento.
+
+
