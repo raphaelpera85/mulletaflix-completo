@@ -271,11 +271,13 @@ class PlayerViewModel @Inject constructor(
             }
 
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                // A download has no server metadata, so its track lists can only
-                // come from the container. Without this the OSD's audio and
-                // subtitle buttons were permanently disabled offline, because
-                // they are enabled from these lists.
-                if (isOfflinePlayback) refreshOfflineTracks(tracks)
+                // A download has no server metadata, and online playback (like STRM or direct play)
+                // may also lack stream metadata until ExoPlayer probes the container.
+                if (isOfflinePlayback) {
+                    refreshOfflineTracks(tracks)
+                } else {
+                    refreshFallbackContainerTracks(tracks)
+                }
                 val restoringSourceTracks = restoreTrackSelectionOnNextTracksChange
                 var sourceTrackStillPending = false
                 if (pendingAudioStreamIndex != null) {
@@ -1542,34 +1544,34 @@ class PlayerViewModel @Inject constructor(
         player.seekTo(player.currentPosition)
     }
 
+    private fun collectContainerTracks(tracks: androidx.media3.common.Tracks, trackType: Int): List<OfflineTrack> = buildList {
+        tracks.groups
+            .filter { it.type == trackType }
+            .forEach { group ->
+                for (trackIndex in 0 until group.length) {
+                    if (!group.isTrackSupported(trackIndex)) continue
+                    val format = group.getTrackFormat(trackIndex)
+                    add(
+                        OfflineTrack(
+                            language = format.language,
+                            codec = format.sampleMimeType,
+                            channels = format.channelCount.takeIf { it > 0 },
+                            isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
+                            isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                            isSelected = group.isTrackSelected(trackIndex),
+                        ),
+                    )
+                }
+            }
+    }
+
     /**
      * Rebuilds the audio and subtitle lists from the container while playing a
      * download, and points the position lookup at their own indices.
      */
     private fun refreshOfflineTracks(tracks: androidx.media3.common.Tracks) {
-        fun collect(trackType: Int): List<OfflineTrack> = buildList {
-            tracks.groups
-                .filter { it.type == trackType }
-                .forEach { group ->
-                    for (trackIndex in 0 until group.length) {
-                        if (!group.isTrackSupported(trackIndex)) continue
-                        val format = group.getTrackFormat(trackIndex)
-                        add(
-                            OfflineTrack(
-                                language = format.language,
-                                codec = format.sampleMimeType,
-                                channels = format.channelCount.takeIf { it > 0 },
-                                isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
-                                isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
-                                isSelected = group.isTrackSelected(trackIndex),
-                            ),
-                        )
-                    }
-                }
-        }
-
-        val offlineAudio = collect(C.TRACK_TYPE_AUDIO)
-        val offlineSubtitles = collect(C.TRACK_TYPE_TEXT)
+        val offlineAudio = collectContainerTracks(tracks, C.TRACK_TYPE_AUDIO)
+        val offlineSubtitles = collectContainerTracks(tracks, C.TRACK_TYPE_TEXT)
         if (offlineAudio.isEmpty() && offlineSubtitles.isEmpty()) return
 
         val audio = offlineTrackInfos(offlineAudio, "Áudio")
@@ -1586,6 +1588,53 @@ class PlayerViewModel @Inject constructor(
                 selectedAudioIndex = selectedOfflineTrackIndex(offlineAudio),
                 selectedSubtitleIndex = if (it.selectedSubtitleIndex < 0) {
                     selectedOfflineTrackIndex(offlineSubtitles)
+                } else {
+                    it.selectedSubtitleIndex
+                },
+            )
+        }
+    }
+
+    /**
+     * Rebuilds missing audio or subtitle tracks from the container for online playback
+     * when the server did not provide stream metadata in PlaybackInfo.
+     */
+    private fun refreshFallbackContainerTracks(tracks: androidx.media3.common.Tracks) {
+        val currentState = _state.value
+        val needAudio = currentState.audioTracks.isEmpty()
+        val needSubtitles = currentState.subtitleTracks.isEmpty()
+        if (!needAudio && !needSubtitles) return
+
+        val containerAudio = if (needAudio) collectContainerTracks(tracks, C.TRACK_TYPE_AUDIO) else emptyList()
+        val containerSubtitles = if (needSubtitles) collectContainerTracks(tracks, C.TRACK_TYPE_TEXT) else emptyList()
+
+        if (containerAudio.isEmpty() && containerSubtitles.isEmpty()) return
+
+        val audio = if (needAudio && containerAudio.isNotEmpty()) {
+            currentAudioStreamIndices = offlineStreamIndices(containerAudio.size)
+            offlineTrackInfos(containerAudio, "Áudio")
+        } else {
+            currentState.audioTracks
+        }
+
+        val subtitles = if (needSubtitles && containerSubtitles.isNotEmpty()) {
+            currentSubtitleStreamIndices = offlineStreamIndices(containerSubtitles.size)
+            offlineTrackInfos(containerSubtitles, "Legenda")
+        } else {
+            currentState.subtitleTracks
+        }
+
+        _state.update {
+            it.copy(
+                audioTracks = audio,
+                subtitleTracks = subtitles,
+                selectedAudioIndex = if (needAudio && containerAudio.isNotEmpty()) {
+                    selectedOfflineTrackIndex(containerAudio)
+                } else {
+                    it.selectedAudioIndex
+                },
+                selectedSubtitleIndex = if (needSubtitles && containerSubtitles.isNotEmpty()) {
+                    if (it.selectedSubtitleIndex < 0) selectedOfflineTrackIndex(containerSubtitles) else it.selectedSubtitleIndex
                 } else {
                     it.selectedSubtitleIndex
                 },

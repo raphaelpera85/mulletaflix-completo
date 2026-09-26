@@ -66,4 +66,10 @@ class OfflineTrackPolicyTest {
         assertEquals(-1, selectedOfflineTrackIndex(none))
         assertEquals(-1, selectedOfflineTrackIndex(emptyList()))
     }
+
+    @Test
+    fun `empty track list fallback produces fallback label safely`() {
+        val emptyTracks = offlineTrackInfos(emptyList(), "Áudio")
+        assertTrue(emptyTracks.isEmpty())
+    }
 }

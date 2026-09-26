@@ -40,6 +40,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -68,6 +71,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
 import org.mulletaflix.designsystem.components.isTelevisionDevice
+import org.mulletaflix.designsystem.components.remoteFocusRing
 import org.mulletaflix.designsystem.subtitle.SUBTITLE_OUTLINE_COLOR
 import org.mulletaflix.designsystem.subtitle.subtitleForegroundColor
 import org.mulletaflix.domain.model.subtitleFractionalTextSize
@@ -247,8 +251,8 @@ fun VideoPlayerScreen(
     var osdVisible by remember { mutableStateOf(true) }
     var osdInteractionRevision by remember { mutableIntStateOf(0) }
     val playerRootFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(isTelevision) {
-        if (isTelevision) playerRootFocusRequester.requestFocus()
+    LaunchedEffect(isTelevision, osdVisible) {
+        if (isTelevision && !osdVisible) playerRootFocusRequester.requestFocus()
     }
     LaunchedEffect(isInPictureInPictureMode) {
         if (isInPictureInPictureMode) {
@@ -641,6 +645,7 @@ fun VideoPlayerScreen(
         ) {
             PlayerOsd(
                 state = state,
+                isTelevision = isTelevision,
                 onBack = onBack,
                 onPlayPause = { viewModel.togglePlayPause() },
                 onSeekPreview = { position -> viewModel.previewSeekTo(position) },
@@ -791,6 +796,7 @@ internal fun PlayerNextEpisodePrompt(
 @UnstableApi
 internal fun PlayerOsd(
     state: PlayerState,
+    isTelevision: Boolean = isTelevisionDevice(),
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSeekPreview: (Long) -> Unit,
@@ -826,6 +832,18 @@ internal fun PlayerOsd(
         menuSubtitleTracks,
     )
 
+    val playPauseFocusRequester = remember { FocusRequester() }
+    val audioFocusRequester = remember { FocusRequester() }
+    val subtitleFocusRequester = remember { FocusRequester() }
+    val backFocusRequester = remember { FocusRequester() }
+    val seekBarFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isTelevision) {
+        if (isTelevision) {
+            playPauseFocusRequester.requestFocus()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -841,7 +859,16 @@ internal fun PlayerOsd(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .focusRequester(backFocusRequester)
+                    .focusProperties {
+                        right = audioFocusRequester
+                        down = playPauseFocusRequester
+                    }
+                    .remoteFocusRing(),
+            ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = Color.White)
             }
             Column(
@@ -877,7 +904,15 @@ internal fun PlayerOsd(
                 // palavras diferentes.
                 PlayerCastControl(isCasting = state.isCasting)
                 // Aspect ratio
-                IconButton(onClick = { showAspectRatioMenu = true }) {
+                IconButton(
+                    onClick = { showAspectRatioMenu = true },
+                    modifier = Modifier
+                        .focusProperties {
+                            left = backFocusRequester
+                            down = playPauseFocusRequester
+                        }
+                        .remoteFocusRing(),
+                ) {
                     Icon(Icons.Default.AspectRatio, contentDescription = "Proporção", tint = Color.White)
                 }
                 // Google Default Media Receiver does not expose audio track
@@ -885,30 +920,63 @@ internal fun PlayerOsd(
                 if (!state.isCasting) {
                     IconButton(
                         onClick = { showAudioMenu = true },
-                        enabled = state.audioTracks.isNotEmpty(),
+                        modifier = Modifier
+                            .focusRequester(audioFocusRequester)
+                            .focusProperties {
+                                down = playPauseFocusRequester
+                            }
+                            .remoteFocusRing(),
                     ) {
-                        Icon(Icons.Default.Audiotrack, contentDescription = "Áudio", tint = Color.White)
+                        Icon(
+                            Icons.Default.Audiotrack,
+                            contentDescription = "Áudio",
+                            tint = if (state.audioTracks.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.6f),
+                        )
                     }
                 }
                 // Subtitles
                 IconButton(
                     onClick = { showSubtitleMenu = true },
-                    enabled = menuSubtitleTracks.isNotEmpty(),
+                    modifier = Modifier
+                        .focusRequester(subtitleFocusRequester)
+                        .focusProperties {
+                            down = playPauseFocusRequester
+                        }
+                        .remoteFocusRing(),
                 ) {
-                    Icon(Icons.Default.ClosedCaption, contentDescription = "Legendas", tint = Color.White)
+                    Icon(
+                        Icons.Default.ClosedCaption,
+                        contentDescription = "Legendas",
+                        tint = if (menuSubtitleTracks.isNotEmpty()) Color.White else Color.White.copy(alpha = 0.6f),
+                    )
                 }
                 // Quality
                 if (qualityControlAvailable(state.isCasting)) {
-                    IconButton(onClick = { showQualityMenu = true }) {
+                    IconButton(
+                        onClick = { showQualityMenu = true },
+                        modifier = Modifier
+                            .focusProperties { down = playPauseFocusRequester }
+                            .remoteFocusRing(),
+                    ) {
                         Icon(Icons.Default.Hd, contentDescription = "Qualidade", tint = Color.White)
                     }
                 }
                 // Speed
-                IconButton(onClick = { showSpeedMenu = true }) {
+                IconButton(
+                    onClick = { showSpeedMenu = true },
+                    modifier = Modifier
+                        .focusProperties { down = playPauseFocusRequester }
+                        .remoteFocusRing(),
+                ) {
                     Icon(Icons.Default.Speed, contentDescription = "Velocidade", tint = Color.White)
                 }
                 // Sleep timer
-                IconButton(onClick = { showSleepTimerMenu = true }) {
+                IconButton(
+                    onClick = { showSleepTimerMenu = true },
+                    modifier = Modifier
+                        .focusProperties { down = playPauseFocusRequester }
+                        .remoteFocusRing(),
+                ) {
                     Icon(
                         Icons.Default.Bedtime,
                         contentDescription = sleepTimerDisplayLabel(state.sleepTimerMode, state.sleepTimerRemainingMs)
@@ -921,11 +989,21 @@ internal fun PlayerOsd(
                     )
                 }
                 // Playback stats
-                IconButton(onClick = { showStatsDialog = true }) {
+                IconButton(
+                    onClick = { showStatsDialog = true },
+                    modifier = Modifier
+                        .focusProperties { down = playPauseFocusRequester }
+                        .remoteFocusRing(),
+                ) {
                     Icon(Icons.Default.Info, contentDescription = "Estatísticas", tint = Color.White)
                 }
                 // Lock screen
-                IconButton(onClick = onLockClick) {
+                IconButton(
+                    onClick = onLockClick,
+                    modifier = Modifier
+                        .focusProperties { down = playPauseFocusRequester }
+                        .remoteFocusRing(),
+                ) {
                     Icon(Icons.Default.LockOpen, contentDescription = "Bloquear controles", tint = Color.White)
                 }
             }
@@ -937,6 +1015,9 @@ internal fun PlayerOsd(
             isPlaying = state.isPlaying,
             canSeek = state.isSeekable,
             hasChapters = state.chapters.isNotEmpty(),
+            playPauseFocusRequester = playPauseFocusRequester,
+            upFocusRequester = audioFocusRequester,
+            downFocusRequester = seekBarFocusRequester,
             onSeekBy = onSeekBy,
             onPrevious = onPrevious,
             onPlayPause = onPlayPause,
@@ -968,6 +1049,8 @@ internal fun PlayerOsd(
                 currentPositionMs = state.currentPosition,
                 durationMs = state.duration,
                 canSeek = state.isSeekable,
+                focusRequester = seekBarFocusRequester,
+                upFocusRequester = playPauseFocusRequester,
                 onSeekPreview = onSeekPreview,
                 onSeekFinished = onSeekFinished,
             )
@@ -1088,6 +1171,8 @@ internal fun PlayerSeekBar(
     currentPositionMs: Long,
     durationMs: Long,
     canSeek: Boolean,
+    focusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
     onSeekPreview: (Long) -> Unit,
     onSeekFinished: (Long) -> Unit,
 ) {
@@ -1119,6 +1204,18 @@ internal fun PlayerSeekBar(
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (focusRequester != null) {
+                    Modifier
+                        .focusRequester(focusRequester)
+                        .focusProperties {
+                            upFocusRequester?.let { up = it }
+                        }
+                } else {
+                    Modifier
+                }
+            )
+            .remoteFocusRing(shape = RoundedCornerShape(8.dp))
             .testTag(PLAYER_SEEK_BAR_TEST_TAG)
             .semantics { contentDescription = "Posição da reprodução" },
     )
@@ -1130,6 +1227,9 @@ internal fun PlayerTransportControls(
     isPlaying: Boolean = false,
     canSeek: Boolean = true,
     hasChapters: Boolean = false,
+    playPauseFocusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     onSeekBy: (Long) -> Unit = {},
     onPrevious: () -> Unit = {},
     onPlayPause: () -> Unit = {},
@@ -1137,12 +1237,18 @@ internal fun PlayerTransportControls(
     onPreviousChapter: () -> Unit = {},
     onNextChapter: () -> Unit = {},
 ) {
+    val transportModifier = Modifier
+        .focusProperties {
+            upFocusRequester?.let { up = it }
+            downFocusRequester?.let { down = it }
+        }
+        .remoteFocusRing()
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = { onSeekBy(-10_000L) }, enabled = canSeek) {
+        IconButton(onClick = { onSeekBy(-10_000L) }, enabled = canSeek, modifier = transportModifier) {
             Icon(
                 Icons.Default.Replay10,
                 contentDescription = "Voltar 10 segundos",
@@ -1151,11 +1257,11 @@ internal fun PlayerTransportControls(
             )
         }
         if (hasChapters) {
-            IconButton(onClick = onPreviousChapter) {
+            IconButton(onClick = onPreviousChapter, modifier = transportModifier) {
                 Icon(Icons.Default.FastRewind, contentDescription = "Capítulo Anterior", tint = Color.White, modifier = Modifier.size(30.dp))
             }
         }
-        IconButton(onClick = onPrevious) {
+        IconButton(onClick = onPrevious, modifier = transportModifier) {
             Icon(Icons.Default.SkipPrevious, contentDescription = "Anterior", tint = Color.White, modifier = Modifier.size(36.dp))
         }
         // Play / Pause keeps its larger visual circle without capping the
@@ -1164,7 +1270,20 @@ internal fun PlayerTransportControls(
             onClick = onPlayPause,
             modifier = Modifier
                 .size(72.dp)
-                .background(Color.White.copy(alpha = 0.2f), shape = androidx.compose.foundation.shape.CircleShape)
+                .then(
+                    if (playPauseFocusRequester != null) {
+                        Modifier
+                            .focusRequester(playPauseFocusRequester)
+                            .focusProperties {
+                                upFocusRequester?.let { up = it }
+                                downFocusRequester?.let { down = it }
+                            }
+                    } else {
+                        Modifier
+                    }
+                )
+                .remoteFocusRing()
+                .background(Color.White.copy(alpha = 0.2f), shape = CircleShape)
         ) {
             Icon(
                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -1173,15 +1292,15 @@ internal fun PlayerTransportControls(
                 modifier = Modifier.size(48.dp)
             )
         }
-        IconButton(onClick = onNext) {
+        IconButton(onClick = onNext, modifier = transportModifier) {
             Icon(Icons.Default.SkipNext, contentDescription = "Próximo", tint = Color.White, modifier = Modifier.size(36.dp))
         }
         if (hasChapters) {
-            IconButton(onClick = onNextChapter) {
+            IconButton(onClick = onNextChapter, modifier = transportModifier) {
                 Icon(Icons.Default.FastForward, contentDescription = "Próximo Capítulo", tint = Color.White, modifier = Modifier.size(30.dp))
             }
         }
-        IconButton(onClick = { onSeekBy(10_000L) }, enabled = canSeek) {
+        IconButton(onClick = { onSeekBy(10_000L) }, enabled = canSeek, modifier = transportModifier) {
             Icon(
                 Icons.Default.Forward10,
                 contentDescription = "Avançar 10 segundos",
@@ -1348,6 +1467,14 @@ internal fun PlayerTrackMenu(
                         RadioButton(selected = selectedIndex == -1, onClick = null)
                         Text("Nenhuma", modifier = Modifier.padding(start = 8.dp))
                     }
+                }
+                if (tracks.isEmpty()) {
+                    Text(
+                        text = if (allowNone) "Nenhuma outra legenda disponível" else "Áudio padrão (embutido)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                    )
                 }
                 tracks.forEachIndexed { index, track ->
                     PlayerOptionRow(
