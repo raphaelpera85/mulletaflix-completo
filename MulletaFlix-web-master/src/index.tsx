@@ -83,6 +83,15 @@ build: ${__JF_BUILD_VERSION__}`);
     const serverUrl = await withBootstrapTimeout(serverAddress(), 'descoberta do servidor');
     if (serverUrl) ServerConnections.initApiClient(serverUrl);
 
+    // F-1: since F-3 (RootAppRouter.tsx) stopped statically importing the
+    // dashboard/experimental/stable/wizard route trees (they are now loaded
+    // via patchRoutesOnNavigation), the RootAppRouter chunk no longer drags
+    // the whole app graph with it. That was the reason the earlier attempt at
+    // this same optimization was reverted (it raced ~200 chunks against the
+    // critical path). Now the chunk is light, so it is started in parallel
+    // with loadCoreDictionary instead of after loadPlugins.
+    const routerModulePromise = withBootstrapTimeout(import('./RootAppRouter'), 'inicialização do roteador');
+
     await withBootstrapTimeout(loadCoreDictionary(), 'dicionário principal');
     Events.on(ServerConnections, 'localusersignedin', globalize.updateCurrentCulture);
     Events.on(ServerConnections, 'localusersignedout', globalize.updateCurrentCulture);
@@ -93,9 +102,9 @@ build: ${__JF_BUILD_VERSION__}`);
 
     await withBootstrapTimeout(loadPlugins(), 'carregamento dos plugins');
     // RootAppRouter initializes the compatibility history consumed by the
-    // legacy AppRouter. Preload it before React render and deferred globals so
+    // legacy AppRouter. Await it before React render and deferred globals so
     // the first bootstrap cannot construct AppRouter with an undefined history.
-    await withBootstrapTimeout(import('./RootAppRouter'), 'inicialização do roteador');
+    await routerModulePromise;
     await renderApp();
 
     void loadDeferredGlobalFeatures();
