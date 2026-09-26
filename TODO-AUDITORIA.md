@@ -279,4 +279,27 @@ Escopo: frontend, backend Nebula, testes, CI, empacotamento, segurança e produt
 - [x] Corrigir a remoção das ACLs loopback do Nebula em upgrade e desinstalação; NSIS recompilado e validado: `mulletaflix_12.0.0_windows-x64.exe`, 396.141.327 bytes, SHA-256 `6890E7C0198FAC9BC9E6969E04C8E86FC5C38A3404C917A10D02A2C1B99A8640`.
 - [x] Tornar o smoke test resiliente a falha parcial do instalador: a execução agora está dentro do `try/finally`, preservando a desinstalação recuperável quando `Uninstall.exe` já foi criado; parser PowerShell passou.
 
+## Auditoria de setembro/2026 — correções aplicadas (docs/auditoria-completa-performance.md, Rodada 31)
+
+- [x] H-6: `MediaSourceInfo`/`MediaStream`/`MediaAttachment` ganharam `Clone()` explícito; `MediaInfoHelper.GetPlaybackInfo` parou de clonar via round-trip JSON. `dotnet build` 0 erros; `Jellyfin.Model.Tests` 658/658. Commit `3f481d3a`.
+- [x] H-8: stream de mídia deixou de ser resolvido duas vezes por request (`UniversalAudioController` → `AudioHelper`/`StreamingHelpers`); `GetStreamingState` reaproveita o `MediaSourceInfo` já resolvido. `dotnet build` 0 erros; `Jellyfin.Api.Tests` 148/148. Commit `fbb39f02`.
+- [x] B-8: lock striping do `ItemPersistenceService` deixou de ser escolhido só pelo primeiro item do lote; agora adquire todas as stripes distintas do lote em ordem determinística. `dotnet build` 0 erros; `ItemPersistenceServiceTests` 23/23. Commit `239ea4d9`.
+- [x] B-7/B-11: `SaveChangesAsync(default).GetAwaiter().GetResult()` em 6 arquivos (`DisplayPreferencesManager`, `PeopleRepository`, `MediaStreamRepository`, `ChapterRepository`, `MediaAttachmentRepository`, `LinkedChildrenService`) trocado por `SaveChanges()` síncrono real, sem quebrar interfaces públicas. `dotnet build` 0 erros; testes focados 17/17 + 2/2. Commit `7936b42c`.
+- [x] B-6: manifesto de trickplay parou de ser recalculado a cada poll de `/Sessions`; cache em `IMemoryCache` (TTL 10 min) por item id, invalidado em save/delete. `dotnet build` 0 erros; 22/22. Commit `5e16d97e`.
+- [x] B-4: lock global de Live TV em `MediaSourceManager.OpenLiveStreamInternal` reduzido para não cobrir mais o `await` de abertura de stream remoto. `dotnet build` 0 erros; `MediaSourceManagerTests` 29/29. Commit `dcb0001f`.
+- [x] E-5: `FullTextSearch`/`IX_BaseItems_FullTextSearch` era código morto sem nenhum caller (busca real usa `EF.Functions.Like`/`.Contains`); removido interface+implementação+índice via migração `DropUnusedFullTextSearchIndex`. `dotnet build` 0 erros; suíte completa 924/924 (38 ignorados pré-existentes). Commits `89c38b8e` + `dbd38fcb`.
+- [x] HTTP-1 (P0, maior ganho de performance do audit): `StreamState` deixou de ser reconstruído a cada segmento HLS; `StreamStateCache` (novo) cacheia por `PlaySessionId`+`MediaSourceId`+parâmetros de encoding, TTL deslizante 30s, evicção fecha o `StreamState` via `DisposeAsync`. `dotnet build` 0 erros; `StreamStateCacheTests` 11/11 (novo); `Jellyfin.Api.Tests` 148/148. Commit `89c38b8e`.
+- [x] F-3/FRONT-1 (P0): `RootAppRouter.tsx` parou de importar estaticamente as 4 árvores de rotas (dashboard/experimental/stable/wizard); convertido para `patchRoutesOnNavigation` (lazy nativo do React Router), evitando repetir o `DynamicAppRoutes.tsx` abandonado. `npm run build:check` 0 erros; `build:production` ok; `npm test` 208/208. Commit `79284557`.
+- [x] F-4: `useLibraryItemCounts` parou de reimplementar a query de `/Users/{id}/Views` manualmente e passou a usar o hook `useUserViews` compartilhado (já usado por `MainDrawerContent`/`UserViewNav`). `npm run build:check` 0 erros; `npm test` 208/208. Commit `e48405f1`.
+
+Nota de processo: E-5 e HTTP-1 compartilham o commit `89c38b8e` por um race no índice git entre
+duas sessões de IA rodando em paralelo sobre o mesmo working tree — não é mistura deliberada de
+escopo; os dois diffs foram conferidos separadamente e cada achado tem sua própria evidência de
+build/test.
+
+Ficam pendentes, fora do escopo desta rodada por decisão explícita (não são bugs de código):
+correção manual dos registros duplicados de "A Agência" no banco, gap de Cast/Chromecast no Android,
+migração de índice da Database Wave 3 (exige janela de manutenção dedicada) e a decisão sobre quais
+dos commits pendentes em `main` vão para `release/v12.0.92`.
+
 Validação mais recente: `Jellyfin.Server.Implementations.Tests` passou 764 testes, com 38 testes condicionais ignorados; frontend passou typecheck, lint dos arquivos alterados sem erros e 196 testes; o teste de loading global passou 4/4; a validação de artefatos confirmou `serviceworker.js`; suíte Nebula passou com 149 testes; `validate-stage.ps1` passou com todos os artefatos essenciais, assemblies compatíveis e assets referenciados presentes; a suíte de integração passou 111 testes, com 3 ignorados. O smoke test limpo está preparado e validado sintaticamente, mas exige host/VM Windows elevado; a persistência Mongo foi compilada, mas não exercitada contra servidor local porque `mongod` não está instalado neste ambiente.
