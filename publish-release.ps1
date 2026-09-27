@@ -87,11 +87,10 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- **Servidor Linux x64**: pacote `.tar.gz` self-contained para Debian/Ubuntu, com instalação via `systemd`; o instalador configura MariaDB local com usuário dedicado e senha gerada e instala FFmpeg.
-- **Banco configurável pelo ambiente**: a primeira inicialização aceita `MULLETAFLIX_DB_SERVER`, `MULLETAFLIX_DB_PORT`, `MULLETAFLIX_DB_USER` e `MULLETAFLIX_DB_PASSWORD`; os padrões Windows permanecem quando as variáveis não existem.
-- **Windows continua disponível**: instalador EXE e pacote ZIP de atualização incluídos na release do servidor.
-- **Build web isolado no empacotamento**: dependências e compilação de produção são feitas numa cópia temporária, sem substituir `node_modules` ou interferir em um servidor web de desenvolvimento em execução.
-- **Descarte seguro do serviço de notificações**: a limpeza repetida pelo host não cancela um `CancellationTokenSource` já descartado, evitando falhas no encerramento e nos testes de integração.
+- **Sugestões de mídia reconhecem os STRM das bibliotecas**: o catálogo lê as raízes configuradas em `MonitorPaths` e também as localizações de bibliotecas Jellyfin; evita catálogo vazio por diretório fora de `MonitorPaths`, atualiza resultados vazios em 30 segundos e invalida o cache quando as raízes mudam.
+- **Reconhecimento de livros Open Library corrigido**: a busca usa ISBN e OLID informados, aceita URL de edição, consulta os endpoints atuais de livros e procura o título principal em nomes de arquivo com prefixos; Cityscape (OL8144537M / ISBN 9780786939398) agora retorna título e capa.
+- **Solicitações web distribuídas no bundle atual**: o servidor inclui a interface web recompilada em produção com o atalho de solicitação de mídia na tela inicial.
+- **Pacotes de produção do servidor**: artefatos Windows e Linux x64.
 '@
 
 $bodyContent = $bodyContent.Replace('__TAG__', $Tag)

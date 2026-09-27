@@ -82,8 +82,8 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
         public async Task<MetadataResult<Book>> GetMetadata(BookInfo info, CancellationToken cancellationToken)
         {
             var result = new MetadataResult<Book>();
-            var isbn = info.GetProviderId("ISBN");
-            var openLibraryId = info.GetProviderId("OpenLibrary");
+            var isbn = NormalizeIsbn(info.GetProviderId("ISBN") ?? ExtractIsbn(info.Name));
+            var openLibraryId = ExtractOpenLibraryId(info.GetProviderId("OpenLibrary") ?? info.Name);
 
             if (!string.IsNullOrWhiteSpace(isbn))
             {
@@ -121,33 +121,41 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
 
         private async Task<MetadataResult<Book>> GetMetadataByIsbn(string isbn, CancellationToken cancellationToken)
         {
-            var result = new MetadataResult<Book>();
-            var cleanIsbn = isbn.Replace("-", string.Empty, StringComparison.Ordinal).Replace(" ", string.Empty, StringComparison.Ordinal);
-            var url = $"https://openlibrary.org/api/books?bibkeys=ISBN:{Uri.EscapeDataString(cleanIsbn)}&format=json&jscmd=data";
-
-            try
+            var cleanIsbn = NormalizeIsbn(isbn);
+            var results = await GetSearchResultsByIsbn(cleanIsbn, cancellationToken).ConfigureAwait(false);
+            var best = results.FirstOrDefault();
+            if (best is null)
             {
-                using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
-                    .GetAsync(url, cancellationToken)
-                    .ConfigureAwait(false);
+                return new MetadataResult<Book>();
+            }
 
-                response.EnsureSuccessStatusCode();
-                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+            MetadataResult<Book> metadata;
+            var editionId = best.GetProviderId("OpenLibrary");
+            if (!string.IsNullOrWhiteSpace(editionId))
+            {
+                metadata = await GetMetadataByOpenLibraryId(editionId, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                metadata = new MetadataResult<Book>();
+            }
 
-                if (data is not null && data.TryGetValue($"ISBN:{cleanIsbn}", out var bookEntry))
+            if (!metadata.HasMetadata)
+            {
+                metadata = CreateMetadataFromSearchResult(best);
+            }
+
+            if (metadata.HasMetadata && metadata.Item is not null)
+            {
+                metadata.Item.SetProviderId("ISBN", cleanIsbn);
+                metadata.QueriedById = true;
+                if (metadata.RemoteImages.Count == 0 && !string.IsNullOrWhiteSpace(best.ImageUrl))
                 {
-                    PopulateMetadata(result, bookEntry);
+                    metadata.RemoteImages.Add((best.ImageUrl, ImageType.Primary));
                 }
-
-                AddOpenLibraryFallbackImages(result, cleanIsbn, null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error fetching OpenLibrary metadata by ISBN {Isbn}", isbn);
             }
 
-            return result;
+            return metadata;
         }
 
         private async Task<MetadataResult<Book>> GetMetadataByOpenLibraryId(string olId, CancellationToken cancellationToken)
@@ -157,7 +165,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             var isWorkId = normalizedId.EndsWith('W');
             var url = isWorkId
                 ? $"https://openlibrary.org/works/{Uri.EscapeDataString(normalizedId)}.json"
-                : $"https://openlibrary.org/api/books?bibkeys=OLID:{Uri.EscapeDataString(normalizedId)}&format=json&jscmd=data";
+                : $"https://openlibrary.org/books/{Uri.EscapeDataString(normalizedId)}.json";
 
             try
             {
@@ -178,12 +186,9 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
                 }
                 else
                 {
-                    var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
-
-                    if (data is not null && data.TryGetValue($"OLID:{normalizedId}", out var bookEntry))
-                    {
-                        PopulateMetadata(result, bookEntry);
-                    }
+                    using var document = JsonDocument.Parse(json);
+                    PopulateMetadata(result, document.RootElement);
+                    await PopulateEditionAuthors(result, document.RootElement, cancellationToken).ConfigureAwait(false);
                 }
 
                 AddOpenLibraryFallbackImages(result, null, normalizedId);
@@ -241,6 +246,32 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             var results = new List<RemoteSearchResult>();
             var query = searchInfo.Name;
 
+            var openLibraryId = ExtractOpenLibraryId(searchInfo.GetProviderId("OpenLibrary") ?? query);
+            var isbn = NormalizeIsbn(searchInfo.GetProviderId("ISBN") ?? ExtractIsbn(query));
+
+            if (!string.IsNullOrWhiteSpace(openLibraryId))
+            {
+                var metadata = await GetMetadataByOpenLibraryId(openLibraryId, cancellationToken).ConfigureAwait(false);
+                if (metadata.HasMetadata && metadata.Item is not null)
+                {
+                    AddMetadataSearchResult(results, metadata, openLibraryId);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(isbn))
+            {
+                var isbnResults = await GetSearchResultsByIsbn(isbn, cancellationToken).ConfigureAwait(false);
+                foreach (var item in isbnResults)
+                {
+                    AddSearchResultIfMissing(results, item);
+                }
+            }
+
+            if (results.Count > 0)
+            {
+                return results;
+            }
+
             if (!string.IsNullOrWhiteSpace(searchInfo.SeriesName))
             {
                 query = $"{searchInfo.SeriesName} {query}";
@@ -255,7 +286,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             {
                 foreach (var searchQuery in BuildSearchQueries(query))
                 {
-                    var url = $"https://openlibrary.org/search.json?q={Uri.EscapeDataString(searchQuery)}&limit=10";
+                    var url = $"https://openlibrary.org/search.json?title={Uri.EscapeDataString(searchQuery)}&fields=key,title,author_name,first_publish_year,isbn,cover_edition_key,cover_i&limit=10";
                     using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
                         .GetAsync(url, cancellationToken)
                         .ConfigureAwait(false);
@@ -269,52 +300,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
                         continue;
                     }
 
-                    foreach (var doc in searchResult.Docs)
-                    {
-                        var item = new RemoteSearchResult
-                        {
-                            Name = doc.Title,
-                            SearchProviderName = Name
-                        };
-
-                        if (doc.FirstPublishYear > 0)
-                        {
-                            item.ProductionYear = doc.FirstPublishYear;
-                        }
-
-                        var isbns = new List<string>();
-                        if (doc.Isbn is not null)
-                        {
-                            isbns.AddRange(doc.Isbn);
-                        }
-
-                        if (isbns.Count > 0)
-                        {
-                            item.SetProviderId("ISBN", isbns[0]);
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(doc.CoverEditionKey))
-                        {
-                            item.SetProviderId("OpenLibrary", doc.CoverEditionKey);
-                            item.ImageUrl = $"https://covers.openlibrary.org/b/olid/{doc.CoverEditionKey}-M.jpg";
-                        }
-                        else if (doc.CoverId > 0)
-                        {
-                            item.ImageUrl = $"https://covers.openlibrary.org/b/id/{doc.CoverId}-M.jpg";
-                        }
-                        else if (doc.Isbn is not null && doc.Isbn.Length > 0 && !string.IsNullOrWhiteSpace(doc.Isbn[0]))
-                        {
-                            item.ImageUrl = $"https://covers.openlibrary.org/b/isbn/{doc.Isbn[0]}-M.jpg";
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(doc.Key) && string.IsNullOrWhiteSpace(item.GetProviderId("OpenLibrary")))
-                        {
-                            var olid = doc.Key.Replace("/works/", string.Empty, StringComparison.Ordinal);
-                            item.SetProviderId("OpenLibrary", olid);
-                        }
-
-                        AddSearchResultIfMissing(results, item);
-                    }
+                    AddSearchDocuments(results, searchResult.Docs);
 
                     if (results.Count > 0)
                     {
@@ -330,14 +316,177 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             return results;
         }
 
+        private async Task<List<RemoteSearchResult>> GetSearchResultsByIsbn(string isbn, CancellationToken cancellationToken)
+        {
+            var results = new List<RemoteSearchResult>();
+            if (string.IsNullOrWhiteSpace(isbn))
+            {
+                return results;
+            }
+
+            try
+            {
+                var url = $"https://openlibrary.org/search.json?isbn={Uri.EscapeDataString(isbn)}&fields=key,title,author_name,first_publish_year,isbn,cover_edition_key,cover_i&limit=10";
+                using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
+                    .GetAsync(url, cancellationToken)
+                    .ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var searchResult = JsonSerializer.Deserialize<OpenLibrarySearchResult>(json);
+                if (searchResult?.Docs is not null)
+                {
+                    AddSearchDocuments(results, searchResult.Docs);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching OpenLibrary for ISBN {Isbn}", isbn);
+            }
+
+            return results;
+        }
+
+        private void AddSearchDocuments(ICollection<RemoteSearchResult> results, IEnumerable<OpenLibraryDoc> docs)
+        {
+            foreach (var doc in docs)
+            {
+                if (string.IsNullOrWhiteSpace(doc.Title))
+                {
+                    continue;
+                }
+
+                var item = new RemoteSearchResult
+                {
+                    Name = doc.Title,
+                    SearchProviderName = Name,
+                    ProductionYear = doc.FirstPublishYear > 0 ? doc.FirstPublishYear : null
+                };
+
+                if (doc.Isbn is { Length: > 0 })
+                {
+                    item.SetProviderId("ISBN", doc.Isbn[0]);
+                }
+
+                if (!string.IsNullOrWhiteSpace(doc.CoverEditionKey))
+                {
+                    item.SetProviderId("OpenLibrary", doc.CoverEditionKey);
+                    item.ImageUrl = $"https://covers.openlibrary.org/b/olid/{doc.CoverEditionKey}-M.jpg";
+                }
+                else if (doc.CoverId > 0)
+                {
+                    item.ImageUrl = $"https://covers.openlibrary.org/b/id/{doc.CoverId}-M.jpg";
+                }
+                else if (doc.Isbn is { Length: > 0 } && !string.IsNullOrWhiteSpace(doc.Isbn[0]))
+                {
+                    item.ImageUrl = $"https://covers.openlibrary.org/b/isbn/{doc.Isbn[0]}-M.jpg";
+                }
+
+                if (!string.IsNullOrWhiteSpace(doc.Key) && string.IsNullOrWhiteSpace(item.GetProviderId("OpenLibrary")))
+                {
+                    item.SetProviderId("OpenLibrary", doc.Key.Replace("/works/", string.Empty, StringComparison.Ordinal));
+                }
+
+                AddSearchResultIfMissing(results, item);
+            }
+        }
+
+        private void AddMetadataSearchResult(ICollection<RemoteSearchResult> results, MetadataResult<Book> metadata, string openLibraryId)
+        {
+            var book = metadata.Item!;
+            var item = new RemoteSearchResult
+            {
+                Name = book.Name,
+                ProductionYear = book.ProductionYear,
+                SearchProviderName = Name,
+                ImageUrl = metadata.RemoteImages.FirstOrDefault(image => image.Type == ImageType.Primary).Url
+            };
+
+            item.SetProviderId("OpenLibrary", book.GetProviderId("OpenLibrary") ?? openLibraryId);
+            var isbn = book.GetProviderId("ISBN");
+            if (!string.IsNullOrWhiteSpace(isbn))
+            {
+                item.SetProviderId("ISBN", isbn);
+            }
+
+            AddSearchResultIfMissing(results, item);
+        }
+
+        private static MetadataResult<Book> CreateMetadataFromSearchResult(RemoteSearchResult searchResult)
+        {
+            var result = new MetadataResult<Book>
+            {
+                Item = new Book
+                {
+                    Name = searchResult.Name,
+                    ProductionYear = searchResult.ProductionYear
+                },
+                HasMetadata = !string.IsNullOrWhiteSpace(searchResult.Name)
+            };
+
+            foreach (var (key, value) in searchResult.ProviderIds)
+            {
+                result.Item.SetProviderId(key, value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(searchResult.ImageUrl))
+            {
+                result.RemoteImages.Add((searchResult.ImageUrl, ImageType.Primary));
+            }
+
+            return result;
+        }
+
+        private static string NormalizeIsbn(string? isbn)
+        {
+            return string.IsNullOrWhiteSpace(isbn)
+                ? string.Empty
+                : Regex.Replace(isbn, @"[^0-9Xx]", string.Empty, RegexOptions.CultureInvariant).ToUpperInvariant();
+        }
+
+        private static string? ExtractIsbn(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var candidate = NormalizeIsbn(value);
+            return candidate.Length is 10 or 13 ? candidate : null;
+        }
+
+        private static string? ExtractOpenLibraryId(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var match = Regex.Match(value, @"OL\d+[MW]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return match.Success ? match.Value.ToUpperInvariant() : null;
+        }
+
         private static IEnumerable<string> BuildSearchQueries(string query)
         {
             var clean = NormalizeSearchText(query);
             var withoutDiacritics = RemoveDiacritics(clean);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Library filenames often contain a collection/edition prefix, for example
+            // "D&D 3.5 - Livro Cityscape". Search the human book title from the end first.
+            var segments = Regex.Split(query, @"\s*[-–—]\s*", RegexOptions.CultureInvariant);
+            for (var index = segments.Length - 1; index >= 0; index--)
+            {
+                var candidate = segments[index].Trim();
+                candidate = Regex.Replace(candidate, @"^(?:livro|book|ebook)\s+", string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+                if (candidate.Length > 2 && seen.Add(candidate))
+                {
+                    yield return candidate;
+                }
+            }
 
             foreach (var candidate in new[] { query, clean, withoutDiacritics })
             {
-                if (!string.IsNullOrWhiteSpace(candidate))
+                if (!string.IsNullOrWhiteSpace(candidate) && seen.Add(candidate))
                 {
                     yield return candidate;
                 }
@@ -347,8 +496,9 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             {
                 if (part.Length > 2)
                 {
-                    yield return part;
-                    yield return RemoveDiacritics(part);
+                    if (seen.Add(part)) yield return part;
+                    var normalizedPart = RemoveDiacritics(part);
+                    if (seen.Add(normalizedPart)) yield return normalizedPart;
                 }
             }
 
@@ -356,7 +506,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
             punctuationFree = Regex.Replace(punctuationFree, @"\s{2,}", " ", RegexOptions.CultureInvariant).Trim();
             if (!string.IsNullOrWhiteSpace(punctuationFree))
             {
-                yield return punctuationFree;
+                if (seen.Add(punctuationFree)) yield return punctuationFree;
             }
         }
 
@@ -434,43 +584,45 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
                 }
             }
 
-            if (bookEntry.TryGetProperty("authors", out var authors))
+            if (bookEntry.TryGetProperty("authors", out var authors) && authors.ValueKind == JsonValueKind.Array)
             {
                 foreach (var author in authors.EnumerateArray())
                 {
-                    if (author.TryGetProperty("name", out var authorName))
+                    if (author.ValueKind == JsonValueKind.Object && author.TryGetProperty("name", out var authorName))
                     {
-                        result.AddPerson(new PersonInfo
+                        var name = authorName.GetString();
+                        if (!string.IsNullOrWhiteSpace(name))
                         {
-                            Name = authorName.GetString() ?? string.Empty,
-                            Type = PersonKind.Author
-                        });
+                            result.AddPerson(new PersonInfo { Name = name, Type = PersonKind.Author });
+                        }
                     }
                 }
             }
 
-            if (bookEntry.TryGetProperty("publishers", out var publishers))
+            if (bookEntry.TryGetProperty("publishers", out var publishers) && publishers.ValueKind == JsonValueKind.Array)
             {
                 foreach (var publisher in publishers.EnumerateArray())
                 {
-                    if (publisher.TryGetProperty("name", out var publisherName))
+                    var publisherName = publisher.ValueKind == JsonValueKind.Object && publisher.TryGetProperty("name", out var publisherObjectName)
+                        ? publisherObjectName.GetString()
+                        : publisher.ValueKind == JsonValueKind.String ? publisher.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(publisherName))
                     {
-                        result.Item.AddStudio(publisherName.GetString() ?? string.Empty);
+                        result.Item.AddStudio(publisherName);
                     }
                 }
             }
 
-            if (bookEntry.TryGetProperty("subjects", out var subjects))
+            if (bookEntry.TryGetProperty("subjects", out var subjects) && subjects.ValueKind == JsonValueKind.Array)
             {
                 foreach (var subject in subjects.EnumerateArray())
                 {
-                    if (subject.TryGetProperty("name", out var subjectName))
+                    var subjectName = subject.ValueKind == JsonValueKind.Object && subject.TryGetProperty("name", out var subjectObjectName)
+                        ? subjectObjectName.GetString()
+                        : subject.ValueKind == JsonValueKind.String ? subject.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(subjectName))
                     {
-                        var name = subjectName.GetString();
-                        if (!string.IsNullOrWhiteSpace(name))
-                        {
-                            result.Item.AddGenre(name);
-                        }
+                        result.Item.AddGenre(subjectName);
                     }
                 }
             }
@@ -482,40 +634,19 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
 
             if (bookEntry.TryGetProperty("identifiers", out var identifiers))
             {
-                if (identifiers.TryGetProperty("isbn_13", out var isbn13) && isbn13.GetArrayLength() > 0)
-                {
-                    var isbnStr = isbn13[0].GetString();
-                    if (!string.IsNullOrWhiteSpace(isbnStr))
-                    {
-                        result.Item.SetProviderId("ISBN", isbnStr!);
-                    }
-                }
-                else if (identifiers.TryGetProperty("isbn_10", out var isbn10) && isbn10.GetArrayLength() > 0)
-                {
-                    var isbnStr = isbn10[0].GetString();
-                    if (!string.IsNullOrWhiteSpace(isbnStr))
-                    {
-                        result.Item.SetProviderId("ISBN", isbnStr!);
-                    }
-                }
+                SetIdentifierFromArray(result.Item, identifiers, "isbn_13", "ISBN");
+                SetIdentifierFromArray(result.Item, identifiers, "isbn_10", "ISBN");
+                SetIdentifierFromArray(result.Item, identifiers, "openlibrary", "OpenLibrary");
+                SetIdentifierFromArray(result.Item, identifiers, "google", "GoogleBooks");
+            }
 
-                if (identifiers.TryGetProperty("openlibrary", out var ol) && ol.GetArrayLength() > 0)
-                {
-                    var olStr = ol[0].GetString();
-                    if (!string.IsNullOrWhiteSpace(olStr))
-                    {
-                        result.Item.SetProviderId("OpenLibrary", olStr!);
-                    }
-                }
+            SetIdentifierFromArray(result.Item, bookEntry, "isbn_13", "ISBN");
+            SetIdentifierFromArray(result.Item, bookEntry, "isbn_10", "ISBN");
 
-                if (identifiers.TryGetProperty("google", out var google) && google.GetArrayLength() > 0)
-                {
-                    var googleStr = google[0].GetString();
-                    if (!string.IsNullOrWhiteSpace(googleStr))
-                    {
-                        result.Item.SetProviderId("GoogleBooks", googleStr!);
-                    }
-                }
+            if (bookEntry.TryGetProperty("key", out var bookKey) && bookKey.ValueKind == JsonValueKind.String)
+            {
+                var id = ExtractOpenLibraryId(bookKey.GetString());
+                if (!string.IsNullOrWhiteSpace(id)) result.Item.SetProviderId("OpenLibrary", id);
             }
 
             if (bookEntry.TryGetProperty("cover", out var cover))
@@ -535,6 +666,73 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
                     {
                         result.RemoteImages.Add((coverUrl, ImageType.Primary));
                     }
+                }
+            }
+
+            if (result.RemoteImages.Count == 0 && bookEntry.TryGetProperty("covers", out var covers) && covers.ValueKind == JsonValueKind.Array)
+            {
+                var coverId = covers.EnumerateArray()
+                    .Where(value => value.ValueKind == JsonValueKind.Number)
+                    .Select(value => value.GetInt32())
+                    .FirstOrDefault(id => id > 0);
+                if (coverId > 0)
+                {
+                    result.RemoteImages.Add(($"https://covers.openlibrary.org/b/id/{coverId}-L.jpg", ImageType.Primary));
+                }
+            }
+        }
+
+        private static void SetIdentifierFromArray(Book item, JsonElement source, string propertyName, string providerName)
+        {
+            if (source.TryGetProperty(propertyName, out var values)
+                && values.ValueKind == JsonValueKind.Array
+                && values.GetArrayLength() > 0
+                && values[0].ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(values[0].GetString())
+                && string.IsNullOrWhiteSpace(item.GetProviderId(providerName)))
+            {
+                item.SetProviderId(providerName, values[0].GetString()!);
+            }
+        }
+
+        private async Task PopulateEditionAuthors(MetadataResult<Book> result, JsonElement edition, CancellationToken cancellationToken)
+        {
+            if (result.Item is null
+                || !edition.TryGetProperty("authors", out var authors)
+                || authors.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            var authorIds = authors.EnumerateArray()
+                .Where(author => author.ValueKind == JsonValueKind.Object
+                    && author.TryGetProperty("key", out var key)
+                    && key.ValueKind == JsonValueKind.String)
+                .Select(author => Regex.Match(author.GetProperty("key").GetString() ?? string.Empty, @"OL\d+A", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                .Where(match => match.Success)
+                .Select(match => match.Value.ToUpperInvariant())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            foreach (var authorId in authorIds)
+            {
+                try
+                {
+                    using var response = await _httpClientFactory.CreateClient(NamedClient.Default)
+                        .GetAsync($"https://openlibrary.org/authors/{Uri.EscapeDataString(authorId!)}.json", cancellationToken)
+                        .ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                    if (document.RootElement.TryGetProperty("name", out var name)
+                        && !string.IsNullOrWhiteSpace(name.GetString()))
+                    {
+                        result.AddPerson(new PersonInfo { Name = name.GetString()!, Type = PersonKind.Author });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Unable to load OpenLibrary author {AuthorId}", authorId);
                 }
             }
         }
@@ -807,12 +1005,7 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
 
         private static string NormalizeOpenLibraryId(string olId)
         {
-            var normalized = olId.Trim();
-            normalized = normalized.Replace("https://openlibrary.org/", string.Empty, StringComparison.OrdinalIgnoreCase);
-            normalized = normalized.Replace("/works/", string.Empty, StringComparison.OrdinalIgnoreCase);
-            normalized = normalized.Replace("/books/", string.Empty, StringComparison.OrdinalIgnoreCase);
-            normalized = normalized.Replace(".json", string.Empty, StringComparison.OrdinalIgnoreCase);
-            return normalized;
+            return ExtractOpenLibraryId(olId) ?? olId.Trim();
         }
 
         private class OpenLibrarySearchResult
@@ -846,4 +1039,3 @@ namespace MediaBrowser.Providers.Books.OpenLibrary
         }
     }
 }
-

@@ -562,7 +562,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
         }
 
-        return roots.ToArray();
+        return roots.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     private IReadOnlyList<NebulaMediaSuggestionDto> BuildMediaSuggestionsCatalog(IEnumerable<string> configuredRoots)
@@ -580,6 +580,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             try
             {
                 var countBeforeRoot = suggestions.Count;
+                var root = Path.GetFullPath(configuredRoot);
                 foreach (var path in Directory.EnumerateFiles(configuredRoot, "*.strm", new EnumerationOptions
                 {
                     RecurseSubdirectories = true,
@@ -598,7 +599,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
                     // Episode STRMs are often named S01E01 or with an episode title.
                     // Also index the nearest non-season folder so users can request a series.
-                    var root = Path.GetFullPath(configuredRoot);
                     DirectoryInfo? directory = new DirectoryInfo(Path.GetDirectoryName(path)!);
                     while (directory is not null && directory.FullName.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                     {
