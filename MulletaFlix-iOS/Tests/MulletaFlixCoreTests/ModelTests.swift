@@ -37,6 +37,14 @@ final class ModelTests: XCTestCase {
             AuthErrorPolicy.serverConnectionMessage(for: APIError.serverMessage("API em manutenção.")),
             "API em manutenção."
         )
+        XCTAssertEqual(
+            AuthErrorPolicy.registrationMessage(for: APIError.serverMessage("Usuário já existe.")),
+            "Usuário já existe."
+        )
+        XCTAssertEqual(
+            AuthErrorPolicy.registrationMessage(for: URLError(.timedOut)),
+            "O servidor demorou para responder. Tente novamente."
+        )
     }
 
     func testPlaybackErrorPolicyMapsNetworkFailuresToActionableMessage() {
@@ -646,6 +654,22 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(episode.seriesId, "series-1")
         XCTAssertEqual(episode.seasonId, "season-1")
         XCTAssertEqual(episode.indexNumber, 1)
+    }
+
+    func testSeasonDownloadPolicyKeepsOnlyUniqueEpisodesAndSkipsActiveDownloads() {
+        let episodes = [
+            MediaItem(id: "episode-1", name: "Piloto", type: "Episode"),
+            MediaItem(id: "episode-1", name: "Piloto duplicado", type: "Episode"),
+            MediaItem(id: "season-1", name: "Temporada", type: "Season"),
+            MediaItem(id: "episode-2", name: "Final", type: "Episode"),
+        ]
+
+        let eligible = SeasonDownloadPolicy.eligibleEpisodes(episodes)
+        XCTAssertEqual(eligible.map(\.id), ["episode-1", "episode-2"])
+        XCTAssertEqual(
+            SeasonDownloadPolicy.pendingEpisodes(eligible, activeItemIDs: ["episode-1"]),
+            [episodes[3]]
+        )
     }
 
     func testPlayedStateCanBeUpdatedWithoutLosingMediaContext() throws {

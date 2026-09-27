@@ -10,15 +10,63 @@ permissions:
   contents: write
 
 jobs:
+  build-linux:
+    name: Build Linux x64 package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: MulletaFlix-web-master/package-lock.json
+
+      - name: Build and package Linux server
+        run: bash tools/release/build-linux-package.sh dist
+
+      - name: Validate Linux archive and service definition
+        run: |
+          bash -n tools/release/linux-install.sh
+          systemd-analyze verify tools/release/mulletaflix.service
+          package="$(find dist -maxdepth 1 -name 'mulletaflix_*_linux-x64.tar.gz' -print -quit)"
+          test -n "$package"
+          tar -tzf "$package" | grep -q '/server/MulletaFlix$'
+          tar -tzf "$package" | grep -q '/install.sh$'
+          tar -tzf "$package" | grep -q '/server/MulletaFlix-web/index.html$'
+
+      - name: Upload Linux package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mulletaflix-linux-x64
+          path: dist/mulletaflix_*_linux-x64.tar.gz
+          if-no-files-found: error
+
   build-and-release:
     name: Build and publish release
     runs-on: windows-latest
+    needs: build-linux
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Download Linux server package
+        uses: actions/download-artifact@v4
+        with:
+          name: mulletaflix-linux-x64
+          path: dist
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -57,23 +105,8 @@ jobs:
           $tagVersion = "${{ github.ref_name }}".TrimStart('v')
           .\build-update-package.ps1 -Version $tagVersion -SkipBuild
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: MulletaFlix ${{ github.ref_name }}
-          body: |
-            ### MulletaFlix ${{ github.ref_name }}
-            
-            - **Capas, imagens e NFO preservados no cache**: poster, fanart, logo, thumb, `.nfo`/`.xml` e legendas nunca são removidos do catálogo — nem quando o registro entra em erro — porque são eles que mantêm a biblioteca instantânea no web e no aplicativo.
-            - **Staging é fila transitória**: tudo que já foi enviado ao Telegram sai da pasta de staging, inclusive capas e NFO, e pastas que ficam vazias são removidas automaticamente.
-            - **Já enviado não volta ao staging**: o exportador de metadados não recria sidecars de uma mídia que já está no Telegram, acabando com as capas e `.nfo` duplicados na pasta de envio.
-            - **Sincronização por delta**: a varredura do staging passa a processar somente arquivos novos ou alterados (diário de tamanho+data mais índice em uma única consulta por passada), e a sincronização com o Supabase envia apenas o delta: o que mudou desde o último backup mais o que ainda não foi enviado (fila, staging, envio ou falha).
-            - **Restauração não sobrescreve o cache**: a restauração do Supabase mescla campo a campo (`$set`) em vez de substituir o documento, então um registro remoto mais pobre nunca apaga partes do Telegram, caminho local ou metadados locais.
-            - **Cobertura de testes**: novos testes para a regra de conteúdo protegido e para a limpeza do staging.
-          files: |
-            dist/mulletaflix-update-win-x64.zip
-          draft: false
-          prerelease: false
+      - name: Publish GitHub Release and platform assets
+        shell: pwsh
+        run: .\publish-release.ps1 -Tag "${{ github.ref_name }}" -Title "MulletaFlix Server ${{ github.ref_name }}" -AssetsDirectory dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,6 +7,7 @@ consulta de itens recentes/em andamento e resolução de artwork pelo servidor.
 Falhas de autenticação e conexão seguem mensagens acionáveis equivalentes às do
 Android: credenciais inválidas, falta de permissão, servidor ausente e timeout
 são diferenciados, preservando também mensagens específicas devolvidas pela API.
+O cadastro usa a mesma política e não exibe descrições brutas do transporte.
 
 ## Abrir no Xcode
 
@@ -77,6 +78,11 @@ sem depender de metadados online. O progresso de reprodução offline é persist
 por servidor e usuário, restaurado ao reabrir o arquivo e removido quando a mídia
 termina ou o download é excluído; quando não existe posição local, o cliente usa
 a posição retornada pelo servidor como fallback.
+
+Em detalhes de séries, a temporada selecionada pode ser preparada em lote para
+download. O iOS deduplica episódios já enfileirados ou disponíveis, exibe o
+progresso acessível, permite cancelar a preparação e mantém os episódios já
+adicionados na fila offline.
 
 A fila pode ser pausada e retomada globalmente; novos downloads permanecem
 enfileirados enquanto a fila estiver pausada.

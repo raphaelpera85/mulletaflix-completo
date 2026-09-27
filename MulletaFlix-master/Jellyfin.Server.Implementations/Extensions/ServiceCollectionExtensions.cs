@@ -104,10 +104,10 @@ public static class ServiceCollectionExtensions
                         ConnectionString = "",
                         Options =
                         [
-                            new() { Key = "server", Value = "127.0.0.1" },
-                            new() { Key = "port", Value = "3306" },
-                            new() { Key = "user", Value = "root" },
-                            new() { Key = "password", Value = "" },
+                            new() { Key = "server", Value = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_SERVER") ?? "127.0.0.1" },
+                            new() { Key = "port", Value = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PORT") ?? "3306" },
+                            new() { Key = "user", Value = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_USER") ?? "root" },
+                            new() { Key = "password", Value = Environment.GetEnvironmentVariable("MULLETAFLIX_DB_PASSWORD") ?? "" },
                             new() { Key = "backup-dir", Value = "" },
                             new() { Key = "mysql-tools-dir", Value = "" },
                         ]

@@ -6,7 +6,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -272,6 +271,203 @@ class ItemDetailViewModelTest {
 
         assertEquals(DownloadEpisodeMetadata("series-1", 2, 7), downloadRepo.lastEpisodeMetadata)
     }
+
+    @Test
+    fun `downloadSelectedSeason queues every episode once with episode metadata`() = runTest {
+        val episodes = listOf(
+            episode("ep-1", 1),
+            episode("ep-2", 2),
+            episode("ep-2", 2),
+        )
+        val mediaRepo = seriesRepository(episodes)
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ): Result<PlaybackInfo> = Result.success(playbackInfo(itemId))
+        }
+        val downloadRepo = FakeDownloadRepository()
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo, downloadRepo = downloadRepo)
+        advanceUntilIdle()
+        viewModel.loadItem("series-1")
+        advanceUntilIdle()
+
+        viewModel.downloadSelectedSeason()
+        advanceUntilIdle()
+
+        assertEquals(listOf("ep-1", "ep-2"), downloadRepo.enqueuedIds)
+        assertEquals(
+            listOf(DownloadEpisodeMetadata("series-1", 1, 1), DownloadEpisodeMetadata("series-1", 1, 2)),
+            downloadRepo.enqueuedEpisodeMetadata,
+        )
+        assertEquals(2, viewModel.state.value.seasonDownloadProgress?.queuedEpisodes)
+        assertFalse(viewModel.state.value.seasonDownloadProgress?.isRunning ?: true)
+    }
+
+    @Test
+    fun `downloadSelectedSeason skips existing entries and continues after one episode fails`() = runTest {
+        val episodes = (1..4).map { episode("ep-$it", it) }
+        val existing = listOf(
+            downloadEntry("ep-1", DownloadState.Completed),
+            downloadEntry("ep-2", DownloadState.Queued),
+        )
+        val playbackCalls = mutableListOf<String>()
+        val mediaRepo = seriesRepository(episodes)
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ): Result<PlaybackInfo> {
+                playbackCalls += itemId
+                return if (itemId == "ep-3") {
+                    Result.failure(IllegalStateException("Fonte indisponível"))
+                } else {
+                    Result.success(playbackInfo(itemId))
+                }
+            }
+        }
+        val downloadRepo = FakeDownloadRepository(initialEntries = existing)
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo, downloadRepo = downloadRepo)
+        advanceUntilIdle()
+        viewModel.loadItem("series-1")
+        advanceUntilIdle()
+
+        viewModel.downloadSelectedSeason()
+        advanceUntilIdle()
+
+        assertEquals(listOf("ep-3", "ep-4"), playbackCalls)
+        assertEquals(listOf("ep-4"), downloadRepo.enqueuedIds)
+        val progress = requireNotNull(viewModel.state.value.seasonDownloadProgress)
+        assertEquals(4, progress.totalEpisodes)
+        assertEquals(4, progress.processedEpisodes)
+        assertEquals(2, progress.alreadyAvailableEpisodes)
+        assertEquals(0, progress.alreadyPreparingEpisodes)
+        assertEquals(1, progress.failedEpisodes)
+        assertFalse(progress.isRunning)
+    }
+
+    @Test
+    fun `season download uses its original episode snapshot after season selection changes`() = runTest {
+        val seasonOneEpisodes = listOf(episode("ep-1", 1), episode("ep-2", 2))
+        val seasonTwoEpisodes = listOf(episode("ep-3", 1, seasonNumber = 2))
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> =
+                Result.success(MediaItem("series-1", "Série", MediaItemType.Series))
+
+            override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> = Result.success(
+                listOf(
+                    MediaItem("season-1", "Temporada 1", MediaItemType.Season, indexNumber = 1),
+                    MediaItem("season-2", "Temporada 2", MediaItemType.Season, indexNumber = 2),
+                ),
+            )
+
+            override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> =
+                Result.success(if (seasonId == "season-2") seasonTwoEpisodes else seasonOneEpisodes)
+        }
+        val firstEpisodePreparation = CompletableDeferred<Result<PlaybackInfo>>()
+        val playbackCalls = mutableListOf<String>()
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ): Result<PlaybackInfo> {
+                playbackCalls += itemId
+                return if (itemId == "ep-1") firstEpisodePreparation.await() else Result.success(playbackInfo(itemId))
+            }
+        }
+        val downloadRepo = FakeDownloadRepository()
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo, downloadRepo = downloadRepo)
+        advanceUntilIdle()
+        viewModel.loadItem("series-1")
+        advanceUntilIdle()
+
+        viewModel.downloadSelectedSeason()
+        runCurrent()
+        viewModel.selectSeason(1)
+        advanceUntilIdle()
+        firstEpisodePreparation.complete(Result.success(playbackInfo("ep-1")))
+        advanceUntilIdle()
+
+        assertEquals(listOf("ep-1", "ep-2"), playbackCalls)
+        assertEquals(listOf("ep-1", "ep-2"), downloadRepo.enqueuedIds)
+    }
+
+    @Test
+    fun `cancelling a season preparation keeps episodes already placed in the queue`() = runTest {
+        val episodes = listOf(episode("ep-1", 1), episode("ep-2", 2))
+        val secondEpisodePreparation = CompletableDeferred<Result<PlaybackInfo>>()
+        val mediaRepo = seriesRepository(episodes)
+        val playbackRepo = object : FakePlaybackRepository() {
+            override suspend fun getPlaybackInfo(
+                itemId: String,
+                userId: String,
+                audioStreamIndex: Int?,
+                subtitleStreamIndex: Int?,
+                startTimeTicks: Long?,
+            ): Result<PlaybackInfo> = if (itemId == "ep-2") {
+                secondEpisodePreparation.await()
+            } else {
+                Result.success(playbackInfo(itemId))
+            }
+        }
+        val downloadRepo = FakeDownloadRepository()
+        val viewModel = createViewModel(mediaRepo, playbackRepo = playbackRepo, downloadRepo = downloadRepo)
+        advanceUntilIdle()
+        viewModel.loadItem("series-1")
+        advanceUntilIdle()
+
+        viewModel.downloadSelectedSeason()
+        runCurrent()
+        assertEquals(listOf("ep-1"), downloadRepo.enqueuedIds)
+        viewModel.cancelSeasonDownload()
+        advanceUntilIdle()
+
+        assertEquals(listOf("ep-1"), downloadRepo.enqueuedIds)
+        assertTrue(viewModel.state.value.seasonDownloadProgress?.isCancelled == true)
+        assertFalse(viewModel.state.value.seasonDownloadProgress?.isRunning ?: true)
+    }
+
+    private fun episode(id: String, episodeNumber: Int, seasonNumber: Int = 1) = MediaItem(
+        id = id,
+        name = "Episódio $episodeNumber",
+        type = MediaItemType.Episode,
+        seriesId = "series-1",
+        parentIndexNumber = seasonNumber,
+        indexNumber = episodeNumber,
+    )
+
+    private fun seriesRepository(episodes: List<MediaItem>) = object : FakeMediaRepository() {
+        override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> =
+            Result.success(MediaItem("series-1", "Série", MediaItemType.Series))
+
+        override suspend fun getSeasons(userId: String, seriesId: String): Result<List<MediaItem>> =
+            Result.success(listOf(MediaItem("season-1", "Temporada 1", MediaItemType.Season, indexNumber = 1)))
+
+        override suspend fun getEpisodes(userId: String, seriesId: String, seasonId: String?): Result<List<MediaItem>> =
+            Result.success(episodes)
+    }
+
+    private fun playbackInfo(itemId: String) = PlaybackInfo(
+        playSessionId = "session-$itemId",
+        mediaSources = listOf(MediaSource(id = "source-$itemId", directStreamUrl = "https://server/$itemId.mkv")),
+    )
+
+    private fun downloadEntry(id: String, state: DownloadState) = DownloadEntry(
+        id = id,
+        title = id,
+        uri = "https://server/$id.mkv",
+        state = state,
+        percent = if (state == DownloadState.Completed) 100 else 0,
+    )
 
     @Test
     fun `repeated download taps share one preparation request`() = runTest {
@@ -832,7 +1028,13 @@ class ItemDetailViewModelTest {
         ): Result<Unit> = Result.success(Unit)
     }
 
-    private open class FakeDownloadRepository : DownloadRepository {
+    private open class FakeDownloadRepository(
+        initialEntries: List<DownloadEntry> = emptyList(),
+    ) : DownloadRepository {
+        val enqueuedIds = mutableListOf<String>()
+        val enqueuedEpisodeMetadata = mutableListOf<DownloadEpisodeMetadata?>()
+        private val entries = MutableStateFlow(initialEntries)
+
         var lastImageUrl: String? = null
         var lastEpisodeMetadata: DownloadEpisodeMetadata? = null
         override fun enqueue(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
@@ -845,13 +1047,24 @@ class ItemDetailViewModelTest {
         ): Result<Unit> {
             lastImageUrl = imageUrl
             lastEpisodeMetadata = episodeMetadata
+            enqueuedIds += id
+            enqueuedEpisodeMetadata += episodeMetadata
+            entries.value = entries.value + DownloadEntry(
+                id = id,
+                title = title,
+                uri = uri,
+                state = DownloadState.Queued,
+                percent = 0,
+                imageUrl = imageUrl,
+                episodeMetadata = episodeMetadata,
+            )
             return Result.success(Unit)
         }
         override fun retry(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
         override fun remove(id: String): Result<Unit> = Result.success(Unit)
         override fun pauseAll(): Result<Unit> = Result.success(Unit)
         override fun resumeAll(): Result<Unit> = Result.success(Unit)
-        override fun observeDownloads(): Flow<List<DownloadEntry>> = emptyFlow()
+        override fun observeDownloads(): Flow<List<DownloadEntry>> = entries
     }
 
     private open class FakePlaylistRepository : PlaylistRepository {

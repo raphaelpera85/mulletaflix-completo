@@ -1496,6 +1496,31 @@ struct ItemDetailView: View {
                             }
                         }
                         .pickerStyle(.menu)
+                        if let selectedSeason = model.seriesSeasons.indices.contains(model.selectedSeasonIndex)
+                            ? model.seriesSeasons[model.selectedSeasonIndex]
+                            : nil {
+                            if let progress = model.seasonDownloadProgress,
+                               progress.seasonID == selectedSeason.id {
+                                ProgressView(value: Double(progress.processedEpisodes), total: Double(max(1, progress.totalEpisodes)))
+                                    .accessibilityValue("\(progress.processedEpisodes) de \(progress.totalEpisodes)")
+                                Text(progress.isRunning
+                                     ? "Preparando \(progress.processedEpisodes)/\(progress.totalEpisodes)"
+                                     : "\(progress.queuedEpisodes) episódio(s) adicionado(s), \(progress.alreadyAvailableEpisodes) já disponível(is), \(progress.failedEpisodes) falha(s)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityAddTraits(.updatesFrequently)
+                                if progress.isRunning {
+                                    Button("Cancelar preparação", systemImage: "xmark.circle") {
+                                        model.cancelSeasonDownload()
+                                    }
+                                }
+                            } else {
+                                Button("Baixar temporada", systemImage: "arrow.down.circle") {
+                                    model.downloadSelectedSeason()
+                                }
+                                .disabled(model.profile?.canDownload == false)
+                            }
+                        }
                         ForEach(model.seriesEpisodes) { episode in
                             NavigationLink(value: episode) {
                                 HStack {

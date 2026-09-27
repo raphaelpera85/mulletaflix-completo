@@ -667,6 +667,20 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// Keeps season-level offline preparation deterministic and free of duplicate queue entries.
+public enum SeasonDownloadPolicy {
+    public static func eligibleEpisodes(_ episodes: [MediaItem]) -> [MediaItem] {
+        var seenIDs = Set<String>()
+        return episodes.filter { episode in
+            episode.type == "Episode" && seenIDs.insert(episode.id).inserted
+        }
+    }
+
+    public static func pendingEpisodes(_ episodes: [MediaItem], activeItemIDs: Set<String>) -> [MediaItem] {
+        episodes.filter { !activeItemIDs.contains($0.id) }
+    }
+}
+
 public struct MediaStream: Decodable, Hashable, Sendable {
     public let type: String?
     public let codec: String?
@@ -843,6 +857,15 @@ public enum AuthErrorPolicy {
             }
         }
         return "Não foi possível conectar ao servidor. Verifique a conexão e tente novamente."
+    }
+
+    public static func registrationMessage(for error: Error) -> String {
+        if let apiError = error as? APIError,
+           case .serverMessage(let message) = apiError,
+           !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return message
+        }
+        return serverConnectionMessage(for: error)
     }
 }
 

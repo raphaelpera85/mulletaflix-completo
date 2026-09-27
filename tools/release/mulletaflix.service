@@ -1,0 +1,27 @@
+[Unit]
+Description=MulletaFlix Media Server
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mulletaflix
+Group=mulletaflix
+WorkingDirectory=/opt/mulletaflix/server
+EnvironmentFile=/etc/mulletaflix/server.env
+Environment=ASPNETCORE_URLS=http://0.0.0.0:8096
+Environment=MulletaFlix_DATA_DIR=/var/lib/mulletaflix
+Environment=MulletaFlix_CONFIG_DIR=/etc/mulletaflix/config
+Environment=MulletaFlix_CACHE_DIR=/var/cache/mulletaflix
+Environment=MulletaFlix_LOG_DIR=/var/log/mulletaflix
+ExecStart=/opt/mulletaflix/server/MulletaFlix
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/mulletaflix /var/cache/mulletaflix /var/log/mulletaflix /etc/mulletaflix
+
+[Install]
+WantedBy=multi-user.target

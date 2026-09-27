@@ -87,7 +87,9 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- Correção de layout do dashboard: a altura mínima da aplicação agora usa a altura da viewport, evitando que o contêiner principal colapse e oculte a grade de solicitações mesmo quando a API retorna títulos.
+- **Servidor Linux x64**: pacote `.tar.gz` self-contained para Debian/Ubuntu, com instalação via `systemd`; o instalador configura MariaDB local com usuário dedicado e senha gerada e instala FFmpeg.
+- **Banco configurável pelo ambiente**: a primeira inicialização aceita `MULLETAFLIX_DB_SERVER`, `MULLETAFLIX_DB_PORT`, `MULLETAFLIX_DB_USER` e `MULLETAFLIX_DB_PASSWORD`; os padrões Windows permanecem quando as variáveis não existem.
+- **Windows continua disponível**: instalador EXE e pacote ZIP de atualização incluídos na release do servidor.
 '@
 
 $bodyContent = $bodyContent.Replace('__TAG__', $Tag)

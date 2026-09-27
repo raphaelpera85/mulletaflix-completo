@@ -821,8 +821,9 @@ internal fun HomeTopBar(
             ),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
-    ) {
+        ) {
         MulletaFlixWordmark(
+            modifier = if (layoutSpec.usesCompactTopBar) Modifier.weight(1f, fill = false) else Modifier,
             style = if (layoutSpec.usesCompactTopBar) {
                 MaterialTheme.typography.titleSmall
             } else {

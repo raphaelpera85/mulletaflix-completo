@@ -22,6 +22,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +38,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,6 +72,9 @@ fun SeriesSection(
     isLoading: Boolean = false,
     error: String? = null,
     onRetry: () -> Unit = {},
+    seasonDownloadProgress: SeasonDownloadProgress? = null,
+    onDownloadSeason: () -> Unit = {},
+    onCancelSeasonDownload: () -> Unit = {},
 ) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         // Season covers, like the web client's season row. The previous tab row
@@ -78,6 +88,71 @@ fun SeriesSection(
                 selectedSeasonIndex = selectedSeasonIndex.coerceIn(0, seasons.lastIndex),
                 onSeasonSelect = onSeasonSelect,
             )
+
+            val selectedSeason = seasons.getOrNull(selectedSeasonIndex)
+            selectedSeason?.let { season ->
+                val progress = seasonDownloadProgress?.takeIf { it.seasonId == season.id }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .then(
+                            if (progress?.isRunning == true) {
+                                Modifier.semantics {
+                                    liveRegion = LiveRegionMode.Polite
+                                    progressBarRangeInfo = ProgressBarRangeInfo(
+                                        progress.processedEpisodes.toFloat(),
+                                        0f..progress.totalEpisodes.toFloat(),
+                                    )
+                                }
+                            } else Modifier,
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = onDownloadSeason,
+                        enabled = episodes.isNotEmpty() && progress?.isRunning != true,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary,
+                        ),
+                    ) {
+                        if (progress?.isRunning == true) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                        }
+                        Text(
+                            text = if (progress?.isRunning == true) {
+                                "Preparando ${progress.processedEpisodes}/${progress.totalEpisodes}"
+                            } else {
+                                "Baixar temporada"
+                            },
+                            modifier = Modifier.padding(start = 8.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (progress?.isRunning == true) {
+                        TextButton(onClick = onCancelSeasonDownload) { Text("Cancelar") }
+                    }
+                }
+                if (progress != null && !progress.isRunning) {
+                    val resultText = if (progress.isCancelled) {
+                        "Preparação cancelada; ${progress.queuedEpisodes} episódio(s) permanecem na fila."
+                    } else {
+                        "${progress.queuedEpisodes} na fila · ${progress.alreadyAvailableEpisodes} já disponíveis · ${progress.alreadyPreparingEpisodes} já em preparação · ${progress.failedEpisodes} falhas"
+                    }
+                    Text(
+                        text = resultText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+            }
         }
 
         // Episodes list

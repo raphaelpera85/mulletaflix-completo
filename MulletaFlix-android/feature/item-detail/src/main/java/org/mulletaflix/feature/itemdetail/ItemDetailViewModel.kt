@@ -36,6 +36,7 @@ data class ItemDetailState(
     val seasonError: String? = null,
     val error: String? = null,
     val downloadMessage: String? = null,
+    val seasonDownloadProgress: SeasonDownloadProgress? = null,
     val interactionMessage: String? = null,
     val isPreparingDownload: Boolean = false,
     val isFavoriteUpdating: Boolean = false,
@@ -44,6 +45,19 @@ data class ItemDetailState(
     val isPlaylistDialogVisible: Boolean = false,
     val playlistMessage: String? = null,
     val isPlaylistLoading: Boolean = false,
+)
+
+data class SeasonDownloadProgress(
+    val seasonId: String,
+    val seasonName: String,
+    val totalEpisodes: Int,
+    val processedEpisodes: Int = 0,
+    val queuedEpisodes: Int = 0,
+    val alreadyAvailableEpisodes: Int = 0,
+    val alreadyPreparingEpisodes: Int = 0,
+    val failedEpisodes: Int = 0,
+    val isRunning: Boolean = false,
+    val isCancelled: Boolean = false,
 )
 
 @HiltViewModel
@@ -72,6 +86,7 @@ class ItemDetailViewModel @Inject constructor(
     private var itemLoadJob: Job? = null
     private var itemRequestGeneration = 0L
     private var seasonLoadJob: Job? = null
+    private var seasonDownloadJob: Job? = null
     private var seasonRequestGeneration = 0L
     private var favoriteJob: Job? = null
     private var watchedJob: Job? = null
@@ -117,6 +132,7 @@ class ItemDetailViewModel @Inject constructor(
                 sessionGeneration++
                 itemLoadJob?.cancel()
                 seasonLoadJob?.cancel()
+                seasonDownloadJob?.cancel()
                 favoriteJob?.cancel()
                 watchedJob?.cancel()
                 itemRequestGeneration++
@@ -137,6 +153,7 @@ class ItemDetailViewModel @Inject constructor(
     fun loadItem(itemId: String) {
         itemLoadJob?.cancel()
         seasonLoadJob?.cancel()
+        seasonDownloadJob?.cancel()
         favoriteJob?.cancel()
         watchedJob?.cancel()
         val requestGeneration = ++itemRequestGeneration
@@ -161,6 +178,7 @@ class ItemDetailViewModel @Inject constructor(
                     seasonError = null,
                     error = null,
                     downloadMessage = null,
+                    seasonDownloadProgress = null,
                     interactionMessage = null,
                     isPreparingDownload = false,
                     isFavoriteUpdating = false,
@@ -418,6 +436,10 @@ class ItemDetailViewModel @Inject constructor(
             _state.update { it.copy(downloadMessage = "Este título já está na fila ou disponível offline.") }
             return
         }
+        if (!preparingDownloadIds.add(item.id)) {
+            _state.update { it.copy(downloadMessage = "Este título já está sendo preparado para download.") }
+            return
+        }
         val requestGeneration = itemRequestGeneration
         val requestSessionGeneration = sessionGeneration
         viewModelScope.launch {
@@ -473,11 +495,166 @@ class ItemDetailViewModel @Inject constructor(
                     },
                 )
             } finally {
+                preparingDownloadIds.remove(item.id)
                 if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
                     _state.update { it.copy(isPreparingDownload = false) }
                 }
             }
         }
+    }
+
+    /** Prepares the currently selected season's eligible episodes in series order. */
+    fun downloadSelectedSeason() {
+        if (seasonDownloadJob?.isActive == true) return
+        val userId = currentUserId ?: return
+        val snapshot = _state.value
+        val season = snapshot.seasons.getOrNull(snapshot.selectedSeasonIndex) ?: return
+        val seriesId = currentSeriesId ?: return
+        val episodes = snapshot.episodes
+            .asSequence()
+            .filter { it.type == MediaItemType.Episode }
+            .distinctBy { it.id }
+            .toList()
+        if (episodes.isEmpty()) {
+            _state.update { it.copy(downloadMessage = "Não há episódios disponíveis nesta temporada.") }
+            return
+        }
+
+        val alreadyAvailableCount = episodes.count { hasActiveDownload(downloads, it.id) }
+        val alreadyPreparingCount = episodes.count {
+            it.id in preparingDownloadIds && !hasActiveDownload(downloads, it.id)
+        }
+        val pendingEpisodes = episodes.filterNot { episode ->
+            hasActiveDownload(downloads, episode.id) || episode.id in preparingDownloadIds
+        }
+        var queuedCount = 0
+        var skippedCount = alreadyAvailableCount + alreadyPreparingCount
+        var failedCount = 0
+        var processedCount = skippedCount
+        val requestGeneration = itemRequestGeneration
+        val requestSessionGeneration = sessionGeneration
+        val initialProgress = SeasonDownloadProgress(
+            seasonId = season.id,
+            seasonName = season.name,
+            totalEpisodes = episodes.size,
+            processedEpisodes = processedCount,
+            alreadyAvailableEpisodes = alreadyAvailableCount,
+            alreadyPreparingEpisodes = alreadyPreparingCount,
+            isRunning = pendingEpisodes.isNotEmpty(),
+        )
+        _state.update { it.copy(seasonDownloadProgress = initialProgress, downloadMessage = null) }
+        if (pendingEpisodes.isEmpty()) {
+            _state.update {
+                it.copy(downloadMessage = "Todos os episódios desta temporada já estão na fila ou disponíveis offline.")
+            }
+            return
+        }
+
+        preparingDownloadIds.addAll(pendingEpisodes.map { it.id })
+        seasonDownloadJob = viewModelScope.launch {
+            try {
+                for (episode in pendingEpisodes) {
+                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
+
+                    val preparedUrl = try {
+                        playbackRepository.getPlaybackInfo(episode.id, userId)
+                            .mapCatching { playbackInfo ->
+                                preferredDownloadUrl(playbackInfo.mediaSources)
+                                    ?: error("O servidor não forneceu uma fonte para download.")
+                            }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Result.failure(error)
+                    }
+
+                    preparedUrl.exceptionOrNull()?.let { error ->
+                        if (error is CancellationException) throw error
+                    }
+
+                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
+                    preparedUrl.fold(
+                        onSuccess = { url ->
+                            if (hasActiveDownload(downloads, episode.id)) {
+                                skippedCount++
+                            } else {
+                                val episodeMetadata = episode.downloadEpisodeMetadata(seriesId)
+                                val enqueueResult = try {
+                                    manageDownloadsUseCase.enqueueWithMetadata(
+                                        episode.id,
+                                        episode.name,
+                                        url,
+                                        episode.primaryImageUrl,
+                                        episodeMetadata,
+                                    )
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    Result.failure(error)
+                                }
+                                enqueueResult.exceptionOrNull()?.let { error ->
+                                    if (error is CancellationException) throw error
+                                }
+                                if (enqueueResult.isSuccess) queuedCount++ else failedCount++
+                            }
+                        },
+                        onFailure = { failedCount++ },
+                    )
+                    processedCount++
+                    _state.update {
+                        it.copy(
+                            seasonDownloadProgress = initialProgress.copy(
+                                processedEpisodes = processedCount,
+                                queuedEpisodes = queuedCount,
+                                alreadyAvailableEpisodes = skippedCount - alreadyPreparingCount,
+                                alreadyPreparingEpisodes = alreadyPreparingCount,
+                                failedEpisodes = failedCount,
+                            ),
+                        )
+                    }
+                }
+
+                if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
+                    _state.update {
+                        it.copy(
+                            seasonDownloadProgress = initialProgress.copy(
+                                processedEpisodes = processedCount,
+                                queuedEpisodes = queuedCount,
+                                alreadyAvailableEpisodes = skippedCount - alreadyPreparingCount,
+                                alreadyPreparingEpisodes = alreadyPreparingCount,
+                                failedEpisodes = failedCount,
+                                isRunning = false,
+                            ),
+                            downloadMessage = seasonDownloadSummary(season.name, queuedCount, skippedCount, failedCount),
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
+                    _state.update {
+                        it.copy(
+                            seasonDownloadProgress = initialProgress.copy(
+                                processedEpisodes = processedCount,
+                                queuedEpisodes = queuedCount,
+                                alreadyAvailableEpisodes = skippedCount - alreadyPreparingCount,
+                                alreadyPreparingEpisodes = alreadyPreparingCount,
+                                failedEpisodes = failedCount,
+                                isRunning = false,
+                                isCancelled = true,
+                            ),
+                            downloadMessage = "Preparação cancelada. Os episódios já adicionados permanecem na fila.",
+                        )
+                    }
+                }
+                throw cancelled
+            } finally {
+                pendingEpisodes.forEach { preparingDownloadIds.remove(it.id) }
+            }
+        }
+    }
+
+    fun cancelSeasonDownload() {
+        seasonDownloadJob?.cancel()
     }
 
     fun openPlaylistPicker() {
@@ -555,4 +732,16 @@ class ItemDetailViewModel @Inject constructor(
         currentMutationGeneration == mutationGeneration
 
     private fun Throwable.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: "tente novamente."
+
+    private val preparingDownloadIds = mutableSetOf<String>()
 }
+
+private fun MediaItem.downloadEpisodeMetadata(seriesId: String): DownloadEpisodeMetadata? {
+    val resolvedSeriesId = this.seriesId?.takeIf(String::isNotBlank) ?: seriesId
+    val seasonNumber = parentIndexNumber ?: return null
+    val episodeNumber = indexNumber ?: return null
+    return DownloadEpisodeMetadata(resolvedSeriesId, seasonNumber, episodeNumber)
+}
+
+private fun seasonDownloadSummary(seasonName: String, queued: Int, skipped: Int, failed: Int): String =
+    "Temporada $seasonName: $queued episódio(s) adicionado(s) à fila, $skipped já disponível(is) e $failed falha(s)."

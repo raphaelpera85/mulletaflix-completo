@@ -3,11 +3,13 @@ package org.mulletaflix.feature.itemdetail
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
@@ -103,6 +105,79 @@ class SeriesSectionTest {
 
         composeRule.onNodeWithText("Não foi possível carregar os episódios.").assertIsDisplayed()
         composeRule.onNodeWithText("Tentar novamente").assertIsDisplayed()
+    }
+
+    @Test
+    fun selectedSeasonExposesAnAccessibleBatchDownloadAction() {
+        var downloadRequests = 0
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "episode-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                            indexNumber = 1, parentIndexNumber = 1,
+                        ),
+                    ),
+                    selectedSeasonIndex = 0,
+                    onSeasonSelect = {},
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                    onDownloadSeason = { downloadRequests++ },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Baixar temporada")
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+
+        org.junit.Assert.assertEquals(1, downloadRequests)
+    }
+
+    @Test
+    fun batchDownloadShowsProgressAndAccessibleCancelAction() {
+        var cancelRequests = 0
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "episode-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                            indexNumber = 1, parentIndexNumber = 1,
+                        ),
+                    ),
+                    selectedSeasonIndex = 0,
+                    onSeasonSelect = {},
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                    seasonDownloadProgress = SeasonDownloadProgress(
+                        seasonId = "season-1",
+                        seasonName = "Temporada 1",
+                        totalEpisodes = 2,
+                        processedEpisodes = 1,
+                        queuedEpisodes = 1,
+                        isRunning = true,
+                    ),
+                    onCancelSeasonDownload = { cancelRequests++ },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Preparando 1/2").assertIsDisplayed()
+        composeRule.onNodeWithText("Cancelar").assertHasClickAction().performClick()
+        org.junit.Assert.assertEquals(1, cancelRequests)
     }
 
     /**

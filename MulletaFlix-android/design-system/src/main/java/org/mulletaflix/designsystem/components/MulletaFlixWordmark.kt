@@ -10,6 +10,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Text
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
@@ -39,6 +40,9 @@ fun MulletaFlixWordmark(
         text = buildMulletaFlixWordmark(),
         style = style,
         fontWeight = fontWeight,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
         modifier = modifier.semantics { this.contentDescription = contentDescription },
     )
 }

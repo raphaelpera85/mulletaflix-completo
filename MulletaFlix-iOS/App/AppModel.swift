@@ -94,6 +94,7 @@ final class AppModel {
     private(set) var lastSyncPlayCommand: SyncPlayCommand?
     private(set) var syncPlayCommandRevision = 0
     private(set) var offlineDownloads: [OfflineDownload] = []
+    private(set) var seasonDownloadProgress: SeasonDownloadProgress?
     var offlineQueuePaused = UserDefaults.standard.bool(forKey: "downloads.queuePaused") {
         didSet { UserDefaults.standard.set(offlineQueuePaused, forKey: "downloads.queuePaused") }
     }
@@ -190,6 +191,7 @@ final class AppModel {
     private var syncPlayRealtimeTask: Task<Void, Never>?
     private var quickConnectTask: Task<Void, Never>?
     private var downloadTasks: [String: Task<Void, Never>] = [:]
+    private var seasonDownloadTask: Task<Void, Never>?
     private var searchRequestID = UUID()
     private var liveTVRequestID = UUID()
     private var syncPlayRequestID = UUID()
@@ -321,7 +323,7 @@ final class AppModel {
             }
             return true
         } catch {
-            registrationError = error.localizedDescription
+            registrationError = AuthErrorPolicy.registrationMessage(for: error)
             return false
         }
     }
@@ -611,13 +613,105 @@ final class AppModel {
             errorMessage = "Este item não possui uma fonte disponível para download."
             return
         }
+        enqueueOfflineDownload(for: item, url: url)
+    }
+
+    private func enqueueOfflineDownload(for item: MediaItem, url: URL) {
         if offlineDownloads.contains(where: { $0.itemID == item.id && $0.state == .completed }) { return }
-        let artworkURL = client.imageURL(for: item)?.absoluteString
+        let artworkURL = client?.imageURL(for: item)?.absoluteString
         let entry = OfflineDownload(itemID: item.id, title: item.name, state: .queued, percent: 0, fileName: OfflineDownloadStore.fileName(for: item), sourceURL: url.absoluteString, artworkURL: artworkURL)
         upsertDownload(entry)
         if canStartOfflineDownloads {
             startOfflineDownload(entry, url: url)
         }
+    }
+
+    func downloadSelectedSeason() {
+        guard seasonDownloadTask?.isActive != true,
+              let session,
+              seriesSeasons.indices.contains(selectedSeasonIndex) else { return }
+        let season = seriesSeasons[selectedSeasonIndex]
+        let episodes = SeasonDownloadPolicy.eligibleEpisodes(seriesEpisodes)
+        guard !episodes.isEmpty else {
+            errorMessage = "Não há episódios disponíveis nesta temporada."
+            return
+        }
+
+        let activeItemIDs = Set(offlineDownloads.compactMap { entry in
+            entry.state == .failed ? nil : entry.itemID
+        })
+        let pendingEpisodes = SeasonDownloadPolicy.pendingEpisodes(episodes, activeItemIDs: activeItemIDs)
+        let initialSkipped = episodes.count - pendingEpisodes.count
+        seasonDownloadProgress = SeasonDownloadProgress(
+            seasonID: season.id,
+            seasonName: season.name,
+            totalEpisodes: episodes.count,
+            processedEpisodes: initialSkipped,
+            alreadyAvailableEpisodes: initialSkipped,
+            isRunning: !pendingEpisodes.isEmpty
+        )
+        guard !pendingEpisodes.isEmpty else {
+            errorMessage = "Todos os episódios desta temporada já estão na fila ou disponíveis offline."
+            return
+        }
+
+        let userID = session.userID
+        seasonDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            var processed = initialSkipped
+            var queued = 0
+            var failed = 0
+
+            for episode in pendingEpisodes {
+                guard !Task.isCancelled, self.session?.userID == userID else { break }
+                if self.offlineDownloads.contains(where: { $0.itemID == episode.id && $0.state != .failed }) {
+                    processed += 1
+                    continue
+                }
+
+                if let url = await self.playbackURL(for: episode, resume: false) {
+                    self.enqueueOfflineDownload(for: episode, url: url)
+                    queued += 1
+                } else {
+                    failed += 1
+                }
+                processed += 1
+                self.seasonDownloadProgress = SeasonDownloadProgress(
+                    seasonID: season.id,
+                    seasonName: season.name,
+                    totalEpisodes: episodes.count,
+                    processedEpisodes: processed,
+                    queuedEpisodes: queued,
+                    alreadyAvailableEpisodes: initialSkipped,
+                    failedEpisodes: failed,
+                    isRunning: processed < episodes.count
+                )
+            }
+
+            guard self.session?.userID == userID else { return }
+            let cancelled = Task.isCancelled
+            self.seasonDownloadProgress = SeasonDownloadProgress(
+                seasonID: season.id,
+                seasonName: season.name,
+                totalEpisodes: episodes.count,
+                processedEpisodes: processed,
+                queuedEpisodes: queued,
+                alreadyAvailableEpisodes: initialSkipped,
+                failedEpisodes: failed,
+                isRunning: false,
+                isCancelled: cancelled
+            )
+            if cancelled {
+                self.errorMessage = "Preparação cancelada. Os episódios já adicionados permanecem na fila."
+            } else {
+                self.errorMessage = "Temporada \(season.name): \(queued) episódio(s) adicionado(s) à fila, \(initialSkipped) já disponível(is) e \(failed) falha(s)."
+            }
+            self.seasonDownloadTask = nil
+        }
+    }
+
+    func cancelSeasonDownload() {
+        seasonDownloadTask?.cancel()
     }
 
     func retryOfflineDownload(_ entry: OfflineDownload) {
@@ -1130,6 +1224,7 @@ final class AppModel {
 
     func signOut() {
         cancelQuickConnect()
+        cancelSeasonDownload()
         downloadTasks.values.forEach { $0.cancel() }
         downloadTasks.removeAll()
         sessionStore.clear()
@@ -1192,6 +1287,7 @@ final class AppModel {
     }
 
     private func clearUserScopedContent() {
+        cancelSeasonDownload()
         profile = nil
         profileError = nil
         profileRequestID = UUID()
@@ -1386,6 +1482,7 @@ final class AppModel {
     }
 
     private func cancelActiveDownloadsForSessionChange() {
+        cancelSeasonDownload()
         downloadTasks.values.forEach { $0.cancel() }
         downloadTasks.removeAll()
     }
@@ -1556,6 +1653,30 @@ final class AppModel {
 
 enum OfflineDownloadState: String, Codable {
     case queued, downloading, paused, completed, failed
+}
+
+struct SeasonDownloadProgress: Equatable {
+    let seasonID: String
+    let seasonName: String
+    let totalEpisodes: Int
+    let processedEpisodes: Int
+    let queuedEpisodes: Int
+    let alreadyAvailableEpisodes: Int
+    let failedEpisodes: Int
+    let isRunning: Bool
+    let isCancelled: Bool
+
+    init(seasonID: String, seasonName: String, totalEpisodes: Int, processedEpisodes: Int = 0, queuedEpisodes: Int = 0, alreadyAvailableEpisodes: Int = 0, failedEpisodes: Int = 0, isRunning: Bool = false, isCancelled: Bool = false) {
+        self.seasonID = seasonID
+        self.seasonName = seasonName
+        self.totalEpisodes = totalEpisodes
+        self.processedEpisodes = processedEpisodes
+        self.queuedEpisodes = queuedEpisodes
+        self.alreadyAvailableEpisodes = alreadyAvailableEpisodes
+        self.failedEpisodes = failedEpisodes
+        self.isRunning = isRunning
+        self.isCancelled = isCancelled
+    }
 }
 
 struct OfflineDownload: Codable, Identifiable, Equatable {

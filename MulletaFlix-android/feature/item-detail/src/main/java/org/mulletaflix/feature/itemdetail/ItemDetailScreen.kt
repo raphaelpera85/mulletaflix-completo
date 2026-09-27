@@ -147,6 +147,9 @@ fun ItemDetailScreen(
                         isLoading = state.isLoadingSeasons,
                         error = state.seasonError,
                         onRetry = viewModel::retrySeriesContext,
+                        seasonDownloadProgress = state.seasonDownloadProgress,
+                        onDownloadSeason = viewModel::downloadSelectedSeason,
+                        onCancelSeasonDownload = viewModel::cancelSeasonDownload,
                     )
                 }
 

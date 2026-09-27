@@ -19,6 +19,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.pressKey
@@ -98,6 +99,12 @@ class HomeTopBarFocusTest {
         composeRule.onNodeWithContentDescription("Buscar").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Minha Lista").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Mais ações").assertIsDisplayed()
+        val contentRight = composeRule.onRoot().fetchSemanticsNode().boundsInRoot.right
+        listOf("Solicitar mídia", "Buscar", "Minha Lista", "Mais ações").forEach { description ->
+            val actionRight = composeRule.onNodeWithContentDescription(description)
+                .fetchSemanticsNode().boundsInRoot.right
+            assertTrue("$description deve caber na largura da tela", actionRight <= contentRight + 1f)
+        }
         composeRule.onNodeWithContentDescription("Mais ações").performClick()
         composeRule.onNodeWithText("Configurações").assertIsDisplayed()
         composeRule.onNodeWithText("TV Ao Vivo").assertIsDisplayed()
@@ -130,6 +137,14 @@ class HomeTopBarFocusTest {
         composeRule.onNodeWithContentDescription("Buscar").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Minha Lista").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Mais ações").assertIsDisplayed()
+        val contentRight = composeRule.onRoot().fetchSemanticsNode().boundsInRoot.right
+        listOf("Solicitar mídia", "Buscar", "Minha Lista", "Mais ações").forEach { description ->
+            val actionRight = composeRule.onNodeWithContentDescription(description)
+                .fetchSemanticsNode().boundsInRoot.right
+            assertTrue("$description deve caber na largura da tela", actionRight <= contentRight + 1f)
+        }
+        composeRule.onNodeWithContentDescription("Mais ações").performClick()
+        composeRule.onNodeWithText("Configurações").assertIsDisplayed()
     }
 
     /** Average `red - green` over the node, which is ~0 for grey and high for the red ring. */
