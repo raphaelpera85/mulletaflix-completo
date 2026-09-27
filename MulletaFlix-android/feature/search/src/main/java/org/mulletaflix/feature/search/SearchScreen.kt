@@ -11,6 +11,8 @@ import android.speech.SpeechRecognizer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -69,6 +71,13 @@ fun SearchScreen(
     val context = LocalContext.current
     val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
+    val visibleResults = searchItemsForDevice(state.results, isTelevision)
+    val visibleHints = searchHintsForDevice(state.hints, isTelevision)
+    LaunchedEffect(isTelevision, state.activeFilter) {
+        if (isTelevision && state.activeFilter == SearchFilter.Books) {
+            viewModel.setFilter(null)
+        }
+    }
     var isListening by remember { mutableStateOf(false) }
     var voiceError by remember { mutableStateOf<String?>(null) }
     var showClearHistoryConfirmation by rememberSaveable { mutableStateOf(false) }
@@ -188,9 +197,9 @@ fun SearchScreen(
             )
         }
 
-        if (state.hints.isNotEmpty() || state.isLoadingHints) {
+        if (visibleHints.isNotEmpty() || state.isLoadingHints) {
             SearchHintPanel(
-                hints = state.hints,
+                hints = visibleHints,
                 isLoading = state.isLoadingHints,
                 onHintClick = { hint ->
                     viewModel.search(hint.name)
@@ -204,6 +213,7 @@ fun SearchScreen(
         SearchFilterChips(
             activeFilter = state.activeFilter,
             onFilterSelected = viewModel::setFilter,
+            hideBooks = isTelevision,
         )
 
         if (state.isOffline) {
@@ -270,7 +280,7 @@ fun SearchScreen(
                 onClearHistory = { showClearHistoryConfirmation = true },
                 focusFriendly = isTelevision,
             )
-        } else if (state.results.isEmpty()) {
+        } else if (visibleResults.isEmpty() && !state.hasMore && !state.isLoadingMore && state.error == null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.SearchOff, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -285,7 +295,7 @@ fun SearchScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
             LazyColumn(state = resultsScrollState) {
-                searchTruncationNotice(state.results.size, state.totalMatching)?.let { notice ->
+                (if (isTelevision) null else searchTruncationNotice(state.results.size, state.totalMatching))?.let { notice ->
                     item { SearchTruncationBanner(notice) }
                 }
                 if (state.error != null) {
@@ -314,7 +324,17 @@ fun SearchScreen(
                         }
                     }
                 }
-                val grouped = state.results.groupBy { it.type.toGroupLabel() }
+                val grouped = visibleResults.groupBy { it.type.toGroupLabel() }
+                if (grouped.isEmpty()) {
+                    item {
+                        Text(
+                            text = "Não há resultados compatíveis nesta página.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
+                }
                 grouped.forEach { (groupLabel, items) ->
                     item {
                         Text(
@@ -615,20 +635,21 @@ enum class SearchFilter(val label: String) {
 internal fun SearchFilterChips(
     activeFilter: SearchFilter?,
     onFilterSelected: (SearchFilter?) -> Unit,
+    hideBooks: Boolean = false,
 ) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
+    Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(bottom = 8.dp),
+        modifier = Modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 8.dp),
     ) {
-        item {
-            FilterChip(
-                selected = activeFilter == null,
-                onClick = { onFilterSelected(null) },
-                label = { Text("Tudo") },
-            )
-        }
-        items(SearchFilter.values().toList()) { filter ->
+        FilterChip(
+            selected = activeFilter == null,
+            onClick = { onFilterSelected(null) },
+            label = { Text("Tudo") },
+        )
+        searchFiltersForDevice(hideBooks).forEach { filter ->
             FilterChip(
                 selected = activeFilter == filter,
                 onClick = { onFilterSelected(filter) },

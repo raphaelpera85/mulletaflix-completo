@@ -19,7 +19,9 @@ data class HomeFeed(
     val resumeItems: List<MediaItem> = emptyList(),
     val nextUpItems: List<MediaItem> = emptyList(),
     val favoriteItems: List<MediaItem> = emptyList(),
+    /** Recent items keyed by the library ID, so repeated display names do not overwrite sections. */
     val recentlyAddedByLibrary: Map<String, List<MediaItem>> = emptyMap(),
+    /** Recent-item errors keyed by the library ID. */
     val recentlyAddedErrorsByLibrary: Map<String, String> = emptyMap(),
     val liveTvChannels: List<MediaItem> = emptyList(),
     val libraries: List<MediaItem> = emptyList(),

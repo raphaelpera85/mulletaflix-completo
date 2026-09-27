@@ -29,7 +29,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
-import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadState
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
@@ -160,7 +159,7 @@ fun DownloadsScreen(
                     items(filteredDownloads, key = { it.id }) { entry ->
                         DownloadRow(
                             entry = entry,
-                            imageModel = resolveMediaUrl(serverUrl, entry.imageUrl, accessToken),
+                            imageModel = downloadArtworkModel(entry, serverUrl, accessToken),
                             focusFriendly = isTelevision,
                             onPlay = { onItemClick(entry) },
                             onRetry = { viewModel.retry(entry) },

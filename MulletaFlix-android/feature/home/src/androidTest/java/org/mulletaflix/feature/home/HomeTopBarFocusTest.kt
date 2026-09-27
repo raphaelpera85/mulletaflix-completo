@@ -4,16 +4,21 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PixelMap
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotFocused
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.pressKey
@@ -33,7 +38,7 @@ import org.mulletaflix.designsystem.theme.MulletaFlixTheme
  *
  * Reported by the user: "a navegação na tv nos menus superiores não mostra em
  * qual icone está". `IconButton` is focusable, so the D-pad already moved across
- * the six actions — but every icon kept its fixed `tint` and nothing was drawn
+ * the Home actions — but every icon kept its fixed `tint` and nothing was drawn
  * around it, so the focus was invisible.
  *
  * These tests measure pixels rather than trusting the code: the focused icon is
@@ -83,6 +88,48 @@ class HomeTopBarFocusTest {
         composeRule.onNodeWithContentDescription("Solicitar mídia").performClick()
 
         assertEquals(1, requestCount)
+    }
+
+    @Test
+    fun phoneTopBarKeepsPrimaryActionsVisibleAndMovesOtherActionsIntoMenu() {
+        showTopBar(focusFriendly = false)
+
+        composeRule.onNodeWithContentDescription("Solicitar mídia").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Buscar").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Minha Lista").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Mais ações").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Mais ações").performClick()
+        composeRule.onNodeWithText("Configurações").assertIsDisplayed()
+        composeRule.onNodeWithText("TV Ao Vivo").assertIsDisplayed()
+        composeRule.onNodeWithText("Downloads").assertIsDisplayed()
+    }
+
+    @Test
+    fun phoneTopBarKeepsOverflowMenuVisibleOnNarrowScreens() {
+        composeRule.setContent {
+            MulletaFlixTheme {
+                Box(Modifier.width(320.dp).height(96.dp).background(Color.Black)) {
+                    HomeTopBar(
+                        profile = null,
+                        layoutSpec = homeLayoutSpec(HomeDeviceClass.PHONE),
+                        onSearch = {},
+                        onLiveTv = {},
+                        onDownloads = {},
+                        onFavorites = {},
+                        onSettings = {},
+                        onProfile = {},
+                        onRefresh = {},
+                        onRequestMedia = {},
+                        isRefreshing = false,
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Solicitar mídia").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Buscar").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Minha Lista").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Mais ações").assertIsDisplayed()
     }
 
     /** Average `red - green` over the node, which is ~0 for grey and high for the red ring. */
@@ -147,11 +194,11 @@ class HomeTopBarFocusTest {
 
     @Test
     fun touchLayoutsDoNotDrawAFocusRing() {
-        // A phone taps these icons and never focuses them; painting all six red
+        // A phone taps these icons and never focuses them; painting them red
         // would be permanent noise instead of feedback.
         showTopBar(focusFriendly = false)
 
-        composeRule.onNodeWithContentDescription("TV Ao Vivo").requestFocus()
+        composeRule.onNodeWithContentDescription("Minha Lista").requestFocus()
         composeRule.waitForIdle()
         val unfocusedBias = biasOf("Buscar")
 

@@ -68,14 +68,14 @@ fun LibraryScreen(
     // TV refresh loop is intentionally periodic, so relying on it for the
     // first request leaves a newly opened screen empty until the first tick.
     LaunchedEffect(libraryId) {
-        viewModel.loadLibrary(libraryId)
+        viewModel.loadLibrary(libraryId, isTelevision)
     }
 
     TvRefreshEffect(
         lifecycleOwner = lifecycleOwner,
         refreshIntervalMillis = libraryAutoRefreshIntervalMillis(isTelevision),
         refreshImmediately = libraryRefreshImmediatelyOnResume(isTelevision),
-        onRefresh = { viewModel.refreshIfIdle(libraryId) },
+        onRefresh = { viewModel.refreshIfIdle(libraryId, isTelevision) },
     )
 
     Scaffold(
@@ -87,7 +87,7 @@ fun LibraryScreen(
                 },
                 actions = {
                     MulletaFlixTopBarAction(
-                        onClick = { viewModel.loadLibrary(libraryId) },
+                        onClick = { viewModel.loadLibrary(libraryId, isTelevision) },
                         busy = state.isLoading,
                         busyContentDescription = "Atualizar biblioteca",
                     ) {
@@ -114,7 +114,7 @@ fun LibraryScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = { viewModel.loadLibrary(libraryId) },
+            onRefresh = { viewModel.loadLibrary(libraryId, isTelevision) },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -130,7 +130,7 @@ fun LibraryScreen(
                 ) {
                     Text(loadError, color = MaterialTheme.colorScheme.error)
                     Button(
-                        onClick = { viewModel.loadLibrary(libraryId) },
+                        onClick = { viewModel.loadLibrary(libraryId, isTelevision) },
                         modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
                     ) {
                         Text("Tentar novamente")
@@ -180,7 +180,7 @@ fun LibraryScreen(
                                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(loadError, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
                                     TextButton(
-                                        onClick = { viewModel.loadLibrary(libraryId) },
+                                        onClick = { viewModel.loadLibrary(libraryId, isTelevision) },
                                         modifier = Modifier.remoteFocusRing(RoundedCornerShape(8.dp)),
                                     ) { Text("Tentar novamente") }
                                 }
@@ -257,7 +257,7 @@ fun LibraryScreen(
 
             if (state.isOffline) {
                 LibraryOfflineBanner(
-                    onRetry = { viewModel.loadLibrary(libraryId) },
+                    onRetry = { viewModel.loadLibrary(libraryId, isTelevision) },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(12.dp)

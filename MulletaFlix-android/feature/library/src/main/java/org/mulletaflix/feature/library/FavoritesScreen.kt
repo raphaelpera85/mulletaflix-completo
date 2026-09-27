@@ -62,12 +62,19 @@ fun FavoritesScreen(
     val configuration = LocalConfiguration.current
     val isTelevision = (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
         Configuration.UI_MODE_TYPE_TELEVISION
+    val visibleItems = favoritesItemsForDevice(state.items, isTelevision)
     val gridColumns = favoritesGridColumns(
         widthDp = configuration.screenWidthDp,
         isTelevision = isTelevision,
         density = state.gridDensity,
     )
     val gridState = rememberLibraryGridScrollState()
+
+    LaunchedEffect(isTelevision, visibleItems.size, state.hasMore, state.isLoading) {
+        if (isTelevision && visibleItems.isEmpty() && state.hasMore && !state.isLoading) {
+            viewModel.loadMore()
+        }
+    }
 
     TvRefreshEffect(
         lifecycleOwner = lifecycleOwner,
@@ -104,16 +111,16 @@ fun FavoritesScreen(
         ) {
         Box(Modifier.fillMaxSize()) {
             when {
-                state.isLoading && state.items.isEmpty() ->
+                state.isLoading && visibleItems.isEmpty() ->
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
-                state.error != null && state.items.isEmpty() ->
+                state.error != null && visibleItems.isEmpty() ->
                     ErrorState(state.error!!, viewModel::refresh)
-                state.items.isEmpty() ->
+                visibleItems.isEmpty() ->
                     EmptyFavoritesState()
                 else ->
-                    FavoritesGrid(state.items, state.hasMore, state.isLoading, gridColumns, isTelevision, gridState, onItemClick, viewModel::loadMore)
+                    FavoritesGrid(visibleItems, state.hasMore, state.isLoading, gridColumns, isTelevision, gridState, onItemClick, viewModel::loadMore)
             }
-            if (state.error != null && state.items.isNotEmpty()) {
+            if (state.error != null && visibleItems.isNotEmpty()) {
                 FavoritesInlineError(
                     message = state.error!!,
                     onRetry = viewModel::refresh,

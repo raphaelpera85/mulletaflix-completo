@@ -13,6 +13,7 @@ internal data class HomeLayoutSpec(
     val heroHeightDp: Int,
     val cardScale: Float,
     val usesFocusFriendlySpacing: Boolean,
+    val usesCompactTopBar: Boolean,
 )
 
 internal fun homeDeviceClass(widthDp: Int, isTelevision: Boolean): HomeDeviceClass = when {
@@ -28,6 +29,7 @@ internal fun homeLayoutSpec(deviceClass: HomeDeviceClass): HomeLayoutSpec = when
         heroHeightDp = 500,
         cardScale = 1f,
         usesFocusFriendlySpacing = false,
+        usesCompactTopBar = true,
     )
     HomeDeviceClass.TABLET -> HomeLayoutSpec(
         contentMaxWidthDp = 1200,
@@ -35,6 +37,7 @@ internal fun homeLayoutSpec(deviceClass: HomeDeviceClass): HomeLayoutSpec = when
         heroHeightDp = 560,
         cardScale = 1.15f,
         usesFocusFriendlySpacing = false,
+        usesCompactTopBar = false,
     )
     HomeDeviceClass.TV -> HomeLayoutSpec(
         contentMaxWidthDp = 1600,
@@ -44,5 +47,6 @@ internal fun homeLayoutSpec(deviceClass: HomeDeviceClass): HomeLayoutSpec = when
         // visible at once; focus feedback still enlarges the selected card.
         cardScale = 0.9f,
         usesFocusFriendlySpacing = true,
+        usesCompactTopBar = false,
     )
 }

@@ -153,7 +153,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun loadLibrary(libraryId: String) {
+    fun loadLibrary(libraryId: String, isTelevision: Boolean = false) {
         loadJob?.cancel()
         val requestGeneration = ++this.requestGeneration
         val switchedLibrary = currentLibraryId != null && currentLibraryId != libraryId
@@ -203,6 +203,19 @@ class LibraryViewModel @Inject constructor(
             if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@launch
             val library = libResult.getOrNull()
             val libName = library?.name ?: "Biblioteca"
+            if (isTelevision && isBooksLibrary(library)) {
+                _state.update {
+                    it.copy(
+                        libraryName = libName,
+                        items = emptyList(),
+                        hasMore = false,
+                        isLoading = false,
+                        isRefreshing = false,
+                        error = "A biblioteca de Livros não está disponível na Android TV.",
+                    )
+                }
+                return@launch
+            }
             currentIncludeItemTypes = LibraryBrowseTypes.forCollectionType(library?.collectionType)
             val facets = facetFiltersForRequest(_state.value.activeFilters)
 
@@ -268,7 +281,7 @@ class LibraryViewModel @Inject constructor(
      * This is used by the TV foreground timer to avoid cancelling a slow
      * catalog response and replacing it with another request.
      */
-    fun refreshIfIdle(libraryId: String) {
+    fun refreshIfIdle(libraryId: String, isTelevision: Boolean = false) {
         val current = _state.value
         // `loadLibrary` starts a coroutine before persisted query preferences
         // have necessarily emitted. During that short window the state still
@@ -281,7 +294,7 @@ class LibraryViewModel @Inject constructor(
             loadJob?.isActive == true ||
             (currentLibraryId == libraryId && (current.isLoading || current.isRefreshing))
         ) return
-        loadLibrary(libraryId)
+        loadLibrary(libraryId, isTelevision)
     }
 
     fun loadMore() {

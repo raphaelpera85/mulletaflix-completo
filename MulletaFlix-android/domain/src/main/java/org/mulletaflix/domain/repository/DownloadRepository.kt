@@ -13,6 +13,8 @@ data class DownloadEntry(
     val contentLength: Long = 0L,
     /** Relative server image path saved with the download, when available. */
     val imageUrl: String? = null,
+    /** Private local artwork copied for offline display, when available. */
+    val offlineArtworkUri: String? = null,
     val episodeMetadata: DownloadEpisodeMetadata? = null,
 )
 

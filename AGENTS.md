@@ -20,6 +20,8 @@ Este projeto e todas as suas sessões de desenvolvimento são governados estrita
      3. Atualize as releases oficiais no GitHub Releases separadamente para cada sistema: via `.\publish-release.ps1` (release do servidor com o zip **e** o instalador executável) e via `.\publish-app-release.ps1` (release do aplicativo Android com o APK) antes de finalizar a tarefa. `publish-release.ps1` recusa publicar sem o instalador; `-AllowMissingInstaller` só existe para releases deliberadamente sem instalador.
      4. Confirme o resultado consultando a API de releases e verificando que os dois assets estão anexados antes de declarar a tarefa concluída.
 
+   - **Premissa obrigatória das notas de release**: toda release deve descrever as correções, melhorias e funcionalidades realmente incluídas e validadas naquela versão. As notas devem corresponder ao diff e aos artefatos publicados, sem reapresentar mudanças antigas como novidades. A regra vale para servidor e aplicativo; para APK, siga também as restrições específicas abaixo.
+
 4. **Notas de versão do APK**:
    - Sempre atualize as notas junto com cada release do APK.
    - Descreva apenas melhorias e correções realmente incluídas no APK e validadas no diff/testes; não use notas genéricas nem anuncie alterações exclusivas do servidor.

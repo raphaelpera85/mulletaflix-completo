@@ -20,6 +20,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
@@ -422,6 +423,46 @@ class HomeViewModelTest {
         assertEquals("TV must refresh catalog while profile request remains pending", 2, resumeCalls)
         releaseProfile.complete(Unit)
         advanceUntilIdle()
+    }
+
+    @Test fun `home reloads when automatic LAN recovery changes server URL`() = runTest {
+        val oldResponse = CompletableDeferred<Unit>()
+        val endpointChanges = ActiveServerEndpointChangeSignal()
+        var resumeCalls = 0
+        val oldItem = MediaItem("old", "Catálogo público", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val lanItem = MediaItem("lan", "Catálogo local", org.mulletaflix.domain.model.MediaItemType.Movie)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                resumeCalls++
+                if (resumeCalls == 1) {
+                    withContext(NonCancellable) { oldResponse.await() }
+                    return Result.success(listOf(oldItem))
+                }
+                return Result.success(listOf(lanItem))
+            }
+
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+            activeServerEndpointChangeSignal = endpointChanges,
+        )
+        runCurrent()
+        assertEquals("the initial URL emission must not duplicate the session load", 1, resumeCalls)
+
+        endpointChanges.notifyChanged("http://192.168.1.20:8096")
+        runCurrent()
+
+        assertEquals("an active request must be replaced after the LAN switch", 2, resumeCalls)
+        assertEquals(listOf(lanItem), viewModel.state.value.resumeItems)
+        oldResponse.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("the stale public response must not replace the LAN catalog", listOf(lanItem), viewModel.state.value.resumeItems)
     }
 
     @Test fun `late profile response from previous session does not replace current profile`() = runTest {

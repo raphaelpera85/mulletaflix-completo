@@ -343,7 +343,36 @@ class UseCaseTest {
         assertEquals("r1", feed.heroItem?.id)
         assertEquals(listOf(resumeItem), feed.resumeItems)
         assertEquals(listOf(library), feed.libraries)
-        assertEquals(listOf(latestMovie), feed.recentlyAddedByLibrary["Filmes"])
+        assertEquals(listOf(latestMovie), feed.recentlyAddedByLibrary[library.id])
+    }
+
+    @Test
+    fun `GetHomeFeedUseCase keeps recent sections separate for libraries with the same name`() = runTest {
+        val movieLibrary = MediaItem(
+            id = "movies-id",
+            name = "Coleção",
+            type = MediaItemType.CollectionFolder,
+            collectionType = "movies",
+        )
+        val bookLibrary = MediaItem(
+            id = "books-id",
+            name = "Coleção",
+            type = MediaItemType.CollectionFolder,
+            collectionType = "books",
+        )
+        val movie = MediaItem(id = "movie-1", name = "Filme", type = MediaItemType.Movie)
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getLibraries(userId: String) = Result.success(listOf(movieLibrary, bookLibrary))
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int) =
+                if (parentId == movieLibrary.id) Result.success(listOf(movie))
+                else Result.failure(IllegalStateException("livros indisponíveis"))
+        }
+
+        val feed = GetHomeFeedUseCase(mediaRepo)("u1").getOrThrow()
+
+        assertEquals(listOf(movie), feed.recentlyAddedByLibrary[movieLibrary.id])
+        assertTrue(feed.recentlyAddedByLibrary[bookLibrary.id].isNullOrEmpty())
+        assertEquals("livros indisponíveis", feed.recentlyAddedErrorsByLibrary[bookLibrary.id])
     }
 
     /**
@@ -437,8 +466,8 @@ class UseCaseTest {
 
         val feed = GetHomeFeedUseCase(mediaRepo)("u1").getOrThrow()
 
-        assertTrue(feed.recentlyAddedByLibrary["Filmes"].isNullOrEmpty())
-        assertEquals("HTTP 503", feed.recentlyAddedErrorsByLibrary["Filmes"])
+        assertTrue(feed.recentlyAddedByLibrary[library.id].isNullOrEmpty())
+        assertEquals("HTTP 503", feed.recentlyAddedErrorsByLibrary[library.id])
     }
 
     @Test

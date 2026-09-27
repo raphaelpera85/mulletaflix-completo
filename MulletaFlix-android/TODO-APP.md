@@ -2,6 +2,77 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Candidata APK v1.3.79 — barra compacta e busca sem livros na TV
+
+### Notas propostas
+
+- Na Home compacta do celular, “Solicitar mídia”, “Buscar”, “Minha Lista” e “Mais ações” ficam visíveis inclusive em 320 dp; TV Ao Vivo, Downloads, Configurações, Atualizar Home e Perfil são acessados em “Mais ações”. Wordmark e espaços são reduzidos sem diminuir os alvos de toque; tablet e TV mantêm a barra completa.
+- Quando a conexão automática troca entre o servidor público e o servidor LAN, a Home é recarregada para o endpoint ativo; respostas da conexão anterior não substituem o catálogo novo.
+- Se bibliotecas têm nomes iguais, as faixas de adicionados recentemente e seus erros permanecem associadas ao ID correto. Android TV oculta bibliotecas de livros e mostra o estado vazio quando só há conteúdo oculto; celular/tablet mantêm os livros.
+- Na busca da Android TV, filtros, sugestões e resultados de livros ficam ocultos; filtros restantes continuam navegáveis por controle remoto. Celular e tablet continuam com acesso a livros.
+
+### Validação
+
+- [x] Release anterior consultada na API do GitHub antes do bump: `app-v1.3.78`, asset `mulletaflix-app-v1.3.78.apk`, 7.454.019 bytes, SHA-256 `FBE1244F8B6D527878BA75C1E87E6E54A83AB06AB88DCB579E8917EED5B05EAB`; `app-v1.3.79` ainda não existia.
+- [x] `:feature:home:connectedDebugAndroidTest` no AVD celular: 26 testes, 0 falhas; inclui viewport de 320 dp. Seis testes específicos de TV foram ignorados pelo perfil de celular.
+- [x] `:feature:search:connectedDebugAndroidTest`: celular 15 testes (1 específico de TV ignorado), TV 14 testes; 0 falhas nos dois perfis. `:feature:search:testDebugUnitTest` passou.
+- [x] `test`, `:app:lintDebug` e `:app:assembleRelease`: `BUILD SUCCESSFUL`.
+- [x] APK v1.3.79: `versionCode=379`, package `org.mulletaflix.android`, 7.454.019 bytes, SHA-256 `82B5AD2F7764DB4219C0D43E9E7C7E0833188FDD2B9DD27DB3A69D103219576F`; certificado SHA-256 `224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`, igual ao release anterior.
+- [x] Release APK `app-v1.3.79` publicada e conferida pela API do GitHub; notas refletem as mudanças do APK, asset `mulletaflix-app-v1.3.79.apk` (7.454.019 bytes) com SHA-256 `82B5AD2F7764DB4219C0D43E9E7C7E0833188FDD2B9DD27DB3A69D103219576F` igual ao artefato local.
+
+## Candidata APK v1.3.78 — barra superior compacta no celular
+
+### Notas propostas
+
+- Na Home do celular, as ações principais continuam visíveis após adicionar “Solicitar mídia”; TV Ao Vivo, Downloads, Configurações, Atualizar Home e Perfil ficam acessíveis no menu “Mais ações”. Tablet e Android TV preservam a barra completa.
+
+### Validação
+
+- [x] Release anterior conferida pela API do GitHub: `app-v1.3.77`, package `org.mulletaflix.android`, 7.454.019 bytes, SHA-256 `6634F2F8EC29B51940A82DB5EEFC9F26C749B94670F999DB83A462EC3236E5EF`.
+- [x] `:feature:home:testDebugUnitTest` e `:feature:home:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] `:feature:home:connectedDebugAndroidTest` no AVD `MulletaflixApi35`: 25 testes, 0 falhas; a suíte inclui visibilidade das ações principais e itens do menu compacto. AVD encerrado após o uso.
+- [x] `test`, `:app:lintDebug` e `:app:assembleRelease`: `BUILD SUCCESSFUL`.
+- [x] APK v1.3.78: `versionCode=378`, package `org.mulletaflix.android`, 7.454.019 bytes, SHA-256 `FBE1244F8B6D527878BA75C1E87E6E54A83AB06AB88DCB579E8917EED5B05EAB`; assinatura SHA-256 compatível com a anterior (`224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`).
+- [x] Release APK `app-v1.3.78` publicada e conferida pela API: notas correspondem à alteração e asset `mulletaflix-app-v1.3.78.apk` (7.454.019 bytes, SHA-256 `FBE1244F8B6D527878BA75C1E87E6E54A83AB06AB88DCB579E8917EED5B05EAB`).
+
+## Candidata APK v1.3.77 — atualizar Home após troca automática do servidor
+
+### Notas propostas
+
+- Quando a descoberta automática troca o servidor ativo entre internet e LAN, a Home cancela a consulta antiga e carrega o catálogo do novo endereço. Respostas antigas não substituem os dados atualizados.
+
+### Validação
+
+- [x] Release anterior conferida na API do GitHub: `app-v1.3.76`, `versionCode=376`, pacote `org.mulletaflix.android`, 7.454.019 bytes, SHA-256 `372BCB312B5DBB8BD90E8D0EA31675065890765C1DD2CB5825F32F64F054AF2A`; tag `app-v1.3.77` não existia antes do bump.
+- [x] Teste de regressão falhou antes da correção (a troca de URL deixava somente uma consulta) e passou depois; cobre carga inicial sem duplicação, troca durante requisição e descarte da resposta antiga.
+- [x] `test`, `:app:lintDebug` e `:app:assembleRelease`: `BUILD SUCCESSFUL`.
+- [x] APK v1.3.77: `versionCode=377`, package `org.mulletaflix.android`, 7.454.019 bytes, SHA-256 `6634F2F8EC29B51940A82DB5EEFC9F26C749B94670F999DB83A462EC3236E5EF`; assinatura SHA-256 igual à release oficial anterior (`224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`, chave debug deste ambiente).
+- [x] Release APK `app-v1.3.77` publicada; API do GitHub confirmou notas e asset `mulletaflix-app-v1.3.77.apk` (7.454.019 bytes, SHA-256 `6634F2F8EC29B51940A82DB5EEFC9F26C749B94670F999DB83A462EC3236E5EF`).
+
+## Verificação adaptativa da Home — testes locais sem mudança de runtime
+
+- `HomeAdaptiveUsageTest` renderiza `MediaSection` de produção e deriva o perfil da configuração real do AVD; mede capas de 130 dp no celular, 149,5 dp no tablet e 117 dp na TV.
+- `:feature:home:compileDebugAndroidTestKotlin` e `:feature:home:connectedDebugAndroidTest` passaram nos AVDs `MulletaflixApi35`, `MulletaflixTabletApi35` e `MulletaflixTvApi34`; sem falhas. Casos exclusivos de outro perfil foram ignorados pelas pré-condições do teste.
+- Os três emuladores foram encerrados após cada execução. Esta alteração melhora apenas a cobertura instrumentada; não altera o comportamento do APK nem gera nova release.
+
+## Release APK v1.3.76 — ocultar biblioteca de livros na Android TV
+
+### Notas do APK
+
+- A Home da Android TV não exibe bibliotecas de livros nem suas faixas/erros de adicionados recentemente; celulares e tablets continuam exibindo essas bibliotecas.
+- As faixas recentes são associadas pelo ID da biblioteca, evitando misturar dados quando bibliotecas diferentes têm o mesmo nome.
+- Quando não há outra seção visível na TV, o estado vazio aparece corretamente, em vez de deixar a Home sem conteúdo.
+
+### Validação
+
+- [x] Release anterior conferida: `app-v1.3.75` (`versionCode=375`, package `org.mulletaflix.android`); tag `app-v1.3.76` ausente antes da publicação.
+- [x] Teste de regressão confirmou a colisão de bibliotecas com nomes iguais antes da correção; cobertura JVM agora testa IDs, filtro de livros na TV, disponibilidade em celular/tablet e estado vazio.
+- [x] `:domain:testDebugUnitTest`, `:feature:home:testDebugUnitTest`, `test`, `:app:lintDebug` e `:app:assembleRelease`: `BUILD SUCCESSFUL`.
+- [x] APK candidata v1.3.76 (`versionCode=376`), assinatura compatível com a versão oficial anterior; 7.454.019 bytes, SHA-256 `372BCB312B5DBB8BD90E8D0EA31675065890765C1DD2CB5825F32F64F054AF2A`.
+- [x] Release APK `app-v1.3.76` publicada e conferida na API do GitHub: 1 asset, nome/tamanho/digest correspondentes à APK validada e notas iguais às melhorias incluídas.
+
+> APKs locais de release estão assinados com a chave debug porque o keystore de produção não está configurado neste ambiente; a assinatura foi comparada com a APK oficial anterior para preservar a possibilidade de atualização.
+
 ## APK local v1.3.72 — Espaço por download e OSD de TV
 
 ### Notas do candidato

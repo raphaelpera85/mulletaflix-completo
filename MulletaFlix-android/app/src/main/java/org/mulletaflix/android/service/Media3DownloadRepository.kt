@@ -14,16 +14,24 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.mulletaflix.core.api.ClientIdentityInterceptor
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.retargetMediaUrl
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 import org.mulletaflix.domain.repository.DownloadRepository
 import org.mulletaflix.domain.repository.DownloadState
+import java.io.File
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -33,6 +41,7 @@ import javax.inject.Singleton
 class Media3DownloadRepository @Inject constructor(
     @param:ApplicationContext private val appContext: Context,
     private val sessionRepository: SessionRepository,
+    clientIdentityInterceptor: ClientIdentityInterceptor,
 ) : DownloadRepository {
     private val manager = DownloadManagerSingleton.get(appContext)
     private val metadata = appContext.getSharedPreferences("offline_downloads", Context.MODE_PRIVATE)
@@ -40,6 +49,15 @@ class Media3DownloadRepository @Inject constructor(
     private val queuePaused = MutableStateFlow(metadata.getBoolean(KEY_QUEUE_PAUSED, false))
     private val wifiOnly = MutableStateFlow(metadata.getBoolean(KEY_WIFI_ONLY, false))
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val artworkStore = OfflineArtworkStore(File(appContext.filesDir, "offline_artwork"))
+    private val artworkClient = OkHttpClient.Builder()
+        .addInterceptor(clientIdentityInterceptor)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+    private val artworkPersistenceLock = Any()
+    private val artworkUpdates = MutableSharedFlow<Unit>(replay = 1, extraBufferCapacity = 1)
+    private val artworkRequestsStarted = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var currentUserId: String? = null
 
     /**
@@ -95,6 +113,7 @@ class Media3DownloadRepository @Inject constructor(
 
     override fun observeDownloads(): Flow<List<DownloadEntry>> = callbackFlow {
         fun emitSnapshot() { trySend(snapshot()) }
+        val artworkJob = launch { artworkUpdates.collect { emitSnapshot() } }
         val sessionJob = launch {
             sessionRepository.getCurrentUserId().distinctUntilChanged().collect {
                 currentUserId = it
@@ -108,6 +127,7 @@ class Media3DownloadRepository @Inject constructor(
         manager.addListener(listener)
         emitSnapshot()
         awaitClose {
+            artworkJob.cancel()
             sessionJob.cancel()
             manager.removeListener(listener)
         }
@@ -128,18 +148,25 @@ class Media3DownloadRepository @Inject constructor(
         require(uri.startsWith("http://") || uri.startsWith("https://")) { "A URL da mídia não é válida." }
         val userId = currentUserId ?: error("Faça login para baixar esta mídia.")
         val requestId = scopedDownloadRequestId(userId, id)
+        val normalizedImageUrl = imageUrl?.takeIf(String::isNotBlank)
+        val previousImageUrl = metadata.getString("image:$requestId", null)
         titles[requestId] = title
         metadata.edit()
             .putString("title:$requestId", title)
             .putString("item:$requestId", id)
             .putString("owner:$requestId", userId)
             .apply {
-                if (imageUrl.isNullOrBlank()) remove("image:$requestId") else putString("image:$requestId", imageUrl)
+                if (normalizedImageUrl == null) remove("image:$requestId") else putString("image:$requestId", normalizedImageUrl)
             }
             .apply()
+        if (normalizedImageUrl != previousImageUrl) {
+            synchronized(artworkPersistenceLock) { artworkStore.remove(requestId) }
+        }
+        artworkRequestsStarted.remove(requestId)
         addDownloadThroughService(
             downloadRequestFor(requestId, uri, currentBaseUrl, currentAccessToken, episodeMetadata),
         )
+        normalizedImageUrl?.let { scheduleArtworkCaching(requestId, it) }
     }
 
     override fun retry(id: String, title: String, uri: String): Result<Unit> = runCatching {
@@ -164,21 +191,27 @@ class Media3DownloadRepository @Inject constructor(
             ?.request
             ?.data
             ?.let(::decodeDownloadEpisodeMetadata)
+        artworkRequestsStarted.remove(requestId)
         addDownloadThroughService(
             downloadRequestFor(requestId, uri, currentBaseUrl, currentAccessToken, episodeMetadata),
         )
+        metadata.getString("image:$requestId", null)?.let { scheduleArtworkCaching(requestId, it) }
     }
 
     override fun remove(id: String): Result<Unit> = runCatching {
         val requestId = requestIdForCurrentUser(id) ?: return@runCatching
         removeDownloadThroughService(requestId)
         titles.remove(requestId)
-        metadata.edit()
-            .remove("title:$requestId")
-            .remove("item:$requestId")
-            .remove("owner:$requestId")
-            .remove("image:$requestId")
-            .apply()
+        artworkRequestsStarted.remove(requestId)
+        synchronized(artworkPersistenceLock) {
+            artworkStore.remove(requestId)
+            metadata.edit()
+                .remove("title:$requestId")
+                .remove("item:$requestId")
+                .remove("owner:$requestId")
+                .remove("image:$requestId")
+                .apply()
+        }
     }
 
     override fun removeCompleted(): Result<Unit> = runCatching {
@@ -208,12 +241,44 @@ class Media3DownloadRepository @Inject constructor(
         if (ids.isNotEmpty()) removeDownloadsThroughService(ids)
         ids.forEach { id ->
             titles.remove(id)
-            metadata.edit()
-                .remove("title:$id")
-                .remove("item:$id")
-                .remove("owner:$id")
-                .remove("image:$id")
-                .apply()
+            artworkRequestsStarted.remove(id)
+            synchronized(artworkPersistenceLock) {
+                artworkStore.remove(id)
+                metadata.edit()
+                    .remove("title:$id")
+                    .remove("item:$id")
+                    .remove("owner:$id")
+                    .remove("image:$id")
+                    .apply()
+            }
+        }
+    }
+
+    private fun scheduleArtworkCaching(requestId: String, imageUrl: String) {
+        if (artworkStore.uriFor(requestId) != null || !artworkRequestsStarted.add(requestId)) return
+        repositoryScope.launch {
+            try {
+                val baseUrl = currentBaseUrl.ifBlank { sessionRepository.getBaseUrl().first() }
+                val accessToken = currentAccessToken ?: sessionRepository.getAccessToken().first()
+                val requestUrl = resolveMediaUrl(baseUrl, imageUrl, accessToken) ?: return@launch
+                val request = Request.Builder().url(requestUrl).get().build()
+                artworkClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val body = response.body ?: return@use
+                    val mediaType = body.contentType()?.let { "${it.type}/${it.subtype}" }
+                    val extension = artworkExtensionForContentType(mediaType) ?: return@use
+                    synchronized(artworkPersistenceLock) {
+                        if (metadata.getString("image:$requestId", null) != imageUrl) return@synchronized
+                        if (artworkStore.uriFor(requestId) != null) return@synchronized
+                        artworkStore.store(requestId, body.byteStream(), extension)
+                        artworkUpdates.tryEmit(Unit)
+                    }
+                }
+            } catch (failure: Exception) {
+                // Artwork is an optional enhancement; retain the remote URL fallback.
+                // Cancellation still belongs to the repository scope, not this request.
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+            }
         }
     }
 
@@ -301,26 +366,33 @@ class Media3DownloadRepository @Inject constructor(
         } finally { cursor.close() }
     }
 
-    private fun Download.toEntry(itemIdOverride: String? = null) = DownloadEntry(
-        id = itemIdOverride
-            ?: metadata.getString("item:${request.id}", null)
-            ?: publicDownloadItemId(request.id, currentUserId.orEmpty()),
-        title = titles[request.id] ?: metadata.getString("title:${request.id}", request.id).orEmpty(),
-        imageUrl = metadata.getString("image:${request.id}", null),
-        episodeMetadata = decodeDownloadEpisodeMetadata(request.data),
-        uri = request.uri.toString(),
-        state = when (state) {
-            Download.STATE_QUEUED, Download.STATE_RESTARTING -> DownloadState.Queued
-            Download.STATE_DOWNLOADING -> DownloadState.Downloading
-            Download.STATE_COMPLETED -> DownloadState.Completed
-            Download.STATE_REMOVING -> DownloadState.Removing
-            else -> DownloadState.Failed
-        },
-        percent = percentDownloaded.coerceIn(0f, 100f).toInt(),
-        error = downloadFailureMessage(failureReason),
-        bytesDownloaded = getBytesDownloaded().coerceAtLeast(0L),
-        contentLength = contentLength.takeIf { it > 0L } ?: 0L,
-    )
+    private fun Download.toEntry(itemIdOverride: String? = null): DownloadEntry {
+        val imageUrl = metadata.getString("image:${request.id}", null)
+        val offlineArtworkUri = artworkStore.uriFor(request.id)
+        if (offlineArtworkUri == null) imageUrl?.let { scheduleArtworkCaching(request.id, it) }
+
+        return DownloadEntry(
+            id = itemIdOverride
+                ?: metadata.getString("item:${request.id}", null)
+                ?: publicDownloadItemId(request.id, currentUserId.orEmpty()),
+            title = titles[request.id] ?: metadata.getString("title:${request.id}", request.id).orEmpty(),
+            imageUrl = imageUrl,
+            offlineArtworkUri = offlineArtworkUri,
+            episodeMetadata = decodeDownloadEpisodeMetadata(request.data),
+            uri = request.uri.toString(),
+            state = when (state) {
+                Download.STATE_QUEUED, Download.STATE_RESTARTING -> DownloadState.Queued
+                Download.STATE_DOWNLOADING -> DownloadState.Downloading
+                Download.STATE_COMPLETED -> DownloadState.Completed
+                Download.STATE_REMOVING -> DownloadState.Removing
+                else -> DownloadState.Failed
+            },
+            percent = percentDownloaded.coerceIn(0f, 100f).toInt(),
+            error = downloadFailureMessage(failureReason),
+            bytesDownloaded = getBytesDownloaded().coerceAtLeast(0L),
+            contentLength = contentLength.takeIf { it > 0L } ?: 0L,
+        )
+    }
 
     private fun requirementsFor(enabled: Boolean): Requirements =
         if (enabled) Requirements(Requirements.NETWORK_UNMETERED) else Requirements(0)

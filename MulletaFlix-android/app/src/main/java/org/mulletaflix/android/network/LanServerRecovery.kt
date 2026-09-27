@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.feature.auth.LocalServerDiscovery
 import org.mulletaflix.feature.auth.DEFAULT_MULLETAFLIX_SERVER_URL
@@ -32,6 +33,7 @@ class LanServerRecovery @Inject constructor(
     @ApplicationContext context: Context,
     private val sessionRepository: SessionRepository,
     private val discovery: LocalServerDiscovery,
+    private val activeServerEndpointChangeSignal: ActiveServerEndpointChangeSignal,
 ) {
     private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -131,6 +133,7 @@ class LanServerRecovery @Inject constructor(
                     consecutiveLanMisses = 0
                     if (shouldSwitchToLan(currentUrl, localServer.url)) {
                         sessionRepository.setBaseUrl(localServer.url)
+                        activeServerEndpointChangeSignal.notifyChanged(localServer.url)
                     }
                 } else {
                     consecutiveLanMisses += 1
@@ -138,7 +141,10 @@ class LanServerRecovery @Inject constructor(
                         currentUrl = currentUrl,
                         publicUrl = DEFAULT_MULLETAFLIX_SERVER_URL,
                         consecutiveMisses = consecutiveLanMisses,
-                    )?.let { fallbackUrl -> sessionRepository.setBaseUrl(fallbackUrl) }
+                    )?.let { fallbackUrl ->
+                        sessionRepository.setBaseUrl(fallbackUrl)
+                        activeServerEndpointChangeSignal.notifyChanged(fallbackUrl)
+                    }
                 }
             }
         }

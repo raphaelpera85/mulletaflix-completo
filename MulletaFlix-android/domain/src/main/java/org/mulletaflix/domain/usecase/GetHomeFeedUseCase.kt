@@ -42,14 +42,16 @@ class GetHomeFeedUseCase @Inject constructor(
 
             val recentResults = libraries.map { lib ->
                 async {
-                    lib.name to mediaRepository
+                    lib.id to mediaRepository
                         .getLatestItems(userId, parentId = lib.id)
                 }
             }.map { it.await() }.toMap()
             val recentlyAdded = recentResults.mapValues { (_, result) -> result.getOrDefault(emptyList()) }
-            val recentlyAddedErrors = recentResults.mapNotNull { (libraryName, result) ->
+            val libraryNamesById = libraries.associate { it.id to it.name }
+            val recentlyAddedErrors = recentResults.mapNotNull { (libraryId, result) ->
+                val libraryName = libraryNamesById[libraryId] ?: return@mapNotNull null
                 result.sectionError("Não foi possível carregar Adicionados Recentemente — $libraryName.")
-                    ?.let { libraryName to it }
+                    ?.let { libraryId to it }
             }.toMap()
 
             val resumeItems = resumeResult.getOrDefault(emptyList())

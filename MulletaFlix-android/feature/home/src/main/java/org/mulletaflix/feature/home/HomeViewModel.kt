@@ -17,6 +17,7 @@ import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
+import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.network.NetworkMonitor
 import javax.inject.Inject
@@ -54,6 +55,7 @@ class HomeViewModel @Inject constructor(
         override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
         override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
     },
+    private val activeServerEndpointChangeSignal: ActiveServerEndpointChangeSignal = ActiveServerEndpointChangeSignal(),
 ) : ViewModel() {
 
     private var mediaRequestSubmitting = false
@@ -86,6 +88,16 @@ class HomeViewModel @Inject constructor(
     private var hasObservedSession = false
 
     init {
+        viewModelScope.launch {
+            activeServerEndpointChangeSignal.changes.collect { serverUrl ->
+                if (serverUrl.isNotBlank() && !currentUserId.isNullOrBlank()) {
+                    // Only confirmed automatic recovery emits this signal. Server
+                    // verification temporarily changes the shared URL too, but
+                    // must not trigger authenticated catalog requests to that host.
+                    refresh()
+                }
+            }
+        }
         viewModelScope.launch {
             var previousOnline: Boolean? = null
             networkMonitor.isOnline.distinctUntilChanged().collect { online ->

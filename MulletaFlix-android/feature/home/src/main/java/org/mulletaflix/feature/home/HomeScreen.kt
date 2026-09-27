@@ -179,7 +179,7 @@ fun HomeScreen(
             }
 
             // ── Hero Banner ─────────────────────────────────────────────────
-            state.heroItem?.let { hero ->
+            state.heroItem?.takeUnless { isTelevision && it.type == MediaItemType.Book }?.let { hero ->
                 item {
                     HeroBanner(
                         item = hero,
@@ -191,11 +191,12 @@ fun HomeScreen(
             }
 
             // ── Continue Watching ────────────────────────────────────────────
-            if (state.resumeItems.isNotEmpty()) {
+            val visibleResumeItems = homeMediaItemsForDevice(state.resumeItems, isTelevision)
+            if (visibleResumeItems.isNotEmpty()) {
                 item {
                     MediaSection(
                         title = "Continuar Assistindo",
-                        items = state.resumeItems,
+                        items = visibleResumeItems,
                         cardShape = null,
                         cardWidth = null,
                         layoutSpec = layoutSpec,
@@ -217,11 +218,12 @@ fun HomeScreen(
             }
 
             // ── Next Up ──────────────────────────────────────────────────────
-            if (state.nextUpItems.isNotEmpty()) {
+            val visibleNextUpItems = homeMediaItemsForDevice(state.nextUpItems, isTelevision)
+            if (visibleNextUpItems.isNotEmpty()) {
                 item {
                     MediaSection(
                         title = "Próximo Episódio",
-                        items = state.nextUpItems,
+                        items = visibleNextUpItems,
                         cardShape = MediaCardShape.Landscape,
                         cardWidth = 240.dp,
                         layoutSpec = layoutSpec,
@@ -242,11 +244,12 @@ fun HomeScreen(
             }
 
             // ── My List / Favorites ─────────────────────────────────────────
-            if (state.favoriteItems.isNotEmpty()) {
+            val visibleFavoriteItems = homeMediaItemsForDevice(state.favoriteItems, isTelevision)
+            if (visibleFavoriteItems.isNotEmpty()) {
                 item {
                     MediaSection(
                         title = "Minha Lista",
-                        items = state.favoriteItems,
+                        items = visibleFavoriteItems,
                         cardShape = MediaCardShape.Portrait,
                         cardWidth = 130.dp,
                         layoutSpec = layoutSpec,
@@ -267,8 +270,14 @@ fun HomeScreen(
             }
 
             // ── Recently Added (per library) ─────────────────────────────────
-            state.recentlyAddedByLibrary.forEach { (libraryName, items) ->
-                if (isTelevision && !shouldShowRecentlyAddedLibrary(libraryName, state.libraries, isTelevision)) return@forEach
+            homeRecentLibrarySections(
+                libraries = state.libraries,
+                recentItemsByLibraryId = state.recentlyAddedByLibrary,
+                errorsByLibraryId = state.recentlyAddedErrorsByLibrary,
+                isTelevision = isTelevision,
+            ).forEach { section ->
+                val libraryName = section.library.name
+                val items = section.items
                 if (items.isNotEmpty()) {
                     item {
                         MediaSection(
@@ -281,7 +290,7 @@ fun HomeScreen(
                         )
                     }
                 } else {
-                    state.recentlyAddedErrorsByLibrary[libraryName]?.let { message ->
+                    section.errorMessage?.let { message ->
                         item {
                             HomeLoadErrorCard(
                                 title = "Não foi possível carregar Adicionados Recentemente — $libraryName",
@@ -355,7 +364,7 @@ fun HomeScreen(
                 }
             }
 
-            if (shouldShowEmptyHomeState(state)) {
+            if (shouldShowEmptyHomeState(state, isTelevision)) {
                 item {
                     EmptyHomeState(modifier = Modifier.fillMaxWidth().padding(32.dp))
                 }
@@ -740,25 +749,34 @@ internal fun shouldOpenLiveTv(library: MediaItem): Boolean =
     library.collectionType.equals("livetv", ignoreCase = true)
 
 internal fun homeLibrariesForDevice(libraries: List<MediaItem>, isTelevision: Boolean): List<MediaItem> =
-    if (!isTelevision) {
-        libraries
-    } else {
-        libraries.filterNot { library ->
-            library.collectionType?.trim().equals("books", ignoreCase = true) ||
-                isBooksLibraryName(library.name)
-        }
-    }
+    libraries.filter { shouldShowLibraryOnDevice(it, isTelevision) }
 
-internal fun shouldShowRecentlyAddedLibrary(
-    libraryName: String,
+internal fun homeMediaItemsForDevice(items: List<MediaItem>, isTelevision: Boolean): List<MediaItem> =
+    if (isTelevision) items.filterNot { it.type == MediaItemType.Book } else items
+
+internal fun shouldShowLibraryOnDevice(library: MediaItem, isTelevision: Boolean): Boolean =
+    !isTelevision || !isBooksLibrary(library)
+
+internal data class HomeRecentLibrarySection(
+    val library: MediaItem,
+    val items: List<MediaItem>,
+    val errorMessage: String?,
+)
+
+internal fun homeRecentLibrarySections(
     libraries: List<MediaItem>,
+    recentItemsByLibraryId: Map<String, List<MediaItem>>,
+    errorsByLibraryId: Map<String, String>,
     isTelevision: Boolean,
-): Boolean {
-    if (!isTelevision) return true
-    val normalizedLibraryName = libraryName.trim()
-    val library = libraries.firstOrNull { it.name.trim().equals(normalizedLibraryName, ignoreCase = true) }
-    return library?.let { !isBooksLibrary(it) } ?: !isBooksLibraryName(libraryName)
-}
+): List<HomeRecentLibrarySection> = homeLibrariesForDevice(libraries, isTelevision)
+    .map { library ->
+        HomeRecentLibrarySection(
+            library = library,
+            items = recentItemsByLibraryId[library.id].orEmpty(),
+            errorMessage = errorsByLibraryId[library.id],
+        )
+    }
+    .filter { section -> section.items.isNotEmpty() || section.errorMessage != null }
 
 private fun isBooksLibrary(library: MediaItem): Boolean =
     library.collectionType?.trim().equals("books", ignoreCase = true) || isBooksLibraryName(library.name)
@@ -791,22 +809,30 @@ internal fun HomeTopBar(
         accessToken,
     )
     val profileDescription = profile?.name?.let { "Perfil de $it" } ?: "Meu Perfil"
+    var showMoreActions by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = if (layoutSpec.usesFocusFriendlySpacing) 16.dp else 8.dp),
+            .padding(
+                horizontal = if (layoutSpec.usesCompactTopBar) 8.dp else 16.dp,
+                vertical = if (layoutSpec.usesFocusFriendlySpacing) 16.dp else 8.dp,
+            ),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MulletaFlixWordmark(
-            style = MaterialTheme.typography.titleLarge,
+            style = if (layoutSpec.usesCompactTopBar) {
+                MaterialTheme.typography.titleSmall
+            } else {
+                MaterialTheme.typography.titleLarge
+            },
             fontWeight = FontWeight.Black,
         )
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (layoutSpec.usesCompactTopBar) 0.dp else 4.dp)
         ) {
             HomeTopBarAction(focusFriendly = layoutSpec.usesFocusFriendlySpacing, onClick = onRequestMedia) {
                 Icon(Icons.Default.AddCircle, contentDescription = "Solicitar mídia", tint = MaterialTheme.colorScheme.onBackground)
@@ -817,17 +843,19 @@ internal fun HomeTopBar(
             ) {
                 Icon(Icons.Default.Search, contentDescription = "Buscar", tint = MaterialTheme.colorScheme.onBackground)
             }
-            HomeTopBarAction(
-                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
-                onClick = onLiveTv,
-            ) {
-                Icon(Icons.Default.Tv, contentDescription = "TV Ao Vivo", tint = MaterialTheme.colorScheme.onBackground)
-            }
-            HomeTopBarAction(
-                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
-                onClick = onDownloads,
-            ) {
-                Icon(Icons.Default.FileDownload, contentDescription = "Downloads", tint = MaterialTheme.colorScheme.onBackground)
+            if (!layoutSpec.usesCompactTopBar) {
+                HomeTopBarAction(
+                    focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                    onClick = onLiveTv,
+                ) {
+                    Icon(Icons.Default.Tv, contentDescription = "TV Ao Vivo", tint = MaterialTheme.colorScheme.onBackground)
+                }
+                HomeTopBarAction(
+                    focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                    onClick = onDownloads,
+                ) {
+                    Icon(Icons.Default.FileDownload, contentDescription = "Downloads", tint = MaterialTheme.colorScheme.onBackground)
+                }
             }
             HomeTopBarAction(
                 focusFriendly = layoutSpec.usesFocusFriendlySpacing,
@@ -835,43 +863,53 @@ internal fun HomeTopBar(
             ) {
                 Icon(Icons.Default.Favorite, contentDescription = "Minha Lista", tint = MaterialTheme.colorScheme.secondary)
             }
-            HomeTopBarAction(
-                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
-                onClick = onSettings,
-            ) {
-                Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = MaterialTheme.colorScheme.onBackground)
-            }
-            HomeTopBarAction(
-                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
-                onClick = onRefresh,
-                busy = isRefreshing,
-                busyContentDescription = "Atualizando Home",
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = "Atualizar Home", tint = MaterialTheme.colorScheme.onBackground)
-            }
-            HomeTopBarAction(
-                focusFriendly = layoutSpec.usesFocusFriendlySpacing,
-                onClick = onProfile,
-            ) {
-                if (avatarUrl == null) {
-                    Icon(
-                        Icons.Default.AccountCircle,
-                        contentDescription = profileDescription,
-                        tint = MaterialTheme.colorScheme.secondary,
-                    )
-                } else {
-                    SubcomposeAsyncImage(
-                        model = avatarUrl,
-                        contentDescription = profileDescription,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(32.dp).clip(CircleShape),
-                        loading = {
-                            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                        },
-                        error = {
-                            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                        },
-                    )
+            if (layoutSpec.usesCompactTopBar) {
+                Box {
+                    HomeTopBarAction(
+                        focusFriendly = false,
+                        onClick = { showMoreActions = true },
+                    ) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Mais ações", tint = MaterialTheme.colorScheme.onBackground)
+                    }
+                    DropdownMenu(expanded = showMoreActions, onDismissRequest = { showMoreActions = false }) {
+                        DropdownMenuItem(text = { Text("TV Ao Vivo") }, onClick = { showMoreActions = false; onLiveTv() })
+                        DropdownMenuItem(text = { Text("Downloads") }, onClick = { showMoreActions = false; onDownloads() })
+                        DropdownMenuItem(text = { Text("Configurações") }, onClick = { showMoreActions = false; onSettings() })
+                        DropdownMenuItem(text = { Text("Atualizar Home") }, onClick = { showMoreActions = false; onRefresh() })
+                        DropdownMenuItem(text = { Text(profileDescription) }, onClick = { showMoreActions = false; onProfile() })
+                    }
+                }
+            } else {
+                HomeTopBarAction(
+                    focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                    onClick = onSettings,
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = "Configurações", tint = MaterialTheme.colorScheme.onBackground)
+                }
+                HomeTopBarAction(
+                    focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                    onClick = onRefresh,
+                    busy = isRefreshing,
+                    busyContentDescription = "Atualizando Home",
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Atualizar Home", tint = MaterialTheme.colorScheme.onBackground)
+                }
+                HomeTopBarAction(
+                    focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                    onClick = onProfile,
+                ) {
+                    if (avatarUrl == null) {
+                        Icon(Icons.Default.AccountCircle, contentDescription = profileDescription, tint = MaterialTheme.colorScheme.secondary)
+                    } else {
+                        SubcomposeAsyncImage(
+                            model = avatarUrl,
+                            contentDescription = profileDescription,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(32.dp).clip(CircleShape),
+                            loading = { Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
+                            error = { Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
+                        )
+                    }
                 }
             }
         }

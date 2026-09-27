@@ -53,11 +53,12 @@ class DownloadRowAnnouncementTest {
     }
 
     private fun showRow() {
-        val imageModel = localArtwork()
+        val offlineEntry = entry.copy(offlineArtworkUri = localArtwork())
+        val imageModel = checkNotNull(downloadArtworkModel(offlineEntry, serverUrl = "", accessToken = null))
         composeRule.setContent {
             MaterialTheme {
                 DownloadRow(
-                    entry = entry,
+                    entry = offlineEntry,
                     imageModel = imageModel,
                     onPlay = {},
                     onRetry = {},

@@ -77,6 +77,21 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `direct tv navigation to a books library does not request or show its items`() = runTest {
+        media.libraryCollectionType = " books "
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("books-library", isTelevision = true)
+        advanceUntilIdle()
+
+        assertEquals(0, media.itemCalls)
+        assertEquals(emptyList<MediaItem>(), viewModel.state.value.items)
+        assertEquals(false, viewModel.state.value.isLoading)
+        assertEquals("A biblioteca de Livros não está disponível na Android TV.", viewModel.state.value.error)
+    }
+
+    @Test
     fun `library sort is restored from and saved to local settings`() = runTest {
         val settings = FakeSettingsRepository(initialSort = "DateCreated")
         val viewModel = LibraryViewModel(

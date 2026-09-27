@@ -20,4 +20,56 @@ class HomeEmptyStatePolicyTest {
         )
         assertFalse(shouldShowEmptyHomeState(HomeState(isLoading = false, resumeError = "Falha")))
     }
+
+    @Test
+    fun `tv empty state ignores hidden books libraries and recent items`() {
+        val books = MediaItem(
+            id = "books",
+            name = "Leitura",
+            type = MediaItemType.CollectionFolder,
+            collectionType = "books",
+        )
+        val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+        val state = HomeState(
+            isLoading = false,
+            libraries = listOf(books),
+            recentlyAddedByLibrary = mapOf(books.id to listOf(book)),
+        )
+
+        assertTrue(shouldShowEmptyHomeState(state, isTelevision = true))
+        assertFalse(shouldShowEmptyHomeState(state, isTelevision = false))
+    }
+
+    @Test
+    fun `tv empty state ignores errors for hidden books libraries`() {
+        val books = MediaItem(
+            id = "books",
+            name = "Leitura",
+            type = MediaItemType.CollectionFolder,
+            collectionType = "books",
+        )
+        val state = HomeState(
+            isLoading = false,
+            libraries = listOf(books),
+            recentlyAddedErrorsByLibrary = mapOf(books.id to "Erro ao carregar livros"),
+        )
+
+        assertTrue(shouldShowEmptyHomeState(state, isTelevision = true))
+        assertFalse(shouldShowEmptyHomeState(state, isTelevision = false))
+    }
+
+    @Test
+    fun `tv treats home containing only book titles as empty`() {
+        val book = MediaItem("book-1", "Livro", MediaItemType.Book)
+        val state = HomeState(
+            isLoading = false,
+            heroItem = book,
+            resumeItems = listOf(book),
+            nextUpItems = listOf(book),
+            favoriteItems = listOf(book),
+        )
+
+        assertTrue(shouldShowEmptyHomeState(state, isTelevision = true))
+        assertFalse(shouldShowEmptyHomeState(state, isTelevision = false))
+    }
 }

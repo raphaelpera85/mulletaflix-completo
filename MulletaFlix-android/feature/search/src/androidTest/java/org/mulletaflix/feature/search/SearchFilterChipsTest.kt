@@ -12,12 +12,15 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.input.key.Key
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import androidx.test.platform.app.InstrumentationRegistry
@@ -32,14 +35,16 @@ class SearchFilterChipsTest {
         val activeFilter = mutableStateOf<SearchFilter?>(null)
         composeRule.setContent {
             MaterialTheme {
-                SearchFilterChips(
-                    activeFilter = activeFilter.value,
-                    onFilterSelected = { activeFilter.value = it },
-                )
+                Box(Modifier.width(1200.dp)) {
+                    SearchFilterChips(
+                        activeFilter = activeFilter.value,
+                        onFilterSelected = { activeFilter.value = it },
+                    )
+                }
             }
         }
 
-        composeRule.onNodeWithText("Livros").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Livros").performScrollTo().assertIsDisplayed().performClick()
         composeRule.waitForIdle()
 
         composeRule.runOnIdle { assertEquals(SearchFilter.Books, activeFilter.value) }
@@ -47,7 +52,26 @@ class SearchFilterChipsTest {
     }
 
     @Test
-    fun booksFilterCanBeFocusedAndActivatedWithRemoteSelectKey() {
+    fun booksFilterCanBeHiddenForDeviceSpecificSearch() {
+        composeRule.setContent {
+            MaterialTheme {
+                Box(Modifier.width(1200.dp)) {
+                    SearchFilterChips(
+                        activeFilter = null,
+                        onFilterSelected = {},
+                        hideBooks = true,
+                    )
+                }
+            }
+        }
+
+        assertTrue(composeRule.onAllNodesWithText("Livros").fetchSemanticsNodes().isEmpty())
+        composeRule.onNodeWithText("Filmes").assertIsDisplayed()
+        composeRule.onNodeWithText("Pessoas").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun televisionHidesBooksFilterAndKeepsOtherFiltersNavigableByRemote() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         assumeTrue(
             "Remote-focus behavior is specific to Android TV",
@@ -61,24 +85,26 @@ class SearchFilterChipsTest {
                     SearchFilterChips(
                         activeFilter = activeFilter.value,
                         onFilterSelected = { activeFilter.value = it },
+                        hideBooks = true,
                     )
                 }
             }
         }
 
         val filterOrder = listOf(
-            "Tudo", "Filmes", "Séries", "Episódios", "Músicas", "Álbuns", "Artistas", "Livros",
+            "Tudo", "Filmes", "Séries", "Episódios", "Músicas", "Álbuns", "Artistas", "Pessoas",
         )
+        assertTrue(composeRule.onAllNodesWithText("Livros").fetchSemanticsNodes().isEmpty())
         composeRule.onNodeWithText(filterOrder.first()).requestFocus().assertIsFocused()
         filterOrder.zipWithNext().forEach { (current, next) ->
             composeRule.onNodeWithText(current).performKeyInput { pressKey(Key.DirectionRight) }
             composeRule.waitForIdle()
             composeRule.onNodeWithText(next).assertIsFocused().assertIsDisplayed()
         }
-        composeRule.onNodeWithText("Livros").performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.onNodeWithText("Pessoas").performKeyInput { pressKey(Key.DirectionCenter) }
         composeRule.waitForIdle()
 
-        composeRule.runOnIdle { assertEquals(SearchFilter.Books, activeFilter.value) }
-        composeRule.onNodeWithText("Livros").assertIsSelected()
+        composeRule.runOnIdle { assertEquals(SearchFilter.People, activeFilter.value) }
+        composeRule.onNodeWithText("Pessoas").assertIsSelected()
     }
 }
