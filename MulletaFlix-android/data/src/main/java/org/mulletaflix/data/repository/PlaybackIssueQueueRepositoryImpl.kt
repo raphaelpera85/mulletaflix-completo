@@ -15,7 +15,7 @@ import org.mulletaflix.domain.repository.QueuedPlaybackIssue
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.playbackIssueQueueStore by preferencesDataStore(name = "mulletaflix_playback_issue_queue")
+internal val Context.playbackIssueQueueStore by preferencesDataStore(name = "mulletaflix_playback_issue_queue")
 
 @JsonClass(generateAdapter = true)
 internal data class PlaybackIssueQueueDto(

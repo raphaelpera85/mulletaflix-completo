@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.MediaSuggestion
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.UserFeedbackRepository

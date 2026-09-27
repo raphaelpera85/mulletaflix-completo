@@ -13,6 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.core.api.dto.MediaRequestDto
+import org.mulletaflix.core.api.dto.MediaSuggestionDto
 import org.mulletaflix.core.api.dto.PlaybackIssueDto
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 import retrofit2.Retrofit
@@ -59,6 +60,24 @@ class UserFeedbackHttpContractTest {
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(MulletaFlixApiService::class.java)
+    }
+
+    @Test
+    fun `media suggestions call the authenticated catalog endpoint`() = runBlocking {
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setBody("""[{"Title":"A Agência","MediaType":"Series","Year":2024}]"""),
+        )
+
+        val suggestions = api().getMediaSuggestions("agência", session = sessionForServer())
+
+        assertEquals(listOf(MediaSuggestionDto("A Agência", "Series", 2024)), suggestions)
+        val request = server.takeRequest()
+        assertEquals("GET", request.method)
+        assertEquals("/UserFeedback/MediaSuggestions", request.requestUrl?.encodedPath)
+        assertEquals("agência", request.requestUrl?.queryParameter("query"))
+        assertEquals("10", request.requestUrl?.queryParameter("limit"))
+        assertAuthenticatedIdentity(request.getHeader("Authorization"))
     }
 
     @Test

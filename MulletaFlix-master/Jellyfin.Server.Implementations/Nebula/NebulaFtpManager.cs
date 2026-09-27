@@ -75,7 +75,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private readonly object _mediaSuggestionsLock = new();
     private IReadOnlyList<NebulaMediaSuggestionDto> _mediaSuggestions = Array.Empty<NebulaMediaSuggestionDto>();
     private DateTime _mediaSuggestionsRefreshedUtc = DateTime.MinValue;
+    private string _mediaSuggestionsRootSignature = string.Empty;
     private static readonly TimeSpan MediaSuggestionsCacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan EmptyMediaSuggestionsCacheDuration = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan OperationReplayTtl = TimeSpan.FromMinutes(15);
 
     private readonly ConcurrentDictionary<string, NebulaWorkerItemDto> _activeUploads = new(StringComparer.OrdinalIgnoreCase);
@@ -500,13 +502,24 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             return Array.Empty<NebulaMediaSuggestionDto>();
         }
 
+        var roots = GetMediaSuggestionRoots();
+        var rootSignature = string.Join("\n", roots);
         IReadOnlyList<NebulaMediaSuggestionDto> catalog;
         lock (_mediaSuggestionsLock)
         {
-            if (DateTime.UtcNow - _mediaSuggestionsRefreshedUtc >= MediaSuggestionsCacheDuration)
+            var cacheDuration = _mediaSuggestions.Count == 0
+                ? EmptyMediaSuggestionsCacheDuration
+                : MediaSuggestionsCacheDuration;
+            if (!string.Equals(_mediaSuggestionsRootSignature, rootSignature, StringComparison.Ordinal)
+                || DateTime.UtcNow - _mediaSuggestionsRefreshedUtc >= cacheDuration)
             {
-                _mediaSuggestions = BuildMediaSuggestionsCatalog();
+                _mediaSuggestions = BuildMediaSuggestionsCatalog(roots);
+                _mediaSuggestionsRootSignature = rootSignature;
                 _mediaSuggestionsRefreshedUtc = DateTime.UtcNow;
+                _logger.LogInformation(
+                    "[NEBULA-REQUESTS] Catálogo STRM atualizado: {TitleCount} títulos encontrados em {RootCount} raízes.",
+                    _mediaSuggestions.Count,
+                    roots.Length);
             }
 
             catalog = _mediaSuggestions;
@@ -524,10 +537,38 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             .ToArray();
     }
 
-    private IReadOnlyList<NebulaMediaSuggestionDto> BuildMediaSuggestionsCatalog()
+    private string[] GetMediaSuggestionRoots()
+    {
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in Config.MonitorPaths ?? Array.Empty<string>())
+        {
+            if (!string.IsNullOrWhiteSpace(path)) roots.Add(path.Trim());
+        }
+
+        // MonitorPaths can point only at Nebula staging folders. Also include
+        // configured Jellyfin libraries, where the user's STRM files may live.
+        if (_libraryManager is not null)
+        {
+            try
+            {
+                foreach (var location in _libraryManager.GetVirtualFolders().SelectMany(folder => folder.Locations))
+                {
+                    if (!string.IsNullOrWhiteSpace(location)) roots.Add(location.Trim());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[NEBULA-REQUESTS] Não foi possível ler as raízes das bibliotecas para o catálogo STRM.");
+            }
+        }
+
+        return roots.ToArray();
+    }
+
+    private IReadOnlyList<NebulaMediaSuggestionDto> BuildMediaSuggestionsCatalog(IEnumerable<string> configuredRoots)
     {
         var suggestions = new Dictionary<string, NebulaMediaSuggestionDto>(StringComparer.OrdinalIgnoreCase);
-        foreach (var configuredRoot in Config.MonitorPaths ?? Array.Empty<string>())
+        foreach (var configuredRoot in configuredRoots)
         {
             if (string.IsNullOrWhiteSpace(configuredRoot)
                 || NebulaStagingWatcher.IsFileSystemRoot(configuredRoot)
@@ -538,6 +579,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             try
             {
+                var countBeforeRoot = suggestions.Count;
                 foreach (var path in Directory.EnumerateFiles(configuredRoot, "*.strm", new EnumerationOptions
                 {
                     RecurseSubdirectories = true,
@@ -574,6 +616,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                         directory = directory.Parent;
                     }
                 }
+                _logger.LogDebug(
+                    "[NEBULA-REQUESTS] Raiz {Root}: {SuggestionCount} sugestões catalogadas.",
+                    configuredRoot,
+                    suggestions.Count - countBeforeRoot);
             }
             catch (Exception ex)
             {

@@ -25,6 +25,7 @@ import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.MediaSuggestion
 import org.mulletaflix.domain.model.UserProfile
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.AvailableUser
@@ -47,6 +48,33 @@ class HomeViewModelTest {
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
+
+    @Test fun `media request title loads STRM suggestions after debounce`() = runTest {
+        val expected = listOf(MediaSuggestion("A Agência", "Series", 2024))
+        var receivedQuery: String? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun getMediaSuggestions(session: FeedbackRequestSession, query: String): Result<List<MediaSuggestion>> {
+                receivedQuery = query
+                return Result.success(expected)
+            }
+            override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.success(Unit)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()),
+            FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession),
+            FakeNetworkMonitor(), FakeAuthRepository(), feedback,
+        )
+        runCurrent()
+
+        viewModel.searchMediaSuggestions("  Agên ")
+        advanceUntilIdle()
+
+        assertEquals("Agên", receivedQuery)
+        assertEquals(expected, viewModel.state.value.mediaSuggestions)
+        viewModel.clearMediaSuggestions()
+        assertTrue(viewModel.state.value.mediaSuggestions.isEmpty())
+    }
 
     @Test fun `feedback submit state waits for the first session emission`() = runTest {
         val viewModel = HomeViewModel(

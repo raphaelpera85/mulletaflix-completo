@@ -367,7 +367,14 @@ fun HomeScreen(
             suggestions = state.mediaSuggestions,
             onSuggestionSelected = { suggestion ->
                 requestTitle = suggestion.title
-                requestType = suggestion.mediaType
+                requestType = when (suggestion.mediaType.lowercase()) {
+                    "movie" -> "Filme"
+                    "series" -> "Série"
+                    "animation" -> "Animação"
+                    "novel" -> "Novela"
+                    "dorama" -> "Dorama"
+                    else -> "Outro"
+                }
                 suggestion.year?.let { requestYear = it.toString() }
                 viewModel.clearMediaSuggestions()
             },
