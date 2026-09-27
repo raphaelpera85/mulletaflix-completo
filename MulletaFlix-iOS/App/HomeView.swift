@@ -2689,12 +2689,17 @@ struct PlayerView: View {
     }
 
     private func selectOption(matching language: String, in asset: AVAsset, characteristic: AVMediaCharacteristic, item: AVPlayerItem) {
-        let normalized = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty,
-              let group = asset.mediaSelectionGroup(forMediaCharacteristic: characteristic),
+        let normalized = MediaLanguage.canonicalize(language)
+        guard let group = asset.mediaSelectionGroup(forMediaCharacteristic: characteristic) else { return }
+        if characteristic == .legible, normalized == MediaLanguage.off {
+            item.select(nil, in: group)
+            return
+        }
+        guard !normalized.isEmpty, normalized != MediaLanguage.original,
               let option = group.options.first(where: { option in
-                  guard let identifier = option.locale?.identifier.lowercased() else { return false }
-                  return identifier == normalized || identifier.hasPrefix("\(normalized)-") || normalized.hasPrefix("\(identifier)-")
+                  guard let identifier = option.locale?.identifier else { return false }
+                  let candidate = MediaLanguage.canonicalize(identifier)
+                  return candidate == normalized || candidate.hasPrefix("\(normalized)-") || normalized.hasPrefix("\(candidate)-")
               }) else { return }
         item.select(option, in: group)
     }
@@ -2819,7 +2824,7 @@ private struct AuthenticatedArtwork: View {
                     return
                 }
                 var request = URLRequest(url: url)
-                request.setValue("MulletaFlix-iOS/0.1.0", forHTTPHeaderField: "User-Agent")
+                request.setValue(AppIdentity.userAgent, forHTTPHeaderField: "User-Agent")
                 request.setValue(APIClient.authorizationHeader(accessToken: token), forHTTPHeaderField: "Authorization")
                 if let token { request.setValue(token, forHTTPHeaderField: "X-Emby-Token") }
                 if let (data, _) = try? await URLSession.shared.data(for: request), let uiImage = UIImage(data: data) {

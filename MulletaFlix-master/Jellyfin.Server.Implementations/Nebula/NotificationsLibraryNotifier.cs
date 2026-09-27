@@ -45,6 +45,7 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
     private readonly Channel<WorkItem> _queue = Channel.CreateUnbounded<WorkItem>();
     private readonly SemaphoreSlim _metadataWaitSlots = new(MaxConcurrentMetadataWaits, MaxConcurrentMetadataWaits);
     private Task? _workerTask;
+    private int _disposed;
 
     public NotificationsLibraryNotifier(
         ILibraryManager libraryManager,
@@ -330,6 +331,11 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         _libraryManager.ItemAdded -= OnItemAdded;
         _libraryManager.ItemUpdated -= OnItemUpdated;
         _cts.Cancel();

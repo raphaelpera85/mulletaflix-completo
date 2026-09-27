@@ -28,7 +28,8 @@ if ! id mulletaflix >/dev/null 2>&1; then
   useradd --system --gid mulletaflix --home-dir /var/lib/mulletaflix --create-home --shell /usr/sbin/nologin mulletaflix
 fi
 
-install -d -m 0750 /etc/mulletaflix /etc/mulletaflix/config
+install -d -o root -g mulletaflix -m 0750 /etc/mulletaflix
+install -d -o mulletaflix -g mulletaflix -m 0750 /etc/mulletaflix/config
 install -d -o mulletaflix -g mulletaflix -m 0750 /var/lib/mulletaflix /var/cache/mulletaflix /var/log/mulletaflix
 
 db_password=""

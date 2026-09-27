@@ -1,17 +1,30 @@
 package org.mulletaflix.feature.itemdetail
 
+import android.content.res.Configuration
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -176,8 +189,141 @@ class SeriesSectionTest {
         }
 
         composeRule.onNodeWithText("Preparando 1/2").assertIsDisplayed()
+        composeRule.onNode(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.LiveRegion,
+                LiveRegionMode.Polite,
+            ) and SemanticsMatcher.expectValue(
+                SemanticsProperties.ProgressBarRangeInfo,
+                ProgressBarRangeInfo(1f, 0f..2f),
+            ),
+        ).assertExists()
         composeRule.onNodeWithText("Cancelar").assertHasClickAction().performClick()
         org.junit.Assert.assertEquals(1, cancelRequests)
+    }
+
+    @Test
+    fun batchDownloadActionsExposeEnabledButtonSemantics() {
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "episode-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                            indexNumber = 1, parentIndexNumber = 1,
+                        ),
+                    ),
+                    selectedSeasonIndex = 0,
+                    onSeasonSelect = {},
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                    seasonDownloadProgress = SeasonDownloadProgress(
+                        seasonId = "season-1",
+                        seasonName = "Temporada 1",
+                        totalEpisodes = 2,
+                        processedEpisodes = 1,
+                        queuedEpisodes = 1,
+                        isRunning = true,
+                    ),
+                    onCancelSeasonDownload = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Preparando 1/2").assertIsNotEnabled()
+        composeRule.onNodeWithText("Cancelar")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .assertHasClickAction()
+    }
+
+    @Test
+    fun seasonDownloadAndCancelActionsCanBeFocusedAndActivatedWithTvDpad() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val isTelevision =
+            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+                Configuration.UI_MODE_TYPE_TELEVISION
+        assumeTrue("D-pad focus behavior is specific to Android TV", isTelevision)
+
+        var downloadRequests = 0
+        var cancelRequests = 0
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "episode-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                            indexNumber = 1, parentIndexNumber = 1,
+                        ),
+                    ),
+                    selectedSeasonIndex = 0,
+                    onSeasonSelect = {},
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                    onDownloadSeason = { downloadRequests++ },
+                    seasonDownloadProgress = SeasonDownloadProgress(
+                        seasonId = "season-1",
+                        seasonName = "Temporada 1",
+                        totalEpisodes = 2,
+                        processedEpisodes = 1,
+                        queuedEpisodes = 1,
+                        isRunning = true,
+                    ),
+                    onCancelSeasonDownload = { cancelRequests++ },
+                )
+            }
+        }
+
+        val selectedSeason = composeRule.onNodeWithText("Temporada 1")
+        selectedSeason.requestFocus()
+        selectedSeason.assertIsFocused()
+        selectedSeason.performKeyInput { pressKey(Key.DirectionDown) }
+        val cancelButton = composeRule.onNodeWithText("Cancelar")
+        cancelButton.assertIsFocused()
+        cancelButton.performKeyInput { pressKey(Key.DirectionCenter) }
+        org.junit.Assert.assertEquals(1, cancelRequests)
+
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "episode-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                            indexNumber = 1, parentIndexNumber = 1,
+                        ),
+                    ),
+                    selectedSeasonIndex = 0,
+                    onSeasonSelect = {},
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                    onDownloadSeason = { downloadRequests++ },
+                )
+            }
+        }
+
+        val selectedSeasonWithoutProgress = composeRule.onNodeWithText("Temporada 1")
+        selectedSeasonWithoutProgress.requestFocus()
+        selectedSeasonWithoutProgress.assertIsFocused()
+        selectedSeasonWithoutProgress.performKeyInput { pressKey(Key.DirectionDown) }
+        val downloadButton = composeRule.onNodeWithText("Baixar temporada")
+        downloadButton.assertIsFocused()
+        downloadButton.performKeyInput { pressKey(Key.DirectionCenter) }
+        org.junit.Assert.assertEquals(1, downloadRequests)
     }
 
     /**

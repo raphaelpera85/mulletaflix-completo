@@ -945,7 +945,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
   - [x] Regras personalizadas em `app/proguard-rules.pro` para Moshi, Retrofit, Room, Media3 ExoPlayer, Hilt e Cast SDK
   - [x] Redução do tamanho final do APK de Release para **7.28 MB** com encolhimento agressivo de recursos
 - [x] **Assinatura Automatizada**
-  - [x] Bloco `signingConfigs` configurado com suporte a variáveis de ambiente (`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, etc.) e fallback transparente para debug, gerando APKs imediatamente instaláveis via sideload
+  - [x] Bloco `signingConfigs` configurado com suporte a variáveis de ambiente (`KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, etc.); tarefas de release são bloqueadas sem a keystore de produção e builds Debug continuam disponíveis para desenvolvimento
 - [x] **Integração com GitHub Actions CI**
   - [x] Job automatizado `android-build-test` configurado em `.github/workflows/ci.yml` com Java 17 Temurin, cache de dependências Gradle, execução de testes unitários e build de artefatos Debug e Release
 

@@ -28,10 +28,18 @@ dotnet publish "$repo_root/MulletaFlix-master/Jellyfin.Server/Jellyfin.Server.cs
   -p:GenerateDocumentationFile=false -p:RunAnalyzersDuringBuild=false -p:RunAnalyzers=false
 
 pushd "$repo_root/MulletaFlix-web-master" >/dev/null
+web_build_dir="$work_dir/web-source"
+mkdir -p "$web_build_dir"
+tar -cf - --exclude='*node_modules*' --exclude='./dist' --exclude='./dist/**' --exclude='*/dist' --exclude='*/dist/**' \
+  --exclude='*.git*' --exclude='*.vite*' -C "$repo_root/MulletaFlix-web-master" . \
+  | tar -xf - -C "$web_build_dir"
+popd >/dev/null
+pushd "$web_build_dir" >/dev/null
 npm ci
+npm run build:check
 npm run build:production
 popd >/dev/null
-cp -a "$repo_root/MulletaFlix-web-master/dist" "$app_dir/server/MulletaFlix-web"
+cp -a "$web_build_dir/dist" "$app_dir/server/MulletaFlix-web"
 
 cp "$repo_root/tools/release/linux-install.sh" "$app_dir/install.sh"
 cp "$repo_root/tools/release/mulletaflix.service" "$app_dir/mulletaflix.service"

@@ -22,6 +22,7 @@ Este projeto e todas as suas sessões de desenvolvimento são governados estrita
      5. Confirme o resultado consultando a API de releases e verificando que os dois assets estão anexados antes de declarar a tarefa concluída.
 
    - **Premissa obrigatória das notas de release**: toda release deve descrever as correções, melhorias e funcionalidades realmente incluídas e validadas naquela versão. As notas devem corresponder ao diff e aos artefatos publicados, sem reapresentar mudanças antigas como novidades. A regra vale para servidor e aplicativo; para APK, siga também as restrições específicas abaixo.
+   - **Premissa obrigatória de produção**: toda versão oficial do servidor e de qualquer aplicativo deve ser gerada e publicada exclusivamente com a configuração e os artefatos de produção. É proibido publicar builds `Debug`, chaves de assinatura de desenvolvimento, keystores temporários ou qualquer fallback de desenvolvimento. Antes da publicação, confirme a assinatura/configuração de produção e valide que os artefatos anexados correspondem à versão testada.
    - **Versionamento do servidor**: formato `MAJOR.MINOR.PATCH`; `PATCH` vai de 0 a 99. Ao exceder 99, incremente `MINOR` e zere `PATCH`; `MINOR` vai de 0 a 9. Ao exceder 9, incremente `MAJOR` e zere `MINOR` e `PATCH` (por exemplo, `12.1.99` → `12.2.0` e `12.9.99` → `13.0.0`).
 
 4. **Notas de versão do APK**:

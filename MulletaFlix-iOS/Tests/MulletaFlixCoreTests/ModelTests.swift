@@ -2,6 +2,37 @@ import XCTest
 @testable import MulletaFlixCore
 
 final class ModelTests: XCTestCase {
+    func testAppIdentityKeepsInitialProductionVersionAndUserAgentAligned() {
+        XCTAssertEqual(AppIdentity.version, "1.0.0")
+        XCTAssertEqual(AppIdentity.userAgent, "MulletaFlix-iOS/\(AppIdentity.version)")
+    }
+
+    func testTrackPreferencePolicyCanonicalizesLanguagesAndDisablesSubtitles() throws {
+        let data = #"{"MediaStreams":[{"Index":0,"Type":"Audio","Language":"eng","IsDefault":true},{"Index":1,"Type":"Subtitle","Language":"por"},{"Index":2,"Type":"Subtitle","Language":"spa","IsDefault":true}]}"#.data(using: .utf8)!
+        let source = try JSONDecoder().decode(MediaSource.self, from: data)
+
+        XCTAssertEqual(MediaLanguage.canonicalize("pt-BR"), "pt")
+        XCTAssertEqual(MediaLanguage.canonicalize("desativadas"), MediaLanguage.off)
+        XCTAssertEqual(
+            TrackPreferencePolicy.preferredStreamIndex(
+                streams: source.mediaStreams.filter { $0.type == "Subtitle" },
+                preferredLanguage: "por",
+                serverDefaultIndex: source.defaultSubtitleStreamIndex,
+                isSubtitle: true
+            ),
+            1
+        )
+        XCTAssertEqual(
+            TrackPreferencePolicy.preferredStreamIndex(
+                streams: source.mediaStreams.filter { $0.type == "Subtitle" },
+                preferredLanguage: "off",
+                serverDefaultIndex: 2,
+                isSubtitle: true
+            ),
+            -1
+        )
+    }
+
     func testAuthErrorPolicyExplainsAuthenticationStatusCodes() {
         XCTAssertEqual(
             AuthErrorPolicy.authenticationMessage(for: APIError.httpStatus(401)),
@@ -540,7 +571,7 @@ final class ModelTests: XCTestCase {
     func testAuthorizationMatchesAndroidClientIdentityContract() {
         XCTAssertEqual(
             APIClient.authorizationHeader(accessToken: "token", deviceID: "ios-test"),
-            "MediaBrowser Token=\"token\", Client=\"MulletaFlix iOS\", Device=\"iPhone\", DeviceId=\"ios-test\", Version=\"0.1.0\""
+            "MediaBrowser Token=\"token\", Client=\"MulletaFlix iOS\", Device=\"iPhone\", DeviceId=\"ios-test\", Version=\"\(AppIdentity.version)\""
         )
     }
 

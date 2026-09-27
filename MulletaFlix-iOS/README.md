@@ -1,5 +1,24 @@
 # MulletaFlix iOS
 
+## Política de release
+
+A primeira release pública do cliente iOS será a versão `1.0.0`. O runtime usa `AppIdentity.version`
+para manter headers HTTP e SyncPlay alinhados com o target Release. Um artefato só
+pode ser publicado depois de `swift test` e do build de produção `xcodebuild`
+em macOS/Xcode concluírem com código 0. As notas devem descrever somente o diff
+validado e o artefato deve ser assinado para distribuição, nunca um build
+`Debug` ou um simulador tratado como release.
+
+Sempre que uma release iOS for criada, as páginas
+`portal-site/index.html`, `portal-site/downloads.html` e `portal-site/docs.html`
+devem ser atualizadas com a mesma versão, link do artefato, notas e status de
+validação. A publicação não deve anunciar um link antes de o artefato existir.
+
+As preferências de áudio e legenda usam a mesma normalização do Android: aliases
+como `por` e `pt-BR` representam o mesmo idioma, a opção de legendas desativadas
+remove explicitamente a seleção do AVPlayer e, quando a preferência não está
+disponível, a faixa padrão do servidor é usada antes do primeiro fallback.
+
 Primeiro vertical slice nativo do cliente Apple, alinhado ao contrato do
 `MulletaFlix-android`: autenticação por usuário/senha, sessão no Keychain,
 consulta de itens recentes/em andamento e resolução de artwork pelo servidor.

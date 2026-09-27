@@ -570,7 +570,7 @@ public actor APIClient {
         return components.url
     }
 
-    public static func authorizationHeader(accessToken: String?, deviceID: String = "ios-unknown", version: String = "0.1.0") -> String {
+    public static func authorizationHeader(accessToken: String?, deviceID: String = "ios-unknown", version: String = AppIdentity.version) -> String {
         let identity = "Client=\"MulletaFlix iOS\", Device=\"iPhone\", DeviceId=\"\(deviceID)\", Version=\"\(version)\""
         guard let accessToken, !accessToken.isEmpty else { return "MediaBrowser \(identity)" }
         return "MediaBrowser Token=\"\(accessToken)\", \(identity)"
@@ -583,7 +583,7 @@ public actor APIClient {
         request.httpMethod = method
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("MulletaFlix-iOS/0.1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(AppIdentity.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(Self.authorizationHeader(accessToken: accessToken, deviceID: deviceID), forHTTPHeaderField: "Authorization")
         if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
         if let body { request.httpBody = try encoder.encode(AnyEncodable(body)); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
@@ -596,7 +596,7 @@ public actor APIClient {
         var request = URLRequest(url: makeURL(path: path))
         request.httpMethod = method
         request.timeoutInterval = 30
-        request.setValue("MulletaFlix-iOS/0.1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(AppIdentity.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(Self.authorizationHeader(accessToken: accessToken, deviceID: deviceID), forHTTPHeaderField: "Authorization")
         if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
         if let body { request.httpBody = try encoder.encode(AnyEncodable(body)); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }

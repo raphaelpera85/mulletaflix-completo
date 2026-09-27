@@ -61,6 +61,30 @@ Depois do build, abra o scheme no Xcode para validar login, descoberta LAN,
 reprodução, downloads em background, AirPlay e salas SyncPlay contra um
 servidor de teste.
 
+## Candidato de produção
+
+Antes de criar a primeira release `ios-v1.0.0`, repita os testes do Core e
+compile o target Release:
+
+```sh
+swift test --enable-code-coverage
+xcodebuild \
+  -project MulletaFlix.xcodeproj \
+  -scheme MulletaFlix \
+  -configuration Release \
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO \
+  -resultBundlePath xcodebuild-release-results.xcresult \
+  build
+```
+
+Esse build de simulador valida o código Release, mas não é o artefato de
+distribuição. Para publicar, configure uma equipe Apple válida no Xcode, gere
+um archive Release para `generic/platform=iOS`, confirme a assinatura de
+distribuição e exporte o IPA. O IPA só pode ser anexado à release depois de
+esses comandos terminarem com código 0 e o hash do arquivo ser registrado nas
+notas.
+
 ## Casos de paridade Android/iOS
 
 Com o app instalado e o simulador inicializado, valide também:

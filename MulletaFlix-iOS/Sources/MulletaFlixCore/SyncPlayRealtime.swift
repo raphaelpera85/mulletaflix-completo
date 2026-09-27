@@ -158,7 +158,7 @@ public final class SyncPlayRealtimeClient: @unchecked Sendable {
             URLQueryItem(name: "api_key", value: accessToken),
             URLQueryItem(name: "deviceId", value: deviceID),
             URLQueryItem(name: "deviceName", value: "MulletaFlix iOS"),
-            URLQueryItem(name: "appVersion", value: "0.1.0")
+            URLQueryItem(name: "appVersion", value: AppIdentity.version)
         ].filter { $0.value != nil }
         return components.url
     }

@@ -682,15 +682,23 @@ public enum SeasonDownloadPolicy {
 }
 
 public struct MediaStream: Decodable, Hashable, Sendable {
+    public let index: Int?
     public let type: String?
     public let codec: String?
+    public let language: String?
+    public let displayLanguage: String?
+    public let isDefault: Bool
     public let width: Int?
     public let height: Int?
     public let bitRate: Int?
 
     private enum CodingKeys: String, CodingKey {
+        case index = "Index"
         case type = "Type"
         case codec = "Codec"
+        case language = "Language"
+        case displayLanguage = "DisplayLanguage"
+        case isDefault = "IsDefault"
         case width = "Width"
         case height = "Height"
         case bitRate = "BitRate"
@@ -698,11 +706,43 @@ public struct MediaStream: Decodable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        index = try values.decodeIfPresent(Int.self, forKey: .index)
         type = try values.decodeIfPresent(String.self, forKey: .type)
         codec = try values.decodeIfPresent(String.self, forKey: .codec)
+        language = try values.decodeIfPresent(String.self, forKey: .language)
+        displayLanguage = try values.decodeIfPresent(String.self, forKey: .displayLanguage)
+        isDefault = try values.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
         width = try values.decodeIfPresent(Int.self, forKey: .width)
         height = try values.decodeIfPresent(Int.self, forKey: .height)
         bitRate = try values.decodeIfPresent(Int.self, forKey: .bitRate)
+    }
+}
+
+/// Resolves a persisted language preference to the server stream index space.
+public enum TrackPreferencePolicy {
+    public static func preferredStreamIndex(
+        streams: [MediaStream],
+        preferredLanguage: String?,
+        serverDefaultIndex: Int?,
+        isSubtitle: Bool
+    ) -> Int? {
+        let preference = MediaLanguage.canonicalize(preferredLanguage)
+        if isSubtitle, preference == MediaLanguage.off { return -1 }
+
+        if !preference.isEmpty, preference != MediaLanguage.original,
+           let match = streams.first(where: { stream in
+               let language = MediaLanguage.canonicalize(stream.language)
+               let displayLanguage = MediaLanguage.canonicalize(stream.displayLanguage)
+               return language == preference || displayLanguage == preference ||
+                   language.hasPrefix("\(preference)-") || displayLanguage.hasPrefix("\(preference)-")
+           }), let index = match.index {
+            return index
+        }
+
+        if let serverDefaultIndex, streams.contains(where: { $0.index == serverDefaultIndex }) {
+            return serverDefaultIndex
+        }
+        return streams.first(where: { $0.isDefault })?.index ?? streams.first?.index
     }
 }
 

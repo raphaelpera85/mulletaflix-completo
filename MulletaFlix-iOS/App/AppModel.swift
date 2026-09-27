@@ -1225,6 +1225,7 @@ final class AppModel {
     func signOut() {
         cancelQuickConnect()
         cancelSeasonDownload()
+        seasonDownloadProgress = nil
         downloadTasks.values.forEach { $0.cancel() }
         downloadTasks.removeAll()
         sessionStore.clear()
@@ -1288,6 +1289,7 @@ final class AppModel {
 
     private func clearUserScopedContent() {
         cancelSeasonDownload()
+        seasonDownloadProgress = nil
         profile = nil
         profileError = nil
         profileRequestID = UUID()

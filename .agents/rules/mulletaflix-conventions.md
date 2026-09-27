@@ -76,6 +76,12 @@ Cada card deve apresentar claramente:
   2. Execução direta de `& 'C:\Program Files\Git\mingw64\bin\git-credential-manager.exe' get` passando os pares `protocol=https` e `host=github.com`.
   3. Fallback para `git credential fill`.
 
+### 4.3 Builds oficiais sempre em configuração de produção
+- Toda versão oficial do servidor e de qualquer aplicativo deve ser gerada, testada e publicada usando exclusivamente a configuração de produção correspondente.
+- É proibido anexar ou publicar builds `Debug`, artefatos de desenvolvimento, keystores temporários ou APKs assinados com a chave debug/desenvolvimento.
+- No Android, a release deve usar o keystore de produção configurado por `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` e `KEY_PASSWORD`; a ausência dessas variáveis deve impedir a publicação, nunca ser contornada por fallback de assinatura debug.
+- Antes de publicar, conferir que a versão, o tipo de build, a assinatura e os artefatos anexados são exatamente os que passaram pelos testes e pela validação de release.
+
 ---
 
 ## 5. Resiliência de Persistência no MySQL (.NET & Entity Framework)
@@ -182,6 +188,5 @@ for (var attempt = 1; attempt <= 3; attempt++)
 
 ### 10.2 Prevenção de Overflow Horizontal em Textos e Markdown
 - Elementos que renderizam conteúdo dinâmico externo (ex: `MarkdownBox`, tabelas de changelog, blocos `<pre>`) devem conter `overflowWrap: 'break-word'`, `wordBreak: 'break-word'` e rolagem horizontal contida em blocos tabulares (`overflowX: 'auto'`), garantindo que nenhuma tabela de changelog estoure a largura máxima da tela.
-
 
 
