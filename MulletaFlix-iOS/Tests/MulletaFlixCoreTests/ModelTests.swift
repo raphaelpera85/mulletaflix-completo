@@ -331,6 +331,13 @@ final class ModelTests: XCTestCase {
         XCTAssertTrue(path.contains("StartIndex=50&Limit=25"))
     }
 
+    func testAPIQueryValueEscapesReservedCharactersWithoutChangingParameterBoundaries() {
+        XCTAssertEqual(
+            APIClient.queryValue("C++ #1/? &=100%"),
+            "C%2B%2B%20%231%2F%3F%20%26%3D100%25"
+        )
+    }
+
     func testPlaybackQualityPolicyMatchesPlayerAndServerBitrates() {
         XCTAssertEqual(PlaybackQualityPolicy.maxStreamingBitrate(for: "4K"), 20_000_000)
         XCTAssertEqual(PlaybackQualityPolicy.maxStreamingBitrate(for: "1080p"), 8_000_000)

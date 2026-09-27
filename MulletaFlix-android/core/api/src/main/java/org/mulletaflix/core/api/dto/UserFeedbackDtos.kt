@@ -12,6 +12,13 @@ data class MediaRequestDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class MediaSuggestionDto(
+    @Json(name = "Title") val title: String,
+    @Json(name = "MediaType") val mediaType: String,
+    @Json(name = "Year") val year: Int? = null,
+)
+
+@JsonClass(generateAdapter = true)
 data class PlaybackIssueDto(
     @Json(name = "ItemId") val itemId: String,
     @Json(name = "Category") val category: String,

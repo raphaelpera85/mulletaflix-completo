@@ -49,6 +49,7 @@ data class HomeState(
     val liveTvError: String? = null,
     val feedbackSessionLoaded: Boolean = false,
     val hasFeedbackSession: Boolean = false,
+    val mediaSuggestions: List<MediaSuggestion> = emptyList(),
 )
 
 @HiltViewModel
@@ -66,6 +67,40 @@ class HomeViewModel @Inject constructor(
 
     private var mediaRequestSubmitting = false
     private var feedbackRequestSession: FeedbackRequestSession? = null
+    private var mediaSuggestionJob: Job? = null
+    private var mediaSuggestionGeneration = 0L
+
+    fun searchMediaSuggestions(query: String) {
+        val normalizedQuery = query.trim()
+        val generation = ++mediaSuggestionGeneration
+        mediaSuggestionJob?.cancel()
+        if (normalizedQuery.length < 2) {
+            _state.update { it.copy(mediaSuggestions = emptyList()) }
+            return
+        }
+
+        val requestSession = feedbackRequestSession
+        if (requestSession == null) {
+            _state.update { it.copy(mediaSuggestions = emptyList()) }
+            return
+        }
+
+        mediaSuggestionJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(250)
+            val result = userFeedbackRepository.getMediaSuggestions(requestSession, normalizedQuery)
+            if (generation == mediaSuggestionGeneration
+                && feedbackRequestSession == requestSession
+                && _state.value.hasFeedbackSession) {
+                _state.update { it.copy(mediaSuggestions = result.getOrDefault(emptyList())) }
+            }
+        }
+    }
+
+    fun clearMediaSuggestions() {
+        mediaSuggestionGeneration++
+        mediaSuggestionJob?.cancel()
+        _state.update { it.copy(mediaSuggestions = emptyList()) }
+    }
 
     fun requestMedia(title: String, mediaType: String, year: Int?, notes: String, onComplete: (Result<Unit>) -> Unit) {
         if (mediaRequestSubmitting) return
@@ -107,8 +142,10 @@ class HomeViewModel @Inject constructor(
             sessionRepository.getFeedbackRequestSession().distinctUntilChanged().collect { session ->
                 feedbackRequestSession = session
                 _state.update {
-                    it.copy(feedbackSessionLoaded = true, hasFeedbackSession = session != null)
+                    it.copy(feedbackSessionLoaded = true, hasFeedbackSession = session != null,
+                        mediaSuggestions = if (session == null) emptyList() else it.mediaSuggestions)
                 }
+                if (session == null) clearMediaSuggestions()
             }
         }
         viewModelScope.launch {

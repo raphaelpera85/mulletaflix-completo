@@ -12,11 +12,15 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 ## Relato de falha de reprodução direto no player (validado localmente, não publicado)
 
 - [x] Exibir relatório rápido no cartão de erro e ícone permanente no OSD online para problemas de áudio, legenda, qualidade e reprodução.
+- [x] Em reprodução offline, permitir o mesmo relato no cartão de erro e no OSD; persistir localmente e mostrar confirmação de que será enviado quando houver conexão.
+- [x] Sincronizar com WorkManager somente com rede conectada e sessão correspondente ao hash de servidor/conta; nunca persistir URL, token ou device ID, preservar relatos de outras sessões e remover apenas respostas aceitas.
+- [x] Limitar a fila persistente a 50 relatos; detectar dados ilegíveis sem tratá-los como fila vazia, preservar os bytes e deixar o worker tentar novamente.
 - [x] Abrir formulário com categorias e descrição opcional; enviar item pela sessão autenticada capturada; bloquear envio após troca de servidor/conta; limitar a descrição a 1.000 caracteres.
 - [x] Explicar como recuperar quando não há sessão autenticada ou ela muda durante o envio; manter mensagem genérica apenas para falhas de rede/servidor.
 - [x] Cobrir envio, sessão ausente, troca de sessão, categorias, duplicidade, botão de erro e abertura do formulário pelo OSD.
 - [x] Testes JVM globais: 1.217 testes, 0 falhas/erros/ignorados; `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
-- [x] Android TV instrumentado: `PlayerErrorCardTest` (2), `PlayerIssueReportDialogTest` (2) e `PlayerOsdRemoteNavigationTest` (4): 8 testes, 0 falhas; AVD encerrado ao terminar. O ícone não aparece na reprodução offline.
+- [x] Android TV instrumentado: `PlayerIssueReportDialogTest` (3 testes, incluindo estado offline na fila) e `PlaybackIssueQueuePersistenceTest` (1): 4 testes, 0 falhas; o AVD foi encerrado ao terminar cada execução.
+- [x] Testes JVM focados: escopo estável public/LAN e isolamento por conta/servidor; relatos correspondentes são enviados/removidos, relatos de outras sessões ficam retidos e exceções de persistência retornam retry.
 - [ ] Validar o POST contra servidor implantado; o endpoint ainda não foi confirmado nesta tarefa APK-only.
 - [ ] Não gerar/publicar APK de produção até a keystore gerar o certificado oficial esperado (`224F9A6B…`); a chave acessível neste ambiente gera `4890D80B…`.
 

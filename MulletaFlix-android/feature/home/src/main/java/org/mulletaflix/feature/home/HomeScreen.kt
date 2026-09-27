@@ -363,7 +363,14 @@ fun HomeScreen(
     if (showRequestDialog) {
         MediaRequestDialog(
             title = requestTitle,
-            onTitleChange = { requestTitle = it },
+            onTitleChange = { requestTitle = it; viewModel.searchMediaSuggestions(it) },
+            suggestions = state.mediaSuggestions,
+            onSuggestionSelected = { suggestion ->
+                requestTitle = suggestion.title
+                requestType = suggestion.mediaType
+                suggestion.year?.let { requestYear = it.toString() }
+                viewModel.clearMediaSuggestions()
+            },
             mediaType = requestType,
             onMediaTypeChange = { requestType = it },
             year = requestYear,
@@ -374,7 +381,7 @@ fun HomeScreen(
             isSubmitting = requestSubmitting,
             hasFeedbackSession = state.hasFeedbackSession,
             feedbackSessionLoaded = state.feedbackSessionLoaded,
-            onDismiss = { showRequestDialog = false; requestMessage = null },
+            onDismiss = { showRequestDialog = false; requestMessage = null; viewModel.clearMediaSuggestions() },
             onSubmit = {
                 requestSubmitting = true
                 requestMessage = "Enviando solicitação…"
@@ -404,6 +411,8 @@ fun HomeScreen(
 internal fun MediaRequestDialog(
     title: String,
     onTitleChange: (String) -> Unit,
+    suggestions: List<MediaSuggestion> = emptyList(),
+    onSuggestionSelected: (MediaSuggestion) -> Unit = {},
     mediaType: String,
     onMediaTypeChange: (String) -> Unit,
     year: String,
@@ -434,6 +443,27 @@ internal fun MediaRequestDialog(
                     singleLine = true,
                     enabled = !isSubmitting,
                 )
+                if (suggestions.isNotEmpty()) {
+                    Card {
+                        Column {
+                            suggestions.forEach { suggestion ->
+                                TextButton(
+                                    onClick = { onSuggestionSelected(suggestion) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Text(suggestion.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            listOfNotNull(suggestion.mediaType, suggestion.year?.toString()).joinToString(" · "),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Box {
                     OutlinedButton(onClick = { expanded = true }, enabled = !isSubmitting) { Text(mediaType) }
                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

@@ -119,10 +119,7 @@ public actor APIClient {
     }
 
     public func connectQuickConnect(secret: String) async throws -> QuickConnectResult {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=")
-        let encoded = secret.addingPercentEncoding(withAllowedCharacters: allowed) ?? secret
-        return try await request(path: "QuickConnect/Connect?secret=\(encoded)")
+        return try await request(path: "QuickConnect/Connect?secret=\(Self.queryValue(secret))")
     }
 
     public func authenticateQuickConnect(secret: String) async throws -> UserSession {
@@ -265,19 +262,13 @@ public actor APIClient {
     }
 
     public func searchItems(userID: String, term: String, includeItemTypes: String? = nil, startIndex: Int = 0, limit: Int = 30) async throws -> ItemQueryResult {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=")
-        let encodedTerm = term.addingPercentEncoding(withAllowedCharacters: allowed) ?? term
-        var path = "Users/\(userID)/Items?SearchTerm=\(encodedTerm)&Limit=\(limit)&StartIndex=\(startIndex)&Recursive=true&Fields=ItemCounts&EnableImageTypes=Primary,Backdrop,Thumb&ImageTypeLimit=1"
+        var path = "Users/\(userID)/Items?SearchTerm=\(Self.queryValue(term))&Limit=\(limit)&StartIndex=\(startIndex)&Recursive=true&Fields=ItemCounts&EnableImageTypes=Primary,Backdrop,Thumb&ImageTypeLimit=1"
         if let includeItemTypes { path += "&IncludeItemTypes=\(includeItemTypes)" }
         return try await request(path: path)
     }
 
     public func searchHints(userID: String, term: String, limit: Int = 8) async throws -> [SearchHint] {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=")
-        let encodedTerm = term.addingPercentEncoding(withAllowedCharacters: allowed) ?? term
-        let result: SearchHintResult = try await request(path: "Search/Hints?SearchTerm=\(encodedTerm)&UserId=\(userID)&Limit=\(limit)")
+        let result: SearchHintResult = try await request(path: "Search/Hints?SearchTerm=\(Self.queryValue(term))&UserId=\(userID)&Limit=\(limit)")
         return result.hints
     }
 
@@ -640,9 +631,9 @@ public actor APIClient {
         return URL(string: base.absoluteString + "?" + parts[1]) ?? base
     }
 
-    private static func queryValue(_ value: String) -> String {
+    static func queryValue(_ value: String) -> String {
         var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=+/?#")
+        allowed.remove(charactersIn: "&=+/?#%")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }

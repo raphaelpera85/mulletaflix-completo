@@ -37,4 +37,4 @@ h2{font-size:clamp(2rem,4vw,3.5rem);line-height:1;letter-spacing:-.065em}
 footer,.footer{margin-top:65px;padding:38px 0 55px!important;border-top:1px solid var(--line)!important}
 footer p,footer small{color:var(--muted)!important}
 @media(max-width:850px){.wrap{width:min(calc(100% - 32px),var(--max))}.nav{align-items:flex-start;flex-direction:column}.grid,.split-panel,.community-grid{grid-template-columns:1fr!important}.media-grid{grid-template-columns:repeat(2,1fr)}.post{grid-template-columns:1fr}.section-title{align-items:flex-start;flex-direction:column}}
-@media(max-width:480px){.media-grid{grid-template-columns:1fr}.page-main{padding-top:48px}}
+@media(max-width:480px){.media-grid{grid-template-columns:1fr}.page-main{padding-top:48px}.layout{min-width:0}.layout>*{min-width:0}h1{font-size:2.8rem!important;overflow-wrap:anywhere}}

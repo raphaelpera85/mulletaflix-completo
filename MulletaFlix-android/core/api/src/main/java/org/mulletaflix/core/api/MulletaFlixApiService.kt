@@ -60,6 +60,13 @@ interface MulletaFlixApiService {
         @Tag session: FeedbackRequestSession,
     )
 
+    @GET("UserFeedback/MediaSuggestions")
+    suspend fun getMediaSuggestions(
+        @Query("query") query: String,
+        @Query("limit") limit: Int = 10,
+        @Tag session: FeedbackRequestSession,
+    ): List<MediaSuggestionDto>
+
     @POST("UserFeedback/PlaybackIssues")
     suspend fun reportPlaybackIssue(
         @Body body: PlaybackIssueDto,
