@@ -90,6 +90,7 @@ $bodyContent = @'
 - **Servidor Linux x64**: pacote `.tar.gz` self-contained para Debian/Ubuntu, com instalação via `systemd`; o instalador configura MariaDB local com usuário dedicado e senha gerada e instala FFmpeg.
 - **Banco configurável pelo ambiente**: a primeira inicialização aceita `MULLETAFLIX_DB_SERVER`, `MULLETAFLIX_DB_PORT`, `MULLETAFLIX_DB_USER` e `MULLETAFLIX_DB_PASSWORD`; os padrões Windows permanecem quando as variáveis não existem.
 - **Windows continua disponível**: instalador EXE e pacote ZIP de atualização incluídos na release do servidor.
+- **Build web isolado no empacotamento**: dependências e compilação de produção são feitas numa cópia temporária, sem substituir `node_modules` ou interferir em um servidor web de desenvolvimento em execução.
 - **Descarte seguro do serviço de notificações**: a limpeza repetida pelo host não cancela um `CancellationTokenSource` já descartado, evitando falhas no encerramento e nos testes de integração.
 '@
 

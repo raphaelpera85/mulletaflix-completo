@@ -92,22 +92,39 @@ if (-not $SkipBuild) {
 
 # Refresh web assets. Stale stage assets can hide dashboard routes behind the old service worker cache.
 if (Test-Path -LiteralPath (Join-Path $webRoot 'package.json')) {
-    Write-Host "Building latest web client..." -ForegroundColor Yellow
-    $webBuildExitCode = (Start-Process -FilePath 'cmd.exe' -ArgumentList '/c npm run build:production' -WorkingDirectory $webRoot -Wait -PassThru).ExitCode
-    if ($webBuildExitCode -ne 0) {
-        throw "Web build failed with exit code $webBuildExitCode"
-    }
+    Write-Host "Building latest web client in an isolated production workspace..." -ForegroundColor Yellow
+    $webBuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("mulletaflix-web-build-" + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $webBuildRoot -Force | Out-Null
+    try {
+        & robocopy.exe $webRoot $webBuildRoot /E /XD node_modules dist .git .vite /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) {
+            throw "Could not stage web source for production build (robocopy exit code $LASTEXITCODE)."
+        }
 
-    if (-not (Test-Path -LiteralPath $webDist)) {
-        throw "Web build output not found: $webDist"
-    }
+        foreach ($npmCommand in @('npm ci', 'npm run build:check', 'npm run build:production')) {
+            $webBuildExitCode = (Start-Process -FilePath 'cmd.exe' -ArgumentList "/c $npmCommand" -WorkingDirectory $webBuildRoot -Wait -PassThru).ExitCode
+            if ($webBuildExitCode -ne 0) {
+                throw "Web production command '$npmCommand' failed with exit code $webBuildExitCode"
+            }
+        }
 
-    $stageWeb = Join-Path $stageDir 'MulletaFlix-web'
-    if (Test-Path -LiteralPath $stageWeb) {
-        Remove-Item -LiteralPath $stageWeb -Recurse -Force
+        $webDist = Join-Path $webBuildRoot 'dist'
+        if (-not (Test-Path -LiteralPath $webDist)) {
+            throw "Web build output not found: $webDist"
+        }
+
+        $stageWeb = Join-Path $stageDir 'MulletaFlix-web'
+        if (Test-Path -LiteralPath $stageWeb) {
+            Remove-Item -LiteralPath $stageWeb -Recurse -Force
+        }
+        Copy-Item -LiteralPath $webDist -Destination $stageWeb -Recurse -Force
+        Write-Host "Refreshed web assets in stage." -ForegroundColor Green
     }
-    Copy-Item -LiteralPath $webDist -Destination $stageWeb -Recurse -Force
-    Write-Host "Refreshed web assets in stage." -ForegroundColor Green
+    finally {
+        if (Test-Path -LiteralPath $webBuildRoot) {
+            Remove-Item -LiteralPath $webBuildRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # 2. Ensure apply-update.ps1 is in stage
