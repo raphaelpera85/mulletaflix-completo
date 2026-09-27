@@ -4014,7 +4014,7 @@ do worktree naquele momento — confira antes de editar.
   inteira em vez de ler "não sei". O servidor do repositório sempre serializa número. Verificar só se
   aparecer um proxy/fork que emita `null`.
 - [ ] Auditar dependências Android/Media3/Compose e atualizar somente com testes e release reproduzível.
-- [ ] **Cache offline de favoritos e "continuar assistindo"** (funcionalidade nova, não correção). A v1.2.81 apagou o cache Room falso que existia; quem quiser o recurso tem de desenhá-lo: chave `(userId, id)` desde o início, escrita no caminho de leitura, invalidação ao trocar de servidor/usuário e uma política explícita de qual vence quando a rede responde — além de dizer na tela quando o conteúdo é do cache.
+- [x] **Cache offline de Favoritos e "Continuar Assistindo"** (funcionalidade nova, não resgate do Room removido). Implementado na próxima candidata Android: DataStore persiste apenas os campos de card dessas duas seções; cada snapshot é isolado por identidade de servidor e usuário, os itens permanecem associados ao ID, e a mudança de escopo invalida o snapshot anterior. Resposta válida da rede substitui a respectiva seção, mesmo quando vazia; somente falhas de rede recorrem a dados salvos, nunca erro de autenticação. A Home identifica a origem e a data do cache; metadados não habilitam reprodução offline, que continua dependendo de Downloads. Testado em JVM, Android TV e tablet. APK release-mode local `1.3.80`/`380`, SHA-256 `D3858D22A083CECDCBE5C28DA616EDFD25A985627226688AD588CBF98526DCCF`; não publicado porque a chave local não corresponde ao certificado da release oficial.
 - [ ] Documentar uma matriz de resultados por AVD, versão Android, tamanho do APK e SHA-256.
 
 ## Emuladores disponíveis

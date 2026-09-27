@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -68,8 +69,40 @@ class OfflineTrackPolicyTest {
     }
 
     @Test
+    fun `explicit subtitle off choice survives later track refresh`() {
+        val defaultSubtitle = listOf(OfflineTrack(isDefault = true, isSelected = true))
+
+        assertEquals(-1, offlineSubtitleSelectionIndex(defaultSubtitle, subtitlesDisabled = true))
+        assertEquals(0, offlineSubtitleSelectionIndex(defaultSubtitle, subtitlesDisabled = false))
+    }
+
+    @Test
     fun `empty track list fallback produces fallback label safely`() {
         val emptyTracks = offlineTrackInfos(emptyList(), "Áudio")
         assertTrue(emptyTracks.isEmpty())
+    }
+
+    @Test
+    fun `offline external sidecar gets stable distinct identity from embedded tracks`() {
+        val externalIndex = checkNotNull(offlineSubtitleTrackIndex(12))
+        val tracks = offlineTrackInfos(
+            listOf(
+                OfflineTrack(language = "por", formatId = "mullet-external:$externalIndex", label = "Português"),
+                OfflineTrack(language = "eng", codec = "text/vtt"),
+            ),
+            "Legenda",
+        )
+
+        assertEquals(externalIndex, tracks[0].index)
+        assertTrue(tracks[0].isExternal)
+        assertEquals("Português", tracks[0].displayName)
+        assertEquals(0, tracks[1].index)
+        assertFalse(tracks[1].isExternal)
+    }
+
+    @Test
+    fun `offline sidecar identity rejects invalid stream indices`() {
+        assertEquals(null, offlineSubtitleTrackIndex(-1))
+        assertEquals(null, offlineSubtitleTrackIndex(100_001))
     }
 }

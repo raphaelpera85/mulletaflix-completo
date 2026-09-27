@@ -19,6 +19,7 @@ import org.mulletaflix.domain.repository.UserFeedbackRepository
 import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.core.common.network.NetworkMonitor
 import javax.inject.Inject
 
@@ -26,6 +27,9 @@ data class HomeState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val isOffline: Boolean = false,
+    val cachedAtEpochMillis: Long? = null,
+    val resumeFromCache: Boolean = false,
+    val favoritesFromCache: Boolean = false,
     val heroItem: MediaItem? = null,
     val resumeItems: List<MediaItem> = emptyList(),
     val nextUpItems: List<MediaItem> = emptyList(),
@@ -43,6 +47,8 @@ data class HomeState(
     val librariesError: String? = null,
     /** Não nulo quando só a TV ao vivo falhou. Zero canais por **sucesso** não é erro. */
     val liveTvError: String? = null,
+    val feedbackSessionLoaded: Boolean = false,
+    val hasFeedbackSession: Boolean = false,
 )
 
 @HiltViewModel
@@ -52,20 +58,29 @@ class HomeViewModel @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val authRepository: AuthRepository,
     private val userFeedbackRepository: UserFeedbackRepository = object : UserFeedbackRepository {
-        override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
-        override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
+        override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
+        override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
     },
     private val activeServerEndpointChangeSignal: ActiveServerEndpointChangeSignal = ActiveServerEndpointChangeSignal(),
 ) : ViewModel() {
 
     private var mediaRequestSubmitting = false
+    private var feedbackRequestSession: FeedbackRequestSession? = null
 
     fun requestMedia(title: String, mediaType: String, year: Int?, notes: String, onComplete: (Result<Unit>) -> Unit) {
         if (mediaRequestSubmitting) return
+        val requestSession = feedbackRequestSession
+        if (requestSession == null) {
+            onComplete(Result.failure(IllegalStateException("Sessão indisponível. Conecte-se novamente.")))
+            return
+        }
         mediaRequestSubmitting = true
         viewModelScope.launch {
             val result = try {
-                userFeedbackRepository.requestMedia(title.trim(), mediaType, year, notes.trim())
+                check(sessionRepository.getFeedbackRequestSession().first() == requestSession) {
+                    "A sessão mudou. Revise sua conexão antes de tentar novamente."
+                }
+                userFeedbackRepository.requestMedia(requestSession, title.trim(), mediaType, year, notes.trim())
             } catch (cancelled: CancellationException) {
                 onComplete(Result.failure(cancelled))
                 throw cancelled
@@ -88,6 +103,14 @@ class HomeViewModel @Inject constructor(
     private var hasObservedSession = false
 
     init {
+        viewModelScope.launch {
+            sessionRepository.getFeedbackRequestSession().distinctUntilChanged().collect { session ->
+                feedbackRequestSession = session
+                _state.update {
+                    it.copy(feedbackSessionLoaded = true, hasFeedbackSession = session != null)
+                }
+            }
+        }
         viewModelScope.launch {
             activeServerEndpointChangeSignal.changes.collect { serverUrl ->
                 if (serverUrl.isNotBlank() && !currentUserId.isNullOrBlank()) {
@@ -124,6 +147,9 @@ class HomeViewModel @Inject constructor(
                             resumeItems = emptyList(),
                             nextUpItems = emptyList(),
                             favoriteItems = emptyList(),
+                            cachedAtEpochMillis = null,
+                            resumeFromCache = false,
+                            favoritesFromCache = false,
                             recentlyAddedByLibrary = emptyMap(),
                             recentlyAddedErrorsByLibrary = emptyMap(),
                             liveTvChannels = emptyList(),
@@ -189,20 +215,37 @@ class HomeViewModel @Inject constructor(
             // small startup race between the session collector and the
             // connectivity collector. The network transition collector will
             // trigger a fresh load when connectivity returns.
+            val userId = currentUserId ?: sessionRepository.getCurrentUserId().first()
             val online = networkMonitor.isOnline.first()
             if (!online) {
                 if (isCurrentLoad(generation)) {
+                    val cached = userId?.takeIf(String::isNotBlank)
+                        ?.let { getHomeFeedUseCase.getCachedHomeSections(it).getOrNull() }
                     _state.update {
                         it.copy(
                             isLoading = false,
                             isRefreshing = false,
                             isOffline = true,
+                            heroItem = cached?.resumeItems?.firstOrNull(),
+                            resumeItems = cached?.resumeItems.orEmpty(),
+                            favoriteItems = cached?.favoriteItems.orEmpty(),
+                            nextUpItems = emptyList(),
+                            recentlyAddedByLibrary = emptyMap(),
+                            recentlyAddedErrorsByLibrary = emptyMap(),
+                            liveTvChannels = emptyList(),
+                            libraries = emptyList(),
+                            cachedAtEpochMillis = listOfNotNull(
+                                cached?.resumeSavedAtEpochMillis?.takeIf { it > 0 },
+                                cached?.favoritesSavedAtEpochMillis?.takeIf { it > 0 },
+                            ).minOrNull(),
+                            resumeFromCache = cached?.resumeSavedAtEpochMillis?.let { it > 0 } == true,
+                            favoritesFromCache = cached?.favoritesSavedAtEpochMillis?.let { it > 0 } == true,
+                            error = null,
                         )
                     }
                 }
                 return@launch
             }
-            val userId = currentUserId ?: sessionRepository.getCurrentUserId().first()
             if (userId.isNullOrBlank()) {
                 if (isCurrentLoad(generation)) {
                     _state.update {
@@ -247,6 +290,9 @@ class HomeViewModel @Inject constructor(
                             resumeItems = feed.resumeItems,
                             nextUpItems = feed.nextUpItems,
                             favoriteItems = feed.favoriteItems,
+                            cachedAtEpochMillis = feed.cachedAtEpochMillis,
+                            resumeFromCache = feed.resumeFromCache,
+                            favoritesFromCache = feed.favoritesFromCache,
                             recentlyAddedByLibrary = feed.recentlyAddedByLibrary,
                             recentlyAddedErrorsByLibrary = feed.recentlyAddedErrorsByLibrary,
                             liveTvChannels = feed.liveTvChannels,

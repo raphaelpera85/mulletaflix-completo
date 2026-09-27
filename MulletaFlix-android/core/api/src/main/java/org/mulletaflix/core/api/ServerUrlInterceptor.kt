@@ -2,6 +2,7 @@ package org.mulletaflix.core.api
 
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
@@ -20,12 +21,16 @@ class ServerUrlInterceptor @Inject constructor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         var request = chain.request()
+        val requestSession = request.tag(FeedbackRequestSession::class.java)
         val currentServerUrl = runBlocking {
-            sessionRepository.getBaseUrl().first()
+            requestSession?.serverUrl ?: sessionRepository.getBaseUrl().first()
         }
 
         if (currentServerUrl.isNotBlank()) {
             val serverHttpUrl = currentServerUrl.toHttpUrlOrNull()
+            if (serverHttpUrl == null && requestSession != null) {
+                throw IllegalStateException("Captured feedback server URL is invalid")
+            }
             if (serverHttpUrl != null) {
                 val newUrl = rewriteServerUrl(request.url, serverHttpUrl)
                 request = request.newBuilder().url(newUrl).build()

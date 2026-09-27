@@ -196,7 +196,7 @@ fun ItemDetailScreen(
 
         if (showIssueDialog) {
             AlertDialog(
-                onDismissRequest = { showIssueDialog = false },
+                onDismissRequest = { if (!issueSubmitting) showIssueDialog = false },
                 title = { Text("Reportar problema") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -210,11 +210,18 @@ fun ItemDetailScreen(
                             }
                         }
                         OutlinedTextField(issueDescription, { issueDescription = it.take(1000) }, label = { Text("Descreva o problema (opcional)") }, minLines = 2, enabled = !issueSubmitting)
+                        if (!state.hasFeedbackSession) {
+                            Text(
+                                text = if (state.feedbackSessionLoaded) "Conecte-se ao servidor para enviar." else "Verificando sessão…",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         issueError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 },
                 confirmButton = {
-                    TextButton(enabled = !issueSubmitting, onClick = {
+                    TextButton(enabled = state.hasFeedbackSession && !issueSubmitting, onClick = {
                         issueSubmitting = true
                         issueError = null
                         viewModel.reportPlaybackIssue(feedbackItemId, issueCategory, issueDescription) { result ->

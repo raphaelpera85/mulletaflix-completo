@@ -2,6 +2,106 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Atualização do toolchain Android (2026-09-27; validado localmente, sem release)
+
+- [x] Atualizar AGP 9.3.2 → 9.4.0, Gradle 9.5.0 → 9.6.0, Kotlin 2.3.21 → 2.4.20 e Hilt 2.59.2 → 2.60.1; manter KSP 2.3.12, Compose BOM 2026.09.00 e Media3 1.11.1.
+- [x] `testDebugUnitTest`: 1.217 testes, 0 falhas/erros/ignorados; `:app:lintDebug`, `:app:assembleDebug` e `compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] Android TV: `PlayerIssueReportDialogTest` (2) e `PlayerOsdRemoteNavigationTest` (4), 6 testes sem falha; AVD encerrado ao concluir.
+- [ ] Sem bump, pacote ou publicação. A assinatura de produção ainda precisa corresponder ao certificado oficial antes de criar release.
+
+## Relato de falha de reprodução direto no player (validado localmente, não publicado)
+
+- [x] Exibir relatório rápido no cartão de erro e ícone permanente no OSD online para problemas de áudio, legenda, qualidade e reprodução.
+- [x] Abrir formulário com categorias e descrição opcional; enviar item pela sessão autenticada capturada; bloquear envio após troca de servidor/conta; limitar a descrição a 1.000 caracteres.
+- [x] Explicar como recuperar quando não há sessão autenticada ou ela muda durante o envio; manter mensagem genérica apenas para falhas de rede/servidor.
+- [x] Cobrir envio, sessão ausente, troca de sessão, categorias, duplicidade, botão de erro e abertura do formulário pelo OSD.
+- [x] Testes JVM globais: 1.217 testes, 0 falhas/erros/ignorados; `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [x] Android TV instrumentado: `PlayerErrorCardTest` (2), `PlayerIssueReportDialogTest` (2) e `PlayerOsdRemoteNavigationTest` (4): 8 testes, 0 falhas; AVD encerrado ao terminar. O ícone não aparece na reprodução offline.
+- [ ] Validar o POST contra servidor implantado; o endpoint ainda não foi confirmado nesta tarefa APK-only.
+- [ ] Não gerar/publicar APK de produção até a keystore gerar o certificado oficial esperado (`224F9A6B…`); a chave acessível neste ambiente gera `4890D80B…`.
+
+## Trabalho APK — legendas externas também em downloads offline (validado localmente, não publicado)
+
+### Notas propostas — somente se incluído em uma release futura
+
+- Downloads podem incluir sidecars externos SRT, WebVTT, ASS/SSA e TTML quando o servidor disponibiliza a faixa; as legendas ficam no armazenamento privado, com limites de tamanho e seleção no player offline. Falha ao obter uma legenda não cancela o download do vídeo.
+- A seleção explícita de “sem legendas” permanece desativada durante atualizações das faixas. Reutilizar o mesmo download após trocar de servidor limpa os sidecars do escopo antigo.
+
+### Validação
+
+- [x] `testDebugUnitTest`: 1.209 testes JVM, 0 falhas, 0 erros e 0 ignorados; `:app:lintDebug` e `:feature:player:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] `:feature:player:connectedDebugAndroidTest` filtrado para `ExternalSubtitlePlaybackIntegrationTest`: 2 testes passaram no AVD de telefone; emulador encerrado pelo wrapper.
+- [x] Regressões unitárias cobrem a persistência da escolha “sem legendas”; os testes de integração validam reprodução local SRT por Media3. O fluxo completo de download contra servidor implantado ainda não foi exercitado.
+- [ ] Verificar build APK de produção com certificado idêntico à release oficial antes de empacotar/publicar.
+
+## Trabalho APK — legendas externas durante Cast (em validação, não publicado)
+
+### Notas propostas — somente se incluído em uma release futura
+
+- Legendas externas WebVTT e TTML compatíveis com o receiver padrão podem ser escolhidas durante Cast; as faixas são anunciadas antes de carregar a mídia e permanecem selecionáveis ao iniciar a transmissão depois da reprodução local. URLs compartilhadas por mais de uma faixa são omitidas no Cast por identidade ambígua e continuam disponíveis na reprodução local.
+- SRT, ASS/SSA e outros sidecars não suportados pelo receiver padrão continuam disponíveis na reprodução local, mas não são exibidos durante Cast. Legendas externas continuam indisponíveis offline.
+- O APK não altera CORS/autorização do servidor. O receiver acessa a mídia e as legendas diretamente; por isso ambos os endpoints precisam ser alcançáveis pelo receiver, e uma validação Cast real ainda é necessária.
+
+### Validação
+
+- [x] `:feature:player:testDebugUnitTest` e `:feature:player:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] `:feature:player:connectedDebugAndroidTest` no AVD de telefone: 3 testes instrumentados de configuração/conversão passaram; o wrapper encerrou o emulador.
+- [x] O teste instrumentado verifica conversão e função de produção URL→índice para sidecars VTT/TTML únicos; URLs duplicadas ficam fora do mapa. Não cobre o despacho do `PlayerViewModel` nem playback em receiver Cast real; SRT permanece fora do mapa.
+- [x] O teste instrumentado confirma que URLs duplicadas não são anunciadas no Cast nem entram no mapa de seleção, enquanto a faixa com URL única permanece elegível.
+- [x] Teste unitário confirma que duplicatas não entram na seleção preferida do Cast e permanecem elegíveis na reprodução local.
+- [x] Teste instrumentado confirma que o `MediaItem` local mantém as configurações sidecar originais.
+- [ ] Confirmar reprodução, troca/desativação de legenda e CORS num receiver Cast real; emulador Android não valida o receiver.
+- [ ] Verificar build APK de produção com certificado idêntico à release oficial antes de empacotar/publicar.
+
+## Funcionalidades APK validadas localmente, ainda não publicadas
+
+### Notas propostas
+
+- Downloads offline de episódios identificam a série, a temporada e o episódio; especiais aparecem como “Especial”. O nome da série é persistido em metadados locais versionados, e filas criadas no formato anterior continuam legíveis.
+- Durante a reprodução offline, o título completo da série/temporada/episódio também aparece nos controles de mídia Android; filmes e downloads sem metadados preservam o título original.
+- Enquanto um download em lote de temporada estiver ativo, progresso e cancelamento continuam visíveis mesmo após trocar de temporada; a ação de iniciar outro lote fica desativada e a interface identifica a temporada em preparação. Na Android TV, o foco vai para “Cancelar” somente quando o ViewModel confirma a operação local, identificada por ID; progresso externo, operação concluída ou já ativa ao entrar não rouba o foco. D-pad Down alcança “Baixar temporada” e Center ativa as duas ações.
+- TalkBack recebe o progresso da preparação como região educada com intervalo numérico; o cancelamento permanece habilitado.
+- Os formulários de solicitação de mídia e relato de reprodução não podem ser dispensados enquanto o envio está ativo. O formulário de solicitação mantém os campos após falha e permite corrigir/repetir; título obrigatório e ano opcional validado entre 1888 e 2200.
+- Os formulários de solicitação/relato aguardam a primeira leitura da sessão e só habilitam o envio quando uma sessão válida está disponível; isso evita falha no toque inicial durante a leitura do DataStore.
+- Solicitações e relatos capturam o servidor, a conta, o token e o dispositivo no toque; se a sessão mudar antes do envio assíncrono começar, a operação é cancelada. A identidade capturada permanece fixa durante o transporte e o token não aparece na representação textual do snapshot.
+- A Home mantém snapshots persistentes de “Continuar Assistindo” e “Favoritos” para consulta sem rede. O cache é isolado por usuário e identidade do servidor (compartilhado entre URL pública e LAN quando o servidor fornece o mesmo ID), armazena só metadados dos cards, e a rede substitui cada seção após resposta válida, inclusive lista vazia. Só falhas de rede podem usar dados salvos; falhas de autenticação não mostram cache antigo. A tela identifica quais seções estão em cache e quando foram salvas; reprodução offline continua exigindo um download.
+- A limpeza de snapshot corrompido ou pertencente a outro escopo só remove o valor que foi observado; uma gravação concorrente de uma sessão atual não é apagada por uma leitura antiga.
+- Na Biblioteca da Android TV, filtrar, ordenar, atualizar ou reconectar mantém Book/Audiobook fora das consultas; celular/tablet continuam sem restrição.
+
+### Validação
+
+- [x] Metadados de episódio incluem o nome da série; codec v2 grava o campo e continua lendo payloads v1 com bytes legados montados manualmente em teste.
+- [x] A linha offline e o anúncio acessível incluem série/temporada/episódio; filmes e metadata inválida continuam sem esse rótulo; especiais usam “Especial”.
+- [x] A reprodução offline usa o mesmo título contextual dos controles de mídia online; teste verifica episódio completo e preservação de título sem metadados.
+- [x] `testDebugUnitTest`: 1.217 testes, 0 falhas, 0 erros e 0 ignorados; `:app:lintDebug`, `:app:assembleDebug` e `compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] `:feature:downloads:connectedDebugAndroidTest`: suíte executada com sucesso em telefone, tablet e Android TV; cada AVD foi encerrado pelo wrapper.
+- [x] `:feature:player:connectedDebugAndroidTest` na Android TV: 45 testes reportados; 43 passaram e 2 foram interrompidos por suposições ambientais (Cast/Google Play Services e suporte a PiP ausentes no AVD); o wrapper encerrou o emulador.
+- [x] `:feature:item-detail:testDebugUnitTest` e `:feature:item-detail:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] `:feature:item-detail:connectedDebugAndroidTest`: telefone 28 casos (3 exclusivos de TV ignorados), Android TV 25 casos, 0 falhas; AVDs encerrados após os testes.
+- [x] `:core:api:testDebugUnitTest`: contratos HTTP locais cobrem rota, JSON e identidade autenticada para solicitação de mídia e relato de reprodução; não substituem validação contra o servidor implantado.
+- [x] `:data:testDebugUnitTest`: 6 testes do `UserFeedbackRepositoryImpl` verificam DTOs encaminhados, falhas de API e propagação de `CancellationException` nos dois fluxos.
+- [x] Testes Compose do formulário de solicitação em telefone: título/ano, tipo e payload, edição após falha, campos/Cancel desativados e tecla Voltar ignorada durante envio.
+- [x] No tablet Android 35, o player permanece ativo enquanto a janela PiP está visível e pausa quando ela é fechada; suíte instrumentada do player: 39 casos listados, 6 skips de perfil, 0 falhas; AVD encerrado após o teste.
+- [x] Testes Compose regressivos em celular e TV: trocar de temporada durante preparação mantém progresso/Cancelar e bloqueia outro lote; operação terminal não deixa intenção de foco pendente para lote externo posterior; na TV, cancelar via D-pad devolve o foco à temporada selecionada.
+- [x] Após impedir que os diálogos de solicitação e relato sejam fechados durante envio, `:feature:home:connectedDebugAndroidTest` e `:feature:item-detail:connectedDebugAndroidTest`: 23 testes por módulo, 0 falhas; 7 e 2 casos específicos de TV ignorados no AVD de telefone; emulador encerrado.
+- [x] `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease`: `BUILD SUCCESSFUL`.
+- [x] Em validação anterior, `:app:assembleRelease` concluiu e `apksigner` leu a assinatura local; isso prova um APK assinado, não que a chave corresponda à release oficial.
+- [x] Suíte JVM global após vínculo de sessão do feedback: 1.175 testes, 0 falhas, 0 erros, 0 ignorados; `:app:lintDebug` e `:app:assembleRelease` também concluíram com `BUILD SUCCESSFUL`.
+- [x] Cache offline da Home validado: testes unitários cobrem escopo servidor/usuário, serialização restrita, fallback por seção, timestamp, substituição por resposta vazia e bloqueio de fallback para erro não relacionado à rede.
+- [x] `testDebugUnitTest`: 1.182 testes, 0 falhas, 0 erros e 0 ignorados.
+- [x] `:feature:home:connectedDebugAndroidTest` no Android TV: 27 testes listados, 2 ignorados por perfil, 0 falhas; no tablet: 34 testes concluídos, 7 ignorados por perfil, 0 falhas. AVDs encerrados após cada suíte.
+- [x] `:app:lintDebug`, `testDebugUnitTest` e `:app:assembleRelease`: `BUILD SUCCESSFUL` após as alterações do cache.
+- [x] Regressão stale-read/new-write: grava um snapshot atual após a leitura antiga e confirma que a limpeza condicional via `DataStore.edit` preserva a gravação.
+- [x] Suíte JVM completa após a regressão: 1.183 testes, 0 falhas, 0 erros e 0 ignorados; `:app:lintDebug` e `:app:assembleRelease`: `BUILD SUCCESSFUL`.
+- [x] APK de validação local (não publicado), v1.3.80 / versionCode 380, 7.486.787 bytes, SHA-256 `62A85760A06706822DC251F63C7A7192731EA858C587F51B73D1E89573C2BEB9`; certificado SHA-256 local continua incompatível com a release oficial anterior.
+- [x] APK de validação local (não publicado): mantém `versionName=1.3.80`/`versionCode=380`, SHA-256 `D3858D22A083CECDCBE5C28DA616EDFD25A985627226688AD588CBF98526DCCF`; a assinatura local ainda diverge da release oficial e impede distribuição.
+- [x] Formulários e ViewModels cobrem sessão ainda não carregada; o envio permanece bloqueado até a sessão autenticada estar disponível. O teste de detalhe também cobre troca de conta sem perder o estado de prontidão.
+- [x] `:feature:library:testDebugUnitTest`: regressões confirmam exclusão de Book/Audiobook após filtros, ordenação, atualização e retorno da rede em biblioteca da TV.
+- [x] Suíte JVM global: 1.191 testes, 0 falhas/erros/ignorados; `:app:lintDebug`: `BUILD SUCCESSFUL`.
+- [x] APK local de validação v1.3.80 (`versionCode=380`), SHA-256 `94FBB96DCC4921E04E502F0352966E3B427913B9CFF43516E6E3FC7AA694C923`; certificado SHA-256 `4890D80B87FE27C804FF875B549ACD57B946FE6F9BBA0B9D7718989EC5A0A24C`.
+- [ ] Não publicar ainda: a keystore configurada gera certificado local (`4890D80B87FE27C804FF875B549ACD57B946FE6F9BBA0B9D7718989EC5A0A24C`) diferente do oficial da APK v1.3.80 (`224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`). Configurar a chave correspondente antes de verificar a próxima versão/asset oficial e publicar APK de produção.
+- [x] Verificação atual do ambiente: as quatro variáveis de assinatura estão disponíveis e o APK local corresponde à keystore configurada; o certificado `4890D80B87FE27C804FF875B549ACD57B946FE6F9BBA0B9D7718989EC5A0A24C` ainda diverge do certificado oficial `224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`, portanto essa keystore não pode ser usada para distribuição.
+
 ## Candidata APK v1.3.80 — biblioteca de Livros oculta na Android TV
 
 ### Notas propostas
@@ -162,6 +262,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 ## Validação de feedback dependente do servidor
 
+- [x] Capturar servidor/conta/token/dispositivo no toque; revalidar snapshot no início do envio assíncrono e cancelar se a sessão mudou; interceptors mantêm snapshot até o transporte. Testes de Home/detalhes cobrem troca antes da coroutine; contrato HTTP cobre troca anterior ao roteamento. `FeedbackRequestSession.toString()` oculta token.
 - [ ] Validar envio autenticado de `UserFeedback/MediaRequests` e `UserFeedback/PlaybackIssues` em um servidor que tenha esses endpoints implantados; o código do servidor está apenas no checkout local e não foi publicado nesta tarefa.
 - [ ] Confirmar no painel do servidor que solicitações e relatos ficam registrados para administração.
 
@@ -2577,3 +2678,20 @@ Pendências relacionadas:
 - [x] APK local de validação (sem bump/publicação): `v1.3.55`, `versionCode=356`, 7.404.867 bytes, SHA-256 `A2F125B0C8FBF35A063FD756BB27D9E29840C341F83BB5277E120319E132381D`.
 - [x] Ao atualizar uma release autorizada, as notas devem espelhar somente as melhorias/correções implementadas e validadas no APK correspondente; nenhuma alteração exclusiva do servidor deve constar.
 - [ ] Não houve bump nem publicação nesta rodada. Nas notas da próxima release autorizada, descrever precisamente os limites de busca local/remota e o progresso/skip, somente se presentes no APK publicado.
+
+## Polling do SyncPlay sem cancelar consultas em andamento (validação local)
+- [x] Evitar que a atualização automática periódica cancele uma consulta de salas ainda ativa.
+- [x] Preservar o refresh manual como substituição explícita da consulta anterior e o cancelamento ao trocar de sessão.
+- [x] Adicionar regressões para polling durante resposta lenta e refresh manual durante resposta pendente.
+- [x] Validar `:feature:sync-play:testDebugUnitTest`: 24 testes, 0 falhas.
+- [x] Validar a suíte JVM completa: 1.193 testes, 0 falhas/erros/skips; `:app:lintDebug` e `:app:assembleRelease` concluídos com código 0.
+- [x] APK local `v1.3.80`/`versionCode=380`: 7.486.787 bytes, SHA-256 `993F9616E410A65B1D475F9B612606E758EE129871D35C7DA9858CD7E8D720C1`; assinatura corresponde à keystore configurada (`4890D80B87FE27C804FF875B549ACD57B946FE6F9BBA0B9D7718989EC5A0A24C`).
+- [ ] Não publicar: o certificado da keystore configurada ainda diverge do oficial v1.3.80 (`224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`). Não houve bump; ajustar a chave antes de qualquer release e só então conferir a versão/asset remoto anterior.
+
+## Bloqueio de APK com assinatura incompatível
+- [x] Fixar o SHA-256 do certificado oficial conhecido no fluxo de release e validar o certificado/credenciais antes de assinar.
+- [x] Validar o APK com `apksigner` antes de empacotar, inclusive em `-SkipBuild`, e antes de qualquer autenticação ou alteração remota pelo publicador.
+- [x] Adicionar testes Pester para certificado oficial aceito e certificado divergente rejeitado: 2/2, 0 falhas.
+- [x] Confirmar em APKs reais: `v1.3.70` oficial aceita `224F9A6B…`; APK local rejeitado por `4890D80B…`; destino do empacotador permaneceu inalterado.
+- [x] `testDebugUnitTest` e `:app:lintDebug`: `BUILD SUCCESSFUL`. `:app:assembleRelease` agora bloqueia intencionalmente a keystore divergente com mensagem contendo os dois fingerprints.
+- [ ] Não gerar/publicar nova release até `KEYSTORE_PATH` e demais credenciais apontarem para chave cujo certificado seja igual ao oficial; conferir a release anterior antes de qualquer bump.

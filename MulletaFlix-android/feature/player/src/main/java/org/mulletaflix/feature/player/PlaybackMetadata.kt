@@ -2,6 +2,7 @@ package org.mulletaflix.feature.player
 
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 
 /**
  * Compact, readable title used by Android media controls and Cast targets.
@@ -20,4 +21,21 @@ internal fun mediaNotificationTitle(item: MediaItem): String {
         .distinct()
         .joinToString(" · ")
         .ifBlank { item.name }
+}
+
+internal fun offlineMediaNotificationTitle(
+    title: String,
+    episode: DownloadEpisodeMetadata?,
+): String {
+    if (episode == null) return title
+    return mediaNotificationTitle(
+        MediaItem(
+            id = episode.seriesId,
+            name = title,
+            type = MediaItemType.Episode,
+            seriesName = episode.seriesName,
+            parentIndexNumber = episode.seasonNumber,
+            indexNumber = episode.episodeNumber,
+        ),
+    )
 }

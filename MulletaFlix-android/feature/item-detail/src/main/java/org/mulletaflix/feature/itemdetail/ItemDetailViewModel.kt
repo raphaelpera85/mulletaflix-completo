@@ -9,7 +9,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.MediaSource
 import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
+import org.mulletaflix.domain.repository.DownloadMediaMetadata
 import org.mulletaflix.domain.model.Playlist
 import org.mulletaflix.domain.model.primaryImageUrl
 import org.mulletaflix.domain.repository.AuthRepository
@@ -17,6 +19,8 @@ import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.PlaybackRepository
 import org.mulletaflix.domain.repository.UserFeedbackRepository
+import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.domain.usecase.GetItemDetailUseCase
 import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 import org.mulletaflix.domain.usecase.ManagePlaylistUseCase
@@ -45,6 +49,8 @@ data class ItemDetailState(
     val isPlaylistDialogVisible: Boolean = false,
     val playlistMessage: String? = null,
     val isPlaylistLoading: Boolean = false,
+    val feedbackSessionLoaded: Boolean = false,
+    val hasFeedbackSession: Boolean = false,
 )
 
 data class SeasonDownloadProgress(
@@ -58,6 +64,7 @@ data class SeasonDownloadProgress(
     val failedEpisodes: Int = 0,
     val isRunning: Boolean = false,
     val isCancelled: Boolean = false,
+    val operationId: Long = 0L,
 )
 
 @HiltViewModel
@@ -70,9 +77,10 @@ class ItemDetailViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
     private val authRepository: AuthRepository,
     private val playbackRepository: PlaybackRepository,
+    private val sessionRepository: SessionRepository,
     private val userFeedbackRepository: UserFeedbackRepository = object : UserFeedbackRepository {
-        override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
-        override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
+        override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?) = Result.failure<Unit>(UnsupportedOperationException())
+        override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.failure<Unit>(UnsupportedOperationException())
     },
 ) : ViewModel() {
 
@@ -87,12 +95,14 @@ class ItemDetailViewModel @Inject constructor(
     private var itemRequestGeneration = 0L
     private var seasonLoadJob: Job? = null
     private var seasonDownloadJob: Job? = null
+    private var seasonDownloadOperationId = 0L
     private var seasonRequestGeneration = 0L
     private var favoriteJob: Job? = null
     private var watchedJob: Job? = null
     private var favoriteMutationGeneration = 0L
     private var watchedMutationGeneration = 0L
     private var playbackIssueSubmitting = false
+    private var feedbackRequestSession: FeedbackRequestSession? = null
 
     fun reportPlaybackIssue(
         itemId: String,
@@ -101,10 +111,18 @@ class ItemDetailViewModel @Inject constructor(
         onComplete: (Result<Unit>) -> Unit,
     ) {
         if (playbackIssueSubmitting) return
+        val requestSession = feedbackRequestSession
+        if (requestSession == null) {
+            onComplete(Result.failure(IllegalStateException("Sessão indisponível. Conecte-se novamente.")))
+            return
+        }
         playbackIssueSubmitting = true
         viewModelScope.launch {
             val result = try {
-                userFeedbackRepository.reportPlaybackIssue(itemId, category, description.trim())
+                check(sessionRepository.getFeedbackRequestSession().first() == requestSession) {
+                    "A sessão mudou. Revise sua conexão antes de tentar novamente."
+                }
+                userFeedbackRepository.reportPlaybackIssue(requestSession, itemId, category, description.trim())
             } catch (cancelled: CancellationException) {
                 onComplete(Result.failure(cancelled))
                 throw cancelled
@@ -121,6 +139,14 @@ class ItemDetailViewModel @Inject constructor(
     }
 
     init {
+        viewModelScope.launch {
+            sessionRepository.getFeedbackRequestSession().distinctUntilChanged().collect { session ->
+                feedbackRequestSession = session
+                _state.update {
+                    it.copy(feedbackSessionLoaded = true, hasFeedbackSession = session != null)
+                }
+            }
+        }
         viewModelScope.launch {
             authRepository.getSavedUserId().distinctUntilChanged().collect { userId ->
                 if (currentUserId == null && !userId.isNullOrBlank()) {
@@ -140,7 +166,12 @@ class ItemDetailViewModel @Inject constructor(
                 favoriteMutationGeneration++
                 watchedMutationGeneration++
                 currentSeriesId = null
-                _state.value = ItemDetailState()
+                val feedbackSessionLoaded = _state.value.feedbackSessionLoaded
+                val hasFeedbackSession = _state.value.hasFeedbackSession
+                _state.value = ItemDetailState(
+                    feedbackSessionLoaded = feedbackSessionLoaded,
+                    hasFeedbackSession = hasFeedbackSession,
+                )
             }
         }
         viewModelScope.launch {
@@ -425,6 +456,16 @@ class ItemDetailViewModel @Inject constructor(
         }
     }
 
+    private suspend fun downloadMediaMetadata(source: MediaSource): DownloadMediaMetadata? {
+        val subtitles = downloadableExternalSubtitles(source)
+        if (subtitles.isEmpty()) return null
+        val serverId = sessionRepository.getServerId().first()
+            ?: sessionRepository.getBaseUrl().first().trimEnd('/')
+        return serverId.takeIf(String::isNotBlank)?.let {
+            DownloadMediaMetadata(it, source.id, subtitles)
+        }
+    }
+
     fun downloadItem() {
         val userId = currentUserId ?: return
         val item = _state.value.item ?: return
@@ -448,13 +489,13 @@ class ItemDetailViewModel @Inject constructor(
                 val preparation = runCatching {
                     playbackRepository.getPlaybackInfo(item.id, userId)
                         .mapCatching { playbackInfo ->
-                            preferredDownloadUrl(playbackInfo.mediaSources)
+                            preferredDownloadSource(playbackInfo.mediaSources)
                                 ?: error("O servidor não forneceu uma fonte para download.")
                         }
                 }.getOrElse { Result.failure(it) }
                 if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
                 preparation.fold(
-                    onSuccess = { url ->
+                    onSuccess = { downloadSource ->
                         val seriesId = item.seriesId
                         val seasonNumber = item.parentIndexNumber
                         val episodeNumber = item.indexNumber
@@ -468,14 +509,18 @@ class ItemDetailViewModel @Inject constructor(
                                 seriesId = seriesId,
                                 seasonNumber = seasonNumber,
                                 episodeNumber = episodeNumber,
+                                seriesName = item.seriesName?.takeIf(String::isNotBlank)?.take(512),
                             )
                         } else null
-                        manageDownloadsUseCase.enqueueWithMetadata(
+                        val mediaMetadata = downloadMediaMetadata(downloadSource.source)
+                        if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
+                        manageDownloadsUseCase.enqueueWithMediaMetadata(
                             item.id,
                             item.name,
-                            url,
+                            downloadSource.url,
                             item.primaryImageUrl,
                             episodeMetadata,
+                            mediaMetadata,
                         )
                             .onSuccess {
                                 if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
@@ -504,12 +549,12 @@ class ItemDetailViewModel @Inject constructor(
     }
 
     /** Prepares the currently selected season's eligible episodes in series order. */
-    fun downloadSelectedSeason() {
-        if (seasonDownloadJob?.isActive == true) return
-        val userId = currentUserId ?: return
+    fun downloadSelectedSeason(): Long? {
+        if (seasonDownloadJob?.isActive == true) return null
+        val userId = currentUserId ?: return null
         val snapshot = _state.value
-        val season = snapshot.seasons.getOrNull(snapshot.selectedSeasonIndex) ?: return
-        val seriesId = currentSeriesId ?: return
+        val season = snapshot.seasons.getOrNull(snapshot.selectedSeasonIndex) ?: return null
+        val seriesId = currentSeriesId ?: return null
         val episodes = snapshot.episodes
             .asSequence()
             .filter { it.type == MediaItemType.Episode }
@@ -517,7 +562,7 @@ class ItemDetailViewModel @Inject constructor(
             .toList()
         if (episodes.isEmpty()) {
             _state.update { it.copy(downloadMessage = "Não há episódios disponíveis nesta temporada.") }
-            return
+            return null
         }
 
         val alreadyAvailableCount = episodes.count { hasActiveDownload(downloads, it.id) }
@@ -542,14 +587,19 @@ class ItemDetailViewModel @Inject constructor(
             alreadyPreparingEpisodes = alreadyPreparingCount,
             isRunning = pendingEpisodes.isNotEmpty(),
         )
-        _state.update { it.copy(seasonDownloadProgress = initialProgress, downloadMessage = null) }
         if (pendingEpisodes.isEmpty()) {
             _state.update {
-                it.copy(downloadMessage = "Todos os episódios desta temporada já estão na fila ou disponíveis offline.")
+                it.copy(
+                    seasonDownloadProgress = initialProgress,
+                    downloadMessage = "Todos os episódios desta temporada já estão na fila ou disponíveis offline.",
+                )
             }
-            return
+            return null
         }
 
+        val operationId = ++seasonDownloadOperationId
+        val activeProgress = initialProgress.copy(operationId = operationId)
+        _state.update { it.copy(seasonDownloadProgress = activeProgress, downloadMessage = null) }
         preparingDownloadIds.addAll(pendingEpisodes.map { it.id })
         seasonDownloadJob = viewModelScope.launch {
             try {
@@ -559,7 +609,7 @@ class ItemDetailViewModel @Inject constructor(
                     val preparedUrl = try {
                         playbackRepository.getPlaybackInfo(episode.id, userId)
                             .mapCatching { playbackInfo ->
-                                preferredDownloadUrl(playbackInfo.mediaSources)
+                                preferredDownloadSource(playbackInfo.mediaSources)
                                     ?: error("O servidor não forneceu uma fonte para download.")
                             }
                     } catch (cancelled: CancellationException) {
@@ -574,18 +624,21 @@ class ItemDetailViewModel @Inject constructor(
 
                     if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
                     preparedUrl.fold(
-                        onSuccess = { url ->
+                        onSuccess = { downloadSource ->
                             if (hasActiveDownload(downloads, episode.id)) {
                                 skippedCount++
                             } else {
-                                val episodeMetadata = episode.downloadEpisodeMetadata(seriesId)
+                                val episodeMetadata = episode.downloadEpisodeMetadata(seriesId, _state.value.item?.name)
                                 val enqueueResult = try {
-                                    manageDownloadsUseCase.enqueueWithMetadata(
+                                    val mediaMetadata = downloadMediaMetadata(downloadSource.source)
+                                    if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
+                                    manageDownloadsUseCase.enqueueWithMediaMetadata(
                                         episode.id,
                                         episode.name,
-                                        url,
+                                        downloadSource.url,
                                         episode.primaryImageUrl,
                                         episodeMetadata,
+                                        mediaMetadata,
                                     )
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
@@ -603,7 +656,7 @@ class ItemDetailViewModel @Inject constructor(
                     processedCount++
                     _state.update {
                         it.copy(
-                            seasonDownloadProgress = initialProgress.copy(
+                            seasonDownloadProgress = activeProgress.copy(
                                 processedEpisodes = processedCount,
                                 queuedEpisodes = queuedCount,
                                 alreadyAvailableEpisodes = skippedCount - alreadyPreparingCount,
@@ -617,7 +670,7 @@ class ItemDetailViewModel @Inject constructor(
                 if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
                     _state.update {
                         it.copy(
-                            seasonDownloadProgress = initialProgress.copy(
+                            seasonDownloadProgress = activeProgress.copy(
                                 processedEpisodes = processedCount,
                                 queuedEpisodes = queuedCount,
                                 alreadyAvailableEpisodes = skippedCount - alreadyPreparingCount,
@@ -633,7 +686,7 @@ class ItemDetailViewModel @Inject constructor(
                 if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
                     _state.update {
                         it.copy(
-                            seasonDownloadProgress = initialProgress.copy(
+                            seasonDownloadProgress = activeProgress.copy(
                                 processedEpisodes = processedCount,
                                 queuedEpisodes = queuedCount,
                                 alreadyAvailableEpisodes = skippedCount - alreadyPreparingCount,
@@ -651,6 +704,7 @@ class ItemDetailViewModel @Inject constructor(
                 pendingEpisodes.forEach { preparingDownloadIds.remove(it.id) }
             }
         }
+        return operationId
     }
 
     fun cancelSeasonDownload() {
@@ -736,11 +790,13 @@ class ItemDetailViewModel @Inject constructor(
     private val preparingDownloadIds = mutableSetOf<String>()
 }
 
-private fun MediaItem.downloadEpisodeMetadata(seriesId: String): DownloadEpisodeMetadata? {
+private fun MediaItem.downloadEpisodeMetadata(seriesId: String, fallbackSeriesName: String? = null): DownloadEpisodeMetadata? {
     val resolvedSeriesId = this.seriesId?.takeIf(String::isNotBlank) ?: seriesId
     val seasonNumber = parentIndexNumber ?: return null
     val episodeNumber = indexNumber ?: return null
-    return DownloadEpisodeMetadata(resolvedSeriesId, seasonNumber, episodeNumber)
+    val resolvedSeriesName = this.seriesName?.takeIf(String::isNotBlank)
+        ?: fallbackSeriesName?.takeIf(String::isNotBlank)
+    return DownloadEpisodeMetadata(resolvedSeriesId, seasonNumber, episodeNumber, resolvedSeriesName?.take(512))
 }
 
 private fun seasonDownloadSummary(seasonName: String, queued: Int, skipped: Int, failed: Int): String =

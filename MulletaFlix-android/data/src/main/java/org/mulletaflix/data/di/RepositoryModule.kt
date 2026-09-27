@@ -23,6 +23,10 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindHomeFeedCache(impl: HomeFeedCacheRepositoryImpl): HomeFeedCache
+
+    @Binds
+    @Singleton
     abstract fun bindAuthRepository(impl: AuthRepositoryImpl): AuthRepository
 
     @Binds
@@ -64,4 +68,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindUserFeedbackRepository(impl: UserFeedbackRepositoryImpl): UserFeedbackRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPlaybackIssueQueue(impl: PlaybackIssueQueueRepositoryImpl): PlaybackIssueQueue
 }

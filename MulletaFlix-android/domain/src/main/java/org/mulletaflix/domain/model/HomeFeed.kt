@@ -30,4 +30,8 @@ data class HomeFeed(
     val favoritesError: String? = null,
     val librariesError: String? = null,
     val liveTvError: String? = null,
+    /** True only for sections rendered from the last persisted server snapshot. */
+    val resumeFromCache: Boolean = false,
+    val favoritesFromCache: Boolean = false,
+    val cachedAtEpochMillis: Long? = null,
 )

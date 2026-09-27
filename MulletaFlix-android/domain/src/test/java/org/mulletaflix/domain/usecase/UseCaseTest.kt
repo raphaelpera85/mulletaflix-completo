@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,6 +12,113 @@ import org.mulletaflix.domain.model.*
 import org.mulletaflix.domain.repository.*
 
 class UseCaseTest {
+
+    @Test
+    fun `home uses server and user scoped snapshot only for network failures`() = runTest {
+        val resume = MediaItem(id = "resume-cached", name = "Continuar", type = MediaItemType.Movie)
+        val favorite = MediaItem(id = "favorite-cached", name = "Favorito", type = MediaItemType.Series)
+        val cached = CachedHomeSections(listOf(resume), listOf(favorite), 100L, 200L)
+        var writtenResume: List<MediaItem>? = null
+        var writtenFavorites: List<MediaItem>? = null
+        val cache = object : HomeFeedCache {
+            override suspend fun read(userId: String) = if (userId == "u1") cached else null
+            override suspend fun write(userId: String, resumeItems: List<MediaItem>?, favoriteItems: List<MediaItem>?) {
+                writtenResume = resumeItems
+                writtenFavorites = favoriteItems
+            }
+        }
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) =
+                Result.failure<List<MediaItem>>(java.io.IOException("offline"))
+            override suspend fun getItems(
+                userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?,
+                filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?,
+                officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?,
+            ) = Result.failure<Pair<List<MediaItem>, Int>>(java.io.IOException("offline"))
+        }
+
+        val feed = GetHomeFeedUseCase(repository, cache)("u1").getOrThrow()
+
+        assertEquals(listOf(resume), feed.resumeItems)
+        assertEquals(listOf(favorite), feed.favoriteItems)
+        assertTrue(feed.resumeFromCache)
+        assertTrue(feed.favoritesFromCache)
+        assertEquals(100L, feed.cachedAtEpochMillis)
+        assertNull(writtenResume)
+        assertNull(writtenFavorites)
+        assertNull(GetHomeFeedUseCase(repository, cache).getCachedHomeSections("u2").getOrNull())
+    }
+
+    @Test
+    fun `successful empty home responses replace stale snapshot and auth failures never use it`() = runTest {
+        val cached = CachedHomeSections(
+            resumeItems = listOf(MediaItem("old", "Old", MediaItemType.Movie)),
+            favoriteItems = emptyList(),
+            resumeSavedAtEpochMillis = 10,
+            favoritesSavedAtEpochMillis = 10,
+        )
+        val saved = mutableListOf<Pair<List<MediaItem>?, List<MediaItem>?>>()
+        val cache = object : HomeFeedCache {
+            override suspend fun read(userId: String) = cached
+            override suspend fun write(userId: String, resumeItems: List<MediaItem>?, favoriteItems: List<MediaItem>?) {
+                saved += (resumeItems to favoriteItems)
+            }
+        }
+        val emptyRepository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+        }
+        val fresh = GetHomeFeedUseCase(emptyRepository, cache)("u1").getOrThrow()
+        assertTrue(fresh.resumeItems.isEmpty())
+        assertTrue(saved.last().first!!.isEmpty())
+        assertNull(fresh.cachedAtEpochMillis)
+
+        val rejected = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) =
+                Result.failure<List<MediaItem>>(SecurityException("HTTP 401"))
+            override suspend fun getLibraries(userId: String) = Result.success(emptyList<MediaItem>())
+            override suspend fun getItems(
+                userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?,
+                filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?,
+                officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?,
+            ) = Result.failure<Pair<List<MediaItem>, Int>>(SecurityException("HTTP 401"))
+        }
+        val rejectedFeed = GetHomeFeedUseCase(rejected, cache)("u1").getOrThrow()
+        assertTrue(rejectedFeed.resumeItems.isEmpty())
+        assertTrue(rejectedFeed.favoriteItems.isEmpty())
+        assertFalse(rejectedFeed.resumeFromCache)
+        assertFalse(rejectedFeed.favoritesFromCache)
+    }
+
+    @Test
+    fun `partial home snapshot fallback keeps section origin and timestamp accurate`() = runTest {
+        val favorite = MediaItem("fav", "Favorite", MediaItemType.Movie)
+        val cached = CachedHomeSections(
+            resumeItems = emptyList(),
+            favoriteItems = listOf(favorite),
+            resumeSavedAtEpochMillis = 0,
+            favoritesSavedAtEpochMillis = 900,
+        )
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getItems(
+                userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?,
+                filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?,
+                officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?,
+            ) = Result.failure<Pair<List<MediaItem>, Int>>(java.io.IOException("offline"))
+        }
+        val cache = object : HomeFeedCache {
+            override suspend fun read(userId: String) = cached
+            override suspend fun write(userId: String, resumeItems: List<MediaItem>?, favoriteItems: List<MediaItem>?) = Unit
+        }
+
+        val feed = GetHomeFeedUseCase(repository, cache)("u1").getOrThrow()
+
+        assertTrue(feed.resumeItems.isEmpty())
+        assertEquals(listOf(favorite), feed.favoriteItems)
+        assertFalse(feed.resumeFromCache)
+        assertTrue(feed.favoritesFromCache)
+        assertEquals(900L, feed.cachedAtEpochMillis)
+    }
 
     @Test
     fun `GetUserProfileUseCase returns user profile on success`() = runTest {

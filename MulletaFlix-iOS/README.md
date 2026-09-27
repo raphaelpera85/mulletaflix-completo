@@ -181,8 +181,10 @@ para títulos sem posição salva. Também permite marcar e desmarcar títulos c
 `Users/{userId}/PlayedItems/{itemId}`, preservando o contexto de temporada e
 episódio no estado local.
 
-A busca oferece histórico, sugestões, filtros por tipo e entrada por voz com
-`Speech`/`AVAudioEngine`, respeitando as permissões nativas do iOS.
+A busca oferece histórico, sugestões, filtros por tipo — incluindo Livros — e
+entrada por voz com `Speech`/`AVAudioEngine`, respeitando as permissões nativas
+do iOS. O filtro de Livros envia `IncludeItemTypes=Book`, mantendo o contrato
+de busca do Android.
 Quando o servidor informa um total maior que os itens exibidos, a busca mostra
 um aviso explícito de truncamento; se o total não vier na resposta, nenhum
 número é inventado.

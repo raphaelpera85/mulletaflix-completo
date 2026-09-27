@@ -20,9 +20,14 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.media3.common.util.UnstableApi
@@ -65,7 +70,7 @@ class PlayerOsdRemoteNavigationTest {
         }
     }
 
-    private fun setTelevisionPlayerContent() {
+    private fun setTelevisionPlayerContent(canReportPlaybackIssue: Boolean = true) {
         composeRule.setContent {
             MaterialTheme {
                 var osdVisible by remember { mutableStateOf(false) }
@@ -126,6 +131,7 @@ class PlayerOsdRemoteNavigationTest {
                             onCastClick = {},
                             onCopyStats = {},
                             onShareStats = {},
+                            canReportPlaybackIssue = canReportPlaybackIssue,
                         )
                     }
                 }
@@ -164,5 +170,27 @@ class PlayerOsdRemoteNavigationTest {
         composeRule.onRoot().performKeyInput { pressKey(Key.DirectionDown) }
         composeRule.waitForIdle()
         composeRule.onNodeWithContentDescription("Posição da reprodução").assertIsFocused()
+    }
+
+    @Test
+    fun tvTopBarIssueActionOpensReportForm() {
+        setTelevisionPlayerContent()
+        composeRule.onRoot().performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithContentDescription("Reportar problema com esta mídia")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithText("Reportar problema").assertIsDisplayed()
+        composeRule.onNodeWithText("Descreva o problema (opcional)").assertIsDisplayed()
+    }
+
+    @Test
+    fun offlinePlaybackDoesNotOfferServerIssueReport() {
+        setTelevisionPlayerContent(canReportPlaybackIssue = false)
+        composeRule.onRoot().performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.waitForIdle()
+
+        composeRule.onAllNodesWithContentDescription("Reportar problema com esta mídia").assertCountEquals(0)
     }
 }

@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import android.content.Context
+import android.net.Uri
 
 @RunWith(AndroidJUnit4::class)
 class ExternalSubtitlePlaybackIntegrationTest {
@@ -154,6 +155,66 @@ class ExternalSubtitlePlaybackIntegrationTest {
                 playerRef.getAndSet(null)?.release()
             }
             server.shutdown()
+        }
+    }
+
+    @Test
+    fun offlineSidecarIsDecodedFromLocalFilesWithoutServerRequests() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val mediaFile = java.io.File.createTempFile("offline-media", ".wav", context.cacheDir)
+        val subtitleFile = java.io.File.createTempFile("offline-subtitle", ".srt", context.cacheDir)
+        mediaFile.writeBytes(wavSilence())
+        subtitleFile.writeText(SRT_CUE)
+        val cueDecoded = CountDownLatch(1)
+        val playbackFailed = AtomicReference<androidx.media3.common.PlaybackException?>()
+        val playerRef = AtomicReference<ExoPlayer?>()
+
+        try {
+            val externalIndex = checkNotNull(offlineSubtitleTrackIndex(14))
+            val subtitle = buildExternalSubtitleConfiguration(
+                serverIndex = externalIndex,
+                subtitleUrl = Uri.fromFile(subtitleFile).toString(),
+                mimeType = MimeTypes.APPLICATION_SUBRIP,
+                language = "pt-BR",
+                label = "Português (Brasil)",
+                isDefault = true,
+                isForced = false,
+            )
+            val item = MediaItem.Builder()
+                .setUri(Uri.fromFile(mediaFile))
+                .setSubtitleConfigurations(listOf(subtitle))
+                .build()
+
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                playerRef.set(ExoPlayer.Builder(context).build().apply {
+                    addListener(object : Player.Listener {
+                        override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                            if (cueGroup.cues.any { it.text?.toString() == EXPECTED_CUE }) cueDecoded.countDown()
+                        }
+
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                            playbackFailed.set(error)
+                        }
+                    })
+                    setMediaItem(item)
+                    prepare()
+                    playWhenReady = true
+                })
+            }
+
+            assertTrue(
+                "Media3 did not decode the local subtitle cue; error=${playbackFailed.get()?.message}",
+                cueDecoded.await(10, TimeUnit.SECONDS),
+            )
+            assertEquals(null, playbackFailed.get())
+            assertTrue(item.localConfiguration?.uri?.scheme == "file")
+            assertTrue(item.localConfiguration?.subtitleConfigurations?.single()?.uri?.scheme == "file")
+        } finally {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                playerRef.getAndSet(null)?.release()
+            }
+            mediaFile.delete()
+            subtitleFile.delete()
         }
     }
 

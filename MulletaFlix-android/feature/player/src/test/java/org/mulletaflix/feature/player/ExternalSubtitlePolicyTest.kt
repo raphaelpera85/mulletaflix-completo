@@ -64,6 +64,29 @@ class ExternalSubtitlePolicyTest {
             "https://cdn.example/subtitles/movie.srt?api_key=embedded-secret",
             "session-token",
         ))
+        assertNull(resolveExternalSubtitleUrl(
+            "http://server:8096",
+            "https://cdn.example/subtitles/movie.vtt?ApiKey=embedded-secret",
+            "session-token",
+        ))
+        assertNull(resolveExternalSubtitleUrl(
+            "http://server:8096",
+            "https://cdn.example/subtitles/movie.vtt?X-MediaBrowser-Token=embedded-secret",
+            "session-token",
+        ))
+        assertNull(resolveExternalSubtitleUrl(
+            "http://server:8096",
+            "https://cdn.example/subtitles/movie.vtt?%61uth%6Frization=embedded-secret",
+            "session-token",
+        ))
+        assertEquals(
+            "https://cdn.example/subtitles/movie.vtt?signature=public&expires=1000",
+            resolveExternalSubtitleUrl(
+                "http://server:8096",
+                "https://cdn.example/subtitles/movie.vtt?signature=public&expires=1000",
+                "session-token",
+            ),
+        )
         assertEquals(
             "http://server:8096/subtitles/movie.srt",
             resolveExternalSubtitleUrl("http://server:8096", "//server:8096/subtitles/movie.srt", null),
@@ -78,5 +101,24 @@ class ExternalSubtitlePolicyTest {
         assertNull(externalSubtitleServerIndex("container-track"))
         assertNull(externalSubtitleServerIndex("-1"))
         assertTrue(externalSubtitleMimeType("srt", null) != null)
+    }
+
+    @Test
+    fun `Cast exposes only receiver supported sidecar formats`() {
+        assertEquals("text/vtt", castSubtitleContentType("text/vtt"))
+        assertEquals("application/ttml+xml", castSubtitleContentType("application/ttml+xml"))
+        assertNull(castSubtitleContentType("application/x-subrip"))
+        assertNull(castSubtitleContentType("text/x-ssa"))
+        assertEquals(0x4D554C4C0000000CL, castSubtitleTrackId(12))
+        assertNull(castSubtitleTrackId(-1))
+    }
+
+    @Test
+    fun `maps Cast track content URL back to its server stream index`() {
+        val url = "http://server:8096/subtitles/12.vtt?api_key=secret"
+
+        assertEquals(12, externalSubtitleServerIndex(url, mapOf(url to 12)))
+        assertEquals(12, externalSubtitleServerIndex("mullet-external:12", emptyMap()))
+        assertNull(externalSubtitleServerIndex("https://other.invalid/track.vtt", emptyMap()))
     }
 }

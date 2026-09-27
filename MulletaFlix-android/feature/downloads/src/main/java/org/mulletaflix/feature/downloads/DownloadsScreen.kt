@@ -512,7 +512,8 @@ internal fun DownloadRow(
             .clickable(onClick = onPlay)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
-                contentDescription = "Reproduzir ${entry.title} offline. ${downloadStorageLabel(entry)}"
+                val episodeLabel = downloadEpisodeLabel(entry)?.let { " $it." }.orEmpty()
+                contentDescription = "Reproduzir ${entry.title} offline.$episodeLabel ${downloadStorageLabel(entry)}"
             }
     } else {
         Modifier
@@ -553,6 +554,9 @@ internal fun DownloadRow(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(entry.title, style = MaterialTheme.typography.titleMedium)
+                downloadEpisodeLabel(entry)?.let { episodeLabel ->
+                    Text(episodeLabel, style = MaterialTheme.typography.bodySmall)
+                }
                 Text(
                     statusText(entry),
                     style = MaterialTheme.typography.bodySmall,

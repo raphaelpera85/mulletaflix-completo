@@ -124,8 +124,15 @@ class LanServerRecovery @Inject constructor(
                 val userId = sessionRepository.getCurrentUserId().first() ?: return@withLock
                 val currentUrl = sessionRepository.getBaseUrl().first()
                 val authenticatedServerId = sessionRepository.getServerId().first()
+                val discovered = discoverLanServersSafely {
+                    discovery.discover(timeoutMs = 2_500)
+                }.getOrElse {
+                    // A socket failure is not an empty discovery response. Leave the
+                    // miss counter untouched and retry on the next connectivity event.
+                    return@withLock
+                }
                 val localServer = selectAuthenticatedLanServer(
-                    discovered = discovery.discover(timeoutMs = 2_500),
+                    discovered = discovered,
                     authenticatedServerId = authenticatedServerId,
                 )
                 if (!isCurrentLanScan(generation, scanGeneration.get(), started)) return@withLock

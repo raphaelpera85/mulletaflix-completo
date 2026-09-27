@@ -11,6 +11,8 @@ internal data class OfflineTrack(
     val isDefault: Boolean = false,
     val isForced: Boolean = false,
     val isSelected: Boolean = false,
+    val formatId: String? = null,
+    val label: String? = null,
 ) {
     /** `TrackInfo.codec` is displayed uppercased, so a bare MIME subtype is enough. */
     fun codecLabel(): String? = codec
@@ -29,6 +31,10 @@ internal data class OfflineTrack(
 internal fun selectedOfflineTrackIndex(offlineTracks: List<OfflineTrack>): Int =
     offlineTracks.indexOfFirst { it.isSelected }.takeIf { it >= 0 } ?: -1
 
+/** Preserve an explicit user's "off" choice across subsequent track refreshes. */
+internal fun offlineSubtitleSelectionIndex(offlineTracks: List<OfflineTrack>, subtitlesDisabled: Boolean): Int =
+    if (subtitlesDisabled) -1 else selectedOfflineTrackIndex(offlineTracks)
+
 /**
  * Track list for a downloaded item, built from the container itself.
  *
@@ -45,21 +51,33 @@ internal fun selectedOfflineTrackIndex(offlineTracks: List<OfflineTrack>): Int =
 internal fun offlineTrackInfos(
     offlineTracks: List<OfflineTrack>,
     fallbackPrefix: String,
-): List<TrackInfo> = offlineTracks.mapIndexed { position, track ->
-    TrackInfo(
-        index = position,
-        displayName = friendlyTrackName(
-            displayName = null,
+): List<TrackInfo> {
+    var embeddedPosition = 0
+    return offlineTracks.mapIndexed { position, track ->
+        val externalIndex = externalSubtitleServerIndex(track.formatId)
+        val trackIndex = externalIndex ?: embeddedPosition++
+        val fallbackNumber = if (externalIndex == null) trackIndex + 1 else position + 1
+        TrackInfo(
+            index = trackIndex,
+            displayName = track.label?.takeIf(String::isNotBlank) ?: friendlyTrackName(
+                displayName = null,
+                language = track.language,
+                fallback = "$fallbackPrefix $fallbackNumber",
+            ),
             language = track.language,
-            fallback = "$fallbackPrefix ${position + 1}",
-        ),
-        language = track.language,
-        codec = track.codecLabel(),
-        channels = track.channels,
-        isDefault = track.isDefault,
-        isForced = track.isForced,
-    )
+            codec = track.codecLabel(),
+            channels = track.channels,
+            isDefault = track.isDefault,
+            isForced = track.isForced,
+            isExternal = externalIndex != null,
+        )
+    }
 }
+
+internal fun offlineSubtitleTrackIndex(streamIndex: Int): Int? =
+    streamIndex.takeIf { it in 0..100_000 }?.let { OFFLINE_EXTERNAL_INDEX_BASE + it }
+
+private const val OFFLINE_EXTERNAL_INDEX_BASE = 1_000_000
 
 /**
  * The indices [selectTrackByServerIndex] should look a position up in, offline.

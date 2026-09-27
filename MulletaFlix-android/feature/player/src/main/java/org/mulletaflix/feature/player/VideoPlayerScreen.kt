@@ -590,6 +590,11 @@ fun VideoPlayerScreen(
             PlayerErrorCard(
                 message = state.error ?: "Erro de reprodução",
                 isTelevision = isTelevision,
+                isReportingIssue = state.isReportingPlaybackIssue,
+                issueReportSent = state.playbackIssueReportSent,
+                issueReportQueued = state.playbackIssueReportQueued,
+                issueReportMessage = state.playbackIssueReportMessage,
+                onReportIssue = { viewModel.reportPlaybackIssue() },
                 onRetry = {
                     if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId, itemId)
                     else viewModel.retryPlayback()
@@ -693,6 +698,12 @@ fun VideoPlayerScreen(
                 onCastClick = { viewModel.startCast() },
                 onCopyStats = { copyPlaybackStats(context, state.title, state.playbackStats) },
                 onShareStats = { sharePlaybackStats(context, state.title, state.playbackStats) },
+                canReportPlaybackIssue = true,
+                isReportingIssue = state.isReportingPlaybackIssue,
+                issueReportSent = state.playbackIssueReportSent,
+                issueReportQueued = state.playbackIssueReportQueued,
+                issueReportMessage = state.playbackIssueReportMessage,
+                onReportIssue = { category, description -> viewModel.reportPlaybackIssue(category, description) },
             )
         }
         }
@@ -729,6 +740,11 @@ private fun PlayerSyncPlayNotice(message: String, modifier: Modifier = Modifier)
 internal fun PlayerErrorCard(
     message: String,
     isTelevision: Boolean,
+    isReportingIssue: Boolean = false,
+    issueReportSent: Boolean = false,
+    issueReportQueued: Boolean = false,
+    issueReportMessage: String? = null,
+    onReportIssue: (() -> Unit)? = null,
     onRetry: () -> Unit,
 ) {
     var isRetryFocused by remember { mutableStateOf(false) }
@@ -757,6 +773,29 @@ internal fun PlayerErrorCard(
                     ),
             ) {
                 Text("Tentar novamente")
+            }
+            if (onReportIssue != null) {
+                OutlinedButton(
+                    onClick = onReportIssue,
+                    enabled = !isReportingIssue && !issueReportSent && !issueReportQueued,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        when {
+                            isReportingIssue -> "Enviando relato…"
+                            issueReportSent -> "Relato enviado"
+                            issueReportQueued -> "Relato na fila"
+                            else -> "Relatar problema"
+                        },
+                    )
+                }
+                issueReportMessage?.let { reportMessage ->
+                    Text(
+                        text = reportMessage,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
     }
@@ -844,6 +883,12 @@ internal fun PlayerOsd(
     onCastClick: () -> Unit,
     onCopyStats: () -> Unit,
     onShareStats: () -> Unit,
+    canReportPlaybackIssue: Boolean = true,
+    isReportingIssue: Boolean = false,
+    issueReportSent: Boolean = false,
+    issueReportQueued: Boolean = false,
+    issueReportMessage: String? = null,
+    onReportIssue: (String, String?) -> Unit = { _, _ -> },
 ) {
     var showSubtitleMenu by remember { mutableStateOf(false) }
     var showAudioMenu by remember { mutableStateOf(false) }
@@ -852,6 +897,7 @@ internal fun PlayerOsd(
     var showSleepTimerMenu by remember { mutableStateOf(false) }
     var showAspectRatioMenu by remember { mutableStateOf(false) }
     var showStatsDialog by remember { mutableStateOf(false) }
+    var showIssueReportDialog by remember { mutableStateOf(false) }
     val menuSubtitleTracks = visibleSubtitleTracks(state.subtitleTracks, state.isCasting)
     val visibleSubtitleSelection = visibleSubtitleSelectionIndex(
         state.subtitleTracks,
@@ -1024,6 +1070,16 @@ internal fun PlayerOsd(
                 ) {
                     Icon(Icons.Default.Info, contentDescription = "Estatísticas", tint = Color.White)
                 }
+                if (canReportPlaybackIssue) {
+                    IconButton(
+                        onClick = { showIssueReportDialog = true },
+                        modifier = Modifier
+                            .focusProperties { down = playPauseFocusRequester }
+                            .remoteFocusRing(),
+                    ) {
+                        Icon(Icons.Default.BugReport, contentDescription = "Reportar problema com esta mídia", tint = Color.White)
+                    }
+                }
                 // Lock screen
                 IconButton(
                     onClick = onLockClick,
@@ -1170,6 +1226,17 @@ internal fun PlayerOsd(
                 onCopy = onCopyStats,
                 onShare = onShareStats,
                 onDismiss = { showStatsDialog = false }
+            )
+        }
+        if (showIssueReportDialog) {
+            PlayerIssueReportDialog(
+                initialDescription = state.error,
+                isSubmitting = isReportingIssue,
+                isSent = issueReportSent,
+                isQueued = issueReportQueued,
+                message = issueReportMessage,
+                onDismiss = { showIssueReportDialog = false },
+                onSubmit = onReportIssue,
             )
         }
     }

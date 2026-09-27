@@ -105,6 +105,33 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `tv library keeps book types excluded after filter and sort reloads`() = runTest {
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("unknown-library", isTelevision = true)
+        advanceUntilIdle()
+        assertTrue(media.lastIncludeItemTypes.orEmpty().split(',').none { it in setOf("Book", "Audiobook") })
+
+        viewModel.setSortOrder(SortOrder.Descending)
+        advanceUntilIdle()
+        assertTrue(media.lastIncludeItemTypes.orEmpty().split(',').none { it in setOf("Book", "Audiobook") })
+
+        viewModel.toggleFilter(LibraryViewModel.FILTER_FAVORITES)
+        advanceUntilIdle()
+        assertTrue(media.lastIncludeItemTypes.orEmpty().split(',').none { it in setOf("Book", "Audiobook") })
+
+        viewModel.clearFilters()
+        advanceUntilIdle()
+        assertTrue(media.lastIncludeItemTypes.orEmpty().split(',').none { it in setOf("Book", "Audiobook") })
+
+        viewModel.refreshIfIdle("unknown-library")
+        advanceUntilIdle()
+        assertTrue(media.lastIncludeItemTypes.orEmpty().split(',').none { it in setOf("Book", "Audiobook") })
+    }
+
+    @Test
     fun `library sort is restored from and saved to local settings`() = runTest {
         val settings = FakeSettingsRepository(initialSort = "DateCreated")
         val viewModel = LibraryViewModel(
@@ -257,6 +284,28 @@ class LibraryViewModelTest {
 
         assertEquals(callsBeforeRecovery + 1, media.detailCalls)
         assertEquals(false, viewModel.state.value.isOffline)
+    }
+
+    @Test
+    fun `network recovery keeps book types excluded for a tv library`() = runTest {
+        val network = FakeNetworkMonitor(initialOnline = false)
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(),
+            networkMonitor = network,
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("unknown-library", isTelevision = true)
+        advanceUntilIdle()
+        network.setOnline(true)
+        advanceUntilIdle()
+
+        assertTrue(media.lastIncludeItemTypes.orEmpty().split(',').none { it in setOf("Book", "Audiobook") })
+        assertTrue(media.lastIncludeItemTypes.orEmpty().contains("Movie"))
     }
 
     @Test

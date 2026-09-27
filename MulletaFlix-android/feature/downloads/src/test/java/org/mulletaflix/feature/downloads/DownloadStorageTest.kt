@@ -3,6 +3,7 @@ package org.mulletaflix.feature.downloads
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mulletaflix.domain.repository.DownloadEntry
+import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 import org.mulletaflix.domain.repository.DownloadState
 
 class DownloadStorageTest {
@@ -62,5 +63,35 @@ class DownloadStorageTest {
             "Tamanho ainda não informado",
             downloadStorageLabel(entry("queued", "Na fila", 0, DownloadState.Queued)),
         )
+    }
+
+    @Test
+    fun `episode downloads expose season and episode label`() {
+        val episode = entry("episode", "Minha Série", 0).copy(
+            episodeMetadata = DownloadEpisodeMetadata("series", seasonNumber = 2, episodeNumber = 7, seriesName = "Minha Série"),
+        )
+
+        assertEquals("Minha Série · Temporada 2 · Episódio 7", downloadEpisodeLabel(episode))
+    }
+
+    @Test
+    fun `season zero is labeled as a special and invalid metadata is hidden`() {
+        val special = entry("special", "Minha Série", 0).copy(
+            episodeMetadata = DownloadEpisodeMetadata("series", seasonNumber = 0, episodeNumber = 2, seriesName = "Minha Série"),
+        )
+        val invalid = special.copy(episodeMetadata = special.episodeMetadata?.copy(episodeNumber = 0))
+
+        assertEquals("Minha Série · Especial · Episódio 2", downloadEpisodeLabel(special))
+        assertEquals(null, downloadEpisodeLabel(invalid))
+        assertEquals(null, downloadEpisodeLabel(entry("movie", "Filme", 0)))
+    }
+
+    @Test
+    fun `episode label remains useful when the series name is unavailable`() {
+        val episode = entry("episode", "Episódio Piloto", 0).copy(
+            episodeMetadata = DownloadEpisodeMetadata("series", seasonNumber = 1, episodeNumber = 1),
+        )
+
+        assertEquals("Temporada 1 · Episódio 1", downloadEpisodeLabel(episode))
     }
 }

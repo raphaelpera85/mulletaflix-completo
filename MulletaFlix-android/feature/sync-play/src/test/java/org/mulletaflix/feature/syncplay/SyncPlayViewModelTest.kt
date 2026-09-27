@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -66,6 +67,38 @@ class SyncPlayViewModelTest {
 
         assertEquals(groups, viewModel.state.value.groups)
         assertEquals(1, repository.listCalls)
+    }
+
+    @Test fun `background refresh does not cancel an in flight groups request`() = runTest {
+        val pendingResponse = CompletableDeferred<Result<List<SyncPlayGroup>>>()
+        val groups = listOf(SyncPlayGroup("g1", "Filme", "Playing", emptyList()))
+        val repository = FakeRepository(groups, firstResponse = pendingResponse)
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        runCurrent()
+
+        viewModel.refresh(isBackground = true)
+        runCurrent()
+        assertEquals(1, repository.listCalls)
+
+        pendingResponse.complete(Result.success(groups))
+        advanceUntilIdle()
+
+        assertEquals(groups, viewModel.state.value.groups)
+        assertEquals(1, repository.listCalls)
+    }
+
+    @Test fun `manual refresh replaces an in flight groups request`() = runTest {
+        val pendingResponse = CompletableDeferred<Result<List<SyncPlayGroup>>>()
+        val groups = listOf(SyncPlayGroup("g1", "Filme", "Playing", emptyList()))
+        val repository = FakeRepository(groups, firstResponse = pendingResponse)
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        runCurrent()
+
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(groups, viewModel.state.value.groups)
+        assertEquals(2, repository.listCalls)
     }
 
     @Test fun `joining a group marks it active`() = runTest {

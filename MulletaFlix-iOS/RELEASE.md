@@ -27,6 +27,23 @@ Debug, um build de simulador ou um archive sem assinatura de distribuição.
 
 ## Publicação
 
+O comando de preparação da release é `scripts/build-production-release.sh`. Em
+macOS, ele executa os testes Core, cria um archive `Release` para
+`generic/platform=iOS`, exige um `ExportOptions.plist` de distribuição, exporta
+o IPA assinado e imprime a versão, build, tamanho e SHA-256 do artefato:
+
+```bash
+cd MulletaFlix-iOS
+cp ExportOptions.plist.example ExportOptions.plist
+# substitua REPLACE_WITH_APPLE_TEAM_ID pelo Team ID da conta Apple
+EXPORT_OPTIONS_PLIST="$PWD/ExportOptions.plist" \
+  bash scripts/build-production-release.sh
+```
+
+O script recusa Windows, simulador, configuração Debug, ausência de assinatura
+e exportação sem IPA. O arquivo produzido é
+`dist/mulletaflix-ios-v1.0.0.ipa` quando o archive mantém a versão inicial.
+
 Depois dos gates verdes, publicar o artefato assinado como `mulletaflix-ios-v1.0.0.ipa`
 na tag `ios-v1.0.0`, com notas que descrevam somente as mudanças presentes no
 diff validado, os testes executados e limitações conhecidas. Para versões

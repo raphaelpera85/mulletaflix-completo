@@ -24,11 +24,14 @@ import org.mulletaflix.domain.usecase.ManageDownloadsUseCase
 import org.mulletaflix.domain.usecase.ManagePlaylistUseCase
 import org.mulletaflix.domain.usecase.ToggleFavoriteUseCase
 import org.mulletaflix.domain.usecase.TogglePlayedUseCase
+import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ItemDetailViewModelTest {
 
     private val dispatcher = StandardTestDispatcher()
+    private val testFeedbackSession = FeedbackRequestSession("http://old-server.test:8096", "old-token", "u1", "detail-test")
 
     @Before
     fun setUp() {
@@ -40,6 +43,40 @@ class ItemDetailViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Test
+    fun `feedback submit state waits for the first session emission`() = runTest {
+        val viewModel = createViewModel(FakeMediaRepository())
+
+        assertFalse(viewModel.state.value.feedbackSessionLoaded)
+        assertFalse(viewModel.state.value.hasFeedbackSession)
+        runCurrent()
+        assertTrue(viewModel.state.value.feedbackSessionLoaded)
+        assertTrue(viewModel.state.value.hasFeedbackSession)
+    }
+
+    @Test
+    fun `feedback session readiness survives an account switch state reset`() = runTest {
+        val savedUserId = MutableStateFlow<String?>("u1")
+        val authRepository = FakeAuthRepository(userId = "u1", userIdFlow = savedUserId)
+        val sessionRepository = MutableFeedbackSessionRepository(testFeedbackSession)
+        val viewModel = createViewModel(
+            FakeMediaRepository(),
+            authRepo = authRepository,
+            sessionRepo = sessionRepository,
+        )
+        runCurrent()
+        assertTrue(viewModel.state.value.hasFeedbackSession)
+
+        sessionRepository.switchSession(
+            testFeedbackSession.copy(serverUrl = "http://new-server.test:8096", accessToken = "new-token", userId = "u2"),
+        )
+        savedUserId.value = "u2"
+        runCurrent()
+
+        assertTrue(viewModel.state.value.feedbackSessionLoaded)
+        assertTrue(viewModel.state.value.hasFeedbackSession)
+    }
+
     private fun createViewModel(
         mediaRepo: MediaRepository,
         authRepo: AuthRepository = FakeAuthRepository(userId = "u1"),
@@ -47,9 +84,10 @@ class ItemDetailViewModelTest {
         downloadRepo: DownloadRepository = FakeDownloadRepository(),
         playlistRepo: PlaylistRepository = FakePlaylistRepository(),
         feedbackRepo: UserFeedbackRepository = object : UserFeedbackRepository {
-            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
-            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.success(Unit)
+            override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.success(Unit)
         },
+        sessionRepo: SessionRepository = MutableFeedbackSessionRepository(testFeedbackSession),
     ): ItemDetailViewModel {
         return ItemDetailViewModel(
             getItemDetailUseCase = GetItemDetailUseCase(mediaRepo),
@@ -60,16 +98,32 @@ class ItemDetailViewModelTest {
             mediaRepository = mediaRepo,
             authRepository = authRepo,
             playbackRepository = playbackRepo,
+            sessionRepository = sessionRepo,
             userFeedbackRepository = feedbackRepo,
         )
+    }
+
+    private class MutableFeedbackSessionRepository(initialSession: FeedbackRequestSession) : SessionRepository {
+        private val session = MutableStateFlow<FeedbackRequestSession?>(initialSession)
+        fun switchSession(next: FeedbackRequestSession) { session.value = next }
+        override fun getAccessToken() = flowOf(session.value?.accessToken)
+        override fun getDeviceId() = flowOf(session.value?.deviceId ?: "detail-test")
+        override fun getBaseUrl() = flowOf(session.value?.serverUrl.orEmpty())
+        override fun getCurrentUserId() = flowOf(session.value?.userId)
+        override fun getFeedbackRequestSession() = session
+        override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
+        override suspend fun setBaseUrl(url: String) = Unit
+        override suspend fun clearSession() = Unit
     }
 
     @Test
     fun `playback report sends current title and trimmed description and returns result`() = runTest {
         var received: List<String?>? = null
+        var receivedSession: FeedbackRequestSession? = null
         val feedback = object : UserFeedbackRepository {
-            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
-            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?): Result<Unit> {
+            override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?): Result<Unit> {
+                receivedSession = session
                 received = listOf(itemId, category, description)
                 return Result.success(Unit)
             }
@@ -77,10 +131,12 @@ class ItemDetailViewModelTest {
         val viewModel = createViewModel(FakeMediaRepository(), feedbackRepo = feedback)
         var succeeded = false
 
+        runCurrent()
         viewModel.reportPlaybackIssue("movie-42", "Sem áudio", "  Som ausente  ") { succeeded = it.isSuccess }
         advanceUntilIdle()
 
         assertEquals(listOf("movie-42", "Sem áudio", "Som ausente"), received)
+        assertEquals(testFeedbackSession, receivedSession)
         assertTrue(succeeded)
         assertEquals("Relato enviado. Obrigado pelo aviso.", viewModel.state.value.interactionMessage)
     }
@@ -91,8 +147,8 @@ class ItemDetailViewModelTest {
         var completionCount = 0
         var firstCompletionError: Throwable? = null
         val feedback = object : UserFeedbackRepository {
-            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
-            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?): Result<Unit> {
+            override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?): Result<Unit> {
                 requestCount++
                 if (requestCount == 1) throw CancellationException("request cancelled")
                 return Result.success(Unit)
@@ -100,6 +156,7 @@ class ItemDetailViewModelTest {
         }
         val viewModel = createViewModel(FakeMediaRepository(), feedbackRepo = feedback)
 
+        runCurrent()
         viewModel.reportPlaybackIssue("movie-42", "Sem áudio", "") {
             completionCount++
             firstCompletionError = it.exceptionOrNull()
@@ -115,6 +172,32 @@ class ItemDetailViewModelTest {
         assertEquals(2, requestCount)
         assertEquals(2, completionCount)
         assertEquals("Relato enviado. Obrigado pelo aviso.", viewModel.state.value.interactionMessage)
+    }
+
+    @Test
+    fun `playback report is rejected if session changes before asynchronous submission starts`() = runTest {
+        val sessionRepository = MutableFeedbackSessionRepository(testFeedbackSession)
+        var requestCount = 0
+        var completionError: Throwable? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?): Result<Unit> {
+                requestCount++
+                return Result.success(Unit)
+            }
+        }
+        val viewModel = createViewModel(FakeMediaRepository(), feedbackRepo = feedback, sessionRepo = sessionRepository)
+        runCurrent()
+
+        viewModel.reportPlaybackIssue("movie-42", "Sem áudio", "") { completionError = it.exceptionOrNull() }
+        sessionRepository.switchSession(
+            testFeedbackSession.copy(serverUrl = "http://new-server.test:8096", accessToken = "new-token", userId = "new-user"),
+        )
+        runCurrent()
+
+        assertEquals(0, requestCount)
+        assertTrue(completionError?.message?.contains("A sessão mudou") == true)
+        advanceUntilIdle()
     }
 
     @Test
@@ -240,6 +323,7 @@ class ItemDetailViewModelTest {
             name = "Episode 7",
             type = MediaItemType.Episode,
             seriesId = "series-1",
+            seriesName = "Série",
             parentIndexNumber = 2,
             indexNumber = 7,
         )
@@ -269,7 +353,7 @@ class ItemDetailViewModelTest {
         viewModel.downloadItem()
         advanceUntilIdle()
 
-        assertEquals(DownloadEpisodeMetadata("series-1", 2, 7), downloadRepo.lastEpisodeMetadata)
+        assertEquals(DownloadEpisodeMetadata("series-1", 2, 7, "Série"), downloadRepo.lastEpisodeMetadata)
     }
 
     @Test
@@ -300,7 +384,10 @@ class ItemDetailViewModelTest {
 
         assertEquals(listOf("ep-1", "ep-2"), downloadRepo.enqueuedIds)
         assertEquals(
-            listOf(DownloadEpisodeMetadata("series-1", 1, 1), DownloadEpisodeMetadata("series-1", 1, 2)),
+            listOf(
+                DownloadEpisodeMetadata("series-1", 1, 1, "Série"),
+                DownloadEpisodeMetadata("series-1", 1, 2, "Série"),
+            ),
             downloadRepo.enqueuedEpisodeMetadata,
         )
         assertEquals(2, viewModel.state.value.seasonDownloadProgress?.queuedEpisodes)
@@ -390,10 +477,13 @@ class ItemDetailViewModelTest {
         viewModel.loadItem("series-1")
         advanceUntilIdle()
 
-        viewModel.downloadSelectedSeason()
+        val operationId = viewModel.downloadSelectedSeason()
+        assertNotNull(operationId)
         runCurrent()
         viewModel.selectSeason(1)
         advanceUntilIdle()
+        assertNull(viewModel.downloadSelectedSeason())
+        assertEquals(operationId, viewModel.state.value.seasonDownloadProgress?.operationId)
         firstEpisodePreparation.complete(Result.success(playbackInfo("ep-1")))
         advanceUntilIdle()
 

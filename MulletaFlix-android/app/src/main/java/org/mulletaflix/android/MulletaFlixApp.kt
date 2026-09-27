@@ -9,6 +9,12 @@ import coil.memory.MemoryCache
 import com.google.android.gms.cast.framework.CastContext
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.mulletaflix.core.api.ClientIdentityInterceptor
@@ -16,6 +22,8 @@ import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.buildAuthenticatedImageClient
 import org.mulletaflix.core.api.ServerUrlInterceptor
 import org.mulletaflix.designsystem.media.canonicalImageCacheKey
+import org.mulletaflix.domain.repository.PlaybackIssueQueue
+import org.mulletaflix.android.service.PlaybackIssueWorkScheduler
 
 /**
  * Application entry point for MulletaFlix Android.
@@ -38,6 +46,10 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
 
     @Inject lateinit var sessionRepository: SessionRepository
 
+    @Inject lateinit var playbackIssueQueue: PlaybackIssueQueue
+
+    @Inject internal lateinit var playbackIssueWorkScheduler: PlaybackIssueWorkScheduler
+
     override fun onCreate() {
         super.onCreate()
 
@@ -45,6 +57,16 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
         // Without this, the player can be created but the route chooser is not
         // registered reliably on cold app launches.
         runCatching { CastContext.getSharedInstance(this) }
+
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            combine(
+                playbackIssueQueue.pendingCount,
+                sessionRepository.getFeedbackRequestSession(),
+            ) { pendingCount, session -> pendingCount > 0 && session != null }
+                .collect { hasPendingReports ->
+                    if (hasPendingReports) playbackIssueWorkScheduler.enqueue()
+                }
+        }
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

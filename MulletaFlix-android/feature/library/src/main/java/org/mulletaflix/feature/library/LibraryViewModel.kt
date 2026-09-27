@@ -50,6 +50,7 @@ class LibraryViewModel @Inject constructor(
     val state: StateFlow<LibraryState> = _state.asStateFlow()
 
     private var currentLibraryId: String? = null
+    private var currentIsTelevision = false
     private var currentUserId: String? = null
     private var hasObservedUser = false
     private var currentIncludeItemTypes: String = LibraryBrowseTypes.DEFAULT
@@ -153,11 +154,12 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun loadLibrary(libraryId: String, isTelevision: Boolean = false) {
+    fun loadLibrary(libraryId: String, isTelevision: Boolean = currentIsTelevision) {
         loadJob?.cancel()
         val requestGeneration = ++this.requestGeneration
         val switchedLibrary = currentLibraryId != null && currentLibraryId != libraryId
         currentLibraryId = libraryId
+        currentIsTelevision = isTelevision
         if (_state.value.isOffline) {
             _state.update { it.copy(isLoading = false, isRefreshing = false) }
             return
@@ -284,7 +286,7 @@ class LibraryViewModel @Inject constructor(
      * This is used by the TV foreground timer to avoid cancelling a slow
      * catalog response and replacing it with another request.
      */
-    fun refreshIfIdle(libraryId: String, isTelevision: Boolean = false) {
+    fun refreshIfIdle(libraryId: String, isTelevision: Boolean = currentIsTelevision) {
         val current = _state.value
         // `loadLibrary` starts a coroutine before persisted query preferences
         // have necessarily emitted. During that short window the state still

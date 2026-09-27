@@ -2,6 +2,7 @@ package org.mulletaflix.core.api
 
 import retrofit2.http.*
 import org.mulletaflix.core.api.dto.*
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 
 /**
  * How many channels one `LiveTv/Channels` request asks for.
@@ -54,10 +55,16 @@ const val MAX_LIVE_TV_RECORDINGS_PAGES = 20
 interface MulletaFlixApiService {
 
     @POST("UserFeedback/MediaRequests")
-    suspend fun requestMedia(@Body body: MediaRequestDto)
+    suspend fun requestMedia(
+        @Body body: MediaRequestDto,
+        @Tag session: FeedbackRequestSession,
+    )
 
     @POST("UserFeedback/PlaybackIssues")
-    suspend fun reportPlaybackIssue(@Body body: PlaybackIssueDto)
+    suspend fun reportPlaybackIssue(
+        @Body body: PlaybackIssueDto,
+        @Tag session: FeedbackRequestSession,
+    )
 
     // ── Authentication ──────────────────────────────────────────────────────
 

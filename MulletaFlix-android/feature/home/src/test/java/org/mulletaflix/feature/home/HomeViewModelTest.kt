@@ -22,6 +22,7 @@ import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.core.api.ActiveServerEndpointChangeSignal
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.UserProfile
@@ -29,6 +30,9 @@ import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.AvailableUser
 import org.mulletaflix.domain.repository.QuickConnectState
 import org.mulletaflix.domain.repository.MediaRepository
+import org.mulletaflix.domain.repository.HomeFeedCache
+import org.mulletaflix.domain.model.CachedHomeSections
+import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.domain.repository.RegistrationResult
 import org.mulletaflix.domain.repository.SavedServer
 import org.mulletaflix.domain.repository.ServerVerification
@@ -39,32 +43,49 @@ import org.mulletaflix.domain.usecase.GetHomeFeedUseCase
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
     private val dispatcher = StandardTestDispatcher()
+    private val testFeedbackSession = FeedbackRequestSession("http://old-server.test:8096", "old-token", "request-user", "home-test")
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
+
+    @Test fun `feedback submit state waits for the first session emission`() = runTest {
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()),
+            FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+
+        assertFalse(viewModel.state.value.feedbackSessionLoaded)
+        assertFalse(viewModel.state.value.hasFeedbackSession)
+        runCurrent()
+        assertTrue(viewModel.state.value.feedbackSessionLoaded)
+        assertTrue(viewModel.state.value.hasFeedbackSession)
+    }
 
     @Test fun `media request trims fields and sends only once while request is pending`() = runTest {
         val response = CompletableDeferred<Result<Unit>>()
         var requestCount = 0
         var received: List<Any?>? = null
         val feedback = object : UserFeedbackRepository {
-            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
+            override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
                 requestCount++
-                received = listOf(title, mediaType, year, notes)
+                received = listOf(session.userId, title, mediaType, year, notes)
                 return response.await()
             }
-            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.success(Unit)
         }
         val viewModel = HomeViewModel(
-            GetHomeFeedUseCase(FakeMediaRepository()), FakeSessionRepository(userId = null),
+            GetHomeFeedUseCase(FakeMediaRepository()), FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession),
             FakeNetworkMonitor(), FakeAuthRepository(), feedback,
         )
+        runCurrent()
         viewModel.requestMedia("  Duna  ", "Filme", 2024, "  legendas  ") {}
         viewModel.requestMedia("Duna", "Filme", 2024, "legendas") {}
         runCurrent()
 
         assertEquals(1, requestCount)
-        assertEquals(listOf("Duna", "Filme", 2024, "legendas"), received)
+        assertEquals(listOf("request-user", "Duna", "Filme", 2024, "legendas"), received)
         response.complete(Result.success(Unit))
         advanceUntilIdle()
     }
@@ -74,17 +95,18 @@ class HomeViewModelTest {
         var completionCount = 0
         var firstCompletionError: Throwable? = null
         val feedback = object : UserFeedbackRepository {
-            override suspend fun requestMedia(title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
+            override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
                 requestCount++
                 if (requestCount == 1) throw CancellationException("request cancelled")
                 return Result.success(Unit)
             }
-            override suspend fun reportPlaybackIssue(itemId: String, category: String, description: String?) = Result.success(Unit)
+            override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.success(Unit)
         }
         val viewModel = HomeViewModel(
-            GetHomeFeedUseCase(FakeMediaRepository()), FakeSessionRepository(userId = null),
+            GetHomeFeedUseCase(FakeMediaRepository()), FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession),
             FakeNetworkMonitor(), FakeAuthRepository(), feedback,
         )
+        runCurrent()
 
         viewModel.requestMedia("Duna", "Filme", null, "") {
             completionCount++
@@ -100,6 +122,34 @@ class HomeViewModelTest {
 
         assertEquals(2, requestCount)
         assertEquals(2, completionCount)
+    }
+
+    @Test fun `media request is rejected if session changes before asynchronous submission starts`() = runTest {
+        val sessionRepository = FakeSessionRepository(userId = null, feedbackRequestSession = testFeedbackSession)
+        var requestCount = 0
+        var completionError: Throwable? = null
+        val feedback = object : UserFeedbackRepository {
+            override suspend fun requestMedia(session: FeedbackRequestSession, title: String, mediaType: String, year: Int?, notes: String?): Result<Unit> {
+                requestCount++
+                return Result.success(Unit)
+            }
+            override suspend fun reportPlaybackIssue(session: FeedbackRequestSession, itemId: String, category: String, description: String?) = Result.success(Unit)
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(FakeMediaRepository()), sessionRepository,
+            FakeNetworkMonitor(), FakeAuthRepository(), feedback,
+        )
+        runCurrent()
+
+        viewModel.requestMedia("Duna", "Filme", null, "") { completionError = it.exceptionOrNull() }
+        sessionRepository.setFeedbackRequestSession(
+            testFeedbackSession.copy(serverUrl = "http://new-server.test:8096", accessToken = "new-token", userId = "new-user"),
+        )
+        runCurrent()
+
+        assertEquals(0, requestCount)
+        assertTrue(completionError?.message?.contains("A sessão mudou") == true)
+        advanceUntilIdle()
     }
 
     @Test fun `session expiry stops home loading without requesting content`() = runTest {
@@ -571,6 +621,40 @@ class HomeViewModelTest {
         assertFalse(viewModel.state.value.isLoading)
     }
 
+    @Test fun `offline home restores cached sections and exposes their stale timestamp`() = runTest {
+        val resume = MediaItem(id = "resume-1", name = "Continuar", type = MediaItemType.Movie)
+        val favorite = MediaItem(id = "favorite-1", name = "Favorito", type = MediaItemType.Series)
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                error("offline Home must not request server content")
+            }
+        }
+        val cache = object : HomeFeedCache {
+            override suspend fun read(userId: String) = CachedHomeSections(
+                resumeItems = listOf(resume),
+                favoriteItems = listOf(favorite),
+                resumeSavedAtEpochMillis = 123L,
+                favoritesSavedAtEpochMillis = 456L,
+            )
+            override suspend fun write(userId: String, resumeItems: List<MediaItem>?, favoriteItems: List<MediaItem>?) = Unit
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository, cache),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(initialOnline = false),
+            FakeAuthRepository(),
+        )
+
+        advanceUntilIdle()
+
+        assertEquals(listOf(resume), viewModel.state.value.resumeItems)
+        assertEquals(listOf(favorite), viewModel.state.value.favoriteItems)
+        assertEquals(123L, viewModel.state.value.cachedAtEpochMillis)
+        assertTrue(viewModel.state.value.resumeFromCache)
+        assertTrue(viewModel.state.value.favoritesFromCache)
+        assertTrue(viewModel.state.value.isOffline)
+    }
+
     @Test fun `refreshIfIdle does not cancel an active TV refresh`() = runTest {
         val responseRelease = CompletableDeferred<Unit>()
         var resumeCalls = 0
@@ -712,12 +796,18 @@ class HomeViewModelTest {
         fun setOnline(online: Boolean) { _isOnline.value = online }
     }
 
-    private class FakeSessionRepository(private val userId: String?) : SessionRepository {
+    private class FakeSessionRepository(
+        private val userId: String?,
+        feedbackRequestSession: FeedbackRequestSession? = null,
+    ) : SessionRepository {
         val userIdState = MutableStateFlow(userId)
+        private val feedbackRequestSessionState = MutableStateFlow(feedbackRequestSession)
+        fun setFeedbackRequestSession(session: FeedbackRequestSession) { feedbackRequestSessionState.value = session }
         override fun getAccessToken() = flowOf(null)
         override fun getDeviceId() = flowOf("home-test")
         override fun getBaseUrl() = flowOf("http://localhost:8096")
         override fun getCurrentUserId() = userIdState
+        override fun getFeedbackRequestSession() = feedbackRequestSessionState
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit
         override suspend fun setBaseUrl(url: String) = Unit
         override suspend fun clearSession() = Unit

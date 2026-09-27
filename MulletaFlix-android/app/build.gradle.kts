@@ -1,3 +1,6 @@
+import java.security.KeyStore
+import java.security.MessageDigest
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -5,6 +8,8 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
+
+val officialReleaseSignerSha256 = "224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273"
 
 android {
     namespace = "org.mulletaflix.android"
@@ -31,15 +36,9 @@ android {
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("KEY_ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
-            } else if (gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }) {
-                throw GradleException(
-                    "Release Android exige um keystore de producao. Defina " +
-                        "KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS e KEY_PASSWORD; " +
-                        "a chave de debug nunca pode ser usada em um artefato publicado."
-                )
             } else {
                 // Testes e builds Debug não precisam de uma credencial de distribuição.
-                // A tarefa de release acima permanece bloqueada sem a keystore de produção.
+                // A validação ligada ao empacotamento bloqueia release sem a keystore oficial.
                 initWith(getByName("debug"))
             }
         }
@@ -85,6 +84,73 @@ android {
     }
 }
 
+val verifyProductionSigningCertificate = tasks.register("verifyProductionSigningCertificate") {
+    group = "verification"
+    description = "Confirms the release keystore matches the official MulletaFlix signing certificate."
+
+    doLast {
+        val requiredValues = listOf(
+            "KEYSTORE_PATH" to System.getenv("KEYSTORE_PATH"),
+            "KEYSTORE_PASSWORD" to System.getenv("KEYSTORE_PASSWORD"),
+            "KEY_ALIAS" to System.getenv("KEY_ALIAS"),
+            "KEY_PASSWORD" to System.getenv("KEY_PASSWORD"),
+        )
+        val missingVariables = requiredValues.filter { it.second.isNullOrBlank() }.map { it.first }
+        if (missingVariables.isNotEmpty()) {
+            throw GradleException(
+                "Release Android exige todas as credenciais de produção. Ausentes: " +
+                    missingVariables.joinToString(", ")
+            )
+        }
+
+        val keystoreFile = file(System.getenv("KEYSTORE_PATH")!!)
+        if (!keystoreFile.isFile) {
+            throw GradleException("O arquivo definido em KEYSTORE_PATH não existe.")
+        }
+
+        val storePassword = System.getenv("KEYSTORE_PASSWORD")!!
+        val keyAlias = System.getenv("KEY_ALIAS")!!
+        var certificate: java.security.cert.Certificate? = null
+        var lastLoadFailure: Exception? = null
+        for (storeType in listOf("JKS", "PKCS12")) {
+            try {
+                val keyStore = KeyStore.getInstance(storeType)
+                keystoreFile.inputStream().use { keyStore.load(it, storePassword.toCharArray()) }
+                certificate = keyStore.getCertificate(keyAlias)
+                if (certificate != null) break
+            } catch (error: Exception) {
+                lastLoadFailure = error
+            }
+        }
+        val signingCertificate = certificate ?: throw GradleException(
+            "Não foi possível ler um certificado no alias configurado da keystore de produção.",
+            lastLoadFailure
+        )
+
+        val actualSignerSha256 = MessageDigest.getInstance("SHA-256")
+            .digest(signingCertificate.encoded)
+            .joinToString("") { "%02X".format(it.toInt() and 0xFF) }
+        if (!actualSignerSha256.equals(officialReleaseSignerSha256, ignoreCase = true)) {
+            throw GradleException(
+                "Certificado da keystore de produção incompatível. " +
+                    "Esperado $officialReleaseSignerSha256; obtido $actualSignerSha256."
+            )
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name in setOf(
+            "validateSigningRelease",
+            "packageRelease",
+            "packageReleaseBundle",
+            "packageReleaseUniversalApk",
+        )
+    ) {
+        dependsOn(verifyProductionSigningCertificate)
+    }
+}
+
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:api"))
@@ -105,6 +171,7 @@ dependencies {
 
     // Core
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)

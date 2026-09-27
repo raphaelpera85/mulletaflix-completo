@@ -1,11 +1,18 @@
 package org.mulletaflix.feature.itemdetail
 
 import android.content.res.Configuration
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -22,6 +29,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.mutableStateOf
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assume.assumeTrue
@@ -41,6 +49,14 @@ class SeriesSectionTest {
 
     @get:Rule
     val composeRule = createComposeRule()
+
+    private fun assumeTelevisionProfile() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val isTelevision =
+            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+                Configuration.UI_MODE_TYPE_TELEVISION
+        assumeTrue("D-pad focus behavior is specific to Android TV", isTelevision)
+    }
 
     @Test
     fun rendersEmptyStateInsteadOfCrashingWhenNoSeasonIsAvailable() {
@@ -141,7 +157,7 @@ class SeriesSectionTest {
                     onSeasonSelect = {},
                     onEpisodePlay = {},
                     onEpisodeClick = {},
-                    onDownloadSeason = { downloadRequests++ },
+                    onDownloadSeason = { downloadRequests++; 1L },
                 )
             }
         }
@@ -243,15 +259,78 @@ class SeriesSectionTest {
     }
 
     @Test
+    fun activeBatchRemainsVisibleAndCancellableAfterSwitchingSeasons() {
+        var cancelRequests = 0
+        var downloadRequests = 0
+        val selectedSeasonIndex = mutableStateOf(0)
+        val progress = mutableStateOf<SeasonDownloadProgress?>(null)
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                        org.mulletaflix.domain.model.MediaItem(
+                            "season-2", "Temporada 2", org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "episode-3", "Episódio", org.mulletaflix.domain.model.MediaItemType.Episode,
+                            indexNumber = 1, parentIndexNumber = 2,
+                        ),
+                    ),
+                    selectedSeasonIndex = selectedSeasonIndex.value,
+                    onSeasonSelect = { selectedSeasonIndex.value = it },
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                    seasonDownloadProgress = progress.value,
+                    onDownloadSeason = {
+                        downloadRequests++
+                        progress.value = SeasonDownloadProgress(
+                            seasonId = "season-1",
+                            seasonName = "Temporada 1",
+                            totalEpisodes = 3,
+                            processedEpisodes = 1,
+                            queuedEpisodes = 1,
+                            isRunning = true,
+                            operationId = 11L,
+                        )
+                        11L
+                    },
+                    onCancelSeasonDownload = { cancelRequests++ },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Baixar temporada").performClick()
+        composeRule.onNodeWithText("Temporada 2").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText("Temporada 2").assertIsSelected()
+        composeRule.onNodeWithText("Preparando 1/3").assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithText("Preparação em andamento para Temporada 1").assertIsDisplayed()
+        composeRule.onNodeWithText("Cancelar").assertIsDisplayed().assertIsEnabled().performClick()
+        org.junit.Assert.assertEquals(1, downloadRequests)
+        org.junit.Assert.assertEquals(1, cancelRequests)
+    }
+
+    @Test
     fun seasonDownloadAndCancelActionsCanBeFocusedAndActivatedWithTvDpad() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val isTelevision =
-            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-                Configuration.UI_MODE_TYPE_TELEVISION
-        assumeTrue("D-pad focus behavior is specific to Android TV", isTelevision)
+        assumeTelevisionProfile()
 
         var downloadRequests = 0
         var cancelRequests = 0
+        val progress = mutableStateOf<SeasonDownloadProgress?>(null)
+        val runningProgress = SeasonDownloadProgress(
+            seasonId = "season-1",
+            seasonName = "Temporada 1",
+            totalEpisodes = 2,
+            processedEpisodes = 1,
+            queuedEpisodes = 1,
+            isRunning = true,
+        )
         composeRule.setContent {
             MulletaFlixTheme {
                 SeriesSection(
@@ -270,16 +349,16 @@ class SeriesSectionTest {
                     onSeasonSelect = {},
                     onEpisodePlay = {},
                     onEpisodeClick = {},
-                    onDownloadSeason = { downloadRequests++ },
-                    seasonDownloadProgress = SeasonDownloadProgress(
-                        seasonId = "season-1",
-                        seasonName = "Temporada 1",
-                        totalEpisodes = 2,
-                        processedEpisodes = 1,
-                        queuedEpisodes = 1,
-                        isRunning = true,
-                    ),
-                    onCancelSeasonDownload = { cancelRequests++ },
+                    onDownloadSeason = {
+                        downloadRequests++
+                        progress.value = runningProgress.copy(operationId = 22L)
+                        22L
+                    },
+                    seasonDownloadProgress = progress.value,
+                    onCancelSeasonDownload = {
+                        cancelRequests++
+                        progress.value = null
+                    },
                 )
             }
         }
@@ -288,42 +367,141 @@ class SeriesSectionTest {
         selectedSeason.requestFocus()
         selectedSeason.assertIsFocused()
         selectedSeason.performKeyInput { pressKey(Key.DirectionDown) }
-        val cancelButton = composeRule.onNodeWithText("Cancelar")
-        cancelButton.assertIsFocused()
-        cancelButton.performKeyInput { pressKey(Key.DirectionCenter) }
-        org.junit.Assert.assertEquals(1, cancelRequests)
-
-        composeRule.setContent {
-            MulletaFlixTheme {
-                SeriesSection(
-                    seasons = listOf(
-                        org.mulletaflix.domain.model.MediaItem(
-                            "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
-                        ),
-                    ),
-                    episodes = listOf(
-                        org.mulletaflix.domain.model.MediaItem(
-                            "episode-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
-                            indexNumber = 1, parentIndexNumber = 1,
-                        ),
-                    ),
-                    selectedSeasonIndex = 0,
-                    onSeasonSelect = {},
-                    onEpisodePlay = {},
-                    onEpisodeClick = {},
-                    onDownloadSeason = { downloadRequests++ },
-                )
-            }
-        }
-
-        val selectedSeasonWithoutProgress = composeRule.onNodeWithText("Temporada 1")
-        selectedSeasonWithoutProgress.requestFocus()
-        selectedSeasonWithoutProgress.assertIsFocused()
-        selectedSeasonWithoutProgress.performKeyInput { pressKey(Key.DirectionDown) }
         val downloadButton = composeRule.onNodeWithText("Baixar temporada")
         downloadButton.assertIsFocused()
         downloadButton.performKeyInput { pressKey(Key.DirectionCenter) }
         org.junit.Assert.assertEquals(1, downloadRequests)
+        composeRule.waitForIdle()
+
+        val cancelButton = composeRule.onNodeWithText("Cancelar")
+        cancelButton.assertIsFocused()
+        cancelButton.performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(1, cancelRequests)
+        composeRule.onNodeWithText("Temporada 1").assertIsFocused()
+    }
+
+    @Test
+    fun externalInProgressDownloadDoesNotStealTvFocusOnEntry() {
+        assumeTelevisionProfile()
+        val entryFocusRequester = FocusRequester()
+        val showExternalProgress = mutableStateOf(false)
+        val progress = SeasonDownloadProgress(
+            seasonId = "season-1",
+            seasonName = "Temporada 1",
+            totalEpisodes = 2,
+            processedEpisodes = 1,
+            queuedEpisodes = 1,
+            isRunning = true,
+        )
+
+        composeRule.setContent {
+            MulletaFlixTheme {
+                Column {
+                    Button(
+                        onClick = {},
+                        modifier = Modifier.focusRequester(entryFocusRequester),
+                    ) { Text("Outra ação") }
+                    if (showExternalProgress.value) {
+                        SeriesSection(
+                            seasons = listOf(
+                                org.mulletaflix.domain.model.MediaItem(
+                                    "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                                ),
+                            ),
+                            episodes = listOf(
+                                org.mulletaflix.domain.model.MediaItem(
+                                    "episode-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                                    indexNumber = 1, parentIndexNumber = 1,
+                                ),
+                            ),
+                            selectedSeasonIndex = 0,
+                            onSeasonSelect = {},
+                            onEpisodePlay = {},
+                            onEpisodeClick = {},
+                            seasonDownloadProgress = progress,
+                        )
+                    }
+                }
+            }
+        }
+
+        val otherAction = composeRule.onNodeWithText("Outra ação")
+        otherAction.requestFocus()
+        composeRule.waitForIdle()
+        otherAction.assertIsFocused()
+        composeRule.runOnIdle { showExternalProgress.value = true }
+        composeRule.waitForIdle()
+        otherAction.assertIsFocused()
+        composeRule.onNodeWithText("Cancelar").assertIsNotFocused()
+    }
+
+    @Test
+    fun completedLocalBatchDoesNotLetLaterExternalBatchStealTvFocus() {
+        assumeTelevisionProfile()
+
+        val entryFocusRequester = FocusRequester()
+        val progress = mutableStateOf<SeasonDownloadProgress?>(null)
+        composeRule.setContent {
+            MulletaFlixTheme {
+                Column {
+                    Button(
+                        onClick = {},
+                        modifier = Modifier.focusRequester(entryFocusRequester),
+                    ) { Text("Outra ação") }
+                    SeriesSection(
+                        seasons = listOf(
+                            org.mulletaflix.domain.model.MediaItem(
+                                "season-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                            ),
+                        ),
+                        episodes = listOf(
+                            org.mulletaflix.domain.model.MediaItem(
+                                "episode-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                                indexNumber = 1, parentIndexNumber = 1,
+                            ),
+                        ),
+                        selectedSeasonIndex = 0,
+                        onSeasonSelect = {},
+                        onEpisodePlay = {},
+                        onEpisodeClick = {},
+                        seasonDownloadProgress = progress.value,
+                        onDownloadSeason = {
+                            progress.value = SeasonDownloadProgress(
+                                seasonId = "season-1",
+                                seasonName = "Temporada 1",
+                                totalEpisodes = 1,
+                                processedEpisodes = 1,
+                                isRunning = false,
+                                operationId = 31L,
+                            )
+                            31L
+                        },
+                    )
+                }
+            }
+        }
+
+        val otherAction = composeRule.onNodeWithText("Outra ação")
+        otherAction.requestFocus()
+        composeRule.waitForIdle()
+        otherAction.assertIsFocused()
+        composeRule.onNodeWithText("Baixar temporada").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle {
+            progress.value = SeasonDownloadProgress(
+                seasonId = "season-1",
+                seasonName = "Temporada 1",
+                totalEpisodes = 1,
+                processedEpisodes = 0,
+                isRunning = true,
+                operationId = 32L,
+            )
+        }
+        composeRule.waitForIdle()
+        otherAction.assertIsFocused()
+        composeRule.onNodeWithText("Cancelar").assertIsNotFocused()
     }
 
     /**

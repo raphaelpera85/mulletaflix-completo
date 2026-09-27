@@ -1,8 +1,10 @@
 package org.mulletaflix.feature.player
 
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.Lifecycle
+import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
@@ -18,38 +20,50 @@ class PlayerBackgroundPlaybackTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun playRequestRemainsActiveOnPauseThenClearsWhenActivityStops() = verifyPlayRequestWhenActivityStops(
+    fun activeMediaKeepsPlayingOnPauseThenPausesWhenActivityStops() = verifyPlayRequestWhenActivityStops(
         beforeStop = {
             composeRule.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
-            assertTrue("Pause without stop must preserve the player's play request", isPlayWhenReady(it))
+            assertTrue("Pause without stop must preserve active media playback", isPlaying(it))
         },
     )
 
     @Test
-    fun playRequestClearsWhenActivityMovesDirectlyToStoppedState() = verifyPlayRequestWhenActivityStops()
+    fun activeMediaPausesWhenActivityMovesDirectlyToStoppedState() = verifyPlayRequestWhenActivityStops()
 
     private fun verifyPlayRequestWhenActivityStops(beforeStop: (ExoPlayer) -> Unit = {}) {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val mediaFile = PlayerTestMedia.createSilentWav(context)
         val player = AtomicReference<ExoPlayer>()
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            player.set(ExoPlayer.Builder(ApplicationProvider.getApplicationContext()).build().apply { play() })
+            player.set(
+                ExoPlayer.Builder(context).build().apply {
+                    volume = 0f
+                    setMediaItem(MediaItem.fromUri(Uri.fromFile(mediaFile)))
+                    prepare()
+                    play()
+                },
+            )
         }
 
         try {
             composeRule.setContent { PausePlaybackWhenActivityStops { player.get().pause() } }
             composeRule.waitForIdle()
             val activePlayer = checkNotNull(player.get())
+            composeRule.waitUntil(timeoutMillis = 10_000) { isPlaying(activePlayer) }
             beforeStop(activePlayer)
             composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+            composeRule.waitUntil(timeoutMillis = 5_000) { !isPlaying(activePlayer) }
 
-            assertFalse("Stopping the host Activity must clear the player's play request", isPlayWhenReady(activePlayer))
+            assertFalse("Stopping the host Activity must pause active media playback", isPlaying(activePlayer))
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync { player.getAndSet(null)?.release() }
+            mediaFile.delete()
         }
     }
 
-    private fun isPlayWhenReady(player: ExoPlayer): Boolean {
+    private fun isPlaying(player: ExoPlayer): Boolean {
         val result = AtomicBoolean()
-        InstrumentationRegistry.getInstrumentation().runOnMainSync { result.set(player.playWhenReady) }
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { result.set(player.isPlaying) }
         return result.get()
     }
 }

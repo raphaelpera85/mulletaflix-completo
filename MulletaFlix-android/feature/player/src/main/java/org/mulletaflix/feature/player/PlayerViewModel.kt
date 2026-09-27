@@ -73,6 +73,7 @@ data class TrackInfo(
     val isDefault: Boolean = false,
     val isForced: Boolean = false,
     val isExternal: Boolean = false,
+    val isCastSupported: Boolean = false,
 )
 
 data class NextEpisodeInfo(
@@ -128,6 +129,10 @@ data class PlayerState(
      */
     val nextEpisodePromptDismissed: Boolean = false,
     val error: String? = null,
+    val isReportingPlaybackIssue: Boolean = false,
+    val playbackIssueReportSent: Boolean = false,
+    val playbackIssueReportQueued: Boolean = false,
+    val playbackIssueReportMessage: String? = null,
     val aspectRatio: VideoAspectRatio = VideoAspectRatio.FIT,
     val isControlsLocked: Boolean = false,
     val estimatedEndTime: String? = null,
@@ -190,6 +195,7 @@ class PlayerViewModel @Inject constructor(
     private val getNextEpisodeUseCase: GetNextEpisodeUseCase,
     private val manageDownloadsUseCase: ManageDownloadsUseCase,
     private val networkMonitor: NetworkMonitor,
+    private val playbackIssueReporter: PlaybackIssueReporter,
     @param:ApplicationScope private val teardownScope: CoroutineScope,
 ) : ViewModel() {
 
@@ -424,6 +430,7 @@ class PlayerViewModel @Inject constructor(
         .setLocalPlayer(localPlayer)
         .setRemotePlayer(
             androidx.media3.cast.RemoteCastPlayer.Builder(context)
+                .setMediaItemConverter(ExternalCastSubtitleMediaItemConverter())
                 .setTrackSelector(MulletaFlixCastTrackSelector())
                 .build(),
         )
@@ -535,8 +542,7 @@ class PlayerViewModel @Inject constructor(
     private var currentSubtitleStreamIndices: List<Int> = emptyList()
     private var currentSubtitleStreams: List<MediaStream> = emptyList()
     private var currentExternalSubtitleStreamIndices: Set<Int> = emptySet()
-    private var attachedExternalSubtitleStreamIndex: Int? = null
-    private var subtitleSelectionGeneration = 0L
+    private var currentCastSubtitleServerIndicesByUrl: Map<String, Int> = emptyMap()
     private var localPlaybackKey: String? = null
     private var legacyLocalPlaybackKey: String? = null
     private var lastLocalPositionPersistedAt = 0L
@@ -714,7 +720,7 @@ class PlayerViewModel @Inject constructor(
         currentSubtitleStreamIndex = null
         currentSubtitleStreams = emptyList()
         currentExternalSubtitleStreamIndices = emptySet()
-        attachedExternalSubtitleStreamIndex = null
+        currentCastSubtitleServerIndicesByUrl = emptyMap()
         playbackAudioStreamIndex = null
         playbackSubtitleStreamIndex = null
         playbackSubtitlesDisabled = false
@@ -848,28 +854,8 @@ class PlayerViewModel @Inject constructor(
                 preferredLanguage = preferredAudioLanguage,
                 serverDefaultIndex = mediaSource.defaultAudioStreamIndex,
             )
-            val preferredSubtitleStreamIndex = preferredStreamIndex(
-                streams = subtitleStreamsForPreferredPlayback(
-                    subtitleStreams,
-                    isCasting = _state.value.isCasting,
-                ),
-                preferredLanguage = preferredSubtitleLanguage,
-                serverDefaultIndex = mediaSource.defaultSubtitleStreamIndex,
-            )
             pendingAudioStreamIndex = preferredAudioStreamIndex
-            pendingSubtitleStreamIndex = preferredSubtitleStreamIndex
             currentAudioStreamIndex = preferredAudioStreamIndex
-            currentSubtitleStreamIndex = preferredSubtitleStreamIndex
-            val recoverySelection = trackRecoverySelection(
-                audioStreamIndex = preferredAudioStreamIndex,
-                subtitleStreamIndex = preferredSubtitleStreamIndex,
-                subtitlesDisabled = preferredSubtitleLanguage.equals("off", ignoreCase = true) ||
-                    preferredSubtitleLanguage.equals("none", ignoreCase = true),
-            )
-            playbackAudioStreamIndex = recoverySelection.audioStreamIndex
-            playbackSubtitleStreamIndex = recoverySelection.subtitleStreamIndex
-            playbackSubtitlesDisabled = recoverySelection.subtitlesDisabled
-            pendingSubtitlesDisabled = playbackSubtitlesDisabled
 
             // Server indices of each type, in container order. Selection maps a
             // server index to its position here, because the container's own
@@ -881,13 +867,37 @@ class PlayerViewModel @Inject constructor(
                 isCasting = _state.value.isCasting,
                 isOfflinePlayback = isOfflinePlayback,
             )
-            currentExternalSubtitleStreamIndices = playableExternalSubtitles
-                .mapTo(mutableSetOf()) { it.index }
+            val externalSubtitleConfigurations = playableExternalSubtitles.mapNotNull { stream ->
+                createExternalSubtitleConfiguration(itemId, mediaSource.id, stream)
+                    ?.let { stream.index to it }
+            }.toMap()
+            currentExternalSubtitleStreamIndices = externalSubtitleConfigurations.keys
+            currentCastSubtitleServerIndicesByUrl = castSubtitleServerIndicesByUrl(externalSubtitleConfigurations)
+            val castSupportedExternalSubtitleIndices = currentCastSubtitleServerIndicesByUrl.values.toSet()
+            val preferredSubtitleStreamIndex = preferredStreamIndex(
+                streams = subtitleStreamsForPreferredPlayback(
+                    streams = subtitleStreams,
+                    isCasting = _state.value.isCasting,
+                    castSupportedExternalStreamIndices = castSupportedExternalSubtitleIndices,
+                ),
+                preferredLanguage = preferredSubtitleLanguage,
+                serverDefaultIndex = mediaSource.defaultSubtitleStreamIndex,
+            )
+            pendingSubtitleStreamIndex = preferredSubtitleStreamIndex
+            currentSubtitleStreamIndex = preferredSubtitleStreamIndex
+            val recoverySelection = trackRecoverySelection(
+                audioStreamIndex = preferredAudioStreamIndex,
+                subtitleStreamIndex = preferredSubtitleStreamIndex,
+                subtitlesDisabled = preferredSubtitleLanguage.equals("off", ignoreCase = true) ||
+                    preferredSubtitleLanguage.equals("none", ignoreCase = true),
+            )
+            playbackAudioStreamIndex = recoverySelection.audioStreamIndex
+            playbackSubtitleStreamIndex = recoverySelection.subtitleStreamIndex
+            playbackSubtitlesDisabled = recoverySelection.subtitlesDisabled
+            pendingSubtitlesDisabled = playbackSubtitlesDisabled
             currentSubtitleStreamIndices = orderedStreamIndices(
                 subtitleStreams.filterNot { it.isExternal }.map { it.index },
             )
-            attachedExternalSubtitleStreamIndex = null
-
             val subtitleTracks = subtitleStreams
                 .filter { !it.isExternal || it.index in currentExternalSubtitleStreamIndices }
                 .mapIndexed { i, stream ->
@@ -903,6 +913,7 @@ class PlayerViewModel @Inject constructor(
                         isDefault = stream.isDefault,
                         isForced = stream.isForced,
                         isExternal = stream.isExternal,
+                        isCastSupported = !stream.isExternal || stream.index in castSupportedExternalSubtitleIndices,
                     )
                 }
 
@@ -980,21 +991,18 @@ class PlayerViewModel @Inject constructor(
                 preferredStreamIndex = preferredSubtitleStreamIndex,
             )
             val selectedSubtitleConfiguration = selectedExternalSubtitle?.let {
-                createExternalSubtitleConfiguration(itemId, mediaSource.id, it)
+                externalSubtitleConfigurations[it.index]
             }
             if (selectedExternalSubtitle != null && selectedSubtitleConfiguration == null) {
                 showLoadError("Não foi possível preparar a legenda externa selecionada.", loadGeneration)
                 return@launch
             }
-            attachedExternalSubtitleStreamIndex = selectedExternalSubtitle?.index
             val mediaItemBuilder = Media3Item.Builder()
                 .setUri(streamUrl)
                 .setMediaId(itemId)
                 .setMimeType(playbackMimeType(mediaSource.container, streamUrl))
                 .setMediaMetadata(mediaMetadata)
-            selectedSubtitleConfiguration?.let {
-                mediaItemBuilder.setSubtitleConfigurations(listOf(it))
-            }
+            mediaItemBuilder.setSubtitleConfigurations(externalSubtitleConfigurations.values.toList())
             val mediaItem = mediaItemBuilder.build()
 
             if (!isCurrentPlaybackLoad(loadGeneration, playbackLoadGeneration, itemId, currentItemId, sessionAtLoad, sessionGeneration)) return@launch
@@ -1058,7 +1066,7 @@ class PlayerViewModel @Inject constructor(
         isOfflinePlayback = true
         currentSubtitleStreams = emptyList()
         currentExternalSubtitleStreamIndices = emptySet()
-        attachedExternalSubtitleStreamIndex = null
+        currentCastSubtitleServerIndicesByUrl = emptyMap()
         currentPlaySessionId = null
         currentMediaSourceId = null
         localPlaybackKey = null
@@ -1100,6 +1108,23 @@ class PlayerViewModel @Inject constructor(
             val currentDownload = downloadId?.let { id ->
                 downloadedEpisodes.firstOrNull { entry -> entry.id == id && entry.uri == uri }
             }
+            val offlineTitle = offlineMediaNotificationTitle(title, currentDownload?.episodeMetadata)
+            _state.update { it.copy(title = offlineTitle) }
+            val offlineSubtitleConfigurations = currentDownload?.offlineSubtitles.orEmpty().mapNotNull { subtitle ->
+                val trackIndex = offlineSubtitleTrackIndex(subtitle.streamIndex) ?: return@mapNotNull null
+                buildExternalSubtitleConfiguration(
+                    serverIndex = trackIndex,
+                    subtitleUrl = subtitle.uri,
+                    mimeType = subtitle.mimeType,
+                    language = subtitle.language,
+                    label = subtitle.label,
+                    isDefault = subtitle.isDefault,
+                    isForced = subtitle.isForced,
+                )
+            }
+            currentExternalSubtitleStreamIndices = offlineSubtitleConfigurations.mapNotNullTo(mutableSetOf()) {
+                externalSubtitleServerIndex(it.id)
+            }
             val nextDownloadedEpisode = nextCompletedDownloadedEpisode(currentDownload, downloadedEpisodes)
                 ?.let { entry ->
                     NextEpisodeInfo(
@@ -1140,9 +1165,10 @@ class PlayerViewModel @Inject constructor(
                     .setUri(uri)
                     .setMediaMetadata(
                         MediaMetadata.Builder()
-                            .setTitle(title)
+                            .setTitle(offlineTitle)
                             .build(),
                     )
+                    .setSubtitleConfigurations(offlineSubtitleConfigurations)
                     .build(),
             )
             player.prepare()
@@ -1245,6 +1271,58 @@ class PlayerViewModel @Inject constructor(
     /** Pause playback when the Android TV activity is sent to the background. */
     fun pausePlayback() {
         if (player.isPlaying || player.playWhenReady) player.pause()
+    }
+
+    /** Sends the current playback failure with the authenticated session active at submit time. */
+    fun reportPlaybackIssue(
+        category: String = "Falha na reprodução",
+        description: String? = _state.value.error,
+    ) {
+        val itemIdAtSubmit = currentItemId ?: return
+        val offlineAtSubmit = isOfflinePlayback
+        if (_state.value.isReportingPlaybackIssue || _state.value.playbackIssueReportSent || _state.value.playbackIssueReportQueued) return
+
+        _state.update {
+            it.copy(isReportingPlaybackIssue = true, playbackIssueReportMessage = null)
+        }
+        val reportDescription = description?.trim()?.take(1_000)?.ifBlank { null }
+        viewModelScope.launch {
+            try {
+                val result = if (offlineAtSubmit) {
+                    playbackIssueReporter.queueOffline(itemIdAtSubmit, category, reportDescription)
+                } else {
+                    playbackIssueReporter.submit(itemIdAtSubmit, category, reportDescription)
+                }
+                result.exceptionOrNull()?.let { throw it }
+                if (currentItemId == itemIdAtSubmit) {
+                    _state.update {
+                        it.copy(
+                            playbackIssueReportSent = !offlineAtSubmit,
+                            playbackIssueReportQueued = offlineAtSubmit,
+                            playbackIssueReportMessage = if (offlineAtSubmit) {
+                                "Relato salvo. Será enviado quando houver conexão com o servidor."
+                            } else {
+                                "Relato enviado. Obrigado pelo aviso."
+                            },
+                        )
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (currentItemId == itemIdAtSubmit) {
+                    _state.update {
+                        it.copy(
+                            playbackIssueReportMessage = playbackIssueReportFailureMessage(failure),
+                        )
+                    }
+                }
+            } finally {
+                if (currentItemId == itemIdAtSubmit) {
+                    _state.update { it.copy(isReportingPlaybackIssue = false) }
+                }
+            }
+        }
     }
 
     fun seekTo(positionMs: Long) {
@@ -1434,13 +1512,8 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun selectSubtitle(index: Int) {
-        subtitleSelectionGeneration++
         val preferenceScope = currentMediaPreferenceScope
         if (index < 0) {
-            if (attachedExternalSubtitleStreamIndex != null && !_state.value.isCasting) {
-                replaceSubtitleConfiguration(stream = null, serverIndex = null)
-                return
-            }
             if (!selectTrackByServerIndex(-1, C.TRACK_TYPE_TEXT)) return
             _state.update { it.copy(selectedSubtitleIndex = index) }
             currentSubtitleStreamIndex = null
@@ -1454,18 +1527,17 @@ class PlayerViewModel @Inject constructor(
         val track = _state.value.subtitleTracks.getOrNull(index) ?: return
         val serverIndex = track.index
         if (track.isExternal) {
-            if (_state.value.isCasting || isOfflinePlayback) return
-            if (attachedExternalSubtitleStreamIndex == serverIndex) {
-                if (!selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_TEXT)) return
-                updateSelectedSubtitle(serverIndex)
-            } else {
-                val stream = currentSubtitleStreams.firstOrNull { it.index == serverIndex } ?: return
-                replaceSubtitleConfiguration(stream, serverIndex)
+            if (isOfflinePlayback && serverIndex !in currentExternalSubtitleStreamIndices) return
+            if (!selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_TEXT)) return
+            updateSelectedSubtitle(serverIndex)
+            currentSubtitleStreamIndex = serverIndex
+            playbackSubtitleStreamIndex = serverIndex
+            playbackSubtitlesDisabled = false
+            viewModelScope.launch {
+                persistableTrackLanguage(track.language)?.let {
+                    preferenceScope?.let { scope -> settingsRepository.setPreferredSubtitleLanguage(scope, it) }
+                }
             }
-            return
-        }
-        if (attachedExternalSubtitleStreamIndex != null && !_state.value.isCasting) {
-            replaceSubtitleConfiguration(stream = null, serverIndex = serverIndex)
             return
         }
         if (!selectTrackByServerIndex(serverIndex, C.TRACK_TYPE_TEXT)) return
@@ -1583,6 +1655,8 @@ class PlayerViewModel @Inject constructor(
                             isDefault = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
                             isForced = format.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
                             isSelected = group.isTrackSelected(trackIndex),
+                            formatId = format.id,
+                            label = format.label,
                         ),
                     )
                 }
@@ -1602,7 +1676,10 @@ class PlayerViewModel @Inject constructor(
         val subtitles = offlineTrackInfos(offlineSubtitles, "Legenda")
 
         currentAudioStreamIndices = offlineStreamIndices(audio.size)
-        currentSubtitleStreamIndices = offlineStreamIndices(subtitles.size)
+        val embeddedSubtitleCount = offlineSubtitles.count { externalSubtitleServerIndex(it.formatId) == null }
+        currentSubtitleStreamIndices = offlineStreamIndices(embeddedSubtitleCount)
+        currentExternalSubtitleStreamIndices = offlineSubtitles
+            .mapNotNullTo(mutableSetOf()) { externalSubtitleServerIndex(it.formatId) }
         _state.update {
             it.copy(
                 audioTracks = audio,
@@ -1610,11 +1687,7 @@ class PlayerViewModel @Inject constructor(
                 // Mark what is actually playing, and keep an explicit "no
                 // subtitles" choice from reverting to the container's default.
                 selectedAudioIndex = selectedOfflineTrackIndex(offlineAudio),
-                selectedSubtitleIndex = if (it.selectedSubtitleIndex < 0) {
-                    selectedOfflineTrackIndex(offlineSubtitles)
-                } else {
-                    it.selectedSubtitleIndex
-                },
+                selectedSubtitleIndex = offlineSubtitleSelectionIndex(offlineSubtitles, playbackSubtitlesDisabled),
             )
         }
     }
@@ -1658,7 +1731,7 @@ class PlayerViewModel @Inject constructor(
                     it.selectedAudioIndex
                 },
                 selectedSubtitleIndex = if (needSubtitles && containerSubtitles.isNotEmpty()) {
-                    if (it.selectedSubtitleIndex < 0) selectedOfflineTrackIndex(containerSubtitles) else it.selectedSubtitleIndex
+                    offlineSubtitleSelectionIndex(containerSubtitles, playbackSubtitlesDisabled)
                 } else {
                     it.selectedSubtitleIndex
                 },
@@ -1694,7 +1767,10 @@ class PlayerViewModel @Inject constructor(
                     .filter(group::isTrackSupported)
                     .map { trackIndex -> group to trackIndex }
             }.firstOrNull { (group, trackIndex) ->
-                externalSubtitleServerIndex(group.mediaTrackGroup.getFormat(trackIndex).id) == index
+                externalSubtitleServerIndex(
+                    group.mediaTrackGroup.getFormat(trackIndex).id,
+                    currentCastSubtitleServerIndicesByUrl,
+                ) == index
             } ?: return false
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
@@ -2086,62 +2162,6 @@ class PlayerViewModel @Inject constructor(
             isDefault = stream.isDefault,
             isForced = stream.isForced,
         )
-    }
-
-    private fun replaceSubtitleConfiguration(stream: MediaStream?, serverIndex: Int?) {
-        if (_state.value.isCasting || isOfflinePlayback) return
-        val mediaItem = localPlayer.currentMediaItem ?: return
-        val itemId = currentItemId ?: return
-        val generation = playbackLoadGeneration
-        val selectionGeneration = subtitleSelectionGeneration
-        val preferenceScope = currentMediaPreferenceScope
-        viewModelScope.launch {
-            val configuration = stream?.let {
-                createExternalSubtitleConfiguration(itemId, currentMediaSourceId, it)
-            }
-            if (generation != playbackLoadGeneration ||
-                selectionGeneration != subtitleSelectionGeneration ||
-                _state.value.isCasting || isOfflinePlayback || currentItemId != itemId ||
-                localPlayer.currentMediaItem?.mediaId != mediaItem.mediaId
-            ) return@launch
-            if (stream != null && configuration == null) {
-                _state.update { it.copy(error = "Não foi possível carregar esta legenda externa.") }
-                return@launch
-            }
-
-            val latestMediaItem = localPlayer.currentMediaItem ?: return@launch
-            val position = localPlayer.currentPosition.coerceAtLeast(0L)
-            val resumePlayback = localPlayer.playWhenReady
-
-            pendingSubtitleStreamIndex = serverIndex
-            pendingSubtitlesDisabled = serverIndex == null
-            attachedExternalSubtitleStreamIndex = stream?.index
-            currentSubtitleStreamIndex = serverIndex
-            playbackSubtitleStreamIndex = serverIndex
-            playbackSubtitlesDisabled = serverIndex == null
-            val updatedItem = latestMediaItem.buildUpon()
-                .setSubtitleConfigurations(configuration?.let(::listOf) ?: emptyList())
-                .build()
-            localPlayer.setMediaItem(updatedItem, position)
-            localPlayer.prepare()
-            if (resumePlayback) localPlayer.play()
-
-            if (serverIndex == null) {
-                currentSubtitleStreamIndex = null
-                playbackSubtitleStreamIndex = null
-                viewModelScope.launch {
-                    preferenceScope?.let { settingsRepository.setPreferredSubtitleLanguage(it, "off") }
-                }
-            } else {
-                val selectedTrack = _state.value.subtitleTracks.firstOrNull { it.index == serverIndex }
-                viewModelScope.launch {
-                    persistableTrackLanguage(selectedTrack?.language)?.let {
-                        preferenceScope?.let { scope -> settingsRepository.setPreferredSubtitleLanguage(scope, it) }
-                    }
-                }
-            }
-            _state.update { it.copy(error = null) }
-        }
     }
 
     private fun updateSelectedSubtitle(serverIndex: Int) {

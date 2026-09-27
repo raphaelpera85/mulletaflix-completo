@@ -452,6 +452,15 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(result.totalRecordCount, 1)
     }
 
+    func testBookSearchResultDecodesAndroidContract() throws {
+        let data = #"{"Items":[{"Id":"book-1","Name":"O Hobbit","Type":"Book"}],"TotalRecordCount":1}"#.data(using: .utf8)!
+        let result = try JSONDecoder().decode(ItemQueryResult.self, from: data)
+        XCTAssertEqual(result.items.first?.id, "book-1")
+        XCTAssertEqual(result.items.first?.name, "O Hobbit")
+        XCTAssertEqual(result.items.first?.type, "Book")
+        XCTAssertEqual(result.totalRecordCount, 1)
+    }
+
     func testSearchFilterQueryKeepsIncludeItemTypes() async throws {
         let client = APIClient(serverURL: try XCTUnwrap(URL(string: "https://example.test")))
         let url = await client.url(forPath: "Users/user/Items?SearchTerm=batman&IncludeItemTypes=Movie")
@@ -476,8 +485,18 @@ final class ModelTests: XCTestCase {
 
     func testUniversalSearchFiltersMapToServerItemTypes() {
         XCTAssertEqual(SearchFilter.music.includeItemTypes, "Audio")
+        XCTAssertEqual(SearchFilter.books.includeItemTypes, "Book")
         XCTAssertEqual(SearchFilter.people.includeItemTypes, "Person")
-        XCTAssertEqual(SearchFilter.allCases.map(\.title), ["Tudo", "Filmes", "Séries", "Episódios", "Músicas", "Pessoas"])
+        XCTAssertEqual(SearchFilter.allCases.map(\.title), ["Tudo", "Filmes", "Séries", "Episódios", "Músicas", "Livros", "Pessoas"])
+    }
+
+    func testMediaPlaceholderPolicyKeepsTypeSpecificSymbols() {
+        XCTAssertEqual(MediaPlaceholderPolicy.symbol(for: "Book"), "book.closed")
+        XCTAssertEqual(MediaPlaceholderPolicy.symbol(for: "AudioBook"), "book.closed")
+        XCTAssertEqual(MediaPlaceholderPolicy.symbol(for: "Audio"), "music.note")
+        XCTAssertEqual(MediaPlaceholderPolicy.symbol(for: "Person"), "person")
+        XCTAssertEqual(MediaPlaceholderPolicy.symbol(for: "Movie"), "film")
+        XCTAssertEqual(MediaPlaceholderPolicy.symbol(for: nil), "film")
     }
 
 

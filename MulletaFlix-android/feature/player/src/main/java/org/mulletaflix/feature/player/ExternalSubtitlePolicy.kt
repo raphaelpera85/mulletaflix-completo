@@ -6,6 +6,7 @@ import androidx.media3.common.MediaItem
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.retargetMediaUrl
 import java.net.URI
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
@@ -25,6 +26,31 @@ internal fun externalSubtitleMimeType(codec: String?, deliveryUrl: String?): Str
         else -> null
     }
 }
+
+/** Text subtitle formats accepted by the default Cast receiver. */
+internal fun castSubtitleContentType(media3MimeType: String?): String? = when (media3MimeType?.lowercase()) {
+    "text/vtt" -> "text/vtt"
+    "application/ttml+xml" -> "application/ttml+xml"
+    else -> null
+}
+
+internal fun castSubtitleTrackId(serverIndex: Int): Long? =
+    serverIndex.takeIf { it >= 0 }?.let { CAST_SUBTITLE_TRACK_ID_PREFIX + it }
+
+internal fun castSubtitleServerIndicesByUrl(
+    configurations: Map<Int, MediaItem.SubtitleConfiguration>,
+): Map<String, Int> = configurations.mapNotNull { (serverIndex, configuration) ->
+    if (castSubtitleContentType(configuration.mimeType) == null || castSubtitleTrackId(serverIndex) == null) {
+        return@mapNotNull null
+    }
+    configuration.uri.toString()
+        .takeIf(String::isNotBlank)
+        ?.let { url -> url to serverIndex }
+}.groupBy({ it.first }, { it.second })
+    .filterValues { indices -> indices.size == 1 }
+    .mapValues { (_, indices) -> indices.single() }
+
+private const val CAST_SUBTITLE_TRACK_ID_PREFIX = 0x4D554C4C00000000L
 
 /** Builds the exact fallback route already declared by [MulletaFlixApiService]. */
 internal fun externalSubtitleStreamPath(
@@ -64,19 +90,35 @@ internal fun resolveExternalSubtitleUrl(
         retargetMediaUrl(normalizedUrl, baseUrl, accessToken)
     } else {
         val uri = runCatching { URI(normalizedUrl) }.getOrNull() ?: return null
-        val sensitive = setOf("api_key", "x-emby-token", "access_token", "token")
-        if (uri.rawUserInfo != null || uri.rawQuery.orEmpty().split('&').any { pair ->
-                pair.substringBefore('=').lowercase() in sensitive
-            }
-        ) null else normalizedUrl
+        if (uri.rawUserInfo != null || hasCredentialQueryParameter(uri.rawQuery)) null else normalizedUrl
     }
 }
+
+private fun hasCredentialQueryParameter(rawQuery: String?): Boolean = rawQuery.orEmpty()
+    .split('&')
+    .asSequence()
+    .map { it.substringBefore('=') }
+    .map { rawName -> runCatching { URLDecoder.decode(rawName, StandardCharsets.UTF_8.name()) }.getOrDefault(rawName) }
+    .map { name -> name.lowercase().filter(Char::isLetterOrDigit) }
+    .any { name ->
+        name in CREDENTIAL_PARAMETER_NAMES ||
+            listOf("token", "secret", "credential", "password", "authorization").any(name::contains)
+    }
+
+private val CREDENTIAL_PARAMETER_NAMES = setOf(
+    "apikey", "accesskey", "auth", "authkey", "key", "session", "sessionid", "ticket",
+)
 
 private const val EXTERNAL_SUBTITLE_ID_PREFIX = "mullet-external:"
 
 internal fun externalSubtitleServerIndex(formatId: String?): Int? =
     formatId?.takeIf { it.startsWith(EXTERNAL_SUBTITLE_ID_PREFIX) }
         ?.removePrefix(EXTERNAL_SUBTITLE_ID_PREFIX)?.toIntOrNull()?.takeIf { it >= 0 }
+
+internal fun externalSubtitleServerIndex(
+    formatId: String?,
+    castSubtitleServerIndicesByUrl: Map<String, Int>,
+): Int? = castSubtitleServerIndicesByUrl[formatId] ?: externalSubtitleServerIndex(formatId)
 
 internal fun buildExternalSubtitleConfiguration(
     serverIndex: Int,

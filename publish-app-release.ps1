@@ -72,6 +72,17 @@ if (-not $ApkPath) {
     $ApkPath = Join-Path $projectRoot "dist\mulletaflix-app-v$Version.apk"
 }
 
+$resolvedApkPath = if ([System.IO.Path]::IsPathRooted($ApkPath)) { $ApkPath } else { Join-Path $projectRoot $ApkPath }
+if (-not (Test-Path -LiteralPath $resolvedApkPath)) {
+    throw "Arquivo APK não encontrado: $resolvedApkPath"
+}
+
+$signatureVerifier = Join-Path $projectRoot 'tools\Assert-AndroidApkSignature.ps1'
+if (-not (Test-Path -LiteralPath $signatureVerifier)) {
+    throw "Validador de assinatura Android não encontrado: $signatureVerifier"
+}
+& $signatureVerifier -ApkPath $resolvedApkPath
+
 # 1. Get token from git credential helper
 $token = $env:GITHUB_TOKEN
 if (-not $token) {
@@ -143,11 +154,6 @@ if ($existingRelease) {
 }
 
 # 3. Upload APK asset
-$resolvedApkPath = if ([System.IO.Path]::IsPathRooted($ApkPath)) { $ApkPath } else { Join-Path $projectRoot $ApkPath }
-if (-not (Test-Path -LiteralPath $resolvedApkPath)) {
-    throw "Arquivo APK não encontrado em: $resolvedApkPath"
-}
-
 $apkItem = Get-Item -LiteralPath $resolvedApkPath
 $assetName = $apkItem.Name
 

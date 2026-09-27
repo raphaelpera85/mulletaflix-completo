@@ -1,5 +1,6 @@
 package org.mulletaflix.android.network
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import org.mulletaflix.feature.auth.ServerInfo
 
@@ -52,6 +53,17 @@ internal fun selectAuthenticatedLanServer(
     return candidates.firstOrNull { server ->
         server.serverId?.equals(authenticatedServerId, ignoreCase = true) == true
     }
+}
+
+/** A transient socket failure is not evidence that the LAN server disappeared. */
+internal suspend fun discoverLanServersSafely(
+    discover: suspend () -> List<ServerInfo>,
+): Result<List<ServerInfo>> = try {
+    Result.success(discover())
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (failure: Exception) {
+    Result.failure(failure)
 }
 
 /**

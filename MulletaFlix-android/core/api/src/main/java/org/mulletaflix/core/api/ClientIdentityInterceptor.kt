@@ -2,6 +2,7 @@ package org.mulletaflix.core.api
 
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import okhttp3.Interceptor
 import okhttp3.Response
 import javax.inject.Inject
@@ -54,8 +55,11 @@ class ClientIdentityInterceptor @Inject constructor(
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        val token = runBlocking { sessionRepository.getAccessToken().first() }
-        val deviceId = runBlocking { sessionRepository.getDeviceId().first() }
+        val requestSession = chain.request().tag(FeedbackRequestSession::class.java)
+        val token = requestSession?.accessToken
+            ?: runBlocking { sessionRepository.getAccessToken().first() }
+        val deviceId = requestSession?.deviceId
+            ?: runBlocking { sessionRepository.getDeviceId().first() }
 
         val request = chain.request().newBuilder()
             // `header` (not `addHeader`) keeps a single value even after a retry

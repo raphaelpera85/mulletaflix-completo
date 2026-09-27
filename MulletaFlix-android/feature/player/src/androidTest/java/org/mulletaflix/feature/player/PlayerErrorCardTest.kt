@@ -38,4 +38,22 @@ class PlayerErrorCardTest {
         composeRule.onNodeWithText("Tentar novamente").performClick()
         composeRule.runOnIdle { assertEquals(1, retries.get()) }
     }
+
+    @Test
+    fun playbackIssueActionIsVisibleAndInvokesCallback() {
+        val reports = AtomicInteger(0)
+        composeRule.setContent {
+            MulletaFlixTheme {
+                PlayerErrorCard(
+                    message = "Falha temporária",
+                    isTelevision = false,
+                    onReportIssue = { reports.incrementAndGet() },
+                    onRetry = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Relatar problema").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertEquals(1, reports.get()) }
+    }
 }

@@ -92,6 +92,12 @@ if (-not (Test-Path -LiteralPath $apkSource)) {
     throw "Arquivo APK não encontrado em: $apkSource"
 }
 
+$signatureVerifier = Join-Path $projectRoot 'tools\Assert-AndroidApkSignature.ps1'
+if (-not (Test-Path -LiteralPath $signatureVerifier)) {
+    throw "Validador de assinatura Android não encontrado: $signatureVerifier"
+}
+& $signatureVerifier -ApkPath $apkSource
+
 $destApkVersioned = Join-Path $OutputDir "mulletaflix-app-v$Version.apk"
 $destApkLatest = Join-Path $OutputDir "mulletaflix-app.apk"
 

@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 
 class PlaybackMetadataTest {
 
@@ -32,5 +33,21 @@ class PlaybackMetadataTest {
                 MediaItem(id = "movie-1", name = "A New Movie", type = MediaItemType.Movie),
             ),
         )
+    }
+
+    @Test
+    fun `offline episode title includes persisted series and episode context`() {
+        assertEquals(
+            "The Expanse · S02E03 · Static",
+            offlineMediaNotificationTitle(
+                title = "Static",
+                episode = DownloadEpisodeMetadata("series-1", 2, 3, "The Expanse"),
+            ),
+        )
+    }
+
+    @Test
+    fun `offline media without episode metadata keeps its original title`() {
+        assertEquals("A New Movie", offlineMediaNotificationTitle("A New Movie", null))
     }
 }

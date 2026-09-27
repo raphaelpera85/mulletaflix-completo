@@ -875,7 +875,7 @@ struct SearchView: View {
                 }
                 .padding(.horizontal)
             } else if model.searchItems.isEmpty {
-                ContentUnavailableView("Buscar", systemImage: "magnifyingglass", description: Text("Digite o nome de um filme, série, música ou pessoa."))
+                ContentUnavailableView("Buscar", systemImage: "magnifyingglass", description: Text("Digite o nome de um filme, série, música, livro ou pessoa."))
                     .padding(.top, 60)
             } else {
                 LazyVGrid(columns: columns, spacing: 18) {
@@ -894,7 +894,7 @@ struct SearchView: View {
             }
         }
         .navigationTitle("Buscar")
-        .searchable(text: $query, prompt: "Filmes, séries, músicas e pessoas")
+        .searchable(text: $query, prompt: "Filmes, séries, músicas, livros e pessoas")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { voiceSearch.toggle() } label: {
@@ -918,14 +918,8 @@ struct SearchView: View {
         }
         .onDisappear { voiceSearch.stopListening() }
         .safeAreaInset(edge: .top) {
-            Picker("Tipo", selection: $filter) {
-                ForEach(SearchFilter.allCases) { value in
-                    Text(value.title).tag(value)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .background(.bar)
+            SearchFilterPicker(selection: $filter)
+                .background(.bar)
         }
         .task(id: "\(query)|\(filter.rawValue)") {
             try? await Task.sleep(for: .milliseconds(350))
@@ -933,6 +927,36 @@ struct SearchView: View {
             await model.search(query, filter: filter)
         }
         .navigationDestination(for: MediaItem.self) { item in ItemDetailView(item: item, model: model) }
+    }
+}
+
+private struct SearchFilterPicker: View {
+    @Binding var selection: SearchFilter
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(SearchFilter.allCases) { value in
+                    Button {
+                        selection = value
+                    } label: {
+                        Text(value.title)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(value == selection ? Color.white : Color.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(value == selection ? Color.accentColor : Color.secondary.opacity(0.15), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(value == selection ? .isSelected : [])
+                    .accessibilityIdentifier("search.filter.\(value.rawValue)")
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Filtrar resultados da busca")
     }
 }
 
@@ -2769,7 +2793,9 @@ struct MediaCard: View {
                 if let imageURL {
                     AuthenticatedArtwork(url: imageURL, token: model.session?.accessToken)
                 } else {
-                    RoundedRectangle(cornerRadius: 10).fill(.gray.opacity(0.25)).overlay { Image(systemName: "film") }
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(.gray.opacity(0.25))
+                        .overlay { Image(systemName: MediaPlaceholderPolicy.symbol(for: item.type)) }
                 }
             }
             .aspectRatio(2 / 3, contentMode: .fit)

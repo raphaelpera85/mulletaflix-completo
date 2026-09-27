@@ -9,23 +9,24 @@ import org.junit.Test
 
 class SubtitleMenuPolicyTest {
     private val tracks = listOf(
-        TrackInfo(index = 2, displayName = "Português", isExternal = true),
+        TrackInfo(index = 2, displayName = "Português VTT", isExternal = true, isCastSupported = true),
         TrackInfo(index = 5, displayName = "English"),
-        TrackInfo(index = 8, displayName = "Español", isExternal = true),
+        TrackInfo(index = 8, displayName = "Español SRT", isExternal = true),
     )
 
     @Test
-    fun `hides only external tracks while casting`() {
-        assertEquals(listOf(tracks[1]), visibleSubtitleTracks(tracks, isCasting = true))
+    fun `hides only unsupported external tracks while casting`() {
+        assertEquals(listOf(tracks[0], tracks[1]), visibleSubtitleTracks(tracks, isCasting = true))
         assertEquals(tracks, visibleSubtitleTracks(tracks, isCasting = false))
     }
 
     @Test
-    fun `maps selected menu row when cast hides preceding external track`() {
+    fun `maps selected menu row when Cast hides an unsupported external track`() {
         val visible = visibleSubtitleTracks(tracks, isCasting = true)
-        assertEquals(0, visibleSubtitleSelectionIndex(tracks, selectedIndex = 1, visibleTracks = visible))
-        assertEquals(-1, visibleSubtitleSelectionIndex(tracks, selectedIndex = 0, visibleTracks = visible))
-        assertEquals(1, originalSubtitleSelectionIndex(tracks, visible, visibleIndex = 0))
+        assertEquals(1, visibleSubtitleSelectionIndex(tracks, selectedIndex = 1, visibleTracks = visible))
+        assertEquals(0, visibleSubtitleSelectionIndex(tracks, selectedIndex = 0, visibleTracks = visible))
+        assertEquals(-1, visibleSubtitleSelectionIndex(tracks, selectedIndex = 2, visibleTracks = visible))
+        assertEquals(0, originalSubtitleSelectionIndex(tracks, visible, visibleIndex = 0))
         assertNull(originalSubtitleSelectionIndex(tracks, visible, visibleIndex = -1))
     }
 
@@ -69,23 +70,77 @@ class SubtitleMenuPolicyTest {
     }
 
     @Test
-    fun `cast subtitle preference ignores external sidecars but keeps embedded tracks`() {
+    fun `cast subtitle preference ignores unsupported sidecars and keeps supported plus embedded tracks`() {
         val embedded = MediaStream(index = 1, type = MediaStreamType.Subtitle, isExternal = false)
-        val external = MediaStream(index = 2, type = MediaStreamType.Subtitle, isExternal = true)
+        val vtt = MediaStream(index = 2, type = MediaStreamType.Subtitle, codec = "webvtt", isExternal = true)
+        val srt = MediaStream(index = 3, type = MediaStreamType.Subtitle, codec = "srt", isExternal = true)
         assertEquals(
-            listOf(embedded),
+            listOf(embedded, vtt),
             subtitleStreamsForPreferredPlayback(
-                listOf(embedded, external),
+                listOf(embedded, vtt, srt),
                 isCasting = true,
             ),
         )
         assertEquals(
-            listOf(embedded, external),
+            listOf(embedded, vtt, srt),
             subtitleStreamsForPreferredPlayback(
-                listOf(embedded, external),
+                listOf(embedded, vtt, srt),
                 isCasting = false,
             ),
         )
+    }
+
+    @Test
+    fun `duplicate external URLs stay available locally but cannot be preferred during Cast`() {
+        val embedded = MediaStream(index = 1, type = MediaStreamType.Subtitle, isExternal = false)
+        val duplicateOne = MediaStream(
+            index = 2,
+            type = MediaStreamType.Subtitle,
+            codec = "webvtt",
+            deliveryUrl = "https://media.example/shared.vtt",
+            isExternal = true,
+        )
+        val unique = MediaStream(
+            index = 3,
+            type = MediaStreamType.Subtitle,
+            codec = "ttml",
+            deliveryUrl = "https://media.example/unique.ttml",
+            isExternal = true,
+        )
+        val duplicateTwo = duplicateOne.copy(index = 4, language = "es")
+        val streams = listOf(embedded, duplicateOne, unique, duplicateTwo)
+
+        assertEquals(
+            listOf(embedded, unique),
+            subtitleStreamsForPreferredPlayback(streams, isCasting = true),
+        )
+        assertEquals(
+            streams,
+            subtitleStreamsForPreferredPlayback(streams, isCasting = false),
+        )
+        assertEquals(
+            listOf(embedded, unique),
+            subtitleStreamsForPreferredPlayback(
+                streams = streams,
+                isCasting = true,
+                castSupportedExternalStreamIndices = setOf(unique.index),
+            ),
+        )
+    }
+
+    @Test
+    fun `external sidecar eligibility on Cast requires VTT or TTML and stays online only`() {
+        val streams = listOf(
+            MediaStream(index = 1, type = MediaStreamType.Subtitle, codec = "webvtt", isExternal = true),
+            MediaStream(index = 2, type = MediaStreamType.Subtitle, codec = "ttml", isExternal = true),
+            MediaStream(index = 3, type = MediaStreamType.Subtitle, codec = "srt", isExternal = true),
+        )
+
+        assertEquals(
+            listOf(streams[0], streams[1]),
+            externalSubtitleStreamsForPlayback(streams, isCasting = true, isOfflinePlayback = false),
+        )
+        assertTrue(externalSubtitleStreamsForPlayback(streams, isCasting = true, isOfflinePlayback = true).isEmpty())
     }
 
     @Test

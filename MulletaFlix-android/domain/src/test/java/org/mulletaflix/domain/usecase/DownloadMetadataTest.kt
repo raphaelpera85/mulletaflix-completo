@@ -5,6 +5,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
+import org.mulletaflix.domain.repository.DownloadMediaMetadata
+import org.mulletaflix.domain.repository.DownloadSubtitleMetadata
 import org.mulletaflix.domain.repository.DownloadRepository
 
 class DownloadMetadataTest {
@@ -71,6 +73,39 @@ class DownloadMetadataTest {
             "https://server/episode",
             imageUrl = null,
             episodeMetadata = expected,
+        )
+
+        assertEquals(expected, received)
+    }
+
+    @Test
+    fun `enqueue with media metadata forwards server-scoped subtitle candidates`() {
+        val expected = DownloadMediaMetadata(
+            "server-1", "source-1", listOf(DownloadSubtitleMetadata(3, "text/vtt", "pt-BR")),
+        )
+        var received: DownloadMediaMetadata? = null
+        val repository = object : DownloadRepository {
+            override fun observeDownloads() = emptyFlow<List<DownloadEntry>>()
+            override fun enqueue(id: String, title: String, uri: String) = Result.success(Unit)
+            override fun enqueueWithMediaMetadata(
+                id: String,
+                title: String,
+                uri: String,
+                imageUrl: String?,
+                episodeMetadata: DownloadEpisodeMetadata?,
+                mediaMetadata: DownloadMediaMetadata?,
+            ): Result<Unit> {
+                received = mediaMetadata
+                return Result.success(Unit)
+            }
+            override fun retry(id: String, title: String, uri: String) = Result.success(Unit)
+            override fun remove(id: String) = Result.success(Unit)
+            override fun pauseAll() = Result.success(Unit)
+            override fun resumeAll() = Result.success(Unit)
+        }
+
+        ManageDownloadsUseCase(repository).enqueueWithMediaMetadata(
+            "movie-1", "Filme", "https://server/movie", null, null, expected,
         )
 
         assertEquals(expected, received)

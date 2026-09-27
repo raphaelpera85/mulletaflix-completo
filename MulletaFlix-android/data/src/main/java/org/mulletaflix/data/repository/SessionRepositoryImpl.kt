@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.api.HomeFeedCacheScope
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -85,10 +87,42 @@ class SessionRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun getFeedbackRequestSession(): Flow<FeedbackRequestSession?> = flow {
+        val resolvedDeviceId = deviceId.get()
+        emitAll(context.dataStore.data.map { preferences ->
+            val serverUrl = preferences[PreferencesKeys.SERVER_URL].orEmpty()
+            val accessToken = preferences[PreferencesKeys.ACCESS_TOKEN]
+            val userId = preferences[PreferencesKeys.USER_ID]
+            val currentDeviceId = preferences[PreferencesKeys.DEVICE_ID] ?: resolvedDeviceId
+            if (serverUrl.isBlank() || accessToken.isNullOrBlank() || userId.isNullOrBlank()) {
+                null
+            } else {
+                FeedbackRequestSession(
+                    serverUrl = serverUrl,
+                    accessToken = accessToken,
+                    userId = userId,
+                    deviceId = currentDeviceId,
+                    serverId = preferences[PreferencesKeys.SERVER_ID],
+                )
+            }
+        })
+    }
+
     override fun getCurrentUserName(): Flow<String?> {
         return context.dataStore.data.map { preferences ->
             preferences[PreferencesKeys.USER_NAME]
         }
+    }
+
+    override fun getHomeFeedCacheScope(): Flow<HomeFeedCacheScope?> = context.dataStore.data.map { preferences ->
+        val userId = preferences[PreferencesKeys.USER_ID]
+        val serverUrl = preferences[PreferencesKeys.SERVER_URL].orEmpty()
+        if (userId.isNullOrBlank() || serverUrl.isBlank()) null
+        else HomeFeedCacheScope(
+            serverId = preferences[PreferencesKeys.SERVER_ID],
+            serverUrl = serverUrl,
+            userId = userId,
+        )
     }
 
     override fun getServerId(): Flow<String?> = context.dataStore.data.map { preferences ->

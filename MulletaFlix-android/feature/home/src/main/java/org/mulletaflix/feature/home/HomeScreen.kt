@@ -20,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -132,27 +133,11 @@ fun HomeScreen(
 
             if (state.isOffline) {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudOff,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = "Você está offline. Acesse Downloads para reproduzir mídias baixadas.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+                    HomeOfflineStatusCard(
+                        cachedAtEpochMillis = state.cachedAtEpochMillis,
+                        resumeCached = state.resumeFromCache,
+                        favoritesCached = state.favoritesFromCache,
+                    )
                 }
             }
 
@@ -195,7 +180,7 @@ fun HomeScreen(
             if (visibleResumeItems.isNotEmpty()) {
                 item {
                     MediaSection(
-                        title = "Continuar Assistindo",
+                        title = if (state.resumeFromCache) "Continuar Assistindo · salvo" else "Continuar Assistindo",
                         items = visibleResumeItems,
                         cardShape = null,
                         cardWidth = null,
@@ -248,7 +233,7 @@ fun HomeScreen(
             if (visibleFavoriteItems.isNotEmpty()) {
                 item {
                     MediaSection(
-                        title = "Minha Lista",
+                        title = if (state.favoritesFromCache) "Minha Lista · salva" else "Minha Lista",
                         items = visibleFavoriteItems,
                         cardShape = MediaCardShape.Portrait,
                         cardWidth = 130.dp,
@@ -376,63 +361,125 @@ fun HomeScreen(
         }
     }
     if (showRequestDialog) {
-        AlertDialog(
-            onDismissRequest = { showRequestDialog = false },
-            title = { Text("Solicitar mídia") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(requestTitle, { requestTitle = it.take(200) }, label = { Text("Título") }, singleLine = true, enabled = !requestSubmitting)
-                    var expanded by remember { mutableStateOf(false) }
-                    Box {
-                        OutlinedButton(onClick = { expanded = true }, enabled = !requestSubmitting) { Text(requestType) }
-                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            listOf("Filme", "Série", "Animação", "Novela", "Dorama", "Livro", "Música", "Outro").forEach { type ->
-                                DropdownMenuItem(text = { Text(type) }, onClick = { requestType = type; expanded = false })
-                            }
+        MediaRequestDialog(
+            title = requestTitle,
+            onTitleChange = { requestTitle = it },
+            mediaType = requestType,
+            onMediaTypeChange = { requestType = it },
+            year = requestYear,
+            onYearChange = { requestYear = it },
+            notes = requestNotes,
+            onNotesChange = { requestNotes = it },
+            message = requestMessage,
+            isSubmitting = requestSubmitting,
+            hasFeedbackSession = state.hasFeedbackSession,
+            feedbackSessionLoaded = state.feedbackSessionLoaded,
+            onDismiss = { showRequestDialog = false; requestMessage = null },
+            onSubmit = {
+                requestSubmitting = true
+                requestMessage = "Enviando solicitação…"
+                viewModel.requestMedia(requestTitle, requestType, requestYear.toIntOrNull(), requestNotes) { result ->
+                    requestSubmitting = false
+                    result.onSuccess {
+                        showRequestDialog = false
+                        requestTitle = ""
+                        requestYear = ""
+                        requestNotes = ""
+                        requestMessage = null
+                    }.onFailure {
+                        requestMessage = if (it is kotlinx.coroutines.CancellationException) {
+                            null
+                        } else {
+                            it.localizedMessage ?: "Não foi possível enviar. Tente novamente."
                         }
                     }
-                    OutlinedTextField(
-                        requestYear,
-                        { requestYear = it.filter(Char::isDigit).take(4) },
-                        label = { Text("Ano (opcional)") },
-                        supportingText = { if (!requestYearValid) Text("Informe um ano entre 1888 e 2200.") },
-                        isError = !requestYearValid,
-                        singleLine = true,
-                        enabled = !requestSubmitting,
-                    )
-                    OutlinedTextField(requestNotes, { requestNotes = it.take(1000) }, label = { Text("Detalhes (opcional)") }, minLines = 2, enabled = !requestSubmitting)
-                    requestMessage?.let { Text(it, color = if (requestSubmitting) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }
                 }
             },
-            confirmButton = {
-                TextButton(enabled = requestTitle.isNotBlank() && requestYearValid && !requestSubmitting, onClick = {
-                    requestSubmitting = true
-                    requestMessage = "Enviando solicitação…"
-                    viewModel.requestMedia(requestTitle, requestType, requestYear.toIntOrNull(), requestNotes) { result ->
-                        requestSubmitting = false
-                        result.onSuccess {
-                            showRequestDialog = false
-                            requestTitle = ""
-                            requestYear = ""
-                            requestNotes = ""
-                            requestMessage = null
-                        }.onFailure {
-                            requestMessage = if (it is kotlinx.coroutines.CancellationException) {
-                                null
-                            } else {
-                                it.localizedMessage ?: "Não foi possível enviar. Tente novamente."
-                            }
-                        }
-                    }
-                }) {
-                    if (requestSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    else Text("Enviar")
-                }
-            },
-            dismissButton = { TextButton(enabled = !requestSubmitting, onClick = { showRequestDialog = false; requestMessage = null }) { Text("Cancelar") } },
         )
     }
 
+}
+
+@Composable
+internal fun MediaRequestDialog(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    mediaType: String,
+    onMediaTypeChange: (String) -> Unit,
+    year: String,
+    onYearChange: (String) -> Unit,
+    notes: String,
+    onNotesChange: (String) -> Unit,
+    message: String?,
+    isSubmitting: Boolean,
+    hasFeedbackSession: Boolean,
+    feedbackSessionLoaded: Boolean,
+    onDismiss: () -> Unit,
+    onSubmit: () -> Unit,
+) {
+    val yearNumber = year.toIntOrNull()
+    val yearValid = year.isBlank() || (yearNumber != null && yearNumber in 1888..2200)
+    var expanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
+        title = { Text("Solicitar mídia") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    title,
+                    { onTitleChange(it.take(200)) },
+                    modifier = Modifier.testTag("media-request-title"),
+                    label = { Text("Título") },
+                    singleLine = true,
+                    enabled = !isSubmitting,
+                )
+                Box {
+                    OutlinedButton(onClick = { expanded = true }, enabled = !isSubmitting) { Text(mediaType) }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        listOf("Filme", "Série", "Animação", "Novela", "Dorama", "Livro", "Música", "Outro").forEach { type ->
+                            DropdownMenuItem(text = { Text(type) }, onClick = { onMediaTypeChange(type); expanded = false })
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    year,
+                    { onYearChange(it.filter(Char::isDigit).take(4)) },
+                    modifier = Modifier.testTag("media-request-year"),
+                    label = { Text("Ano (opcional)") },
+                    supportingText = { if (!yearValid) Text("Informe um ano entre 1888 e 2200.") },
+                    isError = !yearValid,
+                    singleLine = true,
+                    enabled = !isSubmitting,
+                )
+                OutlinedTextField(
+                    notes,
+                    { onNotesChange(it.take(1000)) },
+                    modifier = Modifier.testTag("media-request-notes"),
+                    label = { Text("Detalhes (opcional)") },
+                    minLines = 2,
+                    enabled = !isSubmitting,
+                )
+                if (!hasFeedbackSession) {
+                    Text(
+                        text = if (feedbackSessionLoaded) "Conecte-se ao servidor para enviar." else "Verificando sessão…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                message?.let { Text(it, color = if (isSubmitting) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = title.isNotBlank() && yearValid && hasFeedbackSession && !isSubmitting, onClick = onSubmit) {
+                if (isSubmitting) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("Enviar")
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !isSubmitting, onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
 }
 
 /**

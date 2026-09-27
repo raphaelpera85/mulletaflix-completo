@@ -35,7 +35,7 @@ public enum OfflinePlaybackPositionScope {
 }
 
 public enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
-    case all, movies, series, episodes, music, people
+    case all, movies, series, episodes, music, books, people
 
     public var id: String { rawValue }
 
@@ -46,6 +46,7 @@ public enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
         case .series: return "Séries"
         case .episodes: return "Episódios"
         case .music: return "Músicas"
+        case .books: return "Livros"
         case .people: return "Pessoas"
         }
     }
@@ -57,7 +58,19 @@ public enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
         case .series: return "Series"
         case .episodes: return "Episode"
         case .music: return "Audio"
+        case .books: return "Book"
         case .people: return "Person"
+        }
+    }
+}
+
+public enum MediaPlaceholderPolicy {
+    public static func symbol(for type: String?) -> String {
+        switch type?.lowercased() {
+        case "book", "audiobook": return "book.closed"
+        case "audio": return "music.note"
+        case "person": return "person"
+        default: return "film"
         }
     }
 }

@@ -5,6 +5,8 @@ import kotlinx.coroutines.coroutineScope
 import org.mulletaflix.domain.model.HomeFeed
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.repository.MediaRepository
+import org.mulletaflix.domain.repository.HomeFeedCache
+import org.mulletaflix.domain.repository.NoOpHomeFeedCache
 import javax.inject.Inject
 
 /**
@@ -12,10 +14,14 @@ import javax.inject.Inject
  */
 class GetHomeFeedUseCase @Inject constructor(
     private val mediaRepository: MediaRepository,
+    private val homeFeedCache: HomeFeedCache,
 ) {
+    constructor(mediaRepository: MediaRepository) : this(mediaRepository, NoOpHomeFeedCache)
+
     suspend operator fun invoke(userId: String): Result<HomeFeed> = runCatching {
         require(userId.isNotBlank()) { "O identificador do usuário é obrigatório." }
         coroutineScope {
+            val cached = runCatching { homeFeedCache.read(userId) }.getOrNull()
             val resumeDeferred = async { mediaRepository.getResumeItems(userId) }
             val nextUpDeferred = async { mediaRepository.getNextUp(userId) }
             val librariesDeferred = async { mediaRepository.getLibraries(userId) }
@@ -54,10 +60,26 @@ class GetHomeFeedUseCase @Inject constructor(
                     ?.let { libraryId to it }
             }.toMap()
 
-            val resumeItems = resumeResult.getOrDefault(emptyList())
+            val resumeFromCache = resumeResult.exceptionOrNull().isOfflineEligible() &&
+                cached?.resumeSavedAtEpochMillis?.let { it > 0 } == true
+            val favoritesFromCache = favoritesResult.exceptionOrNull().isOfflineEligible() &&
+                cached?.favoritesSavedAtEpochMillis?.let { it > 0 } == true
+            val resumeItems = if (resumeFromCache) cached!!.resumeItems
+                else resumeResult.getOrDefault(emptyList())
             val nextUpItems = nextUpResult.getOrDefault(emptyList())
             val liveTvChannels = liveTvResult.getOrDefault(emptyList())
-            val favoriteItems = favoritesResult.getOrNull()?.first.orEmpty()
+            val favoriteItems = if (favoritesFromCache) cached!!.favoriteItems
+                else favoritesResult.getOrNull()?.first.orEmpty()
+
+            if (resumeResult.isSuccess || favoritesResult.isSuccess) {
+                runCatching {
+                    homeFeedCache.write(
+                        userId = userId,
+                        resumeItems = resumeResult.getOrNull(),
+                        favoriteItems = favoritesResult.getOrNull()?.first,
+                    )
+                }
+            }
 
             if (
                 libraries.isEmpty() && resumeItems.isEmpty() && nextUpItems.isEmpty() &&
@@ -88,9 +110,23 @@ class GetHomeFeedUseCase @Inject constructor(
                 // com zero canais** e aí o carrossel some em silêncio, que é o certo; uma
                 // falha de rede/5xx também sumia em silêncio, e isso não é.
                 liveTvError = liveTvResult.sectionError("Não foi possível carregar a TV ao vivo."),
+                resumeFromCache = resumeFromCache,
+                favoritesFromCache = favoritesFromCache,
+                cachedAtEpochMillis = when {
+                    resumeFromCache && favoritesFromCache -> listOfNotNull(
+                        cached.resumeSavedAtEpochMillis.takeIf { it > 0 },
+                        cached.favoritesSavedAtEpochMillis.takeIf { it > 0 },
+                    ).minOrNull()
+                    resumeFromCache -> cached!!.resumeSavedAtEpochMillis.takeIf { it > 0 }
+                    favoritesFromCache -> cached!!.favoritesSavedAtEpochMillis.takeIf { it > 0 }
+                    else -> null
+                },
             )
         }
     }
+
+    suspend fun getCachedHomeSections(userId: String) =
+        runCatching { homeFeedCache.read(userId) }
 }
 
 /**
@@ -104,3 +140,5 @@ private fun <T> Result<T>.sectionError(fallback: String): String? =
     exceptionOrNull()?.let { error ->
         error.localizedMessage?.takeIf(String::isNotBlank) ?: fallback
     }
+
+private fun Throwable?.isOfflineEligible(): Boolean = this is java.io.IOException

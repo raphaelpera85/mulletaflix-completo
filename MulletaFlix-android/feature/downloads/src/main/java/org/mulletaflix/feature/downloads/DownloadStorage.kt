@@ -59,6 +59,18 @@ internal fun downloadStorageLabel(entry: DownloadEntry): String {
     }
 }
 
+internal fun downloadEpisodeLabel(entry: DownloadEntry): String? = entry.episodeMetadata
+    ?.takeIf { it.seasonNumber >= 0 && it.episodeNumber > 0 }
+    ?.let { metadata ->
+        val seriesName = metadata.seriesName?.takeIf(String::isNotBlank)?.let { "$it · " }.orEmpty()
+        val season = if (metadata.seasonNumber == 0) {
+            "Especial"
+        } else {
+            "Temporada ${metadata.seasonNumber}"
+        }
+        "$seriesName$season · Episódio ${metadata.episodeNumber}"
+    }
+
 private fun hasKnownDownloadedSize(entry: DownloadEntry): Boolean =
     entry.bytesDownloaded > 0L || entry.contentLength > 0L || entry.state == DownloadState.Completed
 

@@ -7,16 +7,37 @@ internal fun externalSubtitleStreamsForPlayback(
     streams: List<MediaStream>,
     isCasting: Boolean,
     isOfflinePlayback: Boolean,
-): List<MediaStream> = if (isCasting || isOfflinePlayback) {
+): List<MediaStream> = if (isOfflinePlayback) {
     emptyList()
 } else {
-    streams.filter { it.type == MediaStreamType.Subtitle && it.isExternal }
+    streams.filter { stream ->
+        stream.type == MediaStreamType.Subtitle && stream.isExternal &&
+            (!isCasting || castSubtitleContentType(externalSubtitleMimeType(stream.codec, stream.deliveryUrl)) != null)
+    }
 }
 
 internal fun subtitleStreamsForPreferredPlayback(
     streams: List<MediaStream>,
     isCasting: Boolean,
-): List<MediaStream> = if (isCasting) streams.filterNot(MediaStream::isExternal) else streams
+    castSupportedExternalStreamIndices: Set<Int>? = null,
+): List<MediaStream> {
+    if (!isCasting) return streams
+    val supportedIndices = castSupportedExternalStreamIndices ?: run {
+        val supported = streams.filter { stream ->
+            stream.isExternal &&
+                castSubtitleContentType(externalSubtitleMimeType(stream.codec, stream.deliveryUrl)) != null
+        }
+        val duplicateUrls = supported.mapNotNull { it.deliveryUrl?.takeIf(String::isNotBlank) }
+            .groupingBy { it }
+            .eachCount()
+            .filterValues { it > 1 }
+            .keys
+        supported.filter { stream ->
+            stream.deliveryUrl.isNullOrBlank() || stream.deliveryUrl !in duplicateUrls
+        }.mapTo(mutableSetOf()) { it.index }
+    }
+    return streams.filterNot { stream -> stream.isExternal && stream.index !in supportedIndices }
+}
 
 internal fun selectedExternalSubtitleStream(
     streams: List<MediaStream>,
@@ -26,7 +47,7 @@ internal fun selectedExternalSubtitleStream(
 }
 
 internal fun visibleSubtitleTracks(tracks: List<TrackInfo>, isCasting: Boolean): List<TrackInfo> =
-    if (isCasting) tracks.filterNot(TrackInfo::isExternal) else tracks
+    if (isCasting) tracks.filterNot { it.isExternal && !it.isCastSupported } else tracks
 
 internal fun visibleSubtitleSelectionIndex(
     tracks: List<TrackInfo>,

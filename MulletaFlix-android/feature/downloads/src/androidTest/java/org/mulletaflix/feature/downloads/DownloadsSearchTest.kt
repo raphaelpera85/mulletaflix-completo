@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performTextInput
 import org.junit.Rule
 import org.junit.Test
 import org.mulletaflix.domain.repository.DownloadEntry
+import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 import org.mulletaflix.domain.repository.DownloadState
 
 class DownloadsSearchTest {
@@ -153,6 +154,57 @@ class DownloadsSearchTest {
         }
 
         composeRule.onNodeWithText("No dispositivo: 1,0 MB de 2,0 MB").assertExists()
+    }
+
+    @Test
+    fun episodeDownloadShowsEpisodeLabelAndIncludesItInTvPlaybackAnnouncement() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadRow(
+                    entry = DownloadEntry(
+                        id = "episode",
+                        title = "Episódio Piloto",
+                        uri = "file:///episode",
+                        state = DownloadState.Completed,
+                        percent = 100,
+                        episodeMetadata = DownloadEpisodeMetadata("series", seasonNumber = 2, episodeNumber = 7, seriesName = "Minha Série"),
+                    ),
+                    imageModel = null,
+                    focusFriendly = true,
+                    onPlay = {},
+                    onRetry = {},
+                    onRemove = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription(
+            "Reproduzir Episódio Piloto offline. Minha Série · Temporada 2 · Episódio 7. No dispositivo: 0 B",
+        ).assertExists()
+    }
+
+    @Test
+    fun episodeDownloadShowsSeasonAndEpisodeLabelVisibly() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadRow(
+                    entry = DownloadEntry(
+                        id = "episode",
+                        title = "Episódio Piloto",
+                        uri = "file:///episode",
+                        state = DownloadState.Completed,
+                        percent = 100,
+                        episodeMetadata = DownloadEpisodeMetadata("series", seasonNumber = 2, episodeNumber = 7, seriesName = "Minha Série"),
+                    ),
+                    imageModel = null,
+                    onPlay = {},
+                    onRetry = {},
+                    onRemove = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Minha Série · Temporada 2 · Episódio 7").assertExists()
     }
 
     @Test

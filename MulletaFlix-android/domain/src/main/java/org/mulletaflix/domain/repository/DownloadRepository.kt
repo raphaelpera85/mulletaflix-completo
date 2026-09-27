@@ -16,12 +16,42 @@ data class DownloadEntry(
     /** Private local artwork copied for offline display, when available. */
     val offlineArtworkUri: String? = null,
     val episodeMetadata: DownloadEpisodeMetadata? = null,
+    val offlineSubtitles: List<OfflineSubtitleEntry> = emptyList(),
 )
 
 data class DownloadEpisodeMetadata(
     val seriesId: String,
     val seasonNumber: Int,
     val episodeNumber: Int,
+    val seriesName: String? = null,
+)
+
+/** Non-secret description of a supported external subtitle returned for a media source. */
+data class DownloadSubtitleMetadata(
+    val streamIndex: Int,
+    val mimeType: String,
+    val language: String? = null,
+    val label: String? = null,
+    val isDefault: Boolean = false,
+    val isForced: Boolean = false,
+)
+
+/** Metadata needed to fetch and scope optional sidecars for a queued media item. */
+data class DownloadMediaMetadata(
+    val serverId: String,
+    val mediaSourceId: String?,
+    val subtitles: List<DownloadSubtitleMetadata>,
+)
+
+/** A fully downloaded sidecar, visible only beside its owning media download. */
+data class OfflineSubtitleEntry(
+    val streamIndex: Int,
+    val uri: String,
+    val mimeType: String,
+    val language: String? = null,
+    val label: String? = null,
+    val isDefault: Boolean = false,
+    val isForced: Boolean = false,
 )
 
 enum class DownloadState { Queued, Downloading, Completed, Failed, Removing }
@@ -40,6 +70,14 @@ interface DownloadRepository {
         episodeMetadata: DownloadEpisodeMetadata? = null,
     ): Result<Unit> =
         enqueue(id, title, uri)
+    fun enqueueWithMediaMetadata(
+        id: String,
+        title: String,
+        uri: String,
+        imageUrl: String?,
+        episodeMetadata: DownloadEpisodeMetadata?,
+        mediaMetadata: DownloadMediaMetadata?,
+    ): Result<Unit> = enqueueWithMetadata(id, title, uri, imageUrl, episodeMetadata)
     fun retry(id: String, title: String, uri: String): Result<Unit>
     fun remove(id: String): Result<Unit>
     /** Removes only completed downloads, preserving queued, active, and failed items. */

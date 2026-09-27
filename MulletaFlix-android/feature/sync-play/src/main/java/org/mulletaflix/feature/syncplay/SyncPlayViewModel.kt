@@ -115,6 +115,9 @@ class SyncPlayViewModel @Inject constructor(
     }
 
     fun refresh(isBackground: Boolean = false) {
+        // O polling da tela é periódico e não deve cancelar uma consulta de rede
+        // ainda em andamento. Refresh manual continua substituindo a anterior.
+        if (isBackground && refreshJob?.isActive == true) return
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             val generation = sessionGeneration

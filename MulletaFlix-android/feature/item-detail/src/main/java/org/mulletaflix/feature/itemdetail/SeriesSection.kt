@@ -1,5 +1,7 @@
 package org.mulletaflix.feature.itemdetail
 
+import android.content.res.Configuration
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,11 +33,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -73,9 +81,14 @@ fun SeriesSection(
     error: String? = null,
     onRetry: () -> Unit = {},
     seasonDownloadProgress: SeasonDownloadProgress? = null,
-    onDownloadSeason: () -> Unit = {},
+    onDownloadSeason: () -> Long? = { null },
     onCancelSeasonDownload: () -> Unit = {},
 ) {
+    val configuration = LocalConfiguration.current
+    val isTelevision =
+        (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val cancelFocusRequester = remember { FocusRequester() }
+
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         // Season covers, like the web client's season row. The previous tab row
         // indexed its tab positions, so measuring it with zero tabs threw
@@ -91,7 +104,39 @@ fun SeriesSection(
 
             val selectedSeason = seasons.getOrNull(selectedSeasonIndex)
             selectedSeason?.let { season ->
-                val progress = seasonDownloadProgress?.takeIf { it.seasonId == season.id }
+                // The ViewModel permits one preparation at a time. Keep that operation
+                // visible if the viewer switches seasons; otherwise the selected season
+                // looks idle even though its download action cannot start another batch.
+                val progress = seasonDownloadProgress?.takeIf { it.isRunning || it.seasonId == season.id }
+                val wasDownloadRunning = remember(season.id) {
+                    mutableStateOf(progress?.isRunning == true)
+                }
+                val downloadRequestedOperationId = remember { mutableStateOf<Long?>(null) }
+                LaunchedEffect(
+                    isTelevision,
+                    progress?.seasonId,
+                    progress?.isRunning,
+                    progress?.operationId,
+                    downloadRequestedOperationId.value,
+                ) {
+                    val isRunning = progress?.isRunning == true
+                    val isConfirmedLocalStart = downloadRequestedOperationId.value != null &&
+                        downloadRequestedOperationId.value == progress?.operationId
+                    if (isTelevision && isRunning && isConfirmedLocalStart && !wasDownloadRunning.value) {
+                        // The primary action becomes disabled during preparation. Move TV
+                        // focus to Cancel only for a request initiated on this screen, so
+                        // external progress and re-entering an active screen do not steal focus.
+                        cancelFocusRequester.requestFocus()
+                    }
+                    if (downloadRequestedOperationId.value != null && progress != null &&
+                        (!isConfirmedLocalStart || !isRunning)
+                    ) {
+                        downloadRequestedOperationId.value = null
+                    } else if (isRunning && isConfirmedLocalStart) {
+                        downloadRequestedOperationId.value = null
+                    }
+                    wasDownloadRunning.value = isRunning
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -111,7 +156,9 @@ fun SeriesSection(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Button(
-                        onClick = onDownloadSeason,
+                        onClick = {
+                            downloadRequestedOperationId.value = onDownloadSeason()
+                        },
                         enabled = episodes.isNotEmpty() && progress?.isRunning != true,
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(
@@ -136,8 +183,19 @@ fun SeriesSection(
                         )
                     }
                     if (progress?.isRunning == true) {
-                        TextButton(onClick = onCancelSeasonDownload) { Text("Cancelar") }
+                        TextButton(
+                            onClick = onCancelSeasonDownload,
+                            modifier = if (isTelevision) Modifier.focusRequester(cancelFocusRequester) else Modifier,
+                        ) { Text("Cancelar") }
                     }
+                }
+                if (progress?.isRunning == true && progress.seasonId != season.id) {
+                    Text(
+                        text = "Preparação em andamento para ${progress.seasonName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
                 }
                 if (progress != null && !progress.isRunning) {
                     val resultText = if (progress.isCancelled) {

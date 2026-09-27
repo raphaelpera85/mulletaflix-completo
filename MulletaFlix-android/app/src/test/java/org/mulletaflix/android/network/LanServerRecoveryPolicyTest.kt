@@ -1,8 +1,11 @@
 package org.mulletaflix.android.network
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceTimeBy
@@ -163,6 +166,29 @@ class LanServerRecoveryPolicyTest {
         val remote = ServerInfo("Remoto", "http://203.0.113.9:8096")
 
         assertTrue(selectAuthenticatedLanServer(listOf(remote), null) == null)
+    }
+
+    @Test
+    fun `transient discovery failure remains distinct from an empty LAN response`() = runTest {
+        val failure = IOException("temporary socket failure")
+
+        val result = discoverLanServersSafely { throw failure }
+
+        assertSame(failure, result.exceptionOrNull())
+    }
+
+    @Test
+    fun `a superseded LAN discovery propagates cancellation`() = runTest {
+        val cancellation = CancellationException("newer scan replaced this one")
+        var propagated: CancellationException? = null
+
+        try {
+            discoverLanServersSafely { throw cancellation }
+        } catch (actual: CancellationException) {
+            propagated = actual
+        }
+
+        assertSame(cancellation, propagated)
     }
 
     @Test
