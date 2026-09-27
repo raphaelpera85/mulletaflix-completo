@@ -13,7 +13,10 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 - [x] Release anterior verificada antes do bump: `app-v1.3.79`, asset `mulletaflix-app-v1.3.79.apk`, 7.454.019 bytes, SHA-256 `82B5AD2F7764DB4219C0D43E9E7C7E0833188FDD2B9DD27DB3A69D103219576F`; certificado SHA-256 `224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`.
 - [x] `:feature:home:testDebugUnitTest` e `:feature:library:testDebugUnitTest`: `BUILD SUCCESSFUL`, incluindo cobertura de filtros de dispositivo, conteúdo recente, consulta e rota direta.
-- [ ] Suíte Android global, lint/build Release, verificação instrumentada na Android TV, artefato final e publicação do APK pendentes.
+- [x] Suíte Android global (`testDebugUnitTest`, `:app:lintDebug`, `:app:assembleRelease`): `BUILD SUCCESSFUL`.
+- [x] Instrumentação na Android TV: Home 21 testes (2 casos exclusivos de telefone/tablet ignorados), Biblioteca 20 testes; 0 falhas. AVD encerrado ao terminar.
+- [x] APK v1.3.80: `versionCode=380`, package `org.mulletaflix.android`, 7.470.403 bytes, SHA-256 `BEB28B0831F73D933567CE2C961282A0C4F2AE4B5A15ED134495E63D16162811`; assinatura compatível com v1.3.79 (`224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`).
+- [ ] Publicação da APK e conferência do asset pela API do GitHub pendentes.
 
 ## Candidata APK v1.3.79 — barra compacta e busca sem livros na TV
 
