@@ -19,16 +19,22 @@ internal class PlaybackIssueSyncWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val entryPoint = EntryPointAccessors.fromApplication(
-            applicationContext,
-            PlaybackIssueSyncEntryPoint::class.java,
-        )
-        return when (entryPoint.playbackIssueQueueSyncer().sync()) {
-            PlaybackIssueSyncOutcome.COMPLETE,
-            PlaybackIssueSyncOutcome.SESSION_REQUIRED,
-            PlaybackIssueSyncOutcome.SESSION_CHANGED,
-            -> Result.success()
-            PlaybackIssueSyncOutcome.RETRY -> Result.retry()
+        return try {
+            val entryPoint = EntryPointAccessors.fromApplication(
+                applicationContext,
+                PlaybackIssueSyncEntryPoint::class.java,
+            )
+            when (entryPoint.playbackIssueQueueSyncer().sync()) {
+                PlaybackIssueSyncOutcome.COMPLETE,
+                PlaybackIssueSyncOutcome.SESSION_REQUIRED,
+                PlaybackIssueSyncOutcome.SESSION_CHANGED,
+                -> Result.success()
+                PlaybackIssueSyncOutcome.RETRY -> Result.retry()
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            Result.retry()
         }
     }
 }

@@ -17,7 +17,15 @@ internal class PlaybackIssueQueueSyncer @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val feedbackRepository: UserFeedbackRepository,
 ) {
-    suspend fun sync(): PlaybackIssueSyncOutcome {
+    suspend fun sync(): PlaybackIssueSyncOutcome = try {
+        syncPendingReports()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        PlaybackIssueSyncOutcome.RETRY
+    }
+
+    private suspend fun syncPendingReports(): PlaybackIssueSyncOutcome {
         val reports = queue.pending()
         val initialSession = sessionRepository.getFeedbackRequestSession().first()
             ?: return PlaybackIssueSyncOutcome.SESSION_REQUIRED

@@ -54,8 +54,9 @@ class PlaybackIssueQueueRepositoryImpl @Inject constructor(
     private val queueKey = stringPreferencesKey("queue_v1")
     private val adapter = moshi.adapter(PlaybackIssueQueueDto::class.java)
 
+    /** Emits -1 for unreadable persisted data so callers don't mistake corruption for an empty queue. */
     override val pendingCount: Flow<Int> = context.playbackIssueQueueStore.data.map { preferences ->
-        runCatching { decode(preferences[queueKey]).items.size }.getOrDefault(0)
+        runCatching { decode(preferences[queueKey]).items.size }.getOrDefault(UNREADABLE_QUEUE)
     }
 
     override suspend fun enqueue(issue: QueuedPlaybackIssue) {
@@ -91,5 +92,6 @@ class PlaybackIssueQueueRepositoryImpl @Inject constructor(
     private companion object {
         const val SCHEMA_VERSION = 1
         const val MAX_QUEUE_SIZE = 50
+        const val UNREADABLE_QUEUE = -1
     }
 }

@@ -62,7 +62,7 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
             combine(
                 playbackIssueQueue.pendingCount,
                 sessionRepository.getFeedbackRequestSession(),
-            ) { pendingCount, session -> pendingCount > 0 && session != null }
+            ) { pendingCount, session -> pendingCount != 0 && session != null }
                 .collect { hasPendingReports ->
                     if (hasPendingReports) playbackIssueWorkScheduler.enqueue()
                 }
