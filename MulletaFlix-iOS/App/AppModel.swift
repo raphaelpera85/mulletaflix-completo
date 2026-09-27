@@ -94,6 +94,7 @@ final class AppModel {
     private(set) var lastSyncPlayCommand: SyncPlayCommand?
     private(set) var syncPlayCommandRevision = 0
     private(set) var offlineDownloads: [OfflineDownload] = []
+    private(set) var pendingPlaybackIssues: [QueuedPlaybackIssue] = []
     private(set) var seasonDownloadProgress: SeasonDownloadProgress?
     var offlineQueuePaused = UserDefaults.standard.bool(forKey: "downloads.queuePaused") {
         didSet { UserDefaults.standard.set(offlineQueuePaused, forKey: "downloads.queuePaused") }
@@ -217,6 +218,7 @@ final class AppModel {
             state = .signedIn
         }
         offlineDownloads = session.map { OfflineDownloadStore.load(ownerKey: Self.ownerKey(for: $0)) } ?? []
+        pendingPlaybackIssues = session.map { PlaybackIssueQueueStore.load(ownerKey: Self.ownerKey(for: $0)) } ?? []
         searchHistory = UserDefaults.standard.stringArray(forKey: "search.history") ?? []
         connectivityMonitor.pathUpdateHandler = { [weak self] path in
             let available = path.status == .satisfied
@@ -251,11 +253,13 @@ final class AppModel {
             client = api
             session = saved
             offlineDownloads = OfflineDownloadStore.load(ownerKey: Self.ownerKey(for: saved))
+            pendingPlaybackIssues = PlaybackIssueQueueStore.load(ownerKey: Self.ownerKey(for: saved))
             password = ""
             try await loadHome(using: api, userID: saved.userID)
             try await loadLibraries(using: api, userID: saved.userID)
             applyProfile(try? await api.userProfile(userID: saved.userID))
             state = .signedIn
+            await syncPendingPlaybackIssues()
         } catch {
             state = .signedOut
             errorMessage = AuthErrorPolicy.authenticationMessage(for: error)
@@ -352,12 +356,14 @@ final class AppModel {
             client = api
             session = saved
             offlineDownloads = OfflineDownloadStore.load(ownerKey: Self.ownerKey(for: saved))
+            pendingPlaybackIssues = PlaybackIssueQueueStore.load(ownerKey: Self.ownerKey(for: saved))
             self.password = ""
             clearUserScopedContent()
             try await loadHome(using: api, userID: saved.userID)
             try await loadLibraries(using: api, userID: saved.userID)
             applyProfile(try? await api.userProfile(userID: saved.userID))
             state = .signedIn
+            await syncPendingPlaybackIssues()
             return true
         } catch {
             errorMessage = AuthErrorPolicy.authenticationMessage(for: error)
@@ -1212,9 +1218,18 @@ final class AppModel {
         try await client.requestMedia(title: title, mediaType: mediaType, year: year, notes: notes)
     }
 
-    func submitPlaybackIssue(item: MediaItem, category: String, description: String) async throws {
+    func submitPlaybackIssue(item: MediaItem, category: String, description: String) async throws -> PlaybackIssueSubmissionResult {
         guard let client else { throw APIError.serverMessage("Conecte-se ao servidor para enviar o relato.") }
-        try await client.reportPlaybackIssue(itemID: item.id, category: category, description: description)
+        do {
+            try await client.reportPlaybackIssue(itemID: item.id, category: category, description: description)
+            return .sent
+        } catch {
+            guard PlaybackIssueQueuePolicy.shouldQueue(error), let session else { throw error }
+            let entry = QueuedPlaybackIssue(itemID: item.id, category: category, description: description)
+            pendingPlaybackIssues.append(entry)
+            PlaybackIssueQueueStore.save(pendingPlaybackIssues, ownerKey: Self.ownerKey(for: session))
+            return .queued
+        }
     }
 
     func lyrics(for item: MediaItem) async -> [LyricLine] {
@@ -1231,6 +1246,7 @@ final class AppModel {
         sessionStore.clear()
         client = nil
         session = nil
+        pendingPlaybackIssues = []
         offlineDownloads = []
         profile = nil
         profileError = nil
@@ -1384,6 +1400,27 @@ final class AppModel {
             await self?.loadHome()
             await self?.loadLibraries()
             await self?.loadLiveTV()
+            await self?.syncPendingPlaybackIssues()
+        }
+    }
+
+    private func syncPendingPlaybackIssues() async {
+        guard let client, let session else { return }
+        let ownerKey = Self.ownerKey(for: session)
+        for entry in pendingPlaybackIssues {
+            guard self.session?.userID == session.userID,
+                  self.session?.serverURL == session.serverURL else { return }
+            do {
+                try await client.reportPlaybackIssue(
+                    itemID: entry.itemID,
+                    category: entry.category,
+                    description: entry.description
+                )
+                pendingPlaybackIssues.removeAll { $0.id == entry.id }
+                PlaybackIssueQueueStore.save(pendingPlaybackIssues, ownerKey: ownerKey)
+            } catch {
+                return
+            }
         }
     }
 
@@ -1504,6 +1541,7 @@ final class AppModel {
                     client = api
                     session = saved
                     offlineDownloads = OfflineDownloadStore.load(ownerKey: Self.ownerKey(for: saved))
+                    pendingPlaybackIssues = PlaybackIssueQueueStore.load(ownerKey: Self.ownerKey(for: saved))
                     password = ""
                     isQuickConnectWaiting = false
                     quickConnectCode = nil
@@ -1512,6 +1550,7 @@ final class AppModel {
                     try await loadLibraries(using: api, userID: saved.userID)
                     applyProfile(try? await api.userProfile(userID: saved.userID))
                     state = .signedIn
+                    await syncPendingPlaybackIssues()
                     return
                 }
             }

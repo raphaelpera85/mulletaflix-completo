@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -62,9 +63,10 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
             combine(
                 playbackIssueQueue.pendingCount,
                 sessionRepository.getFeedbackRequestSession(),
-            ) { pendingCount, session -> pendingCount != 0 && session != null }
-                .collect { hasPendingReports ->
-                    if (hasPendingReports) playbackIssueWorkScheduler.enqueue()
+            ) { pendingCount, session -> pendingCount to (session != null) }
+                .distinctUntilChanged()
+                .collect { (pendingCount, hasSession) ->
+                    if (pendingCount != 0 && hasSession) playbackIssueWorkScheduler.enqueue()
                 }
         }
     }

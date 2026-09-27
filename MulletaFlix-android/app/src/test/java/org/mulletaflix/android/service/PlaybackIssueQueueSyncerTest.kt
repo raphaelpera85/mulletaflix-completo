@@ -44,6 +44,15 @@ class PlaybackIssueQueueSyncerTest {
     }
 
     @Test
+    fun `queue persistence exception becomes a retry instead of terminal worker failure`() = runTest {
+        val queue = RecordingQueue(emptyList(), failOnRead = true)
+
+        val outcome = PlaybackIssueQueueSyncer(queue, FakeSessionRepository { session }, RecordingFeedback()).sync()
+
+        assertEquals(PlaybackIssueSyncOutcome.RETRY, outcome)
+    }
+
+    @Test
     fun `session switch during sync stops before sending to another account`() = runTest {
         val alternate = session.copy(serverUrl = "https://other.test", userId = "other-user")
         val queue = RecordingQueue(listOf(issue("pending", session)))
@@ -71,11 +80,17 @@ class PlaybackIssueQueueSyncerTest {
     )
 }
 
-private class RecordingQueue(items: List<QueuedPlaybackIssue>) : PlaybackIssueQueue {
+private class RecordingQueue(
+    items: List<QueuedPlaybackIssue>,
+    private val failOnRead: Boolean = false,
+) : PlaybackIssueQueue {
     override val pendingCount: Flow<Int> = flowOf(items.size)
     val items = items.toMutableList()
     override suspend fun enqueue(issue: QueuedPlaybackIssue) { items += issue }
-    override suspend fun pending(): List<QueuedPlaybackIssue> = items.toList()
+    override suspend fun pending(): List<QueuedPlaybackIssue> {
+        check(!failOnRead) { "Unreadable test queue" }
+        return items.toList()
+    }
     override suspend fun remove(id: String) { items.removeAll { it.id == id } }
 }
 

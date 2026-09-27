@@ -88,8 +88,12 @@ private struct PlaybackIssueForm: View {
                         sending = true
                         defer { sending = false }
                         do {
-                            try await model.submitPlaybackIssue(item: item, category: category, description: description)
-                            dismiss()
+                            let result = try await model.submitPlaybackIssue(item: item, category: category, description: description)
+                            if result == .queued {
+                                message = "Sem conexão: o relato foi salvo e será enviado quando a rede voltar."
+                            } else {
+                                dismiss()
+                            }
                         } catch { message = error.localizedDescription }
                     }
                 }.disabled(sending)
@@ -297,6 +301,15 @@ private struct ProfileView: View {
                     SettingsView(model: model)
                 } label: {
                     Label("Reprodução e aparência", systemImage: "slider.horizontal.3")
+                }
+            }
+            if !model.pendingPlaybackIssues.isEmpty {
+                Section("Relatos pendentes") {
+                    Label(
+                        "\(model.pendingPlaybackIssues.count) relato(s) aguardando conexão",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                    .foregroundStyle(.secondary)
                 }
             }
             Section("Sessão") {

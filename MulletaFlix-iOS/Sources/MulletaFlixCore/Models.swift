@@ -75,6 +75,61 @@ public enum MediaPlaceholderPolicy {
     }
 }
 
+public enum PlaybackIssueSubmissionResult: Equatable, Sendable {
+    case sent
+    case queued
+}
+
+public struct QueuedPlaybackIssue: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let itemID: String
+    public let category: String
+    public let description: String
+
+    public init(
+        id: String = UUID().uuidString,
+        itemID: String,
+        category: String,
+        description: String
+    ) {
+        self.id = id
+        self.itemID = itemID
+        self.category = category
+        self.description = description
+    }
+}
+
+public enum PlaybackIssueQueuePolicy {
+    public static func shouldQueue(_ error: Error) -> Bool {
+        (error as NSError).domain == NSURLErrorDomain
+    }
+}
+
+public enum PlaybackIssueQueueStore {
+    private static let keyPrefix = "feedback.playbackIssues."
+
+    public static func load(ownerKey: String, defaults: UserDefaults = .standard) -> [QueuedPlaybackIssue] {
+        guard let data = defaults.data(forKey: key(ownerKey: ownerKey)),
+              let entries = try? JSONDecoder().decode([QueuedPlaybackIssue].self, from: data) else {
+            return []
+        }
+        return entries
+    }
+
+    public static func save(
+        _ entries: [QueuedPlaybackIssue],
+        ownerKey: String,
+        defaults: UserDefaults = .standard
+    ) {
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        defaults.set(data, forKey: key(ownerKey: ownerKey))
+    }
+
+    private static func key(ownerKey: String) -> String {
+        "\(keyPrefix)\(OfflineDownloadScope.directoryName(ownerKey: ownerKey))"
+    }
+}
+
 /// Formats the server's UTC timestamps for the viewer's local time zone.
 ///
 /// Jellyfin may emit ISO-8601 timestamps with or without fractional seconds.

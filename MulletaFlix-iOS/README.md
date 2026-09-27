@@ -224,6 +224,11 @@ entram em loop de retry.
 Se a falha ocorrer enquanto o dispositivo estiver offline, a reprodução é
 reativada automaticamente quando a conectividade retornar.
 
+Relatos de problemas de reprodução também sobrevivem a falhas transitórias de
+rede: o iOS grava a fila por servidor e usuário, informa que o relato foi salvo
+e reenvia somente quando a mesma sessão voltar a ter conectividade. Respostas de
+autorização ou erros permanentes não entram na fila.
+
 A ordenação padrão das bibliotecas também pode ser escolhida por nome, datas ou
 avaliação, em ordem ascendente ou descendente, e é enviada ao endpoint de itens
 do servidor. A apresentação alterna entre grade e lista e fica persistida nas

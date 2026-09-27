@@ -499,6 +499,29 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(MediaPlaceholderPolicy.symbol(for: nil), "film")
     }
 
+    func testPlaybackIssueQueueOnlyRetriesTransportFailures() {
+        XCTAssertTrue(PlaybackIssueQueuePolicy.shouldQueue(URLError(.notConnectedToInternet)))
+        XCTAssertFalse(PlaybackIssueQueuePolicy.shouldQueue(APIError.httpStatus(401)))
+        XCTAssertFalse(PlaybackIssueQueuePolicy.shouldQueue(APIError.serverMessage("Conta bloqueada")))
+    }
+
+    func testPlaybackIssueQueuePersistsEntriesPerOwner() {
+        let suiteName = "MulletaFlixCoreTests.feedbackQueue.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let entry = QueuedPlaybackIssue(itemID: "movie-1", category: "Travamentos", description: "A rede caiu")
+
+        PlaybackIssueQueueStore.save([entry], ownerKey: "https://server.example|user-1", defaults: defaults)
+
+        XCTAssertEqual(
+            PlaybackIssueQueueStore.load(ownerKey: "https://server.example|user-1", defaults: defaults),
+            [entry]
+        )
+        XCTAssertTrue(
+            PlaybackIssueQueueStore.load(ownerKey: "https://server.example|user-2", defaults: defaults).isEmpty
+        )
+    }
+
 
     func testImageURLUsesAuthenticatedServerEndpointAndTag() async throws {
         let client = APIClient(serverURL: try XCTUnwrap(URL(string: "https://example.test/")))
