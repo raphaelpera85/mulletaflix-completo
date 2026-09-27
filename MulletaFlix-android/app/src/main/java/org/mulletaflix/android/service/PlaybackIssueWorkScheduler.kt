@@ -12,7 +12,7 @@ import javax.inject.Singleton
 
 @Singleton
 internal class PlaybackIssueWorkScheduler @Inject constructor(
-    @param:ApplicationContext context: Context,
+    @ApplicationContext context: Context,
 ) {
     private val workManager = WorkManager.getInstance(context)
 
