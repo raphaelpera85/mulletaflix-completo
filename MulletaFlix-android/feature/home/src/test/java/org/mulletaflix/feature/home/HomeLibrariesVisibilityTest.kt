@@ -65,4 +65,18 @@ class HomeLibrariesVisibilityTest {
     fun `tv hides book libraries with whitespace around collection type`() {
         assertEquals(listOf(movies), homeLibrariesForDevice(listOf(movies, spacedBooks), isTelevision = true))
     }
+
+    @Test
+    fun `tv filters book media even when the containing library is not classified as books`() {
+        val unclassifiedLibrary = movies.copy(id = "unclassified", name = "Coleção")
+        val book = MediaItem("book-2", "Livro", MediaItemType.Book)
+        val sections = homeRecentLibrarySections(
+            libraries = listOf(unclassifiedLibrary),
+            recentItemsByLibraryId = mapOf(unclassifiedLibrary.id to listOf(book)),
+            errorsByLibraryId = emptyMap(),
+            isTelevision = true,
+        )
+
+        assertEquals(emptyList<HomeRecentLibrarySection>(), sections)
+    }
 }

@@ -72,4 +72,5 @@ class HomeEmptyStatePolicyTest {
         assertTrue(shouldShowEmptyHomeState(state, isTelevision = true))
         assertFalse(shouldShowEmptyHomeState(state, isTelevision = false))
     }
+
 }

@@ -2,6 +2,19 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Candidata APK v1.3.80 — biblioteca de Livros oculta na Android TV
+
+### Notas propostas
+
+- A Android TV não mostra bibliotecas de Livros nem títulos Book/Audiobook nos destaques, listas, recentes, busca e favoritos; a abertura direta de uma biblioteca identificada como Books também é bloqueada. Consultas de bibliotecas sem tipo conhecido excluem Book/Audiobook para evitar vazamento de conteúdo.
+- A paginação de “Minha Lista” continua buscando páginas depois de lotes compostos apenas por livros ocultos. Celular e tablet mantêm o acesso a livros.
+
+### Validação
+
+- [x] Release anterior verificada antes do bump: `app-v1.3.79`, asset `mulletaflix-app-v1.3.79.apk`, 7.454.019 bytes, SHA-256 `82B5AD2F7764DB4219C0D43E9E7C7E0833188FDD2B9DD27DB3A69D103219576F`; certificado SHA-256 `224F9A6BD12690E1114ACE649BBFA778D3E7E99DAE608FF711DDF9131E036273`.
+- [x] `:feature:home:testDebugUnitTest` e `:feature:library:testDebugUnitTest`: `BUILD SUCCESSFUL`, incluindo cobertura de filtros de dispositivo, conteúdo recente, consulta e rota direta.
+- [ ] Suíte Android global, lint/build Release, verificação instrumentada na Android TV, artefato final e publicação do APK pendentes.
+
 ## Candidata APK v1.3.79 — barra compacta e busca sem livros na TV
 
 ### Notas propostas

@@ -772,7 +772,7 @@ internal fun homeRecentLibrarySections(
     .map { library ->
         HomeRecentLibrarySection(
             library = library,
-            items = recentItemsByLibraryId[library.id].orEmpty(),
+            items = homeMediaItemsForDevice(recentItemsByLibraryId[library.id].orEmpty(), isTelevision),
             errorMessage = errorsByLibraryId[library.id],
         )
     }

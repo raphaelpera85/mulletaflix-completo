@@ -217,6 +217,9 @@ class LibraryViewModel @Inject constructor(
                 return@launch
             }
             currentIncludeItemTypes = LibraryBrowseTypes.forCollectionType(library?.collectionType)
+                .split(',')
+                .filterNot { isTelevision && it.trim() in setOf("Book", "Audiobook") }
+                .joinToString(",")
             val facets = facetFiltersForRequest(_state.value.activeFilters)
 
             getLibraryItemsUseCase(

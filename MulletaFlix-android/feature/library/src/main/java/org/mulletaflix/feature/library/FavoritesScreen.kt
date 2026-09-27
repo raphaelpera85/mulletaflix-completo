@@ -70,7 +70,7 @@ fun FavoritesScreen(
     )
     val gridState = rememberLibraryGridScrollState()
 
-    LaunchedEffect(isTelevision, visibleItems.size, state.hasMore, state.isLoading) {
+    LaunchedEffect(isTelevision, visibleItems.size, state.items.size, state.hasMore, state.isLoading) {
         if (isTelevision && visibleItems.isEmpty() && state.hasMore && !state.isLoading) {
             viewModel.loadMore()
         }

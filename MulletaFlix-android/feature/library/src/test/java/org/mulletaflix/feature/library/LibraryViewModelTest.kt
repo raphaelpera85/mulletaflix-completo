@@ -92,6 +92,19 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun `tv library query excludes book types when collection metadata is unknown`() = runTest {
+        media.pages[0] = Result.success(emptyList<MediaItem>() to 0)
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("unknown-library", isTelevision = true)
+        advanceUntilIdle()
+
+        assertTrue(media.lastIncludeItemTypes.orEmpty().split(',').none { it in setOf("Book", "Audiobook") })
+        assertTrue(media.lastIncludeItemTypes.orEmpty().contains("Movie"))
+    }
+
+    @Test
     fun `library sort is restored from and saved to local settings`() = runTest {
         val settings = FakeSettingsRepository(initialSort = "DateCreated")
         val viewModel = LibraryViewModel(

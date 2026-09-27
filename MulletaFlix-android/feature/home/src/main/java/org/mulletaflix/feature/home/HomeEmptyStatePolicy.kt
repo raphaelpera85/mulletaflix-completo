@@ -6,7 +6,7 @@ internal fun shouldShowEmptyHomeState(state: HomeState, isTelevision: Boolean = 
     val hasVisibleLibrary = state.libraries.any { shouldShowLibraryOnDevice(it, isTelevision) }
     val hasVisibleRecentSection = state.libraries.any { library ->
         shouldShowLibraryOnDevice(library, isTelevision) &&
-            (state.recentlyAddedByLibrary[library.id].orEmpty().isNotEmpty() ||
+            (homeMediaItemsForDevice(state.recentlyAddedByLibrary[library.id].orEmpty(), isTelevision).isNotEmpty() ||
                 state.recentlyAddedErrorsByLibrary[library.id] != null)
     }
     return !state.isLoading &&
