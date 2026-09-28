@@ -1,6 +1,7 @@
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto';
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
+import AddCircle from '@mui/icons-material/AddCircle';
 import ArrowDropDown from '@mui/icons-material/ArrowDropDown';
 import Favorite from '@mui/icons-material/Favorite';
 import Button from '@mui/material/Button/Button';
@@ -15,6 +16,9 @@ import { MetaView } from 'apps/experimental/constants/metaView';
 import { useAncestors } from 'apps/experimental/features/libraries/hooks/api/useAncestors';
 import { isDetailsPath, isLibraryPath } from 'apps/experimental/features/libraries/utils/path';
 import { appRouter } from 'components/router/appRouter';
+import type { ApiClient } from 'jellyfin-apiclient';
+import { ServerConnections } from 'lib/jellyfin-apiclient';
+import { showMediaRequestDialog } from 'components/userFeedback/userFeedback';
 import { useUserViews } from 'hooks/api/useUserViews';
 import { useApi } from 'hooks/useApi';
 import useCurrentTab from 'hooks/useCurrentTab';
@@ -62,6 +66,12 @@ const UserViewNav = () => {
     const collectionType = searchParams.get('collectionType');
     const { activeTab } = useCurrentTab();
     const { menuLinks } = useWebConfig();
+    const onMediaRequestClick = useCallback(() => {
+        const apiClient = ServerConnections.currentApiClient() as unknown as ApiClient | null;
+        if (apiClient) {
+            showMediaRequestDialog(apiClient);
+        }
+    }, []);
 
     const isExtraLargeScreen = useMediaQuery((t: Theme) => t.breakpoints.up('xl'));
     const isLargeScreen = useMediaQuery((t: Theme) => t.breakpoints.up('lg'));
@@ -133,6 +143,15 @@ const UserViewNav = () => {
                 {globalize.translate(MetaView.Favorites.Name ?? '')}
             </Button>
 
+            <Button
+                variant='text'
+                color='inherit'
+                startIcon={<AddCircle />}
+                onClick={onMediaRequestClick}
+            >
+                {globalize.translate('MediaRequestTitle')}
+            </Button>
+
             {primaryNavItems?.map(navItem => {
                 if ('url' in navItem) {
                     return (
@@ -193,4 +212,3 @@ const UserViewNav = () => {
 };
 
 export default UserViewNav;
-

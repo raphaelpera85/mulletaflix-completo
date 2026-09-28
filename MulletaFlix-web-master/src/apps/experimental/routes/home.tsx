@@ -8,9 +8,6 @@ import Page from '../../../components/Page';
 import { EventType } from 'constants/eventType';
 import Events from 'utils/events';
 import type { TabChangeDetail } from '../../../components/maintabsmanager';
-import type { ApiClient } from 'jellyfin-apiclient';
-import { ServerConnections } from 'lib/jellyfin-apiclient';
-import { showMediaRequestDialog } from '../../../components/userFeedback/userFeedback';
 
 import '../../../elements/emby-tabs/emby-tabs';
 import '../../../elements/emby-button/emby-button';
@@ -53,13 +50,6 @@ const Home = () => {
     const setTitle = useCallback(async () => {
         (await libraryMenu).setTitle(null);
     }, [libraryMenu]);
-
-    const onMediaRequestClick = useCallback(() => {
-        const apiClient = ServerConnections.currentApiClient() as unknown as ApiClient | null;
-        if (apiClient) {
-            showMediaRequestDialog(apiClient);
-        }
-    }, []);
 
     const getTabs = () => {
         return [{
@@ -219,17 +209,6 @@ const Home = () => {
                 backDropType='movie,series,book'
             >
                 <div className='tabContent pageTabContent' id='homeTab' data-index='0'>
-                    <div className='padded-top padded-left padded-right'>
-                        <button
-                            is='emby-button'
-                            type='button'
-                            className='raised button-accent btnMediaRequest'
-                            onClick={onMediaRequestClick}
-                        >
-                            <span className='material-icons' aria-hidden='true'>add_circle</span>
-                            <span>{globalize.translate('MediaRequestTitle')}</span>
-                        </button>
-                    </div>
                     <div className='sections'></div>
                 </div>
                 <div className='tabContent pageTabContent' id='favoritesTab' data-index='1'>

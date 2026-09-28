@@ -87,7 +87,7 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- **Solicitação de títulos visível na página inicial Web**: o botão foi adicionado à tela inicial React ativa, acima das seções de biblioteca. Ele abre o formulário autenticado existente, com autocomplete; antes, estava apenas no template legado e não aparecia na home atual.
+- **Solicitação de títulos ao lado de Favoritos**: o acesso agora fica na navegação global e abre o formulário existente; removido o botão grande do conteúdo da página inicial.
 - **Pacotes de produção do servidor**: artefatos Windows e Linux x64.
 '@
 
