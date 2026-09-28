@@ -354,6 +354,22 @@ public sealed class NebulaPlaybackCacheStatusDto
 
     public int ActiveLeasesCount { get; set; }
 
+    public long CacheHits { get; set; }
+
+    public long CacheMisses { get; set; }
+
+    public long TelegramFetchCount { get; set; }
+
+    public long TelegramFetchFailures { get; set; }
+
+    public double AverageTelegramFetchLatencyMs { get; set; }
+
+    public int ActivePrefetchCount { get; set; }
+
+    public int QueuedPrefetchCount { get; set; }
+
+    public long CacheErrors { get; set; }
+
     public double FreeSpaceGb { get; set; }
 
     public double TotalSpaceGb { get; set; }

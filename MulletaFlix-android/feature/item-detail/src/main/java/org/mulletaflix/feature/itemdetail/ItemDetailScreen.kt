@@ -39,6 +39,7 @@ import coil.compose.AsyncImage
 import org.mulletaflix.domain.model.*
 import org.mulletaflix.designsystem.components.MediaCard
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.designsystem.components.downloadsAvailableOnDevice
 import org.mulletaflix.designsystem.components.MediaCardShape
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerUrl
 import org.mulletaflix.designsystem.media.LocalMulletaFlixServerId
@@ -91,7 +92,7 @@ fun ItemDetailScreen(
                      onFavorite = { viewModel.toggleFavorite() },
                      onMarkWatched = { viewModel.toggleWatched() },
                      onDownload = { viewModel.downloadItem() },
-                     allowDownload = !isTelevision,
+                     allowDownload = downloadsAvailableOnDevice(isTelevision),
                      isDownloadPreparing = state.isPreparingDownload,
                      isFavoriteUpdating = state.isFavoriteUpdating,
                      isWatchedUpdating = state.isWatchedUpdating,

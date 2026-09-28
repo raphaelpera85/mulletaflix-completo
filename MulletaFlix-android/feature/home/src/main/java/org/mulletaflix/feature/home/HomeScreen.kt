@@ -50,6 +50,7 @@ import org.mulletaflix.designsystem.media.userAvatarPath
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.isTelevisionDevice
+import org.mulletaflix.designsystem.components.downloadsAvailableOnDevice
 import org.mulletaflix.designsystem.theme.MulletaFlixRed
 
 /**
@@ -138,6 +139,7 @@ fun HomeScreen(
                         cachedAtEpochMillis = state.cachedAtEpochMillis,
                         resumeCached = state.resumeFromCache,
                         favoritesCached = state.favoritesFromCache,
+                        downloadsAvailable = downloadsAvailableOnDevice(isTelevision),
                     )
                 }
             }
@@ -946,7 +948,7 @@ internal fun HomeTopBar(
                 ) {
                     Icon(Icons.Default.Tv, contentDescription = "TV Ao Vivo", tint = MaterialTheme.colorScheme.onBackground)
                 }
-                if (!isTelevision) {
+                if (downloadsAvailableOnDevice(isTelevision)) {
                     HomeTopBarAction(
                         focusFriendly = layoutSpec.usesFocusFriendlySpacing,
                         onClick = onDownloads,
@@ -971,7 +973,7 @@ internal fun HomeTopBar(
                     }
                     DropdownMenu(expanded = showMoreActions, onDismissRequest = { showMoreActions = false }) {
                         DropdownMenuItem(text = { Text("TV Ao Vivo") }, onClick = { showMoreActions = false; onLiveTv() })
-                        if (!isTelevision) {
+                        if (downloadsAvailableOnDevice(isTelevision)) {
                             DropdownMenuItem(text = { Text("Downloads") }, onClick = { showMoreActions = false; onDownloads() })
                         }
                         DropdownMenuItem(text = { Text("Configurações") }, onClick = { showMoreActions = false; onSettings() })

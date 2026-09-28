@@ -37,6 +37,8 @@ import org.mulletaflix.designsystem.theme.MulletaFlixThemeVariant
 import org.mulletaflix.designsystem.components.ReleaseNotesText
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
 import org.mulletaflix.designsystem.components.remoteFocusRing
+import org.mulletaflix.designsystem.components.isTelevisionDevice
+import org.mulletaflix.designsystem.components.downloadsAvailableOnDevice
 
 /**
  * Settings screen with categorized preferences.
@@ -324,15 +326,11 @@ fun SettingsScreen(
                 )
             }
 
-            // ── Downloads ────────────────────────────────────────────────────
-            SettingsGroup(title = "Downloads") {
-                SettingsItem(icon = Icons.Default.Folder, title = "Pasta de Downloads", subtitle = state.downloadPath, enabled = false)
-                SettingsItem(icon = Icons.Default.Storage, title = "Espaço livre para downloads", subtitle = state.downloadStorageLabel, enabled = false)
-                // A linha "Qualidade de Download: 1080p (Original)" saiu daqui: era um
-                // literal fabricado, sem chave no repositório e sem ninguém que o
-                // lesse — o download usa a URL que o servidor devolve. Uma tela não
-                // pode afirmar uma preferência que não existe.
-            }
+            DownloadsSettingsGroup(
+                downloadPath = state.downloadPath,
+                storageLabel = state.downloadStorageLabel,
+                isTelevision = isTelevisionDevice(),
+            )
 
             // ── Cache ────────────────────────────────────────────────────────
             SettingsGroup(title = "Cache") {
@@ -526,6 +524,20 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+internal fun DownloadsSettingsGroup(
+    downloadPath: String,
+    storageLabel: String,
+    isTelevision: Boolean,
+) {
+    if (!downloadsAvailableOnDevice(isTelevision)) return
+    SettingsGroup(title = "Downloads") {
+        SettingsItem(icon = Icons.Default.Folder, title = "Pasta de Downloads", subtitle = downloadPath, enabled = false)
+        SettingsItem(icon = Icons.Default.Storage, title = "Espaço livre para downloads", subtitle = storageLabel, enabled = false)
+        // Download uses URL returned by server; no separate quality preference exists.
     }
 }
 

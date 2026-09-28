@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -46,10 +47,17 @@ public sealed class NebulaPlaybackCache : IDisposable
     private readonly ConcurrentDictionary<string, DateTime> _lastActivity = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SharedFetch> _inflight = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PrefetchState> _prefetches = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<PrefetchState, byte> _allPrefetches = new();
     private readonly SemaphoreSlim _prefetchConcurrency = new(MaxConcurrentMediaPrefetches, MaxConcurrentMediaPrefetches);
     private readonly SemaphoreSlim _aheadPrefetchConcurrency = new(MaxConcurrentAheadChunkPrefetches, MaxConcurrentAheadChunkPrefetches);
     private readonly Timer _cleanupTimer;
     private int _disposed;
+    private long _cacheHits;
+    private long _cacheMisses;
+    private long _telegramFetchCount;
+    private long _telegramFetchFailures;
+    private long _telegramFetchDurationTicks;
+    private long _cacheErrors;
 
     public NebulaPlaybackCache(
         string cachePath,
@@ -83,6 +91,31 @@ public sealed class NebulaPlaybackCache : IDisposable
     public int ActiveLeasesCount => _activeMedia.Count;
 
     internal int PendingPrefetchCount => _prefetches.Count;
+
+    public long CacheHits => Interlocked.Read(ref _cacheHits);
+
+    public long CacheMisses => Interlocked.Read(ref _cacheMisses);
+
+    public long TelegramFetchCount => Interlocked.Read(ref _telegramFetchCount);
+
+    public long TelegramFetchFailures => Interlocked.Read(ref _telegramFetchFailures);
+
+    public double AverageTelegramFetchLatencyMs => TelegramFetchCount == 0
+        ? 0
+        : TimeSpan.FromTicks(Interlocked.Read(ref _telegramFetchDurationTicks)).TotalMilliseconds / TelegramFetchCount;
+
+    /// <summary>
+    /// Número de tarefas de pré-cache que já adquiriram um slot. Callbacks de descarte que continuam
+    /// após o término da tarefa não contam como reprodução/pré-cache ativo.
+    /// </summary>
+    public int ActivePrefetchCount => _allPrefetches.Keys.Count(static state => state.HasConcurrencySlot);
+
+    /// <summary>
+    /// Número de tarefas admitidas que ainda aguardam um slot de pré-cache.
+    /// </summary>
+    public int QueuedPrefetchCount => Math.Max(0, _allPrefetches.Count - ActivePrefetchCount);
+
+    public long CacheErrors => Interlocked.Read(ref _cacheErrors);
 
     public long MaxCacheBytes => Volatile.Read(ref _maxCacheBytes);
 
@@ -269,6 +302,11 @@ public sealed class NebulaPlaybackCache : IDisposable
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var normalized = NormalizeMediaKey(mediaKey);
             _cancelWhenIdle.TryRemove(normalized, out _);
+            if (_prefetches.TryGetValue(normalized, out var prefetch))
+            {
+                prefetch.TryRevokeCancellationRequest();
+            }
+
             _activeMedia.AddOrUpdate(normalized, 1, static (_, count) => count + 1);
             Touch(normalized);
             return new PlaybackLease(this, normalized);
@@ -301,8 +339,11 @@ public sealed class NebulaPlaybackCache : IDisposable
         var path = Path.Combine(directory, $"{partIndex:D6}-{chunkIndex:D8}.bin");
         if (TryReadComplete(path, expectedLength, out var cached))
         {
+            Interlocked.Increment(ref _cacheHits);
             return cached;
         }
+
+        Interlocked.Increment(ref _cacheMisses);
 
         var inflightKey = $"{normalized}:{partIndex}:{chunkIndex}";
         while (true)
@@ -313,7 +354,7 @@ public sealed class NebulaPlaybackCache : IDisposable
             try
             {
                 ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-                var candidate = new SharedFetch(token => DownloadAndPersistAsync(path, expectedLength, fetch, token));
+                var candidate = new SharedFetch(token => DownloadAndPersistAsync(path, expectedLength, fetch, token), _logger);
                 shared = _inflight.GetOrAdd(inflightKey, candidate);
                 if (!shared.TryJoin(out sharedTask))
                 {
@@ -321,6 +362,7 @@ public sealed class NebulaPlaybackCache : IDisposable
                         .Remove(new KeyValuePair<string, SharedFetch>(inflightKey, shared));
                     if (TryReadComplete(path, expectedLength, out cached))
                     {
+                        Interlocked.Increment(ref _cacheHits);
                         return cached;
                     }
 
@@ -404,7 +446,7 @@ public sealed class NebulaPlaybackCache : IDisposable
                 _prefetches.TryRemove(new KeyValuePair<string, PrefetchState>(normalized, currentPrefetch));
             }
 
-            if (_prefetches.Count >= MaxConcurrentMediaPrefetches + MaxQueuedMediaPrefetches)
+            if (_allPrefetches.Count >= MaxConcurrentMediaPrefetches + MaxQueuedMediaPrefetches)
             {
                 _logger.LogDebug(
                     "[NEBULA-CACHE] Pré-cache integral ignorado por limite de admissão; playback sob demanda permanece disponível para {MediaKey}.",
@@ -418,6 +460,8 @@ public sealed class NebulaPlaybackCache : IDisposable
                 state.Dispose();
                 return;
             }
+
+            _allPrefetches.TryAdd(state, 0);
         }
         finally
         {
@@ -647,7 +691,22 @@ public sealed class NebulaPlaybackCache : IDisposable
         Func<CancellationToken, Task<byte[]>> fetch,
         CancellationToken cancellationToken)
     {
-        var data = await fetch(cancellationToken).ConfigureAwait(false);
+        var startedAt = Stopwatch.GetTimestamp();
+        Interlocked.Increment(ref _telegramFetchCount);
+        byte[] data;
+        try
+        {
+            data = await fetch(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Interlocked.Increment(ref _telegramFetchFailures);
+            throw;
+        }
+        finally
+        {
+            Interlocked.Add(ref _telegramFetchDurationTicks, Stopwatch.GetElapsedTime(startedAt).Ticks);
+        }
         if (data.Length == 0)
         {
             return data;
@@ -673,6 +732,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            Interlocked.Increment(ref _cacheErrors);
             _logger.LogWarning(ex, "[NEBULA-CACHE] Não foi possível persistir bloco; mantendo reprodução sem cache: {Path}", path);
         }
         finally
@@ -924,6 +984,7 @@ public sealed class NebulaPlaybackCache : IDisposable
             {
                 await _prefetchConcurrency.WaitAsync(state.Token).ConfigureAwait(false);
                 acquiredConcurrencySlot = true;
+                state.MarkConcurrencySlotAcquired();
                 if (Volatile.Read(ref _disposed) == 0 && !state.IsCancellationRequested)
                 {
                     await prefetch(state.Token).ConfigureAwait(false);
@@ -940,6 +1001,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         finally
         {
             _prefetches.TryRemove(new KeyValuePair<string, PrefetchState>(mediaKey, state));
+            _allPrefetches.TryRemove(state, out _);
             state.Dispose();
             if (acquiredConcurrencySlot)
             {
@@ -1001,7 +1063,7 @@ public sealed class NebulaPlaybackCache : IDisposable
     private (SharedFetch[] Fetches, PrefetchState[] Prefetches)? BeginDisposeUnderGate(bool onlyWhenIdle)
     {
         if (Volatile.Read(ref _disposed) != 0
-            || (onlyWhenIdle && (_activeMedia.Count != 0 || _inflight.Count != 0 || _prefetches.Count != 0)))
+            || (onlyWhenIdle && (_activeMedia.Count != 0 || _inflight.Count != 0 || _allPrefetches.Count != 0)))
         {
             return null;
         }
@@ -1009,9 +1071,10 @@ public sealed class NebulaPlaybackCache : IDisposable
         Interlocked.Exchange(ref _disposed, 1);
         _cleanupTimer.Dispose();
         var fetches = _inflight.Values.ToArray();
-        var prefetches = _prefetches.Values.ToArray();
+        var prefetches = _allPrefetches.Keys.ToArray();
         _inflight.Clear();
         _prefetches.Clear();
+        _allPrefetches.Clear();
         _activeMedia.Clear();
         _cancelWhenIdle.Clear();
         _lastActivity.Clear();
@@ -1027,6 +1090,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         }
         foreach (var state in resources.Prefetches)
         {
+            state.MarkCancellationRequested();
             state.Cancel();
         }
     }
@@ -1058,8 +1122,11 @@ public sealed class NebulaPlaybackCache : IDisposable
         private readonly CancellationTokenSource _cancellation = new();
         private readonly ILogger _logger;
         private bool _disposed;
+        private bool _disposeRequested;
+        private Task? _cancelCallbacksTask;
         private int _cancellationRequested;
         private int _cancelSignaled;
+        private int _hasConcurrencySlot;
 
         public CancellationToken Token { get; }
 
@@ -1071,54 +1138,108 @@ public sealed class NebulaPlaybackCache : IDisposable
 
         public bool IsCancellationRequested => Volatile.Read(ref _cancellationRequested) != 0;
 
+        public bool HasConcurrencySlot => Volatile.Read(ref _hasConcurrencySlot) != 0;
+
+        public void MarkConcurrencySlotAcquired() => Volatile.Write(ref _hasConcurrencySlot, 1);
+
         public void MarkCancellationRequested()
         {
-            Volatile.Write(ref _cancellationRequested, 1);
+            lock (_gate)
+            {
+                if (!_disposed && _cancelSignaled == 0)
+                {
+                    Volatile.Write(ref _cancellationRequested, 1);
+                }
+            }
+        }
+
+        public void TryRevokeCancellationRequest()
+        {
+            lock (_gate)
+            {
+                if (!_disposed && _cancelSignaled == 0)
+                {
+                    Volatile.Write(ref _cancellationRequested, 0);
+                }
+            }
         }
 
         public void Cancel()
         {
-            AggregateException? callbackError = null;
             lock (_gate)
             {
-                if (_disposed || Interlocked.Exchange(ref _cancelSignaled, 1) != 0)
+                if (_disposed || _cancelSignaled != 0 || !IsCancellationRequested)
                 {
                     return;
                 }
 
-                Volatile.Write(ref _cancellationRequested, 1);
+                _cancelSignaled = 1;
                 try
                 {
-                    _cancellation.Cancel();
+                    // Callbacks can wait for the prefetch task to finish. Run them asynchronously
+                    // so the task can leave its finally block and request disposal without a cycle.
+                    _cancelCallbacksTask = _cancellation.CancelAsync();
                 }
                 catch (ObjectDisposedException)
                 {
                     // The prefetch can finish naturally and dispose its state after the request is marked.
                 }
-                catch (AggregateException ex)
-                {
-                    callbackError = ex;
-                }
-            }
-
-            if (callbackError is not null)
-            {
-                _logger.LogWarning(callbackError, "Falha em callback ao cancelar uma tarefa de pré-cache Nebula.");
             }
         }
 
         public void Dispose()
         {
+            Task? cancelCallbacksTask;
             lock (_gate)
             {
-                if (_disposed)
+                if (_disposed || _disposeRequested)
                 {
                     return;
                 }
 
-                _disposed = true;
-                _cancellation.Dispose();
+                _disposeRequested = true;
+                cancelCallbacksTask = _cancelCallbacksTask;
+                if (cancelCallbacksTask is null || cancelCallbacksTask.IsCompleted)
+                {
+                    DisposeCancellationSource(cancelCallbacksTask);
+                    return;
+                }
             }
+
+            _ = DisposeAfterCancellationCallbacksAsync(cancelCallbacksTask);
+        }
+
+        private async Task DisposeAfterCancellationCallbacksAsync(Task cancelCallbacksTask)
+        {
+            try
+            {
+                await cancelCallbacksTask.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // DisposeCancellationSource inspeciona e registra a falha uma única vez.
+            }
+
+            lock (_gate)
+            {
+                DisposeCancellationSource(cancelCallbacksTask);
+            }
+        }
+
+        private void DisposeCancellationSource(Task? cancelCallbacksTask)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (cancelCallbacksTask?.Exception is { } callbackError)
+            {
+                _logger.LogWarning(callbackError, "Falha em callback ao cancelar uma tarefa de pré-cache Nebula.");
+            }
+
+            _disposed = true;
+            _cancellation.Dispose();
         }
     }
 
@@ -1127,11 +1248,18 @@ public sealed class NebulaPlaybackCache : IDisposable
         private readonly object _gate = new();
         private readonly CancellationTokenSource _cancellation = new();
         private readonly Func<CancellationToken, Task<byte[]>> _fetch;
+        private readonly ILogger _logger;
         private Task<byte[]>? _task;
+        private Task? _cancelCallbacksTask;
         private int _waiters;
         private bool _disposed;
+        private bool _disposeRequested;
 
-        public SharedFetch(Func<CancellationToken, Task<byte[]>> fetch) => _fetch = fetch;
+        public SharedFetch(Func<CancellationToken, Task<byte[]>> fetch, ILogger logger)
+        {
+            _fetch = fetch;
+            _logger = logger;
+        }
 
         public bool TryJoin(out Task<byte[]> task)
         {
@@ -1157,7 +1285,7 @@ public sealed class NebulaPlaybackCache : IDisposable
                 _waiters = Math.Max(0, _waiters - 1);
                 if (!_disposed && _waiters == 0 && _task?.IsCompleted == false)
                 {
-                    _cancellation.Cancel();
+                    RequestCancellationUnderGate();
                 }
             }
         }
@@ -1168,7 +1296,7 @@ public sealed class NebulaPlaybackCache : IDisposable
             {
                 if (!_disposed && !_cancellation.IsCancellationRequested)
                 {
-                    _cancellation.Cancel();
+                    RequestCancellationUnderGate();
                 }
             }
         }
@@ -1187,16 +1315,70 @@ public sealed class NebulaPlaybackCache : IDisposable
 
         public void Dispose()
         {
+            Task? cancelCallbacksTask;
             lock (_gate)
             {
-                if (_disposed)
+                if (_disposeRequested)
                 {
                     return;
                 }
 
-                _disposed = true;
-                _cancellation.Dispose();
+                _disposeRequested = true;
+                if (_task?.IsCompleted == false && !_cancellation.IsCancellationRequested)
+                {
+                    RequestCancellationUnderGate();
+                }
+
+                cancelCallbacksTask = _cancelCallbacksTask;
+                if (cancelCallbacksTask is null || cancelCallbacksTask.IsCompleted)
+                {
+                    DisposeCancellationSource(cancelCallbacksTask);
+                    return;
+                }
             }
+
+            _ = DisposeAfterCancellationCallbacksAsync(cancelCallbacksTask);
+        }
+
+        private void RequestCancellationUnderGate()
+        {
+            if (!_cancellation.IsCancellationRequested)
+            {
+                _cancelCallbacksTask = _cancellation.CancelAsync();
+            }
+        }
+
+        private async Task DisposeAfterCancellationCallbacksAsync(Task cancelCallbacksTask)
+        {
+            try
+            {
+                await cancelCallbacksTask.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // DisposeCancellationSource registra a falha uma única vez.
+            }
+
+            lock (_gate)
+            {
+                DisposeCancellationSource(cancelCallbacksTask);
+            }
+        }
+
+        private void DisposeCancellationSource(Task? cancelCallbacksTask)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (cancelCallbacksTask?.Exception is { } callbackError)
+            {
+                _logger.LogWarning(callbackError, "Falha em callback ao cancelar um download compartilhado Nebula.");
+            }
+
+            _disposed = true;
+            _cancellation.Dispose();
         }
     }
 }

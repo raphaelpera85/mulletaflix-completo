@@ -1,6 +1,7 @@
 package org.mulletaflix.feature.home
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -42,6 +43,20 @@ class HomeOfflineStatusCardTest {
         composeRule.onNodeWithText(
             "Você está offline e não há conteúdo da Home salvo. Acesse Downloads para reproduzir mídias baixadas."
         ).assertIsDisplayed()
+    }
+
+    @Test fun televisionOfflineMessageDoesNotReferToDownloads() {
+        composeRule.setContent {
+            MulletaFlixTheme {
+                HomeOfflineStatusCard(
+                    cachedAtEpochMillis = null,
+                    downloadsAvailable = false,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Você está offline e não há conteúdo da Home salvo.").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Downloads").assertCountEquals(0)
     }
 
     @Test fun partialHomeCacheNamesOnlyTheSavedSection() {

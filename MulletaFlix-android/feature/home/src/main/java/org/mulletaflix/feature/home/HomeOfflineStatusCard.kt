@@ -23,6 +23,7 @@ internal fun HomeOfflineStatusCard(
     cachedAtEpochMillis: Long?,
     resumeCached: Boolean = false,
     favoritesCached: Boolean = false,
+    downloadsAvailable: Boolean = true,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -46,8 +47,12 @@ internal fun HomeOfflineStatusCard(
                     }.joinToString(" e ")
                     "Sem conexão · $cachedNames em cache desde " +
                         DateFormat.getDateTimeInstance().format(Date(savedAt)) +
-                        ". Apenas mídias baixadas podem ser reproduzidas offline."
-                } ?: "Você está offline e não há conteúdo da Home salvo. Acesse Downloads para reproduzir mídias baixadas.",
+                        if (downloadsAvailable) ". Apenas mídias baixadas podem ser reproduzidas offline." else "."
+                } ?: if (downloadsAvailable) {
+                    "Você está offline e não há conteúdo da Home salvo. Acesse Downloads para reproduzir mídias baixadas."
+                } else {
+                    "Você está offline e não há conteúdo da Home salvo."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

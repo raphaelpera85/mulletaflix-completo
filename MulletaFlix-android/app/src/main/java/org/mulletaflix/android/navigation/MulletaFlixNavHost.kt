@@ -64,6 +64,7 @@ import org.mulletaflix.feature.downloads.DownloadsScreen
 import org.mulletaflix.feature.syncplay.SyncPlayScreen
 import org.mulletaflix.feature.syncplay.RemotePlaybackScreen
 import org.mulletaflix.feature.itemdetail.PlaylistLibraryScreen
+import org.mulletaflix.designsystem.components.downloadsAvailableOnDevice
 
 /**
  * Root navigation host for MulletaFlix.
@@ -92,6 +93,9 @@ fun MulletaFlixNavHost(
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
     val currentItemId = currentBackStackEntry?.arguments?.getString("itemId")
+    val isTelevisionDevice =
+        (LocalConfiguration.current.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
+            android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
     val currentServerId = org.mulletaflix.designsystem.media.LocalMulletaFlixServerId.current
     // Keyed by request sequence rather than by item id, so a second intent for
     // the same media is a new delivery instead of a duplicate.
@@ -245,24 +249,29 @@ fun MulletaFlixNavHost(
         }
 
         composable(MulletaFlixRoute.DOWNLOADS) {
-            DownloadsScreen(
-                onItemClick = { entry ->
-                    navController.navigate(
-                        MulletaFlixRoute.offlinePlayer(
-                            itemId = entry.id,
-                            uri = entry.uri,
-                            title = entry.title,
-                            downloadId = entry.downloadId,
-                        ),
-                    )
-                },
-                onBack = { navController.popBackStack() },
-                onExploreClick = {
-                    navController.navigate(MulletaFlixRoute.HOME) {
-                        popUpTo(MulletaFlixRoute.HOME) { inclusive = true }
-                    }
-                },
-            )
+            DownloadsDestination(
+                navController = navController,
+                isTelevisionDevice = isTelevisionDevice,
+            ) {
+                DownloadsScreen(
+                    onItemClick = { entry ->
+                        navController.navigate(
+                            MulletaFlixRoute.offlinePlayer(
+                                itemId = entry.id,
+                                uri = entry.uri,
+                                title = entry.title,
+                                downloadId = entry.downloadId,
+                            ),
+                        )
+                    },
+                    onBack = { navController.popBackStack() },
+                    onExploreClick = {
+                        navController.navigate(MulletaFlixRoute.HOME) {
+                            popUpTo(MulletaFlixRoute.HOME) { inclusive = true }
+                        }
+                    },
+                )
+            }
         }
 
         composable(MulletaFlixRoute.LIVE_TV) {
@@ -388,6 +397,24 @@ fun MulletaFlixNavHost(
             onOpen = { navController.navigate(MulletaFlixRoute.videoPlayer(castMiniController!!.itemId)) },
         )
     }
+    }
+}
+
+@Composable
+internal fun DownloadsDestination(
+    navController: NavHostController,
+    isTelevisionDevice: Boolean,
+    content: @Composable () -> Unit,
+) {
+    if (downloadsAvailableOnDevice(isTelevisionDevice)) {
+        content()
+    } else {
+        LaunchedEffect(navController) {
+            navController.navigate(MulletaFlixRoute.HOME) {
+                popUpTo(MulletaFlixRoute.DOWNLOADS) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
     }
 }
 

@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -103,5 +104,39 @@ class SettingsSemanticsTest {
 
         composeRule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.SelectableGroup)).assertCountEquals(0)
         composeRule.onAllNodes(hasClickAction()).assertCountEquals(0)
+    }
+
+    @Test
+    fun downloadsSettingsAreHiddenOnTelevision() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsSettingsGroup(
+                    downloadPath = "/downloads",
+                    storageLabel = "2 GB livres",
+                    isTelevision = true,
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("Downloads").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Pasta de Downloads").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Espaço livre para downloads").assertCountEquals(0)
+    }
+
+    @Test
+    fun downloadsSettingsRemainOnHandheldDevices() {
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadsSettingsGroup(
+                    downloadPath = "/downloads",
+                    storageLabel = "2 GB livres",
+                    isTelevision = false,
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("Downloads").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Pasta de Downloads").assertCountEquals(1)
+        composeRule.onAllNodesWithText("Espaço livre para downloads").assertCountEquals(1)
     }
 }

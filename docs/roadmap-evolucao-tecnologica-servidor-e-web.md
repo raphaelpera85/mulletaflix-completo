@@ -109,12 +109,15 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
   - [x] Limitar a duas mídias com pré-cache integral ativo e quatro aguardando; não enfileirar prefetch-ahead além de dois chunks concorrentes. Os chunks antecipados usam o cache persistente compartilhado, evitando novo download do mesmo bloco entre ranges/leitores.
   - [x] Provar por teste do `NebulaChunkedStream` que o primeiro bloco é entregue e persistido enquanto o prefetch do próximo chunk continua bloqueado.
   - [x] Monitorar eventos `PlaybackStart`/`PlaybackStopped` por sessão; trocar/encerrar uma reprodução cancela o pré-cache da mídia anterior apenas quando nenhum outro cliente permanece nela. Eventos de parada sem identidade suficiente são ignorados; se ainda houver um range aberto, o cancelamento fica pendente até o último lease fechar, e novo playback remove essa intenção. Se a mídia retomar durante a resolução do cancelamento, o monitor reinicia o pré-cache.
+  - [x] Um lease novo revoga uma intenção de cancelamento antes de ela sinalizar o token. Cancel callbacks usam `CancellationTokenSource.CancelAsync`; o descarte da origem espera esses callbacks sem bloquear a finalização síncrona do estado. Teste cobre callback deliberadamente bloqueado sem bloquear a chamada de cancelamento.
   - [ ] Validar ponta a ponta em runtime o vínculo entre eventos reais Jellyfin, caminho STRM, documento Mongo e chave de cache, além de confirmar reprodução contínua durante troca/parada. O cancelamento por lease continua como fallback com tolerância de 2 minutos para encerramentos sem evento.
 - [ ] **T3.3 — Preservar leases ativos.** Limpeza não remove conteúdo usado por leitores ou downloads em andamento; liberar lease mesmo em exceção, cancelamento e encerramento do servidor.
   - [x] Limpeza manual e por cota ignoram mídias com lease, prefetch ou fetch de chunk em andamento; mudança de configuração não interrompe sessões ativas.
 - [x] **T3.4 — Prevenir duplicação de downloads concorrentes.** Uma única operação por parte/arquivo atende leitores simultâneos; cancelamento de um leitor não cancela nem duplica o download compartilhado.
 - [ ] **T3.5 — Exibir diagnóstico de cache.** Bytes e arquivos em cache, hits/misses, latência Telegram, prefetch em andamento, leases, erros e limpeza segura.
   - [x] Painel usa os nomes atuais do DTO e mostra ocupação da cota, limite configurado, espaço livre/reserva e leases ativos.
+  - [x] DTO e painel exibem contadores desde a inicialização para hits/misses, tentativas/falhas de fetch, latência média, pré-cache ativo/em fila e erros de persistência.
+  - [ ] Expandir telemetria para falhas/tempo de limpeza e downloads cancelados, e testar o contrato HTTP do DTO com valores ativos.
 - [ ] **T3.6 — Fazer testes de falha e recuperação.** Rede lenta/interrompida, parte ausente, servidor reiniciado, cliente cancelado, mudança de caminho e disco cheio.
   - [x] Cobrir cancelamento do último leitor, cancelamento de um leitor com outros aguardando e rejeição/cancelamento de operações no descarte do cache.
   - [x] Cobrir cota cheia, reserva mínima, evicção inativa, redução de cota existente e limpeza manual durante fetch.
@@ -300,6 +303,23 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Suíte `Jellyfin.Server.Implementations.Tests`: 970 aprovados, 38 ignorados, 0 falhas; suíte `Jellyfin.Api.Tests`: 178 aprovados, 0 falhas; build Release do servidor: 0 erros. `git diff --check` passou. Permanecem avisos NU1903/analisadores conhecidos.
 - Preservada compatibilidade pública: assinatura original do construtor HTTP restaurada e novo método de cancelamento da interface recebe implementação padrão compatível.
 - A validação real da sequência Jellyfin → Mongo → cache durante reprodução ainda falta; nenhuma release foi criada/publicada.
+
+### 28/09/2026 — Cancelamento assíncrono do pré-cache (T3.2/T3.3 parcial)
+
+- Revisão adversarial encontrou a janela entre marcar cancelamento e sinalizar o token; `Acquire` agora revoga pedidos ainda pendentes, enquanto um cancelamento já sinalizado permanece irrevogável.
+- Callbacks de cancelamento agora são disparados por `CancellationTokenSource.CancelAsync`; o descarte da origem é adiado até os callbacks concluírem e não bloqueia sob o lock do estado.
+- Novo teste segura um callback de token e confirma que a chamada `CancelPrefetch` retorna antes do callback liberar; depois da liberação, o estado pendente termina normalmente.
+- Verificação Release: 5 testes focados `CancelPrefetch` aprovados; suíte completa `Jellyfin.Server.Implementations.Tests` com 971 aprovados, 38 ignorados, 0 falhas; `Jellyfin.Api.Tests` com 178 aprovados, 0 falhas; build do servidor com 0 erros; `git diff --check` passou. Persistem avisos NU1903/analisadores existentes.
+- A revisão adversarial encontrou aviso duplicado quando callback lançava; o registro foi centralizado no descarte e os testes focados passaram novamente. A validação runtime Jellyfin → Mongo → cache continua pendente; nenhum servidor instalado foi reiniciado.
+- Nenhuma release ou publicação do portal foi criada.
+
+### 28/09/2026 — Diagnóstico do pré-cache Nebula (T3.5 parcial)
+
+- Acrescentados contadores atômicos de hit/miss, fetches/falhas, duração média do fetch e erro de persistência, sem logging por chunk ou consulta extra no caminho de reprodução.
+- O endpoint `NebulaFtp/PlaybackCache` expõe os contadores acumulados desde a inicialização; o painel mostra também pré-cache integral ativo/em fila. Estados de pré-cache substituídos durante cancelamento continuam no rastreador até terminar, para não subcontar trabalho ativo ou fila.
+- Cancelamentos do fetch compartilhado também passaram a usar `CancelAsync`, com liberação do token postergada até callbacks concluírem; teste garante que `Dispose` retorna mesmo com callback deliberadamente bloqueado. Teste da fila verifica 2 ativos/4 aguardando.
+- Teste cobre hit após download e erro do fetch. Suíte completa de implementações: 973 aprovados, 38 ignorados, 0 falhas; API: 178 aprovados; testes do painel web: 208 aprovados; TypeScript, lint, build web de produção e verificador de artefatos passaram; build Release do servidor: 0 erros. Avisos NU1903 e mensagens conhecidas do Vite/jsdom permanecem.
+- T3.5 permanece parcial: ainda medir falha/duração da limpeza e separar cancelamentos esperados de falhas. A validação runtime Jellyfin → Mongo → cache segue aberta; nenhuma release/portal foi publicada por decisão explícita do usuário.
 
 ### 28/09/2026 — Mapeamento estático de fluxos (T0.2 concluída)
 

@@ -35,6 +35,14 @@ interface NebulaPlaybackCacheStatus {
     totalSpaceGb: number;
     maxCacheSizeBytes: number;
     minimumFreeSpaceBytes: number;
+    cacheHits: number;
+    cacheMisses: number;
+    telegramFetchCount: number;
+    telegramFetchFailures: number;
+    averageTelegramFetchLatencyMs: number;
+    activePrefetchCount: number;
+    queuedPrefetchCount: number;
+    cacheErrors: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -301,6 +309,37 @@ export const Component = () => {
                             </Card>
                         </Grid>
                     </Grid>
+
+                    <Card variant='outlined'>
+                        <CardContent>
+                            <Typography variant='h6' sx={{ mb: 2 }}>
+                                Diagnóstico da reprodução (desde a inicialização)
+                            </Typography>
+                            <Grid container spacing={2}>
+                                <Grid size={{ xs: 6, sm: 3 }}>
+                                    <Typography variant='body2' color='text.secondary'>Acertos / misses no cache em disco</Typography>
+                                    <Typography variant='h6'>{status?.cacheHits ?? 0} / {status?.cacheMisses ?? 0}</Typography>
+                                </Grid>
+                                <Grid size={{ xs: 6, sm: 3 }}>
+                                    <Typography variant='body2' color='text.secondary'>Downloads Telegram</Typography>
+                                    <Typography variant='h6'>{status?.telegramFetchCount ?? 0}</Typography>
+                                    <Typography variant='caption' color='text.secondary'>Falhas: {status?.telegramFetchFailures ?? 0}</Typography>
+                                </Grid>
+                                <Grid size={{ xs: 6, sm: 3 }}>
+                                    <Typography variant='body2' color='text.secondary'>Latência média Telegram</Typography>
+                                    <Typography variant='h6'>{(status?.averageTelegramFetchLatencyMs ?? 0).toFixed(0)} ms</Typography>
+                                </Grid>
+                                <Grid size={{ xs: 6, sm: 3 }}>
+                                    <Typography variant='body2' color='text.secondary'>Pré-cache ativo / fila</Typography>
+                                    <Typography variant='h6'>{status?.activePrefetchCount ?? 0} / {status?.queuedPrefetchCount ?? 0}</Typography>
+                                </Grid>
+                                <Grid size={{ xs: 6, sm: 3 }}>
+                                    <Typography variant='body2' color='text.secondary'>Erros de persistência</Typography>
+                                    <Typography variant='h6'>{status?.cacheErrors ?? 0}</Typography>
+                                </Grid>
+                            </Grid>
+                        </CardContent>
+                    </Card>
 
                     {/* Path Configuration Form */}
                     <Card variant='outlined'>

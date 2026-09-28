@@ -84,6 +84,8 @@ public sealed class NebulaPlaybackCacheTests
             Assert.Equal(2, Volatile.Read(ref maximumActive));
             Assert.Equal(2, startedMedia.Count);
             Assert.Equal(6, cache.PendingPrefetchCount);
+            Assert.Equal(2, cache.ActivePrefetchCount);
+            Assert.Equal(4, cache.QueuedPrefetchCount);
 
             releaseDownloads.TrySetResult();
             await allAdmittedStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
@@ -91,6 +93,8 @@ public sealed class NebulaPlaybackCacheTests
 
             Assert.Equal(6, startedMedia.Count);
             Assert.Equal(0, cache.PendingPrefetchCount);
+            Assert.Equal(0, cache.ActivePrefetchCount);
+            Assert.Equal(0, cache.QueuedPrefetchCount);
             Assert.Equal(2, Volatile.Read(ref maximumActive));
         }
         finally
@@ -219,6 +223,60 @@ public sealed class NebulaPlaybackCacheTests
 
             await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(cache.CancelPrefetch("callback-media"));
+            await callbackCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await WaitUntilAsync(() => cache.PendingPrefetchCount == 0);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CancelPrefetch_DoesNotWaitForBlockingTokenCallbacksBeforeFinishingPrefetch()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var callbackCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            cache.StartPrefetch("blocking-callback-media", async token =>
+            {
+                using var registration = token.Register(() =>
+                {
+                    callbackStarted.TrySetResult();
+                    releaseCallback.Task.GetAwaiter().GetResult();
+                    callbackCompleted.TrySetResult();
+                });
+                started.TrySetResult();
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    await callbackStarted.Task;
+                }
+            });
+
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                Assert.True(await Task.Run(() => cache.CancelPrefetch("blocking-callback-media"))
+                    .WaitAsync(TimeSpan.FromSeconds(5)));
+                await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Equal(1, cache.PendingPrefetchCount);
+                Assert.False(callbackCompleted.Task.IsCompleted);
+            }
+            finally
+            {
+                releaseCallback.TrySetResult();
+            }
+
             await callbackCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await WaitUntilAsync(() => cache.PendingPrefetchCount == 0);
         }
@@ -564,6 +622,38 @@ public sealed class NebulaPlaybackCacheTests
             Assert.Equal(new byte[] { 1, 2, 3, 4 }, first);
             Assert.Equal(first, second);
             Assert.Equal(1, calls);
+            Assert.Equal(1, cache.CacheHits);
+            Assert.Equal(1, cache.CacheMisses);
+            Assert.Equal(1, cache.TelegramFetchCount);
+            Assert.Equal(0, cache.TelegramFetchFailures);
+            Assert.True(cache.AverageTelegramFetchLatencyMs >= 0);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ReportsTelegramFetchFailuresAndKeepsCacheMissVisible()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+
+            await Assert.ThrowsAsync<IOException>(() => cache.GetOrFetchChunkAsync(
+                "failed-media",
+                0,
+                0,
+                4,
+                _ => Task.FromException<byte[]>(new IOException("Telegram indisponível")),
+                CancellationToken.None));
+
+            Assert.Equal(1, cache.CacheMisses);
+            Assert.Equal(1, cache.TelegramFetchCount);
+            Assert.Equal(1, cache.TelegramFetchFailures);
+            Assert.True(cache.AverageTelegramFetchLatencyMs >= 0);
         }
         finally
         {
@@ -924,6 +1014,50 @@ public sealed class NebulaPlaybackCacheTests
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DisposingCacheDoesNotWaitForBlockingSharedFetchCancellationCallback()
+    {
+        var root = CreateTempDirectory();
+        using var releaseCallback = new ManualResetEventSlim();
+        try
+        {
+            var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var fetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var request = cache.GetOrFetchChunkAsync(
+                "blocked-fetch-callback",
+                0,
+                0,
+                3,
+                async token =>
+                {
+                    using var registration = token.Register(() =>
+                    {
+                        callbackStarted.TrySetResult();
+                        releaseCallback.Wait();
+                    });
+                    fetchStarted.TrySetResult();
+                    await Task.Delay(Timeout.Infinite, token);
+                    return Array.Empty<byte>();
+                },
+                CancellationToken.None);
+
+            await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var dispose = Task.Run(cache.Dispose);
+            await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(dispose.IsCompleted);
+
+            releaseCallback.Set();
+            await dispose.WaitAsync(TimeSpan.FromSeconds(5));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
+        }
+        finally
+        {
+            releaseCallback.Set();
             Directory.Delete(root, recursive: true);
         }
     }

@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import org.mulletaflix.designsystem.components.downloadsAvailableOnDevice
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import org.mulletaflix.designsystem.media.LocalMulletaFlixAccessToken
@@ -103,7 +104,7 @@ fun SeriesSection(
                 // visible if the viewer switches seasons; otherwise the selected season
                 // looks idle even though its download action cannot start another batch.
                 val progress = seasonDownloadProgress?.takeIf { it.isRunning || it.seasonId == season.id }
-                if (!isTelevision) Row(
+                if (downloadsAvailableOnDevice(isTelevision)) Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -152,7 +153,7 @@ fun SeriesSection(
                         ) { Text("Cancelar") }
                     }
                 }
-                if (!isTelevision && progress?.isRunning == true && progress.seasonId != season.id) {
+                if (downloadsAvailableOnDevice(isTelevision) && progress?.isRunning == true && progress.seasonId != season.id) {
                     Text(
                         text = "Preparação em andamento para ${progress.seasonName}",
                         style = MaterialTheme.typography.bodySmall,
@@ -160,7 +161,7 @@ fun SeriesSection(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                if (!isTelevision && progress != null && !progress.isRunning) {
+                if (downloadsAvailableOnDevice(isTelevision) && progress != null && !progress.isRunning) {
                     val resultText = if (progress.isCancelled) {
                         "Preparação cancelada; ${progress.queuedEpisodes} episódio(s) permanecem na fila."
                     } else {
