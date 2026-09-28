@@ -1,5 +1,39 @@
 import Foundation
 
+public enum ServerURLPolicy {
+    public static func url(fromQRPayload rawPayload: String?) -> URL? {
+        let payload = rawPayload?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !payload.isEmpty, let original = URLComponents(string: payload) else { return nil }
+
+        let candidate: String
+        if original.scheme?.caseInsensitiveCompare("mulletaflix") == .orderedSame {
+            guard let value = original.queryItems?.first(where: { $0.name.caseInsensitiveCompare("url") == .orderedSame })?.value else {
+                return nil
+            }
+            candidate = value
+        } else {
+            candidate = payload
+        }
+
+        return normalize(candidate)
+    }
+
+    public static func normalize(_ rawValue: String) -> URL? {
+        guard var components = URLComponents(string: rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              components.host?.isEmpty == false else { return nil }
+        components.scheme = scheme
+        components.host = components.host?.lowercased()
+        components.path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return components.url
+    }
+}
+
 public enum OfflineDownloadScope {
     public static func ownerKey(serverURL: URL, userID: String) -> String {
         "\(serverURL.absoluteString)|\(userID)"
@@ -64,6 +98,38 @@ public enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum MediaSuggestionPolicy {
+    public static let minimumQueryLength = 2
+    public static let debounceNanoseconds: UInt64 = 250_000_000
+    public static let resultLimit = 10
+
+    public static func normalizedQuery(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public static func shouldQuery(_ value: String) -> Bool {
+        normalizedQuery(value).count >= minimumQueryLength
+    }
+}
+
+public enum MediaRequestPolicy {
+    public static let minimumYear = 1888
+    public static let maximumYear = 2200
+
+    public static func normalizedYear(_ rawValue: String) -> Int? {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, let year = Int(value), (minimumYear...maximumYear).contains(year) else {
+            return nil
+        }
+        return year
+    }
+
+    public static func isValidYearInput(_ rawValue: String) -> Bool {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty || normalizedYear(value) != nil
+    }
+}
+
 public enum MediaPlaceholderPolicy {
     public static func symbol(for type: String?) -> String {
         switch type?.lowercased() {
@@ -100,8 +166,40 @@ public struct QueuedPlaybackIssue: Codable, Equatable, Identifiable, Sendable {
 }
 
 public enum PlaybackIssueQueuePolicy {
+    public static let maxQueueSize = 50
+    public static let maxDescriptionLength = 1_000
+
     public static func shouldQueue(_ error: Error) -> Bool {
         (error as NSError).domain == NSURLErrorDomain
+    }
+
+    public static func normalizedDescription(_ description: String) -> String {
+        String(description.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxDescriptionLength))
+    }
+
+    public static func canEnqueue(currentCount: Int) -> Bool {
+        currentCount < maxQueueSize
+    }
+}
+
+public enum PlaybackIssueCategoryPolicy {
+    public static let categories = [
+        "Não reproduz",
+        "Travamentos",
+        "Sem áudio",
+        "Áudio/legenda",
+        "Qualidade",
+        "Outro"
+    ]
+}
+
+public struct PlaybackIssueQueueLoad: Equatable, Sendable {
+    public let entries: [QueuedPlaybackIssue]
+    public let isCorrupted: Bool
+
+    public init(entries: [QueuedPlaybackIssue], isCorrupted: Bool) {
+        self.entries = entries
+        self.isCorrupted = isCorrupted
     }
 }
 
@@ -109,11 +207,18 @@ public enum PlaybackIssueQueueStore {
     private static let keyPrefix = "feedback.playbackIssues."
 
     public static func load(ownerKey: String, defaults: UserDefaults = .standard) -> [QueuedPlaybackIssue] {
-        guard let data = defaults.data(forKey: key(ownerKey: ownerKey)),
-              let entries = try? JSONDecoder().decode([QueuedPlaybackIssue].self, from: data) else {
-            return []
+        loadResult(ownerKey: ownerKey, defaults: defaults).entries
+    }
+
+    public static func loadResult(ownerKey: String, defaults: UserDefaults = .standard) -> PlaybackIssueQueueLoad {
+        guard let data = defaults.data(forKey: key(ownerKey: ownerKey)) else {
+            return PlaybackIssueQueueLoad(entries: [], isCorrupted: false)
         }
-        return entries
+        guard let entries = try? JSONDecoder().decode([QueuedPlaybackIssue].self, from: data),
+              entries.count <= PlaybackIssueQueuePolicy.maxQueueSize else {
+            return PlaybackIssueQueueLoad(entries: [], isCorrupted: true)
+        }
+        return PlaybackIssueQueueLoad(entries: entries, isCorrupted: false)
     }
 
     public static func save(
@@ -121,7 +226,186 @@ public enum PlaybackIssueQueueStore {
         ownerKey: String,
         defaults: UserDefaults = .standard
     ) {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
+        let bounded = Array(entries.prefix(PlaybackIssueQueuePolicy.maxQueueSize))
+        guard let data = try? JSONEncoder().encode(bounded) else { return }
+        defaults.set(data, forKey: key(ownerKey: ownerKey))
+    }
+
+    private static func key(ownerKey: String) -> String {
+        "\(keyPrefix)\(OfflineDownloadScope.directoryName(ownerKey: ownerKey))"
+    }
+}
+
+public enum SearchHistoryStore {
+    private static let keyPrefix = "search.history."
+
+    public static func load(ownerKey: String, defaults: UserDefaults = .standard) -> [String] {
+        defaults.stringArray(forKey: key(ownerKey: ownerKey)) ?? []
+    }
+
+    public static func save(_ entries: [String], ownerKey: String, defaults: UserDefaults = .standard) {
+        defaults.set(entries, forKey: key(ownerKey: ownerKey))
+    }
+
+    public static func clear(ownerKey: String, defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key(ownerKey: ownerKey))
+    }
+
+    private static func key(ownerKey: String) -> String {
+        "\(keyPrefix)\(OfflineDownloadScope.directoryName(ownerKey: ownerKey))"
+    }
+}
+
+/// Small, versioned Home cards used only for offline fallback.
+/// Stream URLs, media sources, tokens and credentials are intentionally excluded.
+public struct HomeSnapshotCard: Codable, Equatable, Hashable, Sendable {
+    public let id: String
+    public let name: String
+    public let type: String?
+    public let overview: String?
+    public let productionYear: Int?
+    public let genres: [String]
+    public let communityRating: Double?
+    public let officialRating: String?
+    public let primaryImageTag: String?
+    public let backdropImageTags: [String]?
+    public let imageTags: [String: String]?
+    public let seriesId: String?
+    public let seriesName: String?
+    public let seasonId: String?
+    public let seasonName: String?
+    public let indexNumber: Int?
+    public let parentIndexNumber: Int?
+    public let channelId: String?
+    public let channelName: String?
+    public let startDate: String?
+    public let endDate: String?
+    public let playedPercentage: Double?
+    public let playbackPositionTicks: Int64
+    public let isFavorite: Bool
+    public let isPlayed: Bool
+
+    public init(item: MediaItem) {
+        id = item.id
+        name = item.name
+        type = item.type
+        overview = item.overview
+        productionYear = item.productionYear
+        genres = item.genres
+        communityRating = item.communityRating
+        officialRating = item.officialRating
+        primaryImageTag = item.primaryImageTag
+        backdropImageTags = item.backdropImageTags
+        imageTags = item.imageTags
+        seriesId = item.seriesId
+        seriesName = item.seriesName
+        seasonId = item.seasonId
+        seasonName = item.seasonName
+        indexNumber = item.indexNumber
+        parentIndexNumber = item.parentIndexNumber
+        channelId = item.channelId
+        channelName = item.channelName
+        startDate = item.startDate
+        endDate = item.endDate
+        playedPercentage = item.playedPercentage
+        playbackPositionTicks = item.playbackPositionTicks
+        isFavorite = item.isFavorite
+        isPlayed = item.isPlayed
+    }
+
+    public var mediaItem: MediaItem {
+        MediaItem(
+            id: id,
+            name: name,
+            type: type,
+            overview: overview,
+            productionYear: productionYear,
+            genres: genres,
+            communityRating: communityRating,
+            officialRating: officialRating,
+            primaryImageTag: primaryImageTag,
+            backdropImageTags: backdropImageTags,
+            imageTags: imageTags,
+            seriesId: seriesId,
+            seriesName: seriesName,
+            seasonId: seasonId,
+            seasonName: seasonName,
+            indexNumber: indexNumber,
+            parentIndexNumber: parentIndexNumber,
+            channelId: channelId,
+            channelName: channelName,
+            startDate: startDate,
+            endDate: endDate,
+            playedPercentage: playedPercentage,
+            playbackPositionTicks: playbackPositionTicks,
+            isFavorite: isFavorite,
+            isPlayed: isPlayed
+        )
+    }
+}
+
+public struct HomeSnapshot: Codable, Equatable, Sendable {
+    public let schemaVersion: Int
+    public let scope: String
+    public let resumeSavedAtEpochMillis: Int64
+    public let favoritesSavedAtEpochMillis: Int64
+    public let resumeItems: [HomeSnapshotCard]
+    public let favoriteItems: [HomeSnapshotCard]
+
+    public init(
+        schemaVersion: Int = 1,
+        scope: String,
+        resumeSavedAtEpochMillis: Int64,
+        favoritesSavedAtEpochMillis: Int64,
+        resumeItems: [HomeSnapshotCard],
+        favoriteItems: [HomeSnapshotCard]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.scope = scope
+        self.resumeSavedAtEpochMillis = resumeSavedAtEpochMillis
+        self.favoritesSavedAtEpochMillis = favoritesSavedAtEpochMillis
+        self.resumeItems = resumeItems
+        self.favoriteItems = favoriteItems
+    }
+}
+
+public enum HomeSnapshotPolicy {
+    public static func shouldUseCache(for error: Error) -> Bool {
+        PlaybackRecoveryPolicy.isTransientNetworkError(error)
+    }
+}
+
+public enum HomeSnapshotStore {
+    private static let keyPrefix = "home.snapshot.v1."
+
+    public static func load(ownerKey: String, defaults: UserDefaults = .standard) -> HomeSnapshot? {
+        let scope = OfflineDownloadScope.directoryName(ownerKey: ownerKey)
+        guard let data = defaults.data(forKey: key(ownerKey: ownerKey)),
+              let snapshot = try? JSONDecoder().decode(HomeSnapshot.self, from: data),
+              snapshot.schemaVersion == 1,
+              snapshot.scope == scope else {
+            return nil
+        }
+        return snapshot
+    }
+
+    public static func save(
+        resumeItems: [MediaItem]?,
+        favoriteItems: [MediaItem]?,
+        ownerKey: String,
+        nowEpochMillis: Int64 = Int64(Date().timeIntervalSince1970 * 1_000),
+        defaults: UserDefaults = .standard
+    ) {
+        let scope = OfflineDownloadScope.directoryName(ownerKey: ownerKey)
+        let current = load(ownerKey: ownerKey, defaults: defaults)
+        let snapshot = HomeSnapshot(
+            scope: scope,
+            resumeSavedAtEpochMillis: resumeItems == nil ? current?.resumeSavedAtEpochMillis ?? 0 : nowEpochMillis,
+            favoritesSavedAtEpochMillis: favoriteItems == nil ? current?.favoritesSavedAtEpochMillis ?? 0 : nowEpochMillis,
+            resumeItems: (resumeItems ?? current?.resumeItems.map(\.mediaItem) ?? []).map(HomeSnapshotCard.init),
+            favoriteItems: (favoriteItems ?? current?.favoriteItems.map(\.mediaItem) ?? []).map(HomeSnapshotCard.init)
+        )
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
         defaults.set(data, forKey: key(ownerKey: ownerKey))
     }
 
@@ -271,13 +555,166 @@ public enum LibraryPlayedFilter: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public struct LibraryLetterTarget: Hashable, Sendable {
+    public let letter: String
+    public let itemID: String
+
+    public init(letter: String, itemID: String) {
+        self.letter = letter
+        self.itemID = itemID
+    }
+}
+
+public enum LibraryLetterIndexPolicy {
+    public static func targets(items: [MediaItem]) -> [LibraryLetterTarget] {
+        var seen = Set<String>()
+        return items.compactMap { item in
+            let normalized = item.name
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
+                .uppercased()
+            let first = normalized.first.map(String.init).flatMap { $0 >= "A" && $0 <= "Z" ? $0 : nil } ?? "#"
+            guard seen.insert(first).inserted else { return nil }
+            return LibraryLetterTarget(letter: first, itemID: item.id)
+        }
+    }
+}
+
 public enum OfflineDownloadPolicy {
     public static func canStart(
         queuePaused: Bool,
         wifiOnly: Bool,
-        wifiAvailable: Bool?
+        wifiAvailable: Bool?,
+        networkAvailable: Bool?
     ) -> Bool {
-        !queuePaused && (!wifiOnly || wifiAvailable == true)
+        networkAvailable != false && !queuePaused && (!wifiOnly || wifiAvailable == true)
+    }
+}
+
+public enum OfflineDownloadFailurePolicy {
+    public static let insufficientStorageMessage =
+        "Não há espaço suficiente no dispositivo para concluir este download. Libere espaço e tente novamente."
+
+    public static func isInsufficientStorage(_ error: Error) -> Bool {
+        var current: NSError? = error as NSError
+        for _ in 0..<8 {
+            guard let value = current else { return false }
+            if (value.domain == NSPOSIXErrorDomain && value.code == 28) ||
+                (value.domain == NSCocoaErrorDomain && value.code == 640) {
+                return true
+            }
+            current = value.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
+    }
+}
+
+public enum NetworkRequestPolicy {
+    public static let offlineMessage = "Você está offline. A atualização será retomada quando a conexão voltar."
+
+    public static func canRequest(isNetworkAvailable: Bool?) -> Bool {
+        isNetworkAvailable != false
+    }
+}
+
+public enum OfflinePlaybackPositionPolicy {
+    public static func normalized(positionSeconds: Double, durationSeconds: Double?) -> Double? {
+        guard positionSeconds.isFinite, positionSeconds >= 0 else { return nil }
+        guard let durationSeconds, durationSeconds.isFinite, durationSeconds > 0 else {
+            return positionSeconds
+        }
+        return min(positionSeconds, durationSeconds)
+    }
+}
+
+public enum PlaybackProgressPolicy {
+    public static func normalized(positionSeconds: Double, durationSeconds: Double?) -> Double? {
+        guard positionSeconds.isFinite, positionSeconds >= 0 else { return nil }
+        guard let durationSeconds, durationSeconds.isFinite, durationSeconds > 0 else {
+            return positionSeconds
+        }
+        return min(positionSeconds, durationSeconds)
+    }
+}
+
+public enum PlaybackTicksPolicy {
+    private static let ticksPerSecond = 10_000_000.0
+
+    public static func fromSeconds(_ positionSeconds: Double, durationSeconds: Double? = nil) -> Int64 {
+        guard let normalized = PlaybackProgressPolicy.normalized(
+            positionSeconds: positionSeconds,
+            durationSeconds: durationSeconds
+        ) else { return 0 }
+        let maximumSeconds = Double(Int64.max) / ticksPerSecond
+        guard normalized < maximumSeconds else { return Int64.max }
+        return Int64(normalized * ticksPerSecond)
+    }
+}
+
+public struct OfflineEpisodeDescriptor: Equatable, Sendable {
+    public let itemID: String
+    public let seriesID: String
+    public let seasonNumber: Int
+    public let episodeNumber: Int
+
+    public init(itemID: String, seriesID: String, seasonNumber: Int, episodeNumber: Int) {
+        self.itemID = itemID
+        self.seriesID = seriesID
+        self.seasonNumber = seasonNumber
+        self.episodeNumber = episodeNumber
+    }
+}
+
+public enum OfflineNextEpisodePolicy {
+    public static func next(
+        after current: OfflineEpisodeDescriptor,
+        candidates: [OfflineEpisodeDescriptor]
+    ) -> OfflineEpisodeDescriptor? {
+        candidates
+            .filter { candidate in
+                guard candidate.itemID != current.itemID,
+                      candidate.seriesID == current.seriesID else { return false }
+                return candidate.seasonNumber > current.seasonNumber ||
+                    (candidate.seasonNumber == current.seasonNumber && candidate.episodeNumber > current.episodeNumber)
+            }
+            .min {
+                if $0.seasonNumber != $1.seasonNumber { return $0.seasonNumber < $1.seasonNumber }
+                if $0.episodeNumber != $1.episodeNumber { return $0.episodeNumber < $1.episodeNumber }
+                return $0.itemID < $1.itemID
+            }
+    }
+}
+
+public enum SearchNetworkPolicy {
+    public static let offlineMessage = "Você está offline. A busca será retomada quando a conexão voltar."
+
+    public static func canRequest(isNetworkAvailable: Bool?) -> Bool {
+        NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable)
+    }
+}
+
+public enum OfflineArtworkPolicy {
+    public static let maximumBytes = 10 * 1024 * 1024
+
+    public static func fileName(for itemID: String) -> String {
+        let encodedID = Data(itemID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        return "\(encodedID)-artwork.image"
+    }
+
+    public static func accepts(_ data: Data) -> Bool {
+        !data.isEmpty && data.count <= maximumBytes
+    }
+
+    public static func accepts(contentType: String?) -> Bool {
+        guard let contentType else { return true }
+        let mediaType = contentType
+            .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true)
+            .first
+            .map(String.init) ?? ""
+        return mediaType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("image/")
     }
 }
 
@@ -393,13 +830,30 @@ public struct SavedServer: Codable, Identifiable, Hashable, Sendable {
     public let url: String
     public let name: String
     public let version: String?
+    public let serverID: String?
 
     public var id: String { url }
 
-    public init(url: String, name: String, version: String? = nil) {
+    public init(url: String, name: String, version: String? = nil, serverID: String? = nil) {
         self.url = url
         self.name = name
         self.version = version
+        self.serverID = serverID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case url
+        case name
+        case version
+        case serverID = "serverId"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        url = try values.decode(String.self, forKey: .url)
+        name = try values.decode(String.self, forKey: .name)
+        version = try values.decodeIfPresent(String.self, forKey: .version)
+        serverID = try values.decodeIfPresent(String.self, forKey: .serverID)
     }
 }
 
@@ -412,12 +866,38 @@ public struct SearchHint: Decodable, Identifiable, Hashable, Sendable {
 
     public var id: String { itemID }
 
+    public init(itemID: String, name: String, type: String? = nil, productionYear: Int? = nil, series: String? = nil) {
+        self.itemID = itemID
+        self.name = name
+        self.type = type
+        self.productionYear = productionYear
+        self.series = series
+    }
+
     private enum CodingKeys: String, CodingKey {
         case itemID = "ItemId"
         case name = "Name"
         case type = "Type"
         case productionYear = "ProductionYear"
         case series = "Series"
+    }
+}
+
+public struct MediaSuggestion: Decodable, Hashable, Sendable {
+    public let title: String
+    public let mediaType: String
+    public let year: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case title = "Title"
+        case mediaType = "MediaType"
+        case year = "Year"
+    }
+
+    public init(title: String, mediaType: String, year: Int? = nil) {
+        self.title = title
+        self.mediaType = mediaType
+        self.year = year
     }
 }
 
@@ -434,6 +914,18 @@ public struct SearchHintResult: Decodable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         hints = try values.decodeIfPresent([SearchHint].self, forKey: .hints) ?? []
         totalRecordCount = try values.decodeIfPresent(Int.self, forKey: .totalRecordCount) ?? hints.count
+    }
+}
+
+public enum SearchHintSelectionPolicy {
+    public static func item(from hint: SearchHint) -> MediaItem {
+        MediaItem(
+            id: hint.itemID,
+            name: hint.name,
+            type: hint.type,
+            productionYear: hint.productionYear,
+            seriesName: hint.series
+        )
     }
 }
 
@@ -546,8 +1038,11 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
     public let isFolder: Bool
     public let collectionType: String?
     public let seriesId: String?
+    public let seriesName: String?
     public let seasonId: String?
+    public let seasonName: String?
     public let indexNumber: Int?
+    public let parentIndexNumber: Int?
     public let channelId: String?
     public let channelName: String?
     public let startDate: String?
@@ -580,8 +1075,11 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
         case isFolder = "IsFolder"
         case collectionType = "CollectionType"
         case seriesId = "SeriesId"
+        case seriesName = "SeriesName"
         case seasonId = "SeasonId"
+        case seasonName = "SeasonName"
         case indexNumber = "IndexNumber"
+        case parentIndexNumber = "ParentIndexNumber"
         case channelId = "ChannelId"
         case channelName = "ChannelName"
         case startDate = "StartDate"
@@ -630,8 +1128,11 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
         isFolder: Bool = false,
         collectionType: String? = nil,
         seriesId: String? = nil,
+        seriesName: String? = nil,
         seasonId: String? = nil,
+        seasonName: String? = nil,
         indexNumber: Int? = nil,
+        parentIndexNumber: Int? = nil,
         channelId: String? = nil,
         channelName: String? = nil,
         startDate: String? = nil,
@@ -659,8 +1160,11 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
         self.isFolder = isFolder
         self.collectionType = collectionType
         self.seriesId = seriesId
+        self.seriesName = seriesName
         self.seasonId = seasonId
+        self.seasonName = seasonName
         self.indexNumber = indexNumber
+        self.parentIndexNumber = parentIndexNumber
         self.channelId = channelId
         self.channelName = channelName
         self.startDate = startDate
@@ -679,7 +1183,8 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
                   runtimeTicks: runtimeTicks, people: people,
                   primaryImageTag: primaryImageTag, backdropImageTags: backdropImageTags,
                   imageTags: imageTags, isFolder: isFolder, collectionType: collectionType,
-                  seriesId: seriesId, seasonId: seasonId, indexNumber: indexNumber,
+                  seriesId: seriesId, seriesName: seriesName, seasonId: seasonId, seasonName: seasonName,
+                  indexNumber: indexNumber, parentIndexNumber: parentIndexNumber,
                   channelId: channelId, channelName: channelName, startDate: startDate, endDate: endDate,
                   chapters: chapters,
                   mediaSources: mediaSources,
@@ -693,7 +1198,8 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
                   runtimeTicks: runtimeTicks, people: people,
                   primaryImageTag: primaryImageTag, backdropImageTags: backdropImageTags,
                   imageTags: imageTags, isFolder: isFolder, collectionType: collectionType,
-                  seriesId: seriesId, seasonId: seasonId, indexNumber: indexNumber,
+                  seriesId: seriesId, seriesName: seriesName, seasonId: seasonId, seasonName: seasonName,
+                  indexNumber: indexNumber, parentIndexNumber: parentIndexNumber,
                   channelId: channelId, channelName: channelName, startDate: startDate, endDate: endDate,
                   chapters: chapters,
                   mediaSources: mediaSources,
@@ -719,8 +1225,11 @@ public struct MediaItem: Decodable, Identifiable, Hashable, Sendable {
         isFolder = try values.decodeIfPresent(Bool.self, forKey: .isFolder) ?? false
         collectionType = try values.decodeIfPresent(String.self, forKey: .collectionType)
         seriesId = try values.decodeIfPresent(String.self, forKey: .seriesId)
+        seriesName = try values.decodeIfPresent(String.self, forKey: .seriesName)
         seasonId = try values.decodeIfPresent(String.self, forKey: .seasonId)
+        seasonName = try values.decodeIfPresent(String.self, forKey: .seasonName)
         indexNumber = try values.decodeIfPresent(Int.self, forKey: .indexNumber)
+        parentIndexNumber = try values.decodeIfPresent(Int.self, forKey: .parentIndexNumber)
         channelId = try values.decodeIfPresent(String.self, forKey: .channelId)
         channelName = try values.decodeIfPresent(String.self, forKey: .channelName)
         startDate = try values.decodeIfPresent(String.self, forKey: .startDate)
@@ -755,10 +1264,47 @@ public struct MediaStream: Decodable, Hashable, Sendable {
     public let codec: String?
     public let language: String?
     public let displayLanguage: String?
+    public let title: String?
+    public let displayTitle: String?
     public let isDefault: Bool
+    public let isForced: Bool
+    public let isExternal: Bool
+    public let deliveryURL: String?
     public let width: Int?
     public let height: Int?
     public let bitRate: Int?
+
+    public init(
+        index: Int?,
+        type: String?,
+        codec: String? = nil,
+        language: String? = nil,
+        displayLanguage: String? = nil,
+        title: String? = nil,
+        displayTitle: String? = nil,
+        isDefault: Bool = false,
+        isForced: Bool = false,
+        isExternal: Bool = false,
+        deliveryURL: String? = nil,
+        width: Int? = nil,
+        height: Int? = nil,
+        bitRate: Int? = nil
+    ) {
+        self.index = index
+        self.type = type
+        self.codec = codec
+        self.language = language
+        self.displayLanguage = displayLanguage
+        self.title = title
+        self.displayTitle = displayTitle
+        self.isDefault = isDefault
+        self.isForced = isForced
+        self.isExternal = isExternal
+        self.deliveryURL = deliveryURL
+        self.width = width
+        self.height = height
+        self.bitRate = bitRate
+    }
 
     private enum CodingKeys: String, CodingKey {
         case index = "Index"
@@ -766,7 +1312,12 @@ public struct MediaStream: Decodable, Hashable, Sendable {
         case codec = "Codec"
         case language = "Language"
         case displayLanguage = "DisplayLanguage"
+        case title = "Title"
+        case displayTitle = "DisplayTitle"
         case isDefault = "IsDefault"
+        case isForced = "IsForced"
+        case isExternal = "IsExternal"
+        case deliveryURL = "DeliveryUrl"
         case width = "Width"
         case height = "Height"
         case bitRate = "BitRate"
@@ -779,10 +1330,99 @@ public struct MediaStream: Decodable, Hashable, Sendable {
         codec = try values.decodeIfPresent(String.self, forKey: .codec)
         language = try values.decodeIfPresent(String.self, forKey: .language)
         displayLanguage = try values.decodeIfPresent(String.self, forKey: .displayLanguage)
+        title = try values.decodeIfPresent(String.self, forKey: .title)
+        displayTitle = try values.decodeIfPresent(String.self, forKey: .displayTitle)
         isDefault = try values.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        isForced = try values.decodeIfPresent(Bool.self, forKey: .isForced) ?? false
+        isExternal = try values.decodeIfPresent(Bool.self, forKey: .isExternal) ?? false
+        deliveryURL = try values.decodeIfPresent(String.self, forKey: .deliveryURL)
         width = try values.decodeIfPresent(Int.self, forKey: .width)
         height = try values.decodeIfPresent(Int.self, forKey: .height)
         bitRate = try values.decodeIfPresent(Int.self, forKey: .bitRate)
+    }
+}
+
+public enum ExternalSubtitlePolicy {
+    public static func mimeType(codec: String?, deliveryURL: String?) -> String? {
+        let normalizedCodec = codec?.split(separator: ",", maxSplits: 1).first
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        let extensionName = URL(string: deliveryURL ?? "")?.pathExtension.lowercased()
+        // The delivery URL describes the bytes received by the player. Jellyfin
+        // may convert an SRT source into VTT, so the URL must win over the
+        // source codec whenever it exposes a supported format.
+        switch extensionName {
+        case "srt": return "application/x-subrip"
+        case "vtt": return "text/vtt"
+        case "ass", "ssa": return "text/x-ssa"
+        case "ttml", "dfxp": return "application/ttml+xml"
+        default: break
+        }
+        switch normalizedCodec {
+        case "srt", "subrip": return "application/x-subrip"
+        case "vtt", "webvtt": return "text/vtt"
+        case "ass", "ssa": return "text/x-ssa"
+        case "ttml", "dfxp": return "application/ttml+xml"
+        default: return nil
+        }
+    }
+
+    public static func isPlayable(_ stream: MediaStream) -> Bool {
+        stream.isExternal
+            && stream.type?.caseInsensitiveCompare("Subtitle") == .orderedSame
+            && stream.index.map { $0 >= 0 } == true
+            && mimeType(codec: stream.codec, deliveryURL: stream.deliveryURL) != nil
+    }
+
+    public static func parse(_ data: Data, mimeType: String? = nil) -> [SubtitleCue] {
+        _ = mimeType
+        guard let raw = String(data: data, encoding: .utf8) else { return [] }
+        let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let blocks = normalized.components(separatedBy: "\n\n")
+        return blocks.compactMap { block in
+            let lines = block.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            guard let timingIndex = lines.firstIndex(where: { $0.contains("-->") }) else { return nil }
+            let timing = lines[timingIndex].components(separatedBy: "-->")
+            guard timing.count == 2,
+                  let start = timestamp(timing[0]),
+                  let end = timestamp(timing[1].split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""),
+                  end > start else { return nil }
+            let text = lines.dropFirst(timingIndex + 1).joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return SubtitleCue(start: start, end: end, text: text)
+        }
+    }
+
+    private static func timestamp(_ raw: String) -> Double? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+        let parts = value.split(separator: ":").map(String.init)
+        guard parts.count >= 2, let seconds = Double(parts.last ?? "") else { return nil }
+        let minuteIndex = parts.count - 2
+        guard let minutes = Double(parts[minuteIndex]) else { return nil }
+        let hours = parts.dropLast(2).last.flatMap(Double.init) ?? 0
+        return hours * 3_600 + minutes * 60 + seconds
+    }
+}
+
+public struct SubtitleCue: Hashable, Sendable {
+    public let start: Double
+    public let end: Double
+    public let text: String
+
+    public init(start: Double, end: Double, text: String) {
+        self.start = start
+        self.end = end
+        self.text = text
+    }
+}
+
+public enum SubtitleAppearancePolicy {
+    public static let minimumFontSize = 14.0
+    public static let maximumFontSize = 36.0
+
+    public static func normalizedFontSize(_ value: Double) -> Double {
+        min(max(value, minimumFontSize), maximumFontSize)
     }
 }
 
@@ -815,18 +1455,66 @@ public enum TrackPreferencePolicy {
 }
 
 public enum PlaybackQualityPolicy {
+    public static let presetChoices = ["4K", "1440p", "1080p", "720p", "480p"]
+    public static let meteredAutoCap = "720p"
+
+    public static func normalizedPreference(_ value: String?) -> String {
+        let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? ""
+        switch raw {
+        case "", "AUTO", "AUTOMÁTICO", "AUTOMATICO": return "Auto"
+        case "4K", "2160", "2160P": return "4K"
+        case "1440", "1440P": return "1440p"
+        case "1080", "1080P", "FULL HD": return "1080p"
+        case "720", "720P", "HD": return "720p"
+        case "480", "480P", "SD": return "480p"
+        default:
+            guard raw.hasSuffix("P"),
+                  let height = Int(raw.dropLast()),
+                  (144...4320).contains(height) else { return "Auto" }
+            return "\(height)p"
+        }
+    }
+
+    public static func settingsChoices(storedPreference: String?) -> [String] {
+        let normalized = normalizedPreference(storedPreference)
+        var choices = ["Auto"] + presetChoices
+        if normalized != "Auto", !choices.contains(normalized) {
+            choices.append(normalized)
+        }
+        return choices
+    }
+
     public static func maxStreamingBitrate(for quality: String) -> Int64? {
-        switch quality {
+        switch normalizedPreference(quality) {
         case "4K": return 20_000_000
         case "1440p": return 12_000_000
         case "1080p": return 8_000_000
         case "720p": return 4_000_000
         case "480p": return 2_000_000
         default:
-            guard quality.hasSuffix("p"),
-                  let height = Int(quality.dropLast()), height > 0 else { return nil }
+            let normalized = normalizedPreference(quality)
+            guard normalized.hasSuffix("p"),
+                  let height = Int(normalized.dropLast()) else { return nil }
             return max(1_000_000, Int64(height) * Int64(height) * 4)
         }
+    }
+
+    /// Mirrors Android: Auto remains persisted as Auto, but is capped on metered networks.
+    public static func effectivePreference(for quality: String?, isMetered: Bool) -> String {
+        let normalized = normalizedPreference(quality)
+        return normalized == "Auto" && isMetered ? meteredAutoCap : normalized
+    }
+
+    public static func effectiveStreamingBitrate(for quality: String?, isMetered: Bool) -> Int64? {
+        maxStreamingBitrate(for: effectivePreference(for: quality, isMetered: isMetered))
+    }
+
+    public static func displayLabel(for quality: String?, isMetered: Bool) -> String {
+        let normalized = normalizedPreference(quality)
+        if normalized == "Auto" {
+            return isMetered ? "Auto (até 720p nesta rede)" : "Auto"
+        }
+        return normalized
     }
 }
 
@@ -919,6 +1607,27 @@ public enum PlaybackRecoveryPolicy {
     }
 }
 
+/// Returns an intro target only for active, seekable playback with auto-skip enabled.
+public enum AutomaticIntroSkipPolicy {
+    public static func target(
+        enabled: Bool,
+        isPlaying: Bool,
+        isSeekable: Bool,
+        positionSeconds: Double,
+        segment: MediaSegment?,
+        pendingTargetSeconds: Double?
+    ) -> Double? {
+        guard enabled, isPlaying, isSeekable,
+              let segment,
+              segment.type == .intro,
+              positionSeconds >= segment.startSeconds,
+              positionSeconds < segment.endSeconds,
+              segment.endSeconds > positionSeconds,
+              segment.endSeconds != pendingTargetSeconds else { return nil }
+        return segment.endSeconds
+    }
+}
+
 /// Keeps authentication failures actionable without exposing transport jargon.
 public enum AuthErrorPolicy {
     public static func authenticationMessage(for error: Error) -> String {
@@ -974,6 +1683,35 @@ public enum AuthErrorPolicy {
             return message
         }
         return serverConnectionMessage(for: error)
+    }
+}
+
+/// Keeps Quick Connect alive across transient transport failures without exposing
+/// raw server or URLSession descriptions to the login surface.
+public enum QuickConnectErrorPolicy {
+    public static func shouldContinuePolling(after error: Error) -> Bool {
+        guard let apiError = error as? APIError else { return true }
+        switch apiError {
+        case .httpStatus(401), .httpStatus(403), .httpStatus(404), .serverMessage(_):
+            return false
+        default:
+            return true
+        }
+    }
+
+    public static func terminalMessage(for error: Error) -> String? {
+        guard let apiError = error as? APIError else { return nil }
+        switch apiError {
+        case .httpStatus(401), .httpStatus(403):
+            return "Quick Connect está desativado ou requer autorização no servidor."
+        case .httpStatus(404):
+            return "Quick Connect não está disponível neste servidor."
+        case .serverMessage(let message):
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "Não foi possível confirmar o Quick Connect no servidor." : trimmed
+        default:
+            return nil
+        }
     }
 }
 
@@ -1208,9 +1946,13 @@ public struct LiveTVTimerDefaults: Decodable, Sendable {
 }
 
 public struct LiveTVTimer: Decodable, Sendable {
+    public let id: String?
     public let programId: String?
 
-    private enum CodingKeys: String, CodingKey { case programId = "ProgramId" }
+    private enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case programId = "ProgramId"
+    }
 }
 
 public struct LiveTVTimerQuery: Decodable, Sendable {
@@ -1245,6 +1987,131 @@ public struct SyncPlayGroup: Decodable, Identifiable, Sendable {
         groupName = try values.decode(String.self, forKey: .groupName)
         state = try values.decodeIfPresent(String.self, forKey: .state)
         participants = try values.decodeIfPresent([String].self, forKey: .participants) ?? []
+    }
+}
+
+public enum RemotePlaybackCommand: String, CaseIterable, Sendable {
+    case playPause = "PlayPause"
+    case stop = "Stop"
+    case seek = "Seek"
+}
+
+public enum RemotePlaybackPolicy {
+    public static func seekPosition(currentTicks: Int64, deltaTicks: Int64, durationTicks: Int64?) -> Int64 {
+        let base = max(0, currentTicks)
+        let (sum, overflow) = base.addingReportingOverflow(deltaTicks)
+        let target = overflow ? (deltaTicks >= 0 ? Int64.max : 0) : max(0, sum)
+        guard let durationTicks, durationTicks > 0 else { return max(0, target) }
+        return min(max(0, target), durationTicks)
+    }
+
+    public static func progress(positionTicks: Int64, durationTicks: Int64?) -> Double? {
+        guard let durationTicks, durationTicks > 0 else { return nil }
+        return min(1, max(0, Double(max(0, positionTicks)) / Double(durationTicks)))
+    }
+}
+
+public enum RemotePlaybackRefreshPolicy {
+    public static let intervalSeconds: Double = 5
+
+    public static func shouldStartBackgroundRefresh(isLoading: Bool) -> Bool {
+        !isLoading
+    }
+}
+
+public enum SyncPlayRefreshPolicy {
+    public static let intervalSeconds: Double = 5
+
+    public static func shouldStartBackgroundRefresh(isLoading: Bool) -> Bool {
+        !isLoading
+    }
+}
+
+public enum LiveTVRefreshPolicy {
+    public static let intervalSeconds: Double = 60
+
+    public static func shouldStartBackgroundRefresh(isLoading: Bool) -> Bool {
+        !isLoading
+    }
+}
+
+public struct RemotePlaybackSession: Decodable, Identifiable, Hashable, Sendable {
+    public let id: String
+    public let deviceID: String?
+    public let deviceName: String
+    public let clientName: String
+    public let itemName: String
+    public let isPaused: Bool
+    public let canSeek: Bool
+    public let positionTicks: Int64
+    public let durationTicks: Int64?
+
+    private enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case deviceID = "DeviceId"
+        case deviceName = "DeviceName"
+        case clientName = "Client"
+        case nowPlayingItem = "NowPlayingItem"
+        case playState = "PlayState"
+    }
+
+    private struct ItemPayload: Decodable {
+        let name: String?
+        let runTimeTicks: Int64?
+        private enum CodingKeys: String, CodingKey { case name = "Name"; case runTimeTicks = "RunTimeTicks" }
+    }
+
+    private struct PlayStatePayload: Decodable {
+        let isPaused: Bool?
+        let canSeek: Bool?
+        let positionTicks: Int64?
+        private enum CodingKeys: String, CodingKey {
+            case isPaused = "IsPaused"
+            case canSeek = "CanSeek"
+            case positionTicks = "PositionTicks"
+        }
+    }
+
+    public init(
+        id: String,
+        deviceID: String? = nil,
+        deviceName: String,
+        clientName: String,
+        itemName: String,
+        isPaused: Bool,
+        canSeek: Bool,
+        positionTicks: Int64,
+        durationTicks: Int64? = nil
+    ) {
+        self.id = id
+        self.deviceID = deviceID
+        self.deviceName = deviceName
+        self.clientName = clientName
+        self.itemName = itemName
+        self.isPaused = isPaused
+        self.canSeek = canSeek
+        self.positionTicks = positionTicks
+        self.durationTicks = durationTicks
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        deviceID = try values.decodeIfPresent(String.self, forKey: .deviceID)
+        deviceName = try values.decodeIfPresent(String.self, forKey: .deviceName) ?? "Dispositivo"
+        clientName = try values.decodeIfPresent(String.self, forKey: .clientName) ?? "MulletaFlix"
+        let item = try values.decodeIfPresent(ItemPayload.self, forKey: .nowPlayingItem)
+        let normalizedItemName = item?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedItemName, !normalizedItemName.isEmpty {
+            itemName = normalizedItemName
+        } else {
+            itemName = "Reproduzindo mídia"
+        }
+        durationTicks = item?.runTimeTicks
+        let playState = try values.decodeIfPresent(PlayStatePayload.self, forKey: .playState)
+        isPaused = playState?.isPaused ?? false
+        canSeek = playState?.canSeek ?? false
+        positionTicks = playState?.positionTicks ?? 0
     }
 }
 
@@ -1294,6 +2161,52 @@ public struct DiscoveredServer: Decodable, Equatable, Sendable {
         self.name = try values.decodeIfPresent(String.self, forKey: .name) ?? "MulletaFlix"
         self.version = try values.decodeIfPresent(String.self, forKey: .version)
         self.id = try values.decodeIfPresent(String.self, forKey: .id)
-            ?? values.decodeIfPresent(String.self, forKey: .serverId)
+            ?? (try values.decodeIfPresent(String.self, forKey: .serverId))
+    }
+}
+
+public enum ServerDiscoverySelectionPolicy {
+    public static func selectedServer(
+        from discoveredServers: [DiscoveredServer],
+        savedServerID: String?
+    ) -> DiscoveredServer? {
+        let expectedID = savedServerID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let expectedID, !expectedID.isEmpty {
+            return discoveredServers.first { server in
+                guard let serverID = server.id?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !serverID.isEmpty else { return false }
+                return serverID.caseInsensitiveCompare(expectedID) == .orderedSame
+            }
+        }
+        return discoveredServers.count == 1 ? discoveredServers.first : nil
+    }
+}
+
+public enum ServerDiscoveryTimingPolicy {
+    public static let maximumWindow: TimeInterval = 10
+
+    public static func boundedWindow(_ requested: TimeInterval) -> TimeInterval {
+        min(max(requested, 0), maximumWindow)
+    }
+
+    public static func remainingWindow(total: TimeInterval, elapsed: TimeInterval) -> TimeInterval {
+        max(0, boundedWindow(total) - max(0, elapsed))
+    }
+}
+
+public enum OfflineStoragePolicy {
+    private static let bytesPerMiB: Int64 = 1024 * 1024
+    private static let bytesPerGiB: Int64 = 1024 * bytesPerMiB
+
+    public static func availableLabel(bytes: Int64?) -> String {
+        guard let bytes, bytes >= 0 else { return "Espaço indisponível" }
+        if bytes < bytesPerGiB {
+            return "\(bytes / bytesPerMiB) MB disponíveis"
+        }
+
+        let whole = bytes / bytesPerGiB
+        let tenths = (bytes % bytesPerGiB) * 10 / bytesPerGiB
+        let amount = tenths == 0 ? "\(whole)" : "\(whole),\(tenths)"
+        return "\(amount) GB disponíveis"
     }
 }

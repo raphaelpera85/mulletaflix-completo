@@ -3,6 +3,16 @@
 Execute os comandos a partir de `MulletaFlix-iOS` em macOS com Xcode 16 ou
 superior, Swift disponível no PATH e um SDK iOS 18 instalado.
 
+No Windows, a checagem estrutural repetível pode ser executada com:
+
+```powershell
+.\scripts\validate-structure.ps1
+```
+
+Ela valida XML, versionamento, conformidade de distribuição, guards do script
+de release e conta os testes declarados; não substitui `swift test` nem
+`xcodebuild`.
+
 ## Camada Core
 
 ```sh
@@ -81,7 +91,10 @@ xcodebuild \
 Esse build de simulador valida o código Release, mas não é o artefato de
 distribuição. Para publicar, configure uma equipe Apple válida no Xcode, gere
 um archive Release para `generic/platform=iOS`, confirme a assinatura de
-distribuição e exporte o IPA. O IPA só pode ser anexado à release depois de
+distribuição e exporte o IPA. Confirme também que `CFBundleVersion` veio de
+`CURRENT_PROJECT_VERSION`, que `AppIdentity.version` coincide com
+`CFBundleShortVersionString` e que `ITSAppUsesNonExemptEncryption` está
+declarado como `false`. O IPA só pode ser anexado à release depois de
 esses comandos terminarem com código 0 e o hash do arquivo ser registrado nas
 notas.
 
@@ -116,7 +129,24 @@ Com o app instalado e o simulador inicializado, valide também:
 9. Branding: verifique um servidor que possua aviso de login e confirme que o
    texto aparece na tela de acesso; repita com um servidor sem aviso.
 10. Saúde do servidor: confirme que um servidor que expõe `Health` mostra o
-   estado na tela de acesso e que a ausência dessa rota não impede o login.
+    estado na tela de acesso e que a ausência dessa rota não impede o login.
+11. Downloads e troca de usuário: confirme que a fila não inicia enquanto a
+    rede estiver offline, que downloads de usuários/servidores diferentes não
+    se misturam e que callbacks de uma sessão anterior não alteram a sessão
+    atual.
+12. TV ao vivo: mantenha a aba aberta por mais de 60 segundos e confirme uma
+    nova carga de canais/guia; troque de aba e confirme que o polling é cancelado.
+13. Reconexão: abra Playlists antes de perder a rede, reconecte e confirme que
+    a lista e seus itens são atualizados novamente.
+14. Qualidade em rede medida: com a qualidade em “Automático”, use uma rede
+    celular ou ative o Modo de Poucos Dados e confirme no player que o teto é
+    720p/4 Mbps; selecione 1080p manualmente e confirme que a escolha manual
+    permanece, depois volte ao Wi-Fi e confirme que o modo Automático retorna.
+15. Pulo automático: em Configurações, deixe “Pular introdução automaticamente”
+    desligado e confirme que o botão manual continua disponível; habilite a
+    opção e reproduza uma mídia com segmento `Intro` seekable, confirmando o
+    seek único até o fim da abertura. Confirme que segmentos `Outro`/créditos
+    nunca são pulados automaticamente.
 
 Para testar um link web oficial no Simulator, use:
 

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.mulletaflix.designsystem.components.MulletaFlixTopBarAction
+import org.mulletaflix.domain.repository.SyncPlayGroup
 import org.mulletaflix.domain.repository.SyncPlayPlaybackCommand
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,11 +46,64 @@ fun SyncPlayScreen(onBack: () -> Unit = {}, viewModel: SyncPlayViewModel = hiltV
             state.error?.let { message -> item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer); TextButton(onClick = viewModel::refresh) { Text("Tentar novamente") } } } } }
             if (state.isLoading && state.groups.isEmpty()) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
             if (!state.isLoading && state.groups.isEmpty() && state.error == null) item { EmptyGroupsState { showCreateDialog = true } }
-            items(state.groups, key = { it.groupId }) { group -> Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.padding(16.dp)) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(group.groupName, style = MaterialTheme.typography.titleMedium); StatusPill(group.state ?: "Pronto") }; Text("Participantes: ${group.participants.joinToString(", ").ifBlank { "Ninguém ainda" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(12.dp)); Button(onClick = { viewModel.joinGroup(group.groupId) }, enabled = !state.isSubmitting, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("Entrar na sala") } } } }
+            items(state.groups, key = { it.groupId }) { group ->
+                SyncPlayGroupCard(
+                    group = group,
+                    joinEnabled = !state.isSubmitting && !state.isLoading && !state.isGroupsStale,
+                    isStale = state.isGroupsStale,
+                    onJoin = { viewModel.joinGroup(group.groupId) },
+                )
+            }
             if (state.activeGroupId != null) item { Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { Text("Controles da sala", style = MaterialTheme.typography.titleMedium); Text(if (state.realtimeConnected) "Sincronização em tempo real conectada" else "Conectando à sincronização em tempo real…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); state.lastRealtimeEvent?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }; Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { OutlinedButton(onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.PAUSE) }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Pause, null); Spacer(Modifier.width(4.dp)); Text("Pausar") }; OutlinedButton(onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.UNPAUSE) }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f)) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Retomar") } }; OutlinedButton(onClick = { viewModel.sendPlaybackCommand(SyncPlayPlaybackCommand.STOP) }, enabled = !state.isSubmitting, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Stop, null); Spacer(Modifier.width(8.dp)); Text("Parar reprodução do grupo") }; OutlinedButton(onClick = viewModel::leaveGroup, enabled = !state.isSubmitting, modifier = Modifier.fillMaxWidth()) { Text("Sair da sala atual") } } }
         }
     }
     if (showCreateDialog) { var name by remember { mutableStateOf("") }; AlertDialog(onDismissRequest = { if (!state.isSubmitting) showCreateDialog = false }, title = { Text("Criar sala SyncPlay") }, text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Nome da sala") }, modifier = Modifier.fillMaxWidth()) }, dismissButton = { TextButton(onClick = { showCreateDialog = false }, enabled = !state.isSubmitting) { Text("Cancelar") } }, confirmButton = { Button(onClick = { viewModel.createGroup(name) { showCreateDialog = false } }, enabled = name.isNotBlank() && !state.isSubmitting) { Text("Criar") } }) }
+}
+
+@Composable
+internal fun SyncPlayGroupCard(
+    group: SyncPlayGroup,
+    joinEnabled: Boolean,
+    isStale: Boolean = false,
+    onJoin: () -> Unit,
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(group.groupName, style = MaterialTheme.typography.titleMedium)
+                StatusPill(group.state ?: "Pronto")
+            }
+            Text(
+                "Participantes: ${group.participants.joinToString(", ").ifBlank { "Ninguém ainda" }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (isStale) {
+                Text(
+                    "Lista desatualizada. Atualize antes de entrar.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onJoin,
+                enabled = joinEnabled,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Entrar na sala")
+            }
+        }
+    }
 }
 
 @Composable

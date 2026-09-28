@@ -101,6 +101,52 @@ class SyncPlayViewModelTest {
         assertEquals(2, repository.listCalls)
     }
 
+    @Test fun `failed manual refresh retains but disables stale groups`() = runTest {
+        val group = SyncPlayGroup("g1", "Filme", "Playing", emptyList())
+        val failedRefresh = CompletableDeferred<Result<List<SyncPlayGroup>>>()
+        val repository = FakeRepository(listOf(group), secondResponse = failedRefresh)
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+
+        viewModel.refresh()
+        runCurrent()
+        assertEquals(true, viewModel.state.value.isLoading)
+        viewModel.joinGroup(group.groupId)
+        assertEquals(0, repository.joinCalls)
+
+        failedRefresh.complete(Result.failure(IllegalStateException("Servidor indisponível")))
+        advanceUntilIdle()
+
+        assertEquals(listOf(group), viewModel.state.value.groups)
+        assertEquals(true, viewModel.state.value.isGroupsStale)
+        assertEquals("Servidor indisponível", viewModel.state.value.error)
+        assertEquals(0, repository.joinCalls)
+
+        viewModel.joinGroup(group.groupId)
+        advanceUntilIdle()
+        assertEquals(0, repository.joinCalls)
+    }
+
+    @Test fun `background refresh failure marks groups stale without clearing active membership`() = runTest {
+        val group = SyncPlayGroup("g1", "Filme", "Playing", emptyList())
+        val repository = FakeRepository(listOf(group))
+        val viewModel = SyncPlayViewModel(ManageSyncPlayUseCase(repository), repository)
+        advanceUntilIdle()
+        viewModel.joinGroup(group.groupId)
+        advanceUntilIdle()
+        assertEquals(group.groupId, viewModel.state.value.activeGroupId)
+
+        repository.failSubsequentListCallsWith = "Servidor indisponível"
+        viewModel.refresh(isBackground = true)
+        advanceUntilIdle()
+
+        assertEquals(listOf(group), viewModel.state.value.groups)
+        assertEquals(true, viewModel.state.value.isGroupsStale)
+        assertEquals("Servidor indisponível", viewModel.state.value.error)
+        assertEquals(group.groupId, viewModel.state.value.activeGroupId)
+        assertEquals(false, viewModel.state.value.isLoading)
+    }
+
     @Test fun `joining a group marks it active`() = runTest {
         val group = SyncPlayGroup("g1", "Filme", "Paused", emptyList())
         val repository = FakeRepository(listOf(group))
@@ -237,6 +283,7 @@ class SyncPlayViewModelTest {
         private val groups: List<SyncPlayGroup>,
         private val firstResponse: CompletableDeferred<Result<List<SyncPlayGroup>>>? = null,
         private val userId: MutableStateFlow<String?> = MutableStateFlow("user-1"),
+        private val secondResponse: CompletableDeferred<Result<List<SyncPlayGroup>>>? = null,
         private val createGate: CompletableDeferred<Result<Unit>>? = null,
         private val joinGate: CompletableDeferred<Result<Unit>>? = null,
         private val leaveGate: CompletableDeferred<Result<Unit>>? = null,
@@ -244,6 +291,7 @@ class SyncPlayViewModelTest {
         private val cancelFirstCreate: Boolean = false,
     ) : SyncPlayRepository, SessionRepository {
         var listCalls = 0
+        var failSubsequentListCallsWith: String? = null
         var createCalls = 0
         var joinCalls = 0
         var leaveCalls = 0
@@ -251,6 +299,8 @@ class SyncPlayViewModelTest {
         override suspend fun getGroups(): Result<List<SyncPlayGroup>> {
             listCalls++
             if (listCalls == 1 && firstResponse != null) return firstResponse.await()
+            if (listCalls == 2 && secondResponse != null) return secondResponse.await()
+            failSubsequentListCallsWith?.let { return Result.failure(IllegalStateException(it)) }
             return Result.success(groups)
         }
         override suspend fun createGroup(name: String): Result<Unit> {

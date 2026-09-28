@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import AVKit
 import AVFAudio
+import MediaPlayer
 import Speech
 
 enum IOSVideoAspectRatio: String, CaseIterable, Identifiable {
@@ -42,25 +43,73 @@ private struct MediaRequestForm: View {
         NavigationStack {
             Form {
                 TextField("Título", text: $title)
+                    .onChange(of: title) { _, value in model.updateMediaSuggestions(query: value) }
+                if !model.mediaSuggestions.isEmpty {
+                    Section("Sugestões do servidor") {
+                        ForEach(model.mediaSuggestions, id: \.self) { suggestion in
+                            Button {
+                                title = suggestion.title
+                                type = mediaRequestType(for: suggestion.mediaType)
+                                year = suggestion.year.map(String.init) ?? ""
+                                model.clearMediaSuggestions()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(suggestion.title).lineLimit(1)
+                                    Text([suggestion.mediaType, suggestion.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
                 Picker("Tipo", selection: $type) {
-                    ForEach(["Filme", "Série", "Animação", "Novela", "Doramas", "Outro"], id: \.self) { Text($0) }
+                    ForEach(["Filme", "Série", "Animação", "Novela", "Dorama", "Livro", "Música", "Outro"], id: \.self) { Text($0) }
                 }
                 TextField("Ano (opcional)", text: $year).keyboardType(.numberPad)
                 TextField("Detalhes adicionais", text: $notes, axis: .vertical).lineLimit(3...6)
                 if let message { Text(message).foregroundStyle(.secondary) }
                 Button(sending ? "Enviando…" : "Enviar solicitação") {
+                    guard MediaRequestPolicy.isValidYearInput(year) else {
+                        message = "Informe um ano entre 1888 e 2200."
+                        return
+                    }
                     Task {
                         sending = true
                         defer { sending = false }
                         do {
-                            try await model.submitMediaRequest(title: title, mediaType: type, year: Int(year), notes: notes)
+                            try await model.submitMediaRequest(
+                                title: title,
+                                mediaType: type,
+                                year: MediaRequestPolicy.normalizedYear(year),
+                                notes: notes
+                            )
                             dismiss()
-                        } catch { message = error.localizedDescription }
+                        } catch { message = AuthErrorPolicy.serverConnectionMessage(for: error) }
                     }
                 }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
             }
             .navigationTitle("Solicitar mídia")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fechar") { model.clearMediaSuggestions(); dismiss() }
+                        .disabled(sending)
+                }
+            }
+            .onDisappear { model.clearMediaSuggestions() }
+        }
+    }
+
+    private func mediaRequestType(for mediaType: String) -> String {
+        switch mediaType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "movie", "filme": return "Filme"
+        case "series", "seriesitem", "série": return "Série"
+        case "animation", "animação": return "Animação"
+        case "novel", "novela": return "Novela"
+        case "drama", "dorama": return "Dorama"
+        case "book", "livro": return "Livro"
+        case "audio", "music", "música": return "Música"
+        default: return "Outro"
         }
     }
 }
@@ -79,7 +128,7 @@ private struct PlaybackIssueForm: View {
             Form {
                 Text(item.name).font(.headline)
                 Picker("Problema", selection: $category) {
-                    ForEach(["Não reproduz", "Travamentos", "Sem áudio", "Áudio/legenda", "Qualidade", "Outro"], id: \.self) { Text($0) }
+                    ForEach(PlaybackIssueCategoryPolicy.categories, id: \.self) { Text($0) }
                 }
                 TextField("Descreva o problema", text: $description, axis: .vertical).lineLimit(3...6)
                 if let message { Text(message).foregroundStyle(.secondary) }
@@ -94,12 +143,17 @@ private struct PlaybackIssueForm: View {
                             } else {
                                 dismiss()
                             }
-                        } catch { message = error.localizedDescription }
+                        } catch { message = AuthErrorPolicy.serverConnectionMessage(for: error) }
                     }
                 }.disabled(sending)
             }
             .navigationTitle("Reportar problema")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fechar") { dismiss() }
+                        .disabled(sending)
+                }
+            }
         }
     }
 }
@@ -107,25 +161,32 @@ private struct PlaybackIssueForm: View {
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @State private var selectedTab = 0
     @State private var deepLinkItem: MediaItem?
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             NavigationStack {
                 HomeDashboard(model: model)
                     .navigationDestination(for: MediaItem.self) { item in ItemDetailView(item: item, model: model) }
             }
                 .tabItem { Label("Início", systemImage: "house.fill") }
+                .tag(0)
             NavigationStack { LibraryView(model: model) }
                 .tabItem { Label("Biblioteca", systemImage: "rectangle.stack.fill") }
+                .tag(1)
             NavigationStack { SearchView(model: model) }
                 .tabItem { Label("Buscar", systemImage: "magnifyingglass") }
-            NavigationStack { LiveTVView(model: model) }
+                .tag(2)
+            NavigationStack { LiveTVView(model: model, isVisible: selectedTab == 3) }
                 .tabItem { Label("TV ao vivo", systemImage: "dot.radiowaves.left.and.right") }
+                .tag(3)
             NavigationStack { DownloadsView(model: model) }
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle.fill") }
+                .tag(4)
             NavigationStack { ProfileView(model: model) }
                 .tabItem { Label("Perfil", systemImage: "person.crop.circle") }
+                .tag(5)
         }
         .task {
             await model.loadHome()
@@ -151,11 +212,7 @@ struct HomeView: View {
                       isLibrariesLoading: model.isLibrariesLoading,
                       isLiveTVLoading: model.isLiveTVLoading
                   ) else { return }
-            Task {
-                await model.loadHome()
-                await model.loadLibraries()
-                await model.loadLiveTV()
-            }
+            Task { await model.refreshAuthenticatedContent() }
         }
         .overlay(alignment: .top) {
             if model.isNetworkAvailable == false {
@@ -288,12 +345,22 @@ private struct ProfileView: View {
                 } label: {
                     Label("Salas SyncPlay", systemImage: "person.2.fill")
                 }
+                NavigationLink {
+                    RemotePlaybackView(model: model)
+                } label: {
+                    Label("Controle remoto", systemImage: "play.tv.fill")
+                }
             }
             Section("Biblioteca") {
                 NavigationLink {
                     FavoritesView(model: model)
                 } label: {
                     Label("Minha Lista", systemImage: "heart.fill")
+                }
+                NavigationLink {
+                    PlaylistLibraryView(model: model)
+                } label: {
+                    Label("Minhas playlists", systemImage: "rectangle.stack.badge.play")
                 }
             }
             Section("Preferências") {
@@ -303,7 +370,16 @@ private struct ProfileView: View {
                     Label("Reprodução e aparência", systemImage: "slider.horizontal.3")
                 }
             }
-            if !model.pendingPlaybackIssues.isEmpty {
+            if model.pendingPlaybackIssuesUnreadable {
+                Section("Relatos pendentes") {
+                    Label(
+                        "A fila de relatos está ilegível; os dados foram preservados para recuperação.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .foregroundStyle(.orange)
+                    .font(.footnote)
+                }
+            } else if !model.pendingPlaybackIssues.isEmpty {
                 Section("Relatos pendentes") {
                     Label(
                         "\(model.pendingPlaybackIssues.count) relato(s) aguardando conexão",
@@ -328,6 +404,89 @@ private struct ProfileView: View {
         .sheet(isPresented: $showingSwitchUser) {
             SwitchUserView(model: model)
         }
+    }
+}
+
+private struct PlaylistLibraryView: View {
+    let model: AppModel
+
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: model.compactGrid ? 112 : 150), spacing: 14)]
+    }
+
+    var body: some View {
+        Group {
+            if model.isPlaylistLoading && model.playlists.isEmpty {
+                ProgressView("Carregando playlists…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.playlists.isEmpty {
+                ContentUnavailableView(
+                    "Nenhuma playlist",
+                    systemImage: "rectangle.stack.badge.play",
+                    description: Text("Crie uma playlist nos detalhes de um título.")
+                )
+            } else {
+                ScrollView {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(model.playlists) { playlist in
+                                Button {
+                                    Task { await model.loadPlaylistItems(playlist) }
+                                } label: {
+                                    Label(playlist.name, systemImage: "rectangle.stack.badge.play")
+                                        .lineLimit(1)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(model.selectedPlaylist?.id == playlist.id ? .red : .gray)
+                                .disabled(model.selectedPlaylist?.id == playlist.id && model.isPlaylistItemsLoading)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    if let error = model.playlistItemsError {
+                        ContentUnavailableView {
+                            Label("Playlist indisponível", systemImage: "wifi.exclamationmark")
+                        } description: {
+                            Text(error)
+                        } actions: {
+                            if let selected = model.selectedPlaylist {
+                                Button("Tentar novamente") {
+                                    Task { await model.loadPlaylistItems(selected) }
+                                }
+                                .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        .padding(.top, 30)
+                    } else if model.isPlaylistItemsLoading && model.playlistItems.isEmpty {
+                        ProgressView("Carregando títulos…")
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 48)
+                    } else if model.playlistItems.isEmpty {
+                        ContentUnavailableView(
+                            "Playlist vazia",
+                            systemImage: "rectangle.stack",
+                            description: Text("Adicione títulos usando a opção de playlist nos detalhes.")
+                        )
+                        .padding(.top, 30)
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 18) {
+                            ForEach(model.playlistItems) { item in
+                                NavigationLink {
+                                    ItemDetailView(item: item, model: model)
+                                } label: {
+                                    MediaCard(item: item, model: model)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+        }
+        .navigationTitle("Minhas playlists")
+        .task { await model.loadPlaylistLibrary() }
+        .refreshable { await model.loadPlaylistLibrary() }
     }
 }
 
@@ -467,6 +626,7 @@ private struct SettingsView: View {
                 Toggle("Iniciar reprodução automaticamente", isOn: Bindable(model).autoPlay)
                 Toggle("Picture-in-Picture", isOn: Bindable(model).pictureInPictureEnabled)
                 Toggle("Mostrar botão de pular introdução", isOn: Bindable(model).skipIntro)
+                Toggle("Pular introdução automaticamente", isOn: Bindable(model).automaticIntroSkip)
                 Toggle("Baixar somente no Wi-Fi", isOn: Bindable(model).wifiOnlyDownloads)
                 if model.wifiOnlyDownloads {
                     Text("Downloads aguardam uma conexão Wi-Fi antes de começar.")
@@ -484,12 +644,9 @@ private struct SettingsView: View {
                     }
                 }
                 Picker("Qualidade padrão", selection: Bindable(model).defaultQuality) {
-                    Text("Automático").tag("Auto")
-                    Text("4K").tag("4K")
-                    Text("1440p").tag("1440p")
-                    Text("1080p").tag("1080p")
-                    Text("720p").tag("720p")
-                    Text("480p").tag("480p")
+                    ForEach(PlaybackQualityPolicy.settingsChoices(storedPreference: model.defaultQuality), id: \.self) { quality in
+                        Text(quality == "Auto" ? "Automático" : quality).tag(quality)
+                    }
                 }
                 Picker("Proporção da imagem", selection: Bindable(model).videoAspectRatio) {
                     ForEach(IOSVideoAspectRatio.allCases) { ratio in
@@ -505,6 +662,23 @@ private struct SettingsView: View {
                 Text("O idioma será usado como preferência nas próximas sessões de reprodução.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+            Section("Legendas") {
+                Slider(value: Bindable(model).subtitleFontSize, in: 14...36, step: 1) {
+                    Text("Tamanho da legenda")
+                } minimumValueLabel: {
+                    Text("A").font(.caption2)
+                } maximumValueLabel: {
+                    Text("A").font(.title3)
+                }
+                Text("Tamanho: \(Int(model.subtitleFontSize)) pt")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Picker("Cor da legenda", selection: Bindable(model).subtitleColor) {
+                    ForEach(IOSSubtitleColor.allCases) { color in
+                        Text(color.title).tag(color)
+                    }
+                }
             }
             Section("Catálogo") {
                 Toggle("Grade compacta", isOn: Bindable(model).compactGrid)
@@ -674,11 +848,90 @@ private struct SyncPlayView: View {
         .refreshable { await model.loadSyncPlay() }
         .task {
             while !Task.isCancelled {
-                await model.loadSyncPlay()
-                try? await Task.sleep(for: .seconds(5))
+                await model.loadSyncPlay(background: true)
+                try? await Task.sleep(for: .seconds(SyncPlayRefreshPolicy.intervalSeconds))
             }
         }
     }
+}
+
+private struct RemotePlaybackView: View {
+    let model: AppModel
+
+    var body: some View {
+        List {
+            Section {
+                Text("Controle a reprodução ativa em outros dispositivos da sua conta.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if let error = model.remotePlaybackError {
+                Section {
+                    Label("Não foi possível atualizar o controle remoto", systemImage: "wifi.exclamationmark")
+                        .foregroundStyle(.red)
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                    Button("Tentar novamente") { Task { await model.loadRemotePlayback() } }
+                }
+            }
+            if model.isRemotePlaybackLoading && model.remotePlaybackSessions.isEmpty {
+                ProgressView().frame(maxWidth: .infinity)
+            } else if model.remotePlaybackSessions.isEmpty {
+                ContentUnavailableView("Nenhuma sessão ativa", systemImage: "play.tv", description: Text("Inicie uma reprodução em outro dispositivo para controlá-la aqui."))
+            } else {
+                Section("Sessões ativas") {
+                    ForEach(model.remotePlaybackSessions) { remoteSession in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(remoteSession.itemName).font(.headline)
+                            Text("\(remoteSession.deviceName) · \(remoteSession.clientName)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if let durationTicks = remoteSession.durationTicks,
+                               let progress = RemotePlaybackPolicy.progress(positionTicks: remoteSession.positionTicks, durationTicks: durationTicks) {
+                                ProgressView(value: progress)
+                                    .accessibilityLabel("Progresso da reprodução \(remotePlaybackTime(remoteSession.positionTicks)) de \(remotePlaybackTime(durationTicks))")
+                                Text("\(remotePlaybackTime(remoteSession.positionTicks)) / \(remotePlaybackTime(durationTicks))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            HStack {
+                                Button(remoteSession.isPaused ? "Retomar" : "Pausar", systemImage: remoteSession.isPaused ? "play.fill" : "pause.fill") {
+                                    Task { await model.sendRemotePlaybackCommand(.playPause, to: remoteSession) }
+                                }
+                                Button("Parar", systemImage: "stop.fill") {
+                                    Task { await model.sendRemotePlaybackCommand(.stop, to: remoteSession) }
+                                }
+                                .tint(.red)
+                                if remoteSession.canSeek {
+                                    Button("+30 s", systemImage: "goforward.30") {
+                                        Task { await model.sendRemotePlaybackCommand(.seek, to: remoteSession, seekPositionTicks: RemotePlaybackPolicy.seekPosition(currentTicks: remoteSession.positionTicks, deltaTicks: 300_000_000, durationTicks: remoteSession.durationTicks)) }
+                                    }
+                                }
+                            }
+                            .disabled(model.isRemotePlaybackBusy(remoteSession.id))
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Controle remoto")
+        .refreshable { await model.loadRemotePlayback() }
+        .task {
+            while !Task.isCancelled {
+                await model.loadRemotePlayback(background: true)
+                try? await Task.sleep(for: .seconds(RemotePlaybackRefreshPolicy.intervalSeconds))
+            }
+        }
+    }
+}
+
+private func remotePlaybackTime(_ ticks: Int64) -> String {
+    let totalSeconds = max(0, ticks) / 10_000_000
+    let hours = totalSeconds / 3_600
+    let minutes = (totalSeconds % 3_600) / 60
+    let seconds = totalSeconds % 60
+    if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
+    return String(format: "%d:%02d", minutes, seconds)
 }
 
 private struct PermissionRow: View {
@@ -694,6 +947,7 @@ private struct PermissionRow: View {
 
 struct LiveTVView: View {
     let model: AppModel
+    let isVisible: Bool
     @State private var section = 0
 
     private var columns: [GridItem] {
@@ -767,7 +1021,15 @@ struct LiveTVView: View {
         }
         .navigationTitle("TV ao vivo")
         .refreshable { await model.loadLiveTV() }
-        .task { await model.loadLiveTV() }
+        .task(id: isVisible) {
+            guard isVisible else { return }
+            await model.loadLiveTV()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(LiveTVRefreshPolicy.intervalSeconds))
+                guard !Task.isCancelled else { return }
+                await model.loadLiveTV(background: true)
+            }
+        }
         .navigationDestination(for: MediaItem.self) { item in ItemDetailView(item: item, model: model) }
     }
 }
@@ -790,7 +1052,23 @@ private struct LiveProgramRow: View {
                 }
                 Spacer()
                 if model.scheduledLiveProgramIDs.contains(program.id) {
-                    Label("Agendado", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    if model.cancellingLiveProgramIDs.contains(program.id) {
+                        ProgressView()
+                            .accessibilityLabel("Cancelando gravação")
+                    } else if model.scheduledLiveTimerIDs[program.id] != nil {
+                        Menu {
+                            Button("Cancelar gravação", role: .destructive) {
+                                Task { await model.cancelLiveProgram(program) }
+                            }
+                        } label: {
+                            Label("Agendado", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                        .accessibilityLabel("Gravação agendada; abrir opções")
+                    } else {
+                        Label("Agendado", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
                 } else if model.schedulingLiveProgramIDs.contains(program.id) {
                     ProgressView()
                         .accessibilityLabel("Agendando gravação")
@@ -813,6 +1091,7 @@ struct SearchView: View {
     let model: AppModel
     @State private var query = ""
     @State private var filter: SearchFilter = .all
+    @State private var selectedSearchHint: MediaItem?
     @StateObject private var voiceSearch = IOSVoiceSearchController()
 
     private var columns: [GridItem] {
@@ -868,7 +1147,7 @@ struct SearchView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(model.searchHints) { hint in
                         Button {
-                            query = hint.name
+                            selectedSearchHint = model.selectSearchHint(hint)
                         } label: {
                             HStack {
                                 Image(systemName: "magnifyingglass")
@@ -934,12 +1213,13 @@ struct SearchView: View {
             SearchFilterPicker(selection: $filter)
                 .background(.bar)
         }
-        .task(id: "\(query)|\(filter.rawValue)") {
+        .task(id: "\(query)|\(filter.rawValue)|\(model.isNetworkAvailable.map { $0 ? \"online\" : \"offline\" } ?? \"unknown\")") {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
             await model.search(query, filter: filter)
         }
         .navigationDestination(for: MediaItem.self) { item in ItemDetailView(item: item, model: model) }
+        .navigationDestination(item: $selectedSearchHint) { item in ItemDetailView(item: item, model: model) }
     }
 }
 
@@ -1071,6 +1351,14 @@ struct HomeDashboard: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
+                if model.isNetworkAvailable == false {
+                    HomeOfflineStatusCard(
+                        cachedAtEpochMillis: model.homeCachedAtEpochMillis,
+                        resumeCached: model.resumeItemsFromCache,
+                        favoritesCached: model.favoriteItemsFromCache
+                    )
+                    .padding(.horizontal)
+                }
                 if model.isHomeLoading && model.heroItem == nil && homeItemsAreEmpty {
                     ProgressView("Carregando conteúdo…")
                         .frame(maxWidth: .infinity, minHeight: 260)
@@ -1091,8 +1379,8 @@ struct HomeDashboard: View {
                 if let heroItem = model.heroItem {
                     HeroBanner(item: heroItem, model: model)
                 }
-                if !model.favoriteItems.isEmpty { MediaRail(title: "Minha Lista", items: model.favoriteItems, model: model) }
-                if !model.resumeItems.isEmpty { MediaRail(title: "Continuar assistindo", items: model.resumeItems, model: model) }
+                if !model.favoriteItems.isEmpty { MediaRail(title: model.favoriteItemsFromCache ? "Minha Lista · salva" : "Minha Lista", items: model.favoriteItems, model: model) }
+                if !model.resumeItems.isEmpty { MediaRail(title: model.resumeItemsFromCache ? "Continuar assistindo · salvo" : "Continuar assistindo", items: model.resumeItems, model: model) }
                 if !model.nextUpItems.isEmpty { MediaRail(title: "Próximo episódio", items: model.nextUpItems, model: model) }
                 if !model.latestItems.isEmpty { MediaRail(title: "Adicionados recentemente", items: model.latestItems, model: model) }
                 if !model.popularItems.isEmpty { MediaRail(title: "Mais populares", items: model.popularItems, model: model) }
@@ -1119,6 +1407,46 @@ struct HomeDashboard: View {
         model.favoriteItems.isEmpty && model.resumeItems.isEmpty && model.nextUpItems.isEmpty &&
         model.latestItems.isEmpty && model.popularItems.isEmpty && model.movieItems.isEmpty &&
         model.seriesItems.isEmpty && model.liveChannels.isEmpty
+    }
+}
+
+private struct HomeOfflineStatusCard: View {
+    let cachedAtEpochMillis: Int64?
+    let resumeCached: Bool
+    let favoritesCached: Bool
+
+    private var cachedSections: String {
+        var sections: [String] = []
+        if resumeCached { sections.append("Continuar assistindo") }
+        if favoritesCached { sections.append("Minha Lista") }
+        return sections.joined(separator: " e ")
+    }
+
+    private var message: String {
+        guard let cachedAtEpochMillis, !cachedSections.isEmpty else {
+            return "Você está offline e não há conteúdo da Home salvo. Acesse Downloads para reproduzir mídias baixadas."
+        }
+        let date = Date(timeIntervalSince1970: TimeInterval(cachedAtEpochMillis) / 1_000)
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return "Sem conexão · \(cachedSections) em cache desde \(formatter.string(from: date)). Apenas mídias baixadas podem ser reproduzidas offline."
+    }
+
+    var body: some View {
+        Label {
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } icon: {
+            Image(systemName: "wifi.slash")
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
     }
 }
 
@@ -1203,39 +1531,56 @@ struct MediaShelf: View {
     }
 
     var body: some View {
-        ScrollView {
-            if model.libraryListLayout {
-                LazyVStack(spacing: 10) {
-                    ForEach(items) { item in
-                        NavigationLink(value: item) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "film")
-                                    .frame(width: 32, height: 32)
-                                    .foregroundStyle(.red)
-                                Text(item.name)
-                                    .font(.headline)
-                                    .multilineTextAlignment(.leading)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .foregroundStyle(.secondary)
+        let targets = model.librarySort == "SortName" && model.librarySortOrder == "Ascending"
+            ? LibraryLetterIndexPolicy.targets(items: items)
+            : []
+        ScrollViewReader { proxy in
+            ZStack(alignment: .trailing) {
+                ScrollView {
+                    if model.libraryListLayout {
+                        LazyVStack(spacing: 10) {
+                            ForEach(items) { item in
+                                NavigationLink(value: item) {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "film")
+                                            .frame(width: 32, height: 32)
+                                            .foregroundStyle(.red)
+                                        Text(item.name)
+                                            .font(.headline)
+                                            .multilineTextAlignment(.leading)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                                }
+                                .id(item.id)
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        }
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 18) {
+                            ForEach(items) { item in
+                                NavigationLink(value: item) { MediaCard(item: item, model: model) }
+                                    .id(item.id)
+                            }
                         }
                     }
-                }
-            } else {
-                LazyVGrid(columns: columns, spacing: 18) {
-                    ForEach(items) { item in
-                        NavigationLink(value: item) { MediaCard(item: item, model: model) }
+                    .padding()
+                    if items.isEmpty {
+                        ContentUnavailableView(title, systemImage: "film", description: Text("Nenhum título disponível agora."))
+                            .padding(.top, 40)
                     }
                 }
-            }
-            .padding()
-            if items.isEmpty {
-                ContentUnavailableView(title, systemImage: "film", description: Text("Nenhum título disponível agora."))
-                    .padding(.top, 40)
+                if targets.count > 1 {
+                    LibraryLetterRail(targets: targets) { itemID in
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(itemID, anchor: .top)
+                        }
+                    }
+                    .padding(.trailing, 4)
+                }
             }
         }
         .navigationTitle(title)
@@ -1252,6 +1597,27 @@ struct MediaShelf: View {
                 .accessibilityLabel(model.libraryListLayout ? "Alternar para grade" : "Alternar para lista")
             }
         }
+    }
+}
+
+private struct LibraryLetterRail: View {
+    let targets: [LibraryLetterTarget]
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(targets, id: \.self) { target in
+                Button(target.letter) {
+                    onSelect(target.itemID)
+                }
+                .font(.caption2.weight(.semibold))
+                .frame(width: 24, height: 22)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Ir para letra \(target.letter)")
+            }
+        }
+        .padding(.vertical, 6)
+        .background(.thinMaterial, in: Capsule())
     }
 }
 
@@ -1639,11 +2005,16 @@ struct ItemDetailView: View {
                     local: localPosition,
                     isLocal: isLocal
                 )
+                let remoteExternalSubtitleStreams = playerItem.mediaSources.first?.mediaStreams.filter(ExternalSubtitlePolicy.isPlayable) ?? []
                 PlayerView(
                     url: playbackURL,
                     model: model,
                     itemID: playerItem.id,
+                    itemTitle: playerItem.name,
                     mediaSourceID: playerItem.mediaSources.first?.id,
+                    externalSubtitleStreams: remoteExternalSubtitleStreams.isEmpty
+                        ? model.offlineSubtitleStreams(for: playerItem.id)
+                        : remoteExternalSubtitleStreams,
                     availableQualityOptions: playerItem.mediaSources.first?.qualityLabels ?? [],
                     startTimeTicks: startTimeTicks,
                     isLocal: isLocal,
@@ -1651,7 +2022,12 @@ struct ItemDetailView: View {
                     onPlayNext: {
                         Task {
                             guard let target = nextEpisode else { return }
-                            let targetURL = model.localURL(for: target) ?? await model.playbackURL(for: target)
+                            let targetURL: URL?
+                            if let localURL = model.localURL(for: target) {
+                                targetURL = localURL
+                            } else {
+                                targetURL = await model.playbackURL(for: target)
+                            }
                             guard let targetURL else { return }
                             playerItem = target
                             nextEpisode = await model.nextEpisode(after: target)
@@ -1811,6 +2187,8 @@ struct DownloadsView: View {
     @State private var searchQuery = ""
     @State private var statusFilter: DownloadStatusFilter = .all
     @State private var offlinePlayerItem: MediaItem?
+    @State private var offlineNextEpisode: MediaItem?
+    @State private var offlinePlayerSubtitleStreams: [MediaStream] = []
     @State private var showingStorageSummary = false
     @State private var showingClearCompleted = false
     @State private var showingClearFailed = false
@@ -1818,7 +2196,7 @@ struct DownloadsView: View {
     private var filteredDownloads: [OfflineDownload] {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         return model.offlineDownloads.filter { entry in
-            statusFilter.matches(entry) && (query.isEmpty || entry.title.localizedCaseInsensitiveContains(query))
+            statusFilter.matches(entry) && (query.isEmpty || entry.title.localizedCaseInsensitiveContains(query) || entry.contextualTitle.localizedCaseInsensitiveContains(query))
         }
     }
 
@@ -1841,7 +2219,13 @@ struct DownloadsView: View {
                     ForEach(filteredDownloads) { entry in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                            if let artworkURL = entry.artworkURL.flatMap({ URL(string: $0) }) {
+                            if let artworkURL = model.offlineArtworkURL(for: entry) {
+                                LocalArtwork(url: artworkURL)
+                                    .frame(width: 48, height: 72)
+                                    .aspectRatio(2 / 3, contentMode: .fit)
+                                    .clipShape(.rect(cornerRadius: 6))
+                                    .accessibilityHidden(true)
+                            } else if let artworkURL = entry.artworkURL.flatMap({ URL(string: $0) }) {
                                 AuthenticatedArtwork(url: artworkURL, token: model.session?.accessToken)
                                     .frame(width: 48, height: 72)
                                     .aspectRatio(2 / 3, contentMode: .fit)
@@ -1855,7 +2239,12 @@ struct DownloadsView: View {
                                     .accessibilityHidden(true)
                             }
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.title).font(.headline)
+                                Text(entry.contextualTitle).font(.headline)
+                                if entry.contextualTitle != entry.title {
+                                    Text(entry.title)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
                                 Text(statusText(entry))
                                     .font(.caption)
                                     .foregroundStyle(entry.state == .failed ? .red : .secondary)
@@ -1863,15 +2252,31 @@ struct DownloadsView: View {
                             Spacer()
                         }
                         if entry.state == .completed {
-                            Button {
-                                let item = MediaItem(id: entry.itemID, name: entry.title)
-                                guard model.localURL(for: item) != nil else { return }
-                                offlinePlayerItem = item
-                            } label: {
-                                Label("Reproduzir", systemImage: "play.fill")
+                            let item = MediaItem(id: entry.itemID, name: entry.contextualTitle)
+                            if model.localURL(for: item) != nil {
+                                Button {
+                                    offlineNextEpisode = nil
+                                    offlinePlayerSubtitleStreams = entry.subtitles.map(\.mediaStream)
+                                    offlinePlayerItem = item
+                                    Task {
+                                        let next = await model.nextEpisode(after: item)
+                                        guard offlinePlayerItem?.id == item.id else { return }
+                                        offlineNextEpisode = next
+                                    }
+                                } label: {
+                                    Label("Reproduzir", systemImage: "play.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .accessibilityHint("Abre o player usando o arquivo armazenado neste dispositivo")
+                            } else {
+                                Label("Arquivo offline indisponível", systemImage: "exclamationmark.triangle")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                                Button("Baixar novamente", systemImage: "arrow.clockwise") {
+                                    model.retryOfflineDownload(entry)
+                                }
+                                .buttonStyle(.bordered)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .accessibilityHint("Abre o player usando o arquivo armazenado neste dispositivo")
                         }
                         if entry.state == .downloading || entry.state == .queued || entry.state == .paused {
                             ProgressView(value: Double(entry.percent), total: 100)
@@ -1909,15 +2314,31 @@ struct DownloadsView: View {
                     url: url,
                     model: model,
                     itemID: item.id,
+                    itemTitle: item.name,
                     mediaSourceID: nil,
+                    externalSubtitleStreams: offlinePlayerSubtitleStreams,
                     startTimeTicks: PlaybackResumePolicy.initialPositionTicks(
                         server: 0,
                         local: model.offlinePlaybackPosition(for: item.id),
                         isLocal: true
                     ),
                     isLocal: true,
-                    nextEpisode: nil,
-                    onPlayNext: {}
+                    nextEpisode: offlineNextEpisode,
+                    onPlayNext: {
+                        Task {
+                            guard let target = offlineNextEpisode else { return }
+                            let targetURL: URL?
+                            if let localURL = model.localURL(for: target) {
+                                targetURL = localURL
+                            } else {
+                                targetURL = await model.playbackURL(for: target)
+                            }
+                            guard let targetURL else { return }
+                            offlinePlayerItem = target
+                            offlinePlayerSubtitleStreams = model.offlineSubtitleStreams(for: target.id)
+                            offlineNextEpisode = await model.nextEpisode(after: target)
+                        }
+                    }
                 )
                 .id(item.id)
             } else {
@@ -1978,11 +2399,11 @@ struct DownloadsView: View {
     }
 
     private var storageSummary: String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
         let completed = model.offlineDownloads.filter { $0.state == .completed }.count
         let failed = model.offlineDownloads.filter { $0.state == .failed }.count
-        return "\(completed) concluído(s), \(failed) falho(s) e \(formatter.string(fromByteCount: model.offlineDownloadedBytes)) armazenado(s)."
+        let used = ByteCountFormatter.string(fromByteCount: model.offlineDownloadedBytes, countStyle: .file)
+        let available = OfflineStoragePolicy.availableLabel(bytes: model.availableStorageBytes)
+        return "\(completed) concluído(s), \(failed) falho(s), \(used) armazenado(s) e \(available)."
     }
 
     private func statusText(_ entry: OfflineDownload) -> String {
@@ -2060,11 +2481,70 @@ private struct AirPlayRoutePicker: UIViewRepresentable {
     }
 }
 
+@MainActor
+private final class IOSNowPlayingController {
+    static let shared = IOSNowPlayingController()
+
+    private weak var player: AVPlayer?
+    private var playCommandTarget: Any?
+    private var pauseCommandTarget: Any?
+
+    func start(player: AVPlayer, title: String) {
+        stop()
+        self.player = player
+        let commandCenter = MPRemoteCommandCenter.shared()
+        playCommandTarget = commandCenter.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.player?.play()
+                self?.update(title: title)
+            }
+            return .success
+        }
+        pauseCommandTarget = commandCenter.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                self?.player?.pause()
+                self?.update(title: title)
+            }
+            return .success
+        }
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.pauseCommand.isEnabled = true
+        update(title: title)
+    }
+
+    func update(title: String) {
+        guard let player else { return }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: title,
+            MPMediaItemPropertyArtist: "MulletaFlix",
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: max(0, player.currentTime().seconds),
+            MPNowPlayingInfoPropertyPlaybackRate: player.timeControlStatus == .playing ? Double(player.rate) : 0
+        ]
+        let duration = player.currentItem?.duration.seconds ?? 0
+        if duration.isFinite, duration > 0 {
+            info[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    func stop() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        if let playCommandTarget { commandCenter.playCommand.removeTarget(playCommandTarget) }
+        if let pauseCommandTarget { commandCenter.pauseCommand.removeTarget(pauseCommandTarget) }
+        playCommandTarget = nil
+        pauseCommandTarget = nil
+        player = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+}
+
 struct PlayerView: View {
     let url: URL
     let model: AppModel
     let itemID: String
+    let itemTitle: String
     let mediaSourceID: String?
+    let externalSubtitleStreams: [MediaStream]
     let availableQualityOptions: [String]
     let startTimeTicks: Int64
     let isLocal: Bool
@@ -2078,8 +2558,13 @@ struct PlayerView: View {
     @State private var sleepTimerEndDate: Date?
     @State private var audioOptions: [AVMediaSelectionOption] = []
     @State private var subtitleOptions: [AVMediaSelectionOption] = []
+    @State private var externalSubtitleCues: [SubtitleCue] = []
+    @State private var selectedExternalSubtitleIndex: Int?
+    @State private var externalSubtitleLoading = false
+    @State private var externalSubtitleError: String?
     @State private var selectedQuality = "Auto"
     @State private var selectedPlaybackRate = 1.0
+    @State private var pendingAutomaticIntroSkipTarget: Double?
     @State private var nextEpisodeCountdown: Int?
     @State private var nextEpisodeCountdownTask: Task<Void, Never>?
 
@@ -2097,17 +2582,20 @@ struct PlayerView: View {
     @State private var didFinishPlayback = false
     @State private var didReportRemoteStopped = false
     @State private var wasPlayingBeforeAudioInterruption = false
+    @State private var showPlaybackIssue = false
 
     private enum GestureAxis {
         case horizontal
         case vertical
     }
 
-    init(url: URL, model: AppModel, itemID: String, mediaSourceID: String?, availableQualityOptions: [String] = [], startTimeTicks: Int64 = 0, isLocal: Bool, nextEpisode: MediaItem?, onPlayNext: @escaping () -> Void) {
+    init(url: URL, model: AppModel, itemID: String, itemTitle: String, mediaSourceID: String?, externalSubtitleStreams: [MediaStream] = [], availableQualityOptions: [String] = [], startTimeTicks: Int64 = 0, isLocal: Bool, nextEpisode: MediaItem?, onPlayNext: @escaping () -> Void) {
         self.url = url
         self.model = model
         self.itemID = itemID
+        self.itemTitle = itemTitle
         self.mediaSourceID = mediaSourceID
+        self.externalSubtitleStreams = externalSubtitleStreams
         self.availableQualityOptions = availableQualityOptions
         self.startTimeTicks = max(0, startTimeTicks)
         self.isLocal = isLocal
@@ -2181,21 +2669,40 @@ struct PlayerView: View {
                         }
                     }
 
-                    if !subtitleOptions.isEmpty {
+                    if !subtitleOptions.isEmpty || !externalSubtitleStreams.isEmpty {
                         Menu {
                             Button("Desativar legendas") {
-                                selectManualOption(nil, characteristic: .legible)
+                                disableSubtitles()
                             }
-                            Divider()
-                            ForEach(Array(subtitleOptions.enumerated()), id: \.offset) { _, option in
-                                Button(option.displayName) {
-                                    selectManualOption(option, characteristic: .legible)
+                            if !subtitleOptions.isEmpty {
+                                Divider()
+                                ForEach(Array(subtitleOptions.enumerated()), id: \.offset) { _, option in
+                                    Button(option.displayName) {
+                                        selectedExternalSubtitleIndex = nil
+                                        externalSubtitleCues = []
+                                        selectManualOption(option, characteristic: .legible)
+                                    }
+                                }
+                            }
+                            if !externalSubtitleStreams.isEmpty {
+                                Divider()
+                                ForEach(externalSubtitleStreams, id: \.self) { stream in
+                                    Button(externalSubtitleLabel(for: stream)) {
+                                        Task { await loadExternalSubtitle(stream) }
+                                    }
                                 }
                             }
                         } label: {
-                            Label("Legendas", systemImage: "captions.bubble")
-                                .padding(10)
-                                .background(.black.opacity(0.8), in: Capsule())
+                            if externalSubtitleLoading {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .padding(10)
+                                    .background(.black.opacity(0.8), in: Capsule())
+                            } else {
+                                Label("Legendas", systemImage: "captions.bubble")
+                                    .padding(10)
+                                    .background(.black.opacity(0.8), in: Capsule())
+                            }
                         }
                     }
 
@@ -2205,14 +2712,14 @@ struct PlayerView: View {
                                 selectQuality(quality)
                             } label: {
                                 if selectedQuality == quality {
-                                    Label(quality == "Auto" ? "Automático" : quality, systemImage: "checkmark")
+                                    Label(qualityDisplayName(quality), systemImage: "checkmark")
                                 } else {
-                                    Text(quality == "Auto" ? "Automático" : quality)
+                                    Text(qualityDisplayName(quality))
                                 }
                             }
                         }
                     } label: {
-                        Label("Qualidade: \(selectedQuality == "Auto" ? "Auto" : selectedQuality)", systemImage: "4k.tv")
+                        Label("Qualidade: \(qualityDisplayName(selectedQuality))", systemImage: "4k.tv")
                             .padding(10)
                             .background(.black.opacity(0.8), in: Capsule())
                     }
@@ -2258,6 +2765,15 @@ struct PlayerView: View {
                             .padding(10)
                             .background(.black.opacity(0.8), in: Capsule())
                     }
+
+                    Button {
+                        showPlaybackIssue = true
+                    } label: {
+                        Label("Relatar problema", systemImage: "exclamationmark.bubble")
+                            .padding(10)
+                            .background(.black.opacity(0.8), in: Capsule())
+                    }
+                    .accessibilityIdentifier("player.reportPlaybackIssue")
                 }
                 .foregroundStyle(.white)
                 .padding(.trailing, 20)
@@ -2274,6 +2790,20 @@ struct PlayerView: View {
                     .tint(.black.opacity(0.8))
                     .padding(.trailing, 20)
                     .padding(.bottom, 60)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if let text = activeExternalSubtitleText {
+                    Text(text)
+                        .font(.system(size: model.subtitleFontSize, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(externalSubtitleColor)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 46)
+                        .accessibilityLabel("Legenda: \(text)")
                 }
             }
             .overlay(alignment: .bottomLeading) {
@@ -2324,6 +2854,10 @@ struct PlayerView: View {
                             retryPlayback()
                         }
                         .buttonStyle(.borderedProminent)
+                        Button("Relatar problema") {
+                            showPlaybackIssue = true
+                        }
+                        .buttonStyle(.bordered)
                     }
                     .foregroundStyle(.white)
                     .padding(24)
@@ -2359,11 +2893,18 @@ struct PlayerView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showPlaybackIssue) {
+                PlaybackIssueForm(
+                    item: MediaItem(id: itemID, name: itemTitle),
+                    model: model
+                )
+            }
             .onAppear {
+                IOSNowPlayingController.shared.start(player: player, title: itemTitle)
                 selectedQuality = qualityOptions.contains(model.defaultQuality) ? model.defaultQuality : "Auto"
                 selectedPlaybackRate = model.playbackRate
                 player.defaultRate = Float(selectedPlaybackRate)
-                player.currentItem?.preferredPeakBitRate = selectedQuality.peakBitrate
+                applySelectedQualityBitrate()
                 if isLocal, startTimeTicks > 0 {
                     player.seek(to: CMTime(seconds: Double(startTimeTicks) / 10_000_000, preferredTimescale: 600))
                 }
@@ -2409,7 +2950,8 @@ struct PlayerView: View {
                         await model.reportPlaybackStopped(
                             itemID: itemID,
                             mediaSourceID: mediaSourceID,
-                            positionSeconds: positionSeconds
+                            positionSeconds: positionSeconds,
+                            durationSeconds: durationSeconds
                         )
                     }
                 }
@@ -2451,10 +2993,44 @@ struct PlayerView: View {
                 playbackRetryAttempt = 0
                 retryPlayback(automatic: true)
             }
+            .onChange(of: model.isMeteredNetwork) { _, _ in
+                guard !isLocal else { return }
+                applySelectedQualityBitrate()
+            }
             .onDisappear {
+                let positionSeconds = player.currentTime().seconds
+                let durationSeconds = player.currentItem?.duration.seconds
+                if isLocal, !didFinishPlayback {
+                    model.saveOfflinePlaybackPosition(
+                        itemID: itemID,
+                        positionSeconds: positionSeconds,
+                        durationSeconds: durationSeconds
+                    )
+                } else if !didReportRemoteStopped {
+                    didReportRemoteStopped = true
+                    Task {
+                        await model.reportPlaybackStopped(
+                            itemID: itemID,
+                            mediaSourceID: mediaSourceID,
+                            positionSeconds: positionSeconds,
+                            durationSeconds: player.currentItem?.duration.seconds
+                        )
+                    }
+                }
                 player.pause()
+                IOSNowPlayingController.shared.stop()
                 playbackRetryTask?.cancel()
+                pendingAutomaticIntroSkipTarget = nil
+                cancelNextEpisodeCountdown()
                 gestureHintTask?.cancel()
+            }
+            .alert("Legenda externa", isPresented: Binding(
+                get: { externalSubtitleError != nil },
+                set: { if !$0 { externalSubtitleError = nil } }
+            )) {
+                Button("OK") { externalSubtitleError = nil }
+            } message: {
+                Text(externalSubtitleError ?? "Não foi possível carregar a legenda.")
             }
             .task {
                 if !isLocal {
@@ -2473,10 +3049,21 @@ struct PlayerView: View {
                         playbackError = nil
                     }
                     if isLocal {
-                        model.saveOfflinePlaybackPosition(itemID: itemID, positionSeconds: positionSeconds)
+                        model.saveOfflinePlaybackPosition(
+                            itemID: itemID,
+                            positionSeconds: positionSeconds,
+                            durationSeconds: player.currentItem?.duration.seconds
+                        )
                     } else {
-                        await model.reportPlaybackProgress(itemID: itemID, mediaSourceID: mediaSourceID, positionSeconds: positionSeconds, isPaused: player.timeControlStatus != .playing)
+                        await model.reportPlaybackProgress(
+                            itemID: itemID,
+                            mediaSourceID: mediaSourceID,
+                            positionSeconds: positionSeconds,
+                            durationSeconds: player.currentItem?.duration.seconds,
+                            isPaused: player.timeControlStatus != .playing
+                        )
                     }
+                    IOSNowPlayingController.shared.update(title: itemTitle)
                 }
             }
             .task {
@@ -2503,6 +3090,27 @@ struct PlayerView: View {
                 while !Task.isCancelled {
                     let seconds = player.currentTime().seconds
                     if seconds.isFinite { currentTime = max(0, seconds) }
+                    if let pendingTarget = pendingAutomaticIntroSkipTarget,
+                       currentTime >= pendingTarget {
+                        pendingAutomaticIntroSkipTarget = nil
+                    }
+                    let isSeekable = !(player.currentItem?.seekableTimeRanges.isEmpty ?? true)
+                    if let target = AutomaticIntroSkipPolicy.target(
+                        enabled: model.automaticIntroSkip,
+                        isPlaying: player.timeControlStatus == .playing,
+                        isSeekable: isSeekable,
+                        positionSeconds: currentTime,
+                        segment: mediaSegments.first(where: {
+                            $0.type == .intro &&
+                            currentTime >= $0.startSeconds &&
+                            currentTime < $0.endSeconds &&
+                            $0.endSeconds > $0.startSeconds
+                        }),
+                        pendingTargetSeconds: pendingAutomaticIntroSkipTarget
+                    ) {
+                        pendingAutomaticIntroSkipTarget = target
+                        player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
+                    }
                     if let duration = player.currentItem?.asset.duration.seconds,
                        duration.isFinite, duration > 0 {
                         showNextEpisodePrompt = nextEpisode != nil && currentTime >= duration - 1.0
@@ -2516,24 +3124,6 @@ struct PlayerView: View {
                     try? await Task.sleep(for: .milliseconds(500))
                 }
             }
-            .onDisappear {
-                playbackRetryTask?.cancel()
-                cancelNextEpisodeCountdown()
-                gestureHintTask?.cancel()
-                let positionSeconds = player.currentTime().seconds
-                if isLocal, !didFinishPlayback {
-                    model.saveOfflinePlaybackPosition(itemID: itemID, positionSeconds: positionSeconds)
-                } else if !isLocal, !didReportRemoteStopped {
-                    didReportRemoteStopped = true
-                    Task {
-                        await model.reportPlaybackStopped(
-                            itemID: itemID,
-                            mediaSourceID: mediaSourceID,
-                            positionSeconds: positionSeconds
-                        )
-                    }
-                }
-            }
     }
 
     private var activeSkippableSegment: MediaSegment? {
@@ -2543,6 +3133,63 @@ struct PlayerView: View {
             currentTime >= segment.startSeconds &&
             currentTime < segment.endSeconds &&
             segment.endSeconds > segment.startSeconds
+        }
+    }
+
+    private var activeExternalSubtitleText: String? {
+        guard selectedExternalSubtitleIndex != nil else { return nil }
+        return externalSubtitleCues.last(where: { currentTime >= $0.start && currentTime < $0.end })?.text
+    }
+
+    private var externalSubtitleColor: Color {
+        switch model.subtitleColor {
+        case .white: return .white
+        case .yellow: return .yellow
+        case .cyan: return .cyan
+        case .green: return .green
+        }
+    }
+
+    private func externalSubtitleLabel(for stream: MediaStream) -> String {
+        let title = stream.displayTitle ?? stream.title ?? stream.displayLanguage ?? stream.language ?? "Legenda externa"
+        return stream.isForced ? "\(title) (forçada)" : title
+    }
+
+    private func disableSubtitles() {
+        selectedExternalSubtitleIndex = nil
+        externalSubtitleCues = []
+        model.preferredSubtitleLanguage = MediaLanguage.off
+        selectManualOption(nil, characteristic: .legible)
+    }
+
+    private func loadExternalSubtitle(_ stream: MediaStream) async {
+        guard let index = stream.index, !externalSubtitleLoading else { return }
+        externalSubtitleLoading = true
+        externalSubtitleError = nil
+        defer { externalSubtitleLoading = false }
+        do {
+            let data: Data
+            if isLocal {
+                guard let localData = model.offlineSubtitleData(itemID: itemID, streamIndex: index) else {
+                    throw APIError.serverMessage("Esta legenda não está disponível offline.")
+                }
+                data = localData
+            } else {
+                data = try await model.externalSubtitleData(itemID: itemID, streamIndex: index, mediaSourceID: mediaSourceID)
+            }
+            let cues = ExternalSubtitlePolicy.parse(data, mimeType: ExternalSubtitlePolicy.mimeType(codec: stream.codec, deliveryURL: stream.deliveryURL))
+            guard !cues.isEmpty else {
+                throw APIError.serverMessage("A legenda externa não contém diálogos compatíveis.")
+            }
+            selectManualOption(nil, characteristic: .legible)
+            selectedExternalSubtitleIndex = index
+            externalSubtitleCues = cues
+            if let language = stream.displayLanguage ?? stream.language {
+                let normalized = MediaLanguage.canonicalize(language)
+                if !normalized.isEmpty { model.preferredSubtitleLanguage = normalized }
+            }
+        } catch {
+            externalSubtitleError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
@@ -2614,7 +3261,7 @@ struct PlayerView: View {
         playbackWaitingForNetwork = false
         let position = player.currentTime()
         let replacement = AVPlayerItem(url: url)
-        replacement.preferredPeakBitRate = selectedQuality.peakBitrate
+        replacement.preferredPeakBitRate = effectiveSelectedQualityBitrate
         player.replaceCurrentItem(with: replacement)
         playbackError = nil
         if position.isValid && position.seconds.isFinite && position.seconds > 0 {
@@ -2745,11 +3392,41 @@ struct PlayerView: View {
         guard let currentItem = player.currentItem,
               let group = currentItem.asset.mediaSelectionGroup(forMediaCharacteristic: characteristic) else { return }
         currentItem.select(option, in: group)
+        guard let option,
+              let identifier = option.locale?.identifier else { return }
+        let normalized = MediaLanguage.canonicalize(identifier)
+        guard !normalized.isEmpty, normalized != MediaLanguage.original else { return }
+        if characteristic == .audible {
+            model.preferredAudioLanguage = normalized
+        } else if characteristic == .legible {
+            model.preferredSubtitleLanguage = normalized
+        }
     }
 
     private func selectQuality(_ quality: String) {
-        selectedQuality = quality
-        player.currentItem?.preferredPeakBitRate = quality.peakBitrate
+        let normalizedQuality = PlaybackQualityPolicy.normalizedPreference(quality)
+        selectedQuality = normalizedQuality
+        model.defaultQuality = normalizedQuality
+        applySelectedQualityBitrate()
+    }
+
+    private var effectiveSelectedQualityBitrate: Double? {
+        PlaybackQualityPolicy.effectiveStreamingBitrate(
+            for: selectedQuality,
+            isMetered: !isLocal && model.isMeteredNetwork
+        ).map(Double.init)
+    }
+
+    private func applySelectedQualityBitrate() {
+        player.currentItem?.preferredPeakBitRate = effectiveSelectedQualityBitrate
+    }
+
+    private func qualityDisplayName(_ quality: String) -> String {
+        let label = PlaybackQualityPolicy.displayLabel(
+            for: quality,
+            isMetered: !isLocal && model.isMeteredNetwork
+        )
+        return label == "Auto" ? "Automático" : label
     }
 
     private var qualityOptions: [String] {
@@ -2871,5 +3548,29 @@ private struct AuthenticatedArtwork: View {
                     image = Image(uiImage: uiImage)
                 }
             }
+    }
+}
+
+private struct LocalArtwork: View {
+    let url: URL
+    @State private var image: Image?
+
+    var body: some View {
+        Group {
+            if let image {
+                image.resizable().scaledToFill()
+            } else {
+                Color.gray.opacity(0.25)
+            }
+        }
+        .task {
+            if let cached = ArtworkImageCache.images.object(forKey: url as NSURL) {
+                image = Image(uiImage: cached)
+                return
+            }
+            guard let uiImage = UIImage(contentsOfFile: url.path) else { return }
+            ArtworkImageCache.images.setObject(uiImage, forKey: url as NSURL)
+            image = Image(uiImage: uiImage)
+        }
     }
 }

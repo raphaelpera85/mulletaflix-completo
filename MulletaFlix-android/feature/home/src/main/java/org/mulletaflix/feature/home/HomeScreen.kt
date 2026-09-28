@@ -281,7 +281,8 @@ fun HomeScreen(
                                 title = "Não foi possível carregar Adicionados Recentemente — $libraryName",
                                 message = message,
                                 isTelevision = isTelevision,
-                                onRetry = viewModel::refresh,
+                                isRetrying = section.library.id in state.retryingRecentlyAddedLibraryIds,
+                                onRetry = { viewModel.retryRecentlyAdded(section.library.id) },
                             )
                         }
                     }
@@ -532,6 +533,7 @@ internal fun HomeLoadErrorCard(
     title: String,
     message: String,
     isTelevision: Boolean = false,
+    isRetrying: Boolean = false,
     onRetry: () -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -554,6 +556,7 @@ internal fun HomeLoadErrorCard(
                 modifier = Modifier.padding(top = 4.dp),
             )
             TextButton(
+                enabled = !isRetrying,
                 onClick = onRetry,
                 modifier = Modifier
                     .padding(top = 4.dp)
@@ -566,7 +569,13 @@ internal fun HomeLoadErrorCard(
                         },
                     ),
             ) {
-                Text("Tentar novamente")
+                if (isRetrying) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Tentando novamente")
+                } else {
+                    Text("Tentar novamente")
+                }
             }
         }
     }

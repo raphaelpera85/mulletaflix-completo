@@ -252,6 +252,13 @@ jobs:
       - name: Validate production release script
         run: bash -n scripts/build-production-release.sh
 
+      - name: Validate Swift async fallback syntax
+        run: |
+          if grep -R -n -E '\?\?[[:space:]]*await' --include='*.swift' App Sources Tests; then
+            echo 'Swift não pode usar await dentro da autoclosure de ??.' >&2
+            exit 1
+          fi
+
       - name: Run Swift package tests
         run: swift test --enable-code-coverage
 

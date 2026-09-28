@@ -49,7 +49,7 @@ data class SettingsState(
     val librarySort: String = "Nome",
     val librarySortOrder: String = "Ascendente",
     val downloadPath: String = "Armazenamento Interno",
-    val downloadStorageGb: Int = 0,
+    val downloadStorageLabel: String = "Calculando…",
     val isCheckingUpdate: Boolean = false,
     val updateInfo: AppUpdateInfo? = null,
     val isDownloadingUpdate: Boolean = false,
@@ -181,7 +181,7 @@ class SettingsViewModel @Inject constructor(
     fun refreshStorageInfo() {
         viewModelScope.launch {
             val usableBytes = withContext(ioDispatcher) { context.cacheDir.usableSpace }
-            _state.update { it.copy(downloadStorageGb = availableStorageGb(usableBytes)) }
+            _state.update { it.copy(downloadStorageLabel = availableStorageLabel(usableBytes)) }
         }
     }
 

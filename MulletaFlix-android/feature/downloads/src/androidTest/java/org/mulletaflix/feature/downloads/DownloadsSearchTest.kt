@@ -208,6 +208,35 @@ class DownloadsSearchTest {
     }
 
     @Test
+    fun insufficientStorageErrorExplainsRecoveryAndKeepsRetryAvailable() {
+        var retried = false
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadRow(
+                    entry = DownloadEntry(
+                        id = "out-of-space",
+                        title = "Filme",
+                        uri = "https://server/media",
+                        state = DownloadState.Failed,
+                        percent = 14,
+                        error = "Armazenamento insuficiente. Libere espaço no dispositivo e tente baixar novamente. (código Media3 1)",
+                    ),
+                    imageModel = null,
+                    onPlay = {},
+                    onRetry = { retried = true },
+                    onRemove = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText(
+            "Armazenamento insuficiente. Libere espaço no dispositivo e tente baixar novamente. (código Media3 1)",
+        ).assertExists()
+        composeRule.onNodeWithContentDescription("Tentar download novamente").performClick()
+        composeRule.runOnIdle { check(retried) }
+    }
+
+    @Test
     fun retryAllButtonIsShownOnlyWhenThereAreFailedDownloads() {
         var retryCount = 0
         var downloads by mutableStateOf(

@@ -975,7 +975,7 @@ internal fun PlayerOsd(
                 // o próprio `MediaRouteButton` do Media3 já traz (ele conhece o
                 // estado da conexão). O usuário ouvia a mesma ação com duas ou três
                 // palavras diferentes.
-                PlayerCastControl(isCasting = state.isCasting)
+                PlayerCastAction(isTelevision = isTelevision, isCasting = state.isCasting)
                 // Aspect ratio
                 IconButton(
                     onClick = { showAspectRatioMenu = true },
@@ -1528,6 +1528,11 @@ private fun PlayerOptionRow(
             .padding(vertical = 8.dp),
         content = content,
     )
+}
+
+@Composable
+internal fun PlayerCastAction(isTelevision: Boolean, isCasting: Boolean) {
+    if (!isTelevision) PlayerCastControl(isCasting = isCasting)
 }
 
 @Composable

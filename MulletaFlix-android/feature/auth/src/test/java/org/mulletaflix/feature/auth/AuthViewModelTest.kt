@@ -558,21 +558,49 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun `startup discovery keeps saved endpoint when LAN identity is different`() = runTest {
+        coEvery { discovery.discover(any()) } returns listOf(
+            ServerInfo("Other LAN", "http://192.168.1.20:8096", serverId = "other-id"),
+        )
+        val authRepo = object : FakeAuthRepository() {
+            init {
+                savedServersState.value = listOf(
+                    SavedServer(
+                        name = "MulletaFlix Cloud",
+                        url = DEFAULT_MULLETAFLIX_SERVER_URL,
+                        serverId = "saved-id",
+                    )
+                )
+            }
+        }
+
+        val viewModel = createViewModel(authRepo)
+        advanceUntilIdle()
+
+        assertEquals(DEFAULT_MULLETAFLIX_SERVER_URL, viewModel.state.value.serverUrl)
+        assertEquals("other-id", viewModel.state.value.discoveredServers.single().serverId)
+    }
+
+    @Test
     fun `switching from public fallback to LAN clears endpoint scoped login state`() = runTest {
+        var availableUsersCalls = 0
         coEvery { discovery.discover(any()) } returns listOf(
             ServerInfo("LAN Server", "http://192.168.1.10:8096", serverId = "lan-id"),
         )
         val authRepo = object : FakeAuthRepository() {
-            override suspend fun getAvailableUsers(): Result<List<AvailableUser>> =
-                Result.success(listOf(AvailableUser(id = "public-user", name = "Public User")))
+            override suspend fun getAvailableUsers(): Result<List<AvailableUser>> {
+                availableUsersCalls += 1
+                return Result.success(listOf(AvailableUser(id = "lan-user", name = "LAN User")))
+            }
         }
 
         val viewModel = createViewModel(authRepo)
         advanceUntilIdle()
 
         assertEquals("http://192.168.1.10:8096", viewModel.state.value.serverUrl)
-        assertTrue(viewModel.state.value.availableUsers.isEmpty())
-        assertNull(viewModel.state.value.isQuickConnectAvailable)
+        assertEquals(1, availableUsersCalls)
+        assertEquals(listOf("LAN User"), viewModel.state.value.availableUsers.map { it.name })
+        assertEquals(true, viewModel.state.value.isQuickConnectAvailable)
         assertNull(viewModel.state.value.quickConnectAvailabilityError)
     }
 

@@ -1,5 +1,14 @@
 # MulletaFlix Android - Plano de Desenvolvimento & Checklist de Funcionalidades (TODO)
 
+## Trabalho APK sem release — Densidade da biblioteca Android TV
+
+- [x] Calcular colunas pela largura real disponível após padding e espaçamento, com capas menores e mais títulos por linha em TVs.
+- [x] Testes verificam largura mínima efetiva da capa, renderização da grade e navegação D-pad horizontal/vertical no perfil Android TV.
+- [x] `:feature:library:testDebugUnitTest`, compilação dos testes Android e `:feature:library:connectedDebugAndroidTest` no emulador `MulletaflixTvApi34` concluíram com `BUILD SUCCESSFUL`.
+- [ ] Nenhuma versão/APK de release criada ou publicada nesta tarefa; a futura nota deve relatar somente esta melhoria após validar o APK correspondente.
+
+---
+
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 O código completo do app está localizado em: [`MulletaFlix-android/`](file:///d:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-android)
 

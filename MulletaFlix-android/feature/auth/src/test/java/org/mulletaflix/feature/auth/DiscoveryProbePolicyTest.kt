@@ -1,6 +1,8 @@
 package org.mulletaflix.feature.auth
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiscoveryProbePolicyTest {
@@ -9,6 +11,31 @@ class DiscoveryProbePolicyTest {
         assertEquals(0, boundedDiscoveryTimeoutMs(-1))
         assertEquals(2_500, boundedDiscoveryTimeoutMs(2_500))
         assertEquals(10_000, boundedDiscoveryTimeoutMs(60_000))
+    }
+
+    @Test
+    fun `uses injected monotonic time for loop and socket deadline`() {
+        var elapsedRealtimeMs = 10_000L
+        val window = DiscoveryWindow(timeoutMs = 2_500) { elapsedRealtimeMs }
+
+        assertTrue(window.isOpen())
+        assertEquals(2_500, window.remainingSocketTimeoutMs())
+
+        elapsedRealtimeMs += 1_750
+        assertTrue(window.isOpen())
+        assertEquals(750, window.remainingSocketTimeoutMs())
+
+        elapsedRealtimeMs += 750
+        assertFalse(window.isOpen())
+        assertEquals(1, window.remainingSocketTimeoutMs())
+    }
+
+    @Test
+    fun `empty monotonic window does not enter loop and keeps socket wait valid`() {
+        val window = DiscoveryWindow(timeoutMs = 0) { 0L }
+
+        assertFalse(window.isOpen())
+        assertEquals(1, window.remainingSocketTimeoutMs())
     }
 
     @Test

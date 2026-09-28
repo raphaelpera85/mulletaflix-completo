@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -63,6 +64,22 @@ fun DownloadsScreen(
     var showClearCompletedConfirmation by rememberSaveable { mutableStateOf(false) }
     var showClearFailedConfirmation by rememberSaveable { mutableStateOf(false) }
     var showStorageSummary by rememberSaveable { mutableStateOf(false) }
+    var isSelectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedDownloadIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var showSelectedRemovalConfirmation by rememberSaveable { mutableStateOf(false) }
+    val completedIds = remember(downloads) { completedDownloadIds(downloads) }
+    val visibleCompletedIds = remember(filteredDownloads) { completedDownloadIds(filteredDownloads) }
+    val selectedIds = selectedDownloadIds.toSet()
+    val selectedCompletedCount = selectedCompletedDownloads(downloads, selectedIds).size
+
+    LaunchedEffect(completedIds) {
+        val reconciledIds = reconcileCompletedDownloadSelection(selectedIds, completedIds)
+        selectedDownloadIds = reconciledIds.toList()
+        if (reconciledIds.isEmpty()) {
+            isSelectionMode = false
+            showSelectedRemovalConfirmation = false
+        }
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(actionMessage) {
@@ -140,9 +157,25 @@ fun DownloadsScreen(
                             onRetryFailed = { viewModel.retryFailed(downloads) },
                             onClearCompleted = { showClearCompletedConfirmation = true },
                             onClearFailed = { showClearFailedConfirmation = true },
+                            isSelectionMode = isSelectionMode,
+                            onSelectCompleted = {
+                                isSelectionMode = !isSelectionMode
+                                selectedDownloadIds = emptyList()
+                            },
                             wifiOnly = wifiOnly,
                             onWifiOnlyChange = viewModel::setWifiOnly,
                         )
+                    }
+                    if (isSelectionMode) {
+                        item {
+                            DownloadSelectionBar(
+                                selectedCount = selectedCompletedCount,
+                                visibleCompletedIds = visibleCompletedIds,
+                                selectedIds = selectedIds,
+                                onSelectionChanged = { selectedDownloadIds = it.toList() },
+                                onDeleteSelected = { showSelectedRemovalConfirmation = true },
+                            )
+                        }
                     }
                     if (filteredDownloads.isEmpty()) {
                         item {
@@ -161,9 +194,18 @@ fun DownloadsScreen(
                             entry = entry,
                             imageModel = downloadArtworkModel(entry, serverUrl, accessToken),
                             focusFriendly = isTelevision,
+                            selectionMode = isSelectionMode,
+                            isSelected = entry.id in selectedIds,
                             onPlay = { onItemClick(entry) },
                             onRetry = { viewModel.retry(entry) },
                             onRemove = { itemPendingDeletion = entry },
+                            onToggleSelected = {
+                                selectedDownloadIds = toggleCompletedDownloadSelection(
+                                    selectedIds = selectedIds,
+                                    id = entry.id,
+                                    completedIds = completedIds,
+                                ).toList()
+                            },
                         )
                     }
                 }
@@ -243,6 +285,19 @@ fun DownloadsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearFailedConfirmation = false }) { Text("Cancelar") }
+            },
+        )
+    }
+
+    if (showSelectedRemovalConfirmation && selectedCompletedCount > 0) {
+        SelectedDownloadsRemovalDialog(
+            selectedCount = selectedCompletedCount,
+            onDismiss = { showSelectedRemovalConfirmation = false },
+            onConfirm = {
+                viewModel.removeSelectedCompleted(downloads, selectedIds)
+                selectedDownloadIds = emptyList()
+                isSelectionMode = false
+                showSelectedRemovalConfirmation = false
             },
         )
     }
@@ -420,6 +475,8 @@ internal fun OfflineSummary(
     onRetryFailed: () -> Unit,
     onClearCompleted: () -> Unit,
     onClearFailed: () -> Unit,
+    isSelectionMode: Boolean = false,
+    onSelectCompleted: () -> Unit = {},
     wifiOnly: Boolean,
     onWifiOnlyChange: (Boolean) -> Unit,
 ) {
@@ -468,6 +525,12 @@ internal fun OfflineSummary(
             }
             if (completedCount > 0) {
                 TextButton(
+                    onClick = onSelectCompleted,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                ) {
+                    Text(if (isSelectionMode) "Cancelar seleção" else "Selecionar concluídos ($completedCount)")
+                }
+                TextButton(
                     onClick = onClearCompleted,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
@@ -493,17 +556,103 @@ internal fun OfflineSummary(
 }
 
 @Composable
+internal fun DownloadSelectionBar(
+    selectedCount: Int,
+    visibleCompletedIds: Set<String>,
+    selectedIds: Set<String>,
+    onSelectionChanged: (Set<String>) -> Unit,
+    onDeleteSelected: () -> Unit,
+) {
+    val allVisibleSelected = visibleCompletedIds.isNotEmpty() && visibleCompletedIds.all { it in selectedIds }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("$selectedCount download(s) selecionado(s)", style = MaterialTheme.typography.titleSmall)
+            TextButton(
+                onClick = {
+                    onSelectionChanged(
+                        if (allVisibleSelected) selectedIds - visibleCompletedIds
+                        else selectedIds + visibleCompletedIds,
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = visibleCompletedIds.isNotEmpty(),
+            ) {
+                Text(if (allVisibleSelected) "Desmarcar concluídos exibidos" else "Selecionar concluídos exibidos")
+            }
+            Button(
+                onClick = onDeleteSelected,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = selectedCount > 0,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Excluir selecionados ($selectedCount)")
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SelectedDownloadsRemovalDialog(
+    selectedCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Excluir downloads selecionados?") },
+        text = {
+            Text(
+                "Remover $selectedCount download(s) concluído(s) selecionado(s)? " +
+                    "Os demais títulos e downloads em andamento serão preservados."
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Excluir selecionados") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
+}
+
+@Composable
 internal fun DownloadRow(
     entry: DownloadEntry,
     imageModel: String?,
     focusFriendly: Boolean = false,
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
     onPlay: () -> Unit,
     onRetry: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onToggleSelected: () -> Unit = {},
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val canPlay = entry.state == DownloadState.Completed
-    val remotePlayModifier = if (focusFriendly && canPlay) {
+    val isSelectable = selectionMode && canPlay
+    val rowInteractionModifier = if (isSelectable) {
+        Modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .toggleable(value = isSelected, role = Role.Checkbox, onValueChange = { onToggleSelected() })
+            .semantics(mergeDescendants = true) {
+                contentDescription = if (isSelected) {
+                    "Desmarcar download ${entry.title}"
+                } else {
+                    "Selecionar download ${entry.title}"
+                }
+            }
+    } else if (focusFriendly && canPlay) {
         Modifier
             .onFocusChanged { isFocused = it.isFocused }
             // No `focusable()`: `clickable` already provides a focus target, and a
@@ -527,7 +676,7 @@ internal fun DownloadRow(
     Card(
         Modifier
             .fillMaxWidth()
-            .then(remotePlayModifier)
+            .then(rowInteractionModifier)
             .then(focusBorderModifier),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -583,6 +732,14 @@ internal fun DownloadRow(
                 MulletaFlixTopBarAction(onClick = onRetry) {
                     Icon(Icons.Default.Refresh, "Tentar download novamente")
                 }
+            }
+            if (isSelectable) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).wrapContentSize(Alignment.Center),
+                )
             }
             MulletaFlixTopBarAction(onClick = onRemove) {
                 Icon(Icons.Default.Delete, "Remover", tint = MaterialTheme.colorScheme.error)

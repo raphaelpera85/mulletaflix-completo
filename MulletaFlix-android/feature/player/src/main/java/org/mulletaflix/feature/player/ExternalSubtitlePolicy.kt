@@ -18,11 +18,21 @@ internal fun externalSubtitleMimeType(codec: String?, deliveryUrl: String?): Str
         .substringAfterLast('.', "")
         .lowercase()
 
-    return when {
-        codecName in setOf("srt", "subrip") || extension == "srt" -> "application/x-subrip"
-        codecName in setOf("vtt", "webvtt") || extension == "vtt" -> "text/vtt"
-        codecName in setOf("ass", "ssa") || extension in setOf("ass", "ssa") -> "text/x-ssa"
-        codecName in setOf("ttml", "dfxp") || extension in setOf("ttml", "dfxp") -> "application/ttml+xml"
+    // Jellyfin may expose an SRT source through a server-converted Stream.vtt
+    // delivery URL. The URL describes the bytes the player receives; the codec
+    // describes the source stream and must not override that response format.
+    val deliveryMimeType = when (extension) {
+        "srt", "subrip" -> "application/x-subrip"
+        "vtt", "webvtt" -> "text/vtt"
+        "ass", "ssa" -> "text/x-ssa"
+        "ttml", "dfxp" -> "application/ttml+xml"
+        else -> null
+    }
+    return deliveryMimeType ?: when (codecName) {
+        "srt", "subrip" -> "application/x-subrip"
+        "vtt", "webvtt" -> "text/vtt"
+        "ass", "ssa" -> "text/x-ssa"
+        "ttml", "dfxp" -> "application/ttml+xml"
         else -> null
     }
 }

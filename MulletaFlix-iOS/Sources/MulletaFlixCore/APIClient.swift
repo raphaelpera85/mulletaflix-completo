@@ -19,7 +19,8 @@ enum APIRetryPolicy {
 
     static func delayMilliseconds(attempt: Int, retryAfter: String?) -> UInt64 {
         if let seconds = retryAfter.flatMap({ Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }), seconds >= 0 {
-            return min(UInt64(seconds) * 1_000, 1_500)
+            if seconds >= 2 { return 1_500 }
+            return UInt64(seconds) * 1_000
         }
         return attempt == 0 ? 250 : 750
     }
@@ -68,6 +69,14 @@ public actor APIClient {
             enum CodingKeys: String, CodingKey { case title = "Title"; case mediaType = "MediaType"; case year = "Year"; case notes = "Notes" }
         }
         try await perform(path: "UserFeedback/MediaRequests", method: "POST", body: Body(title: title, mediaType: mediaType, year: year, notes: notes))
+    }
+
+    public func mediaSuggestions(query: String, limit: Int = 10) async throws -> [MediaSuggestion] {
+        try await request(path: Self.mediaSuggestionsPath(query: query, limit: limit))
+    }
+
+    static func mediaSuggestionsPath(query: String, limit: Int = 10) -> String {
+        "UserFeedback/MediaSuggestions?query=\(queryValue(query))&limit=\(limit)"
     }
 
     public func reportPlaybackIssue(itemID: String, category: String, description: String) async throws {
@@ -191,6 +200,27 @@ public actor APIClient {
         return result.items.map { Playlist(id: $0.id, name: $0.name) }
     }
 
+    public func playlistItems(userID: String, playlistID: String, startIndex: Int = 0, limit: Int = 60) async throws -> ItemQueryResult {
+        try await request(path: Self.playlistItemsPath(userID: userID, playlistID: playlistID, startIndex: startIndex, limit: limit))
+    }
+
+    public func allPlaylistItems(userID: String, playlistID: String, pageSize: Int = 60) async throws -> [MediaItem] {
+        var result: [MediaItem] = []
+        var startIndex = 0
+        while true {
+            let page = try await playlistItems(userID: userID, playlistID: playlistID, startIndex: startIndex, limit: pageSize)
+            result.append(contentsOf: page.items)
+            guard page.items.count > 0,
+                  page.items.count >= pageSize || result.count < page.totalRecordCount else { break }
+            startIndex += page.items.count
+        }
+        return result
+    }
+
+    static func playlistItemsPath(userID: String, playlistID: String, startIndex: Int = 0, limit: Int = 60) -> String {
+        "Playlists/\(queryValue(playlistID))/Items?UserId=\(queryValue(userID))&StartIndex=\(startIndex)&Limit=\(limit)&EnableImages=true&EnableUserData=true"
+    }
+
     public func createPlaylist(name: String, userID: String, itemID: String?) async throws -> Playlist {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=")
@@ -267,9 +297,17 @@ public actor APIClient {
         return try await request(path: path)
     }
 
-    public func searchHints(userID: String, term: String, limit: Int = 8) async throws -> [SearchHint] {
-        let result: SearchHintResult = try await request(path: "Search/Hints?SearchTerm=\(Self.queryValue(term))&UserId=\(userID)&Limit=\(limit)")
+    public func searchHints(userID: String, term: String, limit: Int = 8, includeItemTypes: String? = nil) async throws -> [SearchHint] {
+        let result: SearchHintResult = try await request(path: Self.searchHintsPath(userID: userID, term: term, limit: limit, includeItemTypes: includeItemTypes))
         return result.hints
+    }
+
+    static func searchHintsPath(userID: String, term: String, limit: Int = 8, includeItemTypes: String? = nil) -> String {
+        var path = "Search/Hints?SearchTerm=\(queryValue(term))&UserId=\(queryValue(userID))&Limit=\(limit)"
+        if let includeItemTypes, !includeItemTypes.isEmpty {
+            path += "&IncludeItemTypes=\(queryValue(includeItemTypes))"
+        }
+        return path
     }
 
     public func allSearchItems(userID: String, term: String, includeItemTypes: String? = nil, pageSize: Int = 60) async throws -> SearchItemsResult {
@@ -356,8 +394,19 @@ public actor APIClient {
     }
 
     public func scheduledLiveTVProgramIDs() async throws -> Set<String> {
+        let timers = try await scheduledLiveTVTimerIDs()
+        return Set(timers.keys)
+    }
+
+    public func scheduledLiveTVTimerIDs() async throws -> [String: String] {
         let result: LiveTVTimerQuery = try await request(path: "LiveTv/Timers?IsScheduled=true")
-        return Set(result.items.compactMap(\.programId))
+        return result.items.reduce(into: [:]) { timers, timer in
+            guard let programID = timer.programId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !programID.isEmpty,
+                  let timerID = timer.id?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !timerID.isEmpty else { return }
+            timers[programID] = timerID
+        }
     }
 
     public func scheduleLiveTV(program: MediaItem) async throws {
@@ -399,6 +448,14 @@ public actor APIClient {
         try await perform(path: "LiveTv/Timers", method: "POST", body: body)
     }
 
+    public func cancelLiveTVTimer(timerID: String) async throws {
+        try await perform(path: Self.cancelLiveTVTimerPath(timerID: timerID), method: "DELETE")
+    }
+
+    static func cancelLiveTVTimerPath(timerID: String) -> String {
+        "LiveTv/Timers/\(queryValue(timerID))"
+    }
+
     public func syncPlayGroups() async throws -> [SyncPlayGroup] {
         try await request(path: "SyncPlay/List")
     }
@@ -425,6 +482,61 @@ public actor APIClient {
 
     public func sendSyncPlayCommand(_ command: SyncPlayPlaybackCommand) async throws {
         try await perform(path: command.route, method: "POST")
+    }
+
+    public func remotePlaybackSessions(userID: String, activeWithinSeconds: Int = 300) async throws -> [RemotePlaybackSession] {
+        let sessions: [RemotePlaybackSessionPayload] = try await request(
+            path: Self.remotePlaybackSessionsPath(userID: userID, activeWithinSeconds: activeWithinSeconds)
+        )
+        return sessions.compactMap { payload in
+            guard let id = payload.id?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !id.isEmpty,
+                  let item = payload.nowPlayingItem else { return nil }
+            return RemotePlaybackSession(
+                id: id,
+                deviceID: payload.deviceID,
+                deviceName: payload.deviceName.nilIfBlank ?? payload.client.nilIfBlank ?? "Dispositivo",
+                clientName: payload.client.nilIfBlank ?? payload.deviceName.nilIfBlank ?? "MulletaFlix",
+                itemName: item.name.nilIfBlank ?? "Reproduzindo mídia",
+                isPaused: payload.playState?.isPaused ?? false,
+                canSeek: payload.playState?.canSeek ?? false,
+                positionTicks: payload.playState?.positionTicks ?? 0,
+                durationTicks: item.runTimeTicks.positiveOrNil
+            )
+        }
+        .filter { $0.deviceID != deviceID }
+    }
+
+    public func sendRemotePlaybackCommand(
+        sessionID: String,
+        command: RemotePlaybackCommand,
+        userID: String,
+        seekPositionTicks: Int64? = nil
+    ) async throws {
+        try await perform(
+            path: Self.remotePlaybackCommandPath(
+                sessionID: sessionID,
+                command: command,
+                userID: userID,
+                seekPositionTicks: seekPositionTicks
+            ),
+            method: "POST"
+        )
+    }
+
+    static func remotePlaybackSessionsPath(userID: String, activeWithinSeconds: Int = 300) -> String {
+        "Sessions?controllableByUserId=\(queryValue(userID))&activeWithinSeconds=\(activeWithinSeconds)"
+    }
+
+    static func remotePlaybackCommandPath(
+        sessionID: String,
+        command: RemotePlaybackCommand,
+        userID: String,
+        seekPositionTicks: Int64? = nil
+    ) -> String {
+        var path = "Sessions/\(queryValue(sessionID))/Playing/\(command.rawValue)?controllingUserId=\(queryValue(userID))"
+        if let seekPositionTicks { path += "&seekPositionTicks=\(seekPositionTicks)" }
+        return path
     }
 
     public func reportPlaybackStart(itemID: String, mediaSourceID: String?, positionTicks: Int64 = 0) async throws {
@@ -455,6 +567,27 @@ public actor APIClient {
     public func mediaSegments(itemID: String) async throws -> [MediaSegment] {
         let result: MediaSegmentQueryResult = try await request(path: "MediaSegments/\(itemID)")
         return result.items
+    }
+
+    public func subtitleStreamData(itemID: String, streamIndex: Int, mediaSourceID: String? = nil) async throws -> Data {
+        let path = Self.subtitleStreamPath(itemID: itemID, streamIndex: streamIndex, mediaSourceID: mediaSourceID)
+        var request = URLRequest(url: makeURL(path: path))
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+        request.setValue(AppIdentity.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.authorizationHeader(accessToken: accessToken, deviceID: deviceID), forHTTPHeaderField: "Authorization")
+        if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
+        let (data, response) = try await send(request)
+        guard (200..<300).contains(response.statusCode) else { throw APIError.httpStatus(response.statusCode) }
+        return data
+    }
+
+    static func subtitleStreamPath(itemID: String, streamIndex: Int, mediaSourceID: String? = nil) -> String {
+        var path = "Items/\(queryValue(itemID))/Subtitles/\(max(0, streamIndex))/Stream"
+        if let mediaSourceID, !mediaSourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            path += "?MediaSourceId=\(queryValue(mediaSourceID))"
+        }
+        return path
     }
 
     public func playbackURL(for item: MediaItem) -> URL? {
@@ -554,6 +687,23 @@ public actor APIClient {
         return components.url
     }
 
+    public func imageData(for item: MediaItem, type: String = "Primary") async throws -> Data {
+        guard let url = imageURL(for: item, type: type) else { throw APIError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+        request.setValue(AppIdentity.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(Self.authorizationHeader(accessToken: accessToken, deviceID: deviceID), forHTTPHeaderField: "Authorization")
+        if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
+        let (data, response) = try await send(request)
+        guard (200..<300).contains(response.statusCode),
+              OfflineArtworkPolicy.accepts(contentType: response.value(forHTTPHeaderField: "Content-Type")),
+              OfflineArtworkPolicy.accepts(data) else {
+            throw APIError.invalidResponse
+        }
+        return data
+    }
+
     public func userImageURL(userID: String, tag: String?) -> URL? {
         guard let tag, !tag.isEmpty,
               var components = URLComponents(url: serverURL.appendingPathComponent("Users/\(userID)/Images/Primary"), resolvingAgainstBaseURL: false) else { return nil }
@@ -648,6 +798,61 @@ private struct LyricsResult: Decodable {
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         lyrics = try values.decodeIfPresent([LyricLine].self, forKey: .lyrics) ?? []
+    }
+}
+
+private struct RemotePlaybackSessionPayload: Decodable {
+    let id: String?
+    let deviceID: String?
+    let deviceName: String?
+    let client: String?
+    let nowPlayingItem: RemotePlaybackItemPayload?
+    let playState: RemotePlaybackStatePayload?
+
+    private enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case deviceID = "DeviceId"
+        case deviceName = "DeviceName"
+        case client = "Client"
+        case nowPlayingItem = "NowPlayingItem"
+        case playState = "PlayState"
+    }
+}
+
+private struct RemotePlaybackItemPayload: Decodable {
+    let name: String?
+    let runTimeTicks: Int64?
+
+    private enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case runTimeTicks = "RunTimeTicks"
+    }
+}
+
+private struct RemotePlaybackStatePayload: Decodable {
+    let isPaused: Bool?
+    let canSeek: Bool?
+    let positionTicks: Int64?
+
+    private enum CodingKeys: String, CodingKey {
+        case isPaused = "IsPaused"
+        case canSeek = "CanSeek"
+        case positionTicks = "PositionTicks"
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var nilIfBlank: String? {
+        flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+}
+
+private extension Optional where Wrapped == Int64 {
+    var positiveOrNil: Int64? {
+        flatMap { $0 > 0 ? $0 : nil }
     }
 }
 

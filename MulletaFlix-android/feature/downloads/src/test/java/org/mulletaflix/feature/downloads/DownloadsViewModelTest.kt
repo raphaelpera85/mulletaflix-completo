@@ -322,6 +322,22 @@ class DownloadsViewModelTest {
     }
 
     @Test
+    fun `selected removal delegates only selected completed download ids`() {
+        val repository = FakeDownloadRepository()
+        val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
+        val entries = listOf(
+            DownloadEntry("first", "Concluído", "https://server/first", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+            DownloadEntry("active", "Baixando", "https://server/active", org.mulletaflix.domain.repository.DownloadState.Downloading, 20),
+            DownloadEntry("failed", "Falhou", "https://server/failed", org.mulletaflix.domain.repository.DownloadState.Failed, 0),
+            DownloadEntry("second", "Outro concluído", "https://server/second", org.mulletaflix.domain.repository.DownloadState.Completed, 100),
+        )
+
+        viewModel.removeSelectedCompleted(entries, setOf("first", "active", "failed", "unknown"))
+
+        assertEquals(listOf("first"), repository.removedIds)
+    }
+
+    @Test
     fun `clear failed delegates to repository`() {
         val repository = FakeDownloadRepository()
         val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
@@ -345,6 +361,7 @@ class DownloadsViewModelTest {
         var wifiOnly = false
         var removedCompleted = false
         var removedFailed = false
+        val removedIds = mutableListOf<String>()
         private val queuePaused = MutableStateFlow(false)
 
         override fun observeDownloads(): Flow<List<DownloadEntry>> = downloadsFlow
@@ -356,6 +373,10 @@ class DownloadsViewModelTest {
             return Result.success(Unit)
         }
         override fun enqueue(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
+        override fun remove(id: String): Result<Unit> {
+            removedIds += id
+            return Result.success(Unit)
+        }
         override fun retry(id: String, title: String, uri: String): Result<Unit> {
             if (failRetry) return Result.failure(IllegalStateException("retry failed"))
             retried = true
@@ -363,7 +384,6 @@ class DownloadsViewModelTest {
             retriedIds += id
             return Result.success(Unit)
         }
-        override fun remove(id: String): Result<Unit> = Result.success(Unit)
         override fun removeCompleted(): Result<Unit> {
             removedCompleted = true
             return Result.success(Unit)

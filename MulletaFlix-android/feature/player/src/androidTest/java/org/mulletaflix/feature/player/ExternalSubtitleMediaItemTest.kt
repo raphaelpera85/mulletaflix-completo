@@ -154,4 +154,32 @@ class ExternalSubtitleMediaItemTest {
         assertEquals(uniqueUrl, castTracks.single().contentId)
         assertNull(externalSubtitleServerIndex(duplicatedUrl, indicesByUrl))
     }
+
+    @Test
+    fun castConverterAdvertisesServerConvertedSrtAsWebVtt() {
+        val vttUrl = "https://media.example/Videos/item/source/Subtitles/3/0/Stream.vtt?api_key=token"
+        val mimeType = checkNotNull(externalSubtitleMimeType("srt", vttUrl))
+        val subtitle = buildExternalSubtitleConfiguration(
+            serverIndex = 3,
+            subtitleUrl = vttUrl,
+            mimeType = mimeType,
+            language = "pt-BR",
+            label = "Português (Brasil)",
+            isDefault = false,
+            isForced = false,
+        )
+        val item = MediaItem.Builder()
+            .setUri("https://media.example/movie.mp4")
+            .setSubtitleConfigurations(listOf(subtitle))
+            .build()
+
+        val castTrack = checkNotNull(
+            ExternalCastSubtitleMediaItemConverter().toMediaQueueItem(item).media?.mediaTracks,
+        ).single()
+
+        assertEquals(vttUrl, castTrack.contentId)
+        assertEquals("text/vtt", castTrack.contentType)
+        assertEquals(castSubtitleTrackId(3), castTrack.id)
+        assertEquals("pt-BR", castTrack.language)
+    }
 }

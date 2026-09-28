@@ -127,6 +127,13 @@ class GetHomeFeedUseCase @Inject constructor(
 
     suspend fun getCachedHomeSections(userId: String) =
         runCatching { homeFeedCache.read(userId) }
+
+    /** Refreshes one library's Home preview without querying other feed sections. */
+    suspend fun getLatestItemsForLibrary(userId: String, libraryId: String): Result<List<MediaItem>> {
+        require(userId.isNotBlank()) { "O identificador do usuário é obrigatório." }
+        require(libraryId.isNotBlank()) { "O identificador da biblioteca é obrigatório." }
+        return mediaRepository.getLatestItems(userId, parentId = libraryId)
+    }
 }
 
 /**

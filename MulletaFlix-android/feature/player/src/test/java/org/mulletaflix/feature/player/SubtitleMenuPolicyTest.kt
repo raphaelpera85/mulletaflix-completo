@@ -144,6 +144,35 @@ class SubtitleMenuPolicyTest {
     }
 
     @Test
+    fun `allows server converted SRT sidecar during Cast but keeps direct SRT local only`() {
+        val convertedSrt = MediaStream(
+            index = 3,
+            type = MediaStreamType.Subtitle,
+            codec = "srt",
+            deliveryUrl = "/Videos/item/source/Subtitles/3/0/Stream.vtt?api_key=secret",
+            isExternal = true,
+        )
+        val directSrt = convertedSrt.copy(index = 4, deliveryUrl = "https://media.example/subtitles/4.srt")
+
+        assertEquals(
+            listOf(convertedSrt),
+            externalSubtitleStreamsForPlayback(
+                listOf(convertedSrt, directSrt),
+                isCasting = true,
+                isOfflinePlayback = false,
+            ),
+        )
+        assertEquals(
+            listOf(convertedSrt, directSrt),
+            externalSubtitleStreamsForPlayback(
+                listOf(convertedSrt, directSrt),
+                isCasting = false,
+                isOfflinePlayback = false,
+            ),
+        )
+    }
+
+    @Test
     fun `does not treat embedded or unselected streams as external sidecars`() {
         val streams = listOf(
             MediaStream(index = 8, type = MediaStreamType.Subtitle, isExternal = false),

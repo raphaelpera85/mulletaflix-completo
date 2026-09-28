@@ -2,6 +2,59 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Retry isolado por biblioteca na Home (APK sem release)
+
+- [x] Ao falhar "Adicionados Recentemente", repetir apenas a consulta daquela biblioteca; manter as demais seções e seus dados intactos.
+- [x] Exibir estado de tentativa e bloquear reativações enquanto a consulta está em andamento; ignorar resposta antiga após refresh completo ou troca de sessão.
+- [x] Cobrir retry isolado, preservação das outras seções, resposta obsoleta após refresh e troca de servidor com mesmo usuário; estado de progresso e prevenção de toque repetido.
+- [x] `testDebugUnitTest`: 1.252 testes, 0 falhas/erros/ignorados; `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [x] Compose instrumentado: telefone 1/1, tablet 1/1, Android TV 2/2; 0 falhas/erros/ignorados. AVDs iniciados e encerrados pelo wrapper.
+- [ ] Sem bump, pacote de produção ou publicação. Verificar keystore/certificado oficial antes de release de produção.
+
+## Seleção de downloads concluídos (APK sem release)
+
+- [x] Permitir selecionar um subconjunto de downloads concluídos para exclusão; manter downloads em andamento, falhos, enfileirados e concluídos não selecionados intactos.
+- [x] Ações selecionar/desmarcar todos os concluídos atualmente exibidos respeitam filtros sem perder seleção oculta; confirmação é explícita e cancelável.
+- [x] Cobrir política de seleção, filtro para remoção, ViewModel, acessibilidade/toque, ações de seleção e confirmação.
+- [x] `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug` e compilação instrumentada: `BUILD SUCCESSFUL`; suítes Compose em telefone e tablet: 4 testes cada, 0 falhas/erros/ignorados.
+- [x] Android TV: suíte comum 4/4 e foco/seleção pelo botão central do controle 1/1; sem falhas/erros/ignorados, emulador encerrado pelo wrapper.
+- [ ] Sem bump, pacote ou publicação. Keystore de produção acessível, mas `:app:verifyProductionSigningCertificate` ainda falha: `4890D80B…C5A0A24C` difere do certificado oficial `224F9A6B…1E036273`. As notas da próxima release do APK só devem incluir esta melhoria se validada no artefato publicado.
+
+## Preferência de qualidade durante mudanças de rede (APK sem release)
+
+- [x] Escolha manual de qualidade passa a valer imediatamente na sessão, impedindo que uma emissão atrasada da preferência persistida reaplique `Auto` e sobrescreva a resolução selecionada.
+- [x] Política isolada e testes unitários cobrem a seleção manual contra valor persistido antigo, normalização da preferência e limite automático em rede medida.
+- [x] `:feature:player:testDebugUnitTest --rerun-tasks --no-build-cache`, `:feature:player:compileDebugAndroidTestKotlin`, `:app:lintDebug` e `:app:assembleDebug` concluídos com `BUILD SUCCESSFUL`.
+- [ ] Nenhum bump, APK de produção ou release oficial criado; as notas da próxima release devem citar esta correção somente se incluída e validada no artefato.
+
+## Falha de download por armazenamento insuficiente (APK sem release)
+
+- [x] Detectar somente `ErrnoException(ENOSPC)` na cadeia causal do erro final do Media3; persistir classificação por item enquanto a fila continua em falha, inclusive quando a UI não está observando, e limpar ao remover/reiniciar a tentativa.
+- [x] Mostrar orientação em português para liberar espaço e tentar novamente, mantendo ação acessível de retry e identificando o diagnóstico como código Media3.
+- [x] Cobrir ENOSPC direto/aninhado, outros erros e texto de exceção não localizado, persistência, limpeza e mensagem/ação de retry.
+- [x] Revalidação integral sem cache em 2026-09-27: `testDebugUnitTest` executou 1.240 testes, 0 falhas/erros/ignorados; `:app:lintDebug`: `BUILD SUCCESSFUL`.
+- [x] `:app:assembleDebug` e compilação de testes instrumentados: `BUILD SUCCESSFUL`; testes instrumentados no AVD API 35: classificação (2) e Downloads Compose em tablet (12), 0 falhas/erros; emuladores encerrados após uso.
+- [ ] Sem bump, pacote ou publicação. Validar o certificado de assinatura de produção antes de qualquer release.
+
+## Seleção automática de servidor LAN por identidade (APK sem release)
+
+- [x] Ao existir `serverId` salvo, selecionar automaticamente somente descoberta com o mesmo ID não vazio; se não houver correspondência, manter endpoint salvo/ativo em vez de conectar a outro servidor LAN.
+- [x] Adiar a seleção LAN até a lista persistida carregar, eliminando a corrida entre descoberta e `serverId`; quando a lista persistida está vazia, preservar o fallback de primeira configuração.
+- [x] Invalidar dados de login e estado de Quick Connect ao trocar de endpoint após descoberta/lista persistida tardia.
+- [x] Cobrir ID correspondente, identidade incompatível, ID ausente/vazio, fallback salvo, início sem identidade e corrida no carregamento dos servidores persistidos.
+- [x] `testDebugUnitTest`: 1.327 testes, 0 falhas/erros/ignorados; `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [ ] Sem bump, pacote ou publicação. Validar o certificado oficial de produção antes de qualquer release.
+
+## Trabalho APK sem release — sugestões de busca e espaço disponível
+
+- [x] Selecionar uma sugestão registra o título no histórico e abre o item sem disparar uma busca completa redundante; mantém consulta/resultados atuais para que voltar dos detalhes restaure o contexto.
+- [x] Exibir espaço abaixo de 1 GiB em MB, usar décimos de GiB por divisão inteira sem arredondar para cima e identificar leitura negativa do sistema como indisponível.
+- [x] Cobrir histórico/ausência de chamada à busca, preservação dos resultados ao selecionar sugestão, limites de unidades, arredondamento e `Long.MAX_VALUE`.
+- [x] `testDebugUnitTest`: 1.234 testes, 0 falhas/erros/ignorados; `:app:lintDebug`, `:app:assembleDebug` e compilação de testes instrumentados de busca/configurações: `BUILD SUCCESSFUL`.
+- [x] AVD telefone: fluxo instrumentado de sugestão e testes instrumentados de configurações passaram. Na execução ampla de busca, 13 passaram e 1 teste restrito a Android TV reportou `AssumptionViolatedException` no emulador de telefone.
+- [x] AVD Android TV: suíte completa `:feature:search:connectedDebugAndroidTest` passou (14 testes, 0 falhas, 0 erros, 0 ignorados); wrapper encerrou o emulador.
+- [ ] Sem bump, pacote ou publicação. Validar a keystore de produção com o certificado oficial antes de uma release.
+
 ## Atualização do toolchain Android (2026-09-27; validado localmente, sem release)
 
 - [x] Atualizar AGP 9.3.2 → 9.4.0, Gradle 9.5.0 → 9.6.0, Kotlin 2.3.21 → 2.4.20 e Hilt 2.59.2 → 2.60.1; manter KSP 2.3.12, Compose BOM 2026.09.00 e Media3 1.11.1.
@@ -19,7 +72,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Explicar como recuperar quando não há sessão autenticada ou ela muda durante o envio; manter mensagem genérica apenas para falhas de rede/servidor.
 - [x] Cobrir envio, sessão ausente, troca de sessão, categorias, duplicidade, botão de erro e abertura do formulário pelo OSD.
 - [x] Testes JVM globais: 1.217 testes, 0 falhas/erros/ignorados; `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
-- [x] Android TV instrumentado: `PlayerIssueReportDialogTest` (3 testes, incluindo estado offline na fila) e `PlaybackIssueQueuePersistenceTest` (1): 4 testes, 0 falhas; o AVD foi encerrado ao terminar cada execução.
+- [x] Android TV instrumentado: `PlayerIssueReportDialogTest` (3 testes, incluindo estado offline na fila); execução separada mais recente de `:data:connectedDebugAndroidTest` passou 5 testes (3 da fila: persistência, limite 50 e JSON corrompido preservado; 2 de escopo de conta), 0 falhas; AVD encerrado.
 - [x] Testes JVM focados: escopo estável public/LAN e isolamento por conta/servidor; relatos correspondentes são enviados/removidos, relatos de outras sessões ficam retidos e exceções de persistência retornam retry.
 - [ ] Validar o POST contra servidor implantado; o endpoint ainda não foi confirmado nesta tarefa APK-only.
 - [ ] Não gerar/publicar APK de produção até a keystore gerar o certificado oficial esperado (`224F9A6B…`); a chave acessível neste ambiente gera `4890D80B…`.
@@ -38,19 +91,19 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Regressões unitárias cobrem a persistência da escolha “sem legendas”; os testes de integração validam reprodução local SRT por Media3. O fluxo completo de download contra servidor implantado ainda não foi exercitado.
 - [ ] Verificar build APK de produção com certificado idêntico à release oficial antes de empacotar/publicar.
 
-## Trabalho APK — legendas externas durante Cast (em validação, não publicado)
+## Trabalho APK — legendas externas durante Cast (validação local, receiver real pendente; não publicado)
 
 ### Notas propostas — somente se incluído em uma release futura
 
 - Legendas externas WebVTT e TTML compatíveis com o receiver padrão podem ser escolhidas durante Cast; as faixas são anunciadas antes de carregar a mídia e permanecem selecionáveis ao iniciar a transmissão depois da reprodução local. URLs compartilhadas por mais de uma faixa são omitidas no Cast por identidade ambígua e continuam disponíveis na reprodução local.
-- SRT, ASS/SSA e outros sidecars não suportados pelo receiver padrão continuam disponíveis na reprodução local, mas não são exibidos durante Cast. Legendas externas continuam indisponíveis offline.
+- SRT de origem pode ser selecionada durante Cast somente quando o servidor entrega a faixa como WebVTT (`Stream.vtt`); SRT entregue diretamente, ASS/SSA e outros formatos não suportados continuam disponíveis na reprodução local, mas não são exibidos durante Cast. Legendas externas continuam indisponíveis offline.
 - O APK não altera CORS/autorização do servidor. O receiver acessa a mídia e as legendas diretamente; por isso ambos os endpoints precisam ser alcançáveis pelo receiver, e uma validação Cast real ainda é necessária.
 
 ### Validação
 
-- [x] `:feature:player:testDebugUnitTest` e `:feature:player:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
-- [x] `:feature:player:connectedDebugAndroidTest` no AVD de telefone: 3 testes instrumentados de configuração/conversão passaram; o wrapper encerrou o emulador.
-- [x] O teste instrumentado verifica conversão e função de produção URL→índice para sidecars VTT/TTML únicos; URLs duplicadas ficam fora do mapa. Não cobre o despacho do `PlayerViewModel` nem playback em receiver Cast real; SRT permanece fora do mapa.
+- [x] Regressão reproduzida antes da correção: testes unitários falharam para codec SRT com URL `Stream.vtt`; após corrigir precedência para o formato entregue, suíte JVM completa, lint, `assembleDebug` e compilação instrumentada passaram.
+- [x] `:feature:player:connectedDebugAndroidTest` no AVD de telefone: testes instrumentados da classe `ExternalSubtitleMediaItemTest` passaram; o wrapper encerrou o emulador.
+- [x] Testes unitários confirmam que SRT com entrega `Stream.vtt` entra no Cast e SRT direto permanece apenas na reprodução local. O teste instrumentado verifica o MIME `text/vtt` no track enviado ao Cast, junto com URL, ID e idioma. Não cobre o despacho do `PlayerViewModel` nem playback em receiver Cast real.
 - [x] O teste instrumentado confirma que URLs duplicadas não são anunciadas no Cast nem entram no mapa de seleção, enquanto a faixa com URL única permanece elegível.
 - [x] Teste unitário confirma que duplicatas não entram na seleção preferida do Cast e permanecem elegíveis na reprodução local.
 - [x] Teste instrumentado confirma que o `MediaItem` local mantém as configurações sidecar originais.
@@ -79,7 +132,8 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] A reprodução offline usa o mesmo título contextual dos controles de mídia online; teste verifica episódio completo e preservação de título sem metadados.
 - [x] `testDebugUnitTest`: 1.217 testes, 0 falhas, 0 erros e 0 ignorados; `:app:lintDebug`, `:app:assembleDebug` e `compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] `:feature:downloads:connectedDebugAndroidTest`: suíte executada com sucesso em telefone, tablet e Android TV; cada AVD foi encerrado pelo wrapper.
-- [x] `:feature:player:connectedDebugAndroidTest` na Android TV: 45 testes reportados; 43 passaram e 2 foram interrompidos por suposições ambientais (Cast/Google Play Services e suporte a PiP ausentes no AVD); o wrapper encerrou o emulador.
+- [x] `:feature:player:connectedDebugAndroidTest` na Android TV: 47 casos, 45 passaram, 0 falhas/erros; 2 suposições ambientais (Cast/Google Play Services e PiP indisponíveis no AVD).
+- [x] Player em celular e tablet: 47 casos por perfil; 39 passaram sem falhas/erros e 8 testes exclusivos de TV foram condicionados; teste do ciclo de vida real de PiP passou nos dois perfis. Os wrappers encerraram os AVDs.
 - [x] `:feature:item-detail:testDebugUnitTest` e `:feature:item-detail:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
 - [x] `:feature:item-detail:connectedDebugAndroidTest`: telefone 28 casos (3 exclusivos de TV ignorados), Android TV 25 casos, 0 falhas; AVDs encerrados após os testes.
 - [x] `:core:api:testDebugUnitTest`: contratos HTTP locais cobrem rota, JSON e identidade autenticada para solicitação de mídia e relato de reprodução; não substituem validação contra o servidor implantado.

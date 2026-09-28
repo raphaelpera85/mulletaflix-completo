@@ -514,7 +514,7 @@ class PlayerViewModel @Inject constructor(
     private var skipIntroEnabled = true
     private var automaticIntroSkipEnabled = false
     private var pendingAutomaticIntroSkipTargetMs: Long? = null
-    private var defaultQuality = "Auto"
+    private var playbackQualityPreference = PlaybackQualityPreference()
     private var networkIsMetered = false
     private var defaultPlaybackSpeed = 1f
     private var defaultAspectRatio = VideoAspectRatio.FIT
@@ -636,7 +636,7 @@ class PlayerViewModel @Inject constructor(
             networkMonitor.isMetered.distinctUntilChanged().collect { isMetered ->
                 networkIsMetered = isMetered
                 _state.update { it.copy(isNetworkMetered = isMetered) }
-                if (defaultQuality == "Auto") applyQuality("Auto")
+                if (playbackQualityPreference.shouldApplyMeteredAutoCap) applyQuality("Auto")
             }
         }
         viewModelScope.launch {
@@ -652,7 +652,9 @@ class PlayerViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            settingsRepository.getDefaultQuality().collect { defaultQuality = normalizeQualityPreference(it) }
+            settingsRepository.getDefaultQuality().collect { storedQuality ->
+                playbackQualityPreference = playbackQualityPreference.applyStoredPreference(storedQuality)
+            }
         }
         viewModelScope.launch {
             settingsRepository.getDefaultPlaybackSpeed().collect { defaultPlaybackSpeed = it }
@@ -963,7 +965,7 @@ class PlayerViewModel @Inject constructor(
                     audioTracks = audioTracks,
                     selectedSubtitleIndex = selectedSubtitleIndex,
                     selectedAudioIndex = selectedAudioIndex,
-                    selectedQuality = effectiveQualitySelection(defaultQuality, availableQualities),
+                    selectedQuality = effectiveQualitySelection(playbackQualityPreference.quality, availableQualities),
                     availableQualities = availableQualities,
                     showSkipIntro = false,
                     showSkipCredits = false,
@@ -1568,7 +1570,8 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun selectQuality(quality: String) {
-        val normalizedQuality = normalizeQualityPreference(quality)
+        playbackQualityPreference = playbackQualityPreference.select(quality)
+        val normalizedQuality = playbackQualityPreference.quality
         applyQuality(normalizedQuality)
         viewModelScope.launch {
             settingsRepository.setDefaultQuality(normalizedQuality)
@@ -1628,7 +1631,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun applyDefaultPlaybackPreferences() {
-        applyQuality(defaultQuality)
+        applyQuality(playbackQualityPreference.quality)
         setPlaybackSpeed(normalizePlaybackSpeed(defaultPlaybackSpeed))
     }
 

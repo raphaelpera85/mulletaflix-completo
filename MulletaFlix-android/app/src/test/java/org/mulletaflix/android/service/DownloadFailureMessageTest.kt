@@ -24,8 +24,24 @@ class DownloadFailureMessageTest {
         val message = downloadFailureMessage(42)
 
         assertEquals(
-            "Não foi possível concluir o download. Tente novamente (código 42).",
+            "Não foi possível concluir o download. Tente novamente (código Media3 42).",
             message,
+        )
+    }
+
+    @Test
+    fun `insufficient storage explains how to recover`() {
+        assertEquals(
+            "Armazenamento insuficiente. Libere espaço no dispositivo e tente baixar novamente. (código Media3 1)",
+            downloadFailureMessage(Download.FAILURE_REASON_UNKNOWN, insufficientStorage = true),
+        )
+    }
+
+    @Test
+    fun `storage guidance does not replace technical code for other failures`() {
+        assertEquals(
+            "Não foi possível concluir o download. Tente novamente (código Media3 42).",
+            downloadFailureMessage(42, insufficientStorage = false),
         )
     }
 }

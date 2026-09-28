@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import VisionKit
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
@@ -21,6 +22,7 @@ struct LoginView: View {
     @Environment(AppModel.self) private var model
     @State private var accessMode = 0
     @State private var showingRegistration = false
+    @State private var showingQRScanner = false
 
     var body: some View {
         @Bindable var model = model
@@ -44,6 +46,14 @@ struct LoginView: View {
                         Label(model.isDiscoveringServers ? "Procurando…" : "Encontrar na rede local", systemImage: "dot.radiowaves.left.and.right")
                     }
                     .disabled(model.isDiscoveringServers)
+                    if DataScannerViewController.isSupported && DataScannerViewController.isAvailable {
+                        Button {
+                            showingQRScanner = true
+                        } label: {
+                            Label("Ler QR do servidor", systemImage: "qrcode.viewfinder")
+                        }
+                        .disabled(model.state == .loading)
+                    }
                     Button {
                         Task { await model.verifyServer() }
                     } label: {
@@ -172,6 +182,71 @@ struct LoginView: View {
         }
         .sheet(isPresented: $showingRegistration) {
             RegistrationView(model: model)
+        }
+        .sheet(isPresented: $showingQRScanner) {
+            NavigationStack {
+                QRCodeScannerView { payload in
+                    showingQRScanner = false
+                    guard let url = ServerURLPolicy.url(fromQRPayload: payload) else {
+                        model.errorMessage = "QR inválido: informe uma URL HTTP ou HTTPS."
+                        return
+                    }
+                    model.serverURL = url.absoluteString
+                    Task { await model.verifyServer() }
+                }
+                .ignoresSafeArea()
+                .navigationTitle("Ler QR do servidor")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { showingQRScanner = false }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct QRCodeScannerView: UIViewControllerRepresentable {
+    let onPayload: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPayload: onPayload) }
+
+    func makeUIViewController(context: Context) -> DataScannerViewController {
+        let scanner = DataScannerViewController(
+            recognizedDataTypes: [.barcode(symbologies: [.qr])],
+            qualityLevel: .balanced,
+            recognizesMultipleItems: false,
+            isHighFrameRateTrackingEnabled: false,
+            isPinchToZoomEnabled: true,
+            isGuidanceEnabled: true,
+            isHighlightingEnabled: true
+        )
+        scanner.delegate = context.coordinator
+        do { try scanner.startScanning() } catch { }
+        return scanner
+    }
+
+    func updateUIViewController(_ scanner: DataScannerViewController, context: Context) { }
+
+    final class Coordinator: NSObject, DataScannerViewControllerDelegate {
+        let onPayload: (String) -> Void
+        private var didEmit = false
+
+        init(onPayload: @escaping (String) -> Void) {
+            self.onPayload = onPayload
+        }
+
+        func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
+            guard !didEmit else { return }
+            for item in addedItems {
+                guard case .barcode(let barcode) = item,
+                      let payload = barcode.payloadStringValue,
+                      !payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                didEmit = true
+                onPayload(payload)
+                return
+            }
         }
     }
 }

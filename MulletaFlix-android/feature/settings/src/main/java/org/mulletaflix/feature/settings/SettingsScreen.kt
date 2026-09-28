@@ -327,7 +327,7 @@ fun SettingsScreen(
             // ── Downloads ────────────────────────────────────────────────────
             SettingsGroup(title = "Downloads") {
                 SettingsItem(icon = Icons.Default.Folder, title = "Pasta de Downloads", subtitle = state.downloadPath, enabled = false)
-                SettingsItem(icon = Icons.Default.Storage, title = "Espaço livre para downloads", subtitle = "${state.downloadStorageGb} GB disponíveis", enabled = false)
+                SettingsItem(icon = Icons.Default.Storage, title = "Espaço livre para downloads", subtitle = state.downloadStorageLabel, enabled = false)
                 // A linha "Qualidade de Download: 1080p (Original)" saiu daqui: era um
                 // literal fabricado, sem chave no repositório e sem ninguém que o
                 // lesse — o download usa a URL que o servidor devolve. Uma tela não

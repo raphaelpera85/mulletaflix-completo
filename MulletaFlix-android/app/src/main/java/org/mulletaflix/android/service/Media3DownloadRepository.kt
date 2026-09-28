@@ -158,6 +158,7 @@ class Media3DownloadRepository @Inject constructor(
             override fun onDownloadChanged(downloadManager: DownloadManager, download: Download, finalException: Exception?) = emitSnapshot()
             override fun onDownloadRemoved(downloadManager: DownloadManager, download: Download) {
                 cleanupOfflineSubtitles(download.request)
+                clearDownloadFailure(metadata, download.request.id)
                 emitSnapshot()
             }
         }
@@ -268,6 +269,7 @@ class Media3DownloadRepository @Inject constructor(
                 .remove("item:$requestId")
                 .remove("owner:$requestId")
                 .remove("image:$requestId")
+                .remove(downloadFailureMetadataKey(requestId))
                 .apply()
         }
     }
@@ -308,6 +310,7 @@ class Media3DownloadRepository @Inject constructor(
                     .remove("item:$id")
                     .remove("owner:$id")
                     .remove("image:$id")
+                    .remove(downloadFailureMetadataKey(id))
                     .apply()
             }
         }
@@ -538,7 +541,10 @@ class Media3DownloadRepository @Inject constructor(
                 else -> DownloadState.Failed
             },
             percent = percentDownloaded.coerceIn(0f, 100f).toInt(),
-            error = downloadFailureMessage(failureReason),
+            error = downloadFailureMessage(
+                failureReason,
+                insufficientStorage = isDownloadFailureDueToInsufficientStorage(metadata, request.id),
+            ),
             bytesDownloaded = getBytesDownloaded().coerceAtLeast(0L),
             contentLength = contentLength.takeIf { it > 0L } ?: 0L,
         )

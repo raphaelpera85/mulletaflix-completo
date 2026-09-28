@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaSuggestion
 import org.mulletaflix.domain.model.UserProfile
@@ -37,6 +38,7 @@ data class HomeState(
     val favoriteItems: List<MediaItem> = emptyList(),
     val recentlyAddedByLibrary: Map<String, List<MediaItem>> = emptyMap(),
     val recentlyAddedErrorsByLibrary: Map<String, String> = emptyMap(),
+    val retryingRecentlyAddedLibraryIds: Set<String> = emptySet(),
     val liveTvChannels: List<MediaItem> = emptyList(),
     val libraries: List<MediaItem> = emptyList(),
     val userProfile: UserProfile? = null,
@@ -132,6 +134,7 @@ class HomeViewModel @Inject constructor(
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
     private var loadJob: Job? = null
+    private val recentlyAddedRetryJobs = mutableMapOf<String, Job>()
     private var profileJob: Job? = null
     private var loadGeneration = 0L
     private var profileGeneration = 0L
@@ -215,6 +218,66 @@ class HomeViewModel @Inject constructor(
         loadHome(refresh = true)
     }
 
+    fun retryRecentlyAdded(libraryId: String) {
+        val current = _state.value
+        val library = current.libraries.firstOrNull { it.id == libraryId } ?: return
+        if (current.isLoading || current.isRefreshing || libraryId in current.retryingRecentlyAddedLibraryIds) return
+        val userId = currentUserId?.takeIf(String::isNotBlank) ?: return
+        val generation = loadGeneration
+
+        _state.update { it.copy(retryingRecentlyAddedLibraryIds = it.retryingRecentlyAddedLibraryIds + libraryId) }
+        val retryJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            var serverUnchanged = false
+            try {
+                val serverUrl = sessionRepository.getBaseUrl().first()
+                val result = try {
+                    if (!networkMonitor.isOnline.first()) {
+                        Result.failure(IllegalStateException("Sem conexão. Verifique sua rede e tente novamente."))
+                    } else {
+                        getHomeFeedUseCase.getLatestItemsForLibrary(userId, libraryId)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    Result.failure(error)
+                }
+
+                serverUnchanged = sessionRepository.getBaseUrl().first() == serverUrl
+                if (generation == loadGeneration && currentUserId == userId && serverUnchanged) {
+                    result.onSuccess { items ->
+                        _state.update { state ->
+                            if (state.libraries.none { it.id == libraryId }) state
+                            else state.copy(
+                                recentlyAddedByLibrary = state.recentlyAddedByLibrary + (libraryId to items),
+                                recentlyAddedErrorsByLibrary = state.recentlyAddedErrorsByLibrary - libraryId,
+                            )
+                        }
+                    }.onFailure { error ->
+                        val message = error.localizedMessage?.takeIf(String::isNotBlank)
+                            ?: "Não foi possível carregar Adicionados Recentemente — ${library.name}."
+                        _state.update { state ->
+                            if (state.libraries.none { it.id == libraryId }) state
+                            else state.copy(
+                                recentlyAddedErrorsByLibrary = state.recentlyAddedErrorsByLibrary + (libraryId to message),
+                            )
+                        }
+                    }
+                }
+            } finally {
+                if (recentlyAddedRetryJobs[libraryId] === coroutineContext[Job]) {
+                    recentlyAddedRetryJobs.remove(libraryId)
+                    if (generation == loadGeneration && currentUserId == userId) {
+                        _state.update {
+                            it.copy(retryingRecentlyAddedLibraryIds = it.retryingRecentlyAddedLibraryIds - libraryId)
+                        }
+                    }
+                }
+            }
+        }
+        recentlyAddedRetryJobs[libraryId] = retryJob
+        retryJob.start()
+    }
+
     /**
      * Reconciles the TV home feed without interrupting the initial load or a
      * refresh already in flight. The foreground timer calls this method so a
@@ -232,6 +295,8 @@ class HomeViewModel @Inject constructor(
 
     private fun loadHome(refresh: Boolean = false) {
         val generation = ++loadGeneration
+        recentlyAddedRetryJobs.values.toList().forEach { it.cancel() }
+        recentlyAddedRetryJobs.clear()
         loadJob = viewModelScope.launch {
             // Um aviso de seção pertence à carga que o produziu. Sem esta limpeza, uma
             // falha da TV ao vivo sobrevivia à carga seguinte e aparecia **ao lado** do
@@ -244,6 +309,7 @@ class HomeViewModel @Inject constructor(
                     nextUpError = null,
                     favoritesError = null,
                     recentlyAddedErrorsByLibrary = emptyMap(),
+                    retryingRecentlyAddedLibraryIds = emptySet(),
                     librariesError = null,
                     liveTvError = null,
                 )

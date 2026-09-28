@@ -5,6 +5,8 @@
 A primeira release pública é `1.0.0`. O projeto mantém essa versão em
 `MARKETING_VERSION` no target Release e em `Info.plist` por meio de
 `$(MARKETING_VERSION)`. O `CURRENT_PROJECT_VERSION` inicial é `1`.
+O bundle também declara `ITSAppUsesNonExemptEncryption=false` para o fluxo de
+conformidade do App Store Connect.
 
 ## Gates obrigatórios em macOS
 
@@ -40,9 +42,12 @@ EXPORT_OPTIONS_PLIST="$PWD/ExportOptions.plist" \
   bash scripts/build-production-release.sh
 ```
 
-O script recusa Windows, simulador, configuração Debug, ausência de assinatura
-e exportação sem IPA. O arquivo produzido é
+O script recusa Windows, simulador, configuração Debug, ausência de assinatura,
+ausência de Team ID real, estilo de assinatura inválido, autoridade que não seja
+de distribuição Apple, entitlement `get-task-allow=true` e exportação sem IPA. O arquivo produzido é
 `dist/mulletaflix-ios-v1.0.0.ipa` quando o archive mantém a versão inicial.
+Também interrompe a exportação se `AppIdentity.version` divergir da versão do
+bundle arquivado.
 
 Depois dos gates verdes, publicar o artefato assinado como `mulletaflix-ios-v1.0.0.ipa`
 na tag `ios-v1.0.0`, com notas que descrevam somente as mudanças presentes no

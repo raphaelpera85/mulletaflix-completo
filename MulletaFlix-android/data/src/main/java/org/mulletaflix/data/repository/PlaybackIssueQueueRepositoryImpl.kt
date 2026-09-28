@@ -1,6 +1,8 @@
 package org.mulletaflix.data.repository
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -47,21 +49,27 @@ internal data class QueuedPlaybackIssueDto(
 }
 
 @Singleton
-class PlaybackIssueQueueRepositoryImpl @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+class PlaybackIssueQueueRepositoryImpl internal constructor(
+    private val queueStore: DataStore<Preferences>,
     moshi: Moshi,
 ) : PlaybackIssueQueue {
+    @Inject
+    constructor(
+        @ApplicationContext context: Context,
+        moshi: Moshi,
+    ) : this(context.playbackIssueQueueStore, moshi)
+
     private val queueKey = stringPreferencesKey("queue_v1")
     private val adapter = moshi.adapter(PlaybackIssueQueueDto::class.java)
 
     /** Emits -1 for unreadable persisted data so callers don't mistake corruption for an empty queue. */
-    override val pendingCount: Flow<Int> = context.playbackIssueQueueStore.data.map { preferences ->
+    override val pendingCount: Flow<Int> = queueStore.data.map { preferences ->
         runCatching { decode(preferences[queueKey]).items.size }.getOrDefault(UNREADABLE_QUEUE)
     }
 
     override suspend fun enqueue(issue: QueuedPlaybackIssue) {
         require(issue.id.isNotBlank() && issue.scopeHash.isNotBlank() && issue.itemId.isNotBlank())
-        context.playbackIssueQueueStore.edit { preferences ->
+        queueStore.edit { preferences ->
             val current = decode(preferences[queueKey])
             require(current.items.none { it.id == issue.id }) { "Relato já está na fila." }
             require(current.items.size < MAX_QUEUE_SIZE) { "A fila de relatos está cheia. Envie os relatos pendentes primeiro." }
@@ -72,10 +80,10 @@ class PlaybackIssueQueueRepositoryImpl @Inject constructor(
     }
 
     override suspend fun pending(): List<QueuedPlaybackIssue> =
-        decode(context.playbackIssueQueueStore.data.first()[queueKey]).items.map { it.toDomain() }
+        decode(queueStore.data.first()[queueKey]).items.map { it.toDomain() }
 
     override suspend fun remove(id: String) {
-        context.playbackIssueQueueStore.edit { preferences ->
+        queueStore.edit { preferences ->
             val current = decode(preferences[queueKey])
             preferences[queueKey] = adapter.toJson(current.copy(items = current.items.filterNot { it.id == id }))
         }

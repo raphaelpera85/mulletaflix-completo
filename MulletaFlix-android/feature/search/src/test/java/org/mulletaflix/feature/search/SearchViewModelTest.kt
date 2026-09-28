@@ -147,6 +147,48 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `selecting a hint remembers its title without searching results`() = runTest {
+        advanceUntilIdle()
+        val hint = SearchHintItem("movie-1", "Matrix", "Movie", 1999, null)
+
+        viewModel.selectHint(hint)
+        advanceUntilIdle()
+
+        assertEquals("", viewModel.state.value.query)
+        assertEquals(listOf("Matrix"), viewModel.state.value.history)
+        assertEquals(listOf("Matrix"), historyRepository.entries)
+        assertEquals(0, searchRepository.calls)
+        assertFalse(viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `selecting a hint preserves the current results and in-flight query for back navigation`() = runTest {
+        val controlledRepository = ControlledSearchRepository()
+        viewModel = SearchViewModel(
+            SearchMediaUseCase(controlledRepository),
+            FakeAuthRepository(),
+            historyRepository,
+            FakeNetworkMonitor(networkState),
+        )
+        advanceUntilIdle()
+        viewModel.search("mat")
+        runCurrent()
+        assertEquals("mat", viewModel.state.value.query)
+        controlledRepository.complete("mat", "Mat result")
+        advanceUntilIdle()
+        val resultsBeforeHint = viewModel.state.value.results
+        assertEquals(1, resultsBeforeHint.size)
+
+        viewModel.selectHint(SearchHintItem("movie-1", "Matrix", "Movie", 1999, null))
+        advanceUntilIdle()
+
+        assertEquals("mat", viewModel.state.value.query)
+        assertEquals(resultsBeforeHint, viewModel.state.value.results)
+        assertFalse(viewModel.state.value.isLoading)
+        assertEquals(listOf("Matrix", "mat"), historyRepository.entries)
+    }
+
+    @Test
     fun `search failure sets error message and clears loading`() = runTest {
         searchRepository.shouldFail = true
         viewModel.search("matrix")

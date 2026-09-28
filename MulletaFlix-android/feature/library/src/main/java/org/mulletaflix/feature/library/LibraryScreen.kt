@@ -142,33 +142,14 @@ fun LibraryScreen(
                     onClearFilters = viewModel::clearFilters,
                 )
             } else {
-                val columns = if (state.isGridView) {
-                    val tvColumns = libraryGridColumns(
-                        widthDp = viewportWidthDp,
-                        density = state.gridDensity,
-                        isTelevision = isTelevision,
-                    )
-                    if (tvColumns > 0) {
-                        GridCells.Fixed(tvColumns)
-                    } else {
-                        GridCells.Adaptive(
-                            minSize = libraryGridMinSizeDp(
-                                state.gridDensity,
-                                isTablet = isTablet,
-                            ).dp,
-                        )
-                    }
-                } else {
-                    GridCells.Fixed(1)
-                }
-
                 val gridState = rememberLibraryGridScrollState()
-                LazyVerticalGrid(
+                LibraryGridLayout(
                     state = gridState,
-                    columns = columns,
-                    contentPadding = PaddingValues(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    viewportWidthDp = viewportWidthDp,
+                    density = state.gridDensity,
+                    isTelevision = isTelevision,
+                    isTablet = isTablet,
+                    isGridView = state.isGridView,
                 ) {
                     // Active filters summary
                     if (loadError != null) {
@@ -286,6 +267,45 @@ fun LibraryScreen(
         }
         }
     }
+}
+
+@Composable
+internal fun LibraryGridLayout(
+    state: LazyGridState,
+    viewportWidthDp: Int,
+    density: String,
+    isTelevision: Boolean,
+    isTablet: Boolean,
+    isGridView: Boolean,
+    modifier: Modifier = Modifier,
+    content: LazyGridScope.() -> Unit,
+) {
+    val columns = when {
+        !isGridView -> GridCells.Fixed(1)
+        isTelevision -> GridCells.Fixed(
+            libraryGridColumns(
+                widthDp = viewportWidthDp,
+                density = density,
+                isTelevision = true,
+            ),
+        )
+        else -> GridCells.Adaptive(
+            minSize = libraryGridMinSizeDp(density, isTablet = isTablet).dp,
+        )
+    }
+
+    LazyVerticalGrid(
+        state = state,
+        columns = columns,
+        modifier = modifier,
+        contentPadding = PaddingValues(
+            horizontal = LIBRARY_GRID_HORIZONTAL_PADDING_DP.dp,
+            vertical = 8.dp,
+        ),
+        horizontalArrangement = Arrangement.spacedBy(LIBRARY_GRID_HORIZONTAL_SPACING_DP.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        content = content,
+    )
 }
 
 @Composable

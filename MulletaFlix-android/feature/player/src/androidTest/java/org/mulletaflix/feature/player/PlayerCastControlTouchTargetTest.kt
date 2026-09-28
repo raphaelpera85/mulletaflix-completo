@@ -61,7 +61,7 @@ class PlayerCastControlTouchTargetTest {
     fun castControlTouchTargetIsAtLeastTheMinimum() {
         composeRule.setContent {
             MaterialTheme {
-                PlayerCastControl(isCasting = false)
+                PlayerCastAction(isTelevision = false, isCasting = false)
             }
         }
 
@@ -82,4 +82,5 @@ class PlayerCastControlTouchTargetTest {
             touchWidthDp >= 48f && touchHeightDp >= 48f,
         )
     }
+
 }

@@ -28,6 +28,24 @@ enum IOSThemePreference: String, CaseIterable, Identifiable {
     }
 }
 
+enum IOSSubtitleColor: String, CaseIterable, Identifiable {
+    case white
+    case yellow
+    case cyan
+    case green
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .white: return "Branco"
+        case .yellow: return "Amarelo"
+        case .cyan: return "Ciano"
+        case .green: return "Verde"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -44,6 +62,9 @@ final class AppModel {
     private(set) var resumeItems: [MediaItem] = []
     private(set) var nextUpItems: [MediaItem] = []
     private(set) var favoriteItems: [MediaItem] = []
+    private(set) var resumeItemsFromCache = false
+    private(set) var favoriteItemsFromCache = false
+    private(set) var homeCachedAtEpochMillis: Int64?
     private(set) var isFavoritesLoading = false
     private(set) var favoritesError: String?
     private var favoritesRequestID = UUID()
@@ -65,6 +86,7 @@ final class AppModel {
     private(set) var searchItems: [MediaItem] = []
     private(set) var searchTotalMatching: Int?
     private(set) var searchHints: [SearchHint] = []
+    private(set) var mediaSuggestions: [MediaSuggestion] = []
     private(set) var searchError: String?
     private(set) var searchHistory: [String] = []
     private(set) var similarItems: [MediaItem] = []
@@ -77,12 +99,18 @@ final class AppModel {
     private var activeSeriesID: String?
     private(set) var playlists: [Playlist] = []
     private(set) var isPlaylistLoading = false
+    private(set) var selectedPlaylist: Playlist?
+    private(set) var playlistItems: [MediaItem] = []
+    private(set) var isPlaylistItemsLoading = false
+    private(set) var playlistItemsError: String?
     private(set) var isSearching = false
     private(set) var liveChannels: [MediaItem] = []
     private(set) var livePrograms: [MediaItem] = []
     private(set) var liveRecordings: [MediaItem] = []
     private(set) var scheduledLiveProgramIDs: Set<String> = []
+    private(set) var scheduledLiveTimerIDs: [String: String] = [:]
     private(set) var schedulingLiveProgramIDs: Set<String> = []
+    private(set) var cancellingLiveProgramIDs: Set<String> = []
     private(set) var isLiveTVLoading = false
     private(set) var liveTVError: String?
     private(set) var syncPlayGroups: [SyncPlayGroup] = []
@@ -93,8 +121,12 @@ final class AppModel {
     private(set) var syncPlayRealtimeStatus = "Desconectado"
     private(set) var lastSyncPlayCommand: SyncPlayCommand?
     private(set) var syncPlayCommandRevision = 0
+    private(set) var remotePlaybackSessions: [RemotePlaybackSession] = []
+    private(set) var isRemotePlaybackLoading = false
+    private(set) var remotePlaybackError: String?
     private(set) var offlineDownloads: [OfflineDownload] = []
     private(set) var pendingPlaybackIssues: [QueuedPlaybackIssue] = []
+    private(set) var pendingPlaybackIssuesUnreadable = false
     private(set) var seasonDownloadProgress: SeasonDownloadProgress?
     var offlineQueuePaused = UserDefaults.standard.bool(forKey: "downloads.queuePaused") {
         didSet { UserDefaults.standard.set(offlineQueuePaused, forKey: "downloads.queuePaused") }
@@ -113,6 +145,7 @@ final class AppModel {
     private(set) var isVerifyingServer = false
     private(set) var isNetworkAvailable: Bool?
     private(set) var isWiFiAvailable: Bool?
+    private(set) var isMeteredNetwork = false
     private(set) var isRegistering = false
     private(set) var registrationError: String?
     private(set) var publicUsers: [PublicUser] = []
@@ -128,8 +161,11 @@ final class AppModel {
     var playbackRate = UserDefaults.standard.object(forKey: "settings.playbackRate") as? Double ?? 1.0 {
         didSet { UserDefaults.standard.set(playbackRate, forKey: "settings.playbackRate") }
     }
-    var defaultQuality = UserDefaults.standard.string(forKey: "settings.defaultQuality") ?? "Auto" {
-        didSet { UserDefaults.standard.set(defaultQuality, forKey: "settings.defaultQuality") }
+    var defaultQuality = PlaybackQualityPolicy.normalizedPreference(UserDefaults.standard.string(forKey: "settings.defaultQuality")) {
+        didSet {
+            defaultQuality = PlaybackQualityPolicy.normalizedPreference(defaultQuality)
+            UserDefaults.standard.set(defaultQuality, forKey: "settings.defaultQuality")
+        }
     }
     var videoAspectRatio = IOSVideoAspectRatio(rawValue: UserDefaults.standard.string(forKey: "settings.videoAspectRatio") ?? "fit") ?? .fit {
         didSet { UserDefaults.standard.set(videoAspectRatio.rawValue, forKey: "settings.videoAspectRatio") }
@@ -143,6 +179,9 @@ final class AppModel {
     var skipIntro = UserDefaults.standard.object(forKey: "settings.skipIntro") as? Bool ?? true {
         didSet { UserDefaults.standard.set(skipIntro, forKey: "settings.skipIntro") }
     }
+    var automaticIntroSkip = UserDefaults.standard.object(forKey: "settings.automaticIntroSkip") as? Bool ?? false {
+        didSet { UserDefaults.standard.set(automaticIntroSkip, forKey: "settings.automaticIntroSkip") }
+    }
     var wifiOnlyDownloads = UserDefaults.standard.object(forKey: "settings.wifiOnlyDownloads") as? Bool ?? false {
         didSet {
             UserDefaults.standard.set(wifiOnlyDownloads, forKey: "settings.wifiOnlyDownloads")
@@ -154,6 +193,15 @@ final class AppModel {
     }
     var preferredSubtitleLanguage = UserDefaults.standard.string(forKey: "settings.subtitleLanguage") ?? "" {
         didSet { UserDefaults.standard.set(preferredSubtitleLanguage, forKey: "settings.subtitleLanguage") }
+    }
+    var subtitleFontSize = SubtitleAppearancePolicy.normalizedFontSize(UserDefaults.standard.object(forKey: "settings.subtitleFontSize") as? Double ?? 20) {
+        didSet {
+            subtitleFontSize = SubtitleAppearancePolicy.normalizedFontSize(subtitleFontSize)
+            UserDefaults.standard.set(subtitleFontSize, forKey: "settings.subtitleFontSize")
+        }
+    }
+    var subtitleColor = IOSSubtitleColor(rawValue: UserDefaults.standard.string(forKey: "settings.subtitleColor") ?? "white") ?? .white {
+        didSet { UserDefaults.standard.set(subtitleColor.rawValue, forKey: "settings.subtitleColor") }
     }
     var librarySort = UserDefaults.standard.string(forKey: "settings.librarySort") ?? "SortName" {
         didSet { UserDefaults.standard.set(librarySort, forKey: "settings.librarySort") }
@@ -194,9 +242,24 @@ final class AppModel {
     private var downloadTasks: [String: Task<Void, Never>] = [:]
     private var seasonDownloadTask: Task<Void, Never>?
     private var searchRequestID = UUID()
+    private var mediaSuggestionTask: Task<Void, Never>?
+    private var mediaSuggestionGeneration = 0
+    private var publicUsersRequestID = UUID()
+    private var registrationMutationID = UUID()
+    private var detailRequestID = UUID()
+    private var seriesRequestID = UUID()
     private var liveTVRequestID = UUID()
+    private var liveTVTimerMutationID = UUID()
+    private var playlistsRequestID = UUID()
+    private var playlistItemsRequestID = UUID()
     private var syncPlayRequestID = UUID()
+    private var remotePlaybackRequestID = UUID()
+    private var remotePlaybackBusySessionIDs = Set<String>()
+    private var serverDiscoveryRequestID = UUID()
     private var previousNetworkAvailability: Bool?
+    private var isRefreshingAuthenticatedContent = false
+    private var sessionMutationID = UUID()
+    private var serverVerificationID = UUID()
     private static let savedServersKey = "auth.savedServers"
 
     private static func ownerKey(for session: UserSession) -> String {
@@ -205,6 +268,11 @@ final class AppModel {
 
     private var downloadOwnerKey: String? {
         session.map { Self.ownerKey(for: $0) }
+    }
+
+    private func isCurrentSession(userID: String, serverURL: URL?) -> Bool {
+        guard let currentSession = session, currentSession.userID == userID else { return false }
+        return serverURL == nil || currentSession.serverURL == serverURL
     }
 
     init(sessionStore: SessionStore = KeychainSessionStore()) {
@@ -218,13 +286,15 @@ final class AppModel {
             state = .signedIn
         }
         offlineDownloads = session.map { OfflineDownloadStore.load(ownerKey: Self.ownerKey(for: $0)) } ?? []
-        pendingPlaybackIssues = session.map { PlaybackIssueQueueStore.load(ownerKey: Self.ownerKey(for: $0)) } ?? []
-        searchHistory = UserDefaults.standard.stringArray(forKey: "search.history") ?? []
+        loadPendingPlaybackIssues(for: session)
+        searchHistory = session.map { SearchHistoryStore.load(ownerKey: Self.ownerKey(for: $0)) } ?? []
         connectivityMonitor.pathUpdateHandler = { [weak self] path in
             let available = path.status == .satisfied
             let wifi = path.status == .satisfied && path.usesInterfaceType(.wifi)
+            let metered = path.status == .satisfied &&
+                (path.usesInterfaceType(.cellular) || path.isConstrained)
             Task { @MainActor [weak self] in
-                self?.handleNetworkAvailabilityChange(available, wifi: wifi)
+                self?.handleNetworkAvailabilityChange(available, wifi: wifi, metered: metered)
             }
         }
         connectivityMonitor.start(queue: connectivityQueue)
@@ -238,29 +308,59 @@ final class AppModel {
     }
 
     func signIn() async {
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            state = .signedOut
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let mutationID = UUID()
+        sessionMutationID = mutationID
+        searchRequestID = UUID()
+        registrationMutationID = UUID()
+        isRegistering = false
+        serverVerificationID = UUID()
+        publicUsersRequestID = UUID()
         guard let url = normalizedURL else { errorMessage = APIError.invalidServerURL.localizedDescription; return }
         state = .loading
         errorMessage = nil
         do {
             let api = APIClient(serverURL: url, deviceID: "ios-session")
-            serverInfo = try await api.publicSystemInfo()
-            branding = try? await api.brandingConfiguration()
-            serverHealth = await healthStatus(from: api)
+            let loadedServerInfo = try await api.publicSystemInfo()
+            guard sessionMutationID == mutationID else { return }
+            serverInfo = loadedServerInfo
+            let loadedBranding = try? await api.brandingConfiguration()
+            guard sessionMutationID == mutationID else { return }
+            branding = loadedBranding
+            let loadedHealth = await healthStatus(from: api)
+            guard sessionMutationID == mutationID else { return }
+            serverHealth = loadedHealth
             let saved = try await api.authenticate(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
+            guard sessionMutationID == mutationID else { return }
             try sessionStore.save(saved)
             cancelActiveDownloadsForSessionChange()
             rememberServer(url: saved.serverURL, info: serverInfo)
             client = api
             session = saved
             offlineDownloads = OfflineDownloadStore.load(ownerKey: Self.ownerKey(for: saved))
-            pendingPlaybackIssues = PlaybackIssueQueueStore.load(ownerKey: Self.ownerKey(for: saved))
+            loadPendingPlaybackIssues(for: saved)
+            searchHistory = SearchHistoryStore.load(ownerKey: Self.ownerKey(for: saved))
             password = ""
-            try await loadHome(using: api, userID: saved.userID)
-            try await loadLibraries(using: api, userID: saved.userID)
-            applyProfile(try? await api.userProfile(userID: saved.userID))
+            let contentRequestID = UUID()
+            homeRequestID = contentRequestID
+            favoritesRequestID = contentRequestID
+            librariesRequestID = contentRequestID
+            try await loadHome(using: api, userID: saved.userID, serverURL: saved.serverURL, requestID: contentRequestID)
+            guard sessionMutationID == mutationID else { return }
+            try await loadLibraries(using: api, userID: saved.userID, requestID: contentRequestID)
+            guard sessionMutationID == mutationID else { return }
+            let loadedProfile = try? await api.userProfile(userID: saved.userID)
+            guard sessionMutationID == mutationID else { return }
+            applyProfile(loadedProfile)
+            guard sessionMutationID == mutationID else { return }
             state = .signedIn
             await syncPendingPlaybackIssues()
         } catch {
+            guard sessionMutationID == mutationID else { return }
             state = .signedOut
             errorMessage = AuthErrorPolicy.authenticationMessage(for: error)
         }
@@ -281,6 +381,8 @@ final class AppModel {
     }
 
     func selectSavedServer(_ server: SavedServer) async {
+        publicUsersRequestID = UUID()
+        publicUsers = []
         serverURL = server.url
         await verifyServer()
     }
@@ -293,8 +395,14 @@ final class AppModel {
     func loadPendingDeepLinkItem() async -> MediaItem? {
         guard let itemID = pendingDeepLinkItemID else { return nil }
         guard let session, let client else { return nil }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else { return nil }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        let loaded = try? await client.item(userID: sessionID, itemID: itemID)
+        guard self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return nil }
         pendingDeepLinkItemID = nil
-        return try? await client.item(userID: session.userID, itemID: itemID)
+        return loaded
     }
 
     func register(username: String, password: String, confirmation: String) async -> Bool {
@@ -312,32 +420,63 @@ final class AppModel {
             registrationError = "As senhas não coincidem."
             return false
         }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            registrationError = NetworkRequestPolicy.offlineMessage
+            return false
+        }
         guard let url = normalizedURL else {
             registrationError = APIError.invalidServerURL.localizedDescription
             return false
         }
 
+        let mutationID = UUID()
+        registrationMutationID = mutationID
         isRegistering = true
-        defer { isRegistering = false }
+        defer {
+            if registrationMutationID == mutationID {
+                isRegistering = false
+            }
+        }
         do {
             let api = APIClient(serverURL: url, deviceID: "ios-registration")
             let result = try await api.register(username: cleanUsername, password: password)
+            guard registrationMutationID == mutationID else { return false }
             guard result.success else {
                 throw APIError.serverMessage(result.message ?? "Não foi possível concluir o cadastro.")
             }
             return true
         } catch {
+            guard registrationMutationID == mutationID else { return false }
             registrationError = AuthErrorPolicy.registrationMessage(for: error)
             return false
         }
     }
 
     func loadPublicUsers() async {
-        guard let client else { return }
-        publicUsers = (try? await client.publicUsers()) ?? []
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable),
+              let client,
+              let endpoint = normalizedURL else { return }
+        let requestID = UUID()
+        publicUsersRequestID = requestID
+        let loadedUsers = try? await client.publicUsers()
+        guard publicUsersRequestID == requestID,
+              normalizedURL == endpoint,
+              session != nil else { return }
+        publicUsers = loadedUsers ?? []
     }
 
     func switchUser(username: String, password: String) async -> Bool {
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return false
+        }
+        let mutationID = UUID()
+        sessionMutationID = mutationID
+        searchRequestID = UUID()
+        registrationMutationID = UUID()
+        isRegistering = false
+        serverVerificationID = UUID()
+        publicUsersRequestID = UUID()
         guard let url = normalizedURL else {
             errorMessage = APIError.invalidServerURL.localizedDescription
             return false
@@ -350,22 +489,34 @@ final class AppModel {
                 username: username.trimmingCharacters(in: .whitespacesAndNewlines),
                 password: password
             )
+            guard sessionMutationID == mutationID else { return false }
             try sessionStore.save(saved)
             cancelActiveDownloadsForSessionChange()
             rememberServer(url: saved.serverURL, info: serverInfo)
             client = api
             session = saved
             offlineDownloads = OfflineDownloadStore.load(ownerKey: Self.ownerKey(for: saved))
-            pendingPlaybackIssues = PlaybackIssueQueueStore.load(ownerKey: Self.ownerKey(for: saved))
+            loadPendingPlaybackIssues(for: saved)
             self.password = ""
             clearUserScopedContent()
-            try await loadHome(using: api, userID: saved.userID)
-            try await loadLibraries(using: api, userID: saved.userID)
-            applyProfile(try? await api.userProfile(userID: saved.userID))
+            searchHistory = SearchHistoryStore.load(ownerKey: Self.ownerKey(for: saved))
+            let contentRequestID = UUID()
+            homeRequestID = contentRequestID
+            favoritesRequestID = contentRequestID
+            librariesRequestID = contentRequestID
+            try await loadHome(using: api, userID: saved.userID, serverURL: saved.serverURL, requestID: contentRequestID)
+            guard sessionMutationID == mutationID else { return false }
+            try await loadLibraries(using: api, userID: saved.userID, requestID: contentRequestID)
+            guard sessionMutationID == mutationID else { return false }
+            let loadedProfile = try? await api.userProfile(userID: saved.userID)
+            guard sessionMutationID == mutationID else { return false }
+            applyProfile(loadedProfile)
+            guard sessionMutationID == mutationID else { return false }
             state = .signedIn
             await syncPendingPlaybackIssues()
             return true
         } catch {
+            guard sessionMutationID == mutationID else { return false }
             errorMessage = AuthErrorPolicy.authenticationMessage(for: error)
             state = .signedIn
             return false
@@ -391,16 +542,31 @@ final class AppModel {
     }
 
     func verifyServer() async {
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
         guard let url = normalizedURL else { errorMessage = APIError.invalidServerURL.localizedDescription; return }
+        let verificationID = UUID()
+        serverVerificationID = verificationID
         isVerifyingServer = true
-        defer { isVerifyingServer = false }
+        defer {
+            if serverVerificationID == verificationID { isVerifyingServer = false }
+        }
         do {
             let api = APIClient(serverURL: url, deviceID: "ios-session")
-            serverInfo = try await api.publicSystemInfo()
-            branding = try? await api.brandingConfiguration()
-            serverHealth = await healthStatus(from: api)
+            let loadedServerInfo = try await api.publicSystemInfo()
+            guard serverVerificationID == verificationID else { return }
+            serverInfo = loadedServerInfo
+            let loadedBranding = try? await api.brandingConfiguration()
+            guard serverVerificationID == verificationID else { return }
+            branding = loadedBranding
+            let loadedHealth = await healthStatus(from: api)
+            guard serverVerificationID == verificationID else { return }
+            serverHealth = loadedHealth
             errorMessage = nil
         } catch {
+            guard serverVerificationID == verificationID else { return }
             serverInfo = nil
             serverHealth = nil
             branding = nil
@@ -409,16 +575,34 @@ final class AppModel {
     }
 
     func startQuickConnect() async {
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
         guard let url = normalizedURL else { errorMessage = APIError.invalidServerURL.localizedDescription; return }
         cancelQuickConnect()
+        let mutationID = UUID()
+        sessionMutationID = mutationID
+        searchRequestID = UUID()
+        registrationMutationID = UUID()
+        isRegistering = false
+        serverVerificationID = UUID()
+        publicUsersRequestID = UUID()
         state = .loading
         errorMessage = nil
         do {
             let api = APIClient(serverURL: url, deviceID: "ios-session")
-            serverInfo = try await api.publicSystemInfo()
-            branding = try? await api.brandingConfiguration()
-            serverHealth = await healthStatus(from: api)
+            let loadedServerInfo = try await api.publicSystemInfo()
+            guard sessionMutationID == mutationID else { return }
+            serverInfo = loadedServerInfo
+            let loadedBranding = try? await api.brandingConfiguration()
+            guard sessionMutationID == mutationID else { return }
+            branding = loadedBranding
+            let loadedHealth = await healthStatus(from: api)
+            guard sessionMutationID == mutationID else { return }
+            serverHealth = loadedHealth
             let available = try await api.isQuickConnectEnabled()
+            guard sessionMutationID == mutationID else { return }
             isQuickConnectAvailable = available
             guard available else {
                 state = .signedOut
@@ -426,6 +610,7 @@ final class AppModel {
                 return
             }
             let challenge = try await api.initiateQuickConnect()
+            guard sessionMutationID == mutationID else { return }
             client = api
             quickConnectCode = challenge.code
             quickConnectSecondsRemaining = 300
@@ -433,15 +618,17 @@ final class AppModel {
             state = .signedOut
             quickConnectTask = Task { [weak self] in
                 guard let self else { return }
-                await self.pollQuickConnect(api: api, secret: challenge.secret)
+                await self.pollQuickConnect(api: api, secret: challenge.secret, mutationID: mutationID)
             }
         } catch {
+            guard sessionMutationID == mutationID else { return }
             state = .signedOut
             errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
     func cancelQuickConnect() {
+        sessionMutationID = UUID()
         quickConnectTask?.cancel()
         quickConnectTask = nil
         quickConnectCode = nil
@@ -452,31 +639,52 @@ final class AppModel {
 
     func loadHome() async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            let hasSnapshot = applyHomeSnapshotIfAvailable(ownerKey: Self.ownerKey(for: session))
+            homeError = hasSnapshot ? nil : NetworkRequestPolicy.offlineMessage
+            return
+        }
         let requestID = UUID()
         let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         homeRequestID = requestID
         favoritesRequestID = requestID
         isHomeLoading = true
         homeError = nil
+        resumeItemsFromCache = false
+        favoriteItemsFromCache = false
+        homeCachedAtEpochMillis = nil
         defer {
             if homeRequestID == requestID {
                 isHomeLoading = false
             }
         }
         do {
-            try await loadHome(using: client, userID: sessionID, requestID: requestID)
-            guard homeRequestID == requestID, self.session?.userID == sessionID else { return }
+            try await loadHome(using: client, userID: sessionID, serverURL: sessionServerURL, requestID: requestID)
+            guard homeRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             homeError = nil
         } catch {
-            guard homeRequestID == requestID, self.session?.userID == sessionID else { return }
-            homeError = error.localizedDescription
+            guard homeRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            if HomeSnapshotPolicy.shouldUseCache(for: error) {
+                applyHomeSnapshotIfAvailable(ownerKey: Self.ownerKey(for: session))
+            }
+            homeError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
     func loadLibraries() async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            librariesError = NetworkRequestPolicy.offlineMessage
+            return
+        }
         let requestID = UUID()
         let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         librariesRequestID = requestID
         isLibrariesLoading = true
         librariesError = nil
@@ -487,21 +695,39 @@ final class AppModel {
         }
         do {
             try await loadLibraries(using: client, userID: sessionID, requestID: requestID)
-            guard librariesRequestID == requestID, self.session?.userID == sessionID else { return }
+            guard librariesRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             librariesError = nil
         } catch {
-            guard librariesRequestID == requestID, self.session?.userID == sessionID else { return }
-            librariesError = error.localizedDescription
+            guard librariesRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            librariesError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
     func loadFavorites() async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            if let snapshot = HomeSnapshotStore.load(ownerKey: Self.ownerKey(for: session)),
+               snapshot.favoritesSavedAtEpochMillis > 0 {
+                favoriteItems = snapshot.favoriteItems.map(\.mediaItem)
+                favoriteItemsFromCache = true
+                homeCachedAtEpochMillis = snapshot.favoritesSavedAtEpochMillis
+                favoritesError = nil
+            } else {
+                favoritesError = NetworkRequestPolicy.offlineMessage
+            }
+            return
+        }
         let requestID = UUID()
         let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         favoritesRequestID = requestID
         isFavoritesLoading = true
         favoritesError = nil
+        favoriteItemsFromCache = false
         defer {
             if favoritesRequestID == requestID {
                 isFavoritesLoading = false
@@ -509,18 +735,36 @@ final class AppModel {
         }
         do {
             let loadedFavorites = try await client.allFavoriteItems(userID: sessionID)
-            guard favoritesRequestID == requestID, self.session?.userID == sessionID else { return }
+            guard favoritesRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             favoriteItems = loadedFavorites
+            HomeSnapshotStore.save(resumeItems: nil, favoriteItems: loadedFavorites, ownerKey: Self.ownerKey(for: session))
         } catch {
-            guard favoritesRequestID == requestID, self.session?.userID == sessionID else { return }
-            favoritesError = error.localizedDescription
+            guard favoritesRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            if HomeSnapshotPolicy.shouldUseCache(for: error),
+               let snapshot = HomeSnapshotStore.load(ownerKey: Self.ownerKey(for: session)),
+               snapshot.favoritesSavedAtEpochMillis > 0 {
+                favoriteItems = snapshot.favoriteItems.map(\.mediaItem)
+                favoriteItemsFromCache = true
+                homeCachedAtEpochMillis = snapshot.favoritesSavedAtEpochMillis
+                return
+            }
+            favoritesError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
     func loadProfile() async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            profileError = NetworkRequestPolicy.offlineMessage
+            return
+        }
         let requestID = UUID()
         let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         profileRequestID = requestID
         isProfileLoading = true
         profileError = nil
@@ -531,18 +775,29 @@ final class AppModel {
         }
         do {
             let loadedProfile = try await client.userProfile(userID: sessionID)
-            guard profileRequestID == requestID, self.session?.userID == sessionID else { return }
+            guard profileRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             applyProfile(loadedProfile)
         } catch {
-            guard profileRequestID == requestID, self.session?.userID == sessionID else { return }
-            profileError = error.localizedDescription
+            guard profileRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            profileError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
-    func loadLiveTV() async {
+    func loadLiveTV(background: Bool = false) async {
+        guard !background || LiveTVRefreshPolicy.shouldStartBackgroundRefresh(isLoading: isLiveTVLoading) else { return }
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            liveTVError = NetworkRequestPolicy.offlineMessage
+            return
+        }
         let requestID = UUID()
         let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        let timerMutationID = liveTVTimerMutationID
         liveTVRequestID = requestID
         isLiveTVLoading = true
         liveTVError = nil
@@ -552,69 +807,138 @@ final class AppModel {
             }
         }
         var firstError: String?
+        var channelsForPrograms: [MediaItem] = liveChannels
         do {
             let channels = try await client.allLiveTVChannels(userID: sessionID)
-            guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
+            guard liveTVRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             liveChannels = channels
+            channelsForPrograms = channels
         } catch {
-            guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
-            firstError = error.localizedDescription
+            guard liveTVRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            firstError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
         do {
             let recordings = try await client.allLiveTVRecordings(userID: sessionID)
-            guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
+            guard liveTVRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             liveRecordings = recordings
         } catch {
-            guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
-            firstError = firstError ?? error.localizedDescription
+            guard liveTVRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            firstError = firstError ?? AuthErrorPolicy.serverConnectionMessage(for: error)
         }
         do {
-            let scheduled = try await client.scheduledLiveTVProgramIDs()
-            guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
-            scheduledLiveProgramIDs = scheduled
+            let scheduled = try await client.scheduledLiveTVTimerIDs()
+            guard liveTVRequestID == requestID,
+                  liveTVTimerMutationID == timerMutationID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            scheduledLiveTimerIDs = scheduled
+            scheduledLiveProgramIDs = Set(scheduled.keys)
         } catch {
-            guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
-            firstError = firstError ?? error.localizedDescription
+            guard liveTVRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            firstError = firstError ?? AuthErrorPolicy.serverConnectionMessage(for: error)
         }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let start = formatter.string(from: Date())
         let end = formatter.string(from: Date().addingTimeInterval(24 * 60 * 60))
         do {
-            let programs = try await client.allLiveTVPrograms(channelIDs: liveChannels.map(\.id), startDate: start, endDate: end)
-            guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
+            let programs = try await client.allLiveTVPrograms(channelIDs: channelsForPrograms.map(\.id), startDate: start, endDate: end)
+            guard liveTVRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             livePrograms = programs
         } catch {
-            guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
-            firstError = firstError ?? error.localizedDescription
+            guard liveTVRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            firstError = firstError ?? AuthErrorPolicy.serverConnectionMessage(for: error)
         }
-        guard liveTVRequestID == requestID, self.session?.userID == sessionID else { return }
+        guard liveTVRequestID == requestID,
+              self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return }
         liveTVError = firstError
-        }
     }
 
     func scheduleLiveProgram(_ program: MediaItem) async {
         guard let client, let session,
               !scheduledLiveProgramIDs.contains(program.id),
               !schedulingLiveProgramIDs.contains(program.id) else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
         let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        let timerMutationID = UUID()
+        liveTVTimerMutationID = timerMutationID
         schedulingLiveProgramIDs.insert(program.id)
         defer {
-            if self.session?.userID == sessionID {
+            if self.session?.userID == sessionID, self.session?.serverURL == sessionServerURL {
                 schedulingLiveProgramIDs.remove(program.id)
             }
         }
         do {
             try await client.scheduleLiveTV(program: program)
-            guard self.session?.userID == sessionID else { return }
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL,
+                  liveTVTimerMutationID == timerMutationID else { return }
             scheduledLiveProgramIDs.insert(program.id)
         } catch {
-            guard self.session?.userID == sessionID else { return }
-            errorMessage = error.localizedDescription
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL,
+                  liveTVTimerMutationID == timerMutationID else { return }
+            errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error)
+        }
+    }
+
+    func cancelLiveProgram(_ program: MediaItem) async {
+        guard let client, let session,
+              let timerID = scheduledLiveTimerIDs[program.id],
+              !cancellingLiveProgramIDs.contains(program.id) else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        let timerMutationID = UUID()
+        liveTVTimerMutationID = timerMutationID
+        cancellingLiveProgramIDs.insert(program.id)
+        defer {
+            if self.session?.userID == sessionID, self.session?.serverURL == sessionServerURL {
+                cancellingLiveProgramIDs.remove(program.id)
+            }
+        }
+        do {
+            try await client.cancelLiveTVTimer(timerID: timerID)
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL,
+                  liveTVTimerMutationID == timerMutationID else { return }
+            scheduledLiveProgramIDs.remove(program.id)
+            scheduledLiveTimerIDs.removeValue(forKey: program.id)
+        } catch {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL,
+                  liveTVTimerMutationID == timerMutationID else { return }
+            errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
     func enqueueOfflineDownload(for item: MediaItem) async {
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
         guard let client, let url = await client.playbackURL(for: item, resume: false) else {
             errorMessage = "Este item não possui uma fonte disponível para download."
             return
@@ -625,8 +949,44 @@ final class AppModel {
     private func enqueueOfflineDownload(for item: MediaItem, url: URL) {
         if offlineDownloads.contains(where: { $0.itemID == item.id && $0.state == .completed }) { return }
         let artworkURL = client?.imageURL(for: item)?.absoluteString
-        let entry = OfflineDownload(itemID: item.id, title: item.name, state: .queued, percent: 0, fileName: OfflineDownloadStore.fileName(for: item), sourceURL: url.absoluteString, artworkURL: artworkURL)
+        let subtitles = item.mediaSources.first?.mediaStreams
+            .filter(ExternalSubtitlePolicy.isPlayable)
+            .compactMap { stream -> OfflineSubtitleEntry? in
+                guard let streamIndex = stream.index,
+                      let mimeType = ExternalSubtitlePolicy.mimeType(codec: stream.codec, deliveryURL: stream.deliveryURL) else { return nil }
+                return OfflineSubtitleEntry(
+                    streamIndex: streamIndex,
+                    fileName: OfflineDownloadStore.subtitleFileName(itemID: item.id, streamIndex: streamIndex, mimeType: mimeType),
+                    mimeType: mimeType,
+                    mediaSourceID: item.mediaSources.first?.id,
+                    language: stream.language,
+                    label: stream.displayTitle ?? stream.title,
+                    isDefault: stream.isDefault,
+                    isForced: stream.isForced
+                )
+            } ?? []
+        let validEpisode = item.type == "Episode" && item.seriesId != nil && (item.indexNumber ?? 0) > 0
+        let entry = OfflineDownload(
+            itemID: item.id,
+            title: item.name,
+            seriesID: validEpisode ? item.seriesId : nil,
+            seriesName: validEpisode ? item.seriesName : nil,
+            seasonName: validEpisode ? item.seasonName : nil,
+            seasonNumber: validEpisode ? item.parentIndexNumber : nil,
+            episodeNumber: validEpisode ? item.indexNumber : nil,
+            state: .queued,
+            percent: 0,
+            fileName: OfflineDownloadStore.fileName(for: item),
+            sourceURL: url.absoluteString,
+            artworkURL: artworkURL,
+            subtitles: subtitles
+        )
         upsertDownload(entry)
+        if let ownerKey = downloadOwnerKey {
+            Task { [weak self] in
+                await self?.cacheOfflineArtwork(for: item, ownerKey: ownerKey)
+            }
+        }
         if canStartOfflineDownloads {
             startOfflineDownload(entry, url: url)
         }
@@ -662,6 +1022,7 @@ final class AppModel {
         }
 
         let userID = session.userID
+        let sessionServerURL = session.serverURL
         seasonDownloadTask = Task { [weak self] in
             guard let self else { return }
             var processed = initialSkipped
@@ -669,7 +1030,9 @@ final class AppModel {
             var failed = 0
 
             for episode in pendingEpisodes {
-                guard !Task.isCancelled, self.session?.userID == userID else { break }
+                guard !Task.isCancelled,
+                      self.session?.userID == userID,
+                      self.session?.serverURL == sessionServerURL else { break }
                 if self.offlineDownloads.contains(where: { $0.itemID == episode.id && $0.state != .failed }) {
                     processed += 1
                     continue
@@ -694,7 +1057,8 @@ final class AppModel {
                 )
             }
 
-            guard self.session?.userID == userID else { return }
+            guard self.session?.userID == userID,
+                  self.session?.serverURL == sessionServerURL else { return }
             let cancelled = Task.isCancelled
             self.seasonDownloadProgress = SeasonDownloadProgress(
                 seasonID: season.id,
@@ -721,7 +1085,11 @@ final class AppModel {
     }
 
     func retryOfflineDownload(_ entry: OfflineDownload) {
-        guard let url = URL(string: entry.sourceURL) else { return }
+        guard let url = URL(string: entry.sourceURL),
+              url.scheme == "http" || url.scheme == "https" else {
+            errorMessage = "Não é possível baixar novamente: a URL persistida deste item é inválida."
+            return
+        }
         let next = entry.with(state: .queued, percent: 0, error: nil)
         upsertDownload(next)
         if canStartOfflineDownloads {
@@ -767,6 +1135,8 @@ final class AppModel {
         downloadTasks[entry.id] = nil
         guard let ownerKey = downloadOwnerKey else { return }
         OfflineDownloadStore.removeFile(entry.fileName, ownerKey: ownerKey)
+        OfflineDownloadStore.removeArtwork(itemID: entry.itemID, ownerKey: ownerKey)
+        OfflineDownloadStore.removeSubtitleFiles(entry.subtitles, ownerKey: ownerKey)
         clearOfflinePlaybackPosition(for: entry.itemID)
         offlineDownloads.removeAll { $0.id == entry.id }
         OfflineDownloadStore.save(offlineDownloads, ownerKey: ownerKey)
@@ -777,6 +1147,8 @@ final class AppModel {
         guard let ownerKey = downloadOwnerKey else { return }
         completed.forEach {
             OfflineDownloadStore.removeFile($0.fileName, ownerKey: ownerKey)
+            OfflineDownloadStore.removeArtwork(itemID: $0.itemID, ownerKey: ownerKey)
+            OfflineDownloadStore.removeSubtitleFiles($0.subtitles, ownerKey: ownerKey)
             clearOfflinePlaybackPosition(for: $0.itemID)
         }
         offlineDownloads.removeAll { $0.state == .completed }
@@ -788,6 +1160,8 @@ final class AppModel {
             guard entry.state == .failed else { return false }
             guard let ownerKey = downloadOwnerKey else { return false }
             OfflineDownloadStore.removeFile(entry.fileName, ownerKey: ownerKey)
+            OfflineDownloadStore.removeArtwork(itemID: entry.itemID, ownerKey: ownerKey)
+            OfflineDownloadStore.removeSubtitleFiles(entry.subtitles, ownerKey: ownerKey)
             clearOfflinePlaybackPosition(for: entry.itemID)
             return true
         }
@@ -801,13 +1175,41 @@ final class AppModel {
     }
 
     var offlineDownloadedBytes: Int64 {
-        offlineDownloads.reduce(0) { $0 + max(0, $1.bytesDownloaded) }
+        offlineDownloads
+            .filter { $0.state == .completed }
+            .reduce(0) { $0 + max(0, $1.bytesDownloaded) }
+    }
+
+    var availableStorageBytes: Int64? {
+        let values = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+        )
+        return values?.volumeAvailableCapacityForImportantUsage
     }
 
     func localURL(for item: MediaItem) -> URL? {
         guard let entry = offlineDownloads.first(where: { $0.itemID == item.id && $0.state == .completed }) else { return nil }
         guard let ownerKey = downloadOwnerKey else { return nil }
-        return OfflineDownloadStore.url(for: entry.fileName, ownerKey: ownerKey)
+        return OfflineDownloadStore.existingURL(for: entry.fileName, ownerKey: ownerKey)
+    }
+
+    func offlineArtworkURL(for entry: OfflineDownload) -> URL? {
+        guard let ownerKey = downloadOwnerKey else { return nil }
+        return OfflineDownloadStore.artworkURL(itemID: entry.itemID, ownerKey: ownerKey)
+    }
+
+    func offlineSubtitleData(itemID: String, streamIndex: Int) -> Data? {
+        guard let entry = offlineDownloads.first(where: { $0.itemID == itemID && $0.state == .completed }),
+              let subtitle = entry.subtitles.first(where: { $0.streamIndex == streamIndex }),
+              let ownerKey = downloadOwnerKey else { return nil }
+        return try? Data(contentsOf: OfflineDownloadStore.subtitleURL(fileName: subtitle.fileName, ownerKey: ownerKey))
+    }
+
+    func offlineSubtitleStreams(for itemID: String) -> [MediaStream] {
+        offlineDownloads
+            .first(where: { $0.itemID == itemID && $0.state == .completed })?
+            .subtitles
+            .map(\.mediaStream) ?? []
     }
 
     func offlinePlaybackPosition(for itemID: String) -> Int64 {
@@ -815,10 +1217,13 @@ final class AppModel {
         return Int64(UserDefaults.standard.integer(forKey: OfflinePlaybackPositionScope.key(ownerKey: ownerKey, itemID: itemID)))
     }
 
-    func saveOfflinePlaybackPosition(itemID: String, positionSeconds: Double) {
+    func saveOfflinePlaybackPosition(itemID: String, positionSeconds: Double, durationSeconds: Double? = nil) {
         guard let ownerKey = downloadOwnerKey,
-              positionSeconds.isFinite, positionSeconds >= 0 else { return }
-        let ticks = max(0, Int64(positionSeconds * 10_000_000))
+              let normalizedPosition = OfflinePlaybackPositionPolicy.normalized(
+                  positionSeconds: positionSeconds,
+                  durationSeconds: durationSeconds
+              ) else { return }
+        let ticks = PlaybackTicksPolicy.fromSeconds(normalizedPosition)
         UserDefaults.standard.set(ticks, forKey: OfflinePlaybackPositionScope.key(ownerKey: ownerKey, itemID: itemID))
     }
 
@@ -828,30 +1233,33 @@ final class AppModel {
     }
 
     func reportPlaybackStart(itemID: String, mediaSourceID: String?, positionSeconds: Double = 0) async {
-        guard let client else { return }
-        let safeSeconds = positionSeconds.isFinite ? max(0, positionSeconds) : 0
-        let ticks = Int64(safeSeconds * 10_000_000)
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable), let client else { return }
+        let ticks = PlaybackTicksPolicy.fromSeconds(positionSeconds)
         try? await client.reportPlaybackStart(itemID: itemID, mediaSourceID: mediaSourceID, positionTicks: ticks)
     }
 
-    func reportPlaybackProgress(itemID: String, mediaSourceID: String?, positionSeconds: Double, isPaused: Bool) async {
-        guard let client else { return }
-        let safeSeconds = positionSeconds.isFinite ? max(0, positionSeconds) : 0
-        let ticks = Int64(safeSeconds * 10_000_000)
+    func reportPlaybackProgress(itemID: String, mediaSourceID: String?, positionSeconds: Double, durationSeconds: Double? = nil, isPaused: Bool) async {
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable), let client else { return }
+        let ticks = PlaybackTicksPolicy.fromSeconds(positionSeconds, durationSeconds: durationSeconds)
         try? await client.reportPlaybackProgress(itemID: itemID, mediaSourceID: mediaSourceID, positionTicks: ticks, isPaused: isPaused)
     }
 
-    func reportPlaybackStopped(itemID: String, mediaSourceID: String?, positionSeconds: Double) async {
-        guard let client else { return }
-        let safeSeconds = positionSeconds.isFinite ? max(0, positionSeconds) : 0
-        let ticks = Int64(safeSeconds * 10_000_000)
+    func reportPlaybackStopped(itemID: String, mediaSourceID: String?, positionSeconds: Double, durationSeconds: Double? = nil) async {
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable), let client else { return }
+        let ticks = PlaybackTicksPolicy.fromSeconds(positionSeconds, durationSeconds: durationSeconds)
         try? await client.reportPlaybackStopped(itemID: itemID, mediaSourceID: mediaSourceID, positionTicks: ticks)
     }
 
-    func loadSyncPlay() async {
+    func loadSyncPlay(background: Bool = false) async {
         guard let client, let session else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            syncPlayError = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        if background && !SyncPlayRefreshPolicy.shouldStartBackgroundRefresh(isLoading: isSyncPlayLoading) { return }
         let requestID = UUID()
         let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         syncPlayRequestID = requestID
         isSyncPlayLoading = true
         defer {
@@ -859,41 +1267,81 @@ final class AppModel {
         }
         do {
             let groups = try await client.syncPlayGroups()
-            guard syncPlayRequestID == requestID, self.session?.userID == sessionID else { return }
+            guard syncPlayRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             syncPlayGroups = groups
             syncPlayError = nil
         } catch {
-            guard syncPlayRequestID == requestID, self.session?.userID == sessionID else { return }
-            syncPlayError = error.localizedDescription
+            guard syncPlayRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            syncPlayError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
     func createSyncPlayGroup(name: String) async {
-        guard let client else { return }
+        guard let client, let session else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         do {
             try await client.createSyncPlayGroup(name: name.trimmingCharacters(in: .whitespacesAndNewlines))
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             await loadSyncPlay()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error)
+        }
     }
 
     func joinSyncPlayGroup(_ group: SyncPlayGroup) async {
-        guard let client else { return }
+        guard let client, let session else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         do {
             try await client.joinSyncPlayGroup(id: group.groupId)
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             activeSyncPlayGroupID = group.groupId
             startSyncPlayRealtime()
             await loadSyncPlay()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error)
+        }
     }
 
     func leaveSyncPlayGroup() async {
-        guard let client else { return }
+        guard let client, let session else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         do {
             try await client.leaveSyncPlayGroup()
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             stopSyncPlayRealtime()
             activeSyncPlayGroupID = nil
             await loadSyncPlay()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error)
+        }
     }
 
     private func startSyncPlayRealtime() {
@@ -919,13 +1367,88 @@ final class AppModel {
     }
 
     func sendSyncPlayCommand(_ command: SyncPlayPlaybackCommand) async {
-        guard activeSyncPlayGroupID != nil, let client else { return }
+        guard activeSyncPlayGroupID != nil, let client, let session else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         isSyncPlaySubmitting = true
         defer { isSyncPlaySubmitting = false }
         do {
             try await client.sendSyncPlayCommand(command)
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
         } catch {
-            errorMessage = error.localizedDescription
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error)
+        }
+    }
+
+    func loadRemotePlayback(background: Bool = false) async {
+        guard let client, let session else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            remotePlaybackError = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        if background && !RemotePlaybackRefreshPolicy.shouldStartBackgroundRefresh(isLoading: isRemotePlaybackLoading) { return }
+        let requestID = UUID()
+        let sessionServerURL = session.serverURL
+        remotePlaybackRequestID = requestID
+        isRemotePlaybackLoading = true
+        defer {
+            if remotePlaybackRequestID == requestID { isRemotePlaybackLoading = false }
+        }
+        do {
+            let sessions = try await client.remotePlaybackSessions(userID: session.userID)
+            guard remotePlaybackRequestID == requestID,
+                  self.session?.userID == session.userID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            remotePlaybackSessions = sessions
+            remotePlaybackError = nil
+        } catch {
+            guard remotePlaybackRequestID == requestID,
+                  self.session?.userID == session.userID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            remotePlaybackSessions = []
+            remotePlaybackError = AuthErrorPolicy.serverConnectionMessage(for: error)
+        }
+    }
+
+    func isRemotePlaybackBusy(_ sessionID: String) -> Bool {
+        remotePlaybackBusySessionIDs.contains(sessionID)
+    }
+
+    func sendRemotePlaybackCommand(
+        _ command: RemotePlaybackCommand,
+        to remoteSession: RemotePlaybackSession,
+        seekPositionTicks: Int64? = nil
+    ) async {
+        guard let client, let session, !remotePlaybackBusySessionIDs.contains(remoteSession.id) else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            remotePlaybackError = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        remotePlaybackBusySessionIDs.insert(remoteSession.id)
+        defer { remotePlaybackBusySessionIDs.remove(remoteSession.id) }
+        do {
+            try await client.sendRemotePlaybackCommand(
+                sessionID: remoteSession.id,
+                command: command,
+                userID: sessionID,
+                seekPositionTicks: seekPositionTicks
+            )
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            await loadRemotePlayback()
+        } catch {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            remotePlaybackError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
@@ -943,10 +1466,26 @@ final class AppModel {
     }
 
     func discoverServers() async {
+        let requestID = UUID()
+        serverDiscoveryRequestID = requestID
+        let requestedServerURL = serverURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let requestedSavedServerID = savedServers.first {
+            $0.url.caseInsensitiveCompare(requestedServerURL) == .orderedSame
+        }?.serverID
         isDiscoveringServers = true
-        defer { isDiscoveringServers = false }
-        discoveredServers = await LocalServerDiscovery().discover()
-        if discoveredServers.count == 1, let server = discoveredServers.first {
+        defer {
+            if serverDiscoveryRequestID == requestID {
+                isDiscoveringServers = false
+            }
+        }
+        let loadedServers = await LocalServerDiscovery().discover()
+        guard serverDiscoveryRequestID == requestID,
+              serverURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == requestedServerURL else { return }
+        discoveredServers = loadedServers
+        if let server = ServerDiscoverySelectionPolicy.selectedServer(
+            from: loadedServers,
+            savedServerID: requestedSavedServerID
+        ) {
             serverURL = server.address.absoluteString
         }
     }
@@ -969,28 +1508,51 @@ final class AppModel {
             searchError = nil
             return
         }
+        guard SearchNetworkPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            searchItems = []
+            searchTotalMatching = nil
+            searchHints = []
+            searchError = SearchNetworkPolicy.offlineMessage
+            return
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         isSearching = true
         searchError = nil
-        defer { isSearching = false }
-        async let hints = client.searchHints(userID: session.userID, term: cleanTerm)
-        async let results = client.allSearchItems(userID: session.userID, term: cleanTerm, includeItemTypes: filter.includeItemTypes)
+        defer {
+            if searchRequestID == requestID {
+                isSearching = false
+            }
+        }
+        async let hints = client.searchHints(
+            userID: sessionID,
+            term: cleanTerm,
+            includeItemTypes: filter.includeItemTypes
+        )
+        async let results = client.allSearchItems(userID: sessionID, term: cleanTerm, includeItemTypes: filter.includeItemTypes)
         let loadedHints = (try? await hints) ?? []
         let loadedItems: [MediaItem]
         do {
             let loadedResults = try await results
             loadedItems = loadedResults.items
             let totalMatching = loadedResults.totalRecordCount
-            guard searchRequestID == requestID else { return }
+            guard searchRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             searchTotalMatching = totalMatching
         } catch {
-            guard searchRequestID == requestID else { return }
+            guard searchRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             searchItems = []
             searchTotalMatching = nil
-            searchError = error.localizedDescription
+            searchError = AuthErrorPolicy.serverConnectionMessage(for: error)
             searchHints = loadedHints
             return
         }
-        guard searchRequestID == requestID else { return }
+        guard searchRequestID == requestID,
+              self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return }
         searchHints = loadedHints
         searchItems = loadedItems
         searchError = nil
@@ -999,18 +1561,31 @@ final class AppModel {
 
     func removeSearchHistory(_ term: String) {
         searchHistory.removeAll { $0 == term }
-        UserDefaults.standard.set(searchHistory, forKey: "search.history")
+        persistSearchHistory()
     }
 
     func clearSearchHistory() {
         searchHistory = []
-        UserDefaults.standard.removeObject(forKey: "search.history")
+        if let session {
+            SearchHistoryStore.clear(ownerKey: Self.ownerKey(for: session))
+        }
+    }
+
+    func selectSearchHint(_ hint: SearchHint) -> MediaItem {
+        let term = hint.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !term.isEmpty { rememberSearch(term) }
+        return SearchHintSelectionPolicy.item(from: hint)
     }
 
     func openLibrary(_ library: MediaItem) async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            libraryError = NetworkRequestPolicy.offlineMessage
+            return
+        }
         let requestID = UUID()
         let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         let previousLibraryID = selectedLibrary?.id
         libraryRequestID = requestID
         selectedLibrary = library
@@ -1036,11 +1611,15 @@ final class AppModel {
                 isPlayed: libraryPlayedFilter.isPlayed,
                 fields: "Overview,MediaSources,ItemCounts"
             )
-            guard libraryRequestID == requestID, self.session?.userID == sessionID else { return }
+            guard libraryRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             libraryItems = items
         } catch {
-            guard libraryRequestID == requestID, self.session?.userID == sessionID else { return }
-            libraryError = error.localizedDescription
+            guard libraryRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            libraryError = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
@@ -1064,71 +1643,153 @@ final class AppModel {
 
     func toggleFavorite(for item: MediaItem) async -> MediaItem? {
         guard let session, let client else { return nil }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return nil
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         let nextValue = !item.isFavorite
         do {
-            try await client.setFavorite(userID: session.userID, itemID: item.id, isFavorite: nextValue)
+            try await client.setFavorite(userID: sessionID, itemID: item.id, isFavorite: nextValue)
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return nil }
             let updated = item.withFavorite(nextValue)
             replace(updated)
             return updated
-        } catch { errorMessage = error.localizedDescription; return nil }
+        } catch { errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error); return nil }
     }
 
     func togglePlayed(for item: MediaItem) async -> MediaItem? {
         guard let session, let client else { return nil }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return nil
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         let nextValue = !item.isPlayed
         do {
-            try await client.setPlayed(userID: session.userID, itemID: item.id, isPlayed: nextValue)
+            try await client.setPlayed(userID: sessionID, itemID: item.id, isPlayed: nextValue)
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return nil }
             let updated = item.withPlayed(nextValue)
             replace(updated)
             return updated
-        } catch { errorMessage = error.localizedDescription; return nil }
+        } catch { errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error); return nil }
     }
 
     func loadDetail(for item: MediaItem) async -> MediaItem? {
         guard let session, let client else { return nil }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            return item
+        }
+        let requestID = UUID()
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        detailRequestID = requestID
         similarItems = []
         specialFeatures = []
         albumTracks = []
-        let loaded = try? await client.item(userID: session.userID, itemID: item.id)
+        let loaded = try? await client.item(userID: sessionID, itemID: item.id)
+        guard detailRequestID == requestID,
+              self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return nil }
         let detail = loaded ?? item
-        async let similar = client.similarItems(userID: session.userID, itemID: detail.id)
-        async let special = client.specialFeatures(userID: session.userID, itemID: detail.id)
-        similarItems = (try? await similar) ?? []
-        specialFeatures = (try? await special) ?? []
+        async let similar = client.similarItems(userID: sessionID, itemID: detail.id)
+        async let special = client.specialFeatures(userID: sessionID, itemID: detail.id)
+        let loadedSimilar = (try? await similar) ?? []
+        let loadedSpecial = (try? await special) ?? []
+        guard detailRequestID == requestID,
+              self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return nil }
+        similarItems = loadedSimilar
+        specialFeatures = loadedSpecial
         if detail.type == "MusicAlbum" {
-            albumTracks = (try? await client.audioTracks(userID: session.userID, albumID: detail.id)) ?? []
+            let loadedTracks = (try? await client.audioTracks(userID: sessionID, albumID: detail.id)) ?? []
+            guard detailRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return nil }
+            albumTracks = loadedTracks
         }
         return detail
     }
 
     func mediaSegments(for itemID: String) async -> [MediaSegment] {
-        guard let client else { return [] }
-        return (try? await client.mediaSegments(itemID: itemID)) ?? []
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable),
+              let client else { return [] }
+        let sessionID = session?.userID
+        let sessionServerURL = session?.serverURL
+        let loaded = (try? await client.mediaSegments(itemID: itemID)) ?? []
+        if let sessionID, let sessionServerURL {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return [] }
+        }
+        return loaded
+    }
+
+    func externalSubtitleData(itemID: String, streamIndex: Int, mediaSourceID: String?) async throws -> Data {
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable), let client else {
+            throw APIError.serverMessage(NetworkRequestPolicy.offlineMessage)
+        }
+        let sessionID = session?.userID
+        let sessionServerURL = session?.serverURL
+        let data = try await client.subtitleStreamData(itemID: itemID, streamIndex: streamIndex, mediaSourceID: mediaSourceID)
+        if let sessionID, let sessionServerURL {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else {
+                throw APIError.serverMessage("A sessão foi alterada durante o carregamento da legenda.")
+            }
+        }
+        return data
     }
 
     func chapters(for itemID: String) async -> [Chapter] {
-        guard let session, let client else { return [] }
-        let item = try? await client.item(userID: session.userID, itemID: itemID)
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable),
+              let session,
+              let client else { return [] }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        let item = try? await client.item(userID: sessionID, itemID: itemID)
+        guard self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return [] }
         return item?.chapters ?? []
     }
 
     func loadSeriesContext(for item: MediaItem) async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else { return }
+        let requestID = UUID()
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        seriesRequestID = requestID
+        isSeriesLoading = true
+        defer {
+            if seriesRequestID == requestID { isSeriesLoading = false }
+        }
         let seriesID: String
         switch item.type {
         case "Series": seriesID = item.id
         case "Season", "Episode":
-            guard let value = item.seriesId else { seriesSeasons = []; seriesEpisodes = []; return }
+            guard let value = item.seriesId else {
+                activeSeriesID = nil
+                seriesSeasons = []
+                seriesEpisodes = []
+                return
+            }
             seriesID = value
         default:
+            activeSeriesID = nil
             seriesSeasons = []
             seriesEpisodes = []
             return
         }
         activeSeriesID = seriesID
-        isSeriesLoading = true
-        defer { isSeriesLoading = false }
-        seriesSeasons = (try? await client.seasons(userID: session.userID, seriesID: seriesID)) ?? []
+        let loadedSeasons = (try? await client.seasons(userID: sessionID, seriesID: seriesID)) ?? []
+        guard seriesRequestID == requestID,
+              self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return }
+        seriesSeasons = loadedSeasons
         if let currentSeasonID = item.type == "Season" ? item.id : item.seasonId,
            let index = seriesSeasons.firstIndex(where: { $0.id == currentSeasonID }) {
             selectedSeasonIndex = index
@@ -1136,23 +1797,46 @@ final class AppModel {
             selectedSeasonIndex = min(selectedSeasonIndex, max(0, seriesSeasons.count - 1))
         }
         let seasonID = seriesSeasons.indices.contains(selectedSeasonIndex) ? seriesSeasons[selectedSeasonIndex].id : nil
-        seriesEpisodes = (try? await client.episodes(userID: session.userID, seriesID: seriesID, seasonID: seasonID)) ?? []
+        let loadedEpisodes = (try? await client.episodes(userID: sessionID, seriesID: seriesID, seasonID: seasonID)) ?? []
+        guard seriesRequestID == requestID,
+              self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return }
+        seriesEpisodes = loadedEpisodes
     }
 
     func selectSeason(_ index: Int) async {
         guard index >= 0, index < seriesSeasons.count, let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else { return }
+        let requestID = UUID()
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        seriesRequestID = requestID
         selectedSeasonIndex = index
         guard let seriesID = activeSeriesID else { return }
-        seriesEpisodes = (try? await client.episodes(userID: session.userID, seriesID: seriesID, seasonID: seriesSeasons[index].id)) ?? []
+        let loadedEpisodes = (try? await client.episodes(userID: sessionID, seriesID: seriesID, seasonID: seriesSeasons[index].id)) ?? []
+        guard seriesRequestID == requestID,
+              self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return }
+        seriesEpisodes = loadedEpisodes
     }
 
     func nextEpisode(after item: MediaItem) async -> MediaItem? {
+        if let downloaded = completedOfflineNextEpisode(after: item) {
+            return downloaded
+        }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            return nil
+        }
         guard let session, let client,
               let seriesID = item.seriesId,
               let seasonID = item.seasonId,
               let currentNumber = item.indexNumber else { return nil }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
 
-        let currentEpisodes = (try? await client.episodes(userID: session.userID, seriesID: seriesID, seasonID: seasonID)) ?? []
+        let currentEpisodes = (try? await client.episodes(userID: sessionID, seriesID: seriesID, seasonID: seasonID)) ?? []
+        guard self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return nil }
         if let next = currentEpisodes
             .filter({ ($0.indexNumber ?? Int.max) > currentNumber })
             .sorted(by: episodeOrder)
@@ -1160,16 +1844,62 @@ final class AppModel {
             return next
         }
 
-        let seasons = ((try? await client.seasons(userID: session.userID, seriesID: seriesID)) ?? [])
+        let seasons = ((try? await client.seasons(userID: sessionID, seriesID: seriesID)) ?? [])
             .sorted(by: episodeOrder)
+        guard self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return nil }
         guard let currentSeasonIndex = seasons.firstIndex(where: { $0.id == seasonID }) else { return nil }
         for season in seasons.dropFirst(currentSeasonIndex + 1) {
-            let episodes = (try? await client.episodes(userID: session.userID, seriesID: seriesID, seasonID: season.id)) ?? []
+            let episodes = (try? await client.episodes(userID: sessionID, seriesID: seriesID, seasonID: season.id)) ?? []
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return nil }
             if let first = episodes.sorted(by: episodeOrder).first {
                 return first
             }
         }
         return nil
+    }
+
+    private func completedOfflineNextEpisode(after item: MediaItem) -> MediaItem? {
+        guard let current = offlineDownloads.first(where: { $0.itemID == item.id && $0.state == .completed }),
+              let seriesID = current.seriesID,
+              let currentSeason = current.seasonNumber,
+              let currentEpisode = current.episodeNumber else { return nil }
+
+        let currentDescriptor = OfflineEpisodeDescriptor(
+            itemID: current.itemID,
+            seriesID: seriesID,
+            seasonNumber: currentSeason,
+            episodeNumber: currentEpisode
+        )
+        let descriptors = offlineDownloads.compactMap { entry -> OfflineEpisodeDescriptor? in
+            guard entry.state == .completed,
+                  let candidateSeriesID = entry.seriesID,
+                  let season = entry.seasonNumber,
+                  let episode = entry.episodeNumber else { return nil }
+            return OfflineEpisodeDescriptor(
+                itemID: entry.itemID,
+                seriesID: candidateSeriesID,
+                seasonNumber: season,
+                episodeNumber: episode
+            )
+        }
+        guard let candidateDescriptor = OfflineNextEpisodePolicy.next(
+            after: currentDescriptor,
+            candidates: descriptors
+        ), let candidate = offlineDownloads.first(where: { $0.itemID == candidateDescriptor.itemID }) else {
+            return nil
+        }
+
+        return MediaItem(
+            id: candidate.itemID,
+            name: candidate.contextualTitle,
+            type: "Episode",
+            seriesId: candidate.seriesID,
+            seriesName: candidate.seriesName,
+            seasonName: candidate.seasonName,
+            indexNumber: candidate.episodeNumber
+        )
     }
 
     private func episodeOrder(_ lhs: MediaItem, _ rhs: MediaItem) -> Bool {
@@ -1178,67 +1908,234 @@ final class AppModel {
 
     func loadPlaylists() async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            playlistItemsError = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let requestID = UUID()
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        playlistsRequestID = requestID
         isPlaylistLoading = true
-        defer { isPlaylistLoading = false }
-        playlists = (try? await client.playlists(userID: session.userID)) ?? []
+        defer {
+            if playlistsRequestID == requestID { isPlaylistLoading = false }
+        }
+        let loadedPlaylists = (try? await client.playlists(userID: sessionID)) ?? []
+        guard playlistsRequestID == requestID,
+              self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return }
+        playlists = loadedPlaylists
+    }
+
+    func loadPlaylistLibrary() async {
+        guard let session else { return }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        await loadPlaylists()
+        guard self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else { return }
+        guard let playlist = selectedPlaylist.flatMap({ current in playlists.first(where: { $0.id == current.id }) }) ?? playlists.first else {
+            selectedPlaylist = nil
+            playlistItems = []
+            playlistItemsError = nil
+            return
+        }
+        await loadPlaylistItems(playlist)
+    }
+
+    func loadPlaylistItems(_ playlist: Playlist) async {
+        guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            playlistItemsError = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let requestID = UUID()
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        playlistItemsRequestID = requestID
+        selectedPlaylist = playlist
+        playlistItems = []
+        playlistItemsError = nil
+        isPlaylistItemsLoading = true
+        defer {
+            if playlistItemsRequestID == requestID { isPlaylistItemsLoading = false }
+        }
+        do {
+            let items = try await client.allPlaylistItems(userID: sessionID, playlistID: playlist.id)
+            guard playlistItemsRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            playlistItems = items
+        } catch {
+            guard playlistItemsRequestID == requestID,
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+            playlistItemsError = AuthErrorPolicy.serverConnectionMessage(for: error)
+        }
     }
 
     func addToPlaylist(_ playlist: Playlist, item: MediaItem) async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         do {
-            try await client.addToPlaylist(playlistID: playlist.id, itemID: item.id, userID: session.userID)
-        } catch { errorMessage = error.localizedDescription }
+            try await client.addToPlaylist(playlistID: playlist.id, itemID: item.id, userID: sessionID)
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
+        } catch { errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error) }
     }
 
     func createPlaylist(name: String, item: MediaItem) async {
         guard let session, let client else { return }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            errorMessage = NetworkRequestPolicy.offlineMessage
+            return
+        }
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanName.isEmpty else { return }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         do {
-            let created = try await client.createPlaylist(name: cleanName, userID: session.userID, itemID: item.id)
+            let created = try await client.createPlaylist(name: cleanName, userID: sessionID, itemID: item.id)
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return }
             playlists.insert(created, at: 0)
-        } catch { errorMessage = error.localizedDescription }
+        } catch { errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error) }
     }
 
     func playbackURL(for item: MediaItem, resume: Bool = true) async -> URL? {
-        guard let client else { return nil }
-        if let session, let prepared = try? await client.preparedPlaybackURL(
-            userID: session.userID,
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable), let client else { return nil }
+        let sessionID = session?.userID
+        let sessionServerURL = session?.serverURL
+        if let sessionID, let sessionServerURL,
+           let prepared = try? await client.preparedPlaybackURL(
+            userID: sessionID,
             item: item,
             maxStreamingBitrate: defaultQualityStreamingBitrate,
             startTimeTicks: resume && item.playbackPositionTicks > 0 ? item.playbackPositionTicks : nil
         ) {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return nil }
             return prepared
         }
-        return await client.playbackURL(for: item)
+        let fallback = await client.playbackURL(for: item)
+        if let sessionID, let sessionServerURL {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return nil }
+        }
+        return fallback
     }
 
     func submitMediaRequest(title: String, mediaType: String, year: Int?, notes: String) async throws {
-        guard let client else { throw APIError.serverMessage("Conecte-se ao servidor para enviar a solicitação.") }
+        guard let client, let session else { throw APIError.serverMessage("Conecte-se ao servidor para enviar a solicitação.") }
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable) else {
+            throw APIError.serverMessage(NetworkRequestPolicy.offlineMessage)
+        }
+        if let year, !(MediaRequestPolicy.minimumYear...MediaRequestPolicy.maximumYear).contains(year) {
+            throw APIError.serverMessage("Informe um ano entre 1888 e 2200.")
+        }
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
         try await client.requestMedia(title: title, mediaType: mediaType, year: year, notes: notes)
+        guard self.session?.userID == sessionID,
+              self.session?.serverURL == sessionServerURL else {
+            throw APIError.serverMessage("A sessão foi alterada durante o envio da solicitação.")
+        }
+    }
+
+    func updateMediaSuggestions(query: String) {
+        mediaSuggestionGeneration += 1
+        let generation = mediaSuggestionGeneration
+        mediaSuggestionTask?.cancel()
+
+        let normalizedQuery = MediaSuggestionPolicy.normalizedQuery(query)
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable),
+              MediaSuggestionPolicy.shouldQuery(query),
+              let client,
+              let requestSession = session else {
+            mediaSuggestions = []
+            return
+        }
+
+        mediaSuggestionTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: MediaSuggestionPolicy.debounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            guard self?.isNetworkAvailable != false else { return }
+            let result = try? await client.mediaSuggestions(query: normalizedQuery, limit: MediaSuggestionPolicy.resultLimit)
+            guard !Task.isCancelled, let self,
+                  self.mediaSuggestionGeneration == generation,
+                  self.session == requestSession,
+                  self.isNetworkAvailable != false else { return }
+            self.mediaSuggestions = result ?? []
+        }
+    }
+
+    func clearMediaSuggestions() {
+        mediaSuggestionGeneration += 1
+        mediaSuggestionTask?.cancel()
+        mediaSuggestionTask = nil
+        mediaSuggestions = []
     }
 
     func submitPlaybackIssue(item: MediaItem, category: String, description: String) async throws -> PlaybackIssueSubmissionResult {
-        guard let client else { throw APIError.serverMessage("Conecte-se ao servidor para enviar o relato.") }
+        guard let client, let session else { throw APIError.serverMessage("Conecte-se ao servidor para enviar o relato.") }
+        guard !pendingPlaybackIssuesUnreadable else {
+            throw APIError.serverMessage("Os relatos pendentes estão ilegíveis; preserve os dados e tente novamente após recuperar a fila.")
+        }
+        guard PlaybackIssueQueuePolicy.canEnqueue(currentCount: pendingPlaybackIssues.count) else {
+            throw APIError.serverMessage("A fila de relatos está cheia. Envie os relatos pendentes antes de adicionar outro.")
+        }
+        let normalizedDescription = PlaybackIssueQueuePolicy.normalizedDescription(description)
+        let sessionID = session.userID
+        let sessionServerURL = session.serverURL
+        let ownerKey = Self.ownerKey(for: session)
         do {
-            try await client.reportPlaybackIssue(itemID: item.id, category: category, description: description)
+            try await client.reportPlaybackIssue(itemID: item.id, category: category, description: normalizedDescription)
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else {
+                throw APIError.serverMessage("A sessão foi alterada durante o envio do relato.")
+            }
             return .sent
         } catch {
-            guard PlaybackIssueQueuePolicy.shouldQueue(error), let session else { throw error }
-            let entry = QueuedPlaybackIssue(itemID: item.id, category: category, description: description)
+            guard PlaybackIssueQueuePolicy.shouldQueue(error),
+                  self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { throw error }
+            let entry = QueuedPlaybackIssue(itemID: item.id, category: category, description: normalizedDescription)
             pendingPlaybackIssues.append(entry)
-            PlaybackIssueQueueStore.save(pendingPlaybackIssues, ownerKey: Self.ownerKey(for: session))
+            PlaybackIssueQueueStore.save(pendingPlaybackIssues, ownerKey: ownerKey)
             return .queued
         }
     }
 
     func lyrics(for item: MediaItem) async -> [LyricLine] {
-        guard let client else { return [] }
-        return (try? await client.lyrics(itemID: item.id)) ?? []
+        guard NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable), let client else { return [] }
+        let sessionID = session?.userID
+        let sessionServerURL = session?.serverURL
+        let loaded = (try? await client.lyrics(itemID: item.id)) ?? []
+        if let sessionID, let sessionServerURL {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return [] }
+        }
+        return loaded
     }
 
     func signOut() {
+        sessionMutationID = UUID()
+        searchRequestID = UUID()
+        registrationMutationID = UUID()
+        serverVerificationID = UUID()
+        publicUsersRequestID = UUID()
+        publicUsers = []
+        isRegistering = false
+        isVerifyingServer = false
+        isDiscoveringServers = false
+        isSwitchingUser = false
         cancelQuickConnect()
+        clearMediaSuggestions()
         cancelSeasonDownload()
         seasonDownloadProgress = nil
         downloadTasks.values.forEach { $0.cancel() }
@@ -1247,6 +2144,7 @@ final class AppModel {
         client = nil
         session = nil
         pendingPlaybackIssues = []
+        pendingPlaybackIssuesUnreadable = false
         offlineDownloads = []
         profile = nil
         profileError = nil
@@ -1263,6 +2161,9 @@ final class AppModel {
         resumeItems = []
         nextUpItems = []
         favoriteItems = []
+        resumeItemsFromCache = false
+        favoriteItemsFromCache = false
+        homeCachedAtEpochMillis = nil
         popularItems = []
         movieItems = []
         seriesItems = []
@@ -1278,20 +2179,33 @@ final class AppModel {
         libraryError = nil
         libraryRequestID = UUID()
         isLibraryLoading = false
+        detailRequestID = UUID()
+        seriesRequestID = UUID()
+        playlistsRequestID = UUID()
+        liveTVTimerMutationID = UUID()
+        serverDiscoveryRequestID = UUID()
         searchItems = []
         searchTotalMatching = nil
         searchHints = []
         searchError = nil
+        isSearching = false
         clearSearchHistory()
         seriesSeasons = []
         seriesEpisodes = []
         activeSeriesID = nil
         playlists = []
+        selectedPlaylist = nil
+        playlistItems = []
+        playlistItemsRequestID = UUID()
+        playlistItemsError = nil
+        isPlaylistItemsLoading = false
         liveChannels = []
         livePrograms = []
         liveRecordings = []
         scheduledLiveProgramIDs = []
+        scheduledLiveTimerIDs = [:]
         schedulingLiveProgramIDs = []
+        cancellingLiveProgramIDs = []
         liveTVError = nil
         liveTVRequestID = UUID()
         syncPlayGroups = []
@@ -1300,10 +2214,15 @@ final class AppModel {
         activeSyncPlayGroupID = nil
         isSyncPlaySubmitting = false
         stopSyncPlayRealtime()
+        remotePlaybackRequestID = UUID()
+        remotePlaybackSessions = []
+        remotePlaybackError = nil
+        remotePlaybackBusySessionIDs.removeAll()
         state = .signedOut
     }
 
     private func clearUserScopedContent() {
+        clearMediaSuggestions()
         cancelSeasonDownload()
         seasonDownloadProgress = nil
         profile = nil
@@ -1318,6 +2237,9 @@ final class AppModel {
         resumeItems = []
         nextUpItems = []
         favoriteItems = []
+        resumeItemsFromCache = false
+        favoriteItemsFromCache = false
+        homeCachedAtEpochMillis = nil
         popularItems = []
         movieItems = []
         seriesItems = []
@@ -1333,10 +2255,18 @@ final class AppModel {
         libraryError = nil
         libraryRequestID = UUID()
         isLibraryLoading = false
+        detailRequestID = UUID()
+        seriesRequestID = UUID()
+        playlistsRequestID = UUID()
+        liveTVTimerMutationID = UUID()
+        serverDiscoveryRequestID = UUID()
         searchItems = []
         searchTotalMatching = nil
         searchHints = []
         searchError = nil
+        searchRequestID = UUID()
+        isSearching = false
+        searchHistory = []
         similarItems = []
         specialFeatures = []
         albumTracks = []
@@ -1347,11 +2277,18 @@ final class AppModel {
         isSeriesLoading = false
         playlists = []
         isPlaylistLoading = false
+        selectedPlaylist = nil
+        playlistItems = []
+        playlistItemsRequestID = UUID()
+        playlistItemsError = nil
+        isPlaylistItemsLoading = false
         liveChannels = []
         livePrograms = []
         liveRecordings = []
         scheduledLiveProgramIDs = []
+        scheduledLiveTimerIDs = [:]
         schedulingLiveProgramIDs = []
+        cancellingLiveProgramIDs = []
         liveTVError = nil
         liveTVRequestID = UUID()
         isLiveTVLoading = false
@@ -1362,6 +2299,10 @@ final class AppModel {
         isSyncPlaySubmitting = false
         stopSyncPlayRealtime()
         isSyncPlayLoading = false
+        remotePlaybackRequestID = UUID()
+        remotePlaybackSessions = []
+        remotePlaybackError = nil
+        remotePlaybackBusySessionIDs.removeAll()
     }
 
     private func applyProfile(_ value: UserProfile?) {
@@ -1379,33 +2320,50 @@ final class AppModel {
         OfflineDownloadPolicy.canStart(
             queuePaused: offlineQueuePaused,
             wifiOnly: wifiOnlyDownloads,
-            wifiAvailable: isWiFiAvailable
+            wifiAvailable: isWiFiAvailable,
+            networkAvailable: isNetworkAvailable
         )
     }
 
     private var defaultQualityStreamingBitrate: Int64? {
-        PlaybackQualityPolicy.maxStreamingBitrate(for: defaultQuality)
+        PlaybackQualityPolicy.effectiveStreamingBitrate(for: defaultQuality, isMetered: isMeteredNetwork)
     }
 
-    private func handleNetworkAvailabilityChange(_ available: Bool, wifi: Bool) {
+    private func handleNetworkAvailabilityChange(_ available: Bool, wifi: Bool, metered: Bool) {
         let wasAvailable = previousNetworkAvailability
         previousNetworkAvailability = available
         isNetworkAvailable = available
         isWiFiAvailable = wifi
+        isMeteredNetwork = metered
         if canStartOfflineDownloads {
             resumeQueuedOfflineDownloads()
         }
-        guard available, wasAvailable == false, state == .signedIn else { return }
+        guard available, wasAvailable != true, state == .signedIn else { return }
         Task { @MainActor [weak self] in
-            await self?.loadHome()
-            await self?.loadLibraries()
-            await self?.loadLiveTV()
-            await self?.syncPendingPlaybackIssues()
+            await self?.refreshAuthenticatedContent()
         }
     }
 
+    func refreshAuthenticatedContent() async {
+        guard state == .signedIn,
+              NetworkRequestPolicy.canRequest(isNetworkAvailable: isNetworkAvailable),
+              !isRefreshingAuthenticatedContent else { return }
+        isRefreshingAuthenticatedContent = true
+        defer { isRefreshingAuthenticatedContent = false }
+        await loadHome()
+        await loadLibraries()
+        await reloadSelectedLibrary()
+        await loadFavorites()
+        await loadProfile()
+        await loadLiveTV()
+        await loadPlaylistLibrary()
+        await loadSyncPlay(background: true)
+        await loadRemotePlayback(background: true)
+        await syncPendingPlaybackIssues()
+    }
+
     private func syncPendingPlaybackIssues() async {
-        guard let client, let session else { return }
+        guard !pendingPlaybackIssuesUnreadable, let client, let session else { return }
         let ownerKey = Self.ownerKey(for: session)
         for entry in pendingPlaybackIssues {
             guard self.session?.userID == session.userID,
@@ -1416,6 +2374,8 @@ final class AppModel {
                     category: entry.category,
                     description: entry.description
                 )
+                guard self.session?.userID == session.userID,
+                      self.session?.serverURL == session.serverURL else { return }
                 pendingPlaybackIssues.removeAll { $0.id == entry.id }
                 PlaybackIssueQueueStore.save(pendingPlaybackIssues, ownerKey: ownerKey)
             } catch {
@@ -1424,11 +2384,46 @@ final class AppModel {
         }
     }
 
+    private func loadPendingPlaybackIssues(for session: UserSession?) {
+        guard let session else {
+            pendingPlaybackIssues = []
+            pendingPlaybackIssuesUnreadable = false
+            return
+        }
+        let result = PlaybackIssueQueueStore.loadResult(ownerKey: Self.ownerKey(for: session))
+        pendingPlaybackIssues = result.entries
+        pendingPlaybackIssuesUnreadable = result.isCorrupted
+    }
+
     private func resumeQueuedOfflineDownloads() {
+        guard canStartOfflineDownloads else { return }
         offlineDownloads
             .filter { $0.state == .queued && downloadTasks[$0.id] == nil }
             .compactMap { entry in URL(string: entry.sourceURL).map { (entry, $0) } }
             .forEach { entry, url in startOfflineDownload(entry, url: url) }
+    }
+
+    private func cacheOfflineArtwork(for item: MediaItem, ownerKey: String) async {
+        guard OfflineDownloadScope.acceptsCallback(ownerKey: ownerKey, currentOwnerKey: downloadOwnerKey),
+              let client,
+              let data = try? await client.imageData(for: item) else { return }
+        try? OfflineDownloadStore.saveArtworkData(data, itemID: item.id, ownerKey: ownerKey)
+    }
+
+    private func downloadOfflineSubtitles(for entry: OfflineDownload, ownerKey: String) async -> [OfflineSubtitleEntry] {
+        guard let client else { return [] }
+        var stored: [OfflineSubtitleEntry] = []
+        for subtitle in entry.subtitles {
+            guard OfflineDownloadScope.acceptsCallback(ownerKey: ownerKey, currentOwnerKey: downloadOwnerKey) else { return stored }
+            do {
+                let data = try await client.subtitleStreamData(itemID: entry.itemID, streamIndex: subtitle.streamIndex, mediaSourceID: subtitle.mediaSourceID)
+                try OfflineDownloadStore.saveSubtitleData(data, fileName: subtitle.fileName, ownerKey: ownerKey)
+                stored.append(subtitle)
+            } catch {
+                OfflineDownloadStore.removeFile(subtitle.fileName, ownerKey: ownerKey)
+            }
+        }
+        return stored
     }
 
     private func startOfflineDownload(_ entry: OfflineDownload, url: URL, reattachExisting: Bool = false) {
@@ -1471,7 +2466,8 @@ final class AppModel {
                 guard OfflineDownloadScope.acceptsCallback(ownerKey: ownerKey, currentOwnerKey: self.downloadOwnerKey) else { return }
                 try OfflineDownloadStore.move(temporaryURL, to: entry.fileName, ownerKey: ownerKey)
                 let completed = self.offlineDownloads.first(where: { $0.id == entry.id }) ?? startingEntry
-                self.upsertDownload(completed.with(state: .completed, percent: 100, error: nil))
+                let storedSubtitles = await self.downloadOfflineSubtitles(for: completed, ownerKey: ownerKey)
+                self.upsertDownload(completed.with(state: .completed, percent: 100, error: nil).with(subtitles: storedSubtitles))
             } catch let paused as OfflineDownloadPaused {
                 if OfflineDownloadScope.acceptsCallback(ownerKey: ownerKey, currentOwnerKey: self.downloadOwnerKey),
                    let current = self.offlineDownloads.first(where: { $0.id == entry.id }) {
@@ -1482,7 +2478,10 @@ final class AppModel {
                 return
             } catch {
                 guard OfflineDownloadScope.acceptsCallback(ownerKey: ownerKey, currentOwnerKey: self.downloadOwnerKey) else { return }
-                self.upsertDownload(entry.with(state: .failed, percent: 0, error: error.localizedDescription))
+                let message = OfflineDownloadFailurePolicy.isInsufficientStorage(error)
+                    ? OfflineDownloadFailurePolicy.insufficientStorageMessage
+                    : AuthErrorPolicy.serverConnectionMessage(for: error)
+                self.upsertDownload(entry.with(state: .failed, percent: 0, error: message))
             }
             self.downloadTasks[entry.id] = nil
         }
@@ -1526,34 +2525,61 @@ final class AppModel {
         downloadTasks.removeAll()
     }
 
-    private func pollQuickConnect(api: APIClient, secret: String) async {
+    private func pollQuickConnect(api: APIClient, secret: String, mutationID: UUID) async {
         do {
             for attempt in 0..<100 {
+                guard sessionMutationID == mutationID else { return }
                 if attempt > 0 { try await Task.sleep(for: .seconds(3)) }
                 try Task.checkCancellation()
-                let status = try await api.connectQuickConnect(secret: secret)
+                let status: QuickConnectResult
+                do {
+                    status = try await api.connectQuickConnect(secret: secret)
+                } catch {
+                    if let message = QuickConnectErrorPolicy.terminalMessage(for: error) {
+                        guard sessionMutationID == mutationID else { return }
+                        isQuickConnectWaiting = false
+                        quickConnectCode = nil
+                        quickConnectSecondsRemaining = nil
+                        errorMessage = message
+                        return
+                    }
+                    guard QuickConnectErrorPolicy.shouldContinuePolling(after: error) else { throw error }
+                    continue
+                }
+                guard sessionMutationID == mutationID else { return }
                 quickConnectSecondsRemaining = max(0, 300 - attempt * 3)
                 if status.authenticated {
                     let saved = try await api.authenticateQuickConnect(secret: secret)
+                    guard sessionMutationID == mutationID else { return }
                     try sessionStore.save(saved)
                     cancelActiveDownloadsForSessionChange()
                     rememberServer(url: saved.serverURL, info: serverInfo)
                     client = api
                     session = saved
                     offlineDownloads = OfflineDownloadStore.load(ownerKey: Self.ownerKey(for: saved))
-                    pendingPlaybackIssues = PlaybackIssueQueueStore.load(ownerKey: Self.ownerKey(for: saved))
+                    loadPendingPlaybackIssues(for: saved)
                     password = ""
                     isQuickConnectWaiting = false
                     quickConnectCode = nil
                     quickConnectSecondsRemaining = nil
-                    try await loadHome(using: api, userID: saved.userID)
-                    try await loadLibraries(using: api, userID: saved.userID)
-                    applyProfile(try? await api.userProfile(userID: saved.userID))
+                    let contentRequestID = UUID()
+                    homeRequestID = contentRequestID
+                    favoritesRequestID = contentRequestID
+                    librariesRequestID = contentRequestID
+                    try await loadHome(using: api, userID: saved.userID, serverURL: saved.serverURL, requestID: contentRequestID)
+                    guard sessionMutationID == mutationID else { return }
+                    try await loadLibraries(using: api, userID: saved.userID, requestID: contentRequestID)
+                    guard sessionMutationID == mutationID else { return }
+                    let loadedProfile = try? await api.userProfile(userID: saved.userID)
+                    guard sessionMutationID == mutationID else { return }
+                    applyProfile(loadedProfile)
+                    guard sessionMutationID == mutationID else { return }
                     state = .signedIn
                     await syncPendingPlaybackIssues()
                     return
                 }
             }
+            guard sessionMutationID == mutationID else { return }
             isQuickConnectWaiting = false
             quickConnectCode = nil
             quickConnectSecondsRemaining = nil
@@ -1561,23 +2587,38 @@ final class AppModel {
         } catch is CancellationError {
             return
         } catch {
+            guard sessionMutationID == mutationID else { return }
             isQuickConnectWaiting = false
             quickConnectCode = nil
             quickConnectSecondsRemaining = nil
-            errorMessage = error.localizedDescription
+            errorMessage = AuthErrorPolicy.serverConnectionMessage(for: error)
         }
     }
 
     func imageURL(for item: MediaItem) async -> URL? {
-        await client?.imageURL(for: item)
+        let sessionID = session?.userID
+        let sessionServerURL = session?.serverURL
+        let loaded = await client?.imageURL(for: item)
+        if let sessionID, let sessionServerURL {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return nil }
+        }
+        return loaded
     }
 
     func profileImageURL() async -> URL? {
         guard let profile else { return nil }
-        return await client?.userImageURL(userID: profile.id, tag: profile.primaryImageTag)
+        let sessionID = session?.userID
+        let sessionServerURL = session?.serverURL
+        let loaded = await client?.userImageURL(userID: profile.id, tag: profile.primaryImageTag)
+        if let sessionID, let sessionServerURL {
+            guard self.session?.userID == sessionID,
+                  self.session?.serverURL == sessionServerURL else { return nil }
+        }
+        return loaded
     }
 
-    private func loadHome(using api: APIClient, userID: String, requestID: UUID? = nil) async throws {
+    private func loadHome(using api: APIClient, userID: String, serverURL: URL? = nil, requestID: UUID? = nil) async throws {
         async let latest = api.latestItems(userID: userID)
         async let resume = api.resumeItems(userID: userID)
         async let nextUp = api.nextUpItems(userID: userID)
@@ -1589,13 +2630,43 @@ final class AppModel {
         guard requestID == nil || homeRequestID == requestID else { return }
         latestItems = loadedLatest
         heroItem = latestItems.first
-        let loadedResume = try await resume
+        let loadedResume: [MediaItem]
+        do {
+            loadedResume = try await resume
+            if isCurrentSession(userID: userID, serverURL: serverURL), let currentSession = session {
+                HomeSnapshotStore.save(resumeItems: loadedResume, favoriteItems: nil, ownerKey: Self.ownerKey(for: currentSession))
+            }
+        } catch {
+            guard HomeSnapshotPolicy.shouldUseCache(for: error),
+                  isCurrentSession(userID: userID, serverURL: serverURL),
+                  let currentSession = session,
+                  let snapshot = HomeSnapshotStore.load(ownerKey: Self.ownerKey(for: currentSession)),
+                  snapshot.resumeSavedAtEpochMillis > 0 else { throw error }
+            loadedResume = snapshot.resumeItems.map(\.mediaItem)
+            resumeItemsFromCache = true
+            homeCachedAtEpochMillis = snapshot.resumeSavedAtEpochMillis
+        }
         guard requestID == nil || homeRequestID == requestID else { return }
         resumeItems = loadedResume
         guard requestID == nil || homeRequestID == requestID else { return }
         nextUpItems = (try? await nextUp) ?? []
         guard requestID == nil || homeRequestID == requestID else { return }
-        let loadedFavorites = (try? await favorites) ?? []
+        let loadedFavorites: [MediaItem]
+        do {
+            loadedFavorites = try await favorites
+            if isCurrentSession(userID: userID, serverURL: serverURL), let currentSession = session {
+                HomeSnapshotStore.save(resumeItems: nil, favoriteItems: loadedFavorites, ownerKey: Self.ownerKey(for: currentSession))
+            }
+        } catch {
+            guard HomeSnapshotPolicy.shouldUseCache(for: error),
+                  isCurrentSession(userID: userID, serverURL: serverURL),
+                  let currentSession = session,
+                  let snapshot = HomeSnapshotStore.load(ownerKey: Self.ownerKey(for: currentSession)),
+                  snapshot.favoritesSavedAtEpochMillis > 0 else { throw error }
+            loadedFavorites = snapshot.favoriteItems.map(\.mediaItem)
+            favoriteItemsFromCache = true
+            homeCachedAtEpochMillis = snapshot.favoritesSavedAtEpochMillis
+        }
         guard requestID == nil || (homeRequestID == requestID && favoritesRequestID == requestID) else { return }
         favoriteItems = loadedFavorites
         guard requestID == nil || homeRequestID == requestID else { return }
@@ -1604,6 +2675,26 @@ final class AppModel {
         movieItems = (try? await movies)?.items ?? []
         guard requestID == nil || homeRequestID == requestID else { return }
         seriesItems = (try? await series)?.items ?? []
+    }
+
+    @discardableResult
+    private func applyHomeSnapshotIfAvailable(ownerKey: String) -> Bool {
+        guard let snapshot = HomeSnapshotStore.load(ownerKey: ownerKey) else { return false }
+        var hasSnapshot = false
+        if snapshot.resumeSavedAtEpochMillis > 0 {
+            resumeItems = snapshot.resumeItems.map(\.mediaItem)
+            resumeItemsFromCache = true
+            hasSnapshot = true
+        }
+        if snapshot.favoritesSavedAtEpochMillis > 0 {
+            favoriteItems = snapshot.favoriteItems.map(\.mediaItem)
+            favoriteItemsFromCache = true
+            hasSnapshot = true
+        }
+        homeCachedAtEpochMillis = [snapshot.resumeSavedAtEpochMillis, snapshot.favoritesSavedAtEpochMillis]
+            .filter { $0 > 0 }
+            .max()
+        return hasSnapshot
     }
 
     private func loadLibraries(using api: APIClient, userID: String, requestID: UUID? = nil) async throws {
@@ -1635,12 +2726,23 @@ final class AppModel {
         searchHistory.removeAll { $0.caseInsensitiveCompare(term) == .orderedSame }
         searchHistory.insert(term, at: 0)
         if searchHistory.count > 10 { searchHistory.removeLast(searchHistory.count - 10) }
-        UserDefaults.standard.set(searchHistory, forKey: "search.history")
+        persistSearchHistory()
+    }
+
+    private func persistSearchHistory() {
+        guard let session else { return }
+        SearchHistoryStore.save(searchHistory, ownerKey: Self.ownerKey(for: session))
     }
 
     private func rememberServer(url: URL, info: ServerInfo?) {
         let value = url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let entry = SavedServer(url: value, name: info?.displayName ?? "Servidor MulletaFlix", version: info?.version)
+        let previous = savedServers.first { $0.url.caseInsensitiveCompare(value) == .orderedSame }
+        let entry = SavedServer(
+            url: value,
+            name: info?.displayName ?? previous?.name ?? "Servidor MulletaFlix",
+            version: info?.version ?? previous?.version,
+            serverID: info?.id ?? previous?.serverID
+        )
         savedServers.removeAll { $0.id.caseInsensitiveCompare(entry.id) == .orderedSame }
         savedServers.insert(entry, at: 0)
         if savedServers.count > 8 { savedServers.removeLast(savedServers.count - 8) }
@@ -1720,9 +2822,67 @@ struct SeasonDownloadProgress: Equatable {
     }
 }
 
+struct OfflineSubtitleEntry: Codable, Equatable, Hashable {
+    let streamIndex: Int
+    let fileName: String
+    let mimeType: String
+    let mediaSourceID: String?
+    let language: String?
+    let label: String?
+    let isDefault: Bool
+    let isForced: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case streamIndex, fileName, mimeType, mediaSourceID, language, label, isDefault, isForced
+    }
+
+    init(streamIndex: Int, fileName: String, mimeType: String, mediaSourceID: String? = nil, language: String?, label: String?, isDefault: Bool, isForced: Bool) {
+        self.streamIndex = streamIndex
+        self.fileName = fileName
+        self.mimeType = mimeType
+        self.mediaSourceID = mediaSourceID
+        self.language = language
+        self.label = label
+        self.isDefault = isDefault
+        self.isForced = isForced
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        streamIndex = try container.decode(Int.self, forKey: .streamIndex)
+        fileName = try container.decode(String.self, forKey: .fileName)
+        mimeType = try container.decode(String.self, forKey: .mimeType)
+        mediaSourceID = try container.decodeIfPresent(String.self, forKey: .mediaSourceID)
+        language = try container.decodeIfPresent(String.self, forKey: .language)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+        isDefault = try container.decode(Bool.self, forKey: .isDefault)
+        isForced = try container.decode(Bool.self, forKey: .isForced)
+    }
+
+    var mediaStream: MediaStream {
+        MediaStream(
+            index: streamIndex,
+            type: "Subtitle",
+            codec: mimeType,
+            language: language,
+            displayLanguage: language,
+            displayTitle: label,
+            isDefault: isDefault,
+            isForced: isForced,
+            isExternal: true,
+            deliveryURL: fileName
+        )
+    }
+}
+
 struct OfflineDownload: Codable, Identifiable, Equatable {
     let itemID: String
     let title: String
+    let seriesID: String?
+    let seriesName: String?
+    let seasonName: String?
+    let seasonNumber: Int?
+    let episodeNumber: Int?
     let state: OfflineDownloadState
     let percent: Int
     let fileName: String
@@ -1732,12 +2892,30 @@ struct OfflineDownload: Codable, Identifiable, Equatable {
     let bytesDownloaded: Int64
     let contentLength: Int64?
     let resumeData: Data?
+    let subtitles: [OfflineSubtitleEntry]
 
     var id: String { itemID }
 
-    init(itemID: String, title: String, state: OfflineDownloadState, percent: Int, fileName: String, sourceURL: String = "", artworkURL: String? = nil, error: String? = nil, bytesDownloaded: Int64 = 0, contentLength: Int64? = nil, resumeData: Data? = nil) {
+    var contextualTitle: String {
+        guard let seriesName, !seriesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let episodeNumber, episodeNumber > 0 else { return title }
+        let seasonLabel: String
+        if let seasonNumber, seasonNumber > 0 {
+            seasonLabel = "T\(seasonNumber)"
+        } else {
+            seasonLabel = "Especial"
+        }
+        return "\(seriesName) · \(seasonLabel) · E\(episodeNumber)"
+    }
+
+    init(itemID: String, title: String, seriesID: String? = nil, seriesName: String? = nil, seasonName: String? = nil, seasonNumber: Int? = nil, episodeNumber: Int? = nil, state: OfflineDownloadState, percent: Int, fileName: String, sourceURL: String = "", artworkURL: String? = nil, error: String? = nil, bytesDownloaded: Int64 = 0, contentLength: Int64? = nil, resumeData: Data? = nil, subtitles: [OfflineSubtitleEntry] = []) {
         self.itemID = itemID
         self.title = title
+        self.seriesID = seriesID
+        self.seriesName = seriesName
+        self.seasonName = seasonName
+        self.seasonNumber = seasonNumber
+        self.episodeNumber = episodeNumber
         self.state = state
         self.percent = percent
         self.fileName = fileName
@@ -1747,10 +2925,11 @@ struct OfflineDownload: Codable, Identifiable, Equatable {
         self.bytesDownloaded = bytesDownloaded
         self.contentLength = contentLength
         self.resumeData = resumeData
+        self.subtitles = subtitles
     }
 
     private enum CodingKeys: String, CodingKey {
-        case itemID, title, state, percent, fileName, sourceURL, artworkURL, error, bytesDownloaded, contentLength, resumeData
+        case itemID, title, seriesID, seriesName, seasonName, seasonNumber, episodeNumber, state, percent, fileName, sourceURL, artworkURL, error, bytesDownloaded, contentLength, resumeData, subtitles
     }
 
     init(from decoder: Decoder) throws {
@@ -1758,6 +2937,11 @@ struct OfflineDownload: Codable, Identifiable, Equatable {
         self.init(
             itemID: try values.decode(String.self, forKey: .itemID),
             title: try values.decode(String.self, forKey: .title),
+            seriesID: try values.decodeIfPresent(String.self, forKey: .seriesID),
+            seriesName: try values.decodeIfPresent(String.self, forKey: .seriesName),
+            seasonName: try values.decodeIfPresent(String.self, forKey: .seasonName),
+            seasonNumber: try values.decodeIfPresent(Int.self, forKey: .seasonNumber),
+            episodeNumber: try values.decodeIfPresent(Int.self, forKey: .episodeNumber),
             state: try values.decode(OfflineDownloadState.self, forKey: .state),
             percent: try values.decode(Int.self, forKey: .percent),
             fileName: try values.decode(String.self, forKey: .fileName),
@@ -1766,20 +2950,25 @@ struct OfflineDownload: Codable, Identifiable, Equatable {
             error: try values.decodeIfPresent(String.self, forKey: .error),
             bytesDownloaded: try values.decodeIfPresent(Int64.self, forKey: .bytesDownloaded) ?? 0,
             contentLength: try values.decodeIfPresent(Int64.self, forKey: .contentLength),
-            resumeData: try values.decodeIfPresent(Data.self, forKey: .resumeData)
+            resumeData: try values.decodeIfPresent(Data.self, forKey: .resumeData),
+            subtitles: try values.decodeIfPresent([OfflineSubtitleEntry].self, forKey: .subtitles) ?? []
         )
     }
 
     func with(state: OfflineDownloadState, percent: Int, error: String?) -> OfflineDownload {
-        OfflineDownload(itemID: itemID, title: title, state: state, percent: percent, fileName: fileName, sourceURL: sourceURL, artworkURL: artworkURL, error: error, bytesDownloaded: bytesDownloaded, contentLength: contentLength, resumeData: resumeData)
+        OfflineDownload(itemID: itemID, title: title, seriesID: seriesID, seriesName: seriesName, seasonName: seasonName, seasonNumber: seasonNumber, episodeNumber: episodeNumber, state: state, percent: percent, fileName: fileName, sourceURL: sourceURL, artworkURL: artworkURL, error: error, bytesDownloaded: bytesDownloaded, contentLength: contentLength, resumeData: resumeData, subtitles: subtitles)
     }
 
     func withProgress(percent: Int, bytesDownloaded: Int64, contentLength: Int64?) -> OfflineDownload {
-        OfflineDownload(itemID: itemID, title: title, state: state, percent: percent, fileName: fileName, sourceURL: sourceURL, artworkURL: artworkURL, error: error, bytesDownloaded: bytesDownloaded, contentLength: contentLength, resumeData: resumeData)
+        OfflineDownload(itemID: itemID, title: title, seriesID: seriesID, seriesName: seriesName, seasonName: seasonName, seasonNumber: seasonNumber, episodeNumber: episodeNumber, state: state, percent: percent, fileName: fileName, sourceURL: sourceURL, artworkURL: artworkURL, error: error, bytesDownloaded: bytesDownloaded, contentLength: contentLength, resumeData: resumeData, subtitles: subtitles)
     }
 
     func withResumeData(_ value: Data?) -> OfflineDownload {
-        OfflineDownload(itemID: itemID, title: title, state: state, percent: percent, fileName: fileName, sourceURL: sourceURL, artworkURL: artworkURL, error: error, bytesDownloaded: bytesDownloaded, contentLength: contentLength, resumeData: value)
+        OfflineDownload(itemID: itemID, title: title, seriesID: seriesID, seriesName: seriesName, seasonName: seasonName, seasonNumber: seasonNumber, episodeNumber: episodeNumber, state: state, percent: percent, fileName: fileName, sourceURL: sourceURL, artworkURL: artworkURL, error: error, bytesDownloaded: bytesDownloaded, contentLength: contentLength, resumeData: value, subtitles: subtitles)
+    }
+
+    func with(subtitles: [OfflineSubtitleEntry]) -> OfflineDownload {
+        OfflineDownload(itemID: itemID, title: title, seriesID: seriesID, seriesName: seriesName, seasonName: seasonName, seasonNumber: seasonNumber, episodeNumber: episodeNumber, state: state, percent: percent, fileName: fileName, sourceURL: sourceURL, artworkURL: artworkURL, error: error, bytesDownloaded: bytesDownloaded, contentLength: contentLength, resumeData: resumeData, subtitles: subtitles)
     }
 }
 
@@ -1979,6 +3168,11 @@ private enum OfflineDownloadStore {
         directory(ownerKey: ownerKey).appendingPathComponent(fileName)
     }
 
+    static func existingURL(for fileName: String, ownerKey: String) -> URL? {
+        let value = url(for: fileName, ownerKey: ownerKey)
+        return fileManager.fileExists(atPath: value.path) ? value : nil
+    }
+
     static func move(_ temporaryURL: URL, to fileName: String, ownerKey: String) throws {
         let destination = url(for: fileName, ownerKey: ownerKey)
         if fileManager.fileExists(atPath: destination.path) { try fileManager.removeItem(at: destination) }
@@ -1988,6 +3182,76 @@ private enum OfflineDownloadStore {
     static func removeFile(_ fileName: String, ownerKey: String) {
         try? fileManager.removeItem(at: url(for: fileName, ownerKey: ownerKey))
     }
+
+    static func artworkFileName(itemID: String) -> String {
+        OfflineArtworkPolicy.fileName(for: itemID)
+    }
+
+    static func artworkURL(itemID: String, ownerKey: String) -> URL? {
+        let destination = url(for: artworkFileName(itemID: itemID), ownerKey: ownerKey)
+        return fileManager.fileExists(atPath: destination.path) ? destination : nil
+    }
+
+    static func saveArtworkData(_ data: Data, itemID: String, ownerKey: String) throws {
+        guard OfflineArtworkPolicy.accepts(data) else { return }
+        let destination = url(for: artworkFileName(itemID: itemID), ownerKey: ownerKey)
+        let temporary = destination.appendingPathExtension("pending")
+        try data.write(to: temporary, options: .atomic)
+        if fileManager.fileExists(atPath: destination.path) { try fileManager.removeItem(at: destination) }
+        try fileManager.moveItem(at: temporary, to: destination)
+    }
+
+    static func removeArtwork(itemID: String, ownerKey: String) {
+        removeFile(artworkFileName(itemID: itemID), ownerKey: ownerKey)
+    }
+
+    static func subtitleFileName(itemID: String, streamIndex: Int, mimeType: String) -> String {
+        let encodedID = Data(itemID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        let extensionName: String
+        switch mimeType.lowercased() {
+        case "application/x-subrip": extensionName = "srt"
+        case "text/vtt": extensionName = "vtt"
+        case "text/x-ssa": extensionName = "ass"
+        case "application/ttml+xml": extensionName = "ttml"
+        default: extensionName = "txt"
+        }
+        return "\(encodedID)-subtitle-\(streamIndex).\(extensionName)"
+    }
+
+    static func subtitleURL(fileName: String, ownerKey: String) -> URL {
+        url(for: fileName, ownerKey: ownerKey)
+    }
+
+    static func saveSubtitleData(_ data: Data, fileName: String, ownerKey: String) throws {
+        guard !data.isEmpty, data.count <= 4 * 1024 * 1024,
+              !data.contains(0),
+              let text = String(data: data, encoding: .utf8),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OfflineSubtitleStoreError.invalidContent
+        }
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.hasPrefix("<html") && !normalized.hasPrefix("<!doctype html") else {
+            throw OfflineSubtitleStoreError.invalidContent
+        }
+        let destination = subtitleURL(fileName: fileName, ownerKey: ownerKey)
+        let temporary = destination.appendingPathExtension("pending")
+        try data.write(to: temporary, options: .atomic)
+        if fileManager.fileExists(atPath: destination.path) { try fileManager.removeItem(at: destination) }
+        try fileManager.moveItem(at: temporary, to: destination)
+    }
+
+    static func removeSubtitleFiles(_ subtitles: [OfflineSubtitleEntry], ownerKey: String) {
+        subtitles.forEach { removeFile($0.fileName, ownerKey: ownerKey) }
+    }
+}
+
+private enum OfflineSubtitleStoreError: LocalizedError {
+    case invalidContent
+
+    var errorDescription: String? { "O conteúdo offline não é uma legenda de texto válida." }
 }
 
 /// UDP discovery compatible with the Android client and Jellyfin's LAN contract.
@@ -1996,11 +3260,18 @@ private final class LocalServerDiscovery: @unchecked Sendable {
     private let message = Data("who is MulletaFlixServer?".utf8)
 
     func discover(timeout: TimeInterval = 2.5) async -> [DiscoveredServer] {
+        let boundedTimeout = ServerDiscoveryTimingPolicy.boundedWindow(timeout)
+        let startUptime = ProcessInfo.processInfo.systemUptime
         await withTaskGroup(of: [DiscoveredServer].self) { group in
-            group.addTask { await self.probe(host: "255.255.255.255", timeout: timeout) }
+            group.addTask { await self.probe(host: "255.255.255.255", timeout: boundedTimeout) }
             group.addTask {
                 try? await Task.sleep(for: .milliseconds(750))
-                return await self.probe(host: "255.255.255.255", timeout: timeout)
+                let elapsed = ProcessInfo.processInfo.systemUptime - startUptime
+                let remaining = ServerDiscoveryTimingPolicy.remainingWindow(
+                    total: boundedTimeout,
+                    elapsed: elapsed,
+                )
+                return await self.probe(host: "255.255.255.255", timeout: remaining)
             }
             var merged: [String: DiscoveredServer] = [:]
             for await servers in group {
@@ -2011,6 +3282,7 @@ private final class LocalServerDiscovery: @unchecked Sendable {
     }
 
     private func probe(host: String, timeout: TimeInterval) async -> [DiscoveredServer] {
+        guard timeout > 0 else { return [] }
         await withCheckedContinuation { continuation in
             let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .udp)
             let queue = DispatchQueue(label: "com.mulletaflix.ios.discovery")

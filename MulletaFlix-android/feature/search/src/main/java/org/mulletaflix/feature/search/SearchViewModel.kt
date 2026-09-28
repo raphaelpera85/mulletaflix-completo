@@ -195,6 +195,12 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    /** Records the selected title without replacing the current search, which stays available on back. */
+    fun selectHint(hint: SearchHintItem) {
+        val normalizedQuery = normalizeSearchQuery(hint.name) ?: return
+        rememberSearch(normalizedQuery, currentUserId)
+    }
+
     /**
      * Puts [query] at the top of the recent list and stores it.
      *

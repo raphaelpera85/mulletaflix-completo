@@ -13,7 +13,9 @@
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -35,6 +37,8 @@
 	<string>O MulletaFlix usa a rede local para encontrar servidores disponíveis.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>O MulletaFlix usa o microfone para pesquisar filmes, séries e músicas por voz.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>O MulletaFlix usa a câmera para ler o QR code de um servidor.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>O MulletaFlix usa o reconhecimento de fala para transformar sua voz em uma busca.</string>
 	<key>UILaunchScreen</key>

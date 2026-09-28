@@ -19,6 +19,17 @@ class ExternalSubtitlePolicyTest {
     }
 
     @Test
+    fun `uses server converted WebVTT delivery format for an SRT source`() {
+        assertEquals(
+            "text/vtt",
+            externalSubtitleMimeType(
+                codec = "srt",
+                deliveryUrl = "/Videos/item/source/Subtitles/3/0/Stream.vtt?api_key=secret",
+            ),
+        )
+    }
+
+    @Test
     fun `builds fallback route with encoded item and source ids`() {
         assertEquals(
             "Items/item%20one/Subtitles/4/Stream?MediaSourceId=source%2Ftwo",

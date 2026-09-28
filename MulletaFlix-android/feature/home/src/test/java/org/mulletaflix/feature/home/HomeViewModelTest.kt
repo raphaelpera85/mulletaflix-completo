@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -264,6 +265,176 @@ class HomeViewModelTest {
         assertEquals("next offline", state.nextUpError)
         assertEquals("favorites offline", state.favoritesError)
         assertEquals(false, state.isLoading)
+    }
+
+    @Test fun `retrying recent items reloads only the failed library and preserves other sections`() = runTest {
+        val resume = MediaItem("resume", "Retomar", MediaItemType.Movie)
+        val otherLibraryItem = MediaItem("other-item", "Outra mídia", MediaItemType.Movie)
+        val retriedItem = MediaItem("retried-item", "Mídia recuperada", MediaItemType.Movie)
+        val firstLibrary = MediaItem("library-one", "Filmes", MediaItemType.CollectionFolder, isFolder = true)
+        val secondLibrary = MediaItem("library-two", "Séries", MediaItemType.CollectionFolder, isFolder = true)
+        val retryResponse = CompletableDeferred<Result<List<MediaItem>>>()
+        val latestRequests = mutableListOf<String?>()
+        var resumeRequests = 0
+        var nextUpRequests = 0
+        var libraryRequests = 0
+        var liveTvRequests = 0
+        var favoritesRequests = 0
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int): Result<List<MediaItem>> {
+                resumeRequests++
+                return Result.success(listOf(resume))
+            }
+            override suspend fun getNextUp(userId: String, limit: Int): Result<List<MediaItem>> {
+                nextUpRequests++
+                return Result.success(emptyList())
+            }
+            override suspend fun getLibraries(userId: String): Result<List<MediaItem>> {
+                libraryRequests++
+                return Result.success(listOf(firstLibrary, secondLibrary))
+            }
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> {
+                latestRequests += parentId
+                return when (parentId) {
+                    firstLibrary.id -> if (latestRequests.count { it == firstLibrary.id } == 1) {
+                        Result.failure(IllegalStateException("HTTP 503"))
+                    } else {
+                        retryResponse.await()
+                    }
+                    secondLibrary.id -> Result.success(listOf(otherLibraryItem))
+                    else -> error("Retry requested unknown library $parentId")
+                }
+            }
+            override suspend fun getItems(
+                userId: String,
+                parentId: String?,
+                includeItemTypes: String?,
+                sortBy: String?,
+                sortOrder: String?,
+                filters: String?,
+                searchTerm: String?,
+                startIndex: Int,
+                limit: Int,
+                genres: String?,
+                years: String?,
+                officialRatings: String?,
+                isPlayed: Boolean?,
+                isFavorite: Boolean?,
+            ): Result<Pair<List<MediaItem>, Int>> {
+                favoritesRequests++
+                return Result.success(emptyList<MediaItem>() to 0)
+            }
+            override suspend fun getLiveTvChannelPreview(userId: String): Result<List<MediaItem>> {
+                liveTvRequests++
+                return Result.success(emptyList())
+            }
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+
+        assertEquals("HTTP 503", viewModel.state.value.recentlyAddedErrorsByLibrary[firstLibrary.id])
+        assertEquals(listOf(otherLibraryItem), viewModel.state.value.recentlyAddedByLibrary[secondLibrary.id])
+        viewModel.retryRecentlyAdded(firstLibrary.id)
+        runCurrent()
+        assertEquals(setOf(firstLibrary.id), viewModel.state.value.retryingRecentlyAddedLibraryIds)
+        assertEquals("HTTP 503", viewModel.state.value.recentlyAddedErrorsByLibrary[firstLibrary.id])
+
+        retryResponse.complete(Result.success(listOf(retriedItem)))
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(listOf(firstLibrary.id, secondLibrary.id, firstLibrary.id), latestRequests)
+        assertEquals(listOf(retriedItem), state.recentlyAddedByLibrary[firstLibrary.id])
+        assertEquals(listOf(otherLibraryItem), state.recentlyAddedByLibrary[secondLibrary.id])
+        assertFalse(state.recentlyAddedErrorsByLibrary.containsKey(firstLibrary.id))
+        assertTrue(state.retryingRecentlyAddedLibraryIds.isEmpty())
+        assertEquals(listOf(resume), state.resumeItems)
+        assertEquals(1, resumeRequests)
+        assertEquals(1, nextUpRequests)
+        assertEquals(1, libraryRequests)
+        assertEquals(1, liveTvRequests)
+        assertEquals(1, favoritesRequests)
+    }
+
+    @Test fun `global refresh rejects an older in-flight library retry response`() = runTest {
+        val library = MediaItem("library", "Filmes", MediaItemType.CollectionFolder, isFolder = true)
+        val staleRetryItem = MediaItem("stale", "Resultado antigo", MediaItemType.Movie)
+        val refreshedItem = MediaItem("fresh", "Resultado atualizado", MediaItemType.Movie)
+        val pendingRetry = CompletableDeferred<Result<List<MediaItem>>>()
+        var latestRequests = 0
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(listOf(library))
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> {
+                latestRequests++
+                return when (latestRequests) {
+                    1 -> Result.failure(IllegalStateException("HTTP 503"))
+                    2 -> pendingRetry.await()
+                    else -> Result.success(listOf(refreshedItem))
+                }
+            }
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository),
+            FakeSessionRepository(userId = "u1"),
+            FakeNetworkMonitor(),
+            FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+
+        viewModel.retryRecentlyAdded(library.id)
+        runCurrent()
+        assertTrue(viewModel.state.value.retryingRecentlyAddedLibraryIds.contains(library.id))
+        viewModel.refresh()
+        advanceUntilIdle()
+        pendingRetry.complete(Result.success(listOf(staleRetryItem)))
+        advanceUntilIdle()
+
+        assertEquals(3, latestRequests)
+        assertEquals(listOf(refreshedItem), viewModel.state.value.recentlyAddedByLibrary[library.id])
+        assertTrue(viewModel.state.value.retryingRecentlyAddedLibraryIds.isEmpty())
+    }
+
+    @Test fun `library retry ignores response after server changes with same user`() = runTest {
+        val library = MediaItem("library", "Filmes", MediaItemType.CollectionFolder, isFolder = true)
+        val oldItem = MediaItem("old-server-item", "Mídia do servidor antigo", MediaItemType.Movie)
+        val pendingRetry = CompletableDeferred<Result<List<MediaItem>>>()
+        var latestRequests = 0
+        val repository = object : FakeMediaRepository() {
+            override suspend fun getResumeItems(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getNextUp(userId: String, limit: Int) = Result.success(emptyList<MediaItem>())
+            override suspend fun getLibraries(userId: String) = Result.success(listOf(library))
+            override suspend fun getLatestItems(userId: String, parentId: String?, limit: Int): Result<List<MediaItem>> {
+                latestRequests++
+                return if (latestRequests == 1) Result.failure(IllegalStateException("HTTP 503")) else pendingRetry.await()
+            }
+            override suspend fun getLiveTvChannelPreview(userId: String) = Result.success(emptyList<MediaItem>())
+        }
+        val sessionRepository = FakeSessionRepository(userId = "u1")
+        val viewModel = HomeViewModel(
+            GetHomeFeedUseCase(repository), sessionRepository, FakeNetworkMonitor(), FakeAuthRepository(),
+        )
+        advanceUntilIdle()
+
+        viewModel.retryRecentlyAdded(library.id)
+        runCurrent()
+        assertEquals(2, latestRequests)
+        assertEquals("http://localhost:8096", sessionRepository.getBaseUrl().first())
+        sessionRepository.updateBaseUrl("http://new-server.test:8096")
+        assertEquals("http://new-server.test:8096", sessionRepository.getBaseUrl().first())
+        pendingRetry.complete(Result.success(listOf(oldItem)))
+        advanceUntilIdle()
+
+        assertEquals(emptyList<MediaItem>(), viewModel.state.value.recentlyAddedByLibrary[library.id])
+        assertEquals("HTTP 503", viewModel.state.value.recentlyAddedErrorsByLibrary[library.id])
+        assertTrue(viewModel.state.value.retryingRecentlyAddedLibraryIds.isEmpty())
     }
 
     @Test fun `an offline reload clears the previous live tv failure`() = runTest {
@@ -830,10 +1001,12 @@ class HomeViewModelTest {
     ) : SessionRepository {
         val userIdState = MutableStateFlow(userId)
         private val feedbackRequestSessionState = MutableStateFlow(feedbackRequestSession)
+        private val baseUrlState = MutableStateFlow("http://localhost:8096")
         fun setFeedbackRequestSession(session: FeedbackRequestSession) { feedbackRequestSessionState.value = session }
+        fun updateBaseUrl(url: String) { baseUrlState.value = url }
         override fun getAccessToken() = flowOf(null)
         override fun getDeviceId() = flowOf("home-test")
-        override fun getBaseUrl() = flowOf("http://localhost:8096")
+        override fun getBaseUrl() = baseUrlState
         override fun getCurrentUserId() = userIdState
         override fun getFeedbackRequestSession() = feedbackRequestSessionState
         override suspend fun saveSession(serverUrl: String, token: String, userId: String, deviceId: String) = Unit

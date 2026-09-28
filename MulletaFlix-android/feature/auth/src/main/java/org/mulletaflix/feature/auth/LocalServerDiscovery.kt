@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
+import android.os.SystemClock
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -46,12 +47,12 @@ class LocalServerDiscovery @Inject constructor(
                 }
                 val request = DISCOVERY_MESSAGE.toByteArray(Charsets.UTF_8)
                 val targets = (broadcastAddresses + InetAddress.getByName("255.255.255.255")).distinct()
-                val deadline = System.currentTimeMillis() + boundedTimeoutMs
+                val discoveryWindow = DiscoveryWindow(boundedTimeoutMs) { SystemClock.elapsedRealtime() }
                 val probeDelays = discoveryProbeDelays(boundedTimeoutMs)
                 var probeIndex = 0
-                var nextProbeAt = System.currentTimeMillis()
-                while (System.currentTimeMillis() < deadline) {
-                    val now = System.currentTimeMillis()
+                var nextProbeAt = discoveryWindow.nowElapsedRealtimeMs()
+                while (discoveryWindow.isOpen()) {
+                    val now = discoveryWindow.nowElapsedRealtimeMs()
                     if (probeIndex < probeDelays.size && now >= nextProbeAt) {
                         sockets.forEach { socket ->
                             targets.forEach { target ->
@@ -61,17 +62,17 @@ class LocalServerDiscovery @Inject constructor(
                             }
                         }
                         probeIndex += 1
-                        nextProbeAt = System.currentTimeMillis() +
+                        nextProbeAt = discoveryWindow.nowElapsedRealtimeMs() +
                             (probeDelays.getOrNull(probeIndex)?.minus(probeDelays[probeIndex - 1])
                                 ?: DISCOVERY_RETRY_INTERVAL_MS)
                     }
                     sockets.forEach { socket ->
-                        if (System.currentTimeMillis() >= deadline) return@forEach
+                        if (!discoveryWindow.isOpen()) return@forEach
                         val buffer = ByteArray(4096)
                         val packet = DatagramPacket(buffer, buffer.size)
                         socket.soTimeout = minOf(
                             100,
-                            (deadline - System.currentTimeMillis()).coerceAtLeast(1L).toInt(),
+                            discoveryWindow.remainingSocketTimeoutMs(),
                         )
                         try {
                             socket.receive(packet)
@@ -154,6 +155,25 @@ class LocalServerDiscovery @Inject constructor(
 /** Prevents a caller from holding LAN sockets and the Wi-Fi lock indefinitely. */
 internal fun boundedDiscoveryTimeoutMs(requestedTimeoutMs: Int): Int =
     requestedTimeoutMs.coerceIn(0, DISCOVERY_MAX_WINDOW_MS)
+
+/** Shares the monotonic clock between probe scheduling, loop bounds, and socket waits. */
+internal class DiscoveryWindow(
+    timeoutMs: Int,
+    private val elapsedRealtimeMs: () -> Long,
+) {
+    private val deadlineElapsedRealtimeMs =
+        elapsedRealtimeMs() + boundedDiscoveryTimeoutMs(timeoutMs)
+
+    fun nowElapsedRealtimeMs(): Long = elapsedRealtimeMs()
+
+    fun isOpen(): Boolean = nowElapsedRealtimeMs() < deadlineElapsedRealtimeMs
+
+    fun remainingSocketTimeoutMs(): Int =
+        (deadlineElapsedRealtimeMs - nowElapsedRealtimeMs())
+            .coerceAtLeast(1L)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+}
 
 /** Returns retry offsets without exceeding the discovery window. */
 internal fun discoveryProbeDelays(

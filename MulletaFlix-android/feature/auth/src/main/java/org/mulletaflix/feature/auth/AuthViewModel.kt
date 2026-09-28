@@ -112,30 +112,24 @@ class AuthViewModel @Inject constructor(
         }
         viewModelScope.launch {
             authRepository.getSavedServers().collect { servers ->
-                _state.update { current ->
-                    if (servers.isEmpty()) {
-                        current.copy(savedServersLoaded = true)
-                    } else {
-                        val mapped = servers.map { s ->
-                            ServerInfo(
-                                name = s.name,
-                                url = s.url,
-                                latencyMs = s.latencyMs,
-                                version = s.version,
-                                serverId = s.serverId,
-                            )
-                        }
-                        current.copy(
-                            savedServers = mapped,
-                            savedServersLoaded = true,
-                            serverUrl = preferredServerUrl(
-                                discovered = current.discoveredServers,
-                                saved = mapped,
-                                fallback = current.serverUrl,
-                            ),
-                        )
-                    }
+                val mapped = servers.map { s ->
+                    ServerInfo(
+                        name = s.name,
+                        url = s.url,
+                        latencyMs = s.latencyMs,
+                        version = s.version,
+                        serverId = s.serverId,
+                    )
                 }
+                _state.update { it.copy(savedServers = mapped, savedServersLoaded = true) }
+                val current = _state.value
+                applyServerUrlSelection(
+                    preferredServerUrl(
+                        discovered = current.discoveredServers,
+                        saved = mapped,
+                        fallback = current.serverUrl,
+                    ),
+                )
             }
         }
         viewModelScope.launch {
@@ -189,6 +183,29 @@ class AuthViewModel @Inject constructor(
         _state.update { it.copy(availableUsers = emptyList()) }
     }
 
+    private fun applyServerUrlSelection(selectedUrl: String?) {
+        val current = _state.value
+        if (selectedUrl == current.serverUrl) return
+
+        // A late discovery/persistence result can change the endpoint after startup
+        // requests have begun. Invalidate all endpoint-scoped state just as discovery
+        // does when it selects a server immediately.
+        invalidateAvailableUsersForEndpoint()
+        quickConnectAvailabilityJob?.cancel()
+        quickConnectAvailabilityGeneration += 1
+        _state.update {
+            it.copy(
+                serverUrl = selectedUrl,
+                isQuickConnectAvailable = null,
+                quickConnectAvailabilityError = null,
+            )
+        }
+        selectedUrl?.takeIf(String::isNotBlank)?.let { url ->
+            loadAvailableUsers(url)
+            loadQuickConnectAvailability(url)
+        }
+    }
+
     private fun loadQuickConnectAvailability(serverUrl: String) {
         quickConnectAvailabilityJob?.cancel()
         val generation = ++quickConnectAvailabilityGeneration
@@ -230,29 +247,22 @@ class AuthViewModel @Inject constructor(
             try {
                 val servers = localServerDiscovery.discover()
                 val current = _state.value
-                val selectedUrl = preferredServerUrl(servers, current.savedServers, current.serverUrl)
-                val endpointChanged = selectedUrl != current.serverUrl
-                if (endpointChanged) {
-                    // Discovery may replace the public fallback with a LAN endpoint
-                    // before the UI starts verification. Never carry data from the
-                    // previous endpoint across that boundary.
-                    invalidateAvailableUsersForEndpoint()
-                    quickConnectAvailabilityJob?.cancel()
-                    quickConnectAvailabilityGeneration += 1
-                }
                 _state.update { current ->
                     current.copy(
                         isDiscovering = false,
-                        // Prefer the LAN address over the public DuckDNS fallback.
-                        // This keeps playback inside the local network whenever the
-                        // server advertises itself there.
-                        serverUrl = selectedUrl,
-                        isQuickConnectAvailable = if (endpointChanged) null else current.isQuickConnectAvailable,
-                        quickConnectAvailabilityError = if (endpointChanged) null else current.quickConnectAvailabilityError,
                         // Keep LAN results even when the URL is already saved.
                         // The UI uses this list to trigger the automatic LAN
                         // connection on every startup.
                         discoveredServers = servers.distinctBy { it.url },
+                    )
+                }
+                // Do not choose a LAN endpoint using the UI's placeholder server list.
+                // The persisted list carries the stable server identity and is loaded
+                // independently from discovery during startup.
+                if (current.savedServersLoaded) {
+                    val latest = _state.value
+                    applyServerUrlSelection(
+                        preferredServerUrl(servers, latest.savedServers, latest.serverUrl),
                     )
                 }
             } catch (cancelled: CancellationException) {

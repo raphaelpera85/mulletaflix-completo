@@ -1,14 +1,20 @@
 package org.mulletaflix.data.repository
 
 import android.content.Context
-import android.content.ContextWrapper
-import androidx.test.core.app.ApplicationProvider
-import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.squareup.moshi.JsonEncodingException
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -34,31 +40,37 @@ class PlaybackIssueQueuePersistenceTest {
             description = "Reprodução interrompida",
             createdAtEpochMillis = 42L,
         )
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val writer = PlaybackIssueQueueRepositoryImpl(context, moshi)
-        val reader = PlaybackIssueQueueRepositoryImpl(context, moshi)
+        val isolated = isolatedQueue()
+        val writer = isolated.repository
+        val reader = PlaybackIssueQueueRepositoryImpl(isolated.store, moshi)
 
         try {
             writer.enqueue(report)
+            assertDataStoreUsesIsolatedDirectory(isolated)
 
             assertEquals(report, reader.pending().single { it.id == report.id })
             reader.remove(report.id)
             assertEquals(false, reader.pending().any { it.id == report.id })
         } finally {
-            reader.remove(report.id)
+            try {
+                reader.remove(report.id)
+            } finally {
+                isolated.scope.cancel()
+                assertTrue("Temporary DataStore directory should be deleted", isolated.directory.deleteRecursively())
+            }
         }
     }
 
     @Test
     fun queueAcceptsFiftyReportsAndRejectsFiftyFirstWithoutChangingQueue() = runBlocking {
-        val isolated = isolatedContext()
-        val context = isolated.context
-        val repository = PlaybackIssueQueueRepositoryImpl(context, moshi)
+        val isolated = isolatedQueue()
+        val repository = isolated.repository
         val reports = (1..50).map { testReport(UUID.randomUUID().toString()) }
         val overflow = testReport(UUID.randomUUID().toString())
 
         try {
             reports.forEach { repository.enqueue(it) }
+            assertDataStoreUsesIsolatedDirectory(isolated)
             assertEquals(50, repository.pendingCount.first())
 
             assertThrows(IllegalArgumentException::class.java) {
@@ -71,6 +83,7 @@ class PlaybackIssueQueuePersistenceTest {
             try {
                 (reports + overflow).forEach { repository.remove(it.id) }
             } finally {
+                isolated.scope.cancel()
                 assertTrue("Temporary DataStore directory should be deleted", isolated.directory.deleteRecursively())
             }
         }
@@ -78,24 +91,25 @@ class PlaybackIssueQueuePersistenceTest {
 
     @Test
     fun malformedStoredJsonIsReportedAndPreserved() = runBlocking {
-        val isolated = isolatedContext()
-        val context = isolated.context
+        val isolated = isolatedQueue()
         val queueKey = stringPreferencesKey("queue_v1")
         val rawMalformedJson = "{ this is not valid JSON"
-        val repository = PlaybackIssueQueueRepositoryImpl(context, moshi)
+        val repository = isolated.repository
 
         try {
-            context.playbackIssueQueueStore.edit { it[queueKey] = rawMalformedJson }
+            isolated.store.edit { it[queueKey] = rawMalformedJson }
+            assertDataStoreUsesIsolatedDirectory(isolated)
 
             assertEquals(-1, repository.pendingCount.first())
             assertThrows(JsonEncodingException::class.java) {
                 runBlocking { repository.pending() }
             }
-            assertEquals(rawMalformedJson, context.playbackIssueQueueStore.data.first()[queueKey])
+            assertEquals(rawMalformedJson, isolated.store.data.first()[queueKey])
         } finally {
             try {
-                context.playbackIssueQueueStore.edit { it.remove(queueKey) }
+                isolated.store.edit { it.remove(queueKey) }
             } finally {
+                isolated.scope.cancel()
                 assertTrue("Temporary DataStore directory should be deleted", isolated.directory.deleteRecursively())
             }
         }
@@ -110,15 +124,36 @@ class PlaybackIssueQueuePersistenceTest {
         createdAtEpochMillis = 42L,
     )
 
-    private fun isolatedContext(): IsolatedContext {
+    private fun isolatedQueue(): IsolatedQueue {
         val appContext = ApplicationProvider.getApplicationContext<Context>()
         val directory = File(appContext.cacheDir, "playback-queue-test-${UUID.randomUUID()}")
         check(directory.mkdirs())
-        val context = object : ContextWrapper(appContext) {
-            override fun getFilesDir(): File = directory
+        val file = File(directory, "mulletaflix_playback_issue_queue.preferences_pb")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val store = PreferenceDataStoreFactory.create(scope = scope) {
+            file
         }
-        return IsolatedContext(context, directory)
+        return IsolatedQueue(
+            directory = directory,
+            file = file,
+            scope = scope,
+            store = store,
+            repository = PlaybackIssueQueueRepositoryImpl(store, moshi),
+        )
     }
 
-    private data class IsolatedContext(val context: Context, val directory: File)
+    private fun assertDataStoreUsesIsolatedDirectory(isolated: IsolatedQueue) {
+        assertTrue(
+            "DataStore should create its file inside the temporary directory",
+            isolated.file.isFile && isolated.file.parentFile?.canonicalFile == isolated.directory.canonicalFile,
+        )
+    }
+
+    private data class IsolatedQueue(
+        val directory: File,
+        val file: File,
+        val scope: CoroutineScope,
+        val store: DataStore<Preferences>,
+        val repository: PlaybackIssueQueueRepositoryImpl,
+    )
 }

@@ -54,14 +54,37 @@ object DownloadManagerSingleton {
     @Synchronized
     fun get(context: Context): DownloadManager {
         return downloadManager ?: run {
-            val databaseProvider = androidx.media3.database.StandaloneDatabaseProvider(context)
-            val downloadCache = OfflineDownloadCache.get(context)
+            val applicationContext = context.applicationContext
+            val databaseProvider = androidx.media3.database.StandaloneDatabaseProvider(applicationContext)
+            val downloadCache = OfflineDownloadCache.get(applicationContext)
             val upstreamFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
                 .setConnectTimeoutMs(MEDIA_CONNECT_TIMEOUT_MS)
                 .setReadTimeoutMs(MEDIA_READ_TIMEOUT_MS)
                 .setAllowCrossProtocolRedirects(true)
-            DownloadManager(context, databaseProvider, downloadCache, upstreamFactory, executor).also {
-                downloadManager = it
+            DownloadManager(applicationContext, databaseProvider, downloadCache, upstreamFactory, executor).also { manager ->
+                val failurePreferences = applicationContext.getSharedPreferences(
+                    "offline_downloads",
+                    Context.MODE_PRIVATE,
+                )
+                manager.addListener(object : DownloadManager.Listener {
+                    override fun onDownloadChanged(
+                        downloadManager: DownloadManager,
+                        download: Download,
+                        finalException: Exception?,
+                    ) {
+                        recordDownloadFailure(
+                            failurePreferences,
+                            download.request.id,
+                            download.state,
+                            finalException,
+                        )
+                    }
+
+                    override fun onDownloadRemoved(downloadManager: DownloadManager, download: Download) {
+                        clearDownloadFailure(failurePreferences, download.request.id)
+                    }
+                })
+                downloadManager = manager
             }
         }
     }

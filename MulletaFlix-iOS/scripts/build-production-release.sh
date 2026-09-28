@@ -27,6 +27,21 @@ case "$EXPORT_METHOD" in
     ;;
 esac
 
+SIGNING_STYLE="$(/usr/libexec/PlistBuddy -c 'Print :signingStyle' "$EXPORT_OPTIONS_PLIST" 2>/dev/null || true)"
+case "$SIGNING_STYLE" in
+  automatic|manual) ;;
+  *)
+    echo "ExportOptions.plist deve declarar signingStyle como automatic ou manual, não '$SIGNING_STYLE'." >&2
+    exit 2
+    ;;
+esac
+
+TEAM_ID="$(/usr/libexec/PlistBuddy -c 'Print :teamID' "$EXPORT_OPTIONS_PLIST" 2>/dev/null || true)"
+if [[ -z "$TEAM_ID" || "$TEAM_ID" == REPLACE_WITH_APPLE_TEAM_ID ]]; then
+  echo "ExportOptions.plist deve conter o Team ID real da Apple; o placeholder não pode ser usado em produção." >&2
+  exit 2
+fi
+
 SCHEME="MulletaFlix"
 ARCHIVE_PATH="${ARCHIVE_PATH:-$ROOT_DIR/build/MulletaFlix.xcarchive}"
 EXPORT_DIR="${EXPORT_DIR:-$ROOT_DIR/build/export}"
@@ -65,6 +80,20 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 codesign --verify --deep --strict "$APP_PATH"
+CODESIGN_DETAILS="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)"
+if ! grep -Eq 'Authority=(Apple Distribution|iPhone Distribution):' <<<"$CODESIGN_DETAILS"; then
+  echo "O archive não possui uma autoridade de assinatura de distribuição Apple." >&2
+  exit 1
+fi
+if ! grep -Eq '^TeamIdentifier=' <<<"$CODESIGN_DETAILS"; then
+  echo "O archive não expõe um TeamIdentifier de assinatura." >&2
+  exit 1
+fi
+ENTITLEMENTS="$(codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true)"
+if grep -Eq '<key>get-task-allow</key>[[:space:]]*<true/>' <<<"$ENTITLEMENTS"; then
+  echo "O archive contém get-task-allow=true e não pode ser publicado como produção." >&2
+  exit 1
+fi
 
 echo "== Export signed distribution IPA =="
 xcodebuild \
@@ -84,8 +113,11 @@ BUILD="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersio
 EXPECTED_IPA="$DIST_DIR/mulletaflix-ios-v${VERSION}.ipa"
 cp "$IPA_PATH" "$EXPECTED_IPA"
 
-if [[ "${VERSION}" != "1.0.0" ]]; then
-  echo "Aviso: primeira release esperada é 1.0.0; archive retornou ${VERSION}." >&2
+RUNTIME_VERSION="$(sed -n 's/.*public static let version = "\([^"]*\)".*/\1/p' Sources/MulletaFlixCore/AppIdentity.swift | head -n 1)"
+if [[ -z "$RUNTIME_VERSION" || "$RUNTIME_VERSION" != "$VERSION" ]]; then
+  echo "A versão do runtime (${RUNTIME_VERSION:-ausente}) não coincide com a versão do bundle (${VERSION})." >&2
+  rm -f "$EXPECTED_IPA"
+  exit 1
 fi
 
 SHA256="$(shasum -a 256 "$EXPECTED_IPA" | awk '{print toupper($1)}')"

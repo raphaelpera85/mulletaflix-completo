@@ -202,7 +202,7 @@ fun SearchScreen(
                 hints = visibleHints,
                 isLoading = state.isLoadingHints,
                 onHintClick = { hint ->
-                    viewModel.search(hint.name)
+                    viewModel.selectHint(hint)
                     onItemClick(hint.id)
                 },
                 focusFriendly = isTelevision,

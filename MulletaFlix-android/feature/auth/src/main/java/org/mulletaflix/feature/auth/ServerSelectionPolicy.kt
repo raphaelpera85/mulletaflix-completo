@@ -13,14 +13,25 @@ internal fun preferredServerUrl(
     discovered: List<ServerInfo>,
     saved: List<ServerInfo>,
     fallback: String?,
-): String? = discovered.firstOrNull { discoveredServer ->
-    discoveredServer.serverId != null && saved.any { savedServer ->
-        savedServer.serverId == discoveredServer.serverId
+): String? {
+    discovered.firstOrNull { discoveredServer ->
+        val discoveredId = discoveredServer.serverId?.takeIf(String::isNotBlank)
+        discoveredId != null && saved.any { savedServer ->
+            savedServer.serverId?.isNotBlank() == true && savedServer.serverId == discoveredId
+        }
+    }?.let { return it.url }
+
+    // Once this installation knows server identities, an unmatched LAN
+    // advertisement is not safe to auto-select. Keep the active/saved endpoint
+    // instead; first-discovered fallback is only for first-time setup.
+    if (saved.any { !it.serverId.isNullOrBlank() }) {
+        return fallback ?: saved.firstOrNull()?.url
     }
-}?.url
-    ?: discovered.firstOrNull()?.url
-    ?: saved.firstOrNull()?.url
-    ?: fallback
+
+    return discovered.firstOrNull()?.url
+        ?: saved.firstOrNull()?.url
+        ?: fallback
+}
 
 /**
  * Returns the endpoint that may be verified automatically during startup.

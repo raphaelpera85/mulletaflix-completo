@@ -23,6 +23,7 @@ data class SyncPlayUiState(
     val groups: List<SyncPlayGroup> = emptyList(),
     val isLoading: Boolean = false,
     val isSubmitting: Boolean = false,
+    val isGroupsStale: Boolean = false,
     val error: String? = null,
     val activeGroupId: String? = null,
     val realtimeConnected: Boolean = false,
@@ -100,6 +101,7 @@ class SyncPlayViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             groups = emptyList(),
+                            isGroupsStale = false,
                             isLoading = false,
                             isSubmitting = false,
                             error = null,
@@ -134,12 +136,18 @@ class SyncPlayViewModel @Inject constructor(
             manageSyncPlayUseCase.getGroups()
                 .onSuccess { groups ->
                     if (isCurrentSession(userId, generation)) {
-                        _state.update { it.copy(groups = groups, isLoading = false, error = null) }
+                        _state.update { it.copy(groups = groups, isGroupsStale = false, isLoading = false, error = null) }
                     }
                 }
                 .onFailure { e ->
-                    if (!isBackground && isCurrentSession(userId, generation)) {
-                        _state.update { it.copy(isLoading = false, error = e.message ?: "Não foi possível carregar as salas.") }
+                    if (isCurrentSession(userId, generation)) {
+                        _state.update {
+                            it.copy(
+                                isGroupsStale = true,
+                                isLoading = false,
+                                error = e.message ?: "Não foi possível carregar as salas.",
+                            )
+                        }
                     }
                 }
         }
@@ -180,7 +188,8 @@ class SyncPlayViewModel @Inject constructor(
      * o WebSocket do SyncPlay, que o player observa enquanto a sala está ativa.
      */
     fun joinGroup(groupId: String) {
-        if (_state.value.isSubmitting) return
+        val current = _state.value
+        if (current.isSubmitting || current.isLoading || current.isGroupsStale || current.groups.none { it.groupId == groupId }) return
         val userId = currentUserId
         val generation = sessionGeneration
         _state.update { it.copy(isSubmitting = true, error = null) }

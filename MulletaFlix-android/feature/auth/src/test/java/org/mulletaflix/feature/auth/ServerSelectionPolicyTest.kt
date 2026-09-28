@@ -101,6 +101,49 @@ class ServerSelectionPolicyTest {
     }
 
     @Test
+    fun `automatic verification keeps saved endpoint when discovery has no matching identity`() {
+        val unrelated = ServerInfo("Other Server", "http://192.168.1.20:8096", serverId = "other-id")
+        val saved = ServerInfo("MulletaFlix Cloud", DEFAULT_MULLETAFLIX_SERVER_URL, serverId = "saved-id")
+        val state = AuthState(
+            discoveredServers = listOf(unrelated),
+            savedServers = listOf(saved),
+            savedServersLoaded = true,
+        )
+
+        assertEquals(
+            DEFAULT_MULLETAFLIX_SERVER_URL,
+            automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false),
+        )
+    }
+
+    @Test
+    fun `known saved identity does not trust discovery without identity`() {
+        val unidentified = ServerInfo("Unknown Server", "http://192.168.1.20:8096")
+        val saved = ServerInfo("MulletaFlix Cloud", DEFAULT_MULLETAFLIX_SERVER_URL, serverId = "saved-id")
+
+        assertEquals(
+            DEFAULT_MULLETAFLIX_SERVER_URL,
+            preferredServerUrl(listOf(unidentified), listOf(saved), fallback = null),
+        )
+    }
+
+    @Test
+    fun `blank discovered identity cannot match blank saved identity`() {
+        val unidentified = ServerInfo("Unknown Server", "http://192.168.1.20:8096", serverId = " ")
+        val savedWithoutId = ServerInfo("Legacy Server", "http://192.168.1.30:8096", serverId = "")
+        val savedWithId = ServerInfo("MulletaFlix Cloud", DEFAULT_MULLETAFLIX_SERVER_URL, serverId = "saved-id")
+
+        assertEquals(
+            DEFAULT_MULLETAFLIX_SERVER_URL,
+            preferredServerUrl(
+                listOf(unidentified),
+                listOf(savedWithoutId, savedWithId),
+                fallback = DEFAULT_MULLETAFLIX_SERVER_URL,
+            ),
+        )
+    }
+
+    @Test
     fun `automatic verification keeps the first LAN server when nothing identifies it`() {
         // Primeira configuração: não há identidade para casar, e o primeiro
         // endereço compatível continua sendo a resposta honesta.

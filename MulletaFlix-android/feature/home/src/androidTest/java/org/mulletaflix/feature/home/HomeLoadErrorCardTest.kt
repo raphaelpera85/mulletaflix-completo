@@ -1,6 +1,8 @@
 package org.mulletaflix.feature.home
 
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -17,6 +19,27 @@ import org.mulletaflix.designsystem.theme.MulletaFlixTheme
 class HomeLoadErrorCardTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun retryShowsProgressAndBlocksRepeatedActivation() {
+        var retries = 0
+        composeRule.setContent {
+            MulletaFlixTheme {
+                HomeLoadErrorCard(
+                    title = "Falha na biblioteca",
+                    message = "Tente novamente mais tarde.",
+                    isRetrying = true,
+                    onRetry = { retries++ },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Tentando novamente")
+            .assertIsDisplayed()
+            .assertIsNotEnabled()
+            .performClick()
+        composeRule.runOnIdle { assertEquals(0, retries) }
+    }
 
     @Test
     fun tvRetryIsFocusableAndInvokesCallback() {
