@@ -1699,7 +1699,7 @@ namespace Emby.Server.Implementations.Session
                 }
             }
 
-            _logger.LogInformation("Creating new access token for user {0}", user.Id);
+            _logger.LogInformation("Creating a new access token for a user.");
             var device = await _deviceManager.CreateDevice(new Device(user.Id, app, appVersion, deviceName, deviceId)).ConfigureAwait(false);
 
             return device.AccessToken;
@@ -1730,7 +1730,7 @@ namespace Emby.Server.Implementations.Session
         {
             CheckDisposed();
 
-            _logger.LogInformation("Logging out access token {0}", device.AccessToken);
+            _logger.LogInformation("Logging out device session.");
 
             await _deviceManager.DeleteDevice(device).ConfigureAwait(false);
 

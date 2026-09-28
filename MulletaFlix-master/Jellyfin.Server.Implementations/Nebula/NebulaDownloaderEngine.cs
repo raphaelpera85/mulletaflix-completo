@@ -1587,7 +1587,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     var matchedName = matchingDoc.GetValue("name", string.Empty).AsString;
                     var status = matchingDoc.GetValue("status", string.Empty).AsString;
                     var isCompleted = string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
-                        && NebulaMongoContext.HasTelegramParts(matchingDoc);
+                        && NebulaMongoContext.IsCompletedTelegramMedia(matchingDoc);
                     if (isCompleted || status is "staging" or "queued" or "uploading")
                     {
                         return (true, isCompleted, $"Mídia '{matchedName}' com ID ({idStr}) já encontrada");
@@ -1617,7 +1617,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 string.Equals(url.Trim(), docUrl.Trim(), StringComparison.OrdinalIgnoreCase))
             {
                 var isCompleted = string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
-                    && NebulaMongoContext.HasTelegramParts(doc);
+                    && NebulaMongoContext.IsCompletedTelegramMedia(doc);
                 if (isCompleted || status is "staging" or "queued" or "uploading")
                 {
                     return (true, isCompleted, $"Mídia '{name}' possui link idêntico já encontrado");
@@ -1633,7 +1633,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 }
 
                 if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
-                    && NebulaMongoContext.HasTelegramParts(doc))
+                    && NebulaMongoContext.IsCompletedTelegramMedia(doc))
                 {
                     return (true, true, $"Mídia '{name}' com título idêntico já concluída/enviada");
                 }
@@ -1653,7 +1653,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     }
 
                     if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
-                        && NebulaMongoContext.HasTelegramParts(doc))
+                        && NebulaMongoContext.IsCompletedTelegramMedia(doc))
                     {
                         return (true, true, $"Filme '{name}' ({movieIdent.Value.Year}) já concluído no Nebula");
                     }
@@ -1675,7 +1675,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     }
 
                     if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)
-                        && NebulaMongoContext.HasTelegramParts(doc))
+                        && NebulaMongoContext.IsCompletedTelegramMedia(doc))
                     {
                         return (true, true, $"Episódio '{epIdent.Value.Series} S{epIdent.Value.Season:02d}E{epIdent.Value.Episode:02d}' já concluído no Nebula");
                     }

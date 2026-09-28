@@ -64,6 +64,9 @@ public sealed class NebulaPlaybackCache : IDisposable
     private long _cacheCleanupSkipped;
     private long _lastCacheCleanupDurationTicks;
     private long _lastCacheCleanupUnixTimeMilliseconds;
+    private long _cachedBytes;
+    private int _cachedFiles;
+    private bool _cacheMetricsInitialized;
 
     public NebulaPlaybackCache(
         string cachePath,
@@ -83,6 +86,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         _maxCacheBytes = maxCacheBytes > 0 ? maxCacheBytes : long.MaxValue;
         _minimumFreeSpaceBytes = Math.Max(0, minimumFreeSpaceBytes);
         Directory.CreateDirectory(_rootPath);
+        InitializeCacheMetrics();
         _cleanupTimer = new Timer(static state => ((NebulaPlaybackCache)state!).CleanupExpiredEntries(), this, DefaultCleanupInterval, DefaultCleanupInterval);
     }
 
@@ -213,26 +217,34 @@ public sealed class NebulaPlaybackCache : IDisposable
     /// </summary>
     public long GetCacheSizeBytes()
     {
-        return TryGetCacheSizeBytes(out var size) ? size : 0;
+        return Interlocked.Read(ref _cachedBytes);
     }
 
     private bool TryGetCacheSizeBytes(out long size)
     {
-        size = 0;
+        size = GetCacheSizeBytes();
+        return _cacheMetricsInitialized;
+    }
+
+    private void InitializeCacheMetrics()
+    {
         try
         {
-            if (!Directory.Exists(_rootPath))
+            long size = 0;
+            var count = 0;
+            foreach (var file in Directory.EnumerateFiles(_rootPath, "*", SearchOption.AllDirectories))
             {
-                return true;
+                size = AddWithoutOverflow(size, new FileInfo(file).Length);
+                count++;
             }
 
-            size = new DirectoryInfo(_rootPath).EnumerateFiles("*", SearchOption.AllDirectories).Sum(static file => file.Length);
-            return true;
+            Interlocked.Exchange(ref _cachedBytes, size);
+            Volatile.Write(ref _cachedFiles, count);
+            _cacheMetricsInitialized = true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _logger.LogDebug(ex, "[NEBULA-CACHE] Falha ao calcular tamanho do cache.");
-            return false;
+            _logger.LogWarning(ex, "[NEBULA-CACHE] Não foi possível inicializar os indicadores do cache.");
         }
     }
 
@@ -241,21 +253,7 @@ public sealed class NebulaPlaybackCache : IDisposable
     /// </summary>
     public int GetCachedFilesCount()
     {
-        try
-        {
-            if (!Directory.Exists(_rootPath))
-            {
-                return 0;
-            }
-
-            var dirInfo = new DirectoryInfo(_rootPath);
-            return dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Count();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "[NEBULA-CACHE] Falha ao contar arquivos do cache.");
-            return 0;
-        }
+        return Volatile.Read(ref _cachedFiles);
     }
 
     /// <summary>
@@ -282,18 +280,7 @@ public sealed class NebulaPlaybackCache : IDisposable
 
                     try
                     {
-                        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
-                        {
-                            try
-                            {
-                                File.SetAttributes(file, FileAttributes.Normal);
-                            }
-                            catch
-                            {
-                            }
-                        }
-
-                        Directory.Delete(directory, recursive: true);
+                        DeleteDirectorySafe(directory);
                         _lastActivity.TryRemove(mediaKey, out _);
                     }
                     catch (Exception ex)
@@ -714,7 +701,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         return latest;
     }
 
-    private static void DeleteDirectorySafe(string directory)
+    private void DeleteDirectorySafe(string directory)
     {
         try
         {
@@ -722,8 +709,11 @@ public sealed class NebulaPlaybackCache : IDisposable
             {
                 try
                 {
+                    var fileSize = new FileInfo(file).Length;
                     File.SetAttributes(file, FileAttributes.Normal);
                     File.Delete(file);
+                    Interlocked.Add(ref _cachedBytes, -fileSize);
+                    Interlocked.Decrement(ref _cachedFiles);
                 }
                 catch (IOException)
                 {
@@ -787,7 +777,14 @@ public sealed class NebulaPlaybackCache : IDisposable
             await File.WriteAllBytesAsync(temporaryPath, data, cancellationToken).ConfigureAwait(false);
             if (data.Length >= expectedLength)
             {
+                var replacingExistingFile = File.Exists(path);
+                var previousLength = replacingExistingFile ? new FileInfo(path).Length : 0;
                 File.Move(temporaryPath, path, overwrite: true);
+                Interlocked.Add(ref _cachedBytes, data.Length - previousLength);
+                if (!replacingExistingFile)
+                {
+                    Interlocked.Increment(ref _cachedFiles);
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

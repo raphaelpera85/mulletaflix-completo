@@ -2022,12 +2022,12 @@ public class ImageController : BaseMulletaFlixApiController
                 try
                 {
                     await _providerManager.SaveImage(item, remoteImage.Url, imageType, imageIndex, cancellationToken).ConfigureAwait(false);
-                    _logger.LogDebug("Recovered missing book image for item {ItemId} ({ItemName}) from {ImageUrl}", item.Id, item.Name, remoteImage.Url);
+                    _logger.LogDebug("Recovered missing book image for item {ItemId} ({ItemName}).", item.Id, item.Name);
                     return item.GetImageInfo(imageType, imageIndex) is not null;
                 }
                 catch (HttpRequestException ex)
                 {
-                    _logger.LogDebug(ex, "Error recovering book image for item {ItemId} ({ItemName}) from {ImageUrl}", item.Id, item.Name, remoteImage.Url);
+                    _logger.LogDebug(ex, "Error recovering book image for item {ItemId} ({ItemName}).", item.Id, item.Name);
                 }
             }
         }
@@ -2253,4 +2253,3 @@ public class ImageController : BaseMulletaFlixApiController
         return false;
     }
 }
-

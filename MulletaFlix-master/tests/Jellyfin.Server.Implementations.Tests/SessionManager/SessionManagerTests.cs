@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using MulletaFlix.Server.Implementations.Tests.Logging;
 using Moq;
 using Xunit;
 
@@ -98,9 +99,10 @@ public class SessionManagerTests
         var eventManager = new Mock<IEventManager>();
         eventManager.Setup(x => x.PublishAsync(It.IsAny<AuthenticationRequestEventArgs>())).Returns(Task.CompletedTask);
         eventManager.Setup(x => x.PublishAsync(It.IsAny<AuthenticationResultEventArgs>())).Returns(Task.CompletedTask);
+        var logger = new CapturingLogger<Emby.Server.Implementations.Session.SessionManager>();
 
         await using var sessionManager = new Emby.Server.Implementations.Session.SessionManager(
-            NullLogger<Emby.Server.Implementations.Session.SessionManager>.Instance,
+            logger,
             eventManager.Object,
             Mock.Of<IUserDataManager>(),
             Mock.Of<IServerConfigurationManager>(),
@@ -145,6 +147,7 @@ public class SessionManagerTests
             AccessToken = resultOne.AccessToken
         });
 
+        Assert.DoesNotContain(resultOne.AccessToken, string.Join(Environment.NewLine, logger.Messages), StringComparison.Ordinal);
         Assert.Single(sessionManager.Sessions);
         Assert.Equal(userTwo.Id, sessionManager.Sessions.Single().UserId);
     }

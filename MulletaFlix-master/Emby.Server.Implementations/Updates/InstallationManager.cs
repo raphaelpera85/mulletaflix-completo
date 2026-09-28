@@ -224,7 +224,7 @@ namespace Emby.Server.Implementations.Updates
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Skipping plugin repository {RepositoryName} ({RepositoryUrl})", repository.Name ?? "Unnamed Repo", repository.Url);
+                        _logger.LogWarning(ex, "Skipping plugin repository {RepositoryName}.", repository.Name ?? "Unnamed Repo");
                     }
                 }
             }
@@ -528,7 +528,7 @@ namespace Emby.Server.Implementations.Updates
         {
             if (!Path.GetExtension(package.SourceUrl.AsSpan()).Equals(".zip", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogError("Only zip packages are supported. {SourceUrl} is not a zip archive.", package.SourceUrl);
+                _logger.LogError("Only zip packages are supported for plugin installation.");
                 return;
             }
 

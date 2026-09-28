@@ -3913,7 +3913,7 @@ namespace Emby.Server.Implementations.Library
                     if (ex.StatusCode.HasValue
                         && (ex.StatusCode.Value == HttpStatusCode.NotFound || ex.StatusCode.Value == HttpStatusCode.Forbidden))
                     {
-                        _logger.LogDebug(ex, "Error downloading image {Url}", url);
+                        _logger.LogDebug(ex, "Error downloading library image.");
                         continue;
                     }
 

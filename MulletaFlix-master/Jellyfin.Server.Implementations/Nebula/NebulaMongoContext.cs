@@ -124,7 +124,9 @@ public sealed class NebulaMongoContext : IDisposable
             (Builders<BsonDocument>.IndexKeys.Ascending("parent").Ascending("name"), "parent_1_name_1"),
             (Builders<BsonDocument>.IndexKeys.Descending("modified_at"), "modified_at_-1"),
             (Builders<BsonDocument>.IndexKeys.Descending("uploaded_at"), "uploaded_at_-1"),
-            (Builders<BsonDocument>.IndexKeys.Ascending("type").Ascending("status").Ascending("queued_at"), "type_1_status_1_queued_at_1")
+            (Builders<BsonDocument>.IndexKeys.Ascending("type").Ascending("status").Ascending("queued_at"), "type_1_status_1_queued_at_1"),
+            (Builders<BsonDocument>.IndexKeys.Ascending("type").Ascending("status").Descending("uploaded_at"), "type_1_status_1_uploaded_at_-1"),
+            (Builders<BsonDocument>.IndexKeys.Ascending("type").Descending("last_failure_at").Ascending("failure_stage"), "type_1_last_failure_at_-1_failure_stage_1")
         };
 
         foreach (var (keys, name) in indexes)
@@ -1496,6 +1498,9 @@ public sealed class NebulaMongoContext : IDisposable
 
     public async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default)
     {
+        var now = DateTimeOffset.UtcNow;
+        var windowStart = now.AddHours(-1);
+        var windowStartUnix = windowStart.ToUnixTimeSeconds();
         var fileFilter = Builders<BsonDocument>.Filter.Eq("type", "file");
         var pendingFilter = Builders<BsonDocument>.Filter.And(
             fileFilter,
@@ -1517,15 +1522,61 @@ public sealed class NebulaMongoContext : IDisposable
             ? (long?)null
             : ReadUnixTimestamp(oldest, "queued_at") ?? ReadUnixTimestamp(oldest, "created_at");
 
+        var completedPipeline = new[]
+        {
+            new BsonDocument("$match", new BsonDocument
+            {
+                { "type", "file" },
+                { "status", "completed" },
+                { "uploaded_at", new BsonDocument("$gte", windowStartUnix) }
+            }),
+            new BsonDocument("$group", new BsonDocument
+            {
+                { "_id", BsonNull.Value },
+                { "count", new BsonDocument("$sum", 1) },
+                { "uploadedBytes", new BsonDocument("$sum", new BsonDocument("$ifNull", new BsonArray { "$size", 0 })) }
+            })
+        };
+        using var completedCursor = await _filesCollection.AggregateAsync<BsonDocument>(
+            completedPipeline,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var completedSummary = await completedCursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+
+        var failuresPipeline = new[]
+        {
+            new BsonDocument("$match", new BsonDocument
+            {
+                { "type", "file" },
+                { "last_failure_at", new BsonDocument("$gte", windowStartUnix) }
+            }),
+            new BsonDocument("$group", new BsonDocument
+            {
+                { "_id", new BsonDocument("$ifNull", new BsonArray { "$failure_stage", NebulaUploadFailureStages.Unknown }) },
+                { "count", new BsonDocument("$sum", 1) }
+            }),
+            new BsonDocument("$sort", new BsonDocument("count", -1)),
+            new BsonDocument("$limit", 8)
+        };
+        using var failuresCursor = await _filesCollection.AggregateAsync<BsonDocument>(
+            failuresPipeline,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var failuresByStage = await failuresCursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+        var stageCounts = MapUploadFailureStageCounts(failuresByStage);
+
         return new NebulaUploadQueueSummaryDto
         {
             IsAvailable = true,
+            WindowStartUtc = windowStart.UtcDateTime,
             PendingCount = pendingCount,
             RetryCount = retryCount,
             OldestPendingName = oldest is null
                 ? string.Empty
                 : oldest.GetValue("display_name", oldest.GetValue("name", string.Empty)).ToString(),
-            OldestPendingAtUtc = ToUtcDateTime(queuedAt)
+            OldestPendingAtUtc = ToUtcDateTime(queuedAt),
+            CompletedCountLastHour = completedSummary?.GetValue("count", 0).ToInt64() ?? 0,
+            UploadedBytesLastHour = completedSummary?.GetValue("uploadedBytes", 0).ToInt64() ?? 0,
+            RecentFailureCount = stageCounts.Sum(stage => stage.Count),
+            FailuresByStage = stageCounts
         };
     }
 
@@ -1534,6 +1585,36 @@ public sealed class NebulaMongoContext : IDisposable
         return document.TryGetValue(fieldName, out var value) && value.IsNumeric
             ? value.ToInt64()
             : null;
+    }
+
+    internal static List<NebulaUploadFailureStageCountDto> MapUploadFailureStageCounts(IEnumerable<BsonDocument> documents)
+    {
+        return documents
+            .Select(document => new NebulaUploadFailureStageCountDto
+            {
+                Stage = NormalizeUploadFailureStage(document.GetValue("_id", NebulaUploadFailureStages.Unknown).ToString()),
+                Count = Math.Max(0L, document.GetValue("count", 0).ToInt64())
+            })
+            .GroupBy(stage => stage.Stage, StringComparer.Ordinal)
+            .Select(group => new NebulaUploadFailureStageCountDto
+            {
+                Stage = group.Key,
+                Count = group.Sum(stage => stage.Count)
+            })
+            .OrderByDescending(stage => stage.Count)
+            .Take(8)
+            .ToList();
+    }
+
+    internal static string NormalizeUploadFailureStage(string? stage)
+    {
+        return stage switch
+        {
+            NebulaUploadFailureStages.TelegramAvailability => NebulaUploadFailureStages.TelegramAvailability,
+            NebulaUploadFailureStages.TelegramTransfer => NebulaUploadFailureStages.TelegramTransfer,
+            NebulaUploadFailureStages.UploadIntegrity => NebulaUploadFailureStages.UploadIntegrity,
+            _ => NebulaUploadFailureStages.Unknown
+        };
     }
 
     private static DateTime? ToUtcDateTime(long? unixTimestamp)
@@ -1822,7 +1903,7 @@ public sealed class NebulaMongoContext : IDisposable
             var matches = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
             foreach (var match in matches)
             {
-                if (HasTelegramParts(match))
+                if (IsCompletedTelegramMedia(match))
                 {
                     return match;
                 }
@@ -1850,7 +1931,7 @@ public sealed class NebulaMongoContext : IDisposable
                 if (docIdent.HasValue &&
                     docIdent.Value.Year == movieIdent.Value.Year &&
                     string.Equals(docIdent.Value.Title, movieIdent.Value.Title, StringComparison.OrdinalIgnoreCase) &&
-                    HasTelegramParts(doc))
+                    IsCompletedTelegramMedia(doc))
                 {
                     return doc;
                 }
@@ -1879,7 +1960,7 @@ public sealed class NebulaMongoContext : IDisposable
                     docIdent.Value.Season == epIdent.Value.Season &&
                     docIdent.Value.Episode == epIdent.Value.Episode &&
                     string.Equals(docIdent.Value.Series, epIdent.Value.Series, StringComparison.OrdinalIgnoreCase) &&
-                    HasTelegramParts(doc))
+                    IsCompletedTelegramMedia(doc))
                 {
                     return doc;
                 }
@@ -1914,7 +1995,7 @@ public sealed class NebulaMongoContext : IDisposable
                     var matches = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
                     foreach (var match in matches)
                     {
-                        if (HasTelegramParts(match))
+                        if (IsCompletedTelegramMedia(match))
                         {
                             return match;
                         }
@@ -1937,6 +2018,70 @@ public sealed class NebulaMongoContext : IDisposable
 
         return !string.IsNullOrWhiteSpace(doc.GetValue("tg_file_id", string.Empty).AsString) ||
                !string.IsNullOrWhiteSpace(doc.GetValue("file_id", string.Empty).AsString);
+    }
+
+    /// <summary>
+    /// Confirms that a completed media record has a structurally complete set of Telegram parts.
+    /// </summary>
+    internal static bool IsCompletedTelegramMedia(BsonDocument doc)
+    {
+        if (!doc.TryGetValue("status", out var statusValue) || !statusValue.IsString ||
+            !string.Equals(statusValue.AsString, "completed", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var sizeValue = doc.TryGetValue("size", out var storedSize) ? storedSize : doc.GetValue("file_size", BsonNull.Value);
+        if (!sizeValue.IsNumeric || sizeValue.ToInt64() <= 0)
+        {
+            return false;
+        }
+
+        var expectedSize = sizeValue.ToInt64();
+
+        if (!doc.TryGetValue("parts", out var partsValue) || !partsValue.IsBsonArray || partsValue.AsBsonArray.Count == 0)
+        {
+            // Older single-part documents store the Telegram id on the root document.
+            var rootFileId = doc.TryGetValue("tg_file_id", out var rootTelegramId) ? rootTelegramId : doc.GetValue("file_id", BsonNull.Value);
+            return rootFileId.IsString && !string.IsNullOrWhiteSpace(rootFileId.AsString);
+        }
+
+        var parts = partsValue.AsBsonArray;
+        if (parts.Any(static part => part is not BsonDocument))
+        {
+            return false;
+        }
+
+        var orderedParts = parts.OfType<BsonDocument>().ToList();
+        long actualSize = 0;
+        for (var index = 0; index < orderedParts.Count; index++)
+        {
+            var part = orderedParts[index];
+            var partNumberValue = part.TryGetValue("part_number", out var storedPartNumber)
+                ? storedPartNumber
+                : part.GetValue("part_id", BsonNull.Value);
+            if (!partNumberValue.IsNumeric)
+            {
+                return false;
+            }
+
+            var partNumber = partNumberValue.ToInt32();
+            var partSizeValue = part.TryGetValue("size", out var storedPartSize) ? storedPartSize : part.GetValue("file_size", BsonNull.Value);
+            var fileIdValue = part.TryGetValue("tg_file_id", out var telegramId) ? telegramId : part.GetValue("tg_file", BsonNull.Value);
+            var partStatusValue = part.GetValue("status", "completed");
+            var partSize = partSizeValue.IsNumeric ? partSizeValue.ToInt64() : 0L;
+            var hasTelegramId = fileIdValue.IsString && !string.IsNullOrWhiteSpace(fileIdValue.AsString);
+            if (partNumber != index || partSize <= 0 || partSize > expectedSize - actualSize ||
+                !hasTelegramId || !partStatusValue.IsString ||
+                !string.Equals(partStatusValue.AsString, "completed", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            actualSize += partSize;
+        }
+
+        return actualSize == expectedSize;
     }
 
     /// <summary>
@@ -2064,22 +2209,28 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     /// <param name="id">ID do arquivo.</param>
     /// <param name="reason">Motivo da falha.</param>
+    /// <param name="failureStage">Etapa de baixa cardinalidade onde ocorreu a falha.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <param name="workerId">Worker que deve possuir o arquivo; nulo desativa a verificação.</param>
     /// <returns>Uma tarefa assíncrona.</returns>
     public async Task MarkUploadFailedAsync(
         ObjectId id,
         string reason,
+        string failureStage,
         CancellationToken cancellationToken = default,
         string? workerId = null)
     {
-        var retryAt = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds();
+        var failedAt = DateTimeOffset.UtcNow;
+        var retryAt = failedAt.AddMinutes(1).ToUnixTimeSeconds();
+        var normalizedStage = NormalizeUploadFailureStage(failureStage);
         var filter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Eq("_id", id),
             BuildWorkerOwnershipFilter(workerId));
         var update = Builders<BsonDocument>.Update
             .Set("status", "failed")
             .Set("failed_reason", reason.Length > 1000 ? reason[..1000] : reason)
+            .Set("failure_stage", normalizedStage)
+            .Set("last_failure_at", failedAt.ToUnixTimeSeconds())
             .Set("retry_after", retryAt)
             .Inc("retry_count", 1)
             .Unset("worker_id")
@@ -2108,7 +2259,8 @@ public sealed class NebulaMongoContext : IDisposable
             BuildWorkerOwnershipFilter(workerId));
         var update = Builders<BsonDocument>.Update.Combine(
             new BsonDocument("$set", finalFields),
-            Builders<BsonDocument>.Update.Unset("retry_after"));
+            Builders<BsonDocument>.Update.Unset("retry_after"),
+            Builders<BsonDocument>.Update.Unset("failed_reason"));
         var result = await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
         return result.MatchedCount > 0;
     }
@@ -2130,7 +2282,8 @@ public sealed class NebulaMongoContext : IDisposable
             .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())
             .Unset("worker_id")
             .Unset("started_at")
-            .Unset("retry_after");
+            .Unset("retry_after")
+            .Unset("failed_reason");
 
         if (completedMedia.TryGetValue("parts", out var parts))
         {
@@ -2551,17 +2704,8 @@ public sealed class NebulaMongoContext : IDisposable
                             continue;
                         }
 
-                        // Um registro failed também pode ser um upload que já
-                        // recebeu partes do Telegram antes da queda. Nunca o
-                        // reative nesse caso, pois isso duplica a mídia.
-                        if (HasTelegramParts(existing))
-                        {
-                            RemoveCompletedStagingFile(fileInfo, stageRoot, existing.GetValue("name", fileName).AsString);
-                            _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
-                            continue;
-                        }
-
-                        // Se estava failed, reativa para queued
+                        // Preserve the local source when a failed upload has partial Telegram parts.
+                        // The upload engine validates and resumes each reusable part before sending.
                         var reactivate = Builders<BsonDocument>.Update
                             .Set("status", "queued")
                             .Set("local_path", fileInfo.FullName)
@@ -2691,7 +2835,7 @@ public sealed class NebulaMongoContext : IDisposable
                 }
 
                 var status = doc.TryGetValue("status", out var statusValue) && statusValue.IsString ? statusValue.AsString : string.Empty;
-                if (string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase) && HasTelegramParts(doc))
+                if (IsCompletedTelegramMedia(doc))
                 {
                     completedPaths.Add(fullPath);
                     continue;
@@ -2872,8 +3016,11 @@ public sealed class NebulaMongoContext : IDisposable
                 Builders<BsonDocument>.Filter.Eq("status", "completed"));
 
             var projection = Builders<BsonDocument>.Projection
+                .Include("status")
                 .Include("name")
                 .Include("parent")
+                .Include("size")
+                .Include("file_size")
                 .Include("parts")
                 .Include("tg_file_id")
                 .Include("file_id")
@@ -2884,7 +3031,7 @@ public sealed class NebulaMongoContext : IDisposable
 
             foreach (var doc in docs)
             {
-                if (!HasTelegramParts(doc))
+                if (!IsCompletedTelegramMedia(doc))
                 {
                     continue;
                 }
@@ -2948,7 +3095,10 @@ public sealed class NebulaMongoContext : IDisposable
                 Builders<BsonDocument>.Filter.Exists("local_path", true));
 
             var projection = Builders<BsonDocument>.Projection
+                .Include("status")
                 .Include("local_path")
+                .Include("size")
+                .Include("file_size")
                 .Include("parts")
                 .Include("tg_file_id")
                 .Include("file_id")
@@ -2961,7 +3111,7 @@ public sealed class NebulaMongoContext : IDisposable
 
             foreach (var doc in docs)
             {
-                if (!HasTelegramParts(doc))
+                if (!IsCompletedTelegramMedia(doc))
                 {
                     continue;
                 }

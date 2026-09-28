@@ -73,10 +73,8 @@ public class DeleteLogFileTask : IScheduledTask, IConfigurableScheduledTask
         // Delete log files more than n days old
         var minDateModified = DateTime.UtcNow.AddDays(-_configurationManager.CommonConfiguration.LogFileRetentionDays);
 
-        // Only delete files that serilog doesn't manage (anything that doesn't start with 'log_'
         var filesToDelete = _fileSystem.GetFiles(_configurationManager.CommonApplicationPaths.LogDirectoryPath, true)
-            .Where(f => !f.Name.StartsWith("log_", StringComparison.Ordinal)
-                        && _fileSystem.GetLastWriteTimeUtc(f) < minDateModified)
+            .Where(f => _fileSystem.GetLastWriteTimeUtc(f) < minDateModified)
             .ToList();
 
         var index = 0;

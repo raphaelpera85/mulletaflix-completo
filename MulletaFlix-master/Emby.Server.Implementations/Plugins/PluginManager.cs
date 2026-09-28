@@ -998,7 +998,7 @@ namespace Emby.Server.Implementations.Plugins
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Unable to load bootstrap plugin manifest from {RepositoryUrl}.", repository.Url);
+                    _logger.LogWarning(ex, "Unable to load bootstrap plugin manifest.");
                 }
             }
 

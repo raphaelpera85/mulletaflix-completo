@@ -104,15 +104,14 @@ namespace MulletaFlix.Server.Implementations.Events.Consumers.Session
                     if (!response.IsSuccessStatusCode)
                     {
                         _logger.LogWarning(
-                            "Webhook {EventName} to {Url} returned {StatusCode}.",
+                            "Webhook {EventName} returned {StatusCode}.",
                             eventName,
-                            url,
                             (int)response.StatusCode);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Webhook {EventName} to {Url} failed.", eventName, url);
+                    _logger.LogError(ex, "Webhook {EventName} failed.", eventName);
                 }
             }
         }

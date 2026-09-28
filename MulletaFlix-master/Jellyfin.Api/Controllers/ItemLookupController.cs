@@ -293,14 +293,12 @@ public class ItemLookupController : BaseMulletaFlixApiController
             {
                 _logger.LogWarning(
                     ex,
-                    "Unable to save primary image fallback for item {ItemId}-{ItemName}: {ImageUrl}",
+                    "Unable to save primary image fallback for item {ItemId}-{ItemName}.",
                     item.Id,
-                    item.Name,
-                    searchResult.ImageUrl);
+                    item.Name);
             }
         }
 
         return NoContent();
     }
 }
-

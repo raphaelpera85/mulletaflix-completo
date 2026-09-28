@@ -113,9 +113,9 @@ public class ResponseTimeMiddleware
         }
 
         _logger.LogInformation(
-            "Slow HTTP Response from {Url} to {RemoteIP} in {Elapsed:g} with Status Code {StatusCode}",
-            context.Request.GetDisplayUrl(),
-            context.GetNormalizedRemoteIP(),
+            "Slow HTTP Response for {Method} {Path} in {Elapsed:g} with Status Code {StatusCode}",
+            context.Request.Method,
+            path,
             responseTime,
             context.Response.StatusCode);
     }

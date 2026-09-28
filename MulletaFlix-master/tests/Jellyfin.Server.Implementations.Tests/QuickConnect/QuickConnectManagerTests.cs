@@ -9,6 +9,8 @@ using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Configuration;
+using Microsoft.Extensions.Logging;
+using MulletaFlix.Server.Implementations.Tests.Logging;
 using Moq;
 using Xunit;
 
@@ -27,6 +29,7 @@ namespace MulletaFlix.Server.Implementations.Tests.QuickConnect
         private readonly Fixture _fixture;
         private readonly ServerConfiguration _config;
         private readonly QuickConnectManager _quickConnectManager;
+        private readonly CapturingLogger<QuickConnectManager> _logger = new();
 
         public QuickConnectManagerTests()
         {
@@ -39,6 +42,7 @@ namespace MulletaFlix.Server.Implementations.Tests.QuickConnect
             {
                 ConfigureMembers = true
             }).Inject(configManager.Object);
+            _fixture.Inject<ILogger<QuickConnectManager>>(_logger);
 
             // User object contains circular references.
             _fixture.Behaviors.OfType<ThrowingRecursionBehavior>().ToList()
@@ -134,7 +138,23 @@ namespace MulletaFlix.Server.Implementations.Tests.QuickConnect
             _config.QuickConnectAvailable = true;
             var res = _quickConnectManager.TryConnect(_quickConnectAuthInfo);
             Assert.True(await _quickConnectManager.AuthorizeRequest(Guid.Empty, res.Code));
+            var messages = string.Join(Environment.NewLine, _logger.Messages);
+            Assert.DoesNotContain(res.Code, messages, StringComparison.Ordinal);
+            Assert.DoesNotContain(res.Secret, messages, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void CheckRequestStatus_ExpiredRequest_DoesNotLogCodeOrSecret()
+        {
+            _config.QuickConnectAvailable = true;
+            var result = _quickConnectManager.TryConnect(_quickConnectAuthInfo);
+            result.DateAdded = DateTime.UtcNow.AddMinutes(-11);
+
+            Assert.Throws<ResourceNotFoundException>(() => _quickConnectManager.CheckRequestStatus(result.Secret));
+
+            var messages = string.Join(Environment.NewLine, _logger.Messages);
+            Assert.DoesNotContain(result.Code, messages, StringComparison.Ordinal);
+            Assert.DoesNotContain(result.Secret, messages, StringComparison.Ordinal);
         }
     }
 }
-

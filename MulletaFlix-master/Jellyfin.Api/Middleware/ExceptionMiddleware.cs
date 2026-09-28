@@ -58,7 +58,9 @@ public class ExceptionMiddleware
         {
             if (context.Response.HasStarted)
             {
-                _logger.LogWarning("The response has already started, the exception middleware will not be executed.");
+                _logger.LogWarning(
+                    "The response has already started, the exception middleware will not be executed. Correlation ID: {CorrelationId}.",
+                    context.TraceIdentifier);
                 throw;
             }
 
@@ -75,7 +77,8 @@ public class ExceptionMiddleware
             if (ignoreStackTrace)
             {
                 _logger.LogError(
-                    "Error processing request: {ExceptionMessage}. URL {Method} {Url}.",
+                    "Error processing request {CorrelationId}: {ExceptionMessage}. URL {Method} {Url}.",
+                    context.TraceIdentifier,
                     ex.Message.TrimEnd('.'),
                     context.Request.Method,
                     context.Request.Path);
@@ -84,7 +87,8 @@ public class ExceptionMiddleware
             {
                 _logger.LogError(
                     ex,
-                    "Error processing request. URL {Method} {Url}.",
+                    "Error processing request {CorrelationId}. URL {Method} {Url}.",
+                    context.TraceIdentifier,
                     context.Request.Method,
                     context.Request.Path);
             }
@@ -148,4 +152,3 @@ public class ExceptionMiddleware
                 StringComparison.OrdinalIgnoreCase);
     }
 }
-

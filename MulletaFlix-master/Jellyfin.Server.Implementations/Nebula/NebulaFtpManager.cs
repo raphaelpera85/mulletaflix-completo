@@ -4033,7 +4033,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             if (userCount == 0 || appUserCount == 0 || appUserBackupCount > appUserCount)
             {
                 logAction?.Invoke($"[DATABASE-INIT] Usuários locais incompletos detectados (usuários FTP: {userCount}, usuários MulletaFlix: {appUserCount}/{appUserBackupCount} no backup). Verificando Supabase...");
-                _logger.LogInformation("[DATABASE-INIT] Usuários locais incompletos detectados (FTP: {FtpUsers}, MulletaFlix: {AppUsers}/{BackupUsers}). Iniciando auto-restauração de usuários a partir do Supabase ({Url})...", userCount, appUserCount, appUserBackupCount, config.SupabaseUrl);
+                _logger.LogInformation("[DATABASE-INIT] Usuários locais incompletos detectados (FTP: {FtpUsers}, MulletaFlix: {AppUsers}/{BackupUsers}). Iniciando auto-restauração de usuários a partir do Supabase...", userCount, appUserCount, appUserBackupCount);
 
                 _supabaseSyncService ??= new NebulaSupabaseSyncService(_mongoContext, _loggerFactory.CreateLogger<NebulaSupabaseSyncService>(), _usersDbProvider);
                 var restoreResult = await _supabaseSyncService.PerformRestoreAsync(config.SupabaseUrl, config.SupabaseKey, cancellationToken).ConfigureAwait(false);

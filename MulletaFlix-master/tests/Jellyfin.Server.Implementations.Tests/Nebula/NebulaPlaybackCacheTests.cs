@@ -413,6 +413,53 @@ public sealed class NebulaPlaybackCacheTests
             Assert.Equal(expected.Length, read);
             Assert.Equal(expected, actual);
             Assert.Equal(expected.Length, cache.GetCacheSizeBytes());
+            Assert.Equal(1, cache.GetCachedFilesCount());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CacheMetrics_TrackPersistedChunksAndClearCache()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            Assert.Equal(0, cache.GetCacheSizeBytes());
+            Assert.Equal(0, cache.GetCachedFilesCount());
+
+            await cache.GetOrFetchChunkAsync("metrics-media", 0, 0, 5, _ => Task.FromResult(new byte[] { 1, 2, 3, 4, 5 }), CancellationToken.None);
+
+            Assert.Equal(5, cache.GetCacheSizeBytes());
+            Assert.Equal(1, cache.GetCachedFilesCount());
+            Assert.True(cache.ClearCache());
+            Assert.Equal(0, cache.GetCacheSizeBytes());
+            Assert.Equal(0, cache.GetCachedFilesCount());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CacheMetrics_InitializeFromExistingFilesWithoutChangingContent()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var existingCacheFile = Path.Combine(root, "nebula-playback", "existing-media", "part-0-chunk-0.bin");
+            Directory.CreateDirectory(Path.GetDirectoryName(existingCacheFile)!);
+            File.WriteAllBytes(existingCacheFile, new byte[] { 1, 2, 3, 4, 5 });
+
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+
+            Assert.Equal(5, cache.GetCacheSizeBytes());
+            Assert.Equal(1, cache.GetCachedFilesCount());
+            Assert.True(File.Exists(existingCacheFile));
         }
         finally
         {
@@ -713,6 +760,7 @@ public sealed class NebulaPlaybackCacheTests
             await cache.GetOrFetchChunkAsync("new-media", 0, 0, 3, _ => Task.FromResult(new byte[] { 2, 2, 2 }), CancellationToken.None);
 
             Assert.Equal(3, cache.GetCacheSizeBytes());
+            Assert.Equal(1, cache.GetCachedFilesCount());
             Assert.Single(Directory.GetFiles(Path.Combine(root, "nebula-playback"), "*.bin", SearchOption.AllDirectories));
             Assert.Equal(new byte[] { 2, 2, 2 }, await cache.GetOrFetchChunkAsync(
                 "new-media", 0, 0, 3, _ => Task.FromResult(Array.Empty<byte>()), CancellationToken.None));

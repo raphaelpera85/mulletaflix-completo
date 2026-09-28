@@ -106,7 +106,7 @@ public sealed class ServerUpdateTask : IScheduledTask
             var response = await client.GetAsync(targetUrl, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Server update check returned HTTP {StatusCode} from {Url}", response.StatusCode, targetUrl);
+                _logger.LogWarning("Server update check returned HTTP {StatusCode}.", response.StatusCode);
                 progress.Report(100);
                 return;
             }
@@ -128,7 +128,7 @@ public sealed class ServerUpdateTask : IScheduledTask
 
             if (remoteVersion is null || string.IsNullOrWhiteSpace(archiveUrl))
             {
-                _logger.LogWarning("Could not resolve update version or archive URL from {Url}", targetUrl);
+                _logger.LogWarning("Could not resolve the update version or archive URL.");
                 progress.Report(100);
                 return;
             }
@@ -184,7 +184,7 @@ public sealed class ServerUpdateTask : IScheduledTask
                 Directory.Delete(extractDir, true);
             }
 
-            _logger.LogInformation("Auto-downloading server update {RemoteVersion} in background from {Url}...", remoteVersion.ToString(3), archiveUrl);
+            _logger.LogInformation("Auto-downloading server update {RemoteVersion} in background...", remoteVersion.ToString(3));
             await DownloadArchiveAsync(client, archiveUrl, packageZip, cancellationToken).ConfigureAwait(false);
 
             progress.Report(70);

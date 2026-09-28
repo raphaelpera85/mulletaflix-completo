@@ -20,6 +20,7 @@ using MulletaFlix.Server.Implementations.StorageHelpers;
 using MulletaFlix.Server.Implementations.FullSystemBackup;
 using MulletaFlix.Server.Configuration.NebulaFTP;
 using MulletaFlix.Server.Migrations;
+using MulletaFlix.Server.Migrations.Routines;
 using MulletaFlix.Server.Migrations.Stages;
 using MulletaFlix.Server.ServerSetupApp;
 using MediaBrowser.Common.Configuration;
@@ -101,6 +102,7 @@ namespace MulletaFlix.Server
             Environment.SetEnvironmentVariable("EnableExtendedVaFormats", "1");
 
             await StartupHelpers.InitLoggingConfigFile(appPaths).ConfigureAwait(false);
+            await new AlignLogRetention(appPaths).PerformAsync(CancellationToken.None).ConfigureAwait(false);
 
             // Create an instance of the application configuration to use for application startup
             IConfiguration startupConfig = CreateAppConfiguration(options, appPaths);

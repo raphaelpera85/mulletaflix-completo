@@ -424,7 +424,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         {
             requestActivity?.SetStatus(ActivityStatusCode.Error, "Request failed");
             requestActivity?.SetTag("error.type", ex.GetType().FullName);
-            _logger.LogDebug(ex, "[NEBULA-HTTP] Erro ao processar requisição HTTP de stream: {Path}", request.Url?.PathAndQuery);
+            _logger.LogDebug(ex, "[NEBULA-HTTP] Erro ao processar requisição HTTP de stream na rota {Route}.", route);
             try
             {
                 response.StatusCode = (int)HttpStatusCode.InternalServerError;

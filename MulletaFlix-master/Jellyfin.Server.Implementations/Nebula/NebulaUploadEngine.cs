@@ -861,13 +861,13 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 }
             }
 
-            async Task<bool> FailUploadAsync(string reason)
+            async Task<bool> FailUploadAsync(string reason, string failureStage)
             {
                 if (_mongoContext != null)
                 {
                     try
                     {
-                        await _mongoContext.MarkUploadFailedAsync(nodeId, reason, cancellationToken, workerKey).ConfigureAwait(false);
+                        await _mongoContext.MarkUploadFailedAsync(nodeId, reason, failureStage, cancellationToken, workerKey).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -963,7 +963,9 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     if (availableBots.Count == 0)
                     {
                         _logger.LogError("[NEBULA-UPLOAD] Nenhum bot Telegram autenticado está disponível.");
-                        return await FailUploadAsync("Nenhum bot Telegram autenticado disponível.").ConfigureAwait(false);
+                        return await FailUploadAsync(
+                            "Nenhum bot Telegram autenticado disponível.",
+                            NebulaUploadFailureStages.TelegramAvailability).ConfigureAwait(false);
                     }
 
                     var caption = BuildPartCaption(mediaType, targetFileName, partNum, totalParts, fileUuid, totalSize);
@@ -992,7 +994,9 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     {
                         _logger.LogError("[NEBULA-UPLOAD] Telegram não publicou a parte {Part} de '{Name}'.", partNum + 1, targetFileName);
                         LogServer("ERROR", $"[NEBULA-UPLOAD-ERRO] Telegram não publicou a parte {partNum + 1} de '{targetFileName}'.");
-                        return await FailUploadAsync($"Telegram não publicou a parte {partNum + 1}.").ConfigureAwait(false);
+                        return await FailUploadAsync(
+                            $"Telegram não publicou a parte {partNum + 1}.",
+                            NebulaUploadFailureStages.TelegramTransfer).ConfigureAwait(false);
                     }
 
                     // O pool pode escolher outro bot livre para manter o
@@ -1043,7 +1047,9 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             if (parts.Count < totalParts)
             {
                 _logger.LogError("[NEBULA-UPLOAD] Upload incompleto para '{Name}': {Count}/{Total} partes.", targetFileName, parts.Count, totalParts);
-                return await FailUploadAsync($"Upload incompleto: {parts.Count}/{totalParts} partes.").ConfigureAwait(false);
+                return await FailUploadAsync(
+                    $"Upload incompleto: {parts.Count}/{totalParts} partes.",
+                    NebulaUploadFailureStages.UploadIntegrity).ConfigureAwait(false);
             }
 
             var finalPartDocs = new BsonArray();

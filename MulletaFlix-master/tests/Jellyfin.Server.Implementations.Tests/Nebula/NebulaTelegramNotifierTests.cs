@@ -46,6 +46,51 @@ public class NebulaTelegramNotifierTests
     }
 
     [Fact]
+    public void IsCompletedTelegramMedia_RequiresContiguousPartsAndMatchingSize()
+    {
+        var complete = new BsonDocument
+        {
+            { "status", "completed" },
+            { "size", 10L },
+            {
+                "parts",
+                new BsonArray
+                {
+                    new BsonDocument { { "part_number", 0 }, { "size", 4L }, { "tg_file_id", "part-0" } },
+                    new BsonDocument { { "part_number", 1 }, { "size", 6L }, { "tg_file_id", "part-1" } }
+                }
+            }
+        };
+        var incomplete = complete.DeepClone().AsBsonDocument;
+        incomplete["parts"].AsBsonArray.RemoveAt(1);
+
+        Assert.True(NebulaMongoContext.IsCompletedTelegramMedia(complete));
+        Assert.False(NebulaMongoContext.IsCompletedTelegramMedia(incomplete));
+    }
+
+    [Fact]
+    public void IsCompletedTelegramMedia_RejectsFailedPartAndNonCompletedDocument()
+    {
+        var document = new BsonDocument
+        {
+            { "status", "completed" },
+            { "size", 10L },
+            {
+                "parts",
+                new BsonArray
+                {
+                    new BsonDocument { { "part_number", 0 }, { "size", 10L }, { "tg_file_id", "part-0" }, { "status", "failed" } }
+                }
+            }
+        };
+
+        Assert.False(NebulaMongoContext.IsCompletedTelegramMedia(document));
+        document["parts"].AsBsonArray[0].AsBsonDocument["status"] = "completed";
+        document["status"] = "uploading";
+        Assert.False(NebulaMongoContext.IsCompletedTelegramMedia(document));
+    }
+
+    [Fact]
     public void EpisodeIdentity_PreventsMovieIdentityFromCollapsingEpisodes()
     {
         var episode = NebulaDownloaderEngine.EpisodeIdentity(

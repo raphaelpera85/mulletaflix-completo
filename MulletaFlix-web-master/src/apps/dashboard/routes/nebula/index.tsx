@@ -129,10 +129,15 @@ type NebulaPlaybackCacheStatus = {
 
 type NebulaUploadQueueSummary = {
     isAvailable: boolean;
+    windowStartUtc: string;
     pendingCount: number;
     retryCount: number;
     oldestPendingName: string;
     oldestPendingAtUtc: string | null;
+    completedCountLastHour: number;
+    uploadedBytesLastHour: number;
+    recentFailureCount: number;
+    failuresByStage: { stage: string; count: number }[];
 };
 
 const STATUS_QUERY_KEY = [ 'NebulaStatus' ];
@@ -194,6 +199,26 @@ const deleteAction = async <T,>(path: string): Promise<T> => {
 };
 
 const formatMegabytes = (value = 0) => `${value.toFixed(1)} MB`;
+
+const formatBytes = (value: number) => {
+    if (!Number.isFinite(value) || value < 0) return '—';
+    if (value < 1024) return `${value} B`;
+    const units = [ 'KB', 'MB', 'GB', 'TB' ];
+    let scaled = value / 1024;
+    let unitIndex = 0;
+    while (scaled >= 1024 && unitIndex < units.length - 1) {
+        scaled /= 1024;
+        unitIndex++;
+    }
+    return `${scaled.toFixed(1)} ${units[unitIndex]}`;
+};
+
+const uploadFailureStageLabel: Record<string, string> = {
+    telegram_availability: 'Telegram indisponível',
+    telegram_transfer: 'Transferência ao Telegram',
+    upload_integrity: 'Integridade do upload',
+    unknown: 'Etapa não identificada'
+};
 
 const stateChip = (active: boolean, activeLabel: string, inactiveLabel: string) => (
     <Chip
@@ -474,8 +499,8 @@ const NebulaPage = () => {
             const apiClient = getApiClient();
             return apiClient.getJSON(apiClient.getUrl('NebulaFtp/PlaybackCache')) as Promise<NebulaPlaybackCacheStatus>;
         },
-        // Cache occupancy requires a disk walk; refresh much less often than the live queue status.
-        refetchInterval: 120000
+        // Cache occupancy is maintained incrementally; poll alongside operational summaries.
+        refetchInterval: 30000
     });
     const uploadQueueSummaryQuery = useQuery({
         queryKey: UPLOAD_QUEUE_SUMMARY_QUERY_KEY,
@@ -886,6 +911,24 @@ const NebulaPage = () => {
                                                 ? ` · ${new Date(uploadQueueSummaryQuery.data.oldestPendingAtUtc).toLocaleString()}`
                                                 : ''}
                                         </Typography>
+                                        <Divider flexItem sx={{ width: '100%' }} />
+                                        <Typography variant='caption' color='text.secondary'>Atividade nos últimos 60 minutos</Typography>
+                                        <Typography>{uploadQueueSummaryQuery.data.completedCountLastHour} upload(s) concluído(s) · {formatBytes(uploadQueueSummaryQuery.data.uploadedBytesLastHour)} enviados</Typography>
+                                        <Typography>{uploadQueueSummaryQuery.data.recentFailureCount} mídia(s) com falha recente</Typography>
+                                        {uploadQueueSummaryQuery.data.failuresByStage.length > 0 ? (
+                                            <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} flexWrap='wrap'>
+                                                {uploadQueueSummaryQuery.data.failuresByStage.map((failure) => (
+                                                    <Chip
+                                                        key={failure.stage}
+                                                        size='small'
+                                                        color='warning'
+                                                        label={`${uploadFailureStageLabel[failure.stage] || 'Outras etapas'}: ${failure.count}`}
+                                                    />
+                                                ))}
+                                            </Stack>
+                                        ) : (
+                                            <Typography variant='body2' color='text.secondary'>Nenhuma falha registrada nessa janela.</Typography>
+                                        )}
                                     </Stack>
                                 ) : (
                                     <Typography color='text.secondary'>Consultando fila...</Typography>
@@ -897,7 +940,7 @@ const NebulaPage = () => {
                             <Stack spacing={1.5}>
                                 <Box>
                                     <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>Cache de reprodução</Typography>
-                                    <Typography variant='body2' color='text.secondary'>Uso, espaço livre e sessões protegidas; atualização a cada 120 segundos.</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Uso, espaço livre e sessões protegidas; atualização a cada 30 segundos.</Typography>
                                 </Box>
                                 {playbackCacheQuery.isError ? (
                                     <Alert severity='warning' action={<Button color='inherit' size='small' onClick={retryPlaybackCache}>Tentar novamente</Button>}>

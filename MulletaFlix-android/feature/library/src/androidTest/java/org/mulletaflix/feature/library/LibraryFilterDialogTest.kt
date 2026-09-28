@@ -131,7 +131,7 @@ class LibraryFilterDialogTest {
     }
 
     @Test
-    fun dpad_opens_a_server_option_picker_on_tv() {
+    fun dpad_selects_a_server_option_on_tv() {
         assumeTelevisionProfile()
         composeRule.setContent {
             MaterialTheme {
@@ -146,8 +146,13 @@ class LibraryFilterDialogTest {
         }
 
         composeRule.onNodeWithContentDescription("Selecionar gêneros disponíveis")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithContentDescription("Drama")
+            .assertIsDisplayed()
             .performKeyInput { pressKey(Key.DirectionCenter) }
-        composeRule.onNodeWithText("Drama").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Drama, selecionado").assertIsSelected()
     }
 
     @Test

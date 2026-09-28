@@ -53,7 +53,8 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
   - [x] Cobrir catálogo STRM de 10 e 2.000 títulos; falha de fetch seguida de retry/cache hit; fetch de rede com erro; cache cheio com lease; stream local e primeiro bloco sem esperar o próximo fetch.
   - [x] Adicionar job CI focado em cenários Nebula e health checks de dependências para `ubuntu-latest` e `windows-latest`; lock de arquivo com `FileShare.None` fica explicitamente restrito ao Windows.
   - [x] Cobrir a transição do health check Mongo indisponível (`Unhealthy`) para disponível (`Healthy`) em verificações sucessivas, sem reiniciar o servidor.
-  - [ ] Confirmar os dois jobs em execução remota e adicionar recuperação integrada banco/Telegram sem depender de serviços ou credenciais de produção.
+  - [x] Corrigir a validação condicional do keystore no workflow: steps passam a consultar flag de ambiente, sem referenciar `secrets` diretamente em `if`.
+  - [ ] Confirmar os dois jobs em execução remota após publicação do workflow e adicionar recuperação integrada banco/Telegram sem depender de serviços ou credenciais de produção.
 - [ ] **T0.4 — Definir limites de regressão.** Fixar budgets iniciais para tempo de boot, tamanho do bundle web, latência de busca, espaço temporário e memória; calibrar com medições reais, não valores arbitrários.
   - [x] Medir o artefato web de produção e conferir o gate existente de 1.536 KiB por arquivo JS/CSS.
   - [x] Criar relatório local reproduzível para tamanhos brutos, gzip e Brotli do HTML inicial, assets referenciados e conjunto JS/CSS completo.
@@ -94,9 +95,14 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
   - [x] Parcial: downloads multipart STRM/arquivos físicos emitem span e métricas de total/duração; URL, query, nome e caminho não são atributos. Cancelamento só é classificado como cancelado quando token de cancelamento foi solicitado; timeout continua falha.
 - [ ] **T1.2 — Criar indicadores de operação no painel.** Saúde/degradação de MongoDB e MariaDB, espaço do cache, fila mais antiga, itens em retry, throughput e falhas por etapa.
   - [x] Parcial: painel Nebula exibe health do MariaDB usando o check nomeado do contexto principal e atualiza a cada 30 s; não expõe detalhes de conexão. O MongoDB já era consultado pelo endpoint de saúde Nebula.
-  - [x] Parcial: painel mostra tamanho/arquivos do cache, leases de reprodução, pré-cache e espaço no volume; cache não inicializado aparece como indisponível, em vez de zeros falsos. A consulta do cache é limitada a 120 s porque a implementação ativa calcula ocupação caminhando pelos arquivos.
-  - [ ] Pendente: resumo eficiente da fila mais antiga e registros em retry, além de throughput e falhas por etapa. Não materializar a fila completa em polling.
+  - [x] Parcial: painel mostra tamanho/arquivos do cache, leases de reprodução, pré-cache e espaço no volume; cache não inicializado aparece como indisponível, em vez de zeros falsos. Bytes/arquivos são contadores em memória, mantidos nas mutações e carregados com snapshot inicial.
+  - [x] Parcial: endpoint leve conta itens `staging/queued` e falhas com `retry_after`; busca somente o item pendente mais antigo por projeção/limite 1. A tela atualiza esse resumo a cada 30 s sem materializar a fila inteira.
+  - [x] Parcial: resumo Mongo agrega arquivos concluídos e bytes enviados nos últimos 60 minutos, além de mídias com falha recente agrupadas por etapa; painel exibe estes dados sem nome/caminho/IDs como métricas. A janela é móvel e índices específicos suportam as consultas.
+  - [ ] Pendente: validar agregações e índices contra MongoDB de produção/volume representativo; instrumentar também exceções e falhas não encaminhadas pelos ramos explícitos do upload, além de confirmar completude do histórico.
 - [ ] **T1.3 — Separar logs operacionais de auditoria.** IDs de correlação, retenção configurável e remoção/redação de tokens, credenciais, URLs assinadas e dados pessoais.
+  - [x] Parcial: eventos de exceção HTTP registram o `TraceIdentifier`/`X-Correlation-ID` seguro para correlacionar resposta e log; não adicionam query string ou URL completa.
+  - [x] Parcial: limpeza diária agora inclui logs Serilog e aplica `LogFileRetentionDays`; sink padrão não limita mais arquivos por contagem. A configuração padrão legada é normalizada antes do logger iniciar; override `logging.json` não é alterado.
+  - [ ] Pendente: concluir auditoria/redação de todos os logs e testar retenção com configurações personalizadas além dos cenários focados.
 - [ ] **T1.4 — Expor health checks úteis.** Diferenciar processo ativo de serviço pronto; reportar dependências essenciais e estado degradado sem expor segredos publicamente.
   - [x] O `/ready` do Nebula usa `GetComponentHealthAsync` e verifica MongoDB + listeners FTP/HTTP; não materializa listas completas de uploads para responder readiness.
 - [ ] **T1.5 — Definir alertas e diagnósticos.** Alertar fila sem progresso, backup vencido, disco próximo do limite, erro repetido de provedor e falha de restauração.
@@ -105,7 +111,7 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 
 ### Fase 2 — Nebula: fila, concorrência e recuperação (P0)
 
-- [ ] **T2.1 — Especificar máquina de estados durável.** Definir estados, transições, lease/heartbeat, retomada após reinício e como distinguir retry, falha permanente e cancelamento.
+- [x] **T2.1 — Especificar máquina de estados durável.** Estados, transições, lease/heartbeat, retomada após reinício e distinção entre retry, falha permanente e cancelamento documentados abaixo. A implementação está separada em T2.2, T2.4 e T2.5.
 - [ ] **T2.2 — Fortalecer idempotência e deduplicação.** Revalidar identidade canônica e estado Telegram antes de baixar, enviar ou reenfileirar; não duplicar arquivos concluídos.
 - [ ] **T2.3 — Tornar prioridade observável e consistente.** Aplicar prioridade explícita de solicitações, ordem de categorias configurada e A–Z dentro da categoria; mostrar na interface posição, motivo e próximo item.
 - [ ] **T2.4 — Implementar backpressure e fairness.** Limites independentes por operação/rede, proteção contra rajadas e evitar starvation de tarefas não prioritárias.
@@ -114,6 +120,52 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 - [ ] **T2.7 — Atualizar a listagem virtual após upload Nebula.** Persistir primeiro `completed` e as partes Telegram no MongoDB; em seguida invalidar somente a pasta afetada via rclone RC `vfs/refresh`. Falha no refresh não reverte o upload; não copiar a mídia integral para N: e não reduzir globalmente `--dir-cache-time` salvo como fallback medido.
 
 **Aceite:** reiniciar o servidor durante download/upload retoma ou encerra o trabalho de modo consistente; cenário de retry não produz duplicação; prioridades efetivas coincidem com a ordem exibida; tarefas não ficam indefinidamente sem progresso.
+
+#### T2.1 — Contrato da máquina de estados da fila de upload
+
+Esta seção define o contrato-alvo para upload Nebula no MongoDB. Ela não muda o comportamento ainda; itens de implementação permanecem nas tarefas T2.2/T2.4/T2.5. O documento atual usa `queued`, `staging`, `uploading`, `failed` e `completed`, mas hoje `failed` é sempre retryável após um minuto, sem limite, e `modified_at` funciona como lease implícito de uma hora. Não existe estado persistido de cancelamento nem heartbeat separado. A especificação não deve ser confundida com suporte já entregue.
+
+Estados canônicos pretendidos:
+
+| Estado | Significado | Terminal? | Campos de controle esperados |
+| --- | --- | --- | --- |
+| `staging` | Arquivo detectado/registrado, mas ainda indisponível ou não validado para upload. | Não | `queued_at`, `modified_at` |
+| `queued` | Pronto para um worker reivindicar agora. | Não | `queued_at`; sem lease ativo |
+| `uploading` | Worker possui lease válido e pode gravar progresso/partes. | Não | `worker_id`, `lease_id` único por reivindicação, `lease_until`, `heartbeat_at`, `attempt_started_at` |
+| `retry_wait` | Falha transitória; aguarda `retry_after` antes de voltar a `queued`. | Não | `retry_count`, `retry_after`, `last_failure_at`, `failure_stage`, `failed_reason` sanitizado |
+| `failed` | Falha permanente ou limite de tentativas excedido; exige ação/reprocessamento administrativo. | Sim, até ação explícita | `retry_count`, `last_failure_at`, `failure_stage`, `failed_reason`, `terminal_reason` |
+| `cancelled` | Operador solicitou cancelamento; worker encerrou cooperativamente e não iniciará novas partes. | Sim, até ação explícita | `cancel_requested_at`, `cancelled_at`, `cancelled_by` quando disponível |
+| `completed` | Todas as partes foram validadas e os identificadores Telegram persistidos. | Sim e imutável no fluxo normal | `completed_at`, `parts`, `tg_file_id`, tamanho final |
+
+Transições permitidas:
+
+| Origem | Evento/guarda | Destino | Efeito obrigatório |
+| --- | --- | --- | --- |
+| ausente | Arquivo detectado | `staging` ou `queued` | Upsert idempotente; nunca substituir mídia `completed`. |
+| `staging` | Arquivo estável e validado | `queued` | Preservar identidade e tempo original de entrada na fila. |
+| `queued` | Claim atômico e elegível | `uploading` | Criar novo `lease_id`, definir dono/expiração e incrementar tentativa. |
+| `retry_wait` | `retry_after <= now` | `queued` | Manter partes parciais válidas e identidade; limpar somente erro retryável anterior. |
+| `uploading` | Parte confirmada | `uploading` | Persistir progresso antes de avançar; renovar `heartbeat_at`/`lease_until` sob ownership. |
+| `uploading` | Todas as partes confirmadas, tamanho/identidade válidos | `completed` | Persistir conclusão atomicamente antes de notificar Supabase/rclone; remover campos do lease/retry. |
+| `uploading` | Erro transitório e tentativas abaixo do limite | `retry_wait` | Aplicar backoff com jitter e limite; preservar somente partes verificadas. |
+| `uploading` | Erro permanente ou limite atingido | `failed` | Não fazer retry automático; preservar diagnóstico sanitizado e partes para inspeção/reprocessamento seguro. |
+| `uploading` | Lease expirado ou processo encerrado | `queued` | Recuperação por lease expirado; manter partes verificadas. Worker antigo perde escrita via fencing. |
+| `queued`, `staging`, `retry_wait` | Cancelamento explícito | `cancelled` | Cancelar sem claim e impedir novos claims. |
+| `uploading` | Cancelamento explícito | `uploading` até confirmação do worker, então `cancelled` | Registrar pedido, sinalizar token, parar novas partes; persistir checkpoint antes da transição final. |
+| `failed`, `cancelled` | Reprocessamento administrativo explícito | `queued` | Registrar ator/horário/motivo; resetar apenas contadores/campos definidos pela ação, sem apagar partes válidas. |
+
+Invariantes e compatibilidade:
+
+1. Toda mutação de worker exige `_id + lease_id` (fencing token); `worker_id` sozinho não identifica uma execução e não pode autorizar um worker antigo após reaquisição.
+2. Claim é uma única operação atômica condicional. Só `queued` e `retry_wait` elegível podem ser reivindicados; recuperação de `uploading` ocorre somente após expiração do lease, nunca por idade de `modified_at` isolada.
+3. `heartbeat_at` atualiza em intervalos menores que o lease; lease deve tolerar pausas de processo/rede configuradas e ser renovado antes da expiração. Se renovar falhar, worker interrompe uploads e não pode concluir.
+4. Cancelamento do host durante shutdown não equivale a cancelamento solicitado pelo usuário: checkpoint e expiração do lease permitem retomar. `cancelled` exige intenção explícita persistida.
+5. `completed` é terminal para workers, varredura de staging e retries. Correção administrativa de registro concluído é fluxo separado, auditado e fora da transição normal.
+6. Retries preservam partes confirmadas, mas verificam identidade/Telegram antes de reutilizar; nunca inferem conclusão apenas por `parts` não vazio.
+7. Migração legada deve mapear `failed` com `retry_after` para `retry_wait`; `failed` sem data de retry para revisão/`failed`; `uploading` só pode ser retomado após confirmar instância única ou lease vencido. Registros sem campos novos continuam legíveis durante rollout; não fazer migração destrutiva em lote.
+8. Estados/status e causas expostos à interface usam vocabulário estável e sem nomes de arquivo, caminhos ou segredos em labels de métricas.
+
+Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, mas usa `modified_at` com limiar fixo de uma hora; `RequeueInterruptedUploadsAsync` re-enfileira todos os `uploading` no startup; `MarkUploadFailedAsync` fixa retry de um minuto e incrementa `retry_count` sem limite; gravações aceitam `worker_id` como proteção opcional. Não há heartbeat/lease explícito, cancelamento persistente, fila terminal de falhas nem fencing token. Essas diferenças justificam manter T2.2/T2.5 abertas e exigem rollout compatível com documentos antigos.
 
 ### Fase 3 — Reprodução e cache temporário (P0)
 
@@ -466,10 +518,55 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 ### 28/09/2026 — Painel de dependências e cache (T1.2 parcial)
 
 - A tela Operações Nebula agora consulta o health check do MariaDB e apresenta saúde MongoDB/MariaDB, além de ocupação da cota e volume do cache, leases ativos e estado do pré-cache. A tela de Cache Nebula informa explicitamente quando o componente ainda não foi inicializado.
-- O status do cache deixou de percorrer a árvore de diretórios quando o serviço de cache não está inicializado; esse estado não é mais representado como ocupação zero válida. Enquanto ativo, o endpoint ainda caminha os arquivos para calcular tamanho/contagem, então a tela operacional consulta esse endpoint a cada 120 s, não junto do polling de 3 s da fila.
-- Validação: API — 179 testes aprovados; suíte completa Implementations — 981 aprovados/38 ignorados/0 falhas (inclui 34 testes de cache); `dotnet build Jellyfin.Server/Jellyfin.Server.csproj -c Release --no-restore` — sucesso, 0 erros; TypeScript — sucesso; Vitest — 208 testes aprovados/26 arquivos; `npm run build:production` — sucesso.
+- Um endpoint de resumo conta documentos pendentes/retry e projeta somente nome e timestamp do item mais antigo, limitado a um registro; foi adicionado índice Mongo por `type/status/queued_at`. A tela deixa explícito quando o Mongo não está disponível.
+- O status do cache deixou de percorrer a árvore de diretórios quando o serviço de cache não está inicializado; esse estado não é mais representado como ocupação zero válida. Naquela etapa, o cache ativo ainda caminhava os arquivos e o painel limitava a consulta a 120 s; os contadores incrementais descritos no registro de 28/09 removem essa varredura por consulta.
+- Validação: API — 180 testes aprovados; suíte completa Implementations — 981 aprovados/38 ignorados/0 falhas (inclui 34 testes de cache); build Release do servidor compilado pela suíte com 0 erros; TypeScript — sucesso; Vitest — 208 testes aprovados/26 arquivos; `npm run build:production` — sucesso.
 - A primeira execução Vitest teve 2 suítes impedidas por erro transitório de leitura `UNKNOWN` na configuração PostCSS (201 testes passaram); repetição após build passou integralmente. Avisos de Vite `use client`, dependência dinâmica/estática e NU1903 Newtonsoft.Json 9.0.1 permanecem.
-- Limite: indicadores de fila mais antiga, retries, throughput e falhas por etapa ainda não foram implementados. Cache ativo ainda exige caminhada de arquivos e merece agregação incremental antes de aumentar a frequência. T1.2 permanece parcial; nenhuma release criada/publicada conforme o gate do usuário.
+- Limite: a consulta Mongo do resumo foi compilada e coberta pelo contrato HTTP, mas ainda não foi exercitada contra MongoDB de produção; throughput/falhas por etapa ainda não foram implementados. A contagem do cache deixou de caminhar pelo disco por consulta, mas ainda merece teste prolongado com cache pré-existente e mutações concorrentes. T1.2 permanece parcial; nenhuma release criada/publicada conforme o gate do usuário.
+
+### 28/09/2026 — Métricas incrementais do cache de reprodução (T1.2 parcial)
+
+- O cache agora enumera os arquivos existentes apenas uma vez ao iniciar e mantém tamanho/quantidade em memória; gravações, substituições atômicas, evicção, expiração e limpeza ajustam os valores sob o gate de armazenamento. Status e controle de cota consultam os contadores, sem varredura recursiva por polling.
+- Testes focados de cache: 36 aprovados; suíte completa `Jellyfin.Server.Implementations.Tests`: 983 aprovados, 38 ignorados, 0 falhas. Uma primeira execução focada teve falha de limpeza enquanto o teste mantinha um lease aberto — comportamento esperado pela proteção de reprodução — e uma falha transitória no teste de descarte; o cenário foi isolado, o teste de limpeza passou a usar stream sem lease e a repetição focada passou integralmente.
+- Ainda pendente: resumo da fila com dados Mongo em ambiente real, throughput e falhas por etapa no painel; T1.2 permanece parcial. Nenhuma release foi criada/publicada, conforme o gate do usuário.
+
+### 28/09/2026 — Throughput e falhas recentes por etapa (T1.2 parcial)
+
+- O resumo de fila Mongo agora inclui janela móvel de 60 minutos, quantidade de arquivos concluídos e bytes enviados, mais mídias com falha recente agrupadas em etapas de disponibilidade Telegram, transferência, integridade ou desconhecida. Falhas são registradas com timestamp e categoria de baixa cardinalidade; sucesso limpa estado de retry/motivo, preservando a última falha recente para diagnóstico.
+- Foram adicionados índices para consultas por upload concluído e falhas recentes; a tela Operações Nebula exibe atividade e categorias de falha. Atualização do cache de reprodução alinhada à consulta operacional, agora a cada 30 segundos, pois ocupação deixou de exigir varredura de disco.
+- Testes: `Jellyfin.Server.Implementations.Tests` — 988 aprovados, 38 ignorados, 0 falhas; API focada — 18 aprovados; Vitest — 208 aprovados/26 arquivos; TypeScript (`npm run build:check`), build de produção web, build Release do servidor e `git diff --check` passaram. Avisos existentes: NU1903 para Newtonsoft.Json 9.0.1 e diretivas `use client` ignoradas pelo Vite.
+- Limite: não foi feita consulta contra MongoDB real; falhas classificadas são as rotas explícitas de `FailUploadAsync`, e o agregado conta documentos/mídias com última falha na janela, não cada tentativa individual. T1.2 permanece parcial; nenhuma release foi criada/publicada, conforme o gate do usuário.
+
+### 28/09/2026 — Workflow remoto de cenários estava inválido (T0.3 parcial)
+
+- Consulta pública do GitHub confirmou que as duas execuções no commit `19b5093` encerraram instantaneamente sem jobs; anotação do workflow: `Unrecognized named-value: 'secrets'` nas três condições `if` do job Android. Assim, os jobs Nebula Windows/Linux ainda não tiveram execução remota confirmada nesse commit.
+- Corrigido `.github/workflows/ci.yml`: a disponibilidade do keystore é convertida em flag no ambiente do job e os três steps condicionais usam `env`, sem expor o segredo nos logs.
+- Verificações locais: YAML parseado sem erros; as três condições não referenciam `secrets` diretamente; `git diff --check` passou. O workflow remoto ainda não foi reexecutado porque a alteração não foi publicada; não houve push nem release.
+- T0.3 permanece parcial: além da confirmação remota, falta cenário integrado de recuperação banco/Telegram sem credenciais ou serviços de produção.
+
+### 28/09/2026 — Correlação nos logs de exceção HTTP (T1.3 parcial)
+
+- Os três eventos de erro do `ExceptionMiddleware` agora incluem o identificador de correlação gerado/validado pelo middleware de requisição. A mensagem continua usando método e caminho, sem query string ou URL completa.
+- Testes da API: suíte completa — 181 aprovados; teste focado após adicionar verificação contra vazamento de query string — 1 aprovado. Build ocorreu em configuração Release e `git diff --check` passou.
+- T1.3 continua parcial: retenção Serilog e revisão abrangente/redação de outros logs ainda não foram feitas.
+
+### 28/09/2026 — Redação adicional de logs sensíveis (T1.3 parcial)
+
+- Removidos tokens, código/segredo Quick Connect, IDs de usuário em emissão de token, query strings e URLs potencialmente assinadas dos logs de stream, resposta lenta, Supabase, atualizações, plugins, webhooks e download de imagens. Eventos mantêm status, rota/método ou tipo de operação para diagnóstico.
+- Regressões verificam que token de sessão, código e segredo Quick Connect não aparecem nas mensagens capturadas. Testes Release: API — 181 aprovados; conjunto focado de logs — 29 aprovados. A suíte completa de Implementations teve uma falha intermitente no teste preexistente `DisposingCacheDoesNotWaitForBlockingSharedFetchCancellationCallback` (988 aprovados, 38 ignorados); repetido isoladamente, passou (1/1). Uma execução completa anterior havia passado com 989 aprovados e 38 ignorados.
+- `git diff --check` passou. T1.3 permanece parcial: falta alinhar retenção configurável ao Serilog e concluir auditoria/testes dos demais caminhos de log. Nenhum artefato ou release foi criado/publicado.
+
+### 28/09/2026 — Retenção de logs alinhada à configuração (T1.3 parcial)
+
+- `DeleteLogFileTask` agora remove logs Serilog e legados após `LogFileRetentionDays`. O padrão Serilog deixa `retainedFileCountLimit` ilimitado; a rotina `AlignLogRetention` migra a configuração padrão existente antes do logger iniciar e mantém intacto o override `logging.json`.
+- Testes verificam limpeza de logs antigos e preservação dos recentes, migração sem tocar no override, e comportamento real do File sink com 40 rotações sem limite fixo. Suítes Release: Implementations — 990 aprovados, 38 ignorados; Server — 31 aprovados. Build Release do servidor e `git diff --check` passaram.
+- Aviso pré-existente: NU1903 para Newtonsoft.Json 9.0.1. T1.3 segue parcial pela auditoria restante de logs; nenhuma release foi criada/publicada.
+
+### 28/09/2026 — Contrato da máquina de estados de upload Nebula (T2.1)
+
+- Especificados estados, transições permitidas, claim com lease/heartbeat/fencing, persistência de progresso e partes, retomada após lease expirado, classificação de retry/falha terminal/cancelamento e compatibilidade com documentos Mongo legados.
+- Auditoria do código atual confirmou gaps: `failed` sempre recebe retry de 1 minuto sem teto; `modified_at` é lease implícito de 1 hora; startup re-enfileira todo `uploading`; `worker_id` pode ser opcional nas mutações; não há estado persistido de cancelamento.
+- T2.1 fica concluída como especificação. Implementação do contrato fica nas tarefas T2.2/T2.4/T2.5. Nenhum estado/dado de produção foi alterado. Validação documental: `git diff --check` e revisão cruzada da especificação com os métodos atuais do Mongo e watcher; nenhuma release criada/publicada.
 
 ## Backlog futuro — fora do ciclo ativo
 

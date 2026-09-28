@@ -122,14 +122,14 @@ public class UpdateInfoController : BaseMulletaFlixApiController
             }
             else
             {
-                _logger.LogWarning("Update check returned HTTP status {StatusCode} from {Url}", response.StatusCode, targetUrl);
+            _logger.LogWarning("Update check returned HTTP status {StatusCode}.", response.StatusCode);
             }
 
             info.LastCheckedAt = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to fetch server update info from {Url}.", targetUrl);
+            _logger.LogWarning(ex, "Failed to fetch server update information.");
         }
 
         var updatesDir = Path.Combine(_applicationPaths.ProgramDataPath, "updates");
@@ -534,7 +534,7 @@ public class UpdateInfoController : BaseMulletaFlixApiController
         }
 
         // 1. Download
-        _logger.LogInformation("Downloading update package from {Url} to {Dest}", archiveUrl, packageZip);
+        _logger.LogInformation("Downloading update package to {Dest}.", packageZip);
         var client = CreateConfiguredClient();
         using (var response = await client.GetAsync(archiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
         {
@@ -922,5 +922,4 @@ Log ""In-place update finished.""
         public DateTime? CompletedAt { get; set; }
     }
 }
-
 

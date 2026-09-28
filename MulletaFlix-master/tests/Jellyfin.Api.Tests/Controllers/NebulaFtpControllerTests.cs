@@ -80,10 +80,18 @@ public sealed class NebulaFtpControllerTests
         var expected = new NebulaUploadQueueSummaryDto
         {
             IsAvailable = true,
+            WindowStartUtc = DateTime.UnixEpoch.AddHours(-1),
             PendingCount = 17,
             RetryCount = 3,
             OldestPendingName = "Episode.mkv",
-            OldestPendingAtUtc = DateTime.UnixEpoch
+            OldestPendingAtUtc = DateTime.UnixEpoch,
+            CompletedCountLastHour = 6,
+            UploadedBytesLastHour = 1024,
+            RecentFailureCount = 2,
+            FailuresByStage = new List<NebulaUploadFailureStageCountDto>
+            {
+                new() { Stage = NebulaUploadFailureStages.TelegramTransfer, Count = 2 }
+            }
         };
         manager.Setup(m => m.GetUploadQueueSummaryAsync(It.IsAny<CancellationToken>())).ReturnsAsync(expected);
         var controller = new NebulaFtpController(manager.Object, configuration.Object);
@@ -92,6 +100,10 @@ public sealed class NebulaFtpControllerTests
 
         var response = Assert.IsType<NebulaUploadQueueSummaryDto>(Assert.IsType<OkResult<NebulaUploadQueueSummaryDto>>(result.Result).Value);
         Assert.Same(expected, response);
+        Assert.Equal(6, response.CompletedCountLastHour);
+        Assert.Equal(1024, response.UploadedBytesLastHour);
+        Assert.Equal(2, response.RecentFailureCount);
+        Assert.Equal(NebulaUploadFailureStages.TelegramTransfer, Assert.Single(response.FailuresByStage).Stage);
         manager.Verify(m => m.GetUploadQueueSummaryAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 

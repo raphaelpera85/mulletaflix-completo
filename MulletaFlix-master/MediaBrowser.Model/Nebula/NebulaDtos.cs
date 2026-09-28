@@ -104,6 +104,8 @@ public sealed class NebulaUploadQueueSummaryDto
 {
     public bool IsAvailable { get; set; }
 
+    public DateTime WindowStartUtc { get; set; }
+
     public long PendingCount { get; set; }
 
     public long RetryCount { get; set; }
@@ -111,6 +113,32 @@ public sealed class NebulaUploadQueueSummaryDto
     public string OldestPendingName { get; set; } = string.Empty;
 
     public DateTime? OldestPendingAtUtc { get; set; }
+
+    public long CompletedCountLastHour { get; set; }
+
+    public long UploadedBytesLastHour { get; set; }
+
+    public long RecentFailureCount { get; set; }
+
+    public List<NebulaUploadFailureStageCountDto> FailuresByStage { get; set; } = new();
+}
+
+public sealed class NebulaUploadFailureStageCountDto
+{
+    public string Stage { get; set; } = string.Empty;
+
+    public long Count { get; set; }
+}
+
+public static class NebulaUploadFailureStages
+{
+    public const string TelegramAvailability = "telegram_availability";
+
+    public const string TelegramTransfer = "telegram_transfer";
+
+    public const string UploadIntegrity = "upload_integrity";
+
+    public const string Unknown = "unknown";
 }
 
 public class NebulaCredentialRotationRequest
