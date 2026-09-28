@@ -11,7 +11,7 @@
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
-    nodes.forEach(node => { if (pattern.test(node.nodeValue)) node.nodeValue = node.nodeValue.replace(pattern, value); });
+    nodes.forEach(node => { const replaced = node.nodeValue.replace(pattern, value); if (replaced !== node.nodeValue) node.nodeValue = replaced; });
   };
   const sync = async () => {
     const releases = await (await fetch(api, { headers: { Accept: 'application/vnd.github+json' } })).json();
