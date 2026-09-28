@@ -5,6 +5,7 @@ using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Models.UserFeedbackDtos;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
+using MediaBrowser.Common.Api;
 using MediaBrowser.Model.Activity;
 using MulletaFlix.Database.Implementations.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -41,6 +42,15 @@ public class UserFeedbackController : BaseMulletaFlixApiController
         }
 
         return new OkObjectResult(_nebulaFtpManager.SearchMediaSuggestions(query, limit));
+    }
+
+    /// <summary>Returns indexed STRM titles for the administration request status grids.</summary>
+    [HttpGet("MediaRequestCatalog")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(typeof(System.Collections.Generic.IReadOnlyList<MediaBrowser.Model.Nebula.NebulaMediaSuggestionDto>), StatusCodes.Status200OK)]
+    public IActionResult GetMediaRequestCatalog()
+    {
+        return new OkObjectResult(_nebulaFtpManager.GetMediaSuggestionCatalog());
     }
 
     /// <summary>Creates a request for a title to be added to the server library.</summary>

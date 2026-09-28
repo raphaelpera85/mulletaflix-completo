@@ -5,6 +5,7 @@ namespace MediaBrowser.Model.Configuration;
 public class NebulaFtpConfiguration
 {
     public const int DefaultSupabaseAutoBackupIntervalHours = 1;
+    public const int DefaultSupabaseUsersBackupIntervalHours = 24;
 
     // Nebula is an optional integration. Keep new installations healthy until
     // the operator explicitly configures and enables its external services.
@@ -101,6 +102,9 @@ public class NebulaFtpConfiguration
 
     public string[] MonitorPaths { get; set; } = ["D:\\midias"];
 
+    /// <summary>Gets or sets media titles submitted through the request form that should remain prioritized across Nebula restarts.</summary>
+    public string[] RequestedMediaPriorities { get; set; } = Array.Empty<string>();
+
     public string[] StagePaths { get; set; } = ["E:\\NebulaStage", "F:\\NebulaStage", "I:\\NebulaStage"];
 
     public bool TurboEnabled { get; set; } = true;
@@ -128,4 +132,13 @@ public class NebulaFtpConfiguration
     public string SupabaseLastBackupStatus { get; set; } = "Nenhum backup realizado ainda";
 
     public int SupabaseLastBackupFilesCount { get; set; }
+
+    /// <summary>Last independent MulletaFlix-user backup time.</summary>
+    public DateTime? SupabaseLastUsersBackupTime { get; set; }
+
+    /// <summary>Last independent MulletaFlix-user backup result.</summary>
+    public string SupabaseLastUsersBackupStatus { get; set; } = "Aguardando primeiro backup automático";
+
+    /// <summary>Number of application users included in the last independent backup.</summary>
+    public int SupabaseLastUsersBackupCount { get; set; }
 }

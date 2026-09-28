@@ -22,6 +22,9 @@ public interface INebulaFtpManager
     /// <summary>Searches the cached STRM catalog for titles matching a request.</summary>
     System.Collections.Generic.IReadOnlyList<NebulaMediaSuggestionDto> SearchMediaSuggestions(string query, int limit = 10);
 
+    /// <summary>Gets the indexed STRM title catalog for request administration.</summary>
+    System.Collections.Generic.IReadOnlyList<NebulaMediaSuggestionDto> GetMediaSuggestionCatalog();
+
     Task<NebulaStatusDto> GetStatusAsync(CancellationToken cancellationToken = default);
 
     Task<NebulaComponentHealthDto> GetComponentHealthAsync(CancellationToken cancellationToken = default);

@@ -87,7 +87,10 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- **Solicitação de títulos ao lado de Favoritos**: o acesso agora fica na navegação global e abre o formulário existente; removido o botão grande do conteúdo da página inicial.
+- **Indexação STRM mais completa para solicitações**: o catálogo percorre caminhos monitorados e todas as raízes de bibliotecas, reconhecendo extensões `.strm` sem distinção entre maiúsculas e minúsculas.
+- **Prioridade de solicitações persistente no Nebula**: títulos solicitados ficam salvos na configuração e são aplicados ao downloader e à fila de envio mesmo quando os workers iniciam depois do pedido ou reiniciam.
+- **Duas grades de solicitações no painel**: a fila pendente fica separada dos títulos incluídos, identificados pela presença no catálogo STRM.
+- **Backup automático de usuários corrigido**: o Supabase executa um backup independente dos usuários logo após iniciar a sincronização e repete a cada 24 horas. O painel agora exibe status, horário e quantidade de usuários desse backup, sem reutilizar os dados do backup MongoDB.
 - **Pacotes de produção do servidor**: artefatos Windows e Linux x64.
 '@
 

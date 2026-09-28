@@ -27,6 +27,19 @@ public class NebulaSupabaseSyncTests
     }
 
     [Fact]
+    public void AutomaticUserBackupHasAnIndependentDailyStatus()
+    {
+        var configuration = new NebulaFtpConfiguration();
+        var status = new NebulaSupabaseStatusDto();
+
+        Assert.Equal(24, NebulaFtpConfiguration.DefaultSupabaseUsersBackupIntervalHours);
+        Assert.Equal(24, status.AutoUsersBackupIntervalHours);
+        Assert.Null(configuration.SupabaseLastUsersBackupTime);
+        Assert.Equal("Aguardando primeiro backup automático", configuration.SupabaseLastUsersBackupStatus);
+        Assert.Equal(0, configuration.SupabaseLastUsersBackupCount);
+    }
+
+    [Fact]
     public void DeltaSync_GeneratesCorrectMinObjectIdForTimestamp()
     {
         var targetTime = new DateTime(2026, 9, 17, 3, 30, 0, DateTimeKind.Utc);

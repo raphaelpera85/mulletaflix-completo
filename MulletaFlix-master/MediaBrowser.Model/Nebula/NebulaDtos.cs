@@ -11,6 +11,7 @@ public sealed class NebulaNovelaMigrationResult
     public int Moved { get; set; }
     public int AlreadyInNovelas { get; set; }
     public string Message { get; set; } = string.Empty;
+
 }
 
 public sealed class NebulaAnimacaoMigrationResult
@@ -215,6 +216,14 @@ public class NebulaSupabaseStatusDto
     public int TotalLocalFiles { get; set; }
 
     public string Message { get; set; } = string.Empty;
+
+    public int AutoUsersBackupIntervalHours { get; set; } = NebulaFtpConfiguration.DefaultSupabaseUsersBackupIntervalHours;
+
+    public DateTime? LastUsersBackupTime { get; set; }
+
+    public string LastUsersBackupStatus { get; set; } = string.Empty;
+
+    public int LastUsersBackupCount { get; set; }
 }
 
 public class NebulaSupabaseTestRequest
@@ -354,4 +363,3 @@ public sealed class NebulaUpdatePlaybackCachePathRequest
 {
     public string CachePath { get; set; } = string.Empty;
 }
-

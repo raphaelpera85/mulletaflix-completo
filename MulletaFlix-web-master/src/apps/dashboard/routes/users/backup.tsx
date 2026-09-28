@@ -26,6 +26,10 @@ type SupabaseStatus = {
     AutoBackupIntervalHours: number;
     LastBackupTime?: string;
     LastBackupStatus?: string;
+    AutoUsersBackupIntervalHours?: number;
+    LastUsersBackupTime?: string;
+    LastUsersBackupStatus?: string;
+    LastUsersBackupCount?: number;
     TotalRemoteFiles: number;
     TotalLocalFiles: number;
     Message?: string;
@@ -174,11 +178,12 @@ const BackupRestorePage = () => {
                             <Typography variant='h2' component='h2' sx={{ fontSize: '1.25rem' }}>Sincronização automática</Typography>
                             <Chip label={status?.IsConnected ? 'Conectado' : 'Não conectado'} color={status?.IsConnected ? 'success' : 'default'} size='small' />
                         </Stack>
-                        <Typography variant='body2' color='text.secondary'>O servidor executa um backup delta de usuários automaticamente a cada 24 horas. Usuários removidos localmente pelo administrador também são removidos do backup remoto.</Typography>
+                        <Typography variant='body2' color='text.secondary'>O backup exclusivo de usuários é executado imediatamente quando a sincronização inicia e depois a cada 24 horas. Usuários removidos localmente pelo administrador também são removidos do backup remoto.</Typography>
                         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 1.5 }}>
-                            <Typography variant='body2'>Intervalo: <strong>24 horas</strong></Typography>
-                            <Typography variant='body2'>Último backup: <strong>{formatDate(status?.LastBackupTime)}</strong></Typography>
-                            <Typography variant='body2'>Status: <strong>{status?.LastBackupStatus || 'Aguardando execução'}</strong></Typography>
+                            <Typography variant='body2'>Intervalo: <strong>{status?.AutoUsersBackupIntervalHours || 24} horas</strong></Typography>
+                            <Typography variant='body2'>Último backup de usuários: <strong>{formatDate(status?.LastUsersBackupTime)}</strong></Typography>
+                            <Typography variant='body2'>Status: <strong>{status?.LastUsersBackupStatus || 'Aguardando primeiro backup automático'}</strong></Typography>
+                            <Typography variant='body2'>Usuários incluídos: <strong>{status?.LastUsersBackupCount ?? 0}</strong></Typography>
                             <Typography variant='body2'>Mídia incluída: <strong>Não</strong></Typography>
                         </Box>
                     </Stack>

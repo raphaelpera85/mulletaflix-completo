@@ -1940,5 +1940,7 @@
     "UserFeedbackSent": "Enviado com sucesso.",
     "UserFeedbackSendFailed": "Não foi possível enviar. Tente novamente.",
     "MediaRequestsAdminTitle": "Solicitações de mídias",
+    "MediaRequestsPendingTitle": "Fila de solicitações",
+    "MediaRequestsIncludedTitle": "Títulos incluídos",
     "PlaybackIssuesAdminTitle": "Erros e bugs reportados"
 }

@@ -33,6 +33,20 @@ public class UserFeedbackControllerTests
     }
 
     [Fact]
+    public void GetMediaRequestCatalog_ReturnsIndexedTitles()
+    {
+        var expected = new[] { new MediaBrowser.Model.Nebula.NebulaMediaSuggestionDto { Title = "Included Title", MediaType = "Series" } };
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        nebulaManager.Setup(manager => manager.GetMediaSuggestionCatalog()).Returns(expected);
+        var controller = new UserFeedbackController(Mock.Of<IActivityManager>(), Mock.Of<ILibraryManager>(), nebulaManager.Object);
+
+        var result = Assert.IsType<OkObjectResult>(controller.GetMediaRequestCatalog());
+
+        Assert.Same(expected, result.Value);
+        nebulaManager.Verify(manager => manager.GetMediaSuggestionCatalog(), Times.Once);
+    }
+
+    [Fact]
     public async Task CreateMediaRequest_TrimsInputAndStoresRequest()
     {
         var activityManager = new Mock<IActivityManager>();

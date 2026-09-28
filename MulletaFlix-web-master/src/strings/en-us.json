@@ -1967,5 +1967,7 @@
     "UserFeedbackSent": "Submitted successfully.",
     "UserFeedbackSendFailed": "Could not submit. Please try again.",
     "MediaRequestsAdminTitle": "Media requests",
+    "MediaRequestsPendingTitle": "Request queue",
+    "MediaRequestsIncludedTitle": "Included titles",
     "PlaybackIssuesAdminTitle": "Reported errors and bugs"
 }

@@ -502,9 +502,24 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             return Array.Empty<NebulaMediaSuggestionDto>();
         }
 
+        var catalog = GetMediaSuggestionCatalog();
+        var normalizedQuery = NormalizeSuggestionText(query);
+        var safeLimit = Math.Clamp(limit, 1, 20);
+        return catalog
+            .Select(suggestion => (Suggestion: suggestion, Title: NormalizeSuggestionText(suggestion.Title)))
+            .Where(match => match.Title.Contains(normalizedQuery, StringComparison.Ordinal))
+            .OrderBy(match => match.Title.StartsWith(normalizedQuery, StringComparison.Ordinal) ? 0 : 1)
+            .ThenBy(match => match.Title.Length)
+            .Take(safeLimit)
+            .Select(match => match.Suggestion)
+            .ToArray();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<NebulaMediaSuggestionDto> GetMediaSuggestionCatalog()
+    {
         var roots = GetMediaSuggestionRoots();
         var rootSignature = string.Join("\n", roots);
-        IReadOnlyList<NebulaMediaSuggestionDto> catalog;
         lock (_mediaSuggestionsLock)
         {
             var cacheDuration = _mediaSuggestions.Count == 0
@@ -522,19 +537,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                     roots.Length);
             }
 
-            catalog = _mediaSuggestions;
+            return _mediaSuggestions;
         }
-
-        var normalizedQuery = NormalizeSuggestionText(query);
-        var safeLimit = Math.Clamp(limit, 1, 20);
-        return catalog
-            .Select(suggestion => (Suggestion: suggestion, Title: NormalizeSuggestionText(suggestion.Title)))
-            .Where(match => match.Title.Contains(normalizedQuery, StringComparison.Ordinal))
-            .OrderBy(match => match.Title.StartsWith(normalizedQuery, StringComparison.Ordinal) ? 0 : 1)
-            .ThenBy(match => match.Title.Length)
-            .Take(safeLimit)
-            .Select(match => match.Suggestion)
-            .ToArray();
     }
 
     private string[] GetMediaSuggestionRoots()
@@ -585,7 +589,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 {
                     RecurseSubdirectories = true,
                     IgnoreInaccessible = true,
-                    AttributesToSkip = FileAttributes.ReparsePoint
+                    AttributesToSkip = FileAttributes.ReparsePoint,
+                    MatchCasing = MatchCasing.CaseInsensitive
                 }))
                 {
                     var normalizedPath = path.Replace('\\', '/');
@@ -1355,6 +1360,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
                 _stagingWatcher = new NebulaStagingWatcher(_uploadEngine, _mongoContext, _loggerFactory.CreateLogger<NebulaStagingWatcher>(), EmitServerLog, _telegramPool.BotCount);
                 _stagingWatcher.Start(allWatchDirs, config.MaxWorkers);
+                foreach (var title in config.RequestedMediaPriorities ?? Array.Empty<string>())
+                {
+                    if (!string.IsNullOrWhiteSpace(title))
+                    {
+                        _stagingWatcher.PrioritizeUpload(string.Empty, title);
+                    }
+                }
             }
 
             // 6. Inicia sincronização contínua de background para manter o Supabase sempre atualizado
@@ -1363,7 +1375,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 if (config.SupabaseAutoBackup)
                 {
                     var intervalMinutes = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours * 60;
-                    _supabaseSyncService.StartContinuousSync(config.SupabaseUrl, config.SupabaseKey, intervalMinutes: intervalMinutes, progressAction: AddServerLog);
+                    _supabaseSyncService.StartContinuousSync(
+                        config.SupabaseUrl,
+                        config.SupabaseKey,
+                        intervalMinutes: intervalMinutes,
+                        progressAction: AddServerLog,
+                        usersBackupCompleted: RecordUsersBackupResult);
                     config.SupabaseAutoBackupIntervalHours = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
                     AddServerLog("[SUPABASE] Serviço de sincronização contínua e backup automático ativado (Intervalo: 1 hora).");
                 }
@@ -1579,17 +1596,22 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     /// <inheritdoc />
     public void PrioritizeMedia(string mediaPath, string? seriesPath = null, string? seriesName = null)
     {
-        if (!Config.Enabled && !_isEnvioRunning && !_isDownloaderRunning)
-        {
-            return;
-        }
-
         try
         {
             if (string.IsNullOrWhiteSpace(mediaPath)
                 && string.IsNullOrWhiteSpace(seriesPath)
                 && !string.IsNullOrWhiteSpace(seriesName))
             {
+                var config = Config;
+                var requestedTitle = seriesName.Trim();
+                var priorities = (config.RequestedMediaPriorities ?? Array.Empty<string>()).ToList();
+                if (!priorities.Contains(requestedTitle, StringComparer.OrdinalIgnoreCase))
+                {
+                    priorities.Add(requestedTitle);
+                    config.RequestedMediaPriorities = priorities.ToArray();
+                    _configManager.SaveConfiguration("nebulaftp", config);
+                }
+
                 _downloaderEngine?.PrioritizeTarget(string.Empty, seriesName);
                 _stagingWatcher?.PrioritizeUpload(string.Empty, seriesName);
                 _logger.LogInformation(
@@ -2035,6 +2057,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _telegramPool,
                 _loggerFactory.CreateLogger<NebulaDownloaderEngine>(),
                 _metadataExportService);
+            foreach (var title in config.RequestedMediaPriorities ?? Array.Empty<string>())
+            {
+                if (!string.IsNullOrWhiteSpace(title))
+                {
+                    _downloaderEngine.PrioritizeTarget(string.Empty, title);
+                }
+            }
             _downloaderEngine.OnUploadReady += filePath => _stagingWatcher?.EnqueueMediaFromDownloader(filePath);
             _downloaderEngine.OnLog += msg => AddDownloaderLog(msg);
             _downloaderEngine.OnProgressChanged += st =>
@@ -3076,6 +3105,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             AutoBackupIntervalHours = config.SupabaseAutoBackupIntervalHours,
             LastBackupTime = config.SupabaseLastBackupTime,
             LastBackupStatus = config.SupabaseLastBackupStatus,
+            LastUsersBackupTime = config.SupabaseLastUsersBackupTime,
+            LastUsersBackupStatus = config.SupabaseLastUsersBackupStatus,
+            LastUsersBackupCount = config.SupabaseLastUsersBackupCount,
             TotalLocalFiles = 0,
             TotalRemoteFiles = config.SupabaseLastBackupFilesCount,
             Message = hasUrl ? "Configurado" : "Supabase não configurado"
@@ -3252,8 +3284,24 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             config.SupabaseKey,
             AddServerLog,
             cancellationToken).ConfigureAwait(false);
+        RecordUsersBackupResult(result);
         AddServerLog(result.Success ? $"[SUPABASE-USERS] {result.Message}" : $"[SUPABASE-USERS-ERRO] {result.Message}");
         return result;
+    }
+
+    private void RecordUsersBackupResult(NebulaSupabaseBackupResultDto result)
+    {
+        var config = Config;
+        config.SupabaseLastUsersBackupTime = DateTime.UtcNow;
+        config.SupabaseLastUsersBackupStatus = result.Success
+            ? result.Message
+            : $"Falha no backup de usuários: {result.Message}";
+        if (result.Success)
+        {
+            config.SupabaseLastUsersBackupCount = result.UsersBackedUp;
+        }
+
+        _configManager.SaveConfiguration("nebulaftp", config);
     }
 
     public async Task<NebulaSupabaseRestoreResultDto> RestoreUsersFromSupabaseAsync(CancellationToken cancellationToken = default)
