@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -15,14 +16,14 @@ class LocalNetworkPermissionDialogTest {
 
     @Test
     fun continueInternetInvokesFallbackAction() {
-        var continued = false
+        var fallbackUrl: String? = null
 
         composeRule.setContent {
             MaterialTheme {
                 LocalNetworkPermissionDeniedDialog(
                     onDismiss = {},
                     onOpenSettings = {},
-                    onContinueInternet = { continued = true },
+                    onContinueInternet = { fallbackUrl = it },
                 )
             }
         }
@@ -30,6 +31,9 @@ class LocalNetworkPermissionDialogTest {
         composeRule.onNodeWithText("Acesso à rede local não permitido").assertIsDisplayed()
         composeRule.onNodeWithText("Continuar pela Internet").performClick()
 
-        composeRule.runOnIdle { assertTrue(continued) }
+        composeRule.runOnIdle {
+            assertEquals(DEFAULT_MULLETAFLIX_SERVER_URL, fallbackUrl)
+            assertTrue(fallbackUrl?.startsWith("http://") == true)
+        }
     }
 }

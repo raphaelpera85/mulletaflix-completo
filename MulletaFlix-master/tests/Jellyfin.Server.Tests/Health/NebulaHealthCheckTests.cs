@@ -93,6 +93,35 @@ public sealed class NebulaHealthCheckTests
     }
 
     [Fact]
+    public async Task EnabledNebula_RecoversWhenMongoBecomesAvailableAgain()
+    {
+        var manager = new Mock<INebulaFtpManager>();
+        manager.SetupSequence(m => m.GetComponentHealthAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new NebulaComponentHealthDto
+            {
+                MongoConnected = false,
+                FtpListenerRunning = true,
+                HttpListenerRunning = true
+            })
+            .ReturnsAsync(new NebulaComponentHealthDto
+            {
+                MongoConnected = true,
+                FtpListenerRunning = true,
+                HttpListenerRunning = true
+            });
+        var check = new NebulaHealthCheck(manager.Object, CreateConfiguration(enabled: true).Object);
+
+        var unavailable = await check.CheckHealthAsync(new HealthCheckContext(), TestContext.Current.CancellationToken);
+        var recovered = await check.CheckHealthAsync(new HealthCheckContext(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HealthStatus.Unhealthy, unavailable.Status);
+        Assert.Equal(false, unavailable.Data["mongoConnected"]);
+        Assert.Equal(HealthStatus.Healthy, recovered.Status);
+        Assert.Equal(true, recovered.Data["mongoConnected"]);
+        manager.Verify(m => m.GetComponentHealthAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
     public async Task EnabledNebula_IsUnhealthyWhenListenersAreNotReady()
     {
         var manager = new Mock<INebulaFtpManager>();

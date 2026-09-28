@@ -55,6 +55,49 @@ public class NebulaMediaSuggestionTests
         }
     }
 
+    [Theory]
+    [InlineData(10)]
+    [InlineData(2000)]
+    public void SearchMediaSuggestions_IndexesSmallAndLargeStrmLibraries(int titleCount)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "mulletaflix-strm-scenario-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            for (var index = 0; index < titleCount; index++)
+            {
+                var seriesDirectory = Path.Combine(root, $"Série {index:D4}", "Season 01");
+                Directory.CreateDirectory(seriesDirectory);
+                File.WriteAllText(Path.Combine(seriesDirectory, "S01E01.strm"), "https://example.invalid/video");
+            }
+
+            var configurationManager = new Mock<IServerConfigurationManager>();
+            configurationManager
+                .Setup(manager => manager.GetConfiguration("nebulaftp"))
+                .Returns(new NebulaFtpConfiguration { MonitorPaths = Array.Empty<string>() });
+            var libraryManager = new Mock<ILibraryManager>();
+            libraryManager
+                .Setup(manager => manager.GetVirtualFolders())
+                .Returns([new VirtualFolderInfo { Locations = [root] }]);
+
+            using var manager = new NebulaFtpManager(
+                configurationManager.Object,
+                NullLogger<NebulaFtpManager>.Instance,
+                NullLoggerFactory.Instance,
+                libraryManager.Object);
+
+            var catalog = manager.GetMediaSuggestionCatalog();
+
+            Assert.Equal(titleCount + 1, catalog.Count);
+            Assert.Contains(catalog, item => item.Title == $"Série {titleCount - 1:D4}");
+            Assert.Single(manager.SearchMediaSuggestions($"Série {titleCount - 1:D4}"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void PrioritizeMedia_PersistsRequestWhenNebulaWorkersAreStopped()
     {

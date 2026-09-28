@@ -78,4 +78,14 @@ Use `tools\with-emulator.ps1` para iniciar um AVD somente durante um comando; o 
 .\tools\with-emulator.ps1 -AvdName MulletaflixTvApi34 -Port 5556 -Command .\gradlew.bat -CommandArgument @(':app:connectedDebugAndroidTest', '--no-daemon', '--console=plain')
 ```
 
+O wrapper valida relatório instrumentado novo para cada módulo solicitado e falha se nenhum teste rodar, ou se o relatório tiver falhas/erros. Isso detecta casos em que o runner falha antes da instalação, mas Gradle ainda informa `BUILD SUCCESSFUL`.
+
+`HomeAdaptiveUsageTest` mede o perfil real do AVD e exige `expectedDeviceProfile`; o teste falha se o perfil esperado não for informado ou não corresponder:
+
+```powershell
+.\tools\with-emulator.ps1 -AvdName MulletaflixTvApi34 -Port 5556 -Command .\gradlew.bat -CommandArgument @(':feature:home:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TV', '--no-daemon', '--console=plain')
+```
+
+Use `PHONE`, `TABLET` ou `TV` conforme o perfil esperado.
+
 Testes de TV devem validar foco remoto, grade compacta e atualização em primeiro plano. Testes de tablet devem validar conteúdo centralizado, rolagem e capas retangulares sem aplicar a política de foco da TV.

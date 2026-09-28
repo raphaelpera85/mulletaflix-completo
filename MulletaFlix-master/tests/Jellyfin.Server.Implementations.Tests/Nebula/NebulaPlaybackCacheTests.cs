@@ -663,6 +663,42 @@ public sealed class NebulaPlaybackCacheTests
     }
 
     [Fact]
+    public async Task FailedTelegramFetchCanRecoverOnRetry()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var attempts = 0;
+            Task<byte[]> Fetch(CancellationToken _)
+            {
+                attempts++;
+                return attempts == 1
+                    ? Task.FromException<byte[]>(new IOException("Falha de rede simulada"))
+                    : Task.FromResult(new byte[] { 7, 8, 9 });
+            }
+
+            await Assert.ThrowsAsync<IOException>(() => cache.GetOrFetchChunkAsync(
+                "recoverable-media", 0, 0, 3, Fetch, CancellationToken.None));
+            var recovered = await cache.GetOrFetchChunkAsync(
+                "recoverable-media", 0, 0, 3, Fetch, CancellationToken.None);
+            var cached = await cache.GetOrFetchChunkAsync(
+                "recoverable-media", 0, 0, 3, Fetch, CancellationToken.None);
+
+            Assert.Equal(new byte[] { 7, 8, 9 }, recovered);
+            Assert.Equal(recovered, cached);
+            Assert.Equal(2, attempts);
+            Assert.Equal(2, cache.TelegramFetchCount);
+            Assert.Equal(1, cache.TelegramFetchFailures);
+            Assert.Equal(1, cache.CacheHits);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CacheEvictsLeastRecentlyUsedInactiveMediaToRespectLimit()
     {
         var root = CreateTempDirectory();
@@ -1167,6 +1203,7 @@ public sealed class NebulaPlaybackCacheTests
     [Fact]
     public async Task CleanupDeletesExpiredEntriesAcrossMultipleDirectoriesEvenIfOneIsLocked()
     {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "FileShare.None prevents deletion on Windows; Unix unlink semantics differ.");
         var root = CreateTempDirectory();
         try
         {

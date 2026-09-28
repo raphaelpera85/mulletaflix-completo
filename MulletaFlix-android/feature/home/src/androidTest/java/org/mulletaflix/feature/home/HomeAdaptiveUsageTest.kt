@@ -13,9 +13,9 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.mulletaflix.designsystem.components.MediaCardShape
@@ -32,24 +32,7 @@ class HomeAdaptiveUsageTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun phone_home_section_uses_compact_cards() = assertProductionCardWidth(
-        expectedDevice = HomeDeviceClass.PHONE,
-        expectedWidthDp = 130f,
-    )
-
-    @Test
-    fun tablet_home_section_uses_larger_cards() = assertProductionCardWidth(
-        expectedDevice = HomeDeviceClass.TABLET,
-        expectedWidthDp = 149.5f,
-    )
-
-    @Test
-    fun television_home_section_uses_denser_cards() = assertProductionCardWidth(
-        expectedDevice = HomeDeviceClass.TV,
-        expectedWidthDp = 117f,
-    )
-
-    private fun assertProductionCardWidth(expectedDevice: HomeDeviceClass, expectedWidthDp: Float) {
+    fun home_section_uses_card_width_for_current_device_profile() {
         val renderedDevice = AtomicReference<HomeDeviceClass?>()
         composeRule.setContent {
             BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -82,19 +65,30 @@ class HomeAdaptiveUsageTest {
         }
 
         composeRule.waitForIdle()
-        assumeTrue("Run this assertion on the $expectedDevice AVD", renderedDevice.get() == expectedDevice)
+        val deviceClass = checkNotNull(renderedDevice.get()) {
+            "Home should resolve the current device profile"
+        }
+        val expectedProfile = checkNotNull(
+            InstrumentationRegistry.getArguments().getString("expectedDeviceProfile"),
+        ) { "Set expectedDeviceProfile to PHONE, TABLET or TV for this AVD run" }
+        assertEquals("Home should detect the requested AVD profile", expectedProfile, deviceClass.name)
+        val expectedWidthDp = when (deviceClass) {
+            HomeDeviceClass.PHONE -> 130f
+            HomeDeviceClass.TABLET -> 149.5f
+            HomeDeviceClass.TV -> 117f
+        }
 
         val firstCard = composeRule
             .onNodeWithContentDescription("Abrir Capa de teste 0")
             .fetchSemanticsNode()
         val actualWidthPx = firstCard.boundsInRoot.width
         val expectedWidthPx = with(composeRule.density) { expectedWidthDp.dp.toPx() }
-        assertEquals("$expectedDevice Home poster width", expectedWidthPx, actualWidthPx, 1f)
+        assertEquals("$deviceClass Home poster width", expectedWidthPx, actualWidthPx, 1f)
 
-        if (expectedDevice == HomeDeviceClass.TV) {
+        if (deviceClass == HomeDeviceClass.TV) {
             val rootBounds = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
             val rootWidthDp = with(composeRule.density) { rootBounds.width.toDp().value }
-            val layoutSpec = homeLayoutSpec(expectedDevice)
+            val layoutSpec = homeLayoutSpec(deviceClass)
             val rowWidthDp = rootWidthDp
                 .coerceAtMost(layoutSpec.contentMaxWidthDp.toFloat()) - 2 * layoutSpec.horizontalPaddingDp - 32
             val visibleAtTvScale = composeRule

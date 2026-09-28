@@ -51,6 +51,42 @@ jobs:
           path: MulletaFlix-master/TestResults/**/coverage.cobertura.xml
           if-no-files-found: error
 
+  nebula-representative-tests:
+    name: Nebula representative scenarios (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: MulletaFlix-master
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - name: Restore server solution
+        run: dotnet restore MulletaFlix.sln
+
+      - name: Test STRM catalog, playback cache, and local stream scenarios
+        run: >
+          dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~NebulaMediaSuggestionTests|FullyQualifiedName~NebulaPlaybackCacheTests|FullyQualifiedName~NebulaStreamEngineTests"
+          --verbosity minimal
+
+      - name: Test degraded dependency health scenarios
+        run: >
+          dotnet test tests/Jellyfin.Server.Tests/Jellyfin.Server.Tests.csproj
+          --configuration Release
+          --no-restore
+          --filter "FullyQualifiedName~NebulaHealthCheckTests|FullyQualifiedName~MulletaFlixDatabaseHealthCheckTests"
+          --verbosity minimal
+
   web-build:
     name: Web client typecheck & lint
     runs-on: ubuntu-latest

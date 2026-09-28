@@ -362,7 +362,7 @@ fun ServerSelectionScreen(
                     localNetworkPermissionDenied = false
                     localNetworkPermissionPromptDismissed = true
                     viewModel.connectToServer(
-                        DEFAULT_MULLETAFLIX_SERVER_URL,
+                        it,
                         onSuccess = { onServerSelected() },
                     )
                 },
@@ -375,7 +375,7 @@ fun ServerSelectionScreen(
 internal fun LocalNetworkPermissionDeniedDialog(
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
-    onContinueInternet: () -> Unit,
+    onContinueInternet: (String) -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -389,7 +389,9 @@ internal fun LocalNetworkPermissionDeniedDialog(
             TextButton(onClick = onOpenSettings) { Text("Abrir configurações") }
         },
         dismissButton = {
-            TextButton(onClick = onContinueInternet) { Text("Continuar pela Internet") }
+            TextButton(onClick = { onContinueInternet(DEFAULT_MULLETAFLIX_SERVER_URL) }) {
+                Text("Continuar pela Internet")
+            }
         },
     )
 }

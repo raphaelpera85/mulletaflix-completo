@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import viewContainer from './viewContainer';
 
+vi.mock('../utils/dashboard', () => ({
+    default: {
+        getPluginUrl: (url: string) => url
+    }
+}));
+
 describe('viewContainer', () => {
     beforeEach(() => {
         document.body.innerHTML = '<div class="mainAnimatedPages"></div>';
@@ -11,7 +17,7 @@ describe('viewContainer', () => {
         };
     });
 
-    it('attaches and executes inline scripts in dynamic views', () => {
+    it('attaches and executes inline scripts in dynamic views', async () => {
         const testVarName = '__test_view_container_script_run__';
         (window as unknown as Record<string, unknown>)[testVarName] = false;
 
@@ -24,7 +30,7 @@ describe('viewContainer', () => {
             </div>
         `;
 
-        viewContainer.loadView({
+        await viewContainer.loadView({
             url: '/web/#/configurationpage?name=TestPlugin',
             view: html
         });
@@ -33,7 +39,7 @@ describe('viewContainer', () => {
         expect(document.getElementById('testConfigPage')).not.toBeNull();
     });
 
-    it('resolves relative URLs for external scripts and modules', () => {
+    it('resolves relative URLs for external scripts and modules', async () => {
         const html = `
             <div id="IntroSkipperConfigPage" data-role="page" class="page">
                 <div id="intro-skipper-dashboard-root"></div>
@@ -42,7 +48,7 @@ describe('viewContainer', () => {
             </div>
         `;
 
-        viewContainer.loadView({
+        await viewContainer.loadView({
             url: '/web/#/configurationpage?name=Intro%20Skipper',
             view: html
         });
@@ -60,7 +66,7 @@ describe('viewContainer', () => {
         expect(link?.getAttribute('href')).toBe('http://localhost:8096/web/configurationpage?name=introskipper.css');
     });
 
-    it('preserves scripts and stylesheets placed outside the page div in wrapper', () => {
+    it('preserves scripts and stylesheets placed outside the page div in wrapper', async () => {
         const html = `
             <div id="outsideTestPage" data-role="page" class="page">
                 <div>Page Body</div>
@@ -69,7 +75,7 @@ describe('viewContainer', () => {
             <link rel="stylesheet" href="configurationpage?name=outside.css">
         `;
 
-        viewContainer.loadView({
+        await viewContainer.loadView({
             url: '/web/#/configurationpage?name=Outside',
             view: html
         });

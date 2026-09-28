@@ -19,6 +19,8 @@ $emulator = Join-Path $sdkRoot "emulator\emulator.exe"
 $serial = "emulator-$Port"
 $startedHere = $false
 $emulatorProcess = $null
+$androidProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot 'Assert-AndroidInstrumentationResults.ps1')
 
 function Stop-StartedEmulatorTree {
     param([System.Diagnostics.Process] $RootProcess)
@@ -51,10 +53,24 @@ function Get-BootState {
     }
 }
 
+function Get-PackageManagerReady {
+    try {
+        $packages = (& $adb -s $serial shell cmd package list packages 2>$null)
+        return ($LASTEXITCODE -eq 0) -and (@($packages | Where-Object { $_ -match '^package:' }).Count -gt 0)
+    } catch {
+        return $false
+    }
+}
+
 try {
     $serialPattern = '^\s*' + [regex]::Escape($serial) + '\s'
     $existing = (& $adb devices) | Where-Object { $_ -match $serialPattern }
-    if (-not $existing) {
+    $existingReady = $existing | Where-Object { $_ -match '\sdevice\s*$' }
+    if ($existing -and -not $existingReady) {
+        $state = ($existing | ForEach-Object { ($_ -split '\s+')[-1] }) -join ', '
+        throw "ADB serial $serial already exists in state '$state'; resolve that device before starting $AvdName."
+    }
+    if (-not $existingReady) {
         $emulatorProcess = Start-Process -FilePath $emulator -ArgumentList @(
             "-avd", $AvdName,
             "-port", $Port,
@@ -66,17 +82,52 @@ try {
     }
 
     $deadline = (Get-Date).AddMinutes(4)
+    $bootCompleted = $false
+    $packageManagerReady = $false
     do {
         Start-Sleep -Seconds 3
-        if (Get-BootState) { break }
+        $bootCompleted = Get-BootState
+        if ($bootCompleted) {
+            $packageManagerReady = Get-PackageManagerReady
+            if ($packageManagerReady) { break }
+        }
     } while ((Get-Date) -lt $deadline)
 
-    if (-not (Get-BootState)) {
+    if (-not $bootCompleted) {
         throw "Emulator $AvdName did not finish booting on $serial."
     }
+    if (-not $packageManagerReady) {
+        throw "Emulator $AvdName booted, but Package Manager did not become ready on $serial."
+    }
 
+    $instrumentedTasks = @($CommandArgument | Where-Object { $_ -match '^:.+:connectedDebugAndroidTest$' })
+    $instrumentedTestRequested = $instrumentedTasks.Count -gt 0 -or
+        (@($CommandArgument | Where-Object { $_ -eq 'connectedDebugAndroidTest' }).Count -gt 0)
+    $commandStartedAt = Get-Date
     & $Command @CommandArgument
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $commandExitCode = $LASTEXITCODE
+    if ($commandExitCode -ne 0) { exit $commandExitCode }
+
+    if ($instrumentedTestRequested) {
+        $reportFiles = if ($instrumentedTasks.Count -gt 0) {
+            $instrumentedTasks | ForEach-Object {
+                $modulePath = $_ -replace '^:', '' -replace ':connectedDebugAndroidTest$', ''
+                $moduleRoot = Join-Path $androidProjectRoot ($modulePath -replace ':', '\')
+                $resultDirectory = Join-Path $moduleRoot 'build\outputs\androidTest-results\connected\debug'
+                Get-ChildItem -LiteralPath $resultDirectory -Filter 'TEST-*.xml' -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -ge $commandStartedAt }
+            }
+        } else {
+            Get-ChildItem -Path $androidProjectRoot -Filter 'TEST-*.xml' -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.FullName -match '[\\/]build[\\/]outputs[\\/]androidTest-results[\\/]connected[\\/]debug[\\/]TEST-' -and
+                    $_.LastWriteTime -ge $commandStartedAt
+                }
+        }
+
+        $reportFiles = @($reportFiles)
+        Assert-AndroidInstrumentationResults -ReportFiles $reportFiles -StartedAt $commandStartedAt
+    }
 }
 finally {
     if ($startedHere) {

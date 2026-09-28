@@ -2,6 +2,16 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Testes instrumentados por perfil de dispositivo (APK local; sem release)
+
+- [x] `HomeAdaptiveUsageTest` executa uma única verificação contra o perfil real do AVD (telefone, tablet ou TV), sem marcar como falha os dois perfis que não correspondem ao emulador atual; exige `expectedDeviceProfile` para confirmar o AVD solicitado.
+- [x] `tools/with-emulator.ps1` valida que cada módulo solicitado gerou relatório instrumentado novo, com ao menos um teste e sem falhas/erros; evita aceitar `BUILD SUCCESSFUL` quando o runner não instalou o APK nem executou testes.
+- [x] AVD Android TV API 34: Home instrumentada, 29 testes, 0 falhas/erros/ignorados; perfil `TV` confirmado. `:feature:home:testDebugUnitTest` e `:feature:home:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [x] AVD tablet API 35: `HomeAdaptiveUsageTest`, 1/1, perfil `TABLET` confirmado; wrapper encerrou o AVD.
+- [x] AVD telefone API 35: `HomeAdaptiveUsageTest`, 1/1, perfil `PHONE` confirmado; wrapper encerrou o AVD.
+- [ ] Android 17 API 37: testes de permissão LAN seguem sem validação; os AVDs existentes e recriado falham nos serviços `package/settings` durante instalação do APK. Uma tentativa com o runner travado foi interrompida; não contar como teste executado. Investigar imagem/AVD/API 37 antes de afirmar compatibilidade.
+- [ ] Sem bump ou release; alterações desta seção são de teste, não de APK de produção. Keystore configurada ainda diverge do certificado oficial; verificar release APK anterior e assinatura antes de qualquer release.
+
 ## Detalhes adaptativos para tablets (APK local; sem release)
 
 - [x] Manter a coluna única em telefones e tablets retrato; em largura disponível de 840 dp ou mais, separar hero/ações e conteúdo em dois painéis.

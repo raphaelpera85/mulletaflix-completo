@@ -46,9 +46,18 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 ### Fase 0 — Baseline, inventário e critérios de qualidade (P0)
 
 - [ ] **T0.1 — Definir baseline de produção.** Registrar tempo de inicialização, memória, uso de disco, latências p50/p95 dos endpoints mais usados, duração das tarefas Nebula e volume de mídia processado.
+  - [x] Capturar amostra inicial read-only da instância instalada: versão/ambiente, startup aproximado, memória/CPU, espaço livre e latência local de endpoints públicos.
+  - [ ] Repetir sob carga representativa e incluir métricas autenticadas de duração/volume Nebula, footprint dos dados, Linux e amostra temporal suficiente.
 - [x] **T0.2 — Mapear fluxos e dependências.** Mapa estático documentado abaixo, com fontes de código por fluxo. Lacunas operacionais e medições continuam nas tarefas correspondentes.
 - [ ] **T0.3 — Criar conjunto de cenários representativo.** Incluir biblioteca pequena/grande, mídia local e Telegram, interrupção de banco/rede, cache cheio, Windows e Linux.
+  - [x] Cobrir catálogo STRM de 10 e 2.000 títulos; falha de fetch seguida de retry/cache hit; fetch de rede com erro; cache cheio com lease; stream local e primeiro bloco sem esperar o próximo fetch.
+  - [x] Adicionar job CI focado em cenários Nebula e health checks de dependências para `ubuntu-latest` e `windows-latest`; lock de arquivo com `FileShare.None` fica explicitamente restrito ao Windows.
+  - [x] Cobrir a transição do health check Mongo indisponível (`Unhealthy`) para disponível (`Healthy`) em verificações sucessivas, sem reiniciar o servidor.
+  - [ ] Confirmar os dois jobs em execução remota e adicionar recuperação integrada banco/Telegram sem depender de serviços ou credenciais de produção.
 - [ ] **T0.4 — Definir limites de regressão.** Fixar budgets iniciais para tempo de boot, tamanho do bundle web, latência de busca, espaço temporário e memória; calibrar com medições reais, não valores arbitrários.
+  - [x] Medir o artefato web de produção e conferir o gate existente de 1.536 KiB por arquivo JS/CSS.
+  - [x] Criar relatório local reproduzível para tamanhos brutos, gzip e Brotli do HTML inicial, assets referenciados e conjunto JS/CSS completo.
+  - [ ] Completar séries representativas de boot, busca, recursos, tráfego comprimido e uso do cache antes de definir budgets globais.
 
 **Aceite:** relatório reproduzível com ambiente, comandos, métricas iniciais e limitações; sem alteração de comportamento do produto.
 
@@ -259,6 +268,30 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 
 ## Registro de execução
 
+### 28/09/2026 — Baseline inicial da instância Windows (T0.1 parcial)
+
+- Instância observada por leitura local: MulletaFlix `12.1.5`, executável instalado em `C:\Program Files\MulletaFlix\Server\MulletaFlix.exe`; Windows 11 Pro `10.0.26200`, 12 processadores lógicos, 15,7 GiB RAM. Processo iniciou às 10:16:04; log registra `Startup complete` às 10:16:13.699 (-03:00), estimativa de startup de ~9,7 s (um único boot).
+- Medição de 20 GETs sequenciais locais, todos HTTP 200: `/health` p50 10,88 ms / p95 33,92 ms; `/ready` 10,12 / 19,59 ms; `/System/Info/Public` 1,66 / 8,53 ms; `/web/` 2,02 / 26,63 ms. Amostra aquecida, localhost e sem concorrência; não representa picos de uso.
+- Em 10 amostras a cada 2 s, working set variou de 2,07 a 3,21 GiB; CPU média do processo foi 3,27% dos 12 processadores no intervalo. O working set é memória física mapeada ao processo, não heap gerenciado; metodologia segue [Get-Process](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/get-process?view=powershell-7.5). `dotnet-counters` não está disponível no host, então heap/GC não foram medidos.
+- Volume C: tem 80,73 GiB livres de aproximadamente 476 GiB. Isso é espaço livre do volume, não footprint de cache/dados MulletaFlix.
+- `/metrics` respondeu 200 (408.052 bytes), mas não expôs as séries `nebula_http_requests_total`, `nebula_http_request_duration_seconds` nem `nebula_http_saturated_requests_total` listadas no runbook. A instrumentação dessas séries é acionada por requisições ao listener HTTP Nebula; como não foi gerado tráfego por esse listener durante a amostra, a ausência no scrape não prova que a instrumentação esteja ausente. Duração de tarefas e volume processado não foram coletados: `/NebulaFtp/Status` exige autenticação administrativa, que não foi usada; nenhuma credencial foi lida.
+- Nenhuma configuração foi alterada, nenhum serviço foi reiniciado e nenhuma carga sintética foi gerada além dos GETs de medição. T0.1 permanece parcial: faltam repetição sob carga, Linux, footprint local isolado, latências de endpoints autenticados e métricas de tarefas/volume Nebula.
+
+### 28/09/2026 — Baseline do artefato web (T0.4 parcial)
+
+- Build de produção atualizado via `npm run build:production`; verificação `npm run build:check`, suíte Vitest e `npm run verify:build` passaram. Vitest: 26 arquivos e 208 testes aprovados. Build reportou avisos conhecidos do Rollup sobre diretiva `use client` ignorada; não houve erro e o verificador passou.
+- Artefato `MulletaFlix-web-master/dist`: 1.895 arquivos, 63.345.873 bytes (60,41 MiB); 677 arquivos JS/CSS em `assets/`. Maior chunk: `vendor-jellyfin-Bb1keG9m.js`, 435,3 KiB. Gate atual rejeita arquivo JS/CSS em `assets/` acima de 1.536 KiB; não mede soma transferida comprimida nem custo real de execução.
+- A saída foi regenerada em `MulletaFlix-web-master/dist`, pois o Vite resolve `build.outDir` relativo ao `root: src`; a raiz `dist` (137 arquivos, 13.360.505.353 bytes, incluindo 28 instaladores Windows) permaneceu inalterada. Nenhum arquivo dessa pasta foi removido.
+- T0.4 permanece parcial: uma compilação não estabelece tendência nem margem segura de regressão; faltam medições repetidas de startup, busca, tráfego comprimido, memória/disco e cache sob carga representativa.
+
+### 28/09/2026 — Medição reproduzível do tráfego web (T0.4 parcial)
+
+- Adicionado `MulletaFlix-web-master/scripts/report-bundle-transfer.mjs`. Executar de qualquer diretório com `node MulletaFlix-web-master/scripts/report-bundle-transfer.mjs` para medir HTML, os assets JS/CSS referenciados por `index.html` e todos os JS/CSS em `dist/assets`; usa gzip nível 6 e Brotli qualidade 5, sem dependência nova.
+- No artefato atual: HTML + 8 assets iniciais = 1.205.717 bytes brutos, 281.927 bytes gzip simulado e 259.288 bytes Brotli simulado. Os 677 arquivos JS/CSS somam 20.622.168 bytes brutos, 6.299.664 gzip e 5.781.805 Brotli.
+- Os bytes comprimidos são estimativas por arquivo, não respostas HTTP observadas: negociação, cabeçalhos, compressão do servidor, cache do navegador e assets carregados sob demanda não foram medidos. Não usar o total de todos os chunks como tráfego de uma sessão.
+- Verificação: `node scripts/report-bundle-transfer.mjs`, `npm run build:check`, `npm test -- --reporter=dot`, `npm run verify:build` e ESLint do script saíram com código 0; 26 arquivos/208 testes passaram. A suíte imprimiu `ReferenceError: window is not defined` após o resumo de sucesso, apesar de exit code 0; investigar essa saída assíncrona antes da validação final da frente web. `git diff --check` também passou.
+- T0.4 permanece parcial: faltam medições repetidas em runtime, busca, compressão HTTP real, recursos/disco e cache sob carga representativa; nenhuma budget global foi definida.
+
 ### 28/09/2026 — Cache compartilhado Nebula (T3.1 parcial, T3.3 parcial, T3.4 concluída, T3.5 parcial, T3.6 parcial)
 
 - Corrigido o cancelamento por leitor: cada requisição pode cancelar sua própria espera sem interromper leitores restantes; o fetch compartilhado é cancelado quando o último leitor sai.
@@ -334,6 +367,19 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Separadas as responsabilidades entre MariaDB do catálogo do servidor, MongoDB `ftp` do Nebula, Telegram como armazenamento de partes, staging local, cache temporário e Supabase como destino remoto de sincronização/backup.
 - Identificada distinção importante: `FullSystemBackup` e backup/sincronização Nebula para Supabase são fluxos diferentes; validar um não comprova restauração do outro.
 - Escopo foi leitura de código e documentação de dependências; não houve mudança comportamental nem teste de runtime. T0.1/T0.3/T0.4 continuam abertas para medições e cenários reproduzíveis.
+
+### 28/09/2026 — Cenários Nebula pequenos/grandes e matriz CI (T0.3 parcial)
+
+- Adicionado cenário de catálogo STRM com 10 e 2.000 títulos, cobrindo indexação e busca do último item; adicionada recuperação após falha simulada de fetch, seguida de cache hit. Os testes existentes também cobrem cache cheio/lease, mídia local, primeiro chunk independente do prefetch seguinte e health checks com dependências indisponíveis.
+- A CI agora executa os testes representativos e health checks em `ubuntu-latest` e `windows-latest`. A asserção de bloqueio de exclusão baseada em `FileShare.None` roda apenas no Windows, cujas regras de compartilhamento diferem do unlink em Unix.
+- Validação local Windows/Release: testes focados — 58 implementações + 10 health checks aprovados; suíte completa `Jellyfin.Server.Implementations.Tests` — 977 aprovados, 38 ignorados, 0 falhas; suíte completa `Jellyfin.Server.Tests` — 21 aprovados, 0 falhas. O YAML da workflow foi analisado com o parser `yaml` e passou. Avisos existentes incluem NU1903 para Newtonsoft.Json 9.0.1 e analisadores.
+- Limitação: a matriz foi configurada, mas ainda não executada pelo GitHub Actions; não foi feita recuperação integrada contra MongoDB/Telegram reais. Nenhum serviço de produção foi acessado. Por isso T0.3 permanece parcial e nenhuma release/portal será publicada até a conclusão e validação de todas as melhorias ativas.
+
+### 28/09/2026 — Recuperação do health check Mongo (T0.3 parcial)
+
+- Adicionado teste sequencial do contrato `NebulaHealthCheck`: estado Mongo indisponível retorna `Unhealthy`; na verificação seguinte, após a dependência voltar, retorna `Healthy` sem reinicializar o servidor.
+- Validação Release: `NebulaHealthCheckTests` — 9 aprovados; suíte completa `Jellyfin.Server.Tests` — 22 aprovados; `dotnet build Jellyfin.Server/Jellyfin.Server.csproj -c Release --no-restore` — exit 0, 0 erros. Permanecem avisos NU1903 para Newtonsoft.Json 9.0.1.
+- Limite: estado de dependência é simulado no contrato do health check; não prova conexão/reconexão com instância real MongoDB. Execução da CI remota também segue pendente.
 
 ### 28/09/2026 — Readiness leve do Nebula (T1.4 parcial)
 
