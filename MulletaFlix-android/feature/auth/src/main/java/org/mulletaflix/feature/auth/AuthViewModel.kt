@@ -62,6 +62,7 @@ data class AuthState(
     val quickConnectAvailabilityError: String? = null,
     val discoveredServers: List<ServerInfo> = emptyList(),
     val isDiscovering: Boolean = false,
+    val isLocalNetworkPermissionRequired: Boolean = false,
     /** True after the persisted server list has emitted, including an empty list. */
     val savedServersLoaded: Boolean = false,
     val isRegistering: Boolean = false,
@@ -242,7 +243,13 @@ class AuthViewModel @Inject constructor(
 
     fun discoverLocalServers() {
         discoveryJob?.cancel()
-        _state.update { it.copy(isDiscovering = true, error = null) }
+        _state.update {
+            it.copy(
+                isDiscovering = true,
+                isLocalNetworkPermissionRequired = false,
+                error = null,
+            )
+        }
         discoveryJob = viewModelScope.launch {
             try {
                 val servers = localServerDiscovery.discover()
@@ -267,6 +274,14 @@ class AuthViewModel @Inject constructor(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: LocalNetworkPermissionRequiredException) {
+                _state.update {
+                    it.copy(
+                        isDiscovering = false,
+                        isLocalNetworkPermissionRequired = true,
+                        error = null,
+                    )
+                }
             } catch (error: Throwable) {
                 _state.update {
                     it.copy(

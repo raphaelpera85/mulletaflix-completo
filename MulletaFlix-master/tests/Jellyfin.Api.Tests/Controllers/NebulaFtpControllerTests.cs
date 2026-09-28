@@ -1,3 +1,5 @@
+using System;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
@@ -177,6 +179,14 @@ public sealed class NebulaFtpControllerTests
             FormattedSize = "1.0 MB",
             CachedFilesCount = 4,
             ActiveLeasesCount = 1,
+            TelegramFetchCount = 12,
+            TelegramFetchFailures = 2,
+            TelegramFetchCancellations = 3,
+            AverageTelegramFetchLatencyMs = 125.5,
+            CacheCleanupRuns = 8,
+            CacheCleanupFailures = 1,
+            LastCacheCleanupDurationMs = 44.2,
+            LastCacheCleanupUtc = new DateTime(2026, 9, 28, 12, 30, 0, DateTimeKind.Utc),
             FreeSpaceGb = 100.5,
             TotalSpaceGb = 500.0
         };
@@ -187,6 +197,10 @@ public sealed class NebulaFtpControllerTests
 
         var ok = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
         Assert.Same(expected, ok.Value);
+        var json = JsonSerializer.Serialize(ok.Value, JsonSerializerOptions.Web);
+        Assert.Contains("\"telegramFetchCancellations\":3", json, StringComparison.Ordinal);
+        Assert.Contains("\"cacheCleanupFailures\":1", json, StringComparison.Ordinal);
+        Assert.Contains("\"lastCacheCleanupDurationMs\":44.2", json, StringComparison.Ordinal);
     }
 
     [Fact]

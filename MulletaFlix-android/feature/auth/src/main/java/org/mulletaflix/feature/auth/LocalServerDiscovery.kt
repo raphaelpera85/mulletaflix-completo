@@ -1,11 +1,14 @@
 package org.mulletaflix.feature.auth
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.SystemClock
+import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,10 +33,20 @@ private const val DISCOVERY_MAX_WINDOW_MS = 10_000
 class LocalServerDiscovery @Inject constructor(
     @ApplicationContext context: Context,
 ) {
-    private val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java)
-    private val connectivityManager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
+    private val appContext = context.applicationContext
+    private val wifiManager = appContext.getSystemService(WifiManager::class.java)
+    private val connectivityManager = appContext.getSystemService(ConnectivityManager::class.java)
 
     suspend fun discover(timeoutMs: Int = 2_500): List<ServerInfo> = withContext(Dispatchers.IO) {
+        if (requiresLocalNetworkPermission(
+                sdkInt = Build.VERSION.SDK_INT,
+                targetSdk = appContext.applicationInfo.targetSdkVersion,
+                permissionGranted = appContext.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) ==
+                    PackageManager.PERMISSION_GRANTED,
+            )
+        ) {
+            throw LocalNetworkPermissionRequiredException()
+        }
         val boundedTimeoutMs = boundedDiscoveryTimeoutMs(timeoutMs)
         val broadcastAddresses = networkBroadcastAddresses()
 
@@ -174,6 +187,10 @@ class LocalServerDiscovery @Inject constructor(
     }.getOrDefault(emptyList())
 
 }
+
+internal class LocalNetworkPermissionRequiredException : SecurityException(
+    "Permissão de acesso à rede local necessária para descobrir servidores.",
+)
 
 private data class DiscoverySockets(
     val boundSockets: List<DatagramSocket>,

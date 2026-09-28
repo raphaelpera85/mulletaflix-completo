@@ -39,10 +39,15 @@ interface NebulaPlaybackCacheStatus {
     cacheMisses: number;
     telegramFetchCount: number;
     telegramFetchFailures: number;
+    telegramFetchCancellations: number;
     averageTelegramFetchLatencyMs: number;
     activePrefetchCount: number;
     queuedPrefetchCount: number;
     cacheErrors: number;
+    cacheCleanupRuns: number;
+    cacheCleanupFailures: number;
+    lastCacheCleanupDurationMs: number;
+    lastCacheCleanupUtc: string | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -323,7 +328,7 @@ export const Component = () => {
                                 <Grid size={{ xs: 6, sm: 3 }}>
                                     <Typography variant='body2' color='text.secondary'>Downloads Telegram</Typography>
                                     <Typography variant='h6'>{status?.telegramFetchCount ?? 0}</Typography>
-                                    <Typography variant='caption' color='text.secondary'>Falhas: {status?.telegramFetchFailures ?? 0}</Typography>
+                                    <Typography variant='caption' color='text.secondary'>Falhas: {status?.telegramFetchFailures ?? 0} · Cancelados: {status?.telegramFetchCancellations ?? 0}</Typography>
                                 </Grid>
                                 <Grid size={{ xs: 6, sm: 3 }}>
                                     <Typography variant='body2' color='text.secondary'>Latência média Telegram</Typography>
@@ -336,6 +341,18 @@ export const Component = () => {
                                 <Grid size={{ xs: 6, sm: 3 }}>
                                     <Typography variant='body2' color='text.secondary'>Erros de persistência</Typography>
                                     <Typography variant='h6'>{status?.cacheErrors ?? 0}</Typography>
+                                </Grid>
+                                <Grid size={{ xs: 6, sm: 3 }}>
+                                    <Typography variant='body2' color='text.secondary'>Limpezas do cache</Typography>
+                                    <Typography variant='h6'>{status?.cacheCleanupRuns ?? 0}</Typography>
+                                    <Typography variant='caption' color='text.secondary'>Falhas: {status?.cacheCleanupFailures ?? 0}</Typography>
+                                </Grid>
+                                <Grid size={{ xs: 6, sm: 3 }}>
+                                    <Typography variant='body2' color='text.secondary'>Última limpeza</Typography>
+                                    <Typography variant='h6'>{(status?.lastCacheCleanupDurationMs ?? 0).toFixed(0)} ms</Typography>
+                                    <Typography variant='caption' color='text.secondary'>
+                                        {status?.lastCacheCleanupUtc ? new Date(status.lastCacheCleanupUtc).toLocaleString() : 'Ainda não executada'}
+                                    </Typography>
                                 </Grid>
                             </Grid>
                         </CardContent>

@@ -81,6 +81,25 @@ class ServerSelectionPolicyTest {
     }
 
     @Test
+    fun `automatic verification waits for local network permission instead of selecting cloud`() {
+        val state = AuthState(
+            serverUrl = DEFAULT_MULLETAFLIX_SERVER_URL,
+            savedServersLoaded = true,
+            isLocalNetworkPermissionRequired = true,
+        )
+
+        assertEquals(null, automaticServerCandidate(state, manuallyEdited = false, connectionStarted = false))
+        assertEquals(
+            DEFAULT_MULLETAFLIX_SERVER_URL,
+            automaticServerCandidate(
+                state.copy(isLocalNetworkPermissionRequired = false),
+                manuallyEdited = false,
+                connectionStarted = false,
+            ),
+        )
+    }
+
+    @Test
     fun `automatic verification prefers the server it is already logged into`() {
         // A decisão que este arquivo existe para tomar, aplicada também ao endereço
         // que a tela conecta sozinha: numa rede com dois servidores compatíveis, o

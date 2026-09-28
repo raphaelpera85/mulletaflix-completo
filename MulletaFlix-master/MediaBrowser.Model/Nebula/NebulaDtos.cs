@@ -362,6 +362,8 @@ public sealed class NebulaPlaybackCacheStatusDto
 
     public long TelegramFetchFailures { get; set; }
 
+    public long TelegramFetchCancellations { get; set; }
+
     public double AverageTelegramFetchLatencyMs { get; set; }
 
     public int ActivePrefetchCount { get; set; }
@@ -369,6 +371,14 @@ public sealed class NebulaPlaybackCacheStatusDto
     public int QueuedPrefetchCount { get; set; }
 
     public long CacheErrors { get; set; }
+
+    public long CacheCleanupRuns { get; set; }
+
+    public long CacheCleanupFailures { get; set; }
+
+    public double LastCacheCleanupDurationMs { get; set; }
+
+    public DateTime? LastCacheCleanupUtc { get; set; }
 
     public double FreeSpaceGb { get; set; }
 

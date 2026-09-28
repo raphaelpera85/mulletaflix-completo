@@ -1,5 +1,14 @@
 package org.mulletaflix.feature.auth
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -11,6 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +60,7 @@ fun ServerSelectionScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val hasCamera = remember {
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
     }
@@ -54,6 +68,37 @@ fun ServerSelectionScreen(
     var manuallyEdited by remember { mutableStateOf(false) }
     var automaticConnectionStarted by remember { mutableStateOf(false) }
     var isScanningQr by remember { mutableStateOf(false) }
+    var localNetworkPermissionDenied by rememberSaveable { mutableStateOf(false) }
+    var localNetworkPermissionPromptDismissed by rememberSaveable { mutableStateOf(false) }
+    val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            localNetworkPermissionDenied = false
+            localNetworkPermissionPromptDismissed = false
+            automaticConnectionStarted = false
+            viewModel.discoverLocalServers()
+        } else {
+            localNetworkPermissionDenied = true
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, context, localNetworkPermissionDenied, state.isLocalNetworkPermissionRequired) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (
+                event == Lifecycle.Event.ON_RESUME &&
+                localNetworkPermissionDenied &&
+                state.isLocalNetworkPermissionRequired &&
+                hasRequiredLocalNetworkPermission(context)
+            ) {
+                localNetworkPermissionDenied = false
+                automaticConnectionStarted = false
+                viewModel.discoverLocalServers()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // A discovered LAN server has priority over the public fallback. Do not
     // overwrite an address while the user is actively editing the field.
@@ -272,8 +317,78 @@ fun ServerSelectionScreen(
                 }
             }
         }
+
+        if (
+            state.isLocalNetworkPermissionRequired &&
+            !localNetworkPermissionDenied &&
+            !localNetworkPermissionPromptDismissed
+        ) {
+            AlertDialog(
+                onDismissRequest = { localNetworkPermissionPromptDismissed = true },
+                title = { Text("Encontrar servidor na rede local") },
+                text = {
+                    Text(
+                        "A permissão permite localizar automaticamente o servidor MulletaFlix na mesma rede. Você ainda pode conectar pela Internet se preferir não conceder o acesso.",
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                        },
+                    ) { Text("Permitir") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { localNetworkPermissionPromptDismissed = true }) {
+                        Text("Agora não")
+                    }
+                },
+            )
+        }
+
+        if (state.isLocalNetworkPermissionRequired && localNetworkPermissionDenied) {
+            AlertDialog(
+                onDismissRequest = {
+                    localNetworkPermissionDenied = false
+                    localNetworkPermissionPromptDismissed = true
+                },
+                title = { Text("Acesso à rede local não permitido") },
+                text = {
+                    Text(
+                        "A descoberta automática fica pausada. Você pode ativar a permissão nas configurações ou conectar ao servidor pela Internet.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                },
+                            )
+                        },
+                    ) { Text("Abrir configurações") }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            localNetworkPermissionDenied = false
+                            localNetworkPermissionPromptDismissed = true
+                        },
+                    ) { Text("Continuar pela Internet") }
+                },
+            )
+        }
     }
 }
+
+private fun hasRequiredLocalNetworkPermission(context: Context): Boolean =
+    !requiresLocalNetworkPermission(
+        sdkInt = Build.VERSION.SDK_INT,
+        targetSdk = context.applicationInfo.targetSdkVersion,
+        permissionGranted = context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) ==
+            PackageManager.PERMISSION_GRANTED,
+    )
 
 /** De onde o cartão de servidor veio; decide o nome anunciado pelo ícone. */
 internal enum class ServerCardOrigin { Saved, Discovered }

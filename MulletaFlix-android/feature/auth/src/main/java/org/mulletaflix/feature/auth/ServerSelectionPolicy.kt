@@ -50,7 +50,13 @@ internal fun automaticServerCandidate(
     state: AuthState,
     manuallyEdited: Boolean,
     connectionStarted: Boolean,
-): String? = if (!manuallyEdited && !connectionStarted && !state.isDiscovering && state.savedServersLoaded) {
+): String? = if (
+    !manuallyEdited &&
+    !connectionStarted &&
+    !state.isDiscovering &&
+    !state.isLocalNetworkPermissionRequired &&
+    state.savedServersLoaded
+) {
     if (state.discoveredServers.isEmpty()) {
         state.serverUrl
     } else {

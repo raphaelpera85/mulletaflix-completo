@@ -848,6 +848,10 @@ public sealed class NebulaPlaybackCacheTests
 
             await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             cache.ClearCache();
+            Assert.Equal(1, cache.CacheCleanupRuns);
+            Assert.Equal(0, cache.CacheCleanupFailures);
+            Assert.NotNull(cache.LastCacheCleanupUtc);
+            Assert.True(cache.LastCacheCleanupDurationMs >= 0);
             Assert.Single(Directory.GetDirectories(Path.Combine(root, "nebula-playback")));
 
             completeFetch.TrySetResult(new byte[] { 4, 4, 4 });
@@ -953,6 +957,8 @@ public sealed class NebulaPlaybackCacheTests
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
             await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(1, cache.TelegramFetchCancellations);
+            Assert.Equal(0, cache.TelegramFetchFailures);
         }
         finally
         {
