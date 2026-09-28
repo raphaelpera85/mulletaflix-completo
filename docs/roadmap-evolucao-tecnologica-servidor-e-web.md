@@ -1,7 +1,7 @@
 # Roadmap de evolução tecnológica — servidor e frontend web
 
 **Data:** 28/09/2026
-**Status:** planejamento; nenhuma tarefa abaixo foi iniciada por este documento.
+**Status:** em execução progressiva; consultar “Registro de execução” para evidências e pendências.
 **Escopo:** servidor MulletaFlix para Windows e Linux e frontend web distribuído junto ao servidor. O aplicativo Android/iOS não faz parte deste roadmap.
 
 ## Objetivo
@@ -18,12 +18,28 @@ Consolidar oportunidades de evolução em confiabilidade, desempenho, segurança
 ## Princípios e limites
 
 1. Medir antes e depois; não aceitar ganhos presumidos.
-2. Resiliência e modo degradado: indisponibilidade de IA, internet, GPU ou provedor externo não pode impedir o uso normal do servidor.
+2. Resiliência e modo degradado: indisponibilidade de internet, GPU ou provedor externo não pode impedir o uso normal do servidor.
 3. Dados e correções reversíveis: manter origem, histórico e opção de rollback para mudanças de catálogo.
 4. Processar grandes bibliotecas incrementalmente, com limites de concorrência e cancelamento.
 5. Manter Windows e Linux como plataformas de produção de primeira classe.
 6. Não adotar um broker externo, cache distribuído, SSR ou reescrita do frontend sem demonstrar necessidade.
-7. Qualquer recurso baseado em IA começa em modo de análise/sugestão; não altera títulos, imagens ou NFO em massa sem aprovação e trilha de auditoria.
+7. Curadoria por IA está fora do escopo ativo e permanece apenas no backlog futuro; não iniciar sua implementação neste ciclo.
+
+## Skills por frente de trabalho
+
+As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop define a barra de qualidade para todo código e Fable Method/Loop/Judge organiza evidência, execução e revisão adversarial. Caveman orienta concisão das mensagens de trabalho; Cavecrew é usado para investigação/delegação com escopo isolado.
+
+| Frente | Skills principais |
+| --- | --- |
+| T0 baseline e requisitos operacionais | `backend-architect`, `data-engineer`, `fable-method` |
+| T1 observabilidade e saúde | `backend-architect`, `gauntlet-loop`, `fable-judge` |
+| T2 fila Nebula e recuperação | `backend-architect`, `data-engineer`, `gauntlet-loop` |
+| T3 reprodução/cache | `backend-architect`, `gauntlet-loop`, `fable-loop`, `fable-judge` |
+| T4 backups/restauração e T5 bancos | `data-engineer`, `backend-architect`, `gauntlet-loop` |
+| T6 APIs/segurança e T7 FFmpeg | `backend-architect`, `gauntlet-loop`, `fable-judge` |
+| T8 catálogo determinístico | `data-engineer`, `backend-architect`, `gauntlet-loop` |
+| W1 experiência e W2 acessibilidade | `frontend-design`, `gauntlet-loop`, `fable-judge` |
+| W3 desempenho e W4 automação web | `frontend-design`, `backend-architect` (contratos), `gauntlet-loop`, `fable-loop` |
 
 ## Backlog priorizado
 
@@ -60,11 +76,14 @@ Consolidar oportunidades de evolução em confiabilidade, desempenho, segurança
 ### Fase 3 — Reprodução e cache temporário (P0)
 
 - [ ] **T3.1 — Formalizar o contrato do cache de reprodução.** Cache em disco com limite configurável, chave canônica, política de expiração/evicção, espaço reservado e comportamento quando o volume está cheio.
+  - [x] Expirar entradas após 1 hora sem atividade; manter limpeza periódica a cada 5 minutos e proteger leases ativos.
+  - [ ] Implementar cota/reserva configuráveis e comportamento seguro quando o volume está cheio.
 - [ ] **T3.2 — Validar leitura em partes e prefetch.** Garantir que a mídia original começa a tocar enquanto o cache pré-carrega as partes necessárias, com limites de concorrência e cancelamento ao encerrar/trocar a sessão.
 - [ ] **T3.3 — Preservar leases ativos.** Limpeza não remove conteúdo usado por leitores ou downloads em andamento; liberar lease mesmo em exceção, cancelamento e encerramento do servidor.
-- [ ] **T3.4 — Prevenir duplicação de downloads concorrentes.** Uma única operação por parte/arquivo atende leitores simultâneos; outros aguardam o mesmo resultado.
+- [x] **T3.4 — Prevenir duplicação de downloads concorrentes.** Uma única operação por parte/arquivo atende leitores simultâneos; cancelamento de um leitor não cancela nem duplica o download compartilhado.
 - [ ] **T3.5 — Exibir diagnóstico de cache.** Bytes e arquivos em cache, hits/misses, latência Telegram, prefetch em andamento, leases, erros e limpeza segura.
 - [ ] **T3.6 — Fazer testes de falha e recuperação.** Rede lenta/interrompida, parte ausente, servidor reiniciado, cliente cancelado, mudança de caminho e disco cheio.
+  - [x] Cobrir cancelamento do último leitor, cancelamento de um leitor com outros aguardando e rejeição/cancelamento de operações no descarte do cache.
 
 **Aceite:** a reprodução direta do disco permanece inalterada; com Nebula, o cache não impede o primeiro frame, não remove partes ativas e demonstra redução mensurável de pausas em cenários equivalentes.
 
@@ -109,18 +128,16 @@ Consolidar oportunidades de evolução em confiabilidade, desempenho, segurança
 
 **Aceite:** aceleração só aparece como ativa após teste real; fallback funciona; qualidade, sincronismo e seek preservados; CPU/GPU e número de transcodes visíveis.
 
-### Fase 8 — Catálogo, metadados e curadoria opcional por IA (P2)
+### Fase 8 — Validação determinística do catálogo e provedores (P2)
 
 - [ ] **T8.1 — Criar relatório determinístico de inconsistências.** Comparar nome de pasta/arquivo, NFO, título original, ano, tipo de mídia, ID do provedor, poster/backdrop e categoria.
 - [ ] **T8.2 — Validar fontes por tipo de catálogo.** Para livros, testar busca e identificadores do Open Library (ISBN, edição e obra); para vídeo, comparar provedores compatíveis com o tipo. Armazenar ID/origem e respeitar limites/termos; não usar API de livros para varredura em massa.
 - [ ] **T8.3 — Preservar proveniência e campos travados.** Registrar origem, data e confiança por campo; NFO local e IDs explícitos não devem ser silenciosamente substituídos.
 - [ ] **T8.4 — Implementar modo de auditoria sem escrita.** Gerar candidatos e evidências para revisão; filtros por categoria, confiança e erro.
-- [ ] **T8.5 — Prototipar IA local opcional.** Avaliar Ollama/Qwen3-VL em amostra pequena; medir precisão, latência, RAM/VRAM, armazenamento e consumo. A falha/ausência do modelo não pode parar a biblioteca.
-- [ ] **T8.6 — Restringir IA a comparar candidatos.** Usar fontes/candidatos identificáveis; saída estruturada, confiança calibrada e abstenção quando ambígua.
-- [ ] **T8.7 — Aprovação, histórico e rollback.** Aprovar correções individualmente; guardar estado anterior e permitir desfazer metadados, imagens e NFO.
-- [ ] **T8.8 — Revisar direitos e termos de provedores.** Credenciais, limites, atribuição, uso permitido e armazenamento de imagens/dados.
+- [ ] **T8.5 — Aplicar correções determinísticas com segurança.** Exigir aprovação explícita, registrar estado anterior e permitir rollback de metadados, imagens e NFO.
+- [ ] **T8.6 — Revisar direitos e termos de provedores.** Credenciais, limites, atribuição, uso permitido e armazenamento de imagens/dados.
 
-**Aceite:** conjunto de teste rotulado mede precisão/recall; nenhuma alteração automática em massa no piloto; toda correção tem evidência e rollback; uso do modelo é opcional e offline após download.
+**Aceite:** conjunto de teste rotulado mede precisão/recall; nenhuma alteração automática em massa; toda correção determinística exige aprovação, evidência, histórico e rollback. Esta fase não usa modelos de IA.
 
 ## Backlog do frontend web
 
@@ -172,7 +189,7 @@ Consolidar oportunidades de evolução em confiabilidade, desempenho, segurança
 4. **W1 estados e fluxos** pode começar após contratos mínimos de API/estados serem acordados; não depende de nova tecnologia.
 5. **W2 e W4** acompanham cada melhoria visual, não ficam apenas para o fim.
 6. **T5–T7 e W3** seguem o baseline e precisam demonstrar ganho mensurável.
-7. **T8 IA** é experimento por último, depois de proveniência, auditoria sem escrita e rollback.
+7. **T8 catálogo determinístico** depende de proveniência e auditoria sem escrita; curadoria por IA não faz parte desta execução.
 
 ## Quality gate para cada tarefa executada
 
@@ -196,11 +213,28 @@ Consolidar oportunidades de evolução em confiabilidade, desempenho, segurança
 
 - [ ] Diff revisado; testes relevantes e Quality Bar aprovados em configuração de produção.
 - [ ] Notas de release descrevem apenas mudanças realmente incluídas e validadas.
-- [ ] Publicar release do servidor com assets Windows (ZIP + EXE) e Linux quando a versão/build for aplicável.
+- [ ] Só iniciar a release depois que **todas as melhorias ativas deste roadmap** estiverem implementadas e validadas; não publicar releases intermediárias deste ciclo.
+- [ ] Na release final, incluir assets de produção do servidor para Windows (ZIP + EXE) e Linux quando a versão/build for aplicável.
 - [ ] Atualizar e publicar o portal com a mesma versão/notas e validar a versão pública.
 - [ ] Consultar API de releases e confirmar assets/versão publicados.
 
-Este documento por si só é planejamento e não cria uma release funcional.
+Este documento é backlog em execução; não autoriza publicar uma release antes do gate acima.
+
+## Registro de execução
+
+### 28/09/2026 — Cache compartilhado Nebula (T3.1 parcial, T3.4 concluída, T3.6 parcial)
+
+- Corrigido o cancelamento por leitor: cada requisição pode cancelar sua própria espera sem interromper leitores restantes; o fetch compartilhado é cancelado quando o último leitor sai.
+- O descarte do cache cancela fetches em andamento e chamadas novas passam a ser rejeitadas; entradas concorrentes são removidas somente se ainda corresponderem à mesma operação.
+- Alinhada expiração de inatividade para 1 hora; a limpeza periódica permanece em 5 minutos e preserva leases ativos.
+- Testes cobrem uma única chamada de origem com vários leitores, cancelamento independente e total, descarte durante fetch e rejeição após descarte.
+- Verificação Release: 985 testes no projeto `Jellyfin.Server.Implementations.Tests`, 947 aprovados, 38 ignorados, 0 falhas; build incluído pela execução: 0 erros. Persistem avisos, incluindo advisory de alta severidade em `Newtonsoft.Json` e avisos de analisadores/documentação.
+- A cota máxima/reserva do disco e os demais cenários de falha/recuperação continuam pendentes; T3.1 permanece aberta e T3.6 parcial.
+- Nenhuma release foi criada/publicada; aguardar conclusão integral das melhorias ativas conforme decisão do usuário.
+
+## Backlog futuro — fora do ciclo ativo
+
+- Curadoria por IA local ou remota para nomes, imagens e NFO: não iniciar desenvolvimento neste ciclo. Reavaliar apenas após as tarefas determinísticas de catálogo, proveniência, aprovação e rollback serem concluídas e o usuário autorizar um novo escopo.
 
 ## Indicadores de sucesso do roadmap
 

@@ -66,6 +66,7 @@ class HomeTopBarFocusTest {
                     HomeTopBar(
                         profile = null,
                         layoutSpec = spec,
+                        isTelevision = focusFriendly,
                         onSearch = {},
                         onLiveTv = {},
                         onDownloads = {},
@@ -109,6 +110,14 @@ class HomeTopBarFocusTest {
         composeRule.onNodeWithText("Configurações").assertIsDisplayed()
         composeRule.onNodeWithText("TV Ao Vivo").assertIsDisplayed()
         composeRule.onNodeWithText("Downloads").assertIsDisplayed()
+    }
+
+    @Test
+    fun tvTopBarHidesDownloadsEntry() {
+        showTopBar(focusFriendly = true)
+
+        composeRule.onNodeWithContentDescription("Downloads").assertDoesNotExist()
+        composeRule.onNodeWithText("Downloads").assertDoesNotExist()
     }
 
     @Test

@@ -112,7 +112,16 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             return BadRequest();
         }
 
-        var success = await _nebulaManager.UpdatePlaybackCachePathAsync(request.CachePath, cancellationToken).ConfigureAwait(false);
+        if (request.MaxCacheSizeGb is < 1 or > 4096 || request.MinimumFreeSpaceGb is < 0 or > 1024)
+        {
+            return BadRequest("A cota deve ficar entre 1 e 4096 GiB; a reserva, entre 0 e 1024 GiB.");
+        }
+
+        var success = await _nebulaManager.UpdatePlaybackCachePathAsync(
+            request.CachePath,
+            request.MaxCacheSizeGb,
+            request.MinimumFreeSpaceGb,
+            cancellationToken).ConfigureAwait(false);
         if (!success)
         {
             return BadRequest("Não foi possível atualizar o diretório de cache especificado.");

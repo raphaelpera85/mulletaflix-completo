@@ -1311,7 +1311,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             _playbackCache = new NebulaPlaybackCache(
                 effectiveCachePath,
-                _loggerFactory.CreateLogger<NebulaPlaybackCache>());
+                _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
+                maxCacheBytes: (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
+                minimumFreeSpaceBytes: (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
 
             _ftpServerHost = new NebulaFtpServerHost(
                 _mongoContext,
@@ -1903,7 +1905,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             CachedFilesCount = fileCount,
             ActiveLeasesCount = activeLeases,
             FreeSpaceGb = freeGb,
-            TotalSpaceGb = totalGb
+            TotalSpaceGb = totalGb,
+            MaxCacheSizeBytes = _playbackCache?.MaxCacheBytes ?? (long)Config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
+            MinimumFreeSpaceBytes = _playbackCache?.MinimumFreeSpaceBytes ?? (long)Config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024
         };
     }
 
@@ -1921,10 +1925,19 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
     }
 
-    public Task<bool> UpdatePlaybackCachePathAsync(string newPath, CancellationToken cancellationToken = default)
+    public Task<bool> UpdatePlaybackCachePathAsync(
+        string newPath,
+        int? maxCacheSizeGb = null,
+        int? minimumFreeSpaceGb = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
+            if (maxCacheSizeGb is < 1 or > 4096 || minimumFreeSpaceGb is < 0 or > 1024)
+            {
+                return Task.FromResult(false);
+            }
+
             var trimmed = newPath?.Trim() ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(trimmed))
             {
@@ -1933,6 +1946,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             var config = Config;
             config.PlaybackCachePath = trimmed;
+            config.PlaybackCacheMaxSizeGb = maxCacheSizeGb ?? config.PlaybackCacheMaxSizeGb;
+            config.PlaybackCacheMinimumFreeSpaceGb = minimumFreeSpaceGb ?? config.PlaybackCacheMinimumFreeSpaceGb;
             _configManager.SaveConfiguration("nebulaftp", config);
 
             var effective = !string.IsNullOrWhiteSpace(trimmed)
@@ -1940,7 +1955,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 : _configManager.CommonApplicationPaths.CachePath;
 
             var oldCache = _playbackCache;
-            var newCache = new NebulaPlaybackCache(effective, _loggerFactory.CreateLogger<NebulaPlaybackCache>());
+            var newCache = new NebulaPlaybackCache(
+                effective,
+                _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
+                maxCacheBytes: (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
+                minimumFreeSpaceBytes: (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
             _playbackCache = newCache;
 
             oldCache?.Dispose();

@@ -501,7 +501,7 @@ internal fun OfflineSummary(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                if (hasActiveDownloads && allowDownloadActions) {
+                if (hasActiveDownloads && (!queuePaused || allowDownloadActions)) {
                     MulletaFlixTopBarAction(onClick = if (queuePaused) onResume else onPause) {
                         Icon(
                             if (queuePaused) Icons.Default.PlayArrow else Icons.Default.Pause,

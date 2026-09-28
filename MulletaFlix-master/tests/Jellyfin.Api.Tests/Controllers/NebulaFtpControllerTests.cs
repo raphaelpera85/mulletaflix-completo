@@ -183,13 +183,13 @@ public sealed class NebulaFtpControllerTests
             ConfiguredPath = @"E:\new-cache",
             EffectivePath = @"E:\new-cache\nebula-playback"
         };
-        manager.Setup(m => m.UpdatePlaybackCachePathAsync(@"E:\new-cache", It.IsAny<CancellationToken>()))
+        manager.Setup(m => m.UpdatePlaybackCachePathAsync(@"E:\new-cache", 120, 8, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         manager.Setup(m => m.GetPlaybackCacheStatus()).Returns(expected);
         var controller = new NebulaFtpController(manager.Object, configuration.Object);
 
         var result = await controller.UpdatePlaybackCachePath(
-            new NebulaUpdatePlaybackCachePathRequest { CachePath = @"E:\new-cache" },
+            new NebulaUpdatePlaybackCachePathRequest { CachePath = @"E:\new-cache", MaxCacheSizeGb = 120, MinimumFreeSpaceGb = 8 },
             CancellationToken.None);
 
         var ok = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
@@ -197,11 +197,25 @@ public sealed class NebulaFtpControllerTests
     }
 
     [Fact]
+    public async Task UpdatePlaybackCachePath_RejectsInvalidLimits()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.UpdatePlaybackCachePath(
+            new NebulaUpdatePlaybackCachePathRequest { CachePath = @"E:\cache", MaxCacheSizeGb = 0, MinimumFreeSpaceGb = -1 },
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
     public async Task UpdatePlaybackCachePath_WhenFailed_ReturnsBadRequest()
     {
         var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
         var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
-        manager.Setup(m => m.UpdatePlaybackCachePathAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        manager.Setup(m => m.UpdatePlaybackCachePathAsync(It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
         var controller = new NebulaFtpController(manager.Object, configuration.Object);
 

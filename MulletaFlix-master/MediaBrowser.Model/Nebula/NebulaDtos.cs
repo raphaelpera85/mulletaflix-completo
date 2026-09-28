@@ -357,9 +357,17 @@ public sealed class NebulaPlaybackCacheStatusDto
     public double FreeSpaceGb { get; set; }
 
     public double TotalSpaceGb { get; set; }
+
+    public long MaxCacheSizeBytes { get; set; }
+
+    public long MinimumFreeSpaceBytes { get; set; }
 }
 
 public sealed class NebulaUpdatePlaybackCachePathRequest
 {
     public string CachePath { get; set; } = string.Empty;
+
+    public int? MaxCacheSizeGb { get; set; }
+
+    public int? MinimumFreeSpaceGb { get; set; }
 }

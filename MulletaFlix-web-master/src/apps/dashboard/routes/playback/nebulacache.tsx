@@ -25,14 +25,16 @@ import toast from 'components/toast/toast';
 import Loading from 'components/loading/LoadingComponent';
 
 interface NebulaPlaybackCacheStatus {
-    cachePath: string;
+    configuredPath: string;
+    effectivePath: string;
     cachedFilesCount: number;
     totalSizeBytes: number;
-    totalSizeFormatted: string;
+    formattedSize: string;
     activeLeasesCount: number;
-    freeSpaceBytes?: number | null;
-    totalSpaceBytes?: number | null;
-    usagePercentage?: number | null;
+    freeSpaceGb: number;
+    totalSpaceGb: number;
+    maxCacheSizeBytes: number;
+    minimumFreeSpaceBytes: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,6 +49,8 @@ const getApiClient = (): any => {
 export const Component = () => {
     const [ status, setStatus ] = useState<NebulaPlaybackCacheStatus | null>(null);
     const [ cachePathInput, setCachePathInput ] = useState('');
+    const [ maxCacheSizeGb, setMaxCacheSizeGb ] = useState(50);
+    const [ minimumFreeSpaceGb, setMinimumFreeSpaceGb ] = useState(2);
     const [ isLoading, setIsLoading ] = useState(true);
     const [ isSaving, setIsSaving ] = useState(false);
     const [ isClearing, setIsClearing ] = useState(false);
@@ -61,7 +65,9 @@ export const Component = () => {
             const url = apiClient.getUrl('NebulaFtp/PlaybackCache');
             const data = await (apiClient.getJSON(url) as Promise<NebulaPlaybackCacheStatus>);
             setStatus(data);
-            setCachePathInput(data.cachePath || '');
+            setCachePathInput(data.configuredPath || '');
+            setMaxCacheSizeGb(Math.max(1, Math.round(data.maxCacheSizeBytes / (1024 ** 3))));
+            setMinimumFreeSpaceGb(Math.max(0, Math.round(data.minimumFreeSpaceBytes / (1024 ** 3))));
         } catch (err: unknown) {
             const msg = (err as Error)?.message || 'Erro ao carregar status do cache do Nebula';
             setError(msg);
@@ -107,14 +113,18 @@ export const Component = () => {
             const updated = await (apiClient.ajax({
                 type: 'POST',
                 url,
-                data: JSON.stringify({ CachePath: cachePathInput.trim() }),
+                data: JSON.stringify({
+                    CachePath: cachePathInput.trim(),
+                    MaxCacheSizeGb: maxCacheSizeGb,
+                    MinimumFreeSpaceGb: minimumFreeSpaceGb
+                }),
                 contentType: 'application/json'
             }) as Promise<NebulaPlaybackCacheStatus>);
 
             setStatus(updated);
-            setCachePathInput(updated.cachePath || '');
-            setSuccessMessage('Caminho do cache do Nebula atualizado com sucesso.');
-            toast('Caminho do cache atualizado!');
+            setCachePathInput(updated.configuredPath || '');
+            setSuccessMessage('Configurações do cache do Nebula atualizadas com sucesso.');
+            toast('Configurações do cache atualizadas!');
         } catch (err: unknown) {
             const msg = (err as Error)?.message || 'Erro ao salvar novo caminho do cache';
             setError(msg);
@@ -122,7 +132,7 @@ export const Component = () => {
         } finally {
             setIsSaving(false);
         }
-    }, [ cachePathInput ]);
+    }, [ cachePathInput, maxCacheSizeGb, minimumFreeSpaceGb ]);
 
     const handleClearCache = useCallback(async () => {
         if (!confirm('Deseja realmente limpar o cache de reprodução do Nebula? Apenas arquivos que não estão sendo executados no momento serão removidos.')) {
@@ -144,7 +154,7 @@ export const Component = () => {
 
             if (result.status) {
                 setStatus(result.status);
-                setCachePathInput(result.status.cachePath || '');
+                setCachePathInput(result.status.configuredPath || '');
             } else {
                 void loadStatus();
             }
@@ -164,6 +174,11 @@ export const Component = () => {
     if (isLoading && !status) {
         return <Loading />;
     }
+
+    const maxCacheSizeBytes = status?.maxCacheSizeBytes ?? 0;
+    const cacheUsagePercentage = maxCacheSizeBytes > 0
+        ? Math.min((status?.totalSizeBytes ?? 0) / maxCacheSizeBytes * 100, 100)
+        : 0;
 
     return (
         <Page
@@ -214,7 +229,7 @@ export const Component = () => {
                                         </Typography>
                                     </Stack>
                                     <Typography variant='h4'>
-                                        {status?.totalSizeFormatted || '0 B'}
+                                        {status?.formattedSize || '0 B'}
                                     </Typography>
                                     <Typography variant='caption' color='text.secondary'>
                                         {status?.cachedFilesCount || 0} arquivo(s) em cache
@@ -249,16 +264,19 @@ export const Component = () => {
                                         Uso do Disco do Cache
                                     </Typography>
                                     <Typography variant='h4'>
-                                        {status?.usagePercentage != null ? `${status.usagePercentage.toFixed(1)}%` : 'N/D'}
+                                        {maxCacheSizeBytes ? `${cacheUsagePercentage.toFixed(1)}%` : 'N/D'}
                                     </Typography>
-                                    {status?.usagePercentage != null && (
+                                    {maxCacheSizeBytes > 0 && (
                                         <LinearProgress
                                             variant='determinate'
-                                            value={Math.min(status.usagePercentage, 100)}
+                                            value={cacheUsagePercentage}
                                             sx={{ mt: 1, borderRadius: 1 }}
-                                            color={status.usagePercentage > 90 ? 'error' : status.usagePercentage > 75 ? 'warning' : 'primary'}
+                                            color={cacheUsagePercentage > 90 ? 'error' : cacheUsagePercentage > 75 ? 'warning' : 'primary'}
                                         />
                                     )}
+                                    <Typography variant='caption' color='text.secondary'>
+                                        Limite: {Math.round(maxCacheSizeBytes / (1024 ** 3))} GiB
+                                    </Typography>
                                 </CardContent>
                             </Card>
                         </Grid>
@@ -292,6 +310,31 @@ export const Component = () => {
                                             )
                                         }}
                                     />
+
+                                    <Grid container spacing={2}>
+                                        <Grid item xs={12} sm={6}>
+                                            <TextField
+                                                type='number'
+                                                label='Limite máximo do cache (GiB)'
+                                                value={maxCacheSizeGb}
+                                                onChange={e => setMaxCacheSizeGb(Number(e.target.value))}
+                                                inputProps={{ min: 1, max: 4096 }}
+                                                helperText='Ao alcançar o limite, o servidor remove mídias inativas primeiro e preserva a reprodução atual.'
+                                                fullWidth
+                                            />
+                                        </Grid>
+                                        <Grid item xs={12} sm={6}>
+                                            <TextField
+                                                type='number'
+                                                label='Espaço livre a preservar (GiB)'
+                                                value={minimumFreeSpaceGb}
+                                                onChange={e => setMinimumFreeSpaceGb(Number(e.target.value))}
+                                                inputProps={{ min: 0, max: 1024 }}
+                                                helperText='Sem espaço disponível, o bloco é transmitido normalmente, mas não fica em cache.'
+                                                fullWidth
+                                            />
+                                        </Grid>
+                                    </Grid>
 
                                     <Box sx={{ display: 'flex', gap: 2, pt: 1 }}>
                                         <Button

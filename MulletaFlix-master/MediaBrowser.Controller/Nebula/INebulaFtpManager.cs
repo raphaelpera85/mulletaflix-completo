@@ -51,7 +51,11 @@ public interface INebulaFtpManager
     Task<bool> ClearPlaybackCacheAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Atualiza o diretório de destino do cache de reprodução de mídia.</summary>
-    Task<bool> UpdatePlaybackCachePathAsync(string newPath, CancellationToken cancellationToken = default);
+    Task<bool> UpdatePlaybackCachePathAsync(
+        string newPath,
+        int? maxCacheSizeGb = null,
+        int? minimumFreeSpaceGb = null,
+        CancellationToken cancellationToken = default);
 
     Task<bool> StopDownloaderAsync(CancellationToken cancellationToken = default);
 

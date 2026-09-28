@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import okhttp3.Call
 import okhttp3.Interceptor
@@ -30,6 +32,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.mulletaflix.core.api.ClientIdentityInterceptor
 import org.mulletaflix.core.api.SessionRepository
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.designsystem.media.resolveMediaUrl
 import org.mulletaflix.designsystem.media.retargetMediaUrl
 import org.mulletaflix.domain.repository.DownloadEntry
@@ -40,6 +43,7 @@ import org.mulletaflix.domain.repository.DownloadSubtitleMetadata
 import org.mulletaflix.domain.repository.DownloadState
 import org.mulletaflix.domain.repository.downloadServerScopeId
 import java.io.File
+import java.io.IOException
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
@@ -75,6 +79,8 @@ class Media3DownloadRepository @Inject constructor(
     private val subtitleRequestsStarted = ConcurrentHashMap.newKeySet<String>()
     private val subtitleJobs = ConcurrentHashMap<String, Job>()
     private val subtitleCalls = ConcurrentHashMap<String, MutableSet<Call>>()
+    private val subtitleSessions = ConcurrentHashMap<String, FeedbackRequestSession>()
+    private val subtitleJobsLock = Any()
     private val subtitlePersistenceLock = Any()
     @Volatile private var currentUserId: String? = null
     @Volatile private var currentServerId: String? = null
@@ -105,6 +111,15 @@ class Media3DownloadRepository @Inject constructor(
         }
         repositoryScope.launch {
             sessionRepository.getAccessToken().distinctUntilChanged().collect { currentAccessToken = it }
+        }
+        repositoryScope.launch {
+            sessionRepository.getFeedbackRequestSession().distinctUntilChanged().collect { session ->
+                subtitleSessions.entries.toList()
+                    .filter { (_, activeSession) -> session == null || activeSession != session }
+                    .mapNotNull { (requestId, _) -> cancelSubtitleFetch(requestId) }
+                    .joinAll()
+                if (session != null) recoverPendingSubtitleCaching(session)
+            }
         }
         // A queue left over from a previous run is only driven while something
         // tells the DownloadService to run. It used to be nobody: the service is
@@ -365,47 +380,62 @@ class Media3DownloadRepository @Inject constructor(
         itemId: String,
         userId: String,
         media: DownloadMediaMetadata,
+        sessionSnapshot: FeedbackRequestSession? = null,
     ) {
-        if (media.subtitles.isEmpty() || !subtitleRequestsStarted.add(requestId)) return
-        val job = repositoryScope.launch(start = CoroutineStart.LAZY) {
+        val job = synchronized(subtitleJobsLock) {
+            if (media.subtitles.isEmpty() || !subtitleRequestsStarted.add(requestId)) return
+            repositoryScope.launch(start = CoroutineStart.LAZY) {
             try {
-                val baseUrl = currentBaseUrl.ifBlank { sessionRepository.getBaseUrl().first() }
-                val serverScope = sessionRepository.getServerId().first()?.takeIf(String::isNotBlank)
-                    ?: baseUrl.trimEnd('/')
-                if (serverScope != media.serverId || currentUserId != userId) return@launch
-                val accessToken = currentAccessToken ?: sessionRepository.getAccessToken().first()
+                val fetchSession = sessionSnapshot ?: sessionRepository.getFeedbackRequestSession().first()
+                    ?: return@launch
+                val serverScope = downloadServerScopeId(fetchSession.serverId, fetchSession.serverUrl)
+                    ?: return@launch
+                if (serverScope != media.serverId || fetchSession.userId != userId) return@launch
+                subtitleSessions[requestId] = fetchSession
                 val jobContext = currentCoroutineContext()
-                media.subtitles.forEach { subtitle ->
+                for (subtitle in media.subtitles) {
                     jobContext.ensureActive()
-                    if (currentUserId != userId || serverScope != media.serverId) return@forEach
-                    if (subtitleStore.uriFor(serverScope, userId, requestId, subtitle) != null) return@forEach
-                    val path = subtitleStreamPath(itemId, subtitle.streamIndex, media.mediaSourceId) ?: return@forEach
-                    val url = resolveMediaUrl(baseUrl, path, accessToken) ?: return@forEach
-                    val request = Request.Builder().url(url).get().build()
-                    val call = subtitleClient.newCall(request)
-                    val activeCalls = subtitleCalls.computeIfAbsent(requestId) { ConcurrentHashMap.newKeySet() }
-                    activeCalls.add(call)
-                    try {
+                    if (!isCurrentSubtitleSession(fetchSession, userId, serverScope)) return@launch
+                    if (subtitleStore.uriFor(serverScope, userId, requestId, subtitle) != null) continue
+                    val path = subtitleStreamPath(itemId, subtitle.streamIndex, media.mediaSourceId) ?: continue
+                    val url = resolveMediaUrl(fetchSession.serverUrl, path, fetchSession.accessToken) ?: continue
+                    val request = authenticatedSubtitleRequest(url, fetchSession)
+                    for (attempt in 1..MAX_OFFLINE_SUBTITLE_ATTEMPTS) {
                         jobContext.ensureActive()
-                        call.execute().use { response ->
-                            if (!response.isSuccessful) return@use
-                            val body = response.body ?: return@use
-                            val storedUri = try {
-                                synchronized(subtitlePersistenceLock) {
-                                    jobContext.ensureActive()
-                                    if (currentUserId != userId || !isInDownloadIndex(requestId)) return@synchronized
-                                    subtitleStore.store(serverScope, userId, requestId, subtitle, body.byteStream())
+                        if (!isCurrentSubtitleSession(fetchSession, userId, serverScope)) return@launch
+                        val call = subtitleClient.newCall(request)
+                        val activeCalls = subtitleCalls.computeIfAbsent(requestId) { ConcurrentHashMap.newKeySet() }
+                        activeCalls.add(call)
+                        var retry = false
+                        try {
+                            call.execute().use { response ->
+                                if (!response.isSuccessful) {
+                                    retry = shouldRetryOfflineSubtitleHttpStatus(response.code)
+                                } else {
+                                    val body = response.body ?: return@use
+                                    if (!isCurrentSubtitleSession(fetchSession, userId, serverScope)) return@use
+                                    val storedUri = try {
+                                        synchronized(subtitlePersistenceLock) {
+                                            jobContext.ensureActive()
+                                            if (!isInDownloadIndex(requestId)) return@synchronized
+                                            subtitleStore.store(serverScope, userId, requestId, subtitle, body.byteStream())
+                                        }
+                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                    if (storedUri != null) subtitleUpdates.tryEmit(Unit)
                                 }
-                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                null
                             }
-                            if (storedUri != null) subtitleUpdates.tryEmit(Unit)
+                        } catch (failure: IOException) {
+                            retry = isTransientOfflineSubtitleNetworkFailure(failure)
+                        } finally {
+                            activeCalls.remove(call)
+                            if (activeCalls.isEmpty()) subtitleCalls.remove(requestId, activeCalls)
                         }
-                    } finally {
-                        activeCalls.remove(call)
-                        if (activeCalls.isEmpty()) subtitleCalls.remove(requestId, activeCalls)
+                        if (!retry || attempt == MAX_OFFLINE_SUBTITLE_ATTEMPTS) break
+                        delay(offlineSubtitleRetryDelayMillis(attempt))
                     }
                 }
             } catch (failure: Exception) {
@@ -414,20 +444,71 @@ class Media3DownloadRepository @Inject constructor(
             } finally {
                 subtitleUpdates.tryEmit(Unit)
             }
-        }
-        subtitleJobs[requestId] = job
-        job.invokeOnCompletion {
-            subtitleCalls.remove(requestId)?.forEach(Call::cancel)
-            subtitleRequestsStarted.remove(requestId)
-            subtitleJobs.remove(requestId, job)
+            }.also { createdJob ->
+                subtitleJobs[requestId] = createdJob
+                createdJob.invokeOnCompletion {
+                    synchronized(subtitleJobsLock) {
+                        subtitleCalls.remove(requestId)?.forEach(Call::cancel)
+                        subtitleSessions.remove(requestId)
+                        subtitleJobs.remove(requestId, createdJob)
+                        subtitleRequestsStarted.remove(requestId)
+                    }
+                }
+            }
         }
         job.start()
     }
 
-    private fun cancelSubtitleFetch(requestId: String) {
-        subtitleJobs.remove(requestId)?.cancel()
+    private suspend fun isCurrentSubtitleSession(
+        expectedSession: FeedbackRequestSession,
+        userId: String,
+        serverScope: String,
+    ): Boolean {
+        val activeSession = sessionRepository.getFeedbackRequestSession().first() ?: return false
+        return activeSession.userId == userId &&
+            activeSession.userId == expectedSession.userId &&
+            downloadServerScopeId(activeSession.serverId, activeSession.serverUrl) == serverScope
+    }
+
+    private fun recoverPendingSubtitleCaching(session: FeedbackRequestSession) {
+        val serverScope = downloadServerScopeId(session.serverId, session.serverUrl) ?: return
+        val candidates = mutableListOf<OfflineSubtitleRecoveryCandidate>()
+        val cursor = manager.downloadIndex.getDownloads()
+        try {
+            while (cursor.moveToNext()) {
+                val requestId = cursor.download.request.id
+                val itemId = metadata.getString("item:$requestId", null)?.takeIf(String::isNotBlank) ?: continue
+                val requestMetadata = decodeDownloadRequestMetadata(cursor.download.request.data) ?: continue
+                val media = requestMetadata.media ?: continue
+                candidates += OfflineSubtitleRecoveryCandidate(
+                    requestId = requestId,
+                    itemId = itemId,
+                    ownerUserId = metadata.getString("owner:$requestId", null),
+                    media = media,
+                )
+            }
+        } finally {
+            cursor.close()
+        }
+
+        selectOfflineSubtitleRecoveries(candidates, session.userId, serverScope) { candidate, subtitle ->
+            subtitleStore.uriFor(serverScope, session.userId, candidate.requestId, subtitle) != null
+        }.forEach { candidate ->
+            scheduleSubtitleCaching(
+                requestId = candidate.requestId,
+                itemId = candidate.itemId,
+                userId = session.userId,
+                media = candidate.media,
+                sessionSnapshot = session,
+            )
+        }
+    }
+
+    private fun cancelSubtitleFetch(requestId: String): Job? {
+        val job = synchronized(subtitleJobsLock) { subtitleJobs[requestId] }
+        job?.cancel()
         subtitleCalls.remove(requestId)?.forEach(Call::cancel)
-        subtitleRequestsStarted.remove(requestId)
+        return job
     }
 
     private fun cleanupOfflineSubtitles(request: DownloadRequest) {
@@ -645,4 +726,11 @@ internal fun offlineSubtitleHttpClient(identityInterceptor: Interceptor): OkHttp
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(false)
         .followSslRedirects(false)
+        .build()
+
+internal fun authenticatedSubtitleRequest(url: String, session: FeedbackRequestSession): Request =
+    Request.Builder()
+        .url(url)
+        .tag(FeedbackRequestSession::class.java, session)
+        .get()
         .build()

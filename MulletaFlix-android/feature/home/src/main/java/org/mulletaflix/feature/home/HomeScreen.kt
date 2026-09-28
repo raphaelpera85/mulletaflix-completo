@@ -119,6 +119,7 @@ fun HomeScreen(
                 HomeTopBar(
                     profile = state.userProfile,
                     layoutSpec = layoutSpec,
+                    isTelevision = isTelevision,
                     onSearch = { navController.navigate("main/search") },
                     onLiveTv = { navController.navigate("main/live-tv") },
                     onDownloads = { navController.navigate("main/downloads") },
@@ -884,6 +885,7 @@ private val MediaItem.runtimeMinutes: Int? get() =
 internal fun HomeTopBar(
     profile: UserProfile?,
     layoutSpec: HomeLayoutSpec,
+    isTelevision: Boolean = false,
     onSearch: () -> Unit,
     onLiveTv: () -> Unit,
     onDownloads: () -> Unit,
@@ -944,11 +946,13 @@ internal fun HomeTopBar(
                 ) {
                     Icon(Icons.Default.Tv, contentDescription = "TV Ao Vivo", tint = MaterialTheme.colorScheme.onBackground)
                 }
-                HomeTopBarAction(
-                    focusFriendly = layoutSpec.usesFocusFriendlySpacing,
-                    onClick = onDownloads,
-                ) {
-                    Icon(Icons.Default.FileDownload, contentDescription = "Downloads", tint = MaterialTheme.colorScheme.onBackground)
+                if (!isTelevision) {
+                    HomeTopBarAction(
+                        focusFriendly = layoutSpec.usesFocusFriendlySpacing,
+                        onClick = onDownloads,
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = "Downloads", tint = MaterialTheme.colorScheme.onBackground)
+                    }
                 }
             }
             HomeTopBarAction(
@@ -967,7 +971,9 @@ internal fun HomeTopBar(
                     }
                     DropdownMenu(expanded = showMoreActions, onDismissRequest = { showMoreActions = false }) {
                         DropdownMenuItem(text = { Text("TV Ao Vivo") }, onClick = { showMoreActions = false; onLiveTv() })
-                        DropdownMenuItem(text = { Text("Downloads") }, onClick = { showMoreActions = false; onDownloads() })
+                        if (!isTelevision) {
+                            DropdownMenuItem(text = { Text("Downloads") }, onClick = { showMoreActions = false; onDownloads() })
+                        }
                         DropdownMenuItem(text = { Text("Configurações") }, onClick = { showMoreActions = false; onSettings() })
                         DropdownMenuItem(text = { Text("Atualizar Home") }, onClick = { showMoreActions = false; onRefresh() })
                         DropdownMenuItem(text = { Text(profileDescription) }, onClick = { showMoreActions = false; onProfile() })

@@ -9,10 +9,20 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Limpar cache em memória e disco do Coil a cada hora enquanto o app está aberto e agendar limpeza horária pelo WorkManager para quando o processo estiver parado.
 - [x] Não apagar downloads offline explícitos: o player de streaming não persiste bytes de sessões online e compartilha apenas conteúdo já baixado.
 - [x] Ocultar download de mídia e de temporada na Android TV; se um lote já estiver ativo, manter Cancelar acessível.
-- [ ] Impedir iniciar ou retomar downloads na fila da Android TV e ocultar o retry individual/coletivo e a preferência Wi‑Fi; manter pausa, reprodução offline e remoção acessíveis.
-- [ ] Cobrir ausência de retomar/repetir/preferência de rede na fila da TV e preservar ações disponíveis no celular/tablet.
+- [x] Na Android TV, ocultar a entrada Downloads da Home e impedir retomar/repetir downloads ou alterar a preferência Wi‑Fi na fila; manter pausa de download ativo, reprodução offline e remoção acessíveis.
+- [x] Cobrir ausência das ações de download na Home e fila TV, incluindo integração da tela real; preservar os controles nos perfis móveis.
+- [x] `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug` e compilação dos testes instrumentados Home/Downloads: `BUILD SUCCESSFUL`; validação focada no AVD TV: `HomeTopBarFocusTest` (8) e `DownloadsTvScreenTest` (1), ambos `BUILD SUCCESSFUL`; wrapper encerrou o emulador. A suíte Home ampla no perfil TV também contém 2 testes exclusivos de telefone/tablet que reportam pressuposto de AVD incompatível.
 - [x] `testDebugUnitTest`: 1.274 testes, 0 falhas/erros/ignorados; `:app:lintDebug`, `:app:assembleDebug` e compilação dos testes instrumentados: `BUILD SUCCESSFUL`.
 - [x] Android TV: `:feature:item-detail:connectedDebugAndroidTest` 27/27 e `:feature:downloads:connectedDebugAndroidTest` 18/18; telefone e tablet já passaram pela suíte Downloads (teste de foco D-pad TV excluído nesses perfis). AVD encerrado automaticamente pelo wrapper.
+- [ ] Sem bump ou release até a assinatura de produção corresponder ao certificado oficial; verificar a release APK anterior antes de planejar versão nova.
+
+## Recuperação de legendas externas em downloads offline (APK sem release)
+
+- [x] Ao abrir o app com sessão autenticada, tentar recuperar sidecars externos ausentes apenas para downloads com proprietário e servidor correspondentes; preservar a fila/estado do vídeo e usar a mesma sessão atômica na URL e autenticação.
+- [x] Cobrir política de seleção (mesmo usuário/servidor, legenda faltante, downloads legados sem identidade) e associação da sessão autenticada à requisição.
+- [x] Repetir até 3 vezes falhas transitórias de rede/HTTP (408, 429, 5xx), com backoff de 1s/2s; não repetir falhas permanentes e cancelar/juntar jobs da sessão antiga antes da recuperação na nova sessão.
+- [x] `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+- [ ] Retry durável entre reinicializações, teste integrado do interceptor/fluxo completo; downloads legados sem proprietário continuam ignorados para evitar atribuição à conta errada.
 - [ ] Sem bump ou release até a assinatura de produção corresponder ao certificado oficial; verificar a release APK anterior antes de planejar versão nova.
 
 ## Fallback de envio UDP para descoberta LAN (APK sem release)

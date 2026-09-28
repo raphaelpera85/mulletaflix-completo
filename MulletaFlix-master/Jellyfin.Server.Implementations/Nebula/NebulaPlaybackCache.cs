@@ -13,31 +13,43 @@ namespace Jellyfin.Server.Implementations.Nebula;
 
 /// <summary>
 /// Cache compartilhado, temporário e em disco para blocos de mídias reproduzidas pelo Nebula.
-/// O cache é separado por mídia e expira 5 minutos depois da última atividade não utilizada.
+/// O cache é separado por mídia e expira 1 hora depois da última atividade não utilizada.
 /// </summary>
 public sealed class NebulaPlaybackCache : IDisposable
 {
     /// <summary>
-    /// Tempo de expiração padrão de entradas de reprodução não utilizadas (5 minutos).
+    /// Tempo de expiração padrão de entradas de reprodução não utilizadas (1 hora).
     /// </summary>
-    public static readonly TimeSpan DefaultEntryLifetime = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan DefaultEntryLifetime = TimeSpan.FromHours(1);
 
     /// <summary>
     /// Intervalo padrão do timer de limpeza periódica do cache (5 minutos).
     /// </summary>
     public static readonly TimeSpan DefaultCleanupInterval = TimeSpan.FromMinutes(5);
 
+    public const long DefaultMaxCacheBytes = 50L * 1024 * 1024 * 1024;
+
+    public const long DefaultMinimumFreeSpaceBytes = 2L * 1024 * 1024 * 1024;
+
     private readonly string _rootPath;
     private readonly ILogger<NebulaPlaybackCache> _logger;
     private readonly TimeSpan _entryLifetime;
+    private readonly long _maxCacheBytes;
+    private readonly long _minimumFreeSpaceBytes;
+    private readonly SemaphoreSlim _storageGate = new(1, 1);
     private readonly ConcurrentDictionary<string, int> _activeMedia = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, DateTime> _lastActivity = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, Lazy<Task<byte[]>>> _inflight = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SharedFetch> _inflight = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PrefetchState> _prefetches = new(StringComparer.Ordinal);
     private readonly Timer _cleanupTimer;
     private int _disposed;
 
-    public NebulaPlaybackCache(string cachePath, ILogger<NebulaPlaybackCache> logger, TimeSpan? entryLifetime = null)
+    public NebulaPlaybackCache(
+        string cachePath,
+        ILogger<NebulaPlaybackCache> logger,
+        TimeSpan? entryLifetime = null,
+        long maxCacheBytes = DefaultMaxCacheBytes,
+        long minimumFreeSpaceBytes = DefaultMinimumFreeSpaceBytes)
     {
         if (string.IsNullOrWhiteSpace(cachePath))
         {
@@ -47,6 +59,8 @@ public sealed class NebulaPlaybackCache : IDisposable
         _rootPath = Path.Combine(cachePath, "nebula-playback");
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _entryLifetime = entryLifetime ?? DefaultEntryLifetime;
+        _maxCacheBytes = maxCacheBytes > 0 ? maxCacheBytes : long.MaxValue;
+        _minimumFreeSpaceBytes = Math.Max(0, minimumFreeSpaceBytes);
         Directory.CreateDirectory(_rootPath);
         _cleanupTimer = new Timer(static state => ((NebulaPlaybackCache)state!).CleanupExpiredEntries(), this, DefaultCleanupInterval, DefaultCleanupInterval);
     }
@@ -60,6 +74,10 @@ public sealed class NebulaPlaybackCache : IDisposable
     /// Quantidade de mídias ativas atualmente em reprodução (com lease ativo).
     /// </summary>
     public int ActiveLeasesCount => _activeMedia.Count;
+
+    public long MaxCacheBytes => _maxCacheBytes;
+
+    public long MinimumFreeSpaceBytes => _minimumFreeSpaceBytes;
 
     /// <summary>
     /// Retorna o tamanho total ocupado em bytes pelo cache no disco.
@@ -172,6 +190,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fetch);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         if (expectedLength <= 0)
         {
             return Array.Empty<byte>();
@@ -187,16 +206,31 @@ public sealed class NebulaPlaybackCache : IDisposable
         }
 
         var inflightKey = $"{normalized}:{partIndex}:{chunkIndex}";
-        var lazy = _inflight.GetOrAdd(inflightKey, _ => new Lazy<Task<byte[]>>(
-            () => DownloadAndPersistAsync(path, expectedLength, fetch, cancellationToken),
-            LazyThreadSafetyMode.ExecutionAndPublication));
-        try
+        while (true)
         {
-            return await lazy.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _inflight.TryRemove(inflightKey, out _);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            var candidate = new SharedFetch(token => DownloadAndPersistAsync(path, expectedLength, fetch, token));
+            var shared = _inflight.GetOrAdd(inflightKey, candidate);
+            if (!shared.TryJoin(out var sharedTask))
+            {
+                ((ICollection<KeyValuePair<string, SharedFetch>>)_inflight)
+                    .Remove(new KeyValuePair<string, SharedFetch>(inflightKey, shared));
+                continue;
+            }
+
+            if (ReferenceEquals(shared, candidate))
+            {
+                _ = RemoveCompletedFetchAsync(inflightKey, shared, sharedTask);
+            }
+
+            try
+            {
+                return await sharedTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                shared.Leave();
+            }
         }
     }
 
@@ -269,7 +303,7 @@ public sealed class NebulaPlaybackCache : IDisposable
 
                     DeleteDirectorySafe(directory);
                     _lastActivity.TryRemove(mediaKey, out _);
-                    _logger.LogInformation("[NEBULA-CACHE] Cache de reprodução expirado (> 5 min sem uso) removido: {MediaKey}", mediaKey);
+                    _logger.LogInformation("[NEBULA-CACHE] Cache de reprodução expirado (> 1 hora sem uso) removido: {MediaKey}", mediaKey);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -342,16 +376,27 @@ public sealed class NebulaPlaybackCache : IDisposable
             return data;
         }
 
-        var directory = Path.GetDirectoryName(path)!;
-        Directory.CreateDirectory(directory);
+        await _storageGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         var temporaryPath = path + ".partial";
         try
         {
+            var directory = Path.GetDirectoryName(path)!;
+            Directory.CreateDirectory(directory);
+            if (!EnsureCapacityFor(normalizedMediaKey: Path.GetFileName(directory), path, data.Length))
+            {
+                _logger.LogDebug("[NEBULA-CACHE] Cache/reserva atingida; bloco será transmitido sem persistência: {Path}", path);
+                return data;
+            }
+
             await File.WriteAllBytesAsync(temporaryPath, data, cancellationToken).ConfigureAwait(false);
             if (data.Length >= expectedLength)
             {
                 File.Move(temporaryPath, path, overwrite: true);
             }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "[NEBULA-CACHE] Não foi possível persistir bloco; mantendo reprodução sem cache: {Path}", path);
         }
         finally
         {
@@ -362,12 +407,90 @@ public sealed class NebulaPlaybackCache : IDisposable
                     File.Delete(temporaryPath);
                 }
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
             }
+
+            _storageGate.Release();
         }
 
         return data;
+    }
+
+    private bool EnsureCapacityFor(string normalizedMediaKey, string path, long incomingBytes)
+    {
+        var existingLength = File.Exists(path) ? new FileInfo(path).Length : 0;
+        var requiredSize = Math.Max(0, GetCacheSizeBytes() - existingLength) + incomingBytes;
+        var availableSpace = GetAvailableFreeSpaceBytes();
+        while (requiredSize > _maxCacheBytes || (availableSpace.HasValue && availableSpace.Value - incomingBytes < _minimumFreeSpaceBytes))
+        {
+            var oldestDirectory = Directory.GetDirectories(_rootPath)
+                .Select(directory => new
+                {
+                    Directory = directory,
+                    Key = Path.GetFileName(directory),
+                    LastActivity = _lastActivity.TryGetValue(Path.GetFileName(directory), out var activity)
+                        ? activity
+                        : GetDirectoryLastActivityUtc(directory)
+                })
+                .Where(entry => entry.Key != normalizedMediaKey
+                    && !_activeMedia.ContainsKey(entry.Key)
+                    && !_prefetches.ContainsKey(entry.Key)
+                    && !_inflight.Keys.Any(key => key.StartsWith(entry.Key + ":", StringComparison.Ordinal)))
+                .OrderBy(entry => entry.LastActivity)
+                .FirstOrDefault();
+
+            if (oldestDirectory is null)
+            {
+                return false;
+            }
+
+            var removedBytes = Directory.EnumerateFiles(oldestDirectory.Directory, "*", SearchOption.AllDirectories)
+                .Sum(file => new FileInfo(file).Length);
+            DeleteDirectorySafe(oldestDirectory.Directory);
+            _lastActivity.TryRemove(oldestDirectory.Key, out _);
+            requiredSize = Math.Max(0, requiredSize - removedBytes);
+            availableSpace = GetAvailableFreeSpaceBytes();
+        }
+
+        return true;
+    }
+
+    private long? GetAvailableFreeSpaceBytes()
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(_rootPath));
+            if (string.IsNullOrEmpty(root))
+            {
+                return null;
+            }
+
+            var drive = new DriveInfo(root);
+            return drive.IsReady ? drive.AvailableFreeSpace : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private async Task RemoveCompletedFetchAsync(string inflightKey, SharedFetch fetch, Task<byte[]> sharedTask)
+    {
+        try
+        {
+            await sharedTask.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-CACHE] Download compartilhado do bloco falhou: {ChunkKey}", inflightKey);
+        }
+        finally
+        {
+            ((ICollection<KeyValuePair<string, SharedFetch>>)_inflight)
+                .Remove(new KeyValuePair<string, SharedFetch>(inflightKey, fetch));
+            fetch.Dispose();
+        }
     }
 
     private bool TryReadComplete(string path, int expectedLength, out byte[] data)
@@ -470,6 +593,10 @@ public sealed class NebulaPlaybackCache : IDisposable
         }
 
         _cleanupTimer.Dispose();
+        foreach (var fetch in _inflight.Values)
+        {
+            fetch.Cancel();
+        }
         _inflight.Clear();
         foreach (var state in _prefetches.Values)
         {
@@ -510,5 +637,70 @@ public sealed class NebulaPlaybackCache : IDisposable
         }
 
         public CancellationTokenSource Cancellation { get; }
+    }
+
+    private sealed class SharedFetch : IDisposable
+    {
+        private readonly object _gate = new();
+        private readonly CancellationTokenSource _cancellation = new();
+        private readonly Func<CancellationToken, Task<byte[]>> _fetch;
+        private Task<byte[]>? _task;
+        private int _waiters;
+
+        public SharedFetch(Func<CancellationToken, Task<byte[]>> fetch) => _fetch = fetch;
+
+        public bool TryJoin(out Task<byte[]> task)
+        {
+            lock (_gate)
+            {
+                if (_cancellation.IsCancellationRequested || _task?.IsCompleted == true)
+                {
+                    task = Task.FromCanceled<byte[]>(new CancellationToken(true));
+                    return false;
+                }
+
+                _waiters++;
+                _task ??= StartFetch();
+                task = _task;
+                return true;
+            }
+        }
+
+        public void Leave()
+        {
+            lock (_gate)
+            {
+                _waiters = Math.Max(0, _waiters - 1);
+                if (_waiters == 0 && _task?.IsCompleted == false)
+                {
+                    _cancellation.Cancel();
+                }
+            }
+        }
+
+        public void Cancel()
+        {
+            lock (_gate)
+            {
+                if (!_cancellation.IsCancellationRequested)
+                {
+                    _cancellation.Cancel();
+                }
+            }
+        }
+
+        private Task<byte[]> StartFetch()
+        {
+            try
+            {
+                return _fetch(_cancellation.Token);
+            }
+            catch (Exception ex)
+            {
+                return Task.FromException<byte[]>(ex);
+            }
+        }
+
+        public void Dispose() => _cancellation.Dispose();
     }
 }

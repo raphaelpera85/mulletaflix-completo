@@ -100,6 +100,12 @@ public class NebulaFtpConfiguration
     /// </summary>
     public string PlaybackCachePath { get; set; } = string.Empty;
 
+    /// <summary>Maximum Nebula playback cache size in GiB.</summary>
+    public int PlaybackCacheMaxSizeGb { get; set; } = 50;
+
+    /// <summary>Minimum free disk space to preserve while caching, in GiB.</summary>
+    public int PlaybackCacheMinimumFreeSpaceGb { get; set; } = 2;
+
     public string[] MonitorPaths { get; set; } = ["D:\\midias"];
 
     /// <summary>Gets or sets media titles submitted through the request form that should remain prioritized across Nebula restarts.</summary>

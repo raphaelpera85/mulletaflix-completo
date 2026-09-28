@@ -277,8 +277,10 @@ class DownloadsSearchTest {
 
     @Test
     fun tvQueueHidesDownloadRestartAndNetworkPreferenceActions() {
+        var pauseCount = 0
         var resumeCount = 0
         var retryCount = 0
+        var queuePaused by mutableStateOf(true)
         composeRule.setContent {
             MaterialTheme {
                 OfflineSummary(
@@ -286,8 +288,8 @@ class DownloadsSearchTest {
                         DownloadEntry("queued", "Na fila", "https://server/queued", DownloadState.Queued, 20),
                         DownloadEntry("failed", "Falhou", "https://server/failed", DownloadState.Failed, 10),
                     ),
-                    queuePaused = true,
-                    onPause = {},
+                    queuePaused = queuePaused,
+                    onPause = { pauseCount++ },
                     onResume = { resumeCount++ },
                     onRetryFailed = { retryCount++ },
                     onClearCompleted = {},
@@ -302,7 +304,10 @@ class DownloadsSearchTest {
         composeRule.onNodeWithContentDescription("Retomar downloads").assertDoesNotExist()
         composeRule.onNodeWithText("Tentar novamente (1 falha(s))").assertDoesNotExist()
         composeRule.onNodeWithText("Somente Wi‑Fi").assertDoesNotExist()
+        composeRule.runOnIdle { queuePaused = false }
+        composeRule.onNodeWithContentDescription("Pausar downloads").assertExists().performClick()
         composeRule.runOnIdle {
+            check(pauseCount == 1)
             check(resumeCount == 0)
             check(retryCount == 0)
         }
