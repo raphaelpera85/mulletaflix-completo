@@ -87,9 +87,7 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- **Sugestões de mídia reconhecem os STRM das bibliotecas**: o catálogo lê as raízes configuradas em `MonitorPaths` e também as localizações de bibliotecas Jellyfin; evita catálogo vazio por diretório fora de `MonitorPaths`, atualiza resultados vazios em 30 segundos e invalida o cache quando as raízes mudam.
-- **Reconhecimento de livros Open Library corrigido**: a busca usa ISBN e OLID informados, aceita URL de edição, consulta os endpoints atuais de livros e procura o título principal em nomes de arquivo com prefixos; Cityscape (OL8144537M / ISBN 9780786939398) agora retorna título e capa.
-- **Solicitações web distribuídas no bundle atual**: o servidor inclui a interface web recompilada em produção com o atalho de solicitação de mídia na tela inicial.
+- **Solicitação de títulos visível na página inicial Web**: o botão foi adicionado à tela inicial React ativa, acima das seções de biblioteca. Ele abre o formulário autenticado existente, com autocomplete; antes, estava apenas no template legado e não aparecia na home atual.
 - **Pacotes de produção do servidor**: artefatos Windows e Linux x64.
 '@
 
