@@ -117,7 +117,7 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 - [ ] **T3.5 — Exibir diagnóstico de cache.** Bytes e arquivos em cache, hits/misses, latência Telegram, prefetch em andamento, leases, erros e limpeza segura.
   - [x] Painel usa os nomes atuais do DTO e mostra ocupação da cota, limite configurado, espaço livre/reserva e leases ativos.
   - [x] DTO e painel exibem contadores desde a inicialização para hits/misses, tentativas/falhas de fetch, latência média, pré-cache ativo/em fila e erros de persistência.
-  - [ ] Expandir telemetria para falhas/tempo de limpeza e downloads cancelados, e testar o contrato HTTP do DTO com valores ativos.
+  - [x] Expandir telemetria para falhas/tempo de limpeza, downloads cancelados e limpezas ignoradas por contenção; testar o DTO/API serializado com valores ativos e testar a contenção determinística do cleanup.
 - [ ] **T3.6 — Fazer testes de falha e recuperação.** Rede lenta/interrompida, parte ausente, servidor reiniciado, cliente cancelado, mudança de caminho e disco cheio.
   - [x] Cobrir cancelamento do último leitor, cancelamento de um leitor com outros aguardando e rejeição/cancelamento de operações no descarte do cache.
   - [x] Cobrir cota cheia, reserva mínima, evicção inativa, redução de cota existente e limpeza manual durante fetch.
@@ -320,6 +320,13 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Cancelamentos do fetch compartilhado também passaram a usar `CancelAsync`, com liberação do token postergada até callbacks concluírem; teste garante que `Dispose` retorna mesmo com callback deliberadamente bloqueado. Teste da fila verifica 2 ativos/4 aguardando.
 - Teste cobre hit após download e erro do fetch. Suíte completa de implementações: 973 aprovados, 38 ignorados, 0 falhas; API: 178 aprovados; testes do painel web: 208 aprovados; TypeScript, lint, build web de produção e verificador de artefatos passaram; build Release do servidor: 0 erros. Avisos NU1903 e mensagens conhecidas do Vite/jsdom permanecem.
 - T3.5 permanece parcial: ainda medir falha/duração da limpeza e separar cancelamentos esperados de falhas. A validação runtime Jellyfin → Mongo → cache segue aberta; nenhuma release/portal foi publicada por decisão explícita do usuário.
+
+### 28/09/2026 — Diagnóstico de limpeza e cancelamento (T3.5 parcial)
+
+- O status do cache agora inclui cancelamentos de fetch, tentativas/falhas de limpeza, duração e horário UTC da última tentativa; limpezas ignoradas devido à contenção no semáforo são contadas separadamente e não classificadas como falha.
+- O endpoint e painel web apresentam essas métricas; teste do controller verifica o payload serializado em camelCase com valores ativos. Teste do cache verifica que contenção é registrada como ignorada, sem marcar falha, e que uma limpeza subsequente é contabilizada.
+- Validações finais: cache focado — 33 aprovados; suíte Implementations — 974 aprovados/38 ignorados; API focada — 16 e suíte API — 178 aprovados; Vitest — 208 aprovados; TypeScript, lint alterado, build web de produção, verificação de 1.895 artefatos e build Release do servidor (0 erros) passaram. A primeira execução da suíte completa revelou uma corrida no teste de cancelamento; o teste agora aguarda a métrica compartilhada e a suíte completa passou.
+- Revisão adversarial independente apontou a contenção não registrada; incluída métrica `cacheCleanupSkipped`, distinta de falhas, com cobertura determinística. Avisos conhecidos: NU1903 para Newtonsoft.Json 9.0.1 e alertas preexistentes de Vite/jsdom/analisadores. Nenhum processo/servidor instalado foi reiniciado; sem release ou publicação do portal enquanto o roadmap ativo não estiver completo.
 
 ### 28/09/2026 — Mapeamento estático de fluxos (T0.2 concluída)
 

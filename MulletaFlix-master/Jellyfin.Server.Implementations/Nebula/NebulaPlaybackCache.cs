@@ -61,6 +61,7 @@ public sealed class NebulaPlaybackCache : IDisposable
     private long _cacheErrors;
     private long _cacheCleanupRuns;
     private long _cacheCleanupFailures;
+    private long _cacheCleanupSkipped;
     private long _lastCacheCleanupDurationTicks;
     private long _lastCacheCleanupUnixTimeMilliseconds;
 
@@ -127,6 +128,8 @@ public sealed class NebulaPlaybackCache : IDisposable
     public long CacheCleanupRuns => Interlocked.Read(ref _cacheCleanupRuns);
 
     public long CacheCleanupFailures => Interlocked.Read(ref _cacheCleanupFailures);
+
+    public long CacheCleanupSkipped => Interlocked.Read(ref _cacheCleanupSkipped);
 
     public double LastCacheCleanupDurationMs => TimeSpan.FromTicks(Interlocked.Read(ref _lastCacheCleanupDurationTicks)).TotalMilliseconds;
 
@@ -533,6 +536,7 @@ public sealed class NebulaPlaybackCache : IDisposable
 
         if (!_storageGate.Wait(0))
         {
+            RecordCacheCleanup(Stopwatch.GetTimestamp(), success: true, skipped: true);
             return;
         }
 
@@ -593,18 +597,21 @@ public sealed class NebulaPlaybackCache : IDisposable
             _storageGate.Release();
         }
 
-        if (!EnforceConfiguredLimits())
+        var limitsSkipped = false;
+        if (!EnforceConfiguredLimits(out limitsSkipped))
         {
             success = false;
         }
 
-        RecordCacheCleanup(startedAt, success);
+        RecordCacheCleanup(startedAt, success, limitsSkipped);
     }
 
-    private bool EnforceConfiguredLimits()
+    private bool EnforceConfiguredLimits(out bool skipped)
     {
+        skipped = false;
         if (!_storageGate.Wait(0))
         {
+            skipped = true;
             return true;
         }
 
@@ -624,12 +631,17 @@ public sealed class NebulaPlaybackCache : IDisposable
         }
     }
 
-    private void RecordCacheCleanup(long startedAt, bool success)
+    private void RecordCacheCleanup(long startedAt, bool success, bool skipped = false)
     {
         Interlocked.Increment(ref _cacheCleanupRuns);
         if (!success)
         {
             Interlocked.Increment(ref _cacheCleanupFailures);
+        }
+
+        if (skipped)
+        {
+            Interlocked.Increment(ref _cacheCleanupSkipped);
         }
 
         Interlocked.Exchange(ref _lastCacheCleanupDurationTicks, Stopwatch.GetElapsedTime(startedAt).Ticks);

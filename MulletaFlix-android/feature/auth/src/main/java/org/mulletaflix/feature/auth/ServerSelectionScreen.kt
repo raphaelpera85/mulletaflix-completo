@@ -36,7 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import android.content.pm.PackageManager
 import android.widget.Toast
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.mulletaflix.designsystem.components.MulletaFlixWordmark
@@ -347,39 +346,52 @@ fun ServerSelectionScreen(
         }
 
         if (state.isLocalNetworkPermissionRequired && localNetworkPermissionDenied) {
-            AlertDialog(
-                onDismissRequest = {
+            LocalNetworkPermissionDeniedDialog(
+                onDismiss = {
                     localNetworkPermissionDenied = false
                     localNetworkPermissionPromptDismissed = true
                 },
-                title = { Text("Acesso à rede local não permitido") },
-                text = {
-                    Text(
-                        "A descoberta automática fica pausada. Você pode ativar a permissão nas configurações ou conectar ao servidor pela Internet.",
+                onOpenSettings = {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        },
                     )
                 },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            context.startActivity(
-                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                    data = Uri.fromParts("package", context.packageName, null)
-                                },
-                            )
-                        },
-                    ) { Text("Abrir configurações") }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            localNetworkPermissionDenied = false
-                            localNetworkPermissionPromptDismissed = true
-                        },
-                    ) { Text("Continuar pela Internet") }
+                onContinueInternet = {
+                    localNetworkPermissionDenied = false
+                    localNetworkPermissionPromptDismissed = true
+                    viewModel.connectToServer(
+                        DEFAULT_MULLETAFLIX_SERVER_URL,
+                        onSuccess = { onServerSelected() },
+                    )
                 },
             )
         }
     }
+}
+
+@Composable
+internal fun LocalNetworkPermissionDeniedDialog(
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onContinueInternet: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Acesso à rede local não permitido") },
+        text = {
+            Text(
+                "A descoberta automática fica pausada. Você pode ativar a permissão nas configurações ou conectar ao servidor pela Internet.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onOpenSettings) { Text("Abrir configurações") }
+        },
+        dismissButton = {
+            TextButton(onClick = onContinueInternet) { Text("Continuar pela Internet") }
+        },
+    )
 }
 
 private fun hasRequiredLocalNetworkPermission(context: Context): Boolean =

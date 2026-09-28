@@ -185,6 +185,7 @@ public sealed class NebulaFtpControllerTests
             AverageTelegramFetchLatencyMs = 125.5,
             CacheCleanupRuns = 8,
             CacheCleanupFailures = 1,
+            CacheCleanupSkipped = 2,
             LastCacheCleanupDurationMs = 44.2,
             LastCacheCleanupUtc = new DateTime(2026, 9, 28, 12, 30, 0, DateTimeKind.Utc),
             FreeSpaceGb = 100.5,
@@ -200,6 +201,7 @@ public sealed class NebulaFtpControllerTests
         var json = JsonSerializer.Serialize(ok.Value, JsonSerializerOptions.Web);
         Assert.Contains("\"telegramFetchCancellations\":3", json, StringComparison.Ordinal);
         Assert.Contains("\"cacheCleanupFailures\":1", json, StringComparison.Ordinal);
+        Assert.Contains("\"cacheCleanupSkipped\":2", json, StringComparison.Ordinal);
         Assert.Contains("\"lastCacheCleanupDurationMs\":44.2", json, StringComparison.Ordinal);
     }
 

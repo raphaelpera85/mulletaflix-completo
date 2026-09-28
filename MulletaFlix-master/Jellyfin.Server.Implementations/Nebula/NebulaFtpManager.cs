@@ -1958,6 +1958,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             CacheErrors = _playbackCache?.CacheErrors ?? 0,
             CacheCleanupRuns = _playbackCache?.CacheCleanupRuns ?? 0,
             CacheCleanupFailures = _playbackCache?.CacheCleanupFailures ?? 0,
+            CacheCleanupSkipped = _playbackCache?.CacheCleanupSkipped ?? 0,
             LastCacheCleanupDurationMs = _playbackCache?.LastCacheCleanupDurationMs ?? 0,
             LastCacheCleanupUtc = _playbackCache?.LastCacheCleanupUtc,
             FreeSpaceGb = freeGb,

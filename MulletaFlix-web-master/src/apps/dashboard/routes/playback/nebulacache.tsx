@@ -46,6 +46,7 @@ interface NebulaPlaybackCacheStatus {
     cacheErrors: number;
     cacheCleanupRuns: number;
     cacheCleanupFailures: number;
+    cacheCleanupSkipped: number;
     lastCacheCleanupDurationMs: number;
     lastCacheCleanupUtc: string | null;
 }
@@ -343,9 +344,9 @@ export const Component = () => {
                                     <Typography variant='h6'>{status?.cacheErrors ?? 0}</Typography>
                                 </Grid>
                                 <Grid size={{ xs: 6, sm: 3 }}>
-                                    <Typography variant='body2' color='text.secondary'>Limpezas do cache</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Tentativas de limpeza</Typography>
                                     <Typography variant='h6'>{status?.cacheCleanupRuns ?? 0}</Typography>
-                                    <Typography variant='caption' color='text.secondary'>Falhas: {status?.cacheCleanupFailures ?? 0}</Typography>
+                                    <Typography variant='caption' color='text.secondary'>Falhas: {status?.cacheCleanupFailures ?? 0} · Ignoradas por concorrência: {status?.cacheCleanupSkipped ?? 0}</Typography>
                                 </Grid>
                                 <Grid size={{ xs: 6, sm: 3 }}>
                                     <Typography variant='body2' color='text.secondary'>Última limpeza</Typography>

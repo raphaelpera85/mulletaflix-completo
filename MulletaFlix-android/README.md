@@ -53,7 +53,7 @@ MulletaFlix-android/
 ## 🛠️ Stack Tecnológica
 
 - **Language / build:** Kotlin 2.3.21 + Android Gradle Plugin 9.3.2
-- **SDK:** compile 37, target 36, minimum 24
+- **SDK:** compile 37, target 37, minimum 24
 - **UI:** Jetpack Compose (BOM 2026.09.00) + Material 3
 - **DI:** Hilt
 - **Network:** Retrofit + OkHttp + Moshi

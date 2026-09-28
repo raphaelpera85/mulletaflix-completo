@@ -376,6 +376,8 @@ public sealed class NebulaPlaybackCacheStatusDto
 
     public long CacheCleanupFailures { get; set; }
 
+    public long CacheCleanupSkipped { get; set; }
+
     public double LastCacheCleanupDurationMs { get; set; }
 
     public DateTime? LastCacheCleanupUtc { get; set; }

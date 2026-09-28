@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
@@ -864,6 +865,40 @@ public sealed class NebulaPlaybackCacheTests
     }
 
     [Fact]
+    public void CleanupExpiredEntries_ReportsContentionAsSkipped()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var storageGate = (SemaphoreSlim)typeof(NebulaPlaybackCache)
+                .GetField("_storageGate", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(cache)!;
+            Assert.True(storageGate.Wait(0));
+            try
+            {
+                cache.CleanupExpiredEntries();
+            }
+            finally
+            {
+                storageGate.Release();
+            }
+
+            Assert.Equal(1, cache.CacheCleanupSkipped);
+            Assert.Equal(1, cache.CacheCleanupRuns);
+            Assert.Equal(0, cache.CacheCleanupFailures);
+            Assert.NotNull(cache.LastCacheCleanupUtc);
+
+            cache.CleanupExpiredEntries();
+            Assert.Equal(2, cache.CacheCleanupRuns);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task CancelingOneWaiterDoesNotCancelOrDuplicateSharedFetch()
     {
         var root = CreateTempDirectory();
@@ -957,6 +992,7 @@ public sealed class NebulaPlaybackCacheTests
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
             await fetchCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await WaitUntilAsync(() => cache.TelegramFetchCancellations == 1);
             Assert.Equal(1, cache.TelegramFetchCancellations);
             Assert.Equal(0, cache.TelegramFetchFailures);
         }
