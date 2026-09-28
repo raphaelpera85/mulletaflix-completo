@@ -87,10 +87,9 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- **Indexação STRM mais completa para solicitações**: o catálogo percorre caminhos monitorados e todas as raízes de bibliotecas, reconhecendo extensões `.strm` sem distinção entre maiúsculas e minúsculas.
-- **Prioridade de solicitações persistente no Nebula**: títulos solicitados ficam salvos na configuração e são aplicados ao downloader e à fila de envio mesmo quando os workers iniciam depois do pedido ou reiniciam.
-- **Duas grades de solicitações no painel**: a fila pendente fica separada dos títulos incluídos, identificados pela presença no catálogo STRM.
-- **Backup automático de usuários corrigido**: o Supabase executa um backup independente dos usuários logo após iniciar a sincronização e repete a cada 24 horas. O painel agora exibe status, horário e quantidade de usuários desse backup, sem reutilizar os dados do backup MongoDB.
+- **Ordem de download atualizada**: Animações → Filmes → Séries → Doramas → Novelas → Porno. Títulos são processados em ordem alfabética dentro de cada categoria, e solicitações explícitas mantêm prioridade máxima.
+- **Indicador Nebula corrigido**: a tela de configuração passa a exibir a sequência real de categorias e a ordenação alfabética.
+- **Classificação corrigida no catálogo Nebula**: a série Atomic foi movida de Animações para Séries, e Let's Play (2025) de Séries para Animações. Os documentos e episódios foram preservados; o backup dos registros alterados foi mantido localmente.
 - **Pacotes de produção do servidor**: artefatos Windows e Linux x64.
 '@
 

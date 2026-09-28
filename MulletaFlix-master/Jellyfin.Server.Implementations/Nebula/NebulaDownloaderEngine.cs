@@ -432,26 +432,20 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     }
                 }
 
-                // Ordenar arquivos dando prioridade máxima aos alvos prioritários, depois por categoria e ano decrescente
-                var prioritizedList = mediaFiles
+                // Prioridades de solicitações continuam tendo precedência. O restante da fila segue
+                // a ordem de categorias definida pelo produto e, dentro de cada categoria, por título.
+                var prioritizedList = OrderDownloadPaths(mediaFiles, IsPathPrioritized)
                     .Select(path =>
                     {
                         var category = GetCategoryPriority(path);
-                        var isPriority = IsPathPrioritized(path);
                         return new
                         {
                             Path = path,
-                            IsPriority = isPriority,
-                            Category = category,
                             CategoryName = GetCategoryDisplayName(category),
                             Year = ExtractMediaYear(Path.GetFileName(path), Path.GetDirectoryName(path) ?? string.Empty),
                             IsStrm = string.Equals(Path.GetExtension(path), ".strm", StringComparison.OrdinalIgnoreCase)
                         };
                     })
-                    .OrderByDescending(x => x.IsPriority) // Prioritários vêm em primeiro lugar absoluto!
-                    .ThenBy(x => x.Category) // 1. Filmes -> 2. Animações -> 3. Series -> 4. Novelas -> 5. Porno -> 6. Outros
-                    .ThenByDescending(x => x.Year) // Ano decrescente (2026 -> 2025 -> ...)
-                    .ThenBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
                 LogInfo($"Total de mídias encontradas: {prioritizedList.Count}");
@@ -1745,28 +1739,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         return ".mp4";
     }
 
-    private static int ExtractMediaYear(string name, string parentName)
-    {
-        foreach (var text in new[] { name, parentName })
-        {
-            if (string.IsNullOrEmpty(text))
-            {
-                continue;
-            }
-
-            var matches = YearRegex.Matches(text);
-            if (matches.Count > 0 && int.TryParse(matches[^1].Value, out var y))
-            {
-                return y;
-            }
-        }
-
-        return 0;
-    }
-
     /// <summary>
-    /// Ordem de prioridade do alimentador: Filmes, Animações, Series, Novelas,
-    /// Porno e demais conteúdos.
+    /// Ordem de prioridade do alimentador: Animações, Filmes, Séries, Doramas,
+    /// Novelas, Porno e demais conteúdos.
     /// </summary>
     /// <param name="path">Caminho completo do arquivo de mídia.</param>
     /// <returns>Prioridade (menor valor é processado antes).</returns>
@@ -1778,24 +1753,108 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         return mediaType switch
         {
-            "FILME" => 1,
-            "ANIMACAO" => 2,
+            "ANIMACAO" => 1,
+            "FILME" => 2,
             "SERIE" => 3,
-            "NOVELA" => 4,
-            "PORNO" => 5,
-            _ => 6
+            "DORAMA" => 4,
+            "NOVELA" => 5,
+            "PORNO" => 6,
+            _ => 7
         };
     }
 
+    /// <summary>Orders media by requested priority, category rank, then A-Z work title.</summary>
+    internal static IReadOnlyList<string> OrderDownloadPaths(IEnumerable<string> paths, Func<string, bool> isPathPrioritized)
+        => paths
+            .OrderByDescending(isPathPrioritized) // Explicit user requests remain ahead of the regular category order.
+            .ThenBy(GetCategoryPriority)
+            .ThenBy(GetMediaSortTitle, StringComparer.InvariantCultureIgnoreCase)
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
     private static string GetCategoryDisplayName(int categoryPriority) => categoryPriority switch
     {
-        1 => "FILMES",
-        2 => "ANIMAÇÕES",
+        1 => "ANIMAÇÕES",
+        2 => "FILMES",
         3 => "SERIES",
-        4 => "NOVELAS",
-        5 => "PORNO",
+        4 => "DORAMAS",
+        5 => "NOVELAS",
+        6 => "PORNO",
         _ => "OUTROS"
     };
+
+    /// <summary>Gets the work title used for alphabetical ordering, excluding category and season folders.</summary>
+    internal static string GetMediaSortTitle(string path)
+    {
+        var segments = path.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+        var categoryIndex = -1;
+        for (var index = 0; index < segments.Length; index++)
+        {
+            if (IsCategoryFolder(segments[index]))
+            {
+                categoryIndex = index;
+            }
+        }
+
+        if (categoryIndex >= 0)
+        {
+            for (var index = categoryIndex + 1; index < segments.Length; index++)
+            {
+                if (!IsCategoryFolder(segments[index]) && !IsSeasonFolder(segments[index]))
+                {
+                    return Path.GetFileNameWithoutExtension(segments[index]);
+                }
+            }
+        }
+
+        var fileName = Path.GetFileNameWithoutExtension(path);
+        var episodeMatch = EpisodeRegex.Match(fileName);
+        if (episodeMatch.Success && !string.IsNullOrWhiteSpace(episodeMatch.Groups["prefix"].Value))
+        {
+            return episodeMatch.Groups["prefix"].Value.Trim(' ', '.', '_', '-');
+        }
+
+        var parent = Path.GetDirectoryName(path);
+        var parentName = parent is null ? string.Empty : Path.GetFileName(parent);
+        if (IsSeasonFolder(parentName))
+        {
+            parent = Path.GetDirectoryName(parent);
+            parentName = parent is null ? string.Empty : Path.GetFileName(parent);
+        }
+
+        return string.IsNullOrWhiteSpace(parentName) ? fileName : parentName;
+    }
+
+    private static bool IsCategoryFolder(string name) => name.Trim().ToLowerInvariant() is
+        "animações" or "animacoes" or "animação" or "animacao" or "anime" or
+        "filmes" or "movies" or "series" or "séries" or "doramas" or
+        "novelas" or "porno" or "adulto";
+
+    private static bool IsSeasonFolder(string name) =>
+        name.StartsWith("season ", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("temporada ", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("saison ", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("season_", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("temporada_", StringComparison.OrdinalIgnoreCase);
+
+    private static int ExtractMediaYear(string name, string parentName)
+    {
+        foreach (var text in new[] { name, parentName })
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                continue;
+            }
+
+            var matches = YearRegex.Matches(text);
+            if (matches.Count > 0 && int.TryParse(matches[^1].Value, out var year))
+            {
+                return year;
+            }
+        }
+
+        return 0;
+    }
 
     /// <summary>
     /// Mantido por compatibilidade com versões anteriores; sidecars nunca são

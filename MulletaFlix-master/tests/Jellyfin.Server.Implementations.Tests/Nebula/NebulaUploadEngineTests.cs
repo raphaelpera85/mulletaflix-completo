@@ -212,21 +212,60 @@ public class NebulaUploadEngineTests
     }
 
     /// <summary>
-    /// O alimentador processa as categorias na ordem definida: Filmes, Animações,
-    /// Series, Novelas, Porno e demais conteúdos.
+    /// O alimentador processa as categorias na ordem definida: Animações, Filmes,
+    /// Séries, Doramas, Novelas, Porno e demais conteúdos.
     /// </summary>
     [Theory]
-    [InlineData("Filmes", "Matrix (1999).mkv", 1)]
-    [InlineData("Animações", "Dragon Ball Z - S01E01.mkv", 2)]
-    [InlineData(@"D:\midias2\Animações\Dragon Ball Z\Season 01", "Dragon Ball Z - S01E01.mkv", 2)]
+    [InlineData("Animações", "Dragon Ball Z - S01E01.mkv", 1)]
+    [InlineData(@"D:\midias2\Animações\Dragon Ball Z\Season 01", "Dragon Ball Z - S01E01.mkv", 1)]
+    [InlineData("Filmes", "Matrix (1999).mkv", 2)]
     [InlineData("Series", "Breaking Bad - S01E01.mkv", 3)]
-    [InlineData("Novelas", "Avenida Brasil - Ep 01.mkv", 4)]
-    [InlineData("Porno", "cena.mp4", 5)]
+    [InlineData("Doramas", "The Guest - S01E01.mkv", 4)]
+    [InlineData("Novelas", "Avenida Brasil - Ep 01.mkv", 5)]
+    [InlineData("Porno", "cena.mp4", 6)]
     public void NebulaDownloaderEngine_CategoryPriority_FollowsRequestedOrder(string parent, string filename, int expected)
     {
         var path = Path.Combine(parent, filename);
 
         Assert.Equal(expected, NebulaDownloaderEngine.GetCategoryPriority(path));
+    }
+
+    [Theory]
+    [InlineData("Animações", "Atomic", "Season 01", "Atomic S01E01.strm", "Atomic")]
+    [InlineData("Series", "Atomic", "Season 01", "Atomic S01E01.strm", "Atomic")]
+    [InlineData("Series", "Let's Play (2025)", "Season 01", "Let's Play S01E01.strm", "Let's Play (2025)")]
+    [InlineData("Doramas", "The Guest", "Season 01", "The Guest S01E01.strm", "The Guest")]
+    public void NebulaDownloaderEngine_SortTitle_UsesWorkTitleNotSeasonOrEpisode(
+        string category,
+        string title,
+        string season,
+        string filename,
+        string expected)
+    {
+        var path = Path.Combine("library", category, title, season, filename);
+
+        Assert.Equal(expected, NebulaDownloaderEngine.GetMediaSortTitle(path));
+    }
+
+    [Fact]
+    public void NebulaDownloaderEngine_OrderDownloadPaths_UsesRequestedCategoriesAndAlphabeticalTitles()
+    {
+        var animationZulu = Path.Combine("library", "Animações", "Zulu", "Season 01", "episode.mkv");
+        var series = Path.Combine("library", "Series", "Breaking Bad", "Season 01", "episode.mkv");
+        var animationAtomic = Path.Combine("library", "Animações", "Atomic", "Season 01", "episode.mkv");
+        var drama = Path.Combine("library", "Doramas", "The Guest", "Season 01", "episode.mkv");
+        var movie = Path.Combine("library", "Filmes", "Alien (1979).mkv");
+        var requestedNovela = Path.Combine("library", "Novelas", "Renascer", "Season 01", "episode.mkv");
+        var pornography = Path.Combine("library", "Porno", "scene.mkv");
+        var animationLetsPlay = Path.Combine("library", "Animações", "Let's Play (2025)", "Season 01", "episode.mkv");
+
+        var ordered = NebulaDownloaderEngine.OrderDownloadPaths(
+            [animationZulu, series, animationAtomic, drama, movie, requestedNovela, pornography, animationLetsPlay],
+            path => path == requestedNovela);
+
+        Assert.Equal(
+            [requestedNovela, animationAtomic, animationLetsPlay, animationZulu, movie, series, drama, pornography],
+            ordered);
     }
 
     /// <summary>
