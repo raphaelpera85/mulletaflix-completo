@@ -4,7 +4,8 @@ import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadState
 
 /** A failed download may be retried; every other existing entry is already active. */
-internal fun hasActiveDownload(entries: List<DownloadEntry>, itemId: String): Boolean =
+internal fun hasActiveDownload(entries: List<DownloadEntry>, itemId: String, serverId: String): Boolean =
     entries.any { entry ->
-        entry.id == itemId && entry.state != DownloadState.Failed && entry.state != DownloadState.Removing
+        entry.id == itemId && entry.serverId == serverId &&
+            entry.state != DownloadState.Failed && entry.state != DownloadState.Removing
     }

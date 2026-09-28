@@ -89,7 +89,7 @@ internal fun decodeDownloadRequestMetadata(data: ByteArray): DownloadRequestMeta
         val episode = if (input.readBoolean()) input.readEpisodeMetadata(includeSeriesName = version >= 2) else null
         val serverId = input.readUTF().also { require(it.isNotBlank()) }
         val mediaSourceId = if (input.readBoolean()) input.readUTF() else null
-        val count = input.readInt().also { require(it in 1..MAX_SUBTITLE_STREAMS) }
+        val count = input.readInt().also { require(it in 0..MAX_SUBTITLE_STREAMS) }
         val subtitles = List(count) {
             DownloadSubtitleMetadata(
                 streamIndex = input.readInt(),
@@ -139,7 +139,7 @@ private fun isValidEpisodeMetadata(metadata: DownloadEpisodeMetadata): Boolean =
 
 private fun validDownloadMediaMetadata(metadata: DownloadMediaMetadata): Boolean =
     metadata.serverId.isNotBlank() && metadata.serverId.length <= 512 &&
-        metadata.mediaSourceId.orEmpty().length <= 512 && metadata.subtitles.size in 1..MAX_SUBTITLE_STREAMS &&
+        metadata.mediaSourceId.orEmpty().length <= 512 && metadata.subtitles.size in 0..MAX_SUBTITLE_STREAMS &&
         metadata.subtitles.all { subtitle ->
             subtitle.streamIndex in 0..100_000 &&
                 subtitle.mimeType.lowercase() in SUPPORTED_SUBTITLE_MIME_TYPES &&

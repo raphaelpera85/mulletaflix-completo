@@ -82,6 +82,7 @@ data class NextEpisodeInfo(
     val episodeNumber: Int?,
     val seasonNumber: Int?,
     val offlineUri: String? = null,
+    val downloadId: String? = null,
 )
 
 enum class SyncPlayConnectionState {
@@ -1108,7 +1109,7 @@ class PlayerViewModel @Inject constructor(
             val downloadedEpisodes = runCatching { manageDownloadsUseCase.observeDownloads().first() }
                 .getOrDefault(emptyList())
             val currentDownload = downloadId?.let { id ->
-                downloadedEpisodes.firstOrNull { entry -> entry.id == id && entry.uri == uri }
+                downloadedEpisodes.firstOrNull { entry -> entry.downloadId == id && entry.uri == uri }
             }
             val offlineTitle = offlineMediaNotificationTitle(title, currentDownload?.episodeMetadata)
             _state.update { it.copy(title = offlineTitle) }
@@ -1135,6 +1136,7 @@ class PlayerViewModel @Inject constructor(
                         episodeNumber = entry.episodeMetadata?.episodeNumber,
                         seasonNumber = entry.episodeMetadata?.seasonNumber,
                         offlineUri = entry.uri,
+                        downloadId = entry.downloadId,
                     )
                 }
 
@@ -2096,7 +2098,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun loadNextEpisode(next: NextEpisodeInfo) {
         val offlineUri = next.offlineUri
-        if (offlineUri != null) loadOffline(offlineUri, next.title, next.id) else loadMedia(next.id)
+        if (offlineUri != null) loadOffline(offlineUri, next.title, next.downloadId) else loadMedia(next.id)
     }
 
     fun cancelNextEpisodeCountdown() {

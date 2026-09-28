@@ -276,6 +276,65 @@ class DownloadsSearchTest {
     }
 
     @Test
+    fun tvQueueHidesDownloadRestartAndNetworkPreferenceActions() {
+        var resumeCount = 0
+        var retryCount = 0
+        composeRule.setContent {
+            MaterialTheme {
+                OfflineSummary(
+                    downloads = listOf(
+                        DownloadEntry("queued", "Na fila", "https://server/queued", DownloadState.Queued, 20),
+                        DownloadEntry("failed", "Falhou", "https://server/failed", DownloadState.Failed, 10),
+                    ),
+                    queuePaused = true,
+                    onPause = {},
+                    onResume = { resumeCount++ },
+                    onRetryFailed = { retryCount++ },
+                    onClearCompleted = {},
+                    onClearFailed = {},
+                    wifiOnly = true,
+                    onWifiOnlyChange = {},
+                    allowDownloadActions = false,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Retomar downloads").assertDoesNotExist()
+        composeRule.onNodeWithText("Tentar novamente (1 falha(s))").assertDoesNotExist()
+        composeRule.onNodeWithText("Somente Wi‑Fi").assertDoesNotExist()
+        composeRule.runOnIdle {
+            check(resumeCount == 0)
+            check(retryCount == 0)
+        }
+    }
+
+    @Test
+    fun tvFailedDownloadRowDoesNotOfferRetry() {
+        var retryCount = 0
+        composeRule.setContent {
+            MaterialTheme {
+                DownloadRow(
+                    entry = DownloadEntry(
+                        id = "failed",
+                        title = "Falhou",
+                        uri = "https://server/media",
+                        state = DownloadState.Failed,
+                        percent = 10,
+                    ),
+                    imageModel = null,
+                    allowRetry = false,
+                    onPlay = {},
+                    onRetry = { retryCount++ },
+                    onRemove = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Tentar download novamente").assertDoesNotExist()
+        composeRule.runOnIdle { check(retryCount == 0) }
+    }
+
+    @Test
     fun clearFailedButtonIsShownOnlyWhenThereAreFailedDownloads() {
         var clearCount = 0
         var downloads by mutableStateOf(

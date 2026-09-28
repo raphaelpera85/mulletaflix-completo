@@ -157,6 +157,7 @@ fun DownloadsScreen(
                             onRetryFailed = { viewModel.retryFailed(downloads) },
                             onClearCompleted = { showClearCompletedConfirmation = true },
                             onClearFailed = { showClearFailedConfirmation = true },
+                            allowDownloadActions = !isTelevision,
                             isSelectionMode = isSelectionMode,
                             onSelectCompleted = {
                                 isSelectionMode = !isSelectionMode
@@ -189,20 +190,21 @@ fun DownloadsScreen(
                             )
                         }
                     }
-                    items(filteredDownloads, key = { it.id }) { entry ->
+                    items(filteredDownloads, key = { it.downloadId }) { entry ->
                         DownloadRow(
                             entry = entry,
                             imageModel = downloadArtworkModel(entry, serverUrl, accessToken),
                             focusFriendly = isTelevision,
                             selectionMode = isSelectionMode,
-                            isSelected = entry.id in selectedIds,
+                            isSelected = entry.downloadId in selectedIds,
                             onPlay = { onItemClick(entry) },
                             onRetry = { viewModel.retry(entry) },
+                            allowRetry = !isTelevision,
                             onRemove = { itemPendingDeletion = entry },
                             onToggleSelected = {
                                 selectedDownloadIds = toggleCompletedDownloadSelection(
                                     selectedIds = selectedIds,
-                                    id = entry.id,
+                                    id = entry.downloadId,
                                     completedIds = completedIds,
                                 ).toList()
                             },
@@ -221,7 +223,7 @@ fun DownloadsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.remove(entry.id)
+                        viewModel.remove(entry.downloadId)
                         itemPendingDeletion = null
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
@@ -475,6 +477,7 @@ internal fun OfflineSummary(
     onRetryFailed: () -> Unit,
     onClearCompleted: () -> Unit,
     onClearFailed: () -> Unit,
+    allowDownloadActions: Boolean = true,
     isSelectionMode: Boolean = false,
     onSelectCompleted: () -> Unit = {},
     wifiOnly: Boolean,
@@ -498,7 +501,7 @@ internal fun OfflineSummary(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-                if (hasActiveDownloads) {
+                if (hasActiveDownloads && allowDownloadActions) {
                     MulletaFlixTopBarAction(onClick = if (queuePaused) onResume else onPause) {
                         Icon(
                             if (queuePaused) Icons.Default.PlayArrow else Icons.Default.Pause,
@@ -507,13 +510,15 @@ internal fun OfflineSummary(
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Wifi, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(12.dp))
-                Text("Somente Wi‑Fi", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                Switch(checked = wifiOnly, onCheckedChange = onWifiOnlyChange)
+            if (allowDownloadActions) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Wifi, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Somente Wi‑Fi", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = wifiOnly, onCheckedChange = onWifiOnlyChange)
+                }
             }
-            if (failedCount > 0) {
+            if (failedCount > 0 && allowDownloadActions) {
                 OutlinedButton(
                     onClick = onRetryFailed,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -633,6 +638,7 @@ internal fun DownloadRow(
     focusFriendly: Boolean = false,
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
+    allowRetry: Boolean = true,
     onPlay: () -> Unit,
     onRetry: () -> Unit,
     onRemove: () -> Unit,
@@ -728,7 +734,7 @@ internal fun DownloadRow(
                     Icon(Icons.Default.PlayArrow, "Reproduzir offline")
                 }
             }
-            if (entry.state == DownloadState.Failed) {
+            if (entry.state == DownloadState.Failed && allowRetry) {
                 MulletaFlixTopBarAction(onClick = onRetry) {
                     Icon(Icons.Default.Refresh, "Tentar download novamente")
                 }

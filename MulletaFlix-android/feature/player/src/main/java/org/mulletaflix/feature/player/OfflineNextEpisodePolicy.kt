@@ -10,9 +10,11 @@ internal fun nextCompletedDownloadedEpisode(
 ): DownloadEntry? {
     val currentMetadata = current?.episodeMetadata ?: return null
     if (current.state != DownloadState.Completed) return null
+    val currentServerId = current.serverId?.takeIf(String::isNotBlank) ?: return null
 
     return downloads.asSequence()
-        .filter { candidate -> candidate.id != current.id && candidate.state == DownloadState.Completed }
+        .filter { candidate -> candidate.downloadId != current.downloadId && candidate.state == DownloadState.Completed }
+        .filter { candidate -> candidate.serverId == currentServerId }
         .filter { candidate -> candidate.episodeMetadata?.seriesId == currentMetadata.seriesId }
         .filter { candidate ->
             val metadata = candidate.episodeMetadata ?: return@filter false
@@ -24,6 +26,6 @@ internal fun nextCompletedDownloadedEpisode(
             compareBy<DownloadEntry> { it.episodeMetadata?.seasonNumber }
                 .thenBy { it.episodeMetadata?.episodeNumber }
                 .thenBy { it.title.lowercase() }
-                .thenBy { it.id },
+                .thenBy { it.downloadId },
         )
 }

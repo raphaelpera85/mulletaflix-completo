@@ -1,11 +1,42 @@
 package org.mulletaflix.android.service
 
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.security.MessageDigest
+
 /** Separator between the owning account and the media id in a Media3 request id. */
 private const val OWNER_SEPARATOR = "::"
+private const val SERVER_SCOPED_PREFIX = "v2:"
 
 /** Stable request identity that prevents two accounts from sharing one Media3 download slot. */
 internal fun scopedDownloadRequestId(userId: String, itemId: String): String =
     "${userId.trim()}$OWNER_SEPARATOR$itemId"
+
+/** Stable Media3 id for one account, server, and public media id. */
+internal fun serverScopedDownloadRequestId(userId: String, serverId: String, itemId: String): String {
+    val fields = listOf(userId.trim(), serverId.trim(), itemId)
+    require(fields.all(String::isNotBlank)) { "A conta, o servidor e a mídia são obrigatórios." }
+    val payload = ByteArrayOutputStream().use { bytes ->
+        DataOutputStream(bytes).use { output ->
+            fields.forEach { field ->
+                val encoded = field.toByteArray(Charsets.UTF_8)
+                output.writeInt(encoded.size)
+                output.write(encoded)
+            }
+        }
+        bytes.toByteArray()
+    }
+    val digest = MessageDigest.getInstance("SHA-256").digest(payload)
+        .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    return "$SERVER_SCOPED_PREFIX$digest"
+}
+
+/** A retry is safe only when both the recorded and current server identities are known and equal. */
+internal fun canRetryDownloadOnServer(savedServerId: String?, currentServerId: String?): Boolean {
+    val saved = savedServerId?.trim().orEmpty()
+    val current = currentServerId?.trim().orEmpty()
+    return saved.isNotEmpty() && current.isNotEmpty() && saved == current
+}
 
 internal fun downloadBelongsToUser(ownerUserId: String?, currentUserId: String?): Boolean =
     !ownerUserId.isNullOrBlank() && ownerUserId == currentUserId
@@ -28,7 +59,9 @@ internal fun shouldAdoptLegacyDownload(requestId: String, ownerUserId: String?, 
     isLegacyUnscopedDownload(requestId, ownerUserId) && !currentUserId.isNullOrBlank()
 
 internal fun isLegacyUnscopedDownload(requestId: String, ownerUserId: String?): Boolean =
-    ownerUserId.isNullOrBlank() && !requestId.contains(OWNER_SEPARATOR)
+    ownerUserId.isNullOrBlank() &&
+        !requestId.contains(OWNER_SEPARATOR) &&
+        !requestId.startsWith(SERVER_SCOPED_PREFIX)
 
 /**
  * Recovers the public media id from a scoped request id.

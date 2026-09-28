@@ -51,7 +51,7 @@ class DownloadsViewModel @Inject constructor(
     /** Removes only selected entries that are completed in the current rendered snapshot. */
     fun removeSelectedCompleted(entries: List<DownloadEntry>, selectedIds: Set<String>) {
         selectedCompletedDownloads(entries, selectedIds).forEach { entry ->
-            runAction { manageDownloadsUseCase.remove(entry.id) }
+            runAction { manageDownloadsUseCase.remove(entry.downloadId) }
         }
     }
 

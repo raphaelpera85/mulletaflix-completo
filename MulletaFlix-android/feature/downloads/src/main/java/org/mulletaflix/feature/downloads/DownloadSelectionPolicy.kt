@@ -6,7 +6,7 @@ import org.mulletaflix.domain.repository.DownloadState
 internal fun completedDownloadIds(entries: List<DownloadEntry>): Set<String> =
     entries.asSequence()
         .filter { it.state == DownloadState.Completed }
-        .map { it.id }
+        .map { it.downloadId }
         .filter(String::isNotBlank)
         .toSet()
 
@@ -28,5 +28,5 @@ internal fun selectedCompletedDownloads(
     entries: List<DownloadEntry>,
     selectedIds: Set<String>,
 ): List<DownloadEntry> = entries.filter {
-    it.state == DownloadState.Completed && it.id in selectedIds
+    it.state == DownloadState.Completed && it.downloadId in selectedIds
 }

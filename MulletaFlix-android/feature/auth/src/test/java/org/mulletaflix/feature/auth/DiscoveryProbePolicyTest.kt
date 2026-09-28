@@ -60,4 +60,72 @@ class DiscoveryProbePolicyTest {
     fun `keeps retry schedule bounded for a short multi-interface scan`() {
         assertEquals(listOf(0, 500, 1000), discoveryProbeDelays(timeoutMs = 1_250, retryIntervalMs = 500))
     }
+
+    @Test
+    fun `retries every target on fallback after all bound sends fail`() {
+        val boundAttempts = mutableListOf<Pair<Int, Int>>()
+        val fallbackAttempts = mutableListOf<Int>()
+
+        val sent = sendDiscoveryProbe(
+            targetCount = 2,
+            boundSocketCount = 2,
+            sendBound = { socket, target -> boundAttempts += socket to target; false },
+            sendFallback = { target -> fallbackAttempts += target; true },
+        )
+
+        assertTrue(sent)
+        assertEquals(listOf(0 to 0, 1 to 0, 0 to 1, 1 to 1), boundAttempts)
+        assertEquals(listOf(0, 1), fallbackAttempts)
+    }
+
+    @Test
+    fun `uses fallback only for targets without a successful bound send`() {
+        val boundAttempts = mutableListOf<Pair<Int, Int>>()
+        val fallbackAttempts = mutableListOf<Int>()
+
+        val sent = sendDiscoveryProbe(
+            targetCount = 2,
+            boundSocketCount = 2,
+            sendBound = { socket, target ->
+                boundAttempts += socket to target
+                socket == 1 && target == 0
+            },
+            sendFallback = { target -> fallbackAttempts += target; true },
+        )
+
+        assertTrue(sent)
+        assertEquals(listOf(0 to 0, 1 to 0, 0 to 1, 1 to 1), boundAttempts)
+        assertEquals(listOf(1), fallbackAttempts)
+    }
+
+    @Test
+    fun `returns false when bound and fallback sends all fail`() {
+        val fallbackAttempts = mutableListOf<Int>()
+        val sent = sendDiscoveryProbe(
+            targetCount = 2,
+            boundSocketCount = 1,
+            sendBound = { _, _ -> false },
+            sendFallback = { target -> fallbackAttempts += target; false },
+        )
+
+        assertFalse(sent)
+        assertEquals(listOf(0, 1), fallbackAttempts)
+    }
+
+    @Test
+    fun `uses plain primary once per target when no bound sockets exist`() {
+        val primaryTargets = mutableListOf<Int>()
+        var duplicateFallbackTargets = 0
+
+        val sent = sendDiscoveryProbe(
+            targetCount = 2,
+            boundSocketCount = 0,
+            sendBound = { _, _ -> error("No bound socket should be used") },
+            sendFallback = { target -> primaryTargets += target; duplicateFallbackTargets++; true },
+        )
+
+        assertTrue(sent)
+        assertEquals(listOf(0, 1), primaryTargets)
+        assertEquals(2, duplicateFallbackTargets)
+    }
 }

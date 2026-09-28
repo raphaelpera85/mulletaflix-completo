@@ -760,6 +760,8 @@ class UseCaseTest {
     @Test
     fun `ManageDownloadsUseCase enforces validation and delegates to repository`() = runTest {
         var enqueuedId: String? = null
+        var retriedId: String? = null
+        var removedId: String? = null
         var paused = false
         val downloadRepo = object : DownloadRepository {
             override fun observeDownloads(): Flow<List<DownloadEntry>> = flowOf(emptyList())
@@ -767,8 +769,14 @@ class UseCaseTest {
                 enqueuedId = id
                 return Result.success(Unit)
             }
-            override fun retry(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
-            override fun remove(id: String): Result<Unit> = Result.success(Unit)
+            override fun retry(id: String, title: String, uri: String): Result<Unit> {
+                retriedId = id
+                return Result.success(Unit)
+            }
+            override fun remove(id: String): Result<Unit> {
+                removedId = id
+                return Result.success(Unit)
+            }
             override fun pauseAll(): Result<Unit> {
                 paused = true
                 return Result.success(Unit)
@@ -780,6 +788,19 @@ class UseCaseTest {
         val enqueueResult = useCase.enqueue("d1", "Title", "https://example.com/video.mp4")
         assertTrue(enqueueResult.isSuccess)
         assertEquals("d1", enqueuedId)
+
+        val entry = DownloadEntry(
+            id = "same-media-on-two-servers",
+            title = "Title",
+            uri = "https://example.com/video.mp4",
+            state = DownloadState.Failed,
+            percent = 0,
+            downloadId = "queue-entry-server-a",
+        )
+        assertTrue(useCase.retry(entry).isSuccess)
+        assertEquals("queue-entry-server-a", retriedId)
+        assertTrue(useCase.remove("queue-entry-server-a").isSuccess)
+        assertEquals("queue-entry-server-a", removedId)
 
         val pauseResult = useCase.pauseAll()
         assertTrue(pauseResult.isSuccess)

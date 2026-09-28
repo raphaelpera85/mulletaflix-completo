@@ -43,4 +43,17 @@ class DownloadSelectionPolicyTest {
         assertEquals(listOf(completed), selectedCompletedDownloads(entries, setOf("queued", "done")))
         assertFalse(selectedCompletedDownloads(entries, setOf("queued")).any { it.state != DownloadState.Completed })
     }
+
+    @Test
+    fun `same public media id on two servers remains independently selectable`() {
+        val serverA = completed.copy(downloadId = "queue-server-a", serverId = "server-a")
+        val serverB = completed.copy(downloadId = "queue-server-b", serverId = "server-b")
+        val entries = listOf(serverA, serverB)
+
+        assertEquals(setOf("queue-server-a", "queue-server-b"), completedDownloadIds(entries))
+        assertEquals(
+            listOf(serverB),
+            selectedCompletedDownloads(entries, setOf("queue-server-b")),
+        )
+    }
 }

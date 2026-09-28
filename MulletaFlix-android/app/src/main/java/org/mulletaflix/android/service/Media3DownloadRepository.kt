@@ -38,6 +38,7 @@ import org.mulletaflix.domain.repository.DownloadMediaMetadata
 import org.mulletaflix.domain.repository.DownloadRepository
 import org.mulletaflix.domain.repository.DownloadSubtitleMetadata
 import org.mulletaflix.domain.repository.DownloadState
+import org.mulletaflix.domain.repository.downloadServerScopeId
 import java.io.File
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -197,10 +198,9 @@ class Media3DownloadRepository @Inject constructor(
         require(id.isNotBlank()) { "O identificador da mídia é obrigatório." }
         require(uri.startsWith("http://") || uri.startsWith("https://")) { "A URL da mídia não é válida." }
         val userId = currentUserId ?: error("Faça login para baixar esta mídia.")
-        val requestId = scopedDownloadRequestId(userId, id)
-        // A stable request id may be reused after switching server. Remove sidecars
-        // under the old server scope before replacing the request metadata.
-        manager.downloadIndex.getDownload(requestId)?.request?.let(::cleanupOfflineSubtitles)
+        val serverId = downloadServerScopeId(mediaMetadata?.serverId ?: currentServerId, currentBaseUrl)
+            ?: error("Não foi possível identificar o servidor deste download.")
+        val requestId = serverScopedDownloadRequestId(userId, serverId, id)
         val normalizedImageUrl = imageUrl?.takeIf(String::isNotBlank)
         val previousImageUrl = metadata.getString("image:$requestId", null)
         titles[requestId] = title
@@ -208,6 +208,7 @@ class Media3DownloadRepository @Inject constructor(
             .putString("title:$requestId", title)
             .putString("item:$requestId", id)
             .putString("owner:$requestId", userId)
+            .putString("server:$requestId", serverId)
             .apply {
                 if (normalizedImageUrl == null) remove("image:$requestId") else putString("image:$requestId", normalizedImageUrl)
             }
@@ -223,17 +224,31 @@ class Media3DownloadRepository @Inject constructor(
         mediaMetadata?.let { scheduleSubtitleCaching(requestId, id, userId, it) }
     }
 
-    override fun retry(id: String, title: String, uri: String): Result<Unit> = runCatching {
-        require(id.isNotBlank()) { "O identificador da mídia é obrigatório." }
+    override fun retry(downloadId: String, title: String, uri: String): Result<Unit> = runCatching {
+        require(downloadId.isNotBlank()) { "O identificador do download é obrigatório." }
         require(uri.startsWith("http://") || uri.startsWith("https://")) { "A URL da mídia não é válida." }
         val userId = currentUserId ?: error("Faça login para baixar esta mídia.")
-        val requestId = existingDownloadRequestId(userId, id, ::isInDownloadIndex)
+        val requestId = requestIdForCurrentUser(downloadId)
             ?: error("Este download não está mais na fila.")
+        val request = manager.downloadIndex.getDownload(requestId)?.request
+        val requestMetadata = request?.data?.let(::decodeDownloadRequestMetadata) ?: DownloadRequestMetadata()
+        val savedServerId = (metadata.getString("server:$requestId", null) ?: requestMetadata.media?.serverId)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+        val currentServerScope = downloadServerScopeId(currentServerId, currentBaseUrl)
+        if (!canRetryDownloadOnServer(savedServerId, currentServerScope)) {
+            if (savedServerId == null) {
+                error("Este download antigo não registra o servidor de origem. Remova-o e baixe novamente no servidor correto.")
+            }
+            error("Conecte-se ao servidor original para tentar novamente este download.")
+        }
+        val itemId = metadata.getString("item:$requestId", null) ?: publicDownloadItemId(requestId, userId)
         titles[requestId] = title
         metadata.edit()
             .putString("title:$requestId", title)
-            .putString("item:$requestId", id)
+            .putString("item:$requestId", itemId)
             .putString("owner:$requestId", userId)
+            .putString("server:$requestId", savedServerId)
             .apply()
         // Re-adding the same request makes Media3 restart a failed download
         // while preserving its stable id and metadata in the local index.
@@ -241,8 +256,6 @@ class Media3DownloadRepository @Inject constructor(
         // The stored URL is re-pointed at the address in use now. It was captured when
         // the download was queued, and the app switches between the LAN and the public
         // address on its own — retrying the old one fails forever without saying why.
-        val request = manager.downloadIndex.getDownload(requestId)?.request
-        val requestMetadata = request?.data?.let(::decodeDownloadRequestMetadata) ?: DownloadRequestMetadata()
         artworkRequestsStarted.remove(requestId)
         subtitleRequestsStarted.remove(requestId)
         addDownloadThroughService(
@@ -252,11 +265,11 @@ class Media3DownloadRepository @Inject constructor(
             ),
         )
         metadata.getString("image:$requestId", null)?.let { scheduleArtworkCaching(requestId, it) }
-        requestMetadata.media?.let { scheduleSubtitleCaching(requestId, id, userId, it) }
+        requestMetadata.media?.let { scheduleSubtitleCaching(requestId, itemId, userId, it) }
     }
 
-    override fun remove(id: String): Result<Unit> = runCatching {
-        val requestId = requestIdForCurrentUser(id) ?: return@runCatching
+    override fun remove(downloadId: String): Result<Unit> = runCatching {
+        val requestId = requestIdForCurrentUser(downloadId) ?: return@runCatching
         manager.downloadIndex.getDownload(requestId)?.request?.let(::cleanupOfflineSubtitles)
         removeDownloadThroughService(requestId)
         titles.remove(requestId)
@@ -268,6 +281,7 @@ class Media3DownloadRepository @Inject constructor(
                 .remove("title:$requestId")
                 .remove("item:$requestId")
                 .remove("owner:$requestId")
+                .remove("server:$requestId")
                 .remove("image:$requestId")
                 .remove(downloadFailureMetadataKey(requestId))
                 .apply()
@@ -309,6 +323,7 @@ class Media3DownloadRepository @Inject constructor(
                     .remove("title:$id")
                     .remove("item:$id")
                     .remove("owner:$id")
+                    .remove("server:$id")
                     .remove("image:$id")
                     .remove(downloadFailureMetadataKey(id))
                     .apply()
@@ -517,8 +532,10 @@ class Media3DownloadRepository @Inject constructor(
         if (offlineArtworkUri == null) imageUrl?.let { scheduleArtworkCaching(request.id, it) }
 
         val requestMetadata = decodeDownloadRequestMetadata(request.data)
+        val serverId = metadata.getString("server:${request.id}", null)
+            ?: requestMetadata?.media?.serverId
         val mediaMetadata = requestMetadata?.media?.takeIf { media ->
-            media.serverId == (sessionRepositoryServerScope()) && metadata.getString("owner:${request.id}", null) == currentUserId
+            media.serverId == sessionRepositoryServerScope() && metadata.getString("owner:${request.id}", null) == currentUserId
         }
         return DownloadEntry(
             id = itemIdOverride
@@ -547,6 +564,8 @@ class Media3DownloadRepository @Inject constructor(
             ),
             bytesDownloaded = getBytesDownloaded().coerceAtLeast(0L),
             contentLength = contentLength.takeIf { it > 0L } ?: 0L,
+            downloadId = request.id,
+            serverId = serverId,
         )
     }
 
@@ -560,9 +579,10 @@ class Media3DownloadRepository @Inject constructor(
         currentServerId?.takeIf(String::isNotBlank) ?: currentBaseUrl.trimEnd('/')
 
     /** The request id an existing entry is stored under, in either of its two shapes. */
-    private fun requestIdForCurrentUser(itemId: String): String? {
-        val userId = currentUserId ?: error("Faça login para gerenciar downloads.")
-        return existingDownloadRequestId(userId, itemId, ::isInDownloadIndex)
+    private fun requestIdForCurrentUser(downloadId: String): String? {
+        currentUserId ?: error("Faça login para gerenciar downloads.")
+        if (!isInDownloadIndex(downloadId) || !belongsToCurrentUser(downloadId)) return null
+        return downloadId
     }
 
     private fun isInDownloadIndex(requestId: String): Boolean =

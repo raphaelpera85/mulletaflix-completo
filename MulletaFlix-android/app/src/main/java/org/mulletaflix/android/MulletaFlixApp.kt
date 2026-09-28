@@ -59,6 +59,16 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
         // registered reliably on cold app launches.
         runCatching { CastContext.getSharedInstance(this) }
 
+        // WorkManager handles cleanup while the process is stopped; this coroutine
+        // keeps the one-hour cadence responsive while the app remains in use.
+        ImageCacheCleanup.schedule(this)
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            while (true) {
+                kotlinx.coroutines.delay(java.util.concurrent.TimeUnit.HOURS.toMillis(ImageCacheCleanup.INTERVAL_HOURS))
+                runCatching { ImageCacheCleanup.clear(this@MulletaFlixApp) }
+            }
+        }
+
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             combine(
                 playbackIssueQueue.pendingCount,

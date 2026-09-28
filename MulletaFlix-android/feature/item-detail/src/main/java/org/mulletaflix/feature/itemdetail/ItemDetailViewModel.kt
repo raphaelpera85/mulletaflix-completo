@@ -12,6 +12,7 @@ import org.mulletaflix.domain.model.MediaItemType
 import org.mulletaflix.domain.model.MediaSource
 import org.mulletaflix.domain.repository.DownloadEpisodeMetadata
 import org.mulletaflix.domain.repository.DownloadMediaMetadata
+import org.mulletaflix.domain.repository.downloadServerScopeId
 import org.mulletaflix.domain.model.Playlist
 import org.mulletaflix.domain.model.primaryImageUrl
 import org.mulletaflix.domain.repository.AuthRepository
@@ -90,6 +91,7 @@ class ItemDetailViewModel @Inject constructor(
     private var currentUserId: String? = null
     private var sessionGeneration = 0L
     private var currentSeriesId: String? = null
+    private var currentDownloadServerId: String? = null
     private var downloads: List<DownloadEntry> = emptyList()
     private var itemLoadJob: Job? = null
     private var itemRequestGeneration = 0L
@@ -139,6 +141,11 @@ class ItemDetailViewModel @Inject constructor(
     }
 
     init {
+        viewModelScope.launch {
+            combine(sessionRepository.getServerId(), sessionRepository.getBaseUrl()) { serverId, baseUrl ->
+                downloadServerScopeId(serverId, baseUrl)
+            }.distinctUntilChanged().collect { currentDownloadServerId = it }
+        }
         viewModelScope.launch {
             sessionRepository.getFeedbackRequestSession().distinctUntilChanged().collect { session ->
                 feedbackRequestSession = session
@@ -458,10 +465,11 @@ class ItemDetailViewModel @Inject constructor(
 
     private suspend fun downloadMediaMetadata(source: MediaSource): DownloadMediaMetadata? {
         val subtitles = downloadableExternalSubtitles(source)
-        if (subtitles.isEmpty()) return null
-        val serverId = sessionRepository.getServerId().first()
-            ?: sessionRepository.getBaseUrl().first().trimEnd('/')
-        return serverId.takeIf(String::isNotBlank)?.let {
+        val serverId = downloadServerScopeId(
+            sessionRepository.getServerId().first(),
+            sessionRepository.getBaseUrl().first(),
+        )
+        return serverId?.let {
             DownloadMediaMetadata(it, source.id, subtitles)
         }
     }
@@ -473,17 +481,26 @@ class ItemDetailViewModel @Inject constructor(
             _state.update { it.copy(downloadMessage = "Este download já está sendo preparado.") }
             return
         }
-        if (hasActiveDownload(downloads, item.id)) {
-            _state.update { it.copy(downloadMessage = "Este título já está na fila ou disponível offline.") }
-            return
-        }
-        if (!preparingDownloadIds.add(item.id)) {
-            _state.update { it.copy(downloadMessage = "Este título já está sendo preparado para download.") }
-            return
-        }
         val requestGeneration = itemRequestGeneration
         val requestSessionGeneration = sessionGeneration
         viewModelScope.launch {
+            val serverId = downloadServerScopeId(
+                sessionRepository.getServerId().first(),
+                sessionRepository.getBaseUrl().first(),
+            )
+            if (serverId.isNullOrBlank()) {
+                _state.update { it.copy(downloadMessage = "Não foi possível identificar o servidor deste download.") }
+                return@launch
+            }
+            val scope = DownloadItemScope(serverId, item.id)
+            if (hasActiveDownload(downloads, item.id, serverId)) {
+                _state.update { it.copy(downloadMessage = "Este título já está na fila ou disponível offline neste servidor.") }
+                return@launch
+            }
+            if (!preparingDownloadIds.add(scope)) {
+                _state.update { it.copy(downloadMessage = "Este título já está sendo preparado para download neste servidor.") }
+                return@launch
+            }
             _state.update { it.copy(downloadMessage = "Preparando download…", isPreparingDownload = true) }
             try {
                 val preparation = runCatching {
@@ -513,6 +530,9 @@ class ItemDetailViewModel @Inject constructor(
                             )
                         } else null
                         val mediaMetadata = downloadMediaMetadata(downloadSource.source)
+                        require(mediaMetadata?.serverId == serverId) {
+                            "O servidor mudou durante a preparação do download."
+                        }
                         if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
                         manageDownloadsUseCase.enqueueWithMediaMetadata(
                             item.id,
@@ -540,7 +560,7 @@ class ItemDetailViewModel @Inject constructor(
                     },
                 )
             } finally {
-                preparingDownloadIds.remove(item.id)
+                preparingDownloadIds.remove(scope)
                 if (isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) {
                     _state.update { it.copy(isPreparingDownload = false) }
                 }
@@ -552,6 +572,11 @@ class ItemDetailViewModel @Inject constructor(
     fun downloadSelectedSeason(): Long? {
         if (seasonDownloadJob?.isActive == true) return null
         val userId = currentUserId ?: return null
+        val serverId = currentDownloadServerId
+        if (serverId.isNullOrBlank()) {
+            _state.update { it.copy(downloadMessage = "Não foi possível identificar o servidor destes downloads.") }
+            return null
+        }
         val snapshot = _state.value
         val season = snapshot.seasons.getOrNull(snapshot.selectedSeasonIndex) ?: return null
         val seriesId = currentSeriesId ?: return null
@@ -565,12 +590,14 @@ class ItemDetailViewModel @Inject constructor(
             return null
         }
 
-        val alreadyAvailableCount = episodes.count { hasActiveDownload(downloads, it.id) }
+        val alreadyAvailableCount = episodes.count { hasActiveDownload(downloads, it.id, serverId) }
         val alreadyPreparingCount = episodes.count {
-            it.id in preparingDownloadIds && !hasActiveDownload(downloads, it.id)
+            DownloadItemScope(serverId, it.id) in preparingDownloadIds &&
+                !hasActiveDownload(downloads, it.id, serverId)
         }
         val pendingEpisodes = episodes.filterNot { episode ->
-            hasActiveDownload(downloads, episode.id) || episode.id in preparingDownloadIds
+            hasActiveDownload(downloads, episode.id, serverId) ||
+                DownloadItemScope(serverId, episode.id) in preparingDownloadIds
         }
         var queuedCount = 0
         var skippedCount = alreadyAvailableCount + alreadyPreparingCount
@@ -600,7 +627,7 @@ class ItemDetailViewModel @Inject constructor(
         val operationId = ++seasonDownloadOperationId
         val activeProgress = initialProgress.copy(operationId = operationId)
         _state.update { it.copy(seasonDownloadProgress = activeProgress, downloadMessage = null) }
-        preparingDownloadIds.addAll(pendingEpisodes.map { it.id })
+        preparingDownloadIds.addAll(pendingEpisodes.map { DownloadItemScope(serverId, it.id) })
         seasonDownloadJob = viewModelScope.launch {
             try {
                 for (episode in pendingEpisodes) {
@@ -625,12 +652,15 @@ class ItemDetailViewModel @Inject constructor(
                     if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
                     preparedUrl.fold(
                         onSuccess = { downloadSource ->
-                            if (hasActiveDownload(downloads, episode.id)) {
+                            if (hasActiveDownload(downloads, episode.id, serverId)) {
                                 skippedCount++
                             } else {
                                 val episodeMetadata = episode.downloadEpisodeMetadata(seriesId, _state.value.item?.name)
                                 val enqueueResult = try {
                                     val mediaMetadata = downloadMediaMetadata(downloadSource.source)
+                                    require(mediaMetadata?.serverId == serverId) {
+                                        "O servidor mudou durante a preparação do download."
+                                    }
                                     if (!isCurrentRequest(userId, requestSessionGeneration, requestGeneration)) return@launch
                                     manageDownloadsUseCase.enqueueWithMediaMetadata(
                                         episode.id,
@@ -701,7 +731,7 @@ class ItemDetailViewModel @Inject constructor(
                 }
                 throw cancelled
             } finally {
-                pendingEpisodes.forEach { preparingDownloadIds.remove(it.id) }
+                pendingEpisodes.forEach { preparingDownloadIds.remove(DownloadItemScope(serverId, it.id)) }
             }
         }
         return operationId
@@ -787,8 +817,10 @@ class ItemDetailViewModel @Inject constructor(
 
     private fun Throwable.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: "tente novamente."
 
-    private val preparingDownloadIds = mutableSetOf<String>()
+    private val preparingDownloadIds = mutableSetOf<DownloadItemScope>()
 }
+
+private data class DownloadItemScope(val serverId: String, val itemId: String)
 
 private fun MediaItem.downloadEpisodeMetadata(seriesId: String, fallbackSeriesName: String? = null): DownloadEpisodeMetadata? {
     val resolvedSeriesId = this.seriesId?.takeIf(String::isNotBlank) ?: seriesId

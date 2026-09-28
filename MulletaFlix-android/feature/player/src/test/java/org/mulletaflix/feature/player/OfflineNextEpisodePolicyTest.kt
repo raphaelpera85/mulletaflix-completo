@@ -21,6 +21,7 @@ class OfflineNextEpisodePolicyTest {
         state = state,
         percent = if (state == DownloadState.Completed) 100 else 40,
         episodeMetadata = DownloadEpisodeMetadata(series, season, number),
+        serverId = "server-a",
     )
 
     @Test
@@ -72,5 +73,19 @@ class OfflineNextEpisodePolicyTest {
         val current = episode("s1e1", season = 1, number = 1, state = DownloadState.Downloading)
 
         assertNull(nextCompletedDownloadedEpisode(current, listOf(episode("s1e2", season = 1, number = 2))))
+    }
+
+    @Test
+    fun `same series metadata from another server is never selected`() {
+        val current = episode("episode-1", season = 1, number = 1)
+        val wrongServer = episode("episode-2", season = 1, number = 2)
+            .copy(serverId = "server-b", downloadId = "server-b-episode-2")
+        val rightServer = episode("episode-2", season = 1, number = 2)
+            .copy(downloadId = "server-a-episode-2")
+
+        assertEquals(
+            rightServer,
+            nextCompletedDownloadedEpisode(current, listOf(wrongServer, rightServer)),
+        )
     }
 }

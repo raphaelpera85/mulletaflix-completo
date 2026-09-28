@@ -557,6 +557,7 @@ class ItemDetailViewModelTest {
         uri = "https://server/$id.mkv",
         state = state,
         percent = if (state == DownloadState.Completed) 100 else 0,
+        serverId = testFeedbackSession.serverUrl,
     )
 
     @Test
@@ -1150,8 +1151,8 @@ class ItemDetailViewModelTest {
             )
             return Result.success(Unit)
         }
-        override fun retry(id: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
-        override fun remove(id: String): Result<Unit> = Result.success(Unit)
+        override fun retry(downloadId: String, title: String, uri: String): Result<Unit> = Result.success(Unit)
+        override fun remove(downloadId: String): Result<Unit> = Result.success(Unit)
         override fun pauseAll(): Result<Unit> = Result.success(Unit)
         override fun resumeAll(): Result<Unit> = Result.success(Unit)
         override fun observeDownloads(): Flow<List<DownloadEntry>> = entries

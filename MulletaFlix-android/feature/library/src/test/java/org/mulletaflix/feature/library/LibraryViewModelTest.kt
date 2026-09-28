@@ -529,6 +529,77 @@ class LibraryViewModelTest {
         assertEquals("there is no page 2 to ask for", callsAfterLoad, media.itemCalls)
     }
 
+    @Test
+    fun `a failed full random catalog request is reported and can be retried`() = runTest {
+        val whole = List(120) { MediaItem("item-$it", "Item $it", MediaItemType.Movie) }
+        media.responseSequence = ArrayDeque(
+            listOf(
+                CompletableDeferred(Result.success(listOf(whole.first()) to 120)),
+                CompletableDeferred(Result.failure(IllegalStateException("Falha na consulta completa"))),
+                CompletableDeferred(Result.success(listOf(whole.first()) to 120)),
+                CompletableDeferred(Result.success(whole to 120)),
+            ),
+        )
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(initialSort = "Random"),
+            networkMonitor = FakeNetworkMonitor(),
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals(emptyList<MediaItem>(), viewModel.state.value.items)
+        assertEquals("Falha na consulta completa", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isLoading)
+        assertEquals(false, viewModel.state.value.isRefreshing)
+        assertEquals(false, viewModel.state.value.hasMore)
+        assertEquals(2, media.itemCalls)
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals(whole, viewModel.state.value.items)
+        assertEquals(null, viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isLoading)
+        assertEquals(false, viewModel.state.value.isRefreshing)
+        assertEquals(4, media.itemCalls)
+    }
+
+    @Test
+    fun `failed random catalog refresh keeps previously loaded items`() = runTest {
+        val whole = List(120) { MediaItem("item-$it", "Item $it", MediaItemType.Movie) }
+        media.responseSequence = ArrayDeque(
+            listOf(
+                CompletableDeferred(Result.success(listOf(whole.first()) to 120)),
+                CompletableDeferred(Result.success(whole to 120)),
+                CompletableDeferred(Result.success(listOf(whole.first()) to 120)),
+                CompletableDeferred(Result.failure(IllegalStateException("Falha na atualização completa"))),
+            ),
+        )
+        val viewModel = LibraryViewModel(
+            getLibraryItemsUseCase = GetLibraryItemsUseCase(media),
+            getItemDetailUseCase = GetItemDetailUseCase(media),
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeSettingsRepository(initialSort = "Random"),
+            networkMonitor = FakeNetworkMonitor(),
+        )
+        advanceUntilIdle()
+
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals(whole, viewModel.state.value.items)
+        assertEquals("Falha na atualização completa", viewModel.state.value.error)
+        assertEquals(false, viewModel.state.value.isLoading)
+        assertEquals(false, viewModel.state.value.isRefreshing)
+    }
+
     /**
      * Two requests against an offset window are only disjoint when nothing changed on
      * the server in between. A library scan that inserts a title at the top of a

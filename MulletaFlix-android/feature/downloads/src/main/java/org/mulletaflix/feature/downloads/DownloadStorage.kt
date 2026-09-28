@@ -31,17 +31,17 @@ internal fun sortDownloadsByStorage(
     val withKnownUsage = downloads.filter(::hasKnownDownloadedSize)
     val withoutKnownUsage = downloads
         .filterNot(::hasKnownDownloadedSize)
-        .sortedWith(compareBy<DownloadEntry> { it.title.lowercase() }.thenBy { it.id })
+        .sortedWith(compareBy<DownloadEntry> { it.title.lowercase() }.thenBy { it.downloadId })
     val sortedKnownUsage = when (order) {
         DownloadStorageOrder.LargestFirst -> withKnownUsage.sortedWith(
             compareByDescending<DownloadEntry> { it.bytesDownloaded }
                 .thenBy { it.title.lowercase() }
-                .thenBy { it.id },
+                .thenBy { it.downloadId },
         )
         DownloadStorageOrder.SmallestFirst -> withKnownUsage.sortedWith(
             compareBy<DownloadEntry> { it.bytesDownloaded }
                 .thenBy { it.title.lowercase() }
-                .thenBy { it.id },
+                .thenBy { it.downloadId },
         )
     }
     return sortedKnownUsage + withoutKnownUsage

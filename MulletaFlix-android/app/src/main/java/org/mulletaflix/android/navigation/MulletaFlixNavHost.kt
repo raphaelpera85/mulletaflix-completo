@@ -247,7 +247,14 @@ fun MulletaFlixNavHost(
         composable(MulletaFlixRoute.DOWNLOADS) {
             DownloadsScreen(
                 onItemClick = { entry ->
-                    navController.navigate(MulletaFlixRoute.offlinePlayer(entry.id, entry.uri, entry.title))
+                    navController.navigate(
+                        MulletaFlixRoute.offlinePlayer(
+                            itemId = entry.id,
+                            uri = entry.uri,
+                            title = entry.title,
+                            downloadId = entry.downloadId,
+                        ),
+                    )
                 },
                 onBack = { navController.popBackStack() },
                 onExploreClick = {
@@ -358,12 +365,18 @@ fun MulletaFlixNavHost(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("downloadId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { backStack ->
             VideoPlayerScreen(
                 itemId = backStack.arguments?.getString("itemId") ?: "offline",
                 offlineUri = backStack.arguments?.getString("uri"),
                 offlineTitle = backStack.arguments?.getString("title"),
+                offlineDownloadId = backStack.arguments?.getString("downloadId"),
                 onBack = { navController.popBackStack() },
             )
         }
@@ -445,12 +458,17 @@ object MulletaFlixRoute {
     const val LIBRARY = "main/library/{libId}"
     const val ITEM_DETAIL = "detail/{itemId}"
     const val VIDEO_PLAYER = "player/video/{itemId}"
-    const val OFFLINE_PLAYER = "player/offline/{itemId}?uri={uri}&title={title}"
+    const val OFFLINE_PLAYER = "player/offline/{itemId}?uri={uri}&title={title}&downloadId={downloadId}"
 
     fun library(libId: String) = "main/library/$libId"
     fun itemDetail(itemId: String) = "detail/$itemId"
     fun videoPlayer(itemId: String) = "player/video/$itemId"
-    fun offlinePlayer(itemId: String, uri: String, title: String): String {
+    fun offlinePlayer(
+        itemId: String,
+        uri: String,
+        title: String,
+        downloadId: String = itemId,
+    ): String {
         // `encodeRouteQueryArgument`, not `URLEncoder`. Navigation decodes query
         // arguments with `Uri.getQueryParameters`, which follows RFC 3986 and
         // does **not** turn `+` back into a space, so `URLEncoder` made every
@@ -458,6 +476,7 @@ object MulletaFlixRoute {
         val encodedId = encodeRouteQueryArgument(itemId)
         val encodedUri = encodeRouteQueryArgument(uri)
         val encodedTitle = encodeRouteQueryArgument(title)
-        return "player/offline/$encodedId?uri=$encodedUri&title=$encodedTitle"
+        val encodedDownloadId = encodeRouteQueryArgument(downloadId)
+        return "player/offline/$encodedId?uri=$encodedUri&title=$encodedTitle&downloadId=$encodedDownloadId"
     }
 }

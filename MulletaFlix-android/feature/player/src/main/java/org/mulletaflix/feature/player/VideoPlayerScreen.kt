@@ -180,6 +180,7 @@ fun VideoPlayerScreen(
     onBack: () -> Unit,
     offlineUri: String? = null,
     offlineTitle: String? = null,
+    offlineDownloadId: String? = null,
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -262,15 +263,15 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(itemId, offlineUri) {
-        if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId, itemId)
+    LaunchedEffect(itemId, offlineUri, offlineDownloadId) {
+        if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId, offlineDownloadId ?: itemId)
         else viewModel.loadMedia(itemId)
     }
 
     // OSD visibility auto-hide
     var osdVisible by remember { mutableStateOf(true) }
     var osdInteractionRevision by remember { mutableIntStateOf(0) }
-    var tvPlaybackHasStarted by remember(itemId, offlineUri) { mutableStateOf(false) }
+    var tvPlaybackHasStarted by remember(itemId, offlineUri, offlineDownloadId) { mutableStateOf(false) }
     LaunchedEffect(state.isPlaying) {
         if (state.isPlaying) tvPlaybackHasStarted = true
     }
@@ -596,7 +597,9 @@ fun VideoPlayerScreen(
                 issueReportMessage = state.playbackIssueReportMessage,
                 onReportIssue = { viewModel.reportPlaybackIssue() },
                 onRetry = {
-                    if (offlineUri != null) viewModel.loadOffline(offlineUri, offlineTitle ?: itemId, itemId)
+                    if (offlineUri != null) {
+                        viewModel.loadOffline(offlineUri, offlineTitle ?: itemId, offlineDownloadId ?: itemId)
+                    }
                     else viewModel.retryPlayback()
                 },
             )

@@ -2,6 +2,34 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Fila offline por servidor, limpeza horária e UX TV (APK sem release)
+
+- [x] Isolar downloads com mesmo usuário/mídia quando pertencem a servidores diferentes; usar o identificador da fila para selecionar, retomar, remover e abrir o download offline correto, preservando o ID público da mídia.
+- [x] Recusar retry de downloads antigos sem servidor de origem conhecido, em vez de associá-los silenciosamente ao servidor atual.
+- [x] Limpar cache em memória e disco do Coil a cada hora enquanto o app está aberto e agendar limpeza horária pelo WorkManager para quando o processo estiver parado.
+- [x] Não apagar downloads offline explícitos: o player de streaming não persiste bytes de sessões online e compartilha apenas conteúdo já baixado.
+- [x] Ocultar download de mídia e de temporada na Android TV; se um lote já estiver ativo, manter Cancelar acessível.
+- [ ] Impedir iniciar ou retomar downloads na fila da Android TV e ocultar o retry individual/coletivo e a preferência Wi‑Fi; manter pausa, reprodução offline e remoção acessíveis.
+- [ ] Cobrir ausência de retomar/repetir/preferência de rede na fila da TV e preservar ações disponíveis no celular/tablet.
+- [x] `testDebugUnitTest`: 1.274 testes, 0 falhas/erros/ignorados; `:app:lintDebug`, `:app:assembleDebug` e compilação dos testes instrumentados: `BUILD SUCCESSFUL`.
+- [x] Android TV: `:feature:item-detail:connectedDebugAndroidTest` 27/27 e `:feature:downloads:connectedDebugAndroidTest` 18/18; telefone e tablet já passaram pela suíte Downloads (teste de foco D-pad TV excluído nesses perfis). AVD encerrado automaticamente pelo wrapper.
+- [ ] Sem bump ou release até a assinatura de produção corresponder ao certificado oficial; verificar a release APK anterior antes de planejar versão nova.
+
+## Fallback de envio UDP para descoberta LAN (APK sem release)
+
+- [x] Repetir pelo socket sem vínculo apenas cada destino sem envio bem-sucedido em qualquer socket vinculado; preservar destinos que já receberam uma sondagem.
+- [x] Preservar o socket simples como caminho primário quando Android não expõe rede local e fechar sockets cujo vínculo falha.
+- [x] Testar falha total, sucesso parcial, falha também no fallback e caminho sem sockets vinculados; `:feature:auth:testDebugUnitTest`: BUILD SUCCESSFUL (11 casos em `DiscoveryProbePolicyTest`).
+- [x] `testDebugUnitTest` (1.200 testes, 0 falhas/erros/ignorados), `:app:lintDebug`, `:app:assembleDebug` e `:feature:auth:compileDebugAndroidTestKotlin`: BUILD SUCCESSFUL.
+- [ ] Sem bump, pacote de produção ou publicação. Validar certificado oficial antes da próxima release do APK.
+
+## Catálogo completo em ordenação aleatória (APK sem release)
+
+- [x] Se a segunda consulta necessária para trazer todo o catálogo falhar, mostrar erro e permitir retry em vez de marcar a primeira página como catálogo completo.
+- [x] Durante falha de atualização, manter os itens anteriormente carregados; teste também confirma retry inicial com recuperação.
+- [x] `:feature:library:testDebugUnitTest`: 61 testes, 0 falhas/erros/ignorados. `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [ ] Sem bump, pacote de produção ou publicação. Validar certificado de assinatura oficial antes da próxima release do APK.
+
 ## SyncPlay stale e ação Cast no perfil TV (APK sem release)
 
 - [x] Falha em refresh manual ou periódico mantém a lista de salas visível, marca o snapshot como desatualizado, mostra instrução de atualização e bloqueia nova entrada até refresh bem-sucedido; a falha da lista não apaga uma sala SyncPlay já ativa.

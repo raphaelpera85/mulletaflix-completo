@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.mutableStateOf
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,12 +49,10 @@ class SeriesSectionTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun assumeTelevisionProfile() {
+    private fun isTelevisionProfile(): Boolean {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val isTelevision =
-            (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-                Configuration.UI_MODE_TYPE_TELEVISION
-        assumeTrue("D-pad focus behavior is specific to Android TV", isTelevision)
+        return (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+            Configuration.UI_MODE_TYPE_TELEVISION
     }
 
     @Test
@@ -107,6 +104,33 @@ class SeriesSectionTest {
         composeRule.onNodeWithText("Temporada 1").assertIsDisplayed()
         composeRule.onNodeWithText("Temporada 2").assertIsDisplayed().assertIsSelected()
         composeRule.onNodeWithText("1x01 Piloto").assertIsDisplayed()
+    }
+
+    @Test
+    fun hidesSeasonDownloadActionOnTelevision() {
+        if (!isTelevisionProfile()) return
+        composeRule.setContent {
+            MulletaFlixTheme {
+                SeriesSection(
+                    seasons = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "sea-1", "Temporada 1", org.mulletaflix.domain.model.MediaItemType.Season,
+                        ),
+                    ),
+                    episodes = listOf(
+                        org.mulletaflix.domain.model.MediaItem(
+                            "ep-1", "Piloto", org.mulletaflix.domain.model.MediaItemType.Episode,
+                        ),
+                    ),
+                    selectedSeasonIndex = 0,
+                    onSeasonSelect = {},
+                    onEpisodePlay = {},
+                    onEpisodeClick = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
     }
 
     @Test
@@ -162,6 +186,11 @@ class SeriesSectionTest {
             }
         }
 
+        if (isTelevisionProfile()) {
+            composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
+            return
+        }
+
         composeRule.onNodeWithText("Baixar temporada")
             .assertIsDisplayed()
             .assertHasClickAction()
@@ -202,6 +231,11 @@ class SeriesSectionTest {
                     onCancelSeasonDownload = { cancelRequests++ },
                 )
             }
+        }
+
+        if (isTelevisionProfile()) {
+            composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
+            return
         }
 
         composeRule.onNodeWithText("Preparando 1/2").assertIsDisplayed()
@@ -249,6 +283,11 @@ class SeriesSectionTest {
                     onCancelSeasonDownload = {},
                 )
             }
+        }
+
+        if (isTelevisionProfile()) {
+            composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
+            return
         }
 
         composeRule.onNodeWithText("Preparando 1/2").assertIsNotEnabled()
@@ -304,6 +343,11 @@ class SeriesSectionTest {
             }
         }
 
+        if (isTelevisionProfile()) {
+            composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
+            return
+        }
+
         composeRule.onNodeWithText("Baixar temporada").performClick()
         composeRule.onNodeWithText("Temporada 2").performClick()
         composeRule.waitForIdle()
@@ -317,12 +361,10 @@ class SeriesSectionTest {
     }
 
     @Test
-    fun seasonDownloadAndCancelActionsCanBeFocusedAndActivatedWithTvDpad() {
-        assumeTelevisionProfile()
+    fun downloadActionIsHiddenOnTvAndAnExistingBatchCanBeCancelled() {
+        if (!isTelevisionProfile()) return
 
-        var downloadRequests = 0
         var cancelRequests = 0
-        val progress = mutableStateOf<SeasonDownloadProgress?>(null)
         val runningProgress = SeasonDownloadProgress(
             seasonId = "season-1",
             seasonName = "Temporada 1",
@@ -349,16 +391,8 @@ class SeriesSectionTest {
                     onSeasonSelect = {},
                     onEpisodePlay = {},
                     onEpisodeClick = {},
-                    onDownloadSeason = {
-                        downloadRequests++
-                        progress.value = runningProgress.copy(operationId = 22L)
-                        22L
-                    },
-                    seasonDownloadProgress = progress.value,
-                    onCancelSeasonDownload = {
-                        cancelRequests++
-                        progress.value = null
-                    },
+                    seasonDownloadProgress = runningProgress,
+                    onCancelSeasonDownload = { cancelRequests++ },
                 )
             }
         }
@@ -366,16 +400,11 @@ class SeriesSectionTest {
         val selectedSeason = composeRule.onNodeWithText("Temporada 1")
         selectedSeason.requestFocus()
         selectedSeason.assertIsFocused()
-        selectedSeason.performKeyInput { pressKey(Key.DirectionDown) }
-        val downloadButton = composeRule.onNodeWithText("Baixar temporada")
-        downloadButton.assertIsFocused()
-        downloadButton.performKeyInput { pressKey(Key.DirectionCenter) }
-        org.junit.Assert.assertEquals(1, downloadRequests)
-        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
+        composeRule.onNodeWithText("Preparando 1/2").assertIsDisplayed()
 
         val cancelButton = composeRule.onNodeWithText("Cancelar")
-        cancelButton.assertIsFocused()
-        cancelButton.performKeyInput { pressKey(Key.DirectionCenter) }
+        cancelButton.assertHasClickAction().performClick()
         composeRule.waitForIdle()
         org.junit.Assert.assertEquals(1, cancelRequests)
         composeRule.onNodeWithText("Temporada 1").assertIsFocused()
@@ -383,7 +412,7 @@ class SeriesSectionTest {
 
     @Test
     fun externalInProgressDownloadDoesNotStealTvFocusOnEntry() {
-        assumeTelevisionProfile()
+        if (!isTelevisionProfile()) return
         val entryFocusRequester = FocusRequester()
         val showExternalProgress = mutableStateOf(false)
         val progress = SeasonDownloadProgress(
@@ -437,8 +466,8 @@ class SeriesSectionTest {
     }
 
     @Test
-    fun completedLocalBatchDoesNotLetLaterExternalBatchStealTvFocus() {
-        assumeTelevisionProfile()
+    fun externalBatchDoesNotRevealTvDownloadActionOrStealFocus() {
+        if (!isTelevisionProfile()) return
 
         val entryFocusRequester = FocusRequester()
         val progress = mutableStateOf<SeasonDownloadProgress?>(null)
@@ -486,8 +515,7 @@ class SeriesSectionTest {
         otherAction.requestFocus()
         composeRule.waitForIdle()
         otherAction.assertIsFocused()
-        composeRule.onNodeWithText("Baixar temporada").performClick()
-        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
 
         composeRule.runOnIdle {
             progress.value = SeasonDownloadProgress(
@@ -501,6 +529,7 @@ class SeriesSectionTest {
         }
         composeRule.waitForIdle()
         otherAction.assertIsFocused()
+        composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
         composeRule.onNodeWithText("Cancelar").assertIsNotFocused()
     }
 

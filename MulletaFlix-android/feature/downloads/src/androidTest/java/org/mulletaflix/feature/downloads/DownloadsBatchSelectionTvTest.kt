@@ -1,5 +1,6 @@
 package org.mulletaflix.feature.downloads
 
+import android.content.res.Configuration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
@@ -12,6 +13,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.mulletaflix.domain.repository.DownloadEntry
@@ -23,6 +26,13 @@ class DownloadsBatchSelectionTvTest {
 
     @Test
     fun completedRowCanBeSelectedWithTheTvRemoteCenterKey() {
+        val uiMode = InstrumentationRegistry.getInstrumentation()
+            .targetContext.resources.configuration.uiMode
+        assumeTrue(
+            "D-pad focus validation applies only to Android TV",
+            uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION,
+        )
+
         var selected by mutableStateOf(false)
         composeRule.setContent {
             MaterialTheme {

@@ -53,6 +53,13 @@ class DownloadEpisodeMetadataCodecTest {
     }
 
     @Test
+    fun `server identity persists even when media has no external subtitles`() {
+        val expected = DownloadMediaMetadata("server-1", "source-1", emptyList())
+
+        assertEquals(expected, decodeDownloadRequestMetadata(encodeDownloadRequestMetadata(null, expected))?.media)
+    }
+
+    @Test
     fun `legacy episode bytes remain readable and new metadata stores no delivery url or token`() {
         val legacyEpisode = legacyEpisodeBytes()
         val legacyRequest = legacyRequestBytes()

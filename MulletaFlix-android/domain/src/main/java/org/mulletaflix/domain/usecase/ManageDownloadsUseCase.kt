@@ -54,13 +54,13 @@ class ManageDownloadsUseCase @Inject constructor(
     }
 
     fun retry(entry: DownloadEntry): Result<Unit> {
-        require(entry.id.isNotBlank()) { "O identificador da mídia é obrigatório." }
-        return downloadRepository.retry(entry.id, entry.title, entry.uri)
+        require(entry.downloadId.isNotBlank()) { "O identificador do download é obrigatório." }
+        return downloadRepository.retry(entry.downloadId, entry.title, entry.uri)
     }
 
-    fun remove(id: String): Result<Unit> {
-        require(id.isNotBlank()) { "O identificador da mídia é obrigatório." }
-        return downloadRepository.remove(id)
+    fun remove(downloadId: String): Result<Unit> {
+        require(downloadId.isNotBlank()) { "O identificador do download é obrigatório." }
+        return downloadRepository.remove(downloadId)
     }
 
     fun removeCompleted(): Result<Unit> = downloadRepository.removeCompleted()

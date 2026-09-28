@@ -253,12 +253,19 @@ class DownloadsViewModelTest {
     fun `retry delegates the failed entry with its original metadata`() {
         val repository = FakeDownloadRepository()
         val viewModel = DownloadsViewModel(ManageDownloadsUseCase(repository))
-        val entry = DownloadEntry("movie", "Filme", "https://server/media", org.mulletaflix.domain.repository.DownloadState.Failed, 42)
+        val entry = DownloadEntry(
+            id = "movie",
+            title = "Filme",
+            uri = "https://server/media",
+            state = org.mulletaflix.domain.repository.DownloadState.Failed,
+            percent = 42,
+            downloadId = "server-a-movie-download",
+        )
 
         viewModel.retry(entry)
 
         assertTrue(repository.retried)
-        assertTrue(repository.retryArguments.contentEquals(arrayOf("movie", "Filme", "https://server/media")))
+        assertTrue(repository.retryArguments.contentEquals(arrayOf("server-a-movie-download", "Filme", "https://server/media")))
     }
 
     @Test

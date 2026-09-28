@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import org.mulletaflix.domain.model.*
@@ -66,6 +68,8 @@ fun ItemDetailScreen(
     var issueSubmitting by remember { mutableStateOf(false) }
     var issueError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    val isTelevision = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_TELEVISION
     val serverUrl = LocalMulletaFlixServerUrl.current
     val serverId = LocalMulletaFlixServerId.current
 
@@ -92,6 +96,7 @@ fun ItemDetailScreen(
                      onFavorite = { viewModel.toggleFavorite() },
                      onMarkWatched = { viewModel.toggleWatched() },
                      onDownload = { viewModel.downloadItem() },
+                     allowDownload = !isTelevision,
                      isDownloadPreparing = state.isPreparingDownload,
                      isFavoriteUpdating = state.isFavoriteUpdating,
                      isWatchedUpdating = state.isWatchedUpdating,
@@ -282,6 +287,7 @@ private fun DetailHero(
     onFavorite: () -> Unit,
     onMarkWatched: () -> Unit,
     onDownload: () -> Unit,
+    allowDownload: Boolean,
     isDownloadPreparing: Boolean,
     isFavoriteUpdating: Boolean,
     isWatchedUpdating: Boolean,
@@ -381,6 +387,7 @@ private fun DetailHero(
                     onFavorite = onFavorite,
                     onMarkWatched = onMarkWatched,
                     onDownload = onDownload,
+                    allowDownload = allowDownload,
                     onPlaylist = onPlaylist,
                     onShare = onShare,
                 )
@@ -425,6 +432,7 @@ internal fun DetailActionRow(
     onFavorite: () -> Unit,
     onMarkWatched: () -> Unit,
     onDownload: () -> Unit,
+    allowDownload: Boolean = true,
     onPlaylist: () -> Unit,
     onShare: () -> Unit,
 ) {
@@ -482,14 +490,16 @@ internal fun DetailActionRow(
             )
         }
 
-        // Download for offline playback
-        MulletaFlixTopBarAction(
-            onClick = onDownload,
-            busy = isDownloadPreparing,
-            busyContentDescription = "Preparando o download",
-            modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
-        ) {
-            Icon(Icons.Default.Download, contentDescription = "Baixar para assistir offline", tint = Color.White)
+        if (allowDownload) {
+            // Offline downloads are available on handheld devices, not Android TV.
+            MulletaFlixTopBarAction(
+                onClick = onDownload,
+                busy = isDownloadPreparing,
+                busyContentDescription = "Preparando o download",
+                modifier = Modifier.background(Color.White.copy(0.15f), CircleShape)
+            ) {
+                Icon(Icons.Default.Download, contentDescription = "Baixar para assistir offline", tint = Color.White)
+            }
         }
 
         MulletaFlixTopBarAction(

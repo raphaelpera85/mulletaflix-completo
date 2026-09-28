@@ -8,6 +8,34 @@ import org.junit.Test
 
 class DownloadIdentityTest {
     @Test
+    fun `new request ids separate accounts servers and media`() {
+        val request = serverScopedDownloadRequestId("user-1", "server-1", "movie-1")
+
+        assertEquals(request, serverScopedDownloadRequestId(" user-1 ", "server-1", "movie-1"))
+        assertFalse(request == serverScopedDownloadRequestId("user-2", "server-1", "movie-1"))
+        assertFalse(request == serverScopedDownloadRequestId("user-1", "server-2", "movie-1"))
+        assertFalse(request == serverScopedDownloadRequestId("user-1", "server-1", "movie-2"))
+    }
+
+    @Test
+    fun `server scoped request id is not mistaken for a raw legacy media id`() {
+        assertFalse(isLegacyUnscopedDownload(
+            serverScopedDownloadRequestId("user-1", "server-1", "movie-1"),
+            ownerUserId = null,
+        ))
+    }
+
+    @Test
+    fun `retry requires a known matching server identity`() {
+        assertTrue(canRetryDownloadOnServer("server-1", "server-1"))
+        assertTrue(canRetryDownloadOnServer(" server-1 ", "server-1"))
+        assertFalse(canRetryDownloadOnServer("server-1", "server-2"))
+        assertFalse(canRetryDownloadOnServer(null, "server-1"))
+        assertFalse(canRetryDownloadOnServer("server-1", null))
+        assertFalse(canRetryDownloadOnServer(" ", "server-1"))
+    }
+
+    @Test
     fun `scopes Media3 request ids by account`() {
         assertEquals("user-1::movie-1", scopedDownloadRequestId("user-1", "movie-1"))
         assertEquals("user-2::movie-1", scopedDownloadRequestId("user-2", "movie-1"))

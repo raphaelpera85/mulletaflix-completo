@@ -41,7 +41,7 @@ class LocalServerDiscovery @Inject constructor(
         withWifiMulticastLock {
             val sockets = createDiscoverySockets()
             try {
-                sockets.forEach { socket ->
+                sockets.receiveSockets.forEach { socket ->
                     socket.broadcast = true
                     socket.reuseAddress = true
                 }
@@ -54,19 +54,24 @@ class LocalServerDiscovery @Inject constructor(
                 while (discoveryWindow.isOpen()) {
                     val now = discoveryWindow.nowElapsedRealtimeMs()
                     if (probeIndex < probeDelays.size && now >= nextProbeAt) {
-                        sockets.forEach { socket ->
-                            targets.forEach { target ->
-                                runCatching {
-                                    socket.send(DatagramPacket(request, request.size, target, DISCOVERY_PORT))
-                                }
-                            }
-                        }
+                        sendDiscoveryProbe(
+                            targetCount = targets.size,
+                            boundSocketCount = sockets.boundSockets.size,
+                            sendBound = { socketIndex, targetIndex ->
+                                sendProbe(sockets.boundSockets[socketIndex], request, targets[targetIndex])
+                            },
+                            sendFallback = { targetIndex ->
+                                val fallback = sockets.fallbackSocket
+                                    ?: sockets.primarySocket.takeIf { sockets.boundSockets.isEmpty() }
+                                fallback?.let { sendProbe(it, request, targets[targetIndex]) } ?: false
+                            },
+                        )
                         probeIndex += 1
                         nextProbeAt = discoveryWindow.nowElapsedRealtimeMs() +
                             (probeDelays.getOrNull(probeIndex)?.minus(probeDelays[probeIndex - 1])
                                 ?: DISCOVERY_RETRY_INTERVAL_MS)
                     }
-                    sockets.forEach { socket ->
+                    sockets.receiveSockets.forEach { socket ->
                         if (!discoveryWindow.isOpen()) return@forEach
                         val buffer = ByteArray(4096)
                         val packet = DatagramPacket(buffer, buffer.size)
@@ -85,7 +90,7 @@ class LocalServerDiscovery @Inject constructor(
                     }
                 }
             } finally {
-                sockets.forEach { socket -> runCatching { socket.close() } }
+                sockets.receiveSockets.forEach { socket -> runCatching { socket.close() } }
             }
         }
         results.values.toList()
@@ -99,7 +104,7 @@ class LocalServerDiscovery @Inject constructor(
      * where ConnectivityManager does not expose a usable local network.
      */
     @Suppress("DEPRECATION") // allNetworks keeps the Android 24 compatibility path for local-only transports.
-    private fun createDiscoverySockets(): List<DatagramSocket> {
+    private fun createDiscoverySockets(): DiscoverySockets {
         val localNetworks = connectivityManager?.allNetworks.orEmpty()
             .filter { network ->
                 val capabilities = connectivityManager?.getNetworkCapabilities(network)
@@ -109,12 +114,30 @@ class LocalServerDiscovery @Inject constructor(
             .distinct()
 
         val boundSockets = localNetworks.mapNotNull { network ->
-            runCatching {
-                DatagramSocket().also { socket -> network.bindSocket(socket) }
-            }.getOrNull()
+            val socket = runCatching { DatagramSocket() }.getOrNull() ?: return@mapNotNull null
+            try {
+                network.bindSocket(socket)
+                socket
+            } catch (_: Exception) {
+                runCatching { socket.close() }
+                null
+            }
         }
-        return boundSockets.ifEmpty { listOf(DatagramSocket()) }
+        if (boundSockets.isEmpty()) {
+            val primarySocket = DatagramSocket()
+            return DiscoverySockets(emptyList(), null, primarySocket, listOf(primarySocket))
+        }
+        val fallbackSocket = runCatching { DatagramSocket() }.getOrNull()
+        return DiscoverySockets(
+            boundSockets = boundSockets,
+            fallbackSocket = fallbackSocket,
+            primarySocket = boundSockets.first(),
+            receiveSockets = boundSockets + listOfNotNull(fallbackSocket),
+        )
     }
+
+    private fun sendProbe(socket: DatagramSocket, request: ByteArray, target: InetAddress): Boolean =
+        runCatching { socket.send(DatagramPacket(request, request.size, target, DISCOVERY_PORT)) }.isSuccess
 
     /**
      * Android may filter LAN broadcast/multicast packets while the device is
@@ -152,6 +175,13 @@ class LocalServerDiscovery @Inject constructor(
 
 }
 
+private data class DiscoverySockets(
+    val boundSockets: List<DatagramSocket>,
+    val fallbackSocket: DatagramSocket?,
+    val primarySocket: DatagramSocket,
+    val receiveSockets: List<DatagramSocket>,
+)
+
 /** Prevents a caller from holding LAN sockets and the Wi-Fi lock indefinitely. */
 internal fun boundedDiscoveryTimeoutMs(requestedTimeoutMs: Int): Int =
     requestedTimeoutMs.coerceIn(0, DISCOVERY_MAX_WINDOW_MS)
@@ -186,6 +216,28 @@ internal fun discoveryProbeDelays(
     return generateSequence(0) { previous -> previous + interval }
         .takeWhile { it < timeout }
         .toList()
+}
+
+/** Sends to every bound socket per target; fallback covers only targets where all fail. */
+internal fun sendDiscoveryProbe(
+    targetCount: Int,
+    boundSocketCount: Int,
+    sendBound: (socketIndex: Int, targetIndex: Int) -> Boolean,
+    sendFallback: (targetIndex: Int) -> Boolean,
+): Boolean {
+    var anySendSucceeded = false
+    repeat(targetCount) { targetIndex ->
+        var targetSentOnBoundSocket = false
+        repeat(boundSocketCount) { socketIndex ->
+            if (sendBound(socketIndex, targetIndex)) targetSentOnBoundSocket = true
+        }
+        if (targetSentOnBoundSocket) {
+            anySendSucceeded = true
+        } else if (sendFallback(targetIndex)) {
+            anySendSucceeded = true
+        }
+    }
+    return anySendSucceeded
 }
 
 /** Parses the Jellyfin/MulletaFlix UDP discovery payload safely. */

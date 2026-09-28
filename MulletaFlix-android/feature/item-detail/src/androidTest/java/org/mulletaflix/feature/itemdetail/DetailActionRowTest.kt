@@ -37,6 +37,7 @@ class DetailActionRowTest {
         isDownloadPreparing: Boolean = false,
         isFavorite: Boolean = false,
         isPlayed: Boolean = false,
+        allowDownload: Boolean = true,
     ) {
         composeRule.setContent {
             MaterialTheme {
@@ -56,6 +57,7 @@ class DetailActionRowTest {
                     onFavorite = {},
                     onMarkWatched = {},
                     onDownload = {},
+                    allowDownload = allowDownload,
                     onPlaylist = {},
                     onShare = {},
                 )
@@ -100,6 +102,13 @@ class DetailActionRowTest {
         composeRule.onNodeWithContentDescription("Adicionar aos favoritos").assertExists()
         composeRule.onNodeWithContentDescription("Marcar como assistido").assertExists()
         composeRule.onNodeWithContentDescription("Baixar para assistir offline").assertExists()
+    }
+
+    @Test
+    fun downloadActionIsHiddenWhenDownloadsAreUnavailable() {
+        show(allowDownload = false)
+
+        composeRule.onNodeWithContentDescription("Baixar para assistir offline").assertDoesNotExist()
     }
 
     @Test

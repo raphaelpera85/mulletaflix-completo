@@ -7,7 +7,7 @@ internal fun failedDownloads(downloads: List<DownloadEntry>): List<DownloadEntry
     downloads
         .asSequence()
         .filter { it.state == DownloadState.Failed }
-        .distinctBy { it.id }
+        .distinctBy { it.downloadId }
         .toList()
 
 internal fun completedDownloads(downloads: List<DownloadEntry>): List<DownloadEntry> =

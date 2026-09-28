@@ -30,7 +30,8 @@ class MulletaFlixRouteTest {
         val route = MulletaFlixRoute.offlinePlayer(
             itemId = "downloaded 1",
             uri = "content://media/external/video/42",
-            title = "Movie & Show"
+            title = "Movie & Show",
+            downloadId = "queue:v2/1",
         )
         // A space must become %20, never `+`. Navigation decodes query
         // arguments with `Uri.getQueryParameters`, which follows RFC 3986 and
@@ -39,6 +40,7 @@ class MulletaFlixRouteTest {
         assertTrue(route.startsWith("player/offline/downloaded%201?uri="))
         assertTrue(route.contains("content%3A%2F%2Fmedia%2Fexternal%2Fvideo%2F42"))
         assertTrue(route.contains("title=Movie%20%26%20Show"))
+        assertTrue(route.contains("downloadId=queue%3Av2%2F1"))
         assertFalse(
             "a `+` in the route means the value will not decode back",
             route.contains('+'),
@@ -76,7 +78,8 @@ class MulletaFlixRouteTest {
         val itemId = "downloaded 1"
         val uri = "content://media/external/video/42?token=a b"
         val title = "O Retorno de Jedi"
-        val route = MulletaFlixRoute.offlinePlayer(itemId, uri, title)
+        val downloadId = "queue:v2/server 1/media 1"
+        val route = MulletaFlixRoute.offlinePlayer(itemId, uri, title, downloadId)
 
         val query = route.substringAfter('?')
         val values = query.split('&').associate {
@@ -84,10 +87,33 @@ class MulletaFlixRouteTest {
         }
         assertEquals(uri, values["uri"])
         assertEquals(title, values["title"])
+        assertEquals(downloadId, values["downloadId"])
         assertEquals(
             itemId,
             decodeRouteArgument(route.substringAfter("player/offline/").substringBefore('?')),
         )
+    }
+
+    @Test
+    fun offlinePlayer_keepsQueueIdentitySeparateForDuplicateMediaIds() {
+        val first = MulletaFlixRoute.offlinePlayer(
+            itemId = "same-media-id",
+            uri = "content://downloads/one",
+            title = "Same title",
+            downloadId = "server-a-entry",
+        )
+        val second = MulletaFlixRoute.offlinePlayer(
+            itemId = "same-media-id",
+            uri = "content://downloads/two",
+            title = "Same title",
+            downloadId = "server-b-entry",
+        )
+
+        assertTrue(first != second)
+        assertTrue(first.startsWith("player/offline/same-media-id?"))
+        assertTrue(second.startsWith("player/offline/same-media-id?"))
+        assertTrue(first.endsWith("downloadId=server-a-entry"))
+        assertTrue(second.endsWith("downloadId=server-b-entry"))
     }
 
     /** Inverse of the encoder, mirroring what an RFC 3986 decoder does. */

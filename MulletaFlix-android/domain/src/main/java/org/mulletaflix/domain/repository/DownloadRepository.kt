@@ -17,6 +17,10 @@ data class DownloadEntry(
     val offlineArtworkUri: String? = null,
     val episodeMetadata: DownloadEpisodeMetadata? = null,
     val offlineSubtitles: List<OfflineSubtitleEntry> = emptyList(),
+    /** Stable identity of this queue entry; unlike [id], unique across servers. */
+    val downloadId: String = id,
+    /** Stable server id, or the normalized server endpoint when no id is available. */
+    val serverId: String? = null,
 )
 
 data class DownloadEpisodeMetadata(
@@ -78,8 +82,8 @@ interface DownloadRepository {
         episodeMetadata: DownloadEpisodeMetadata?,
         mediaMetadata: DownloadMediaMetadata?,
     ): Result<Unit> = enqueueWithMetadata(id, title, uri, imageUrl, episodeMetadata)
-    fun retry(id: String, title: String, uri: String): Result<Unit>
-    fun remove(id: String): Result<Unit>
+    fun retry(downloadId: String, title: String, uri: String): Result<Unit>
+    fun remove(downloadId: String): Result<Unit>
     /** Removes only completed downloads, preserving queued, active, and failed items. */
     fun removeCompleted(): Result<Unit> = Result.success(Unit)
     /** Removes only failed downloads, preserving queued, active, and completed items. */

@@ -137,7 +137,7 @@ fun SeriesSection(
                     }
                     wasDownloadRunning.value = isRunning
                 }
-                Row(
+                if (!isTelevision || progress?.isRunning == true) Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -155,32 +155,42 @@ fun SeriesSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Button(
-                        onClick = {
-                            downloadRequestedOperationId.value = onDownloadSeason()
-                        },
-                        enabled = episodes.isNotEmpty() && progress?.isRunning != true,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary,
-                            contentColor = MaterialTheme.colorScheme.onSecondary,
-                        ),
-                    ) {
-                        if (progress?.isRunning == true) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Download, contentDescription = null)
-                        }
+                    if (isTelevision && progress?.isRunning == true) {
                         Text(
-                            text = if (progress?.isRunning == true) {
-                                "Preparando ${progress.processedEpisodes}/${progress.totalEpisodes}"
-                            } else {
-                                "Baixar temporada"
-                            },
-                            modifier = Modifier.padding(start = 8.dp),
+                            text = "Preparando ${progress.processedEpisodes}/${progress.totalEpisodes}",
+                            modifier = Modifier.weight(1f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                    if (!isTelevision) {
+                        Button(
+                            onClick = {
+                                downloadRequestedOperationId.value = onDownloadSeason()
+                            },
+                            enabled = episodes.isNotEmpty() && progress?.isRunning != true,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary,
+                                contentColor = MaterialTheme.colorScheme.onSecondary,
+                            ),
+                        ) {
+                            if (progress?.isRunning == true) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Download, contentDescription = null)
+                            }
+                            Text(
+                                text = if (progress?.isRunning == true) {
+                                    "Preparando ${progress.processedEpisodes}/${progress.totalEpisodes}"
+                                } else {
+                                    "Baixar temporada"
+                                },
+                                modifier = Modifier.padding(start = 8.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                     if (progress?.isRunning == true) {
                         TextButton(

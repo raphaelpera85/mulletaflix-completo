@@ -18,4 +18,14 @@ class DownloadRetryPolicyTest {
 
         assertEquals(listOf("failed-1", "failed-2"), failedDownloads(downloads).map { it.id })
     }
+
+    @Test
+    fun `same failed media id on two servers remains independently retryable`() {
+        val downloads = listOf(
+            DownloadEntry("movie", "Filme A", "https://a/movie", DownloadState.Failed, 20, downloadId = "a", serverId = "server-a"),
+            DownloadEntry("movie", "Filme B", "https://b/movie", DownloadState.Failed, 10, downloadId = "b", serverId = "server-b"),
+        )
+
+        assertEquals(listOf("a", "b"), failedDownloads(downloads).map { it.downloadId })
+    }
 }

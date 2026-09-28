@@ -246,7 +246,7 @@ class LibraryViewModel @Inject constructor(
                 val items = if (supportsOffsetPaging(_state.value.sortBy.apiValue) || total <= firstPageItems.size) {
                     firstPageItems
                 } else {
-                    getLibraryItemsUseCase(
+                    val fullCatalogResult = getLibraryItemsUseCase(
                         userId = userId,
                         libraryId = libraryId,
                         includeItemTypes = currentIncludeItemTypes,
@@ -259,7 +259,19 @@ class LibraryViewModel @Inject constructor(
                         genres = facets.genres.ifBlank { null },
                         years = facets.years.ifBlank { null },
                         officialRatings = facets.officialRatings.ifBlank { null },
-                    ).getOrNull()?.first ?: firstPageItems
+                    )
+                    val fullCatalogItems = fullCatalogResult.getOrElse { error ->
+                        if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
+                        _state.update {
+                            it.copy(
+                                isLoading = false,
+                                isRefreshing = false,
+                                error = error.message ?: "Não foi possível carregar o catálogo completo. Tente novamente.",
+                            )
+                        }
+                        return@onSuccess
+                    }.first
+                    fullCatalogItems
                 }
                 if (!isCurrentLibraryRequest(requestGeneration, userId, libraryId)) return@onSuccess
                 fetchedItemCount = items.size
