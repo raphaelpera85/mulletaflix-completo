@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Controller.Library;
@@ -21,6 +24,147 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public class NebulaUploadEngineTests
 {
+    [Fact]
+    public async Task UploadEngine_EmitsActivityWithoutMediaIdentifiers()
+    {
+        System.Diagnostics.Activity? recordedActivity = null;
+        long uploadCount = 0;
+        double uploadDuration = -1;
+        string? outcomeTag = null;
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NebulaUploadEngine.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => recordedActivity = activity
+        };
+        ActivitySource.AddActivityListener(listener);
+        using var meterListener = new MeterListener
+        {
+            InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == NebulaUploadEngine.MeterName)
+                {
+                    meterListener.EnableMeasurementEvents(instrument);
+                }
+            }
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, measurement, tags, _) =>
+        {
+            if (instrument.Name == "mulletaflix.nebula.uploads")
+            {
+                uploadCount += measurement;
+                outcomeTag = GetOutcomeTag(tags);
+            }
+        });
+        meterListener.SetMeasurementEventCallback<double>((instrument, measurement, tags, _) =>
+        {
+            if (instrument.Name == "mulletaflix.nebula.upload.duration")
+            {
+                uploadDuration = measurement;
+                outcomeTag = GetOutcomeTag(tags);
+            }
+        });
+        meterListener.Start();
+
+        using var engine = new NebulaUploadEngine(
+            null!,
+            null!,
+            uploadConcurrency: 1,
+            chunkSizeMb: 16,
+            deleteSourceAfterUpload: false,
+            NullLogger<NebulaUploadEngine>.Instance);
+
+        var missingPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "private-title.mkv");
+        var result = await engine.ProcessFileUploadAsync(missingPath, "private-title.mkv", "private-parent");
+
+        Assert.False(result);
+        Assert.NotNull(recordedActivity);
+        Assert.Equal("upload", recordedActivity.GetTagItem("nebula.operation"));
+        Assert.Equal("failure", recordedActivity.GetTagItem("nebula.result"));
+        Assert.Equal(1, uploadCount);
+        Assert.True(uploadDuration >= 0);
+        Assert.Equal("failure", outcomeTag);
+        Assert.DoesNotContain(recordedActivity.TagObjects, tag =>
+            tag.Value?.ToString()?.Contains("private-title", StringComparison.Ordinal) == true ||
+            tag.Value?.ToString()?.Contains("private-parent", StringComparison.Ordinal) == true);
+    }
+
+    private static string? GetOutcomeTag(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+    {
+        foreach (var tag in tags)
+        {
+            if (tag.Key == "outcome")
+            {
+                return tag.Value?.ToString();
+            }
+        }
+
+        return null;
+    }
+
+    [Fact]
+    public async Task Downloader_EmitsActivityAndMetricsWithoutUrlOrPath()
+    {
+        System.Diagnostics.Activity? recordedActivity = null;
+        long downloadCount = 0;
+        double downloadDuration = -1;
+        string? outcomeTag = null;
+        using var activityListener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NebulaDownloaderEngine.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => recordedActivity = activity
+        };
+        ActivitySource.AddActivityListener(activityListener);
+        using var meterListener = new MeterListener
+        {
+            InstrumentPublished = (instrument, listener) =>
+            {
+                if (instrument.Meter.Name == NebulaDownloaderEngine.MeterName)
+                {
+                    listener.EnableMeasurementEvents(instrument);
+                }
+            }
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, measurement, tags, _) =>
+        {
+            if (instrument.Name == "mulletaflix.nebula.downloads")
+            {
+                downloadCount += measurement;
+                outcomeTag = GetOutcomeTag(tags);
+            }
+        });
+        meterListener.SetMeasurementEventCallback<double>((instrument, measurement, tags, _) =>
+        {
+            if (instrument.Name == "mulletaflix.nebula.download.duration")
+            {
+                downloadDuration = measurement;
+                outcomeTag = GetOutcomeTag(tags);
+            }
+        });
+        meterListener.Start();
+
+        using var engine = new NebulaDownloaderEngine(null!, null!, NullLogger<NebulaDownloaderEngine>.Instance);
+        var downloadMethod = typeof(NebulaDownloaderEngine).GetMethod("DownloadMultipartAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(downloadMethod);
+        var outputPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "download-output.bin");
+        var downloadTask = (Task<bool>)downloadMethod.Invoke(engine, ["file:///private-title.mkv?token=secret", outputPath, 1, CancellationToken.None])!;
+
+        await Assert.ThrowsAnyAsync<Exception>(async () => await downloadTask);
+
+        Assert.NotNull(recordedActivity);
+        Assert.Equal("download", recordedActivity.GetTagItem("nebula.operation"));
+        Assert.Equal("failure", recordedActivity.GetTagItem("nebula.result"));
+        Assert.Equal(System.Diagnostics.ActivityStatusCode.Error, recordedActivity.Status);
+        Assert.Equal(1, downloadCount);
+        Assert.True(downloadDuration >= 0);
+        Assert.Equal("failure", outcomeTag);
+        Assert.DoesNotContain(recordedActivity.TagObjects, tag =>
+            tag.Value?.ToString()?.Contains("private-title", StringComparison.Ordinal) == true ||
+            tag.Value?.ToString()?.Contains("secret", StringComparison.Ordinal) == true ||
+            tag.Value?.ToString()?.Contains(outputPath, StringComparison.Ordinal) == true);
+    }
+
     [Fact]
     public void TelegramPool_ParsesBotApiUploadResult()
     {

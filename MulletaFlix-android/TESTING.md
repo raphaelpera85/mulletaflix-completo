@@ -74,13 +74,15 @@ Comandos úteis:
 
 Use `tools\with-emulator.ps1` para iniciar um AVD somente durante um comando; o script encerra o processo criado no bloco `finally`:
 
+Todo teste instrumentado executado pelo wrapper deve declarar `expectedDeviceProfile=PHONE`, `TABLET` ou `TV`; ele confere o perfil real do AVD antes de iniciar Gradle. Exemplo em TV:
+
 ```powershell
-.\tools\with-emulator.ps1 -AvdName MulletaflixTvApi34 -Port 5556 -Command .\gradlew.bat -CommandArgument @(':app:connectedDebugAndroidTest', '--no-daemon', '--console=plain')
+.\tools\with-emulator.ps1 -AvdName MulletaflixTvApi34 -Port 5556 -Command .\gradlew.bat -CommandArgument @(':app:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TV', '--no-daemon', '--console=plain')
 ```
 
-O wrapper valida relatório instrumentado novo para cada módulo solicitado e falha se nenhum teste rodar, ou se o relatório tiver falhas/erros. Isso detecta casos em que o runner falha antes da instalação, mas Gradle ainda informa `BUILD SUCCESSFUL`.
+O wrapper aceita tarefas instrumentadas somente no formato explícito `:module:connectedDebugAndroidTest`, exige um perfil e valida um relatório novo com testes executados para cada módulo solicitado. Falha se todos forem ignorados ou se houver falhas/erros. Isso detecta perfil errado e casos em que o runner não instala o APK, mas Gradle informa `BUILD SUCCESSFUL`.
 
-`HomeAdaptiveUsageTest` mede o perfil real do AVD e exige `expectedDeviceProfile`; o teste falha se o perfil esperado não for informado ou não corresponder:
+`HomeAdaptiveUsageTest` também confere o perfil dentro do teste e mede a largura dos cards:
 
 ```powershell
 .\tools\with-emulator.ps1 -AvdName MulletaflixTvApi34 -Port 5556 -Command .\gradlew.bat -CommandArgument @(':feature:home:connectedDebugAndroidTest', '-Pandroid.testInstrumentationRunnerArguments.expectedDeviceProfile=TV', '--no-daemon', '--console=plain')

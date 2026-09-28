@@ -91,6 +91,28 @@ public class NebulaComponentHealthDto
     public bool HttpListenerRunning { get; set; }
 }
 
+public sealed class NebulaDatabaseHealthDto
+{
+    public bool Available { get; set; }
+
+    public bool Healthy { get; set; }
+
+    public string Status { get; set; } = string.Empty;
+}
+
+public sealed class NebulaUploadQueueSummaryDto
+{
+    public bool IsAvailable { get; set; }
+
+    public long PendingCount { get; set; }
+
+    public long RetryCount { get; set; }
+
+    public string OldestPendingName { get; set; } = string.Empty;
+
+    public DateTime? OldestPendingAtUtc { get; set; }
+}
+
 public class NebulaCredentialRotationRequest
 {
     public string? Password { get; set; }
@@ -342,6 +364,8 @@ public class NebulaNotificationsSettingsRequest
 
 public sealed class NebulaPlaybackCacheStatusDto
 {
+    public bool IsAvailable { get; set; }
+
     public string ConfiguredPath { get; set; } = string.Empty;
 
     public string EffectivePath { get; set; } = string.Empty;

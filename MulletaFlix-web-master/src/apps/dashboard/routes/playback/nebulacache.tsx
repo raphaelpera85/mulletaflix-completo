@@ -25,6 +25,7 @@ import toast from 'components/toast/toast';
 import Loading from 'components/loading/LoadingComponent';
 
 interface NebulaPlaybackCacheStatus {
+    isAvailable: boolean;
     configuredPath: string;
     effectivePath: string;
     cachedFilesCount: number;
@@ -248,6 +249,12 @@ export const Component = () => {
                         </Alert>
                     )}
 
+                    {status && !status.isAvailable && (
+                        <Alert severity='info'>
+                            O componente de cache ainda não foi inicializado. Os indicadores de ocupação e reprodução aparecerão quando ele estiver ativo.
+                        </Alert>
+                    )}
+
                     {/* Status Overview Cards */}
                     <Grid container spacing={2}>
                         <Grid size={{ xs: 12, sm: 4 }}>
@@ -260,10 +267,10 @@ export const Component = () => {
                                         </Typography>
                                     </Stack>
                                     <Typography variant='h4'>
-                                        {status?.formattedSize || '0 B'}
+                                        {status?.isAvailable ? status.formattedSize : 'N/D'}
                                     </Typography>
                                     <Typography variant='caption' color='text.secondary'>
-                                        {status?.cachedFilesCount || 0} arquivo(s) em cache
+                                        {status?.isAvailable ? `${status.cachedFilesCount} arquivo(s) em cache` : 'Cache não inicializado'}
                                     </Typography>
                                 </CardContent>
                             </Card>
@@ -279,10 +286,10 @@ export const Component = () => {
                                         </Typography>
                                     </Stack>
                                     <Typography variant='h4'>
-                                        {status?.activeLeasesCount || 0}
+                                        {status?.isAvailable ? status.activeLeasesCount : 'N/D'}
                                     </Typography>
                                     <Typography variant='caption' color='text.secondary'>
-                                        {status?.activeLeasesCount ? 'Arquivos protegidos contra exclusão' : 'Nenhuma mídia executando agora'}
+                                        {status?.isAvailable ? (status.activeLeasesCount ? 'Arquivos protegidos contra exclusão' : 'Nenhuma mídia executando agora') : 'Cache não inicializado'}
                                     </Typography>
                                 </CardContent>
                             </Card>
@@ -295,9 +302,9 @@ export const Component = () => {
                                         Uso da Cota do Cache
                                     </Typography>
                                     <Typography variant='h4'>
-                                        {maxCacheSizeBytes ? `${cacheUsagePercentage.toFixed(1)}%` : 'N/D'}
+                                        {status?.isAvailable && maxCacheSizeBytes ? `${cacheUsagePercentage.toFixed(1)}%` : 'N/D'}
                                     </Typography>
-                                    {maxCacheSizeBytes > 0 && (
+                                    {status?.isAvailable && maxCacheSizeBytes > 0 && (
                                         <LinearProgress
                                             variant='determinate'
                                             value={cacheUsagePercentage}
@@ -309,7 +316,7 @@ export const Component = () => {
                                         Limite: {Math.round(maxCacheSizeBytes / (1024 ** 3))} GiB
                                     </Typography>
                                     <Typography variant='caption' color='text.secondary' display='block'>
-                                        Livre: {status?.freeSpaceGb ?? 0} GiB · reserva: {Math.round((status?.minimumFreeSpaceBytes ?? 0) / (1024 ** 3))} GiB
+                                        Livre: {status?.isAvailable ? status.freeSpaceGb : 'N/D'} GiB · reserva: {Math.round((status?.minimumFreeSpaceBytes ?? 0) / (1024 ** 3))} GiB
                                     </Typography>
                                 </CardContent>
                             </Card>

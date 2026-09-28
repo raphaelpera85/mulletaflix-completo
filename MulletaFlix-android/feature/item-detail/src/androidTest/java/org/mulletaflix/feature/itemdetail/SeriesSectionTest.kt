@@ -34,6 +34,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 import org.mulletaflix.designsystem.theme.MulletaFlixTheme
 
@@ -54,6 +55,9 @@ class SeriesSectionTest {
         return (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
             Configuration.UI_MODE_TYPE_TELEVISION
     }
+
+    private fun assumeTelevisionProfile() =
+        assumeTrue("Remote-focus behavior is specific to Android TV", isTelevisionProfile())
 
     @Test
     fun rendersEmptyStateInsteadOfCrashingWhenNoSeasonIsAvailable() {
@@ -108,7 +112,7 @@ class SeriesSectionTest {
 
     @Test
     fun hidesSeasonDownloadActionOnTelevision() {
-        if (!isTelevisionProfile()) return
+        assumeTelevisionProfile()
         composeRule.setContent {
             MulletaFlixTheme {
                 SeriesSection(
@@ -362,7 +366,7 @@ class SeriesSectionTest {
 
     @Test
     fun allSeasonDownloadActionsAreHiddenOnTvEvenWhenBatchIsRunning() {
-        if (!isTelevisionProfile()) return
+        assumeTelevisionProfile()
 
         var cancelRequests = 0
         val runningProgress = SeasonDownloadProgress(
@@ -409,7 +413,7 @@ class SeriesSectionTest {
 
     @Test
     fun externalInProgressDownloadDoesNotStealTvFocusOnEntry() {
-        if (!isTelevisionProfile()) return
+        assumeTelevisionProfile()
         val entryFocusRequester = FocusRequester()
         val showExternalProgress = mutableStateOf(false)
         val progress = SeasonDownloadProgress(
@@ -466,7 +470,7 @@ class SeriesSectionTest {
 
     @Test
     fun externalBatchDoesNotRevealTvDownloadActionOrStealFocus() {
-        if (!isTelevisionProfile()) return
+        assumeTelevisionProfile()
 
         val entryFocusRequester = FocusRequester()
         val progress = mutableStateOf<SeasonDownloadProgress?>(null)

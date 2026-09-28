@@ -12,6 +12,7 @@ using MediaBrowser.Model.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace MulletaFlix.Api.Controllers;
 
@@ -44,6 +45,37 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
     {
         var health = await _nebulaManager.GetComponentHealthAsync(cancellationToken).ConfigureAwait(false);
         return Ok(health);
+    }
+
+    [HttpGet("UploadQueueSummary")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<NebulaUploadQueueSummaryDto>> GetUploadQueueSummary(CancellationToken cancellationToken)
+    {
+        var summary = await _nebulaManager.GetUploadQueueSummaryAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(summary);
+    }
+
+    [HttpGet("DatabaseHealth")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<NebulaDatabaseHealthDto>> GetDatabaseHealth(
+        [FromServices] HealthCheckService healthCheckService,
+        CancellationToken cancellationToken)
+    {
+        var report = await healthCheckService.CheckHealthAsync(
+            registration => string.Equals(registration.Name, "MulletaFlixDbContext", StringComparison.Ordinal),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!report.Entries.TryGetValue("MulletaFlixDbContext", out var databaseEntry))
+        {
+            return Ok(new NebulaDatabaseHealthDto { Status = "Check do MariaDB não registrado." });
+        }
+
+        return Ok(new NebulaDatabaseHealthDto
+        {
+            Available = true,
+            Healthy = string.Equals(databaseEntry.Status.ToString(), "Healthy", StringComparison.Ordinal),
+            Status = databaseEntry.Description
+        });
     }
 
     [HttpGet("Logs")]

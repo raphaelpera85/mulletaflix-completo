@@ -47,4 +47,11 @@ class LibraryFacetFiltersTest {
             libraryFacetFiltersInServerOrder(selected),
         )
     }
+
+    @Test
+    fun `available option selection toggles values without losing the other selections`() {
+        val selected = toggleLibraryFacetInput("Drama, Ação", "Ação")
+        assertEquals("Drama", selected)
+        assertEquals("Drama, Ficção", toggleLibraryFacetInput(selected, "Ficção"))
+    }
 }

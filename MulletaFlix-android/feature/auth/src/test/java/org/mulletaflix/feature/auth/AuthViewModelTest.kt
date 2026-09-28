@@ -32,6 +32,8 @@ import org.mulletaflix.domain.usecase.LoginUseCase
 import org.mulletaflix.domain.usecase.RegisterUseCase
 import org.mulletaflix.domain.usecase.VerifyServerUseCase
 import retrofit2.HttpException
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthViewModelTest {
@@ -530,6 +532,73 @@ class AuthViewModelTest {
 
         assertFalse(viewModel.state.value.isDiscovering)
         assertEquals("Fresh LAN", viewModel.state.value.discoveredServers.single().name)
+    }
+
+    @Test
+    fun `LAN discovery remains pending until its result completes`() = runTest {
+        val result = CompletableDeferred<List<ServerInfo>>()
+        coEvery { discovery.discover(any()) } coAnswers { result.await() }
+        val viewModel = createViewModel()
+        runCurrent()
+
+        val generation = viewModel.discoverLocalServers()
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isDiscovering)
+        assertEquals(generation, viewModel.state.value.localDiscoveryGeneration)
+        assertTrue(viewModel.state.value.completedLocalDiscoveryGeneration < generation)
+
+        result.complete(listOf(ServerInfo("Fresh LAN", "http://192.168.1.40:8096")))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isDiscovering)
+        assertEquals(generation, viewModel.state.value.completedLocalDiscoveryGeneration)
+        assertEquals("Fresh LAN", viewModel.state.value.discoveredServers.single().name)
+    }
+
+    @Test
+    fun `late result from a canceled LAN discovery cannot replace the latest result`() = runTest {
+        val releaseStaleResult = CompletableDeferred<Unit>()
+        val latestResult = CompletableDeferred<List<ServerInfo>>()
+        val staleDiscoveryReturned = CompletableDeferred<Unit>()
+        var discoveryCalls = 0
+        coEvery { discovery.discover(any()) } coAnswers {
+            when (++discoveryCalls) {
+                1 -> {
+                    val staleServers = suspendCoroutine { continuation ->
+                        releaseStaleResult.invokeOnCompletion {
+                            continuation.resume(listOf(ServerInfo("Stale LAN", "http://192.168.1.60:8096")))
+                        }
+                    }
+                    staleDiscoveryReturned.complete(Unit)
+                    staleServers
+                }
+                else -> latestResult.await()
+            }
+        }
+        val viewModel = createViewModel()
+        runCurrent()
+
+        val staleGeneration = viewModel.state.value.localDiscoveryGeneration
+        val latestGeneration = viewModel.discoverLocalServers()
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isDiscovering)
+        assertTrue(viewModel.state.value.completedLocalDiscoveryGeneration < latestGeneration)
+
+        latestResult.complete(listOf(ServerInfo("Latest LAN", "http://192.168.1.50:8096")))
+        advanceUntilIdle()
+
+        assertTrue(latestGeneration > staleGeneration)
+        assertEquals(latestGeneration, viewModel.state.value.completedLocalDiscoveryGeneration)
+        assertEquals("Latest LAN", viewModel.state.value.discoveredServers.single().name)
+
+        releaseStaleResult.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue("The canceled discovery must still return its stale value", staleDiscoveryReturned.isCompleted)
+        assertEquals(latestGeneration, viewModel.state.value.completedLocalDiscoveryGeneration)
+        assertEquals("Latest LAN", viewModel.state.value.discoveredServers.single().name)
     }
 
     @Test

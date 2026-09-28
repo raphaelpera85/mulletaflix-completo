@@ -50,6 +50,13 @@ data class PublicSystemInfoDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class LibraryFilterOptionsDto(
+    @Json(name = "Genres") val genres: List<String> = emptyList(),
+    @Json(name = "Years") val years: List<Int> = emptyList(),
+    @Json(name = "OfficialRatings") val officialRatings: List<String> = emptyList(),
+)
+
+@JsonClass(generateAdapter = true)
 data class BrandingOptionsDto(
     @Json(name = "LoginDisclaimer") val loginDisclaimer: String? = null,
     @Json(name = "CustomCss") val customCss: String? = null,

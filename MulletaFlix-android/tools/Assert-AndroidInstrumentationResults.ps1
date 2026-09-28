@@ -19,8 +19,12 @@ function Assert-AndroidInstrumentationResults {
         $testCount = [int] $summary.tests
         $failureCount = [int] $summary.failures
         $errorCount = [int] $summary.errors
+        $skippedCount = [int] $summary.skipped
         if ($testCount -eq 0) {
             throw "Instrumentation report '$($reportFile.FullName)' contains 0 tests."
+        }
+        if ($testCount -le $skippedCount) {
+            throw "Instrumentation report '$($reportFile.FullName)' contains no executed tests ($skippedCount skipped)."
         }
         if ($failureCount -gt 0 -or $errorCount -gt 0) {
             throw "Instrumentation report '$($reportFile.FullName)' has $failureCount failures and $errorCount errors."

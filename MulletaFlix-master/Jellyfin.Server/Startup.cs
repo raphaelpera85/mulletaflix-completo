@@ -73,6 +73,8 @@ namespace MulletaFlix.Server
         /// <param name="services">The service collection.</param>
         public void ConfigureServices(IServiceCollection services)
         {
+            _ = MulletaFlixOpenTelemetryExtensions.ConfigureOpenTelemetry(services, Environment.GetEnvironmentVariable);
+
             // EnableForHttps is off by default in ASP.NET Core, which meant deployments that
             // terminate TLS locally served every JSON API response and static asset uncompressed.
             // MulletaFlix is commonly reached over a local HTTPS bind, so opt in explicitly and

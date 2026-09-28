@@ -64,8 +64,7 @@ fun ServerSelectionScreen(
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
     }
     var manualUrl by remember { mutableStateOf(DEFAULT_MULLETAFLIX_SERVER_URL) }
-    var manuallyEdited by remember { mutableStateOf(false) }
-    var automaticConnectionStarted by remember { mutableStateOf(false) }
+    var autoConnectionCycle by remember { mutableStateOf(ServerAutoConnectionCycle()) }
     var isScanningQr by remember { mutableStateOf(false) }
     var localNetworkPermissionDenied by rememberSaveable { mutableStateOf(false) }
     var localNetworkPermissionPromptDismissed by rememberSaveable { mutableStateOf(false) }
@@ -75,7 +74,7 @@ fun ServerSelectionScreen(
         if (granted) {
             localNetworkPermissionDenied = false
             localNetworkPermissionPromptDismissed = false
-            automaticConnectionStarted = false
+            autoConnectionCycle = autoConnectionCycle.resetConnectionAttempt()
             viewModel.discoverLocalServers()
         } else {
             localNetworkPermissionDenied = true
@@ -91,7 +90,7 @@ fun ServerSelectionScreen(
                 hasRequiredLocalNetworkPermission(context)
             ) {
                 localNetworkPermissionDenied = false
-                automaticConnectionStarted = false
+                autoConnectionCycle = autoConnectionCycle.resetConnectionAttempt()
                 viewModel.discoverLocalServers()
             }
         }
@@ -102,7 +101,7 @@ fun ServerSelectionScreen(
     // A discovered LAN server has priority over the public fallback. Do not
     // overwrite an address while the user is actively editing the field.
     LaunchedEffect(state.serverUrl) {
-        if (!manuallyEdited && !state.serverUrl.isNullOrBlank()) {
+        if (!autoConnectionCycle.manuallyEdited && !state.serverUrl.isNullOrBlank()) {
             manualUrl = state.serverUrl.orEmpty()
         }
     }
@@ -114,9 +113,21 @@ fun ServerSelectionScreen(
     // Verify LAN first; when discovery finds nothing, verify the saved/public
     // endpoint as a fallback. The callback only advances to login; credentials
     // are still required by the user.
-    LaunchedEffect(state.isDiscovering, state.discoveredServers, state.serverUrl, manuallyEdited) {
-        automaticServerCandidate(state, manuallyEdited, automaticConnectionStarted)?.let { endpoint ->
-            automaticConnectionStarted = true
+    LaunchedEffect(
+        state.isDiscovering,
+        state.discoveredServers,
+        state.serverUrl,
+        autoConnectionCycle.manuallyEdited,
+        autoConnectionCycle.connectionStarted,
+        autoConnectionCycle.requiredDiscoveryGeneration,
+    ) {
+        automaticServerCandidate(
+            state,
+            autoConnectionCycle.manuallyEdited,
+            autoConnectionCycle.connectionStarted,
+            autoConnectionCycle.requiredDiscoveryGeneration,
+        )?.let { endpoint ->
+            autoConnectionCycle = autoConnectionCycle.onAutomaticConnectionStarted()
             viewModel.connectToServer(
                 url = endpoint,
                 onSuccess = { onServerSelected() },
@@ -167,7 +178,10 @@ fun ServerSelectionScreen(
             // Manual URL entry
             OutlinedTextField(
                 value = manualUrl,
-                onValueChange = { manuallyEdited = true; manualUrl = it },
+                onValueChange = {
+                    autoConnectionCycle = autoConnectionCycle.onManualAddressChanged()
+                    manualUrl = it
+                },
                 label = { Text("URL do Servidor") },
                 leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null) },
                 placeholder = { Text(DEFAULT_MULLETAFLIX_SERVER_URL) },
@@ -205,7 +219,7 @@ fun ServerSelectionScreen(
                                 val scannedUrl = serverUrlFromQrPayload(barcode.rawValue)
                                 if (scannedUrl != null) {
                                     manualUrl = scannedUrl
-                                    manuallyEdited = true
+                                    autoConnectionCycle = autoConnectionCycle.onManualAddressChanged()
                                     Toast.makeText(context, "URL do servidor preenchida", Toast.LENGTH_SHORT).show()
                                 } else {
                                     Toast.makeText(context, "QR inválido: informe uma URL HTTP ou HTTPS", Toast.LENGTH_LONG).show()
@@ -237,9 +251,9 @@ fun ServerSelectionScreen(
 
             OutlinedButton(
                 onClick = {
-                    // A manual refresh starts a new automatic selection cycle.
-                    automaticConnectionStarted = false
-                    viewModel.discoverLocalServers()
+                    // Explicit LAN search ends manual selection and starts a fresh automatic cycle.
+                    val generation = viewModel.discoverLocalServers()
+                    autoConnectionCycle = autoConnectionCycle.onDiscoveryRequested(generation)
                 },
                 enabled = !state.isDiscovering && !state.isLoading,
                 modifier = Modifier.fillMaxWidth().height(48.dp),

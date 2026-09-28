@@ -5,6 +5,56 @@ import org.junit.Test
 
 class ServerSelectionPolicyTest {
     @Test
+    fun `manual LAN discovery waits for fresh results after address edits`() {
+        val oldLan = ServerInfo("Previous LAN", "http://192.168.1.20:8096", serverId = "server-id")
+        val newLan = ServerInfo("MulletaFlix LAN", "http://192.168.1.10:8096", serverId = "server-id")
+        val saved = ServerInfo("MulletaFlix cloud", DEFAULT_MULLETAFLIX_SERVER_URL, serverId = "server-id")
+        val state = AuthState(
+            discoveredServers = listOf(oldLan),
+            savedServers = listOf(saved),
+            savedServersLoaded = true,
+            localDiscoveryGeneration = 2,
+            completedLocalDiscoveryGeneration = 1,
+        )
+        val editedCycle = ServerAutoConnectionCycle().onManualAddressChanged()
+
+        assertEquals(null, automaticServerCandidate(state, editedCycle.manuallyEdited, editedCycle.connectionStarted))
+
+        val restartedCycle = editedCycle.onDiscoveryRequested(generation = 2)
+        assertEquals(
+            null,
+            automaticServerCandidate(
+                state.copy(isDiscovering = true),
+                restartedCycle.manuallyEdited,
+                restartedCycle.connectionStarted,
+                restartedCycle.requiredDiscoveryGeneration,
+            ),
+        )
+        assertEquals(
+            null,
+            automaticServerCandidate(
+                state.copy(isDiscovering = false),
+                restartedCycle.manuallyEdited,
+                restartedCycle.connectionStarted,
+                restartedCycle.requiredDiscoveryGeneration,
+            ),
+        )
+        assertEquals(
+            newLan.url,
+            automaticServerCandidate(
+                state.copy(
+                    isDiscovering = false,
+                    discoveredServers = listOf(newLan),
+                    completedLocalDiscoveryGeneration = 2,
+                ),
+                restartedCycle.manuallyEdited,
+                restartedCycle.connectionStarted,
+                restartedCycle.requiredDiscoveryGeneration,
+            ),
+        )
+    }
+
+    @Test
     fun `lan endpoint wins over saved and public fallback`() {
         val lan = ServerInfo("LAN", "http://192.168.1.10:8096")
         val saved = ServerInfo("Saved", "http://mulletaflix.duckdns.org:8096")

@@ -1,6 +1,7 @@
 package org.mulletaflix.domain.usecase
 
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.LibraryFilterOptions
 import org.mulletaflix.domain.repository.MediaRepository
 import javax.inject.Inject
 
@@ -10,6 +11,16 @@ import javax.inject.Inject
 class GetLibraryItemsUseCase @Inject constructor(
     private val mediaRepository: MediaRepository,
 ) {
+    suspend fun getFilterOptions(
+        userId: String,
+        libraryId: String,
+        includeItemTypes: String? = null,
+    ): Result<LibraryFilterOptions> = runCatching {
+        require(userId.isNotBlank()) { "O identificador do usuário é obrigatório." }
+        require(libraryId.isNotBlank()) { "O identificador da biblioteca é obrigatório." }
+        mediaRepository.getLibraryFilterOptions(userId, libraryId, includeItemTypes).getOrThrow()
+    }
+
     suspend operator fun invoke(
         userId: String,
         libraryId: String,

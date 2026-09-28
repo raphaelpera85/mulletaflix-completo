@@ -258,6 +258,9 @@ fun LibraryScreen(
             if (state.showFilterMenu) {
                 FilterDialog(
                     activeFilters = state.activeFilters,
+                    availableFilterOptions = state.availableFilterOptions,
+                    isLoadingFilterOptions = state.isLoadingFilterOptions,
+                    filterOptionsError = state.filterOptionsError,
                     onApply = viewModel::applyFilters,
                     onClear = viewModel::clearFilters,
                     onDismiss = viewModel::hideFilterMenu,
@@ -389,6 +392,9 @@ internal fun LibraryOfflineBanner(
 @Composable
 internal fun FilterDialog(
     activeFilters: List<String>,
+    availableFilterOptions: LibraryFilterOptions? = null,
+    isLoadingFilterOptions: Boolean = false,
+    filterOptionsError: String? = null,
     onApply: (Collection<String>, LibraryFacetFilters) -> Unit,
     onClear: () -> Unit,
     onDismiss: () -> Unit,
@@ -447,6 +453,13 @@ internal fun FilterDialog(
                         contentDescription = "Filtrar por gêneros, separados por vírgula"
                     },
                 )
+                LibraryFacetOptionsPicker(
+                    label = "Gêneros disponíveis",
+                    contentDescription = "Selecionar gêneros disponíveis",
+                    options = availableFilterOptions?.genres.orEmpty(),
+                    selectedOptions = facetInputValues(facets.genres),
+                    onToggle = { value -> facets = facets.copy(genres = toggleLibraryFacetInput(facets.genres, value)) },
+                )
                 OutlinedTextField(
                     value = facets.years,
                     onValueChange = { facets = facets.copy(years = it) },
@@ -461,6 +474,13 @@ internal fun FilterDialog(
                         contentDescription = "Filtrar por anos, separados por vírgula"
                     },
                 )
+                LibraryFacetOptionsPicker(
+                    label = "Anos disponíveis",
+                    contentDescription = "Selecionar anos disponíveis",
+                    options = availableFilterOptions?.years.orEmpty().filter { it in 1000..9999 }.map(Int::toString),
+                    selectedOptions = facetInputValues(facets.years),
+                    onToggle = { value -> facets = facets.copy(years = toggleLibraryFacetInput(facets.years, value)) },
+                )
                 OutlinedTextField(
                     value = facets.officialRatings,
                     onValueChange = { facets = facets.copy(officialRatings = it) },
@@ -472,6 +492,22 @@ internal fun FilterDialog(
                         contentDescription = "Filtrar por classificação indicativa, separados por vírgula"
                     },
                 )
+                LibraryFacetOptionsPicker(
+                    label = "Classificações disponíveis",
+                    contentDescription = "Selecionar classificações disponíveis",
+                    options = availableFilterOptions?.officialRatings.orEmpty(),
+                    selectedOptions = facetInputValues(facets.officialRatings),
+                    onToggle = { value -> facets = facets.copy(officialRatings = toggleLibraryFacetInput(facets.officialRatings, value)) },
+                )
+                if (isLoadingFilterOptions) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Carregando opções da biblioteca…", modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+                filterOptionsError?.let { error ->
+                    Text(error, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
@@ -488,6 +524,60 @@ internal fun FilterDialog(
             ) { Text("Cancelar") }
         },
     )
+}
+
+@Composable
+private fun LibraryFacetOptionsPicker(
+    label: String,
+    contentDescription: String,
+    options: List<String>,
+    selectedOptions: Set<String>,
+    onToggle: (String) -> Unit,
+) {
+    val selectableOptions = remember(options, selectedOptions) {
+        (options + selectedOptions).map(String::trim).filter(String::isNotEmpty).distinct()
+    }
+    if (selectableOptions.isEmpty()) return
+
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = !expanded },
+            modifier = Modifier
+                .fillMaxWidth()
+                .remoteFocusRing(RoundedCornerShape(8.dp))
+                .semantics { this.contentDescription = contentDescription },
+        ) {
+            Text(label, modifier = Modifier.weight(1f))
+            Text("${selectedOptions.size} selecionado(s)")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            selectableOptions.forEach { option ->
+                val isSelected = option in selectedOptions
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = { onToggle(option) },
+                    leadingIcon = { Icon(if (isSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank, contentDescription = null) },
+                    modifier = Modifier.semantics {
+                        selected = isSelected
+                        this.contentDescription = "$option${if (isSelected) ", selecionado" else ""}"
+                    },
+                )
+            }
+        }
+    }
+}
+
+internal fun facetInputValues(input: String): Set<String> =
+    input.split(Regex("[,;|]")).map(String::trim).filter(String::isNotEmpty).toSet()
+
+internal fun toggleLibraryFacetInput(input: String, value: String): String {
+    val current = facetInputValues(input)
+    val next = if (value in current) current - value else current + value
+    return next.joinToString(", ")
 }
 
 @Composable

@@ -29,6 +29,8 @@ public interface INebulaFtpManager
 
     Task<NebulaComponentHealthDto> GetComponentHealthAsync(CancellationToken cancellationToken = default);
 
+    Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default);
+
     NebulaLogsDto GetLogs(int serverOffset, int downloaderOffset);
 
     Task<bool> StartEnvioAsync(bool streamOnly, CancellationToken cancellationToken = default);

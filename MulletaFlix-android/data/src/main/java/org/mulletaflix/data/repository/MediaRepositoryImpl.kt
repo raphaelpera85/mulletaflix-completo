@@ -4,6 +4,7 @@ import org.mulletaflix.core.api.LIVE_TV_CHANNEL_PAGE_SIZE
 import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.data.mapper.toDomain
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.LibraryFilterOptions
 import org.mulletaflix.domain.repository.MediaRepository
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -85,6 +86,21 @@ class MediaRepositoryImpl @Inject constructor(
             isFavorite = isFavorite,
         )
         Pair(result.items.map { it.toDomain() }, result.totalRecordCount ?: result.items.size)
+    }
+
+    override suspend fun getLibraryFilterOptions(
+        userId: String,
+        parentId: String,
+        includeItemTypes: String?,
+    ): Result<LibraryFilterOptions> = suspendRunCatching {
+        require(userId.isNotBlank()) { "O identificador do usuário é obrigatório." }
+        api.getLibraryFilterOptions(parentId = parentId, includeItemTypes = includeItemTypes).let { filters ->
+            LibraryFilterOptions(
+                genres = filters.genres,
+                years = filters.years,
+                officialRatings = filters.officialRatings,
+            )
+        }
     }
 
     override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> =

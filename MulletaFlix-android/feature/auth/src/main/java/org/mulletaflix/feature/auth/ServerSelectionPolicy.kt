@@ -1,5 +1,23 @@
 package org.mulletaflix.feature.auth
 
+internal data class ServerAutoConnectionCycle(
+    val manuallyEdited: Boolean = false,
+    val connectionStarted: Boolean = false,
+    val requiredDiscoveryGeneration: Long = 0,
+) {
+    fun onManualAddressChanged(): ServerAutoConnectionCycle = copy(manuallyEdited = true)
+
+    fun onDiscoveryRequested(generation: Long): ServerAutoConnectionCycle = copy(
+        manuallyEdited = false,
+        connectionStarted = false,
+        requiredDiscoveryGeneration = generation,
+    )
+
+    fun onAutomaticConnectionStarted(): ServerAutoConnectionCycle = copy(connectionStarted = true)
+
+    fun resetConnectionAttempt(): ServerAutoConnectionCycle = copy(connectionStarted = false)
+}
+
 /**
  * Chooses the saved server's LAN endpoint before any other discovered server.
  *
@@ -50,11 +68,13 @@ internal fun automaticServerCandidate(
     state: AuthState,
     manuallyEdited: Boolean,
     connectionStarted: Boolean,
+    requiredDiscoveryGeneration: Long = 0,
 ): String? = if (
     !manuallyEdited &&
     !connectionStarted &&
     !state.isDiscovering &&
     !state.isLocalNetworkPermissionRequired &&
+    state.completedLocalDiscoveryGeneration >= requiredDiscoveryGeneration &&
     state.savedServersLoaded
 ) {
     if (state.discoveredServers.isEmpty()) {

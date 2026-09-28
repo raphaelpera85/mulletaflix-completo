@@ -1,6 +1,7 @@
 package org.mulletaflix.domain.repository
 
 import org.mulletaflix.domain.model.MediaItem
+import org.mulletaflix.domain.model.LibraryFilterOptions
 
 /**
  * Repository interface for media items — defined in domain, implemented in data.
@@ -38,6 +39,12 @@ interface MediaRepository {
         isPlayed: Boolean? = null,
         isFavorite: Boolean? = null,
     ): Result<Pair<List<MediaItem>, Int>>   // items + total count
+
+    suspend fun getLibraryFilterOptions(
+        userId: String,
+        parentId: String,
+        includeItemTypes: String? = null,
+    ): Result<LibraryFilterOptions> = Result.failure(UnsupportedOperationException("Library filter options are unavailable."))
 
     // ── Item detail ──────────────────────────────────────────────────────────
 

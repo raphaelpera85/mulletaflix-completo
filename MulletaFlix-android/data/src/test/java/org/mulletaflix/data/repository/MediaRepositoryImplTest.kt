@@ -11,6 +11,7 @@ import org.mulletaflix.core.api.MulletaFlixApiService
 import org.mulletaflix.core.api.dto.BaseItemDto
 import org.mulletaflix.core.api.dto.BaseItemDtoQueryResultDto
 import org.mulletaflix.core.api.dto.UserItemDataDto
+import org.mulletaflix.core.api.dto.LibraryFilterOptionsDto
 
 class MediaRepositoryImplTest {
 
@@ -187,6 +188,24 @@ class MediaRepositoryImplTest {
                 isFavorite = true,
             )
         }
+    }
+
+    @Test
+    fun getLibraryFilterOptions_returnsDistinctValuesFromTheServer() = runTest {
+        coEvery {
+            api.getLibraryFilterOptions(parentId = "library-1", includeItemTypes = "Movie")
+        } returns LibraryFilterOptionsDto(
+            genres = listOf("Drama", "Ação"),
+            years = listOf(2024, 2023),
+            officialRatings = listOf("PG-13"),
+        )
+
+        val result = repository.getLibraryFilterOptions("user-1", "library-1", "Movie")
+
+        assertTrue(result.isSuccess)
+        assertEquals(listOf("Drama", "Ação"), result.getOrThrow().genres)
+        assertEquals(listOf(2024, 2023), result.getOrThrow().years)
+        assertEquals(listOf("PG-13"), result.getOrThrow().officialRatings)
     }
 
     @Test

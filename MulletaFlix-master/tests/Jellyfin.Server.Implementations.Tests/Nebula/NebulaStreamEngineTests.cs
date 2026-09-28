@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -11,6 +12,48 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public class NebulaStreamEngineTests
 {
+    [Fact]
+    public void HttpStreamServer_CreatesServerActivityWithW3CParentAndLowCardinalityTags()
+    {
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NebulaHttpStreamServer.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        using var activity = NebulaHttpStreamServer.StartRequestActivity(
+            "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+            "GET",
+            "stream");
+
+        Assert.NotNull(activity);
+        Assert.Equal(ActivityKind.Server, activity.Kind);
+        Assert.Equal("0123456789abcdef0123456789abcdef", activity.TraceId.ToString());
+        Assert.Equal("0123456789abcdef", activity.ParentSpanId.ToString());
+        Assert.Null(activity.TraceStateString);
+        Assert.Equal("GET", activity.GetTagItem("http.request.method"));
+        Assert.Equal("stream", activity.GetTagItem("http.route"));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("token", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void HttpStreamServer_NormalizesUntrustedMethodsBeforeAddingActivityTag()
+    {
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NebulaHttpStreamServer.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        using var activity = NebulaHttpStreamServer.StartRequestActivity(null, "X-Custom-Secret", "other");
+
+        Assert.NotNull(activity);
+        Assert.Equal("OTHER", activity.GetTagItem("http.request.method"));
+    }
+
     [Fact]
     public async Task ChunkedStream_ReadsFromLocalPath_WhenAvailable()
     {

@@ -951,6 +951,29 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         return health;
     }
 
+    public async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default)
+    {
+        var mongo = _mongoContext;
+        if (mongo is null)
+        {
+            return new NebulaUploadQueueSummaryDto();
+        }
+
+        try
+        {
+            return await mongo.GetUploadQueueSummaryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-HEALTH] Não foi possível consultar o resumo da fila MongoDB.");
+            return new NebulaUploadQueueSummaryDto();
+        }
+    }
+
     private async Task<List<NebulaWorkerItemDto>> QueryMongoActiveUploadsAsync(
         NebulaFtpConfiguration config,
         CancellationToken cancellationToken)
@@ -1906,19 +1929,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             activeLeases = _playbackCache.ActiveLeasesCount;
             fullCachePath = _playbackCache.CachePath;
         }
-        else if (Directory.Exists(fullCachePath))
-        {
-            try
-            {
-                var dirInfo = new DirectoryInfo(fullCachePath);
-                var files = dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).ToArray();
-                totalBytes = files.Sum(f => f.Length);
-                fileCount = files.Length;
-            }
-            catch
-            {
-            }
-        }
 
         double freeGb = 0;
         double totalGb = 0;
@@ -1941,6 +1951,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
         return new NebulaPlaybackCacheStatusDto
         {
+            IsAvailable = _playbackCache != null,
             ConfiguredPath = configuredPath,
             EffectivePath = fullCachePath,
             TotalSizeBytes = totalBytes,

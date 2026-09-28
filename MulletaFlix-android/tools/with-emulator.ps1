@@ -21,6 +21,7 @@ $startedHere = $false
 $emulatorProcess = $null
 $androidProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 . (Join-Path $PSScriptRoot 'Assert-AndroidInstrumentationResults.ps1')
+. (Join-Path $PSScriptRoot 'Assert-AndroidDeviceProfile.ps1')
 
 function Stop-StartedEmulatorTree {
     param([System.Diagnostics.Process] $RootProcess)
@@ -100,33 +101,39 @@ try {
         throw "Emulator $AvdName booted, but Package Manager did not become ready on $serial."
     }
 
-    $instrumentedTasks = @($CommandArgument | Where-Object { $_ -match '^:.+:connectedDebugAndroidTest$' })
-    $instrumentedTestRequested = $instrumentedTasks.Count -gt 0 -or
-        (@($CommandArgument | Where-Object { $_ -eq 'connectedDebugAndroidTest' }).Count -gt 0)
+    $instrumentedTasks = @(Get-AndroidInstrumentationTasks -CommandArguments $CommandArgument)
+    $instrumentedTestRequested = $instrumentedTasks.Count -gt 0
+    $expectedProfile = Get-ExpectedAndroidDeviceProfile `
+        -CommandArguments $CommandArgument `
+        -Required $instrumentedTestRequested
+    if ($expectedProfile) {
+        $deviceFeatures = & $adb -s $serial shell pm list features
+        if ($LASTEXITCODE -ne 0) { throw "Could not read Android features from $serial." }
+        $displaySize = & $adb -s $serial shell wm size
+        if ($LASTEXITCODE -ne 0) { throw "Could not read Android display size from $serial." }
+        $displayDensity = & $adb -s $serial shell wm density
+        if ($LASTEXITCODE -ne 0) { throw "Could not read Android display density from $serial." }
+        $actualProfile = Get-AndroidDeviceProfile `
+            -FeatureLines $deviceFeatures `
+            -DisplaySizeLines $displaySize `
+            -DisplayDensityLines $displayDensity
+        Assert-AndroidDeviceProfile -Expected $expectedProfile -Actual $actualProfile
+    }
+
     $commandStartedAt = Get-Date
     & $Command @CommandArgument
     $commandExitCode = $LASTEXITCODE
     if ($commandExitCode -ne 0) { exit $commandExitCode }
 
-    if ($instrumentedTestRequested) {
-        $reportFiles = if ($instrumentedTasks.Count -gt 0) {
-            $instrumentedTasks | ForEach-Object {
-                $modulePath = $_ -replace '^:', '' -replace ':connectedDebugAndroidTest$', ''
-                $moduleRoot = Join-Path $androidProjectRoot ($modulePath -replace ':', '\')
-                $resultDirectory = Join-Path $moduleRoot 'build\outputs\androidTest-results\connected\debug'
-                Get-ChildItem -LiteralPath $resultDirectory -Filter 'TEST-*.xml' -File -ErrorAction SilentlyContinue |
-                    Where-Object { $_.LastWriteTime -ge $commandStartedAt }
-            }
-        } else {
-            Get-ChildItem -Path $androidProjectRoot -Filter 'TEST-*.xml' -File -Recurse -ErrorAction SilentlyContinue |
-                Where-Object {
-                    $_.FullName -match '[\\/]build[\\/]outputs[\\/]androidTest-results[\\/]connected[\\/]debug[\\/]TEST-' -and
-                    $_.LastWriteTime -ge $commandStartedAt
-                }
-        }
-
-        $reportFiles = @($reportFiles)
-        Assert-AndroidInstrumentationResults -ReportFiles $reportFiles -StartedAt $commandStartedAt
+    foreach ($instrumentedTask in $instrumentedTasks) {
+        $modulePath = $instrumentedTask -replace '^:', '' -replace ':connectedDebugAndroidTest$', ''
+        $moduleRoot = Join-Path $androidProjectRoot ($modulePath -replace ':', '\')
+        $resultDirectory = Join-Path $moduleRoot 'build\outputs\androidTest-results\connected\debug'
+        $moduleReports = @(
+            Get-ChildItem -LiteralPath $resultDirectory -Filter 'TEST-*.xml' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -ge $commandStartedAt }
+        )
+        Assert-AndroidInstrumentationResults -ReportFiles $moduleReports -StartedAt $commandStartedAt
     }
 }
 finally {

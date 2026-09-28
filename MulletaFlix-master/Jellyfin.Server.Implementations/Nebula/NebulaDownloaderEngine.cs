@@ -4,6 +4,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -26,6 +28,16 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 {
+    /// <summary>Nome da fonte de atividades de tracing do download Nebula.</summary>
+    public const string ActivitySourceName = "MulletaFlix.Nebula.DownloaderEngine";
+    /// <summary>Nome da fonte de métricas do download Nebula.</summary>
+    public const string MeterName = "MulletaFlix.Nebula.DownloaderEngine";
+
+    private static readonly ActivitySource DownloadActivitySource = new(ActivitySourceName);
+    private static readonly Meter DownloadMeter = new(MeterName);
+    private static readonly Counter<long> DownloadCounter = DownloadMeter.CreateCounter<long>("mulletaflix.nebula.downloads");
+    private static readonly Histogram<double> DownloadDuration = DownloadMeter.CreateHistogram<double>("mulletaflix.nebula.download.duration", "s");
+
     internal static readonly HashSet<string> SupportedMediaExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         // STRM
@@ -897,6 +909,45 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     }
 
     private async Task<bool> DownloadMultipartAsync(
+        string url,
+        string targetFilePath,
+        int partsCount,
+        CancellationToken cancellationToken)
+    {
+        using var activity = DownloadActivitySource.StartActivity("nebula.download", ActivityKind.Internal);
+        activity?.SetTag("nebula.operation", "download");
+        var started = Stopwatch.GetTimestamp();
+        var outcome = "failure";
+
+        try
+        {
+            var succeeded = await DownloadMultipartCoreAsync(url, targetFilePath, partsCount, cancellationToken).ConfigureAwait(false);
+            outcome = succeeded ? "success" : "failure";
+            activity?.SetTag("nebula.result", outcome);
+            return succeeded;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            outcome = "cancelled";
+            activity?.SetTag("nebula.result", outcome);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "Download failed");
+            activity?.SetTag("error.type", ex.GetType().FullName);
+            activity?.SetTag("nebula.result", "failure");
+            throw;
+        }
+        finally
+        {
+            var tags = new KeyValuePair<string, object?>("outcome", outcome);
+            DownloadCounter.Add(1, tags);
+            DownloadDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tags);
+        }
+    }
+
+    private async Task<bool> DownloadMultipartCoreAsync(
         string url,
         string targetFilePath,
         int partsCount,

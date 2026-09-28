@@ -861,6 +861,29 @@ class UseCaseTest {
     }
 
     @Test
+    fun `GetLibraryItemsUseCase loads available filter options for a library`() = runTest {
+        val options = org.mulletaflix.domain.model.LibraryFilterOptions(
+            genres = listOf("Drama"),
+            years = listOf(2024),
+            officialRatings = listOf("PG-13"),
+        )
+        val mediaRepo = object : FakeMediaRepository() {
+            override suspend fun getLibraryFilterOptions(
+                userId: String,
+                parentId: String,
+                includeItemTypes: String?,
+            ) = Result.success(options)
+        }
+
+        val useCase = GetLibraryItemsUseCase(mediaRepo)
+        val result = useCase.getFilterOptions("u1", "lib-1", "Movie")
+
+        assertTrue(result.isSuccess)
+        assertEquals(options, result.getOrThrow())
+        assertTrue(useCase.getFilterOptions("", "lib-1").isFailure)
+    }
+
+    @Test
     fun `ManageSyncPlayUseCase coordinates groups correctly`() = runTest {
         val group = SyncPlayGroup(
             groupId = "g1",

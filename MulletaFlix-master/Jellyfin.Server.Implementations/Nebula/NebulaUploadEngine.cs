@@ -3,6 +3,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -19,6 +21,15 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 {
+    /// <summary>Nome da fonte de atividades de tracing do upload Nebula.</summary>
+    public const string ActivitySourceName = "MulletaFlix.Nebula.UploadEngine";
+    /// <summary>Nome da fonte de métricas do upload Nebula.</summary>
+    public const string MeterName = "MulletaFlix.Nebula.UploadEngine";
+
+    private static readonly ActivitySource UploadActivitySource = new(ActivitySourceName);
+    private static readonly Meter UploadMeter = new(MeterName);
+    private static readonly Counter<long> UploadCounter = UploadMeter.CreateCounter<long>("mulletaflix.nebula.uploads");
+    private static readonly Histogram<double> UploadDuration = UploadMeter.CreateHistogram<double>("mulletaflix.nebula.upload.duration", "s");
     private const int MaxBotsPerMedia = 3;
     private readonly ILogger<NebulaUploadEngine> _logger;
     private readonly NebulaMongoContext _mongoContext;
@@ -562,6 +573,51 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         string? parentId,
         int workerId,
         CancellationToken cancellationToken = default)
+    {
+        using var activity = UploadActivitySource.StartActivity("nebula.upload", ActivityKind.Internal);
+        activity?.SetTag("nebula.operation", "upload");
+        var started = Stopwatch.GetTimestamp();
+        var outcome = "failure";
+
+        try
+        {
+            var succeeded = await ProcessFileUploadCoreAsync(
+                localFilePath,
+                targetFileName,
+                parentId,
+                workerId,
+                cancellationToken).ConfigureAwait(false);
+            outcome = succeeded ? "success" : "failure";
+            activity?.SetTag("nebula.result", outcome);
+            return succeeded;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            outcome = "cancelled";
+            activity?.SetTag("nebula.result", "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "Upload failed");
+            activity?.SetTag("error.type", ex.GetType().FullName);
+            activity?.SetTag("nebula.result", "failure");
+            throw;
+        }
+        finally
+        {
+            var tags = new KeyValuePair<string, object?>("outcome", outcome);
+            UploadCounter.Add(1, tags);
+            UploadDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tags);
+        }
+    }
+
+    private async Task<bool> ProcessFileUploadCoreAsync(
+        string localFilePath,
+        string targetFileName,
+        string? parentId,
+        int workerId,
+        CancellationToken cancellationToken)
     {
         if (!File.Exists(localFilePath))
         {

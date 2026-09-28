@@ -88,7 +88,14 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 ### Fase 1 — Observabilidade e operação (P0)
 
 - [ ] **T1.1 — Adicionar instrumentação OpenTelemetry.** Traces e métricas correlacionando requisição, consulta, varredura, transferência Nebula, chamadas Telegram e sessão de reprodução.
+  - [x] Parcial: listener HTTP Nebula cria spans `ActivitySource`, aceita `traceparent` W3C sem preservar `tracestate`, registra método/rota/status e tipo de erro sem incluir caminho, token ou identificador de mídia.
+  - [x] Parcial: exportação OTLP opt-in por variáveis padrão OpenTelemetry para traces ASP.NET Core/Nebula e métricas de requisições ASP.NET Core; endpoint compartilhado ou endpoint específico por sinal. Sem endpoint, nenhum exporter é registrado. Caminho, query, URL completa e user-agent são removidos dos spans HTTP. Ver [guia de observabilidade](observability.md).
+  - [x] Parcial: ciclo de upload Nebula emite span filho (quando há contexto pai) e métricas de total/duração com resultado de baixa cardinalidade; títulos, nomes, caminhos e IDs não são incluídos.
+  - [x] Parcial: downloads multipart STRM/arquivos físicos emitem span e métricas de total/duração; URL, query, nome e caminho não são atributos. Cancelamento só é classificado como cancelado quando token de cancelamento foi solicitado; timeout continua falha.
 - [ ] **T1.2 — Criar indicadores de operação no painel.** Saúde/degradação de MongoDB e MariaDB, espaço do cache, fila mais antiga, itens em retry, throughput e falhas por etapa.
+  - [x] Parcial: painel Nebula exibe health do MariaDB usando o check nomeado do contexto principal e atualiza a cada 30 s; não expõe detalhes de conexão. O MongoDB já era consultado pelo endpoint de saúde Nebula.
+  - [x] Parcial: painel mostra tamanho/arquivos do cache, leases de reprodução, pré-cache e espaço no volume; cache não inicializado aparece como indisponível, em vez de zeros falsos. A consulta do cache é limitada a 120 s porque a implementação ativa calcula ocupação caminhando pelos arquivos.
+  - [ ] Pendente: resumo eficiente da fila mais antiga e registros em retry, além de throughput e falhas por etapa. Não materializar a fila completa em polling.
 - [ ] **T1.3 — Separar logs operacionais de auditoria.** IDs de correlação, retenção configurável e remoção/redação de tokens, credenciais, URLs assinadas e dados pessoais.
 - [ ] **T1.4 — Expor health checks úteis.** Diferenciar processo ativo de serviço pronto; reportar dependências essenciais e estado degradado sem expor segredos publicamente.
   - [x] O `/ready` do Nebula usa `GetComponentHealthAsync` e verifica MongoDB + listeners FTP/HTTP; não materializa listas completas de uploads para responder readiness.
@@ -223,6 +230,7 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 - [ ] **W4.2 — Adicionar snapshots visuais estáveis.** Viewports celular, desktop e TV; baseline revisto por pessoa; ambiente de navegador fixado.
 - [ ] **W4.3 — Validar interações e paginação.** Setas, scroll, foco, estados de carregamento e carregamento de mais resultados.
 - [ ] **W4.4 — Integrar quality gate do frontend.** `npm run build:check`, `npm test`, ESLint/Stylelint, `npm run build:production`, verificação do artefato e Playwright relevante.
+  - [x] Isolar os testes de `viewContainer` do módulo global `Dashboard` não usado nesses cenários e aguardar as Promises de `loadView`, evitando callbacks do polyfill após o teardown do `jsdom`.
 - [ ] **W4.5 — Definir política para flaky tests.** Diagnóstico com trace/screenshot; nenhuma instabilidade escondida por retries ilimitados.
 
 **Aceite:** rotas críticas têm teste funcional e visual; regressão de layout/ausência de grids é detectada antes da release; pipeline registra artefatos de falha.
@@ -268,6 +276,34 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 
 ## Registro de execução
 
+### 28/09/2026 — Primeiro span correlacionável do listener Nebula (T1.1 parcial)
+
+- `NebulaHttpStreamServer` agora emite `ActivityKind.Server` pela fonte `MulletaFlix.Nebula.HttpStreamServer`; aceita contexto W3C recebido e limita tags a método HTTP normalizado, rota fixa, status e tipo de exceção. Caminhos, query string e credenciais não entram no span.
+- As métricas Prometheus existentes continuam ativas. Não foi adicionada dependência nem exportador OpenTelemetry; sem listener/exportador registrado, a fonte não coleta nem persiste spans. O restante da correlação (ASP.NET, bancos, scanner, Telegram, upload/download e sessão de reprodução) segue pendente.
+- Teste focado `NebulaStreamEngineTests`: 22 aprovados; suíte completa `Jellyfin.Server.Implementations.Tests`: 979 aprovados, 38 ignorados, 0 falhas. `dotnet build Jellyfin.Server/Jellyfin.Server.csproj -c Release --no-restore`: exit 0, 0 erros; `git diff --check`: exit 0. Avisos conhecidos incluem NU1903 para `Newtonsoft.Json` 9.0.1 e avisos de analisadores.
+- Nenhum serviço instalado foi reiniciado. Nenhuma release foi criada ou publicada; todas as melhorias ativas ainda precisam ser concluídas antes do release único.
+
+### 28/09/2026 — Exportação OTLP opt-in e instrumentação HTTP (T1.1 parcial)
+
+- Adicionadas dependências OpenTelemetry para hosting, protocolo OTLP e instrumentação ASP.NET Core. Exportação ativa somente quando `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` ou `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` estiver configurada; nenhuma tentativa de conexão local implícita. O guia documenta gRPC e HTTP/protobuf.
+- Traces incluem instrumentação HTTP ASP.NET Core e spans do listener Nebula; métricas incluem requisições ASP.NET Core. O endpoint Prometheus existente permanece independente. Tags com caminho, query, URL completa e user-agent são removidas; `tracestate` não é propagado pelo listener Nebula.
+- Testes `MulletaFlixOpenTelemetryExtensionsTests`: 7 aprovados; suíte completa `Jellyfin.Server.Tests`: 29 aprovados, 0 falhas; suíte completa `Jellyfin.Server.Implementations.Tests`: 979 aprovados, 38 ignorados, 0 falhas; build Release de `Jellyfin.Server`: exit 0, 0 erros; `git diff --check`: exit 0. Persistem avisos NU1903 para `Newtonsoft.Json` 9.0.1.
+- Limite: nenhum collector OTLP foi conectado, então exportação de rede não foi verificada em runtime. Instrumentação de banco, varreduras, Telegram, upload/download e sessão de reprodução continua pendente; T1.1 permanece aberta. Nenhum pacote/release foi criado ou publicado.
+
+### 28/09/2026 — Tracing e métricas do ciclo de upload Nebula (T1.1 parcial)
+
+- `NebulaUploadEngine` emite span interno ao redor do ciclo completo do worker. Registra apenas operação, resultado e tipo de erro; exceções de cancelamento são classificadas como canceladas sem status de erro.
+- Adicionadas métricas OTEL de contagem e duração de uploads com atributo único de resultado (`success`, `failure` ou `cancelled`). A instrumentação não inclui nome/caminho, pasta, ID Telegram ou ID MongoDB; métrica habilitada junto à configuração OTLP de métricas.
+- Teste focado `UploadEngine_EmitsActivityWithoutMediaIdentifiers`: 1 aprovado, validando span, métrica e ausência de identificadores. Suíte completa `Jellyfin.Server.Implementations.Tests`: 980 aprovados, 38 ignorados, 0 falhas; `Jellyfin.Server.Tests`: 29 aprovados, 0 falhas; build Release do servidor: exit 0, 0 erros; `git diff --check`: exit 0. Permanecem avisos NU1903 para `Newtonsoft.Json` 9.0.1 e analisadores existentes.
+- Limite: nenhum collector OTLP foi conectado. Teste verifica emissão local via `ActivityListener`/`MeterListener`, não entrega pela rede. Spans detalhados de Telegram, MongoDB, MariaDB, scanner, download e sessão de reprodução seguem pendentes. T1.1 segue aberta; nenhuma release foi criada/publicada.
+
+### 28/09/2026 — Tracing e métricas dos downloads Nebula (T1.1 parcial)
+
+- `NebulaDownloaderEngine.DownloadMultipartAsync` emite span e métricas para transferências de STRM e arquivos físicos. Resultado/duração usam somente atributo de resultado com baixa cardinalidade; URL assinada, query, caminho, nome e IDs não entram na telemetria.
+- Cancelamentos só recebem resultado `cancelled` quando o token do chamador foi cancelado. Timeout do `HttpClient` permanece falha, com status de erro no span.
+- Teste focado `Downloader_EmitsActivityAndMetricsWithoutUrlOrPath`: 1 aprovado; suíte completa `Jellyfin.Server.Implementations.Tests`: 981 aprovados, 38 ignorados, 0 falhas; `Jellyfin.Server.Tests`: 29 aprovados, 0 falhas; build Release do servidor e `git diff --check`: exit 0. Persistem avisos NU1903 para `Newtonsoft.Json` 9.0.1 e avisos de analisadores.
+- Sem collector ativo, exportação de rede não foi verificada. Nenhuma release foi criada ou publicada.
+
 ### 28/09/2026 — Baseline inicial da instância Windows (T0.1 parcial)
 
 - Instância observada por leitura local: MulletaFlix `12.1.5`, executável instalado em `C:\Program Files\MulletaFlix\Server\MulletaFlix.exe`; Windows 11 Pro `10.0.26200`, 12 processadores lógicos, 15,7 GiB RAM. Processo iniciou às 10:16:04; log registra `Startup complete` às 10:16:13.699 (-03:00), estimativa de startup de ~9,7 s (um único boot).
@@ -289,8 +325,15 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Adicionado `MulletaFlix-web-master/scripts/report-bundle-transfer.mjs`. Executar de qualquer diretório com `node MulletaFlix-web-master/scripts/report-bundle-transfer.mjs` para medir HTML, os assets JS/CSS referenciados por `index.html` e todos os JS/CSS em `dist/assets`; usa gzip nível 6 e Brotli qualidade 5, sem dependência nova.
 - No artefato atual: HTML + 8 assets iniciais = 1.205.717 bytes brutos, 281.927 bytes gzip simulado e 259.288 bytes Brotli simulado. Os 677 arquivos JS/CSS somam 20.622.168 bytes brutos, 6.299.664 gzip e 5.781.805 Brotli.
 - Os bytes comprimidos são estimativas por arquivo, não respostas HTTP observadas: negociação, cabeçalhos, compressão do servidor, cache do navegador e assets carregados sob demanda não foram medidos. Não usar o total de todos os chunks como tráfego de uma sessão.
-- Verificação: `node scripts/report-bundle-transfer.mjs`, `npm run build:check`, `npm test -- --reporter=dot`, `npm run verify:build` e ESLint do script saíram com código 0; 26 arquivos/208 testes passaram. A suíte imprimiu `ReferenceError: window is not defined` após o resumo de sucesso, apesar de exit code 0; investigar essa saída assíncrona antes da validação final da frente web. `git diff --check` também passou.
+- Verificação daquela execução: `node scripts/report-bundle-transfer.mjs`, `npm run build:check`, `npm test -- --reporter=dot`, `npm run verify:build` e ESLint do script saíram com código 0; 26 arquivos/208 testes passaram, mas a suíte ainda imprimiu `ReferenceError: window is not defined` após o resumo. Essa falha tardia foi corrigida na execução registrada em “Teardown limpo nos testes de `viewContainer`”. `git diff --check` também passou.
 - T0.4 permanece parcial: faltam medições repetidas em runtime, busca, compressão HTTP real, recursos/disco e cache sob carga representativa; nenhuma budget global foi definida.
+
+### 28/09/2026 — Teardown limpo nos testes de `viewContainer` (W4.4 parcial)
+
+- A reprodução isolada confirmou `ReferenceError: window is not defined` depois dos testes e exit code 0. A causa era importar a árvore global `Dashboard` em testes que não exercitam esse módulo; isso carregava o polyfill `webcomponents-lite`, cujo `MutationObserver` ainda recebia mutações durante o teardown do `jsdom`.
+- Os testes agora mockam somente `Dashboard.getPluginUrl` (não usado nesses casos) e aguardam a Promise de `loadView`. Não há alteração de produção nem supressão de erro; os cenários continuam validando script inline, resolução de URLs e preservação de script/stylesheet externos.
+- Verificação após correção: teste isolado `viewContainer.test.ts` — 3/3; suíte Vitest — 26 arquivos/208 testes e exit 0, sem o `ReferenceError`; `npm run build:check`, ESLint dos arquivos alterados, `npm run build:production` e `npm run verify:build` — exit 0; 1.895 artefatos aprovados. Permanecem avisos do Rollup sobre diretivas `use client`, falhas de fetch esperadas em testes jsdom e aviso de `getComputedStyle` não implementado.
+- Busca por chamadas não aguardadas de `viewContainer.loadView` encontrou zero outros casos; o consumidor de produção encadeia a Promise. `git diff --check` passou. W4.4 continua aberta para Stylelint/Playwright e integração completa do quality gate.
 
 ### 28/09/2026 — Cache compartilhado Nebula (T3.1 parcial, T3.3 parcial, T3.4 concluída, T3.5 parcial, T3.6 parcial)
 
@@ -419,6 +462,14 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - T2.7 permanece **parcial**: ainda falta uma validação integrada controlada confirmando o upload no Mongo,
   o refresh autenticado no rclone real e a visibilidade imediata no N: sem reiniciar a montagem. Nenhum
   servidor instalado foi reiniciado e nenhuma release/portal foi publicada.
+
+### 28/09/2026 — Painel de dependências e cache (T1.2 parcial)
+
+- A tela Operações Nebula agora consulta o health check do MariaDB e apresenta saúde MongoDB/MariaDB, além de ocupação da cota e volume do cache, leases ativos e estado do pré-cache. A tela de Cache Nebula informa explicitamente quando o componente ainda não foi inicializado.
+- O status do cache deixou de percorrer a árvore de diretórios quando o serviço de cache não está inicializado; esse estado não é mais representado como ocupação zero válida. Enquanto ativo, o endpoint ainda caminha os arquivos para calcular tamanho/contagem, então a tela operacional consulta esse endpoint a cada 120 s, não junto do polling de 3 s da fila.
+- Validação: API — 179 testes aprovados; suíte completa Implementations — 981 aprovados/38 ignorados/0 falhas (inclui 34 testes de cache); `dotnet build Jellyfin.Server/Jellyfin.Server.csproj -c Release --no-restore` — sucesso, 0 erros; TypeScript — sucesso; Vitest — 208 testes aprovados/26 arquivos; `npm run build:production` — sucesso.
+- A primeira execução Vitest teve 2 suítes impedidas por erro transitório de leitura `UNKNOWN` na configuração PostCSS (201 testes passaram); repetição após build passou integralmente. Avisos de Vite `use client`, dependência dinâmica/estática e NU1903 Newtonsoft.Json 9.0.1 permanecem.
+- Limite: indicadores de fila mais antiga, retries, throughput e falhas por etapa ainda não foram implementados. Cache ativo ainda exige caminhada de arquivos e merece agregação incremental antes de aumentar a frequência. T1.2 permanece parcial; nenhuma release criada/publicada conforme o gate do usuário.
 
 ## Backlog futuro — fora do ciclo ativo
 

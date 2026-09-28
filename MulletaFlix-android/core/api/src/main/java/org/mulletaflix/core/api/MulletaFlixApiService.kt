@@ -139,6 +139,12 @@ interface MulletaFlixApiService {
         @Query("EnableImageTypes") enableImageTypes: String = "Primary,Backdrop,Thumb",
     ): BaseItemDtoQueryResultDto
 
+    @GET("Items/Filters")
+    suspend fun getLibraryFilterOptions(
+        @Query("ParentId") parentId: String,
+        @Query("IncludeItemTypes") includeItemTypes: String? = null,
+    ): LibraryFilterOptionsDto
+
     @GET("Users/{userId}/Items/Resume")
     suspend fun getResumeItems(
         @Path("userId") userId: String,

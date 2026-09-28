@@ -40,6 +40,20 @@ Describe 'Assert-AndroidInstrumentationResults' {
         $thrown | Should Be $true
     }
 
+    It 'rejects a report when every test was skipped for a mismatched profile' {
+        $reportPath = Join-Path $TestDrive 'skipped.xml'
+        Set-Content -LiteralPath $reportPath -Value '<testsuites tests="2" failures="0" errors="0" skipped="2" />'
+
+        $message = $null
+        try {
+            Assert-AndroidInstrumentationResults -ReportFiles @(Get-Item $reportPath) -StartedAt (Get-Date).AddMinutes(-1)
+        } catch {
+            $message = $_.Exception.Message
+        }
+
+        $message -like '*contains no executed tests (2 skipped)*' | Should Be $true
+    }
+
     It 'accepts fresh reports with executed tests and no failures' {
         $reportPath = Join-Path $TestDrive 'passed.xml'
         Set-Content -LiteralPath $reportPath -Value '<testsuites tests="3" failures="0" errors="0" skipped="0" />'

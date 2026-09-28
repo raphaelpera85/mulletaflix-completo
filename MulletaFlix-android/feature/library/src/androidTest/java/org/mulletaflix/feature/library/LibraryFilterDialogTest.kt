@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -90,6 +91,63 @@ class LibraryFilterDialogTest {
                 applied?.second,
             )
         }
+    }
+
+    @Test
+    fun available_options_can_be_selected_and_removed_before_applying() {
+        var applied: LibraryFacetFilters? = null
+        composeRule.setContent {
+            MaterialTheme {
+                FilterDialog(
+                    activeFilters = emptyList(),
+                    availableFilterOptions = org.mulletaflix.domain.model.LibraryFilterOptions(
+                        genres = listOf("Drama", "Ação"),
+                        years = listOf(2024, 2023),
+                        officialRatings = listOf("PG-13"),
+                    ),
+                    onApply = { _, facets -> applied = facets },
+                    onClear = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Selecionar gêneros disponíveis").performClick()
+        composeRule.onNodeWithText("Drama").performClick()
+        composeRule.onNodeWithText("Ação").performClick()
+        composeRule.onNodeWithText("Drama").performClick()
+        composeRule.onNodeWithContentDescription("Selecionar gêneros disponíveis").performClick()
+        composeRule.onNodeWithContentDescription("Selecionar anos disponíveis").performScrollTo().performClick()
+        composeRule.onNodeWithText("2024").performClick()
+        composeRule.onNodeWithContentDescription("Selecionar anos disponíveis").performClick()
+        composeRule.onNodeWithContentDescription("Selecionar classificações disponíveis").performScrollTo().performClick()
+        composeRule.onNodeWithText("PG-13").performClick()
+        composeRule.onNodeWithContentDescription("Selecionar classificações disponíveis").performClick()
+        composeRule.onNodeWithText("Aplicar filtros").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(LibraryFacetFilters(genres = "Ação", years = "2024", officialRatings = "PG-13"), applied)
+        }
+    }
+
+    @Test
+    fun dpad_opens_a_server_option_picker_on_tv() {
+        assumeTelevisionProfile()
+        composeRule.setContent {
+            MaterialTheme {
+                FilterDialog(
+                    activeFilters = emptyList(),
+                    availableFilterOptions = org.mulletaflix.domain.model.LibraryFilterOptions(genres = listOf("Drama")),
+                    onApply = { _, _ -> },
+                    onClear = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Selecionar gêneros disponíveis")
+            .performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.onNodeWithText("Drama").assertIsDisplayed()
     }
 
     @Test

@@ -108,10 +108,40 @@ type NebulaComponentHealth = {
     HttpListenerRunning: boolean;
 };
 
+type NebulaDatabaseHealth = {
+    available: boolean;
+    healthy: boolean;
+    status: string;
+};
+
+type NebulaPlaybackCacheStatus = {
+    isAvailable: boolean;
+    formattedSize: string;
+    cachedFilesCount: number;
+    activeLeasesCount: number;
+    activePrefetchCount: number;
+    queuedPrefetchCount: number;
+    freeSpaceGb: number;
+    totalSpaceGb: number;
+    maxCacheSizeBytes: number;
+    totalSizeBytes: number;
+};
+
+type NebulaUploadQueueSummary = {
+    isAvailable: boolean;
+    pendingCount: number;
+    retryCount: number;
+    oldestPendingName: string;
+    oldestPendingAtUtc: string | null;
+};
+
 const STATUS_QUERY_KEY = [ 'NebulaStatus' ];
 const LOGS_QUERY_KEY = [ 'NebulaLogs' ];
 const BOTS_QUERY_KEY = [ 'NebulaBots' ];
 const HEALTH_QUERY_KEY = [ 'NebulaHealth' ];
+const DATABASE_HEALTH_QUERY_KEY = [ 'NebulaDatabaseHealth' ];
+const PLAYBACK_CACHE_QUERY_KEY = [ 'NebulaPlaybackCacheStatus' ];
+const UPLOAD_QUEUE_SUMMARY_QUERY_KEY = [ 'NebulaUploadQueueSummary' ];
 
 const getApiClient = (): ApiClient => {
     const apiClient = ServerConnections.currentApiClient();
@@ -430,6 +460,31 @@ const NebulaPage = () => {
         },
         refetchInterval: 10000
     });
+    const databaseHealthQuery = useQuery({
+        queryKey: DATABASE_HEALTH_QUERY_KEY,
+        queryFn: () => {
+            const apiClient = getApiClient();
+            return apiClient.getJSON(apiClient.getUrl('NebulaFtp/DatabaseHealth')) as Promise<NebulaDatabaseHealth>;
+        },
+        refetchInterval: 30000
+    });
+    const playbackCacheQuery = useQuery({
+        queryKey: PLAYBACK_CACHE_QUERY_KEY,
+        queryFn: () => {
+            const apiClient = getApiClient();
+            return apiClient.getJSON(apiClient.getUrl('NebulaFtp/PlaybackCache')) as Promise<NebulaPlaybackCacheStatus>;
+        },
+        // Cache occupancy requires a disk walk; refresh much less often than the live queue status.
+        refetchInterval: 120000
+    });
+    const uploadQueueSummaryQuery = useQuery({
+        queryKey: UPLOAD_QUEUE_SUMMARY_QUERY_KEY,
+        queryFn: () => {
+            const apiClient = getApiClient();
+            return apiClient.getJSON(apiClient.getUrl('NebulaFtp/UploadQueueSummary')) as Promise<NebulaUploadQueueSummary>;
+        },
+        refetchInterval: 30000
+    });
 
     const retryStatus = useCallback(() => {
         void statusQuery.refetch();
@@ -437,6 +492,15 @@ const NebulaPage = () => {
     const retryHealth = useCallback(() => {
         void healthQuery.refetch();
     }, [ healthQuery ]);
+    const retryDatabaseHealth = useCallback(() => {
+        void databaseHealthQuery.refetch();
+    }, [ databaseHealthQuery ]);
+    const retryPlaybackCache = useCallback(() => {
+        void playbackCacheQuery.refetch();
+    }, [ playbackCacheQuery ]);
+    const retryUploadQueueSummary = useCallback(() => {
+        void uploadQueueSummaryQuery.refetch();
+    }, [ uploadQueueSummaryQuery ]);
     const retryBots = useCallback(() => {
         void botsQuery.refetch();
     }, [ botsQuery ]);
@@ -783,6 +847,89 @@ const NebulaPage = () => {
                                     <Typography variant='body2' color='text.secondary'>Checks individuais sem expor credenciais ou URLs sensíveis.</Typography>
                                 </Box>
                                 <HealthContent isError={healthQuery.isError} error={healthQuery.error} health={componentHealth} onRetry={retryHealth} />
+                                {databaseHealthQuery.isError ? (
+                                    <Alert severity='warning' action={<Button color='inherit' size='small' onClick={retryDatabaseHealth}>Tentar novamente</Button>}>
+                                        Não foi possível consultar o MariaDB: {getErrorMessage(databaseHealthQuery.error)}
+                                    </Alert>
+                                ) : databaseHealthQuery.data ? (
+                                    <Stack direction='row' alignItems='center' spacing={1}>
+                                        {stateChip(databaseHealthQuery.data.available && databaseHealthQuery.data.healthy,
+                                            'MariaDB conectado',
+                                            databaseHealthQuery.data.available ? 'MariaDB indisponível' : 'MariaDB sem check')}
+                                        <Typography variant='caption' color='text.secondary'>{databaseHealthQuery.data.status}</Typography>
+                                    </Stack>
+                                ) : (
+                                    <Typography variant='body2' color='text.secondary'>Consultando MariaDB...</Typography>
+                                )}
+                            </Stack>
+                        </Paper>
+
+                        <Paper variant='outlined' sx={{ p: 2 }}>
+                            <Stack spacing={1.5}>
+                                <Box>
+                                    <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>Resumo da fila de envio</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Consulta somente contagens e o item pendente mais antigo; atualização a cada 30 segundos.</Typography>
+                                </Box>
+                                {uploadQueueSummaryQuery.isError ? (
+                                    <Alert severity='warning' action={<Button color='inherit' size='small' onClick={retryUploadQueueSummary}>Tentar novamente</Button>}>
+                                        Não foi possível consultar a fila: {getErrorMessage(uploadQueueSummaryQuery.error)}
+                                    </Alert>
+                                ) : uploadQueueSummaryQuery.data && !uploadQueueSummaryQuery.data.isAvailable ? (
+                                    <Alert severity='info'>Resumo indisponível: MongoDB ainda não está conectado.</Alert>
+                                ) : uploadQueueSummaryQuery.data ? (
+                                    <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} flexWrap='wrap'>
+                                        <Typography>{uploadQueueSummaryQuery.data.pendingCount} item(ns) pendente(s)</Typography>
+                                        <Typography>{uploadQueueSummaryQuery.data.retryCount} item(ns) aguardando retry</Typography>
+                                        <Typography color='text.secondary'>
+                                            Mais antigo: {uploadQueueSummaryQuery.data.oldestPendingName || 'nenhum'}
+                                            {uploadQueueSummaryQuery.data.oldestPendingAtUtc
+                                                ? ` · ${new Date(uploadQueueSummaryQuery.data.oldestPendingAtUtc).toLocaleString()}`
+                                                : ''}
+                                        </Typography>
+                                    </Stack>
+                                ) : (
+                                    <Typography color='text.secondary'>Consultando fila...</Typography>
+                                )}
+                            </Stack>
+                        </Paper>
+
+                        <Paper variant='outlined' sx={{ p: 2 }}>
+                            <Stack spacing={1.5}>
+                                <Box>
+                                    <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>Cache de reprodução</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Uso, espaço livre e sessões protegidas; atualização a cada 120 segundos.</Typography>
+                                </Box>
+                                {playbackCacheQuery.isError ? (
+                                    <Alert severity='warning' action={<Button color='inherit' size='small' onClick={retryPlaybackCache}>Tentar novamente</Button>}>
+                                        Não foi possível consultar o cache: {getErrorMessage(playbackCacheQuery.error)}
+                                    </Alert>
+                                ) : playbackCacheQuery.data && !playbackCacheQuery.data.isAvailable ? (
+                                    <Alert severity='info'>O componente de cache não está inicializado; métricas de ocupação ainda não estão disponíveis.</Alert>
+                                ) : playbackCacheQuery.data ? (
+                                    <Stack spacing={1}>
+                                        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent='space-between' gap={1}>
+                                            <Typography>{playbackCacheQuery.data.formattedSize} em {playbackCacheQuery.data.cachedFilesCount} arquivo(s)</Typography>
+                                            <Typography color='text.secondary'>{playbackCacheQuery.data.activeLeasesCount} reprodução(ões) protegida(s)</Typography>
+                                        </Stack>
+                                        <LinearProgress
+                                            variant='determinate'
+                                            value={playbackCacheQuery.data.maxCacheSizeBytes > 0
+                                                ? Math.min(100, (playbackCacheQuery.data.totalSizeBytes / playbackCacheQuery.data.maxCacheSizeBytes) * 100)
+                                                : 0}
+                                            aria-label='Uso da cota do cache de reprodução'
+                                        />
+                                        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent='space-between' gap={1}>
+                                            <Typography variant='caption' color='text.secondary'>
+                                                {playbackCacheQuery.data.freeSpaceGb.toFixed(1)} GB livres de {playbackCacheQuery.data.totalSpaceGb.toFixed(1)} GB no volume
+                                            </Typography>
+                                            <Typography variant='caption' color='text.secondary'>
+                                                Pré-cache: {playbackCacheQuery.data.activePrefetchCount} ativo(s), {playbackCacheQuery.data.queuedPrefetchCount} na fila
+                                            </Typography>
+                                        </Stack>
+                                    </Stack>
+                                ) : (
+                                    <Typography color='text.secondary'>Consultando cache...</Typography>
+                                )}
                             </Stack>
                         </Paper>
 

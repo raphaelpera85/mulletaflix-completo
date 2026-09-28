@@ -2,6 +2,15 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Redescoberta LAN após edição manual ou QR (APK local; sem release)
+
+- [x] Editar a URL ou preencher pelo QR continua impedindo que a seleção automática sobrescreva a escolha manual.
+- [x] Ao solicitar explicitamente uma nova busca na rede, rearmar a conexão automática; aguardar a geração daquela descoberta terminar antes de escolher um endpoint.
+- [x] Descartar resultados e erros atrasados de gerações antigas; não deixar uma descoberta cancelada substituir a mais recente.
+- [x] Testar transição de edição para nova descoberta, resultados LAN antigos enquanto a busca está pendente, conclusão da geração atual e resposta antiga após a nova; `:feature:auth:testDebugUnitTest` passou (94 testes, 0 falhas/erros/ignorados).
+- [x] `testDebugUnitTest` global (1.290 testes), `:app:lintDebug` e `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [ ] Sem pacote de produção ou publicação nesta validação. Release APK anterior conferida: `app-v1.3.80` (um asset); versão local é `1.3.81`. `:app:verifyProductionSigningCertificate` falhou: esperado `224F9A6B…1E036273`, obtido `4890D80B…C5A0A24C`; corrigir a keystore antes de qualquer release.
+
 ## Testes instrumentados por perfil de dispositivo (APK local; sem release)
 
 - [x] `HomeAdaptiveUsageTest` executa uma única verificação contra o perfil real do AVD (telefone, tablet ou TV), sem marcar como falha os dois perfis que não correspondem ao emulador atual; exige `expectedDeviceProfile` para confirmar o AVD solicitado.

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assume.assumeTrue
 import org.mulletaflix.domain.repository.DownloadEntry
 import org.mulletaflix.domain.repository.DownloadRepository
 import org.mulletaflix.domain.repository.DownloadState
@@ -25,7 +26,7 @@ class DownloadsTvScreenTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val isTelevision = (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
             Configuration.UI_MODE_TYPE_TELEVISION
-        if (!isTelevision) return
+        assumeTrue("Downloads TV screen test requires Android TV", isTelevision)
 
         val repository = TvQueueRepository(
             entries = listOf(

@@ -19,6 +19,7 @@ import org.junit.Before
 import org.junit.Test
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.model.MediaItemType
+import org.mulletaflix.domain.model.LibraryFilterOptions
 import org.mulletaflix.domain.repository.AuthRepository
 import org.mulletaflix.domain.repository.MediaRepository
 import org.mulletaflix.domain.repository.QuickConnectState
@@ -403,6 +404,56 @@ class LibraryViewModelTest {
         advanceUntilIdle()
         assertEquals(true, media.lastIsFavorite)
         assertEquals(true, media.lastIsPlayed)
+    }
+
+    @Test
+    fun `available facet options load only when filter dialog opens and are cached until library reload`() = runTest {
+        media.filterOptions = LibraryFilterOptions(
+            genres = listOf("Drama", "Ação"),
+            years = listOf(2024),
+            officialRatings = listOf("PG-13"),
+        )
+        val viewModel = createViewModel()
+        viewModel.loadLibrary("library-1")
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.availableFilterOptions)
+        assertEquals(0, media.filterOptionsCalls)
+
+        viewModel.showFilterMenu()
+        advanceUntilIdle()
+
+        assertEquals(media.filterOptions, viewModel.state.value.availableFilterOptions)
+        assertEquals(1, media.filterOptionsCalls)
+        assertEquals("library-1", media.lastFilterParentId)
+        assertEquals(media.lastIncludeItemTypes, media.lastFilterIncludeItemTypes)
+
+        viewModel.hideFilterMenu()
+        viewModel.showFilterMenu()
+        advanceUntilIdle()
+        assertEquals("reopening the same library filter reuses its options", 1, media.filterOptionsCalls)
+    }
+
+    @Test
+    fun `late filter options from the previous library are discarded`() = runTest {
+        val pending = CompletableDeferred<Result<LibraryFilterOptions>>()
+        media.pendingFilterOptions = pending
+        val viewModel = createViewModel()
+        viewModel.loadLibrary("old-library")
+        advanceUntilIdle()
+
+        viewModel.showFilterMenu()
+        runCurrent()
+        assertEquals(true, viewModel.state.value.isLoadingFilterOptions)
+
+        media.pendingFilterOptions = null
+        viewModel.loadLibrary("new-library")
+        advanceUntilIdle()
+        pending.complete(Result.success(LibraryFilterOptions(genres = listOf("Old genre"))))
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.state.value.availableFilterOptions)
+        assertEquals(false, viewModel.state.value.isLoadingFilterOptions)
     }
 
     @Test
@@ -794,6 +845,11 @@ class LibraryViewModelTest {
         var libraryCollectionType: String? = null
         var detailCalls: Int = 0
         var itemCalls: Int = 0
+        var filterOptionsCalls: Int = 0
+        var filterOptions = LibraryFilterOptions()
+        var pendingFilterOptions: CompletableDeferred<Result<LibraryFilterOptions>>? = null
+        var lastFilterParentId: String? = null
+        var lastFilterIncludeItemTypes: String? = null
         var blockedLibraryRelease = CompletableDeferred<Unit>()
         var responseSequence: ArrayDeque<CompletableDeferred<Result<Pair<List<MediaItem>, Int>>>>? = null
         override suspend fun getItems(userId: String, parentId: String?, includeItemTypes: String?, sortBy: String?, sortOrder: String?, filters: String?, searchTerm: String?, startIndex: Int, limit: Int, genres: String?, years: String?, officialRatings: String?, isPlayed: Boolean?, isFavorite: Boolean?): Result<Pair<List<MediaItem>, Int>> {
@@ -811,6 +867,14 @@ class LibraryViewModelTest {
             return responseSequence?.removeFirstOrNull()?.let { deferred ->
                 withContext(NonCancellable) { deferred.await() }
             } ?: itemsByLibrary[parentId]?.let { Result.success(it) } ?: pages[startIndex] ?: Result.success(emptyList<MediaItem>() to 0)
+        }
+        override suspend fun getLibraryFilterOptions(userId: String, parentId: String, includeItemTypes: String?): Result<LibraryFilterOptions> {
+            filterOptionsCalls++
+            lastFilterParentId = parentId
+            lastFilterIncludeItemTypes = includeItemTypes
+            return pendingFilterOptions?.let { deferred ->
+                withContext(NonCancellable) { deferred.await() }
+            } ?: Result.success(filterOptions)
         }
         override suspend fun getItem(userId: String, itemId: String): Result<MediaItem> {
             detailCalls++

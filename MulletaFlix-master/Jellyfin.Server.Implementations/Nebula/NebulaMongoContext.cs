@@ -123,7 +123,8 @@ public sealed class NebulaMongoContext : IDisposable
             (Builders<BsonDocument>.IndexKeys.Ascending("name"), "name_1"),
             (Builders<BsonDocument>.IndexKeys.Ascending("parent").Ascending("name"), "parent_1_name_1"),
             (Builders<BsonDocument>.IndexKeys.Descending("modified_at"), "modified_at_-1"),
-            (Builders<BsonDocument>.IndexKeys.Descending("uploaded_at"), "uploaded_at_-1")
+            (Builders<BsonDocument>.IndexKeys.Descending("uploaded_at"), "uploaded_at_-1"),
+            (Builders<BsonDocument>.IndexKeys.Ascending("type").Ascending("status").Ascending("queued_at"), "type_1_status_1_queued_at_1")
         };
 
         foreach (var (keys, name) in indexes)
@@ -1491,6 +1492,65 @@ public sealed class NebulaMongoContext : IDisposable
         var filter = Builders<BsonDocument>.Filter.Eq("status", "uploading");
         using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
         return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default)
+    {
+        var fileFilter = Builders<BsonDocument>.Filter.Eq("type", "file");
+        var pendingFilter = Builders<BsonDocument>.Filter.And(
+            fileFilter,
+            Builders<BsonDocument>.Filter.In("status", new[] { "staging", "queued" }));
+        var retryFilter = Builders<BsonDocument>.Filter.And(
+            fileFilter,
+            Builders<BsonDocument>.Filter.Eq("status", "failed"),
+            Builders<BsonDocument>.Filter.Exists("retry_after", true));
+
+        var pendingCount = await _filesCollection.CountDocumentsAsync(pendingFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var retryCount = await _filesCollection.CountDocumentsAsync(retryFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var oldest = await _filesCollection.Find(pendingFilter)
+            .Sort(Builders<BsonDocument>.Sort.Ascending("queued_at").Ascending("created_at"))
+            .Project(Builders<BsonDocument>.Projection.Include("name").Include("display_name").Include("queued_at").Include("created_at"))
+            .Limit(1)
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+
+        var queuedAt = oldest is null
+            ? (long?)null
+            : ReadUnixTimestamp(oldest, "queued_at") ?? ReadUnixTimestamp(oldest, "created_at");
+
+        return new NebulaUploadQueueSummaryDto
+        {
+            IsAvailable = true,
+            PendingCount = pendingCount,
+            RetryCount = retryCount,
+            OldestPendingName = oldest is null
+                ? string.Empty
+                : oldest.GetValue("display_name", oldest.GetValue("name", string.Empty)).ToString(),
+            OldestPendingAtUtc = ToUtcDateTime(queuedAt)
+        };
+    }
+
+    private static long? ReadUnixTimestamp(BsonDocument document, string fieldName)
+    {
+        return document.TryGetValue(fieldName, out var value) && value.IsNumeric
+            ? value.ToInt64()
+            : null;
+    }
+
+    private static DateTime? ToUtcDateTime(long? unixTimestamp)
+    {
+        if (!unixTimestamp.HasValue)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(unixTimestamp.Value).UtcDateTime;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

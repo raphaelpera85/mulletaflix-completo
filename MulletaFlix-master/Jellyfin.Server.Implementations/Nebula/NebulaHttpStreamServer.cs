@@ -25,8 +25,12 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
 {
+    /// <summary>Nome da fonte de atividades de tracing do listener HTTP Nebula.</summary>
+    public const string ActivitySourceName = "MulletaFlix.Nebula.HttpStreamServer";
+
     private static readonly TimeSpan StreamRequestTimeout = TimeSpan.FromHours(2);
     private static readonly TimeSpan ControlRequestTimeout = TimeSpan.FromSeconds(30);
+    private static readonly ActivitySource RequestActivitySource = new(ActivitySourceName);
 
     /// <summary>The copy buffer size used while streaming a response body.</summary>
     private const int StreamBufferSize = 128 * 1024;
@@ -331,6 +335,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         using var requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var requestStarted = Stopwatch.GetTimestamp();
         var route = "other";
+        Activity? requestActivity = null;
 
         try
         {
@@ -338,6 +343,10 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             var isStreamingRequest = path.Equals("/stream", StringComparison.OrdinalIgnoreCase) ||
                 path.Equals("/transcode", StringComparison.OrdinalIgnoreCase);
             route = GetMetricRoute(path);
+            requestActivity = StartRequestActivity(
+                request.Headers["traceparent"],
+                request.HttpMethod,
+                route);
             requestCancellation.CancelAfter(isStreamingRequest ? StreamRequestTimeout : ControlRequestTimeout);
             var requestToken = requestCancellation.Token;
             var isHead = request.HttpMethod.Equals("HEAD", StringComparison.OrdinalIgnoreCase);
@@ -413,6 +422,8 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         }
         catch (Exception ex)
         {
+            requestActivity?.SetStatus(ActivityStatusCode.Error, "Request failed");
+            requestActivity?.SetTag("error.type", ex.GetType().FullName);
             _logger.LogDebug(ex, "[NEBULA-HTTP] Erro ao processar requisição HTTP de stream: {Path}", request.Url?.PathAndQuery);
             try
             {
@@ -427,7 +438,40 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         {
             RequestCounter.WithLabels(route, response.StatusCode.ToString(CultureInfo.InvariantCulture)).Inc();
             RequestDuration.WithLabels(route).Observe(Stopwatch.GetElapsedTime(requestStarted).TotalSeconds);
+            requestActivity?.SetTag("http.response.status_code", response.StatusCode);
+            requestActivity?.Dispose();
         }
+    }
+
+    internal static Activity? StartRequestActivity(string? traceParent, string method, string route)
+    {
+        var parentContext = ActivityContext.TryParse(traceParent, null, out var parsedContext)
+            ? parsedContext
+            : default;
+        var activity = RequestActivitySource.StartActivity("nebula.http.request", ActivityKind.Server, parentContext);
+        if (activity is null)
+        {
+            return null;
+        }
+
+        activity.SetTag("http.request.method", NormalizeHttpMethod(method));
+        activity.SetTag("http.route", route);
+        return activity;
+    }
+
+    private static string NormalizeHttpMethod(string method)
+    {
+        return method.ToUpperInvariant() switch
+        {
+            "GET" => "GET",
+            "HEAD" => "HEAD",
+            "POST" => "POST",
+            "PUT" => "PUT",
+            "DELETE" => "DELETE",
+            "PATCH" => "PATCH",
+            "OPTIONS" => "OPTIONS",
+            _ => "OTHER"
+        };
     }
 
     private static string GetMetricRoute(string path)

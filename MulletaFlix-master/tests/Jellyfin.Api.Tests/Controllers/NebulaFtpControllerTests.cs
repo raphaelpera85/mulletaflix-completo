@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +9,7 @@ using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Nebula;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Moq;
 using MulletaFlix.Api.Controllers;
 using MulletaFlix.Api.Results;
@@ -39,6 +41,58 @@ public sealed class NebulaFtpControllerTests
 
         var ok = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
         Assert.Same(expected, ok.Value);
+    }
+
+    [Fact]
+    public async Task GetDatabaseHealth_ReturnsNamedMariaDbCheckWithoutDetails()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var entry = new HealthReportEntry(
+            Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy,
+            "Banco de dados respondeu ao health check.",
+            TimeSpan.Zero,
+            null,
+            new Dictionary<string, object>());
+        var report = new HealthReport(
+            new Dictionary<string, HealthReportEntry> { ["MulletaFlixDbContext"] = entry },
+            Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy,
+            TimeSpan.Zero);
+        var healthCheckService = new Mock<HealthCheckService>();
+        healthCheckService
+            .Setup(service => service.CheckHealthAsync(It.IsAny<Func<HealthCheckRegistration, bool>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(report);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.GetDatabaseHealth(healthCheckService.Object, CancellationToken.None);
+
+        var response = Assert.IsType<NebulaDatabaseHealthDto>(Assert.IsType<OkResult<NebulaDatabaseHealthDto>>(result.Result).Value);
+        Assert.True(response.Available);
+        Assert.True(response.Healthy);
+        Assert.Equal("Banco de dados respondeu ao health check.", response.Status);
+    }
+
+    [Fact]
+    public async Task GetUploadQueueSummary_ReturnsLightweightSummaryFromManager()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var expected = new NebulaUploadQueueSummaryDto
+        {
+            IsAvailable = true,
+            PendingCount = 17,
+            RetryCount = 3,
+            OldestPendingName = "Episode.mkv",
+            OldestPendingAtUtc = DateTime.UnixEpoch
+        };
+        manager.Setup(m => m.GetUploadQueueSummaryAsync(It.IsAny<CancellationToken>())).ReturnsAsync(expected);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.GetUploadQueueSummary(CancellationToken.None);
+
+        var response = Assert.IsType<NebulaUploadQueueSummaryDto>(Assert.IsType<OkResult<NebulaUploadQueueSummaryDto>>(result.Result).Value);
+        Assert.Same(expected, response);
+        manager.Verify(m => m.GetUploadQueueSummaryAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

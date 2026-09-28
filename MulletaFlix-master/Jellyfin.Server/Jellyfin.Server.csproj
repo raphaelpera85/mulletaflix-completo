@@ -51,6 +51,9 @@
     <PackageReference Include="CommandLineParser" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
     <PackageReference Include="Morestachio" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
     <PackageReference Include="prometheus-net" />
     <PackageReference Include="prometheus-net.AspNetCore" />
     <PackageReference Include="Serilog.AspNetCore" />

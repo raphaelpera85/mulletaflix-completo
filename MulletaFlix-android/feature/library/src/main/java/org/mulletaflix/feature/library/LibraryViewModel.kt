@@ -8,6 +8,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mulletaflix.core.common.network.NetworkMonitor
 import org.mulletaflix.domain.model.LibraryBrowseTypes
+import org.mulletaflix.domain.model.LibraryFilterOptions
 import org.mulletaflix.domain.model.MediaItem
 import org.mulletaflix.domain.paging.appendDistinctBy
 import org.mulletaflix.domain.paging.hasMorePages
@@ -29,6 +30,9 @@ data class LibraryState(
     val isRefreshing: Boolean = false,
     val items: List<MediaItem> = emptyList(),
     val activeFilters: List<String> = emptyList(),
+    val availableFilterOptions: LibraryFilterOptions? = null,
+    val isLoadingFilterOptions: Boolean = false,
+    val filterOptionsError: String? = null,
     val hasMore: Boolean = false,
     val error: String? = null,
     val showSortMenu: Boolean = false,
@@ -56,6 +60,8 @@ class LibraryViewModel @Inject constructor(
     private var currentIncludeItemTypes: String = LibraryBrowseTypes.DEFAULT
     private val pageSize = 40
     private var loadJob: Job? = null
+    private var filterOptionsJob: Job? = null
+    private var filterOptionsRequestGeneration = 0L
 
     /**
      * How many items the server has actually handed over, which is the offset the
@@ -105,12 +111,14 @@ class LibraryViewModel @Inject constructor(
                     ++requestGeneration
                     currentLibraryId = null
                     fetchedItemCount = 0
+                    invalidateFilterOptions()
                     _state.update {
                         it.copy(
                             items = emptyList(),
                             hasMore = false,
                             isLoading = false,
                             isRefreshing = false,
+                            showFilterMenu = false,
                             error = null,
                         )
                     }
@@ -156,6 +164,7 @@ class LibraryViewModel @Inject constructor(
 
     fun loadLibrary(libraryId: String, isTelevision: Boolean = currentIsTelevision) {
         loadJob?.cancel()
+        invalidateFilterOptions()
         val requestGeneration = ++this.requestGeneration
         val switchedLibrary = currentLibraryId != null && currentLibraryId != libraryId
         currentLibraryId = libraryId
@@ -418,10 +427,70 @@ class LibraryViewModel @Inject constructor(
 
     fun showFilterMenu() {
         _state.update { it.copy(showFilterMenu = true) }
+        loadFilterOptionsIfNeeded()
     }
 
     fun hideFilterMenu() {
         _state.update { it.copy(showFilterMenu = false) }
+    }
+
+    private fun loadFilterOptionsIfNeeded() {
+        val libraryId = currentLibraryId ?: return
+        val current = _state.value
+        if (current.availableFilterOptions != null || current.isLoadingFilterOptions) return
+        if (current.isOffline) {
+            _state.update { it.copy(filterOptionsError = "Opções indisponíveis offline. Você ainda pode digitar os filtros.") }
+            return
+        }
+
+        val generation = ++filterOptionsRequestGeneration
+        _state.update { it.copy(isLoadingFilterOptions = true, filterOptionsError = null) }
+        filterOptionsJob = viewModelScope.launch {
+            val userId = currentUserId ?: authRepository.getSavedUserId().firstOrNull()
+            if (userId.isNullOrBlank()) {
+                if (generation == filterOptionsRequestGeneration) {
+                    _state.update {
+                        it.copy(
+                            isLoadingFilterOptions = false,
+                            filterOptionsError = EXPIRED_SESSION_MESSAGE,
+                        )
+                    }
+                }
+                return@launch
+            }
+
+            getLibraryItemsUseCase.getFilterOptions(
+                userId = userId,
+                libraryId = libraryId,
+                includeItemTypes = currentIncludeItemTypes,
+            ).onSuccess { options ->
+                if (generation == filterOptionsRequestGeneration && currentLibraryId == libraryId && currentUserId == userId) {
+                    _state.update { it.copy(availableFilterOptions = options, isLoadingFilterOptions = false) }
+                }
+            }.onFailure { error ->
+                if (generation == filterOptionsRequestGeneration && currentLibraryId == libraryId && currentUserId == userId) {
+                    _state.update {
+                        it.copy(
+                            isLoadingFilterOptions = false,
+                            filterOptionsError = error.message ?: "Não foi possível carregar as opções. Você ainda pode digitar os filtros.",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun invalidateFilterOptions() {
+        filterOptionsRequestGeneration++
+        filterOptionsJob?.cancel()
+        filterOptionsJob = null
+        _state.update {
+            it.copy(
+                availableFilterOptions = null,
+                isLoadingFilterOptions = false,
+                filterOptionsError = null,
+            )
+        }
     }
 
     fun toggleFilter(filter: String) {

@@ -66,6 +66,8 @@ data class AuthState(
     /** True after the persisted server list has emitted, including an empty list. */
     val savedServersLoaded: Boolean = false,
     val isRegistering: Boolean = false,
+    val localDiscoveryGeneration: Long = 0,
+    val completedLocalDiscoveryGeneration: Long = 0,
 )
 
 @HiltViewModel
@@ -86,6 +88,7 @@ class AuthViewModel @Inject constructor(
     private var quickConnectAvailabilityGeneration = 0L
     private var usersLoadJob: Job? = null
     private var discoveryJob: Job? = null
+    private var localDiscoveryGeneration = 0L
     private var connectionJob: Job? = null
     private var connectionGeneration = 0L
     private var usersLoadedForUrl: String? = null
@@ -241,18 +244,21 @@ class AuthViewModel @Inject constructor(
         _state.value.serverUrl?.takeIf(String::isNotBlank)?.let(::loadQuickConnectAvailability)
     }
 
-    fun discoverLocalServers() {
+    fun discoverLocalServers(): Long {
+        val generation = ++localDiscoveryGeneration
         discoveryJob?.cancel()
         _state.update {
             it.copy(
                 isDiscovering = true,
                 isLocalNetworkPermissionRequired = false,
                 error = null,
+                localDiscoveryGeneration = generation,
             )
         }
         discoveryJob = viewModelScope.launch {
             try {
                 val servers = localServerDiscovery.discover()
+                if (generation != localDiscoveryGeneration) return@launch
                 val current = _state.value
                 _state.update { current ->
                     current.copy(
@@ -261,6 +267,7 @@ class AuthViewModel @Inject constructor(
                         // The UI uses this list to trigger the automatic LAN
                         // connection on every startup.
                         discoveredServers = servers.distinctBy { it.url },
+                        completedLocalDiscoveryGeneration = generation,
                     )
                 }
                 // Do not choose a LAN endpoint using the UI's placeholder server list.
@@ -275,23 +282,30 @@ class AuthViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: LocalNetworkPermissionRequiredException) {
+                if (generation != localDiscoveryGeneration) return@launch
                 _state.update {
                     it.copy(
                         isDiscovering = false,
                         isLocalNetworkPermissionRequired = true,
                         error = null,
+                        discoveredServers = emptyList(),
+                        completedLocalDiscoveryGeneration = generation,
                     )
                 }
             } catch (error: Throwable) {
+                if (generation != localDiscoveryGeneration) return@launch
                 _state.update {
                     it.copy(
                         isDiscovering = false,
+                        discoveredServers = emptyList(),
                         error = error.localizedMessage?.takeIf(String::isNotBlank)
                             ?: "Não foi possível procurar servidores nesta rede",
+                        completedLocalDiscoveryGeneration = generation,
                     )
                 }
             }
         }
+        return generation
     }
 
     fun onUsernameChange(newUsername: String) {
