@@ -29,3 +29,10 @@ Este projeto e todas as suas sessões de desenvolvimento são governados estrita
    - Sempre atualize as notas junto com cada release do APK.
    - Descreva apenas melhorias e correções realmente incluídas no APK e validadas no diff/testes; não use notas genéricas nem anuncie alterações exclusivas do servidor.
    - Confira se versão, testes e artefato citados nas notas correspondem ao APK publicado.
+
+5. **Premissa obrigatória de sincronização do portal**:
+   - Toda nova release oficial do servidor ou do aplicativo deve refletir imediatamente no `portal-site` a versão, os links dos artefatos, os assets disponíveis e as notas correspondentes.
+   - Antes de finalizar a publicação, consulte a API oficial de releases do repositório `raphaelpera85/mulletaflix-completo` e confirme que o portal aponta para a release estável mais recente de cada plataforma.
+   - O arquivo `portal-site/release-sync.js` deve permanecer carregado nas páginas de downloads, documentação e início. Ele sincroniza em produção as versões e URLs com as releases estáveis do GitHub; não remova esse fluxo nem substitua os links por versões fixas sem atualizar também a sincronização.
+   - Quando uma mudança de release alterar texto, changelog ou disponibilidade de plataforma, atualize também `portal-site/updates.html` e `portal-site/docs.html`, publique o portal e valide as rotas públicas com HTTP 200 e a versão efetivamente exibida.
+   - Esta regra vale para todos os agentes, subagentes e automações que criarem, atualizarem ou publicarem releases neste projeto.

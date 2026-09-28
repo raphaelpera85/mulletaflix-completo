@@ -82,6 +82,13 @@ Cada card deve apresentar claramente:
 - No Android, a release deve usar o keystore de produção configurado por `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` e `KEY_PASSWORD`; a ausência dessas variáveis deve impedir a publicação, nunca ser contornada por fallback de assinatura debug.
 - Antes de publicar, conferir que a versão, o tipo de build, a assinatura e os artefatos anexados são exatamente os que passaram pelos testes e pela validação de release.
 
+### 4.4 Sincronização obrigatória do portal com releases
+- Toda release estável nova do servidor ou do aplicativo deve atualizar o `portal-site` antes do encerramento da tarefa.
+- Consultar a API oficial de releases de `raphaelpera85/mulletaflix-completo`, atualizar versões, links, assets e notas em `index.html`, `downloads.html`, `docs.html` e `updates.html` quando aplicável.
+- Manter `portal-site/release-sync.js` carregado nas páginas públicas de início, downloads e documentação. Esse fluxo sincroniza versões e URLs das releases estáveis em produção e não pode ser removido.
+- Publicar o portal e validar suas rotas HTTP 200, confirmando que a versão exibida corresponde à release publicada mais recente.
+- A regra vale para todos os agentes, subagentes e automações que criem ou publiquem releases.
+
 ---
 
 ## 5. Resiliência de Persistência no MySQL (.NET & Entity Framework)
@@ -188,5 +195,4 @@ for (var attempt = 1; attempt <= 3; attempt++)
 
 ### 10.2 Prevenção de Overflow Horizontal em Textos e Markdown
 - Elementos que renderizam conteúdo dinâmico externo (ex: `MarkdownBox`, tabelas de changelog, blocos `<pre>`) devem conter `overflowWrap: 'break-word'`, `wordBreak: 'break-word'` e rolagem horizontal contida em blocos tabulares (`overflowX: 'auto'`), garantindo que nenhuma tabela de changelog estoure a largura máxima da tela.
-
 
