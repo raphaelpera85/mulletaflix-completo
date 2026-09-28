@@ -2,6 +2,14 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## SyncPlay stale e ação Cast no perfil TV (APK sem release)
+
+- [x] Falha em refresh manual ou periódico mantém a lista de salas visível, marca o snapshot como desatualizado, mostra instrução de atualização e bloqueia nova entrada até refresh bem-sucedido; a falha da lista não apaga uma sala SyncPlay já ativa.
+- [x] No Android TV, ocultar o botão de envio Cast; manter a ação disponível nos perfis móveis.
+- [x] Testes unitários SyncPlay e compilação dos testes instrumentados; AVD TV: SyncPlay 11/11 e player 46 aprovados + 2 ignorados por indisponibilidade de Play Services Cast/PiP; AVD celular: SyncPlay 11/11 e player 40 aprovados + 8 ignorados por pressupostos exclusivos de TV/Cast. `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug`: `BUILD SUCCESSFUL`.
+- [ ] O APK TV ainda não é um receiver Cast descobrível por outros aplicativos/Web. Implementar esse receiver exige definir protocolo/compatibilidade e integrar também o Web Receiver na versão Web; isso não é entregue por ocultar o botão sender.
+- [ ] Sem bump, pacote de produção ou publicação nesta validação. Antes de publicar, validar que a keystore instalada corresponde ao certificado oficial; as verificações anteriores registraram fingerprint local diferente do certificado oficial.
+
 ## Retry isolado por biblioteca na Home (APK sem release)
 
 - [x] Ao falhar "Adicionados Recentemente", repetir apenas a consulta daquela biblioteca; manter as demais seções e seus dados intactos.
