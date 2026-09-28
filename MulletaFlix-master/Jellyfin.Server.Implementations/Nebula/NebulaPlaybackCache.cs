@@ -56,8 +56,13 @@ public sealed class NebulaPlaybackCache : IDisposable
     private long _cacheMisses;
     private long _telegramFetchCount;
     private long _telegramFetchFailures;
+    private long _telegramFetchCancellations;
     private long _telegramFetchDurationTicks;
     private long _cacheErrors;
+    private long _cacheCleanupRuns;
+    private long _cacheCleanupFailures;
+    private long _lastCacheCleanupDurationTicks;
+    private long _lastCacheCleanupUnixTimeMilliseconds;
 
     public NebulaPlaybackCache(
         string cachePath,
@@ -100,6 +105,8 @@ public sealed class NebulaPlaybackCache : IDisposable
 
     public long TelegramFetchFailures => Interlocked.Read(ref _telegramFetchFailures);
 
+    public long TelegramFetchCancellations => Interlocked.Read(ref _telegramFetchCancellations);
+
     public double AverageTelegramFetchLatencyMs => TelegramFetchCount == 0
         ? 0
         : TimeSpan.FromTicks(Interlocked.Read(ref _telegramFetchDurationTicks)).TotalMilliseconds / TelegramFetchCount;
@@ -116,6 +123,21 @@ public sealed class NebulaPlaybackCache : IDisposable
     public int QueuedPrefetchCount => Math.Max(0, _allPrefetches.Count - ActivePrefetchCount);
 
     public long CacheErrors => Interlocked.Read(ref _cacheErrors);
+
+    public long CacheCleanupRuns => Interlocked.Read(ref _cacheCleanupRuns);
+
+    public long CacheCleanupFailures => Interlocked.Read(ref _cacheCleanupFailures);
+
+    public double LastCacheCleanupDurationMs => TimeSpan.FromTicks(Interlocked.Read(ref _lastCacheCleanupDurationTicks)).TotalMilliseconds;
+
+    public DateTime? LastCacheCleanupUtc
+    {
+        get
+        {
+            var timestamp = Interlocked.Read(ref _lastCacheCleanupUnixTimeMilliseconds);
+            return timestamp == 0 ? null : DateTimeOffset.FromUnixTimeMilliseconds(timestamp).UtcDateTime;
+        }
+    }
 
     public long MaxCacheBytes => Volatile.Read(ref _maxCacheBytes);
 
@@ -238,45 +260,44 @@ public sealed class NebulaPlaybackCache : IDisposable
     /// </summary>
     public bool ClearCache()
     {
+        var startedAt = Stopwatch.GetTimestamp();
         var success = true;
         _storageGate.Wait();
         try
         {
-            if (!Directory.Exists(_rootPath))
+            if (Directory.Exists(_rootPath))
             {
-                return true;
-            }
-
-            foreach (var directory in Directory.GetDirectories(_rootPath))
-            {
-                var mediaKey = Path.GetFileName(directory);
-                if (_activeMedia.ContainsKey(mediaKey)
-                    || _prefetches.ContainsKey(mediaKey)
-                    || _inflight.Keys.Any(key => key.StartsWith(mediaKey + ":", StringComparison.Ordinal)))
+                foreach (var directory in Directory.GetDirectories(_rootPath))
                 {
-                    continue;
-                }
-
-                try
-                {
-                    foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                    var mediaKey = Path.GetFileName(directory);
+                    if (_activeMedia.ContainsKey(mediaKey)
+                        || _prefetches.ContainsKey(mediaKey)
+                        || _inflight.Keys.Any(key => key.StartsWith(mediaKey + ":", StringComparison.Ordinal)))
                     {
-                        try
-                        {
-                            File.SetAttributes(file, FileAttributes.Normal);
-                        }
-                        catch
-                        {
-                        }
+                        continue;
                     }
 
-                    Directory.Delete(directory, recursive: true);
-                    _lastActivity.TryRemove(mediaKey, out _);
-                }
-                catch (Exception ex)
-                {
-                    success = false;
-                    _logger.LogWarning(ex, "[NEBULA-CACHE] Falha ao limpar diretório de mídia {Directory}.", directory);
+                    try
+                    {
+                        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+                        {
+                            try
+                            {
+                                File.SetAttributes(file, FileAttributes.Normal);
+                            }
+                            catch
+                            {
+                            }
+                        }
+
+                        Directory.Delete(directory, recursive: true);
+                        _lastActivity.TryRemove(mediaKey, out _);
+                    }
+                    catch (Exception ex)
+                    {
+                        success = false;
+                        _logger.LogWarning(ex, "[NEBULA-CACHE] Falha ao limpar diretório de mídia {Directory}.", directory);
+                    }
                 }
             }
         }
@@ -288,6 +309,7 @@ public sealed class NebulaPlaybackCache : IDisposable
         finally
         {
             _storageGate.Release();
+            RecordCacheCleanup(startedAt, success);
         }
 
         return success;
@@ -514,54 +536,56 @@ public sealed class NebulaPlaybackCache : IDisposable
             return;
         }
 
+        var startedAt = Stopwatch.GetTimestamp();
+        var success = true;
         var cutoff = (nowUtc ?? DateTime.UtcNow) - _entryLifetime;
         try
         {
-            if (!Directory.Exists(_rootPath))
+            if (Directory.Exists(_rootPath))
             {
-                return;
-            }
-
-            foreach (var directory in Directory.EnumerateDirectories(_rootPath))
-            {
-                try
+                foreach (var directory in Directory.EnumerateDirectories(_rootPath))
                 {
-                    var mediaKey = Path.GetFileName(directory);
-                    if (_activeMedia.ContainsKey(mediaKey))
+                    try
                     {
-                        continue;
-                    }
+                        var mediaKey = Path.GetFileName(directory);
+                        if (_activeMedia.ContainsKey(mediaKey))
+                        {
+                            continue;
+                        }
 
-                    if (_prefetches.ContainsKey(mediaKey))
+                        if (_prefetches.ContainsKey(mediaKey))
+                        {
+                            continue;
+                        }
+
+                        if (_inflight.Keys.Any(k => k.StartsWith(mediaKey + ":", StringComparison.Ordinal)))
+                        {
+                            continue;
+                        }
+
+                        var lastActivity = _lastActivity.TryGetValue(mediaKey, out var tracked)
+                            ? tracked
+                            : GetDirectoryLastActivityUtc(directory);
+                        if (lastActivity > cutoff)
+                        {
+                            continue;
+                        }
+
+                        DeleteDirectorySafe(directory);
+                        _lastActivity.TryRemove(mediaKey, out _);
+                        _logger.LogInformation("[NEBULA-CACHE] Cache de reprodução expirado (> 1 hora sem uso) removido: {MediaKey}", mediaKey);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        continue;
+                        success = false;
+                        _logger.LogDebug(ex, "[NEBULA-CACHE] Não foi possível remover o diretório de cache {Directory}.", directory);
                     }
-
-                    if (_inflight.Keys.Any(k => k.StartsWith(mediaKey + ":", StringComparison.Ordinal)))
-                    {
-                        continue;
-                    }
-
-                    var lastActivity = _lastActivity.TryGetValue(mediaKey, out var tracked)
-                        ? tracked
-                        : GetDirectoryLastActivityUtc(directory);
-                    if (lastActivity > cutoff)
-                    {
-                        continue;
-                    }
-
-                    DeleteDirectorySafe(directory);
-                    _lastActivity.TryRemove(mediaKey, out _);
-                    _logger.LogInformation("[NEBULA-CACHE] Cache de reprodução expirado (> 1 hora sem uso) removido: {MediaKey}", mediaKey);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    _logger.LogDebug(ex, "[NEBULA-CACHE] Não foi possível remover o diretório de cache {Directory}.", directory);
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            success = false;
             _logger.LogDebug(ex, "[NEBULA-CACHE] Não foi possível concluir a enumeração do cache de reprodução.");
         }
         finally
@@ -569,28 +593,47 @@ public sealed class NebulaPlaybackCache : IDisposable
             _storageGate.Release();
         }
 
-        EnforceConfiguredLimits();
+        if (!EnforceConfiguredLimits())
+        {
+            success = false;
+        }
+
+        RecordCacheCleanup(startedAt, success);
     }
 
-    private void EnforceConfiguredLimits()
+    private bool EnforceConfiguredLimits()
     {
         if (!_storageGate.Wait(0))
         {
-            return;
+            return true;
         }
 
         try
         {
             TrimConfiguredLimits();
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogDebug(ex, "[NEBULA-CACHE] Não foi possível impor os limites durante a limpeza periódica.");
+            return false;
         }
         finally
         {
             _storageGate.Release();
         }
+    }
+
+    private void RecordCacheCleanup(long startedAt, bool success)
+    {
+        Interlocked.Increment(ref _cacheCleanupRuns);
+        if (!success)
+        {
+            Interlocked.Increment(ref _cacheCleanupFailures);
+        }
+
+        Interlocked.Exchange(ref _lastCacheCleanupDurationTicks, Stopwatch.GetElapsedTime(startedAt).Ticks);
+        Interlocked.Exchange(ref _lastCacheCleanupUnixTimeMilliseconds, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
     private void TrimConfiguredLimits()
@@ -701,6 +744,11 @@ public sealed class NebulaPlaybackCache : IDisposable
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Interlocked.Increment(ref _telegramFetchFailures);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            Interlocked.Increment(ref _telegramFetchCancellations);
             throw;
         }
         finally
