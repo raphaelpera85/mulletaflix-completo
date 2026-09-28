@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import os
 import signal
 from pathlib import Path
 import shutil
@@ -73,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=2121)
+    parser.add_argument("--rc-port", type=int)
     parser.add_argument("--drive", default="N:")
     parser.add_argument("--log-file", required=True)
     parser.add_argument("--ftp-timeout", type=float, default=60.0)
@@ -80,16 +82,34 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def run_rclone_mount(rclone: str, config: Path, drive: str, log_file: str, stop_event: asyncio.Event) -> int:
+async def run_rclone_mount(
+    rclone: str,
+    config: Path,
+    drive: str,
+    log_file: str,
+    stop_event: asyncio.Event,
+    rc_port: int,
+) -> int:
     """Run rclone mount with automatic restart on failure. Flags match original Nebula."""
     while not stop_event.is_set():
-        command: Sequence[str] = (
+        rc_username = os.environ.get("RCLONE_RC_USER")
+        rc_password = os.environ.get("RCLONE_RC_PASS")
+        if bool(rc_username) != bool(rc_password):
+            print("[NEBULA-MOUNT-PY-ERRO] Credenciais incompletas para o controle remoto rclone.", flush=True)
+            return 2
+
+        command_parts = [
             rclone,
             "mount",
             "nebula:/",
             drive,
             "--config",
             str(config),
+        ]
+        if rc_username and rc_password:
+            command_parts.extend(("--rc", "--rc-addr", f"127.0.0.1:{rc_port or 5572}"))
+
+        command_parts.extend((
             "--network-mode",
             "--links",
             "--volname",
@@ -132,7 +152,8 @@ async def run_rclone_mount(rclone: str, config: Path, drive: str, log_file: str,
             log_file,
             "--log-level",
             "INFO",
-        )
+        ))
+        command: Sequence[str] = tuple(command_parts)
         print(f"[NEBULA-MOUNT-PY] Iniciando rclone mount em {drive}.", flush=True)
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -213,7 +234,7 @@ async def mount(args: argparse.Namespace) -> int:
             # Windows doesn't support add_signal_handler for SIGTERM
             pass
     
-    return await run_rclone_mount(rclone, config, args.drive, args.log_file, stop_event)
+    return await run_rclone_mount(rclone, config, args.drive, args.log_file, stop_event, args.rc_port)
 
 
 def main() -> int:

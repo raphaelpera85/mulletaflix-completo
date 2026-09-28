@@ -2,13 +2,23 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Detalhes adaptativos para tablets (APK local; sem release)
+
+- [x] Manter a coluna única em telefones e tablets retrato; em largura disponível de 840 dp ou mais, separar hero/ações e conteúdo em dois painéis.
+- [x] Rolar metadados, sinopse e seções no painel de detalhes sem mover o hero; manter a TV no layout vertical e preservar ações/foco existentes.
+- [x] Cobrir 411 dp, 600 dp, 840 dp e modo TV; no teste de rolagem em tablet, verificar que o painel de detalhes se move enquanto o hero mantém a mesma posição.
+- [x] Em painéis abaixo de 360 dp ou escala de fonte a partir de 1,5×, compactar poster e espaçamentos sem cortar a capa; testar proporção 2:3, rolagem vertical/horizontal e ativação da última ação em fonte 2×.
+- [x] Teste instrumentado do hero estreito passou no AVD tablet API 35; `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug` e compilação instrumentada concluídos com `BUILD SUCCESSFUL`.
+- [ ] Sem bump nem release; manter a próxima release condicionada à validação da assinatura de produção contra o certificado oficial.
+
 ## Fila offline por servidor, limpeza horária e UX TV (APK sem release)
 
 - [x] Isolar downloads com mesmo usuário/mídia quando pertencem a servidores diferentes; usar o identificador da fila para selecionar, retomar, remover e abrir o download offline correto, preservando o ID público da mídia.
 - [x] Recusar retry de downloads antigos sem servidor de origem conhecido, em vez de associá-los silenciosamente ao servidor atual.
 - [x] Limpar cache em memória e disco do Coil a cada hora enquanto o app está aberto e agendar limpeza horária pelo WorkManager para quando o processo estiver parado.
+- [x] Testar o trabalho periódico real com `TestDriver`: confirmar intervalo de 1 h, limpeza dos caches Coil em memória/disco e preservação de uma entrada isolada no cache offline Media3; o prazo real do sistema operacional não é simulado.
 - [x] Não apagar downloads offline explícitos: o player de streaming não persiste bytes de sessões online e compartilha apenas conteúdo já baixado.
-- [x] Ocultar download de mídia e de temporada na Android TV; se um lote já estiver ativo, manter Cancelar acessível.
+- [x] Ocultar toda ação de iniciar download na Android TV, inclusive baixar filme/série e temporada; não mostrar progresso nem cancelamento de lote na interface TV. Celular/tablet mantêm as ações.
 - [x] Na Android TV, ocultar a entrada Downloads da Home e impedir retomar/repetir downloads ou alterar a preferência Wi‑Fi na fila; manter pausa de download ativo, reprodução offline e remoção acessíveis.
 - [x] Cobrir ausência das ações de download na Home e fila TV, incluindo integração da tela real; preservar os controles nos perfis móveis.
 - [x] `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug` e compilação dos testes instrumentados Home/Downloads: `BUILD SUCCESSFUL`; validação focada no AVD TV: `HomeTopBarFocusTest` (8) e `DownloadsTvScreenTest` (1), ambos `BUILD SUCCESSFUL`; wrapper encerrou o emulador. A suíte Home ampla no perfil TV também contém 2 testes exclusivos de telefone/tablet que reportam pressuposto de AVD incompatível.
@@ -22,7 +32,14 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] Cobrir política de seleção (mesmo usuário/servidor, legenda faltante, downloads legados sem identidade) e associação da sessão autenticada à requisição.
 - [x] Repetir até 3 vezes falhas transitórias de rede/HTTP (408, 429, 5xx), com backoff de 1s/2s; não repetir falhas permanentes e cancelar/juntar jobs da sessão antiga antes da recuperação na nova sessão.
 - [x] `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
-- [ ] Retry durável entre reinicializações, teste integrado do interceptor/fluxo completo; downloads legados sem proprietário continuam ignorados para evitar atribuição à conta errada.
+- [x] Persistir recuperação pelo WorkManager com rede conectada e backoff exponencial, cancelar no logout e aguardar buscas filhas do worker.
+  - [x] Testar execução real do `CoroutineWorker`: sucesso, retry, falha inesperada e propagação de cancelamento usando `work-testing` (4/4 instrumentados passaram no `MulletaflixApi35`).
+  - [x] Configurar `REPLACE` nas mudanças de sessão, priorizando a conta/servidor ativos (política unitária e instrumentada verificadas).
+  - [x] Coalescer falhas transitórias com `REPLACE` e atraso de 2 s; o worker consulta o índice atual ao executar, preservando novas recuperações pendentes.
+  - [x] Testar a fila real do WorkManager: substituição imediata na troca de sessão, cancelamento no logout, coalesce de três falhas e execução única do follow-up mais recente (4/4 instrumentados no `MulletaflixApi35`).
+  - [x] Validar `:app:testDebugUnitTest` (150 testes, 0 falhas/erros/ignorados), `:app:lintDebug` e `:app:compileDebugAndroidTestKotlin`: `BUILD SUCCESSFUL`.
+  - [x] Exercitar o pipeline OkHttp e o `ClientIdentityInterceptor`: requisições marcadas com a sessão antiga mantêm token e dispositivo dessa sessão mesmo após troca; nenhuma dependência ou conexão externa. Suíte APK: 151 testes, 0 falhas/erros/ignorados.
+  - [ ] Downloads legados sem proprietário continuam ignorados para evitar atribuição à conta errada.
 - [ ] Sem bump ou release até a assinatura de produção corresponder ao certificado oficial; verificar a release APK anterior antes de planejar versão nova.
 
 ## Fallback de envio UDP para descoberta LAN (APK sem release)
@@ -162,7 +179,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 
 - Downloads offline de episódios identificam a série, a temporada e o episódio; especiais aparecem como “Especial”. O nome da série é persistido em metadados locais versionados, e filas criadas no formato anterior continuam legíveis.
 - Durante a reprodução offline, o título completo da série/temporada/episódio também aparece nos controles de mídia Android; filmes e downloads sem metadados preservam o título original.
-- Enquanto um download em lote de temporada estiver ativo, progresso e cancelamento continuam visíveis mesmo após trocar de temporada; a ação de iniciar outro lote fica desativada e a interface identifica a temporada em preparação. Na Android TV, o foco vai para “Cancelar” somente quando o ViewModel confirma a operação local, identificada por ID; progresso externo, operação concluída ou já ativa ao entrar não rouba o foco. D-pad Down alcança “Baixar temporada” e Center ativa as duas ações.
+- Enquanto um download em lote de temporada estiver ativo em celular/tablet, progresso e cancelamento continuam visíveis mesmo após trocar de temporada; a ação de iniciar outro lote fica desativada e a interface identifica a temporada em preparação. Android TV oculta iniciar download, progresso e cancelamento, sem roubar foco. D-pad navega apenas por ações disponíveis na TV.
 - TalkBack recebe o progresso da preparação como região educada com intervalo numérico; o cancelamento permanece habilitado.
 - Os formulários de solicitação de mídia e relato de reprodução não podem ser dispensados enquanto o envio está ativo. O formulário de solicitação mantém os campos após falha e permite corrigir/repetir; título obrigatório e ano opcional validado entre 1888 e 2200.
 - Os formulários de solicitação/relato aguardam a primeira leitura da sessão e só habilitam o envio quando uma sessão válida está disponível; isso evita falha no toque inicial durante a leitura do DataStore.
@@ -186,7 +203,7 @@ Este documento rastreia o status de implementação de todas as funcionalidades,
 - [x] `:data:testDebugUnitTest`: 6 testes do `UserFeedbackRepositoryImpl` verificam DTOs encaminhados, falhas de API e propagação de `CancellationException` nos dois fluxos.
 - [x] Testes Compose do formulário de solicitação em telefone: título/ano, tipo e payload, edição após falha, campos/Cancel desativados e tecla Voltar ignorada durante envio.
 - [x] No tablet Android 35, o player permanece ativo enquanto a janela PiP está visível e pausa quando ela é fechada; suíte instrumentada do player: 39 casos listados, 6 skips de perfil, 0 falhas; AVD encerrado após o teste.
-- [x] Testes Compose regressivos em celular e TV: trocar de temporada durante preparação mantém progresso/Cancelar e bloqueia outro lote; operação terminal não deixa intenção de foco pendente para lote externo posterior; na TV, cancelar via D-pad devolve o foco à temporada selecionada.
+- [x] Testes Compose regressivos em celular e TV: celular/tablet mantêm progresso e cancelamento durante preparação; TV não expõe iniciar download, progresso ou cancelamento, inclusive para lote já ativo, e mantém o foco na temporada.
 - [x] Após impedir que os diálogos de solicitação e relato sejam fechados durante envio, `:feature:home:connectedDebugAndroidTest` e `:feature:item-detail:connectedDebugAndroidTest`: 23 testes por módulo, 0 falhas; 7 e 2 casos específicos de TV ignorados no AVD de telefone; emulador encerrado.
 - [x] `testDebugUnitTest`, `:app:lintDebug` e `:app:assembleRelease`: `BUILD SUCCESSFUL`.
 - [x] Em validação anterior, `:app:assembleRelease` concluiu e `apksigner` leu a assinatura local; isso prova um APK assinado, não que a chave corresponda à release oficial.

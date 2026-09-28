@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import android.content.res.Configuration
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
@@ -75,17 +77,10 @@ fun ItemDetailScreen(
 
     LaunchedEffect(itemId) { viewModel.loadItem(itemId) }
 
-    val scrollState = rememberScrollState()
-
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
 
         state.item?.let { item ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-            ) {
-                // ── Backdrop / Hero ──────────────────────────────────────────
+            val hero: @Composable ColumnScope.() -> Unit = {
                 DetailHero(
                     item = item,
                     onBack = onBack,
@@ -113,7 +108,9 @@ fun ItemDetailScreen(
                     },
                     isLoading = state.isLoading
                 )
+            }
 
+            val details: @Composable ColumnScope.() -> Unit = {
                 // ── Metadata pills ────────────────────────────────────────────
                 MetadataPills(item = item)
                 PlaybackIssueAction(
@@ -186,6 +183,13 @@ fun ItemDetailScreen(
 
                 Spacer(modifier = Modifier.height(80.dp))
             }
+
+            AdaptiveItemDetailLayout(
+                isTelevision = isTelevision,
+                modifier = Modifier.fillMaxSize(),
+                hero = hero,
+                details = details,
+            )
         }
 
         if (state.isPlaylistDialogVisible) {
@@ -277,7 +281,7 @@ fun ItemDetailScreen(
 }
 
 @Composable
-private fun DetailHero(
+internal fun DetailHero(
     item: MediaItem,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
@@ -297,7 +301,13 @@ private fun DetailHero(
 ) {
     val serverUrl = LocalMulletaFlixServerUrl.current
     val accessToken = LocalMulletaFlixAccessToken.current
-    Box(modifier = Modifier.fillMaxWidth().height(420.dp)) {
+    val heroContentScrollState = rememberScrollState()
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth().height(420.dp)) {
+        val compactContent = maxWidth < 360.dp || fontScale >= 1.5f
+        val posterWidth = if (compactContent) 88.dp else 112.dp
+        val contentInset = if (compactContent) 12.dp else 20.dp
+        val posterGap = if (compactContent) 12.dp else 16.dp
         // Backdrop
         AsyncImage(
             model = resolveMediaUrl(serverUrl, item.backdropImageUrl, accessToken),
@@ -346,7 +356,7 @@ private fun DetailHero(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(horizontal = contentInset, vertical = 20.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
             AsyncImage(
@@ -354,13 +364,19 @@ private fun DetailHero(
                 contentDescription = "${item.name} — capa",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .width(112.dp)
+                    .width(posterWidth)
                     .aspectRatio(2f / 3f)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.45f)),
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .testTag("item-detail-hero-poster"),
             )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Spacer(modifier = Modifier.width(posterGap))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(heroContentScrollState)
+                    .testTag("item-detail-hero-scroll-pane"),
+            ) {
                 // Title
                 Text(
                     text = item.name,
@@ -437,7 +453,9 @@ internal fun DetailActionRow(
     onShare: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        modifier = Modifier
+            .horizontalScroll(rememberScrollState())
+            .testTag("item-detail-actions-scroll-row"),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Play

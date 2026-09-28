@@ -30,6 +30,7 @@ namespace MulletaFlix.Server.Implementations.Nebula;
 
 public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 {
+    private static readonly HttpClient RcloneRemoteControlClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly IServerConfigurationManager _configManager;
     private readonly ILogger<NebulaFtpManager> _logger;
     private readonly ILoggerFactory _loggerFactory;
@@ -50,6 +51,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private NebulaFtpServerHost? _ftpServerHost;
     private NebulaHttpStreamServer? _httpStreamServer;
     private NebulaPlaybackCache? _playbackCache;
+    private readonly NebulaPlaybackCacheAccessor _playbackCacheAccessor = new();
     private NebulaStagingWatcher? _stagingWatcher;
     private NebulaSupabaseSyncService? _supabaseSyncService;
     private NebulaDownloaderEngine? _downloaderEngine;
@@ -67,6 +69,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private readonly SemaphoreSlim _maintenanceLock = new(1, 1);
     private readonly SemaphoreSlim _mountLock = new(1, 1);
     private readonly SemaphoreSlim _dependencyLock = new(1, 1);
+    private readonly NebulaDirectoryRefreshQueue _directoryRefreshQueue;
+    private int _rcloneRcPort;
+    private string? _rcloneRcUsername;
+    private string? _rcloneRcPassword;
     private long _nextAutomaticMountAttemptUtcTicks;
     private int _automaticMountAttemptInProgress;
     private int _automaticMountFailures;
@@ -334,6 +340,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         _libraryManager = libraryManager;
         _metadataExportService = metadataExportService;
         _usersDbProvider = usersDbProvider;
+        _directoryRefreshQueue = new NebulaDirectoryRefreshQueue(
+            RefreshRcloneDirectoryAsync,
+            _loggerFactory.CreateLogger<NebulaDirectoryRefreshQueue>());
     }
 
     private async Task EnsureRuntimeDependenciesAsync(CancellationToken cancellationToken)
@@ -1295,7 +1304,20 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                     },
                     emitServerLog: EmitServerLog,
                     logQueueState: logQueueState,
-                    getStagingRoots: () => (config.StagePaths ?? Array.Empty<string>()).Where(p => !string.IsNullOrWhiteSpace(p)));
+                    getStagingRoots: () => (config.StagePaths ?? Array.Empty<string>()).Where(p => !string.IsNullOrWhiteSpace(p)),
+                    onUploadCompleted: filePath =>
+                    {
+                        var refreshPath = NebulaUploadEngine.BuildDirectoryRefreshPath(
+                            filePath,
+                            Path.GetFileName(filePath),
+                            config.StagePaths ?? Array.Empty<string>());
+                        if (refreshPath != null)
+                        {
+                            _directoryRefreshQueue.Enqueue(refreshPath);
+                        }
+
+                        return Task.CompletedTask;
+                    });
             }
             else
             {
@@ -1314,12 +1336,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
                 maxCacheBytes: (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
                 minimumFreeSpaceBytes: (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
+            _playbackCacheAccessor.Set(_playbackCache);
 
             _ftpServerHost = new NebulaFtpServerHost(
                 _mongoContext,
                 _telegramPool,
                 _uploadEngine, // pode ser null em streamOnly
-                _playbackCache,
+                _playbackCacheAccessor,
                 _loggerFactory.CreateLogger<NebulaFtpServerHost>(),
                 _loggerFactory.CreateLogger<NebulaFileSystem>(),
                 _loggerFactory.CreateLogger<NebulaFtpMembershipProvider>(),
@@ -1338,7 +1361,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _loggerFactory.CreateLogger<NebulaHttpStreamServer>(),
                 config.HttpStreamToken,
                 config.MaxActiveConnections,
-                _playbackCache);
+                _playbackCacheAccessor);
             _httpStreamServer.Start();
 
             if (poolInitTask != null)
@@ -1545,6 +1568,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             _playbackCache?.Dispose();
             _playbackCache = null;
+            _playbackCacheAccessor.Set(null);
 
             if (_uploadEngine != null)
             {
@@ -1591,6 +1615,25 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Falha ao iniciar o pré-cache da mídia; a reprodução continuará sem pré-cache.");
+            return false;
+        }
+    }
+
+    public async Task<bool> CancelPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)
+    {
+        var streamServer = _httpStreamServer;
+        if (streamServer is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await streamServer.CancelPlaybackPrefetchAsync(mediaPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Falha ao cancelar o pré-cache da mídia {MediaPath}; o cache expirará pela política normal.", mediaPath);
             return false;
         }
     }
@@ -1915,8 +1958,37 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     {
         try
         {
-            _playbackCache?.ClearCache();
-            return Task.FromResult(true);
+            cancellationToken.ThrowIfCancellationRequested();
+            var cache = _playbackCache;
+            if (cache is null)
+            {
+                var configuredPath = Config.PlaybackCachePath;
+                var effectivePath = !string.IsNullOrWhiteSpace(configuredPath)
+                    ? configuredPath
+                    : _configManager.CommonApplicationPaths.CachePath;
+                cache = new NebulaPlaybackCache(
+                    effectivePath,
+                    _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
+                    maxCacheBytes: (long)Config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
+                    minimumFreeSpaceBytes: (long)Config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
+                try
+                {
+                    var cleared = cache.ClearCache();
+                    return Task.FromResult(cleared);
+                }
+                finally
+                {
+                    cache.Dispose();
+                }
+            }
+            else
+            {
+                return Task.FromResult(cache.ClearCache());
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return Task.FromCanceled<bool>(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1948,21 +2020,49 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             config.PlaybackCachePath = trimmed;
             config.PlaybackCacheMaxSizeGb = maxCacheSizeGb ?? config.PlaybackCacheMaxSizeGb;
             config.PlaybackCacheMinimumFreeSpaceGb = minimumFreeSpaceGb ?? config.PlaybackCacheMinimumFreeSpaceGb;
-            _configManager.SaveConfiguration("nebulaftp", config);
 
             var effective = !string.IsNullOrWhiteSpace(trimmed)
                 ? trimmed
                 : _configManager.CommonApplicationPaths.CachePath;
 
+            var maxCacheBytes = (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024;
+            var minimumFreeSpaceBytes = (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024;
+            var requestedCacheRoot = Path.GetFullPath(Path.Combine(effective, "nebula-playback"));
+            if (_playbackCache != null
+                && string.Equals(
+                    Path.TrimEndingDirectorySeparator(Path.GetFullPath(_playbackCache.CachePath)),
+                    Path.TrimEndingDirectorySeparator(requestedCacheRoot),
+                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            {
+                _configManager.SaveConfiguration("nebulaftp", config);
+                _playbackCache.UpdateLimits(maxCacheBytes, minimumFreeSpaceBytes);
+                _logger.LogInformation("[NEBULA] Limites do cache de reprodução atualizados sem interromper a mídia ativa.");
+                return Task.FromResult(true);
+            }
+
             var oldCache = _playbackCache;
             var newCache = new NebulaPlaybackCache(
                 effective,
                 _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
-                maxCacheBytes: (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
-                minimumFreeSpaceBytes: (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
-            _playbackCache = newCache;
+                maxCacheBytes: maxCacheBytes,
+                minimumFreeSpaceBytes: minimumFreeSpaceBytes);
+            try
+            {
+                _configManager.SaveConfiguration("nebulaftp", config);
+            }
+            catch
+            {
+                newCache.Dispose();
+                throw;
+            }
 
-            oldCache?.Dispose();
+            _playbackCache = newCache;
+            _playbackCacheAccessor.Set(newCache);
+
+            if (oldCache != null)
+            {
+                _ = oldCache.DisposeWhenIdleAsync();
+            }
 
             _httpStreamServer?.SetPlaybackCache(newCache);
 
@@ -3744,6 +3844,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
     {
         try
         {
+            _directoryRefreshQueue.Dispose();
             // O servidor pode estar sendo reinstalado ou ter herdado uma
             // montagem de uma sessão anterior. Encerra também rclone órfão.
             StopAllRcloneProcesses(includeForeignProcesses: true);
@@ -4061,6 +4162,16 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             var logFile = Path.Combine(Path.GetTempPath(), "rclone-mount.log");
             AddServerLog($"[NEBULA-MOUNT] Delegando montagem N: ao helper Python (log: {logFile})...");
 
+            var rcPort = FindAvailableLoopbackPort();
+            var rcUsername = "mulletaflix-" + Guid.NewGuid().ToString("N")[..12];
+            var rcPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+            Volatile.Write(ref _rcloneRcPort, rcPort);
+            _rcloneRcUsername = rcUsername;
+            _rcloneRcPassword = rcPassword;
+
             var psi = new ProcessStartInfo
             {
                 FileName = pythonExe,
@@ -4081,6 +4192,10 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             psi.ArgumentList.Add("N:");
             psi.ArgumentList.Add("--log-file");
             psi.ArgumentList.Add(logFile);
+            psi.ArgumentList.Add("--rc-port");
+            psi.ArgumentList.Add(rcPort.ToString(CultureInfo.InvariantCulture));
+            psi.Environment["RCLONE_RC_USER"] = rcUsername;
+            psi.Environment["RCLONE_RC_PASS"] = rcPassword;
 
             _rcloneProcess = Process.Start(psi);
             if (_rcloneProcess != null)
@@ -4512,6 +4627,56 @@ idle_timeout = 15s
         {
             return false;
         }
+    }
+
+    private async Task RefreshRcloneDirectoryAsync(string directory, CancellationToken cancellationToken)
+    {
+        var port = Volatile.Read(ref _rcloneRcPort);
+        var username = _rcloneRcUsername;
+        var password = _rcloneRcPassword;
+        if (port <= 0 || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password)
+            || _rcloneProcess == null || _rcloneProcess.HasExited)
+        {
+            return;
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/vfs/refresh");
+            var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new { dir = directory }),
+                Encoding.UTF8,
+                "application/json");
+
+            using var response = await RcloneRemoteControlClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var json = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (json.RootElement.TryGetProperty("error", out var error) && !string.IsNullOrWhiteSpace(error.GetString()))
+            {
+                throw new InvalidOperationException($"rclone recusou o refresh da pasta virtual: {error.GetString()}");
+            }
+
+            _logger.LogDebug("[NEBULA-MOUNT] Cache da pasta virtual atualizado: {Directory}", directory);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // MongoDB já confirmou o upload. Uma falha de cache nunca reverte nem falha a mídia.
+            _logger.LogWarning(ex, "[NEBULA-MOUNT] Refresh da pasta virtual falhou após upload concluído: {Directory}", directory);
+        }
+    }
+
+    private static int FindAvailableLoopbackPort()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        return ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
     }
 
     private static string ObscureRclonePassword(string rcloneExe, string password)

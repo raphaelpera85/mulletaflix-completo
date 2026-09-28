@@ -33,14 +33,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -87,7 +83,6 @@ fun SeriesSection(
     val configuration = LocalConfiguration.current
     val isTelevision =
         (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
-    val cancelFocusRequester = remember { FocusRequester() }
 
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         // Season covers, like the web client's season row. The previous tab row
@@ -108,36 +103,7 @@ fun SeriesSection(
                 // visible if the viewer switches seasons; otherwise the selected season
                 // looks idle even though its download action cannot start another batch.
                 val progress = seasonDownloadProgress?.takeIf { it.isRunning || it.seasonId == season.id }
-                val wasDownloadRunning = remember(season.id) {
-                    mutableStateOf(progress?.isRunning == true)
-                }
-                val downloadRequestedOperationId = remember { mutableStateOf<Long?>(null) }
-                LaunchedEffect(
-                    isTelevision,
-                    progress?.seasonId,
-                    progress?.isRunning,
-                    progress?.operationId,
-                    downloadRequestedOperationId.value,
-                ) {
-                    val isRunning = progress?.isRunning == true
-                    val isConfirmedLocalStart = downloadRequestedOperationId.value != null &&
-                        downloadRequestedOperationId.value == progress?.operationId
-                    if (isTelevision && isRunning && isConfirmedLocalStart && !wasDownloadRunning.value) {
-                        // The primary action becomes disabled during preparation. Move TV
-                        // focus to Cancel only for a request initiated on this screen, so
-                        // external progress and re-entering an active screen do not steal focus.
-                        cancelFocusRequester.requestFocus()
-                    }
-                    if (downloadRequestedOperationId.value != null && progress != null &&
-                        (!isConfirmedLocalStart || !isRunning)
-                    ) {
-                        downloadRequestedOperationId.value = null
-                    } else if (isRunning && isConfirmedLocalStart) {
-                        downloadRequestedOperationId.value = null
-                    }
-                    wasDownloadRunning.value = isRunning
-                }
-                if (!isTelevision || progress?.isRunning == true) Row(
+                if (!isTelevision) Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -155,51 +121,38 @@ fun SeriesSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (isTelevision && progress?.isRunning == true) {
+                    Button(
+                        onClick = { onDownloadSeason() },
+                        enabled = episodes.isNotEmpty() && progress?.isRunning != true,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary,
+                        ),
+                    ) {
+                        if (progress?.isRunning == true) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                        }
                         Text(
-                            text = "Preparando ${progress.processedEpisodes}/${progress.totalEpisodes}",
-                            modifier = Modifier.weight(1f),
+                            text = if (progress?.isRunning == true) {
+                                "Preparando ${progress.processedEpisodes}/${progress.totalEpisodes}"
+                            } else {
+                                "Baixar temporada"
+                            },
+                            modifier = Modifier.padding(start = 8.dp),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (!isTelevision) {
-                        Button(
-                            onClick = {
-                                downloadRequestedOperationId.value = onDownloadSeason()
-                            },
-                            enabled = episodes.isNotEmpty() && progress?.isRunning != true,
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondary,
-                                contentColor = MaterialTheme.colorScheme.onSecondary,
-                            ),
-                        ) {
-                            if (progress?.isRunning == true) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Download, contentDescription = null)
-                            }
-                            Text(
-                                text = if (progress?.isRunning == true) {
-                                    "Preparando ${progress.processedEpisodes}/${progress.totalEpisodes}"
-                                } else {
-                                    "Baixar temporada"
-                                },
-                                modifier = Modifier.padding(start = 8.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
                     if (progress?.isRunning == true) {
                         TextButton(
                             onClick = onCancelSeasonDownload,
-                            modifier = if (isTelevision) Modifier.focusRequester(cancelFocusRequester) else Modifier,
                         ) { Text("Cancelar") }
                     }
                 }
-                if (progress?.isRunning == true && progress.seasonId != season.id) {
+                if (!isTelevision && progress?.isRunning == true && progress.seasonId != season.id) {
                     Text(
                         text = "Preparação em andamento para ${progress.seasonName}",
                         style = MaterialTheme.typography.bodySmall,
@@ -207,7 +160,7 @@ fun SeriesSection(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                if (progress != null && !progress.isRunning) {
+                if (!isTelevision && progress != null && !progress.isRunning) {
                     val resultText = if (progress.isCancelled) {
                         "Preparação cancelada; ${progress.queuedEpisodes} episódio(s) permanecem na fila."
                     } else {

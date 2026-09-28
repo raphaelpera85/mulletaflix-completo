@@ -44,18 +44,19 @@ public sealed class NebulaHealthCheck : IHealthCheck
 
         try
         {
-            var status = await _nebulaManager.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            var status = await _nebulaManager.GetComponentHealthAsync(cancellationToken).ConfigureAwait(false);
             var data = new System.Collections.Generic.Dictionary<string, object>
             {
-                ["envioRunning"] = status.IsEnvioRunning,
-                ["downloaderRunning"] = status.IsDownloaderRunning,
-                ["streamOnly"] = status.StreamOnly
+                ["mongoConnected"] = status.MongoConnected,
+                ["ftpListenerRunning"] = status.FtpListenerRunning,
+                ["httpListenerRunning"] = status.HttpListenerRunning,
+                ["telegramReady"] = status.TelegramReady
             };
 
-            if (!status.IsEnvioRunning)
+            if (!status.MongoConnected || !status.FtpListenerRunning || !status.HttpListenerRunning)
             {
                 return HealthCheckResult.Unhealthy(
-                    "Nebula está habilitado, mas o serviço de Envio (FTP/HTTP) não está em execução.",
+                    "Nebula está habilitado, mas MongoDB ou os listeners FTP/HTTP não estão prontos.",
                     data: data);
             }
 

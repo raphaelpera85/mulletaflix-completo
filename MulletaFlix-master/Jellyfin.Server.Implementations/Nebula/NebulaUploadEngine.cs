@@ -31,6 +31,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     private readonly Action<string, string>? _emitServerLog;
     private readonly Func<string, Task>? _logQueueState;
     private readonly Func<IEnumerable<string>>? _getStagingRoots;
+    private readonly Func<string, Task>? _onUploadCompleted;
     private readonly CancellationTokenSource _cts = new();
     private bool _disposed;
 
@@ -61,6 +62,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// <param name="emitServerLog">Callback de emissão de logs formatados do servidor.</param>
     /// <param name="logQueueState">Callback de log de estado da fila.</param>
     /// <param name="getStagingRoots">Callback opcional para obter as pastas raiz de staging.</param>
+    /// <param name="onUploadCompleted">Callback opcional executado após a persistência do upload concluído.</param>
     public NebulaUploadEngine(
         NebulaMongoContext mongoContext,
         NebulaTelegramPool telegramPool,
@@ -72,7 +74,8 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         Func<BsonDocument, Task>? onNodeUpdated = null,
         Action<string, string>? emitServerLog = null,
         Func<string, Task>? logQueueState = null,
-        Func<IEnumerable<string>>? getStagingRoots = null)
+        Func<IEnumerable<string>>? getStagingRoots = null,
+        Func<string, Task>? onUploadCompleted = null)
     {
         _mongoContext = mongoContext;
         _telegramPool = telegramPool;
@@ -87,6 +90,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         _emitServerLog = emitServerLog;
         _logQueueState = logQueueState;
         _getStagingRoots = getStagingRoots;
+        _onUploadCompleted = onUploadCompleted;
         _concurrencySemaphore = new SemaphoreSlim(uploadConcurrency > 0 ? uploadConcurrency : 8);
     }
 
@@ -443,6 +447,48 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         var segments = NormalizeMediaPathSegments(relativeDir);
 
         return segments.Count == 0 ? root : $"{root}/{string.Join('/', segments)}";
+    }
+
+    internal static string? BuildDirectoryRefreshPath(string filePath, string fileName, IEnumerable<string> stagingRoots)
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(filePath));
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return null;
+        }
+
+        foreach (var stagingRoot in stagingRoots)
+        {
+            if (string.IsNullOrWhiteSpace(stagingRoot))
+            {
+                continue;
+            }
+
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(stagingRoot));
+            var fullDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+            var rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar)
+                || root.EndsWith(Path.AltDirectorySeparatorChar)
+                    ? root
+                    : root + Path.DirectorySeparatorChar;
+            var pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            if (!string.Equals(fullDirectory, root, pathComparison)
+                && !fullDirectory.StartsWith(rootWithSeparator, pathComparison))
+            {
+                continue;
+            }
+
+            var relativeDirectory = Path.GetRelativePath(root, fullDirectory).Replace('\\', '/');
+            if (relativeDirectory == ".")
+            {
+                relativeDirectory = string.Empty;
+            }
+
+            return "/" + RouteMediaRelativeDirectory(relativeDirectory, fileName).Trim('/');
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -992,6 +1038,18 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex, "[NEBULA-UPLOAD] Aviso ao sincronizar nó com o Supabase em tempo real.");
+                    }
+                }
+
+                if (_onUploadCompleted != null)
+                {
+                    try
+                    {
+                        await _onUploadCompleted(localFilePath).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[NEBULA-UPLOAD] Falha ao solicitar atualização da listagem virtual após concluir '{Name}'.", targetFileName);
                     }
                 }
             }

@@ -84,6 +84,20 @@ public class NebulaUploadEngineTests
         Assert.Equal(16 * 1024 * 1024, logicalChunkField.GetValue(engine));
     }
 
+    [Fact]
+    public void UploadEngine_BuildDirectoryRefreshPath_UsesCanonicalCategoryAndIgnoresFilesOutsideStaging()
+    {
+        var stagingRoot = Path.Combine(Path.GetTempPath(), "nebula-refresh-staging");
+        var stagedMedia = Path.Combine(stagingRoot, "strm", "Series", "A Work", "Season 1", "episode.mkv");
+        var ftpTempMedia = Path.Combine(Path.GetTempPath(), "ftp-temp", "episode.mkv");
+
+        var refreshPath = NebulaUploadEngine.BuildDirectoryRefreshPath(stagedMedia, "episode.mkv", [stagingRoot]);
+        var ignoredPath = NebulaUploadEngine.BuildDirectoryRefreshPath(ftpTempMedia, "episode.mkv", [stagingRoot]);
+
+        Assert.Equal("/Series/A Work/Season 1", refreshPath);
+        Assert.Null(ignoredPath);
+    }
+
     [Theory]
     [InlineData(-1004391811380L, 4391811380L)]
     [InlineData(-1001234567890L, 1234567890L)]

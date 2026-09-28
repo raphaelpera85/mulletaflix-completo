@@ -48,7 +48,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     private readonly string _host;
     private readonly int _port;
     private readonly string _streamToken;
-    private NebulaPlaybackCache? _playbackCache;
+    private readonly NebulaPlaybackCacheAccessor _playbackCacheAccessor;
     private readonly ILogger<NebulaHttpStreamServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _lifecycleLock = new();
@@ -63,13 +63,13 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
     /// <summary>Atualiza a referência ao cache de reprodução.</summary>
     public void SetPlaybackCache(NebulaPlaybackCache? cache)
     {
-        _playbackCache = cache;
+        _playbackCacheAccessor.Set(cache);
     }
 
     /// <summary>Inicia, sem bloquear a reprodução, o pré-cache de todos os blocos da mídia.</summary>
     public async Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)
     {
-        if (_playbackCache is null || string.IsNullOrWhiteSpace(mediaPath))
+        if (_playbackCacheAccessor.Current is null || string.IsNullOrWhiteSpace(mediaPath))
         {
             return false;
         }
@@ -94,7 +94,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
                 return false;
             }
 
-            await using var stream = new NebulaChunkedStream(_telegramPool, parts, totalSize, _logger, _playbackCache, GetMediaCacheKey(doc));
+            await using var stream = new NebulaChunkedStream(_telegramPool, parts, totalSize, _logger, _playbackCacheAccessor, GetMediaCacheKey(doc));
             _logger.LogInformation("[NEBULA-PLAYBACK-CACHE] Pré-cache iniciado no começo da intro para {MediaName} ({Size} bytes).", doc.GetValue("name", "media.bin").AsString, totalSize);
             return true;
         }
@@ -105,6 +105,37 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[NEBULA-PLAYBACK-CACHE] Não foi possível antecipar o cache para {MediaPath}; a reprodução seguirá normalmente.", mediaPath);
+            return false;
+        }
+    }
+
+    /// <summary>Cancels speculative prefetch when no playback session is using the media.</summary>
+    public async Task<bool> CancelPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)
+    {
+        var cache = _playbackCacheAccessor.Current;
+        if (cache is null || string.IsNullOrWhiteSpace(mediaPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var identifier = await ResolveMediaIdentifierAsync(mediaPath, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(identifier))
+            {
+                return false;
+            }
+
+            var doc = await _mongoContext.FindFileByVirtualPathOrNameAsync(identifier, cancellationToken).ConfigureAwait(false);
+            return doc is not null && cache.CancelPrefetch(GetMediaCacheKey(doc));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[NEBULA-PLAYBACK-CACHE] Não foi possível cancelar o pré-cache para {MediaPath}.", mediaPath);
             return false;
         }
     }
@@ -151,15 +182,35 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         string streamToken = "",
         int maxActiveConnections = 32,
         NebulaPlaybackCache? playbackCache = null)
+        : this(mongoContext, telegramPool, host, port, logger, streamToken, maxActiveConnections, CreatePlaybackCacheAccessor(playbackCache))
+    {
+    }
+
+    internal NebulaHttpStreamServer(
+        NebulaMongoContext mongoContext,
+        NebulaTelegramPool telegramPool,
+        string host,
+        int port,
+        ILogger<NebulaHttpStreamServer> logger,
+        string streamToken,
+        int maxActiveConnections,
+        NebulaPlaybackCacheAccessor playbackCacheAccessor)
     {
         _mongoContext = mongoContext ?? throw new ArgumentNullException(nameof(mongoContext));
         _telegramPool = telegramPool ?? throw new ArgumentNullException(nameof(telegramPool));
         _host = string.IsNullOrWhiteSpace(host) ? "127.0.0.1" : host;
         _port = port > 0 ? port : 2123;
         _logger = logger;
-        _playbackCache = playbackCache;
+        _playbackCacheAccessor = playbackCacheAccessor;
         _streamToken = streamToken ?? string.Empty;
         _streamConcurrency = new SemaphoreSlim(Math.Clamp(maxActiveConnections, 1, 4096));
+    }
+
+    private static NebulaPlaybackCacheAccessor CreatePlaybackCacheAccessor(NebulaPlaybackCache? playbackCache)
+    {
+        var accessor = new NebulaPlaybackCacheAccessor();
+        accessor.Set(playbackCache);
+        return accessor;
     }
 
     /// <summary>
@@ -499,7 +550,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             return;
         }
 
-        await using var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger, _playbackCache, GetMediaCacheKey(doc));
+        await using var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger, _playbackCacheAccessor, GetMediaCacheKey(doc));
         stream.Seek(start, SeekOrigin.Begin);
 
         // Rented instead of allocated: a fresh 128 KB array per request means roughly one gigabyte of

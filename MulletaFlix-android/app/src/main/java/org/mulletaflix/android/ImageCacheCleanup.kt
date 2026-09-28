@@ -39,6 +39,7 @@ internal object ImageCacheCleanup {
     }
 }
 
+@OptIn(ExperimentalCoilApi::class)
 internal fun clearArtworkCaches(memoryCache: MemoryCache?, diskCache: DiskCache?) {
     memoryCache?.clear()
     diskCache?.clear()

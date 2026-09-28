@@ -1,12 +1,28 @@
 package org.mulletaflix.feature.itemdetail
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.ui.test.FontScale
+import androidx.compose.ui.test.WindowSize
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -109,6 +125,57 @@ class DetailActionRowTest {
         show(allowDownload = false)
 
         composeRule.onNodeWithContentDescription("Baixar para assistir offline").assertDoesNotExist()
+    }
+
+    @Test
+    fun narrowHeroKeepsPosterWholeAndActionsReachableAtTwoHundredPercentFontScale() {
+        val longTitle = "Título longo para acessibilidade ampliada ".repeat(10)
+        var shareClicks = 0
+        composeRule.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.WindowSize(DpSize(840.dp, 420.dp)),
+            ) {
+                DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
+                    MaterialTheme {
+                        Box(Modifier.width(340.dp).height(420.dp)) {
+                            DetailHero(
+                                item = MediaItem(id = "m1", name = longTitle, type = MediaItemType.Movie),
+                                onBack = {},
+                                onRefresh = {},
+                                isRefreshing = false,
+                                onPlay = {},
+                                playEnabled = true,
+                                onFavorite = {},
+                                onMarkWatched = {},
+                                onDownload = {},
+                                allowDownload = true,
+                                isDownloadPreparing = false,
+                                isFavoriteUpdating = false,
+                                isWatchedUpdating = false,
+                                onPlaylist = {},
+                                onShare = { shareClicks++ },
+                                isLoading = false,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        val expectedPosterWidth = with(composeRule.density) { 88.dp.toPx() }
+        val posterBounds = composeRule.onNodeWithTag("item-detail-hero-poster")
+            .fetchSemanticsNode().boundsInRoot
+        val actualPosterWidth = posterBounds.width
+        assert(kotlin.math.abs(actualPosterWidth - expectedPosterWidth) < 1f)
+        assert(kotlin.math.abs(posterBounds.height / posterBounds.width - 1.5f) < 0.01f)
+        composeRule.onNodeWithContentDescription("Compartilhar título").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("item-detail-hero-scroll-pane").performTouchInput {
+            repeat(3) { swipeUp() }
+        }
+        composeRule.onNodeWithTag("item-detail-actions-scroll-row").performTouchInput { swipeLeft() }
+        composeRule.onNodeWithContentDescription("Compartilhar título").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Compartilhar título").performClick()
+        composeRule.runOnIdle { assert(shareClicks == 1) }
     }
 
     @Test

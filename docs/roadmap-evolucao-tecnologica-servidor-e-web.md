@@ -46,11 +46,35 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 ### Fase 0 — Baseline, inventário e critérios de qualidade (P0)
 
 - [ ] **T0.1 — Definir baseline de produção.** Registrar tempo de inicialização, memória, uso de disco, latências p50/p95 dos endpoints mais usados, duração das tarefas Nebula e volume de mídia processado.
-- [ ] **T0.2 — Mapear fluxos e dependências.** Documentar reprodução Telegram/STRM/cache, download/upload Nebula, MariaDB, MongoDB, backups, scanners e telas web que consomem cada API.
+- [x] **T0.2 — Mapear fluxos e dependências.** Mapa estático documentado abaixo, com fontes de código por fluxo. Lacunas operacionais e medições continuam nas tarefas correspondentes.
 - [ ] **T0.3 — Criar conjunto de cenários representativo.** Incluir biblioteca pequena/grande, mídia local e Telegram, interrupção de banco/rede, cache cheio, Windows e Linux.
 - [ ] **T0.4 — Definir limites de regressão.** Fixar budgets iniciais para tempo de boot, tamanho do bundle web, latência de busca, espaço temporário e memória; calibrar com medições reais, não valores arbitrários.
 
 **Aceite:** relatório reproduzível com ambiente, comandos, métricas iniciais e limitações; sem alteração de comportamento do produto.
+
+#### Mapa de fluxos e dependências (T0.2)
+
+| Fluxo | Caminho observado | Persistência/integração | Consumidores e evidência no código |
+| --- | --- | --- | --- |
+| Inicialização Nebula | `ApplicationStarted` aciona `NebulaHostedService`; inicia envio, downloader STRM e, se configurado, montagem do drive em sequência. Após a montagem, chama `ILibraryManager.ValidateMediaLibrary` para indexar a unidade. | Configuração `nebulaftp`; `NebulaFtpManager` constrói os componentes e controla seu ciclo de vida. | `NebulaHostedService.StartAsync`/`OnApplicationStarted`; `NebulaFtpManager.StartEnvioAsync`/`StartDownloaderAsync`; registro em `Startup` e `CoreAppHost`. |
+| Upload local para Telegram | `NebulaStagingWatcher` observa staging, recupera fila do MongoDB, ordena prioridades, reivindica tarefas e chama `NebulaUploadEngine`; o engine valida duplicidade, envia partes ao Telegram e conclui o documento MongoDB. | MongoDB `ftp.files` mantém estado, caminho, partes e dados de envio; Telegram armazena as partes. Sincronização com Supabase é complementar e pode sincronizar nós após escrita. | `NebulaStagingWatcher.Start`/`EnqueueFile`/worker; `NebulaUploadEngine.ProcessFileUploadAsync`; `NebulaFtpManager.StartEnvioAsync`. |
+| Download de STRM para staging | `NebulaDownloaderEngine` resolve o `.strm`, baixa/combina partes, grava o arquivo no staging, registra o trabalho no MongoDB e emite `OnUploadReady`; o watcher encaminha o arquivo ao upload. | Origem de partes Telegram e metadados MongoDB; staging local é temporário e a fila de envio continua sendo dona da etapa de upload. | `NebulaDownloaderEngine` e `EnqueueFileInMongoAsync`; callback ligado em `NebulaFtpManager.StartDownloaderAsync`; `NebulaStagingWatcher.EnqueueMediaFromDownloader`. |
+| Reprodução via N: / FTP | `NebulaFileSystem` lista documentos virtuais MongoDB; leitura usa `NebulaChunkedStream`, que busca partes do Telegram e adquire lease pelo accessor do cache compartilhado. | MongoDB `ftp.files` é catálogo/metadado; Telegram é origem dos bytes; cache local é acelerador temporário, não fonte de verdade. | `NebulaFileSystem`/`NebulaChunkedStream`; `NebulaTelegramPool`; `NebulaPlaybackCacheAccessor`. |
+| Reprodução HTTP Nebula | `NebulaHttpStreamServer` cria `NebulaChunkedStream` a partir do documento MongoDB e das partes Telegram; o mesmo accessor liga a stream ao cache configurado. | Mesma fonte MongoDB/Telegram; cache guarda blocos com limite, reserva, expiração e proteção de leases. | `NebulaHttpStreamServer`; endpoints de status, caminho e limpeza em `NebulaFtpController`; tela `dashboard/playback/nebulacache`. |
+| Banco MariaDB do servidor | `Program` inicia ou detecta MariaDB local; `MySqlDatabaseProvider` configura provider EF, banco/schema e pool para os repositórios do servidor. | Dados Jellyfin/MulletaFlix em MariaDB; não confundir com MongoDB `ftp` usado pelo Nebula nem com SQLite legado do plugin. | `MariaDbProcessManager.StartMariaDbAsync`; `MySqlDatabaseProvider.Initialise`; contextos em `src/Jellyfin.Database/.../Contexts`. |
+| MongoDB Nebula e sincronização Supabase | `NebulaMongoContext` conecta ao database `ftp` e usa coleções `files`, `users`, `bot_tokens` e `operation_replays`; `NebulaSupabaseSyncService` faz sincronização delta/backup e rotina periódica configurada pelo manager. | MongoDB é a fonte operacional Nebula; Supabase recebe cópia/sincronização remota e pode restaurar catálogo conforme fluxo de inicialização. | `NebulaMongoContext`; `NebulaFtpManager.StartEnvioAsync`/`BackupMongoToSupabaseAsync`; `NebulaSupabaseSyncService.StartContinuousSync`/`PerformBackupAsync`. |
+| Backups | `FullSystemBackup.BackupService` cria/restaura arquivos de backup do servidor via API própria. Em separado, `NebulaSupabaseSyncService` sincroniza dados MongoDB/usuários ao Supabase. | Backup local do sistema e cópia remota Nebula têm conteúdos, destinos, agendamentos e validações diferentes; sucesso de um não prova restauração do outro. | `BackupController`/`BackupService`; `NebulaFtpController`/`NebulaFtpManager`/`NebulaSupabaseSyncService`; telas web de backups e manutenção Nebula. |
+| Varredura de bibliotecas e metadados | O scanner Jellyfin indexa caminhos configurados, inclusive `.strm`; eventos de item alimentam `NebulaMetadataExportService` e `NotificationsLibraryNotifier`. O watcher de staging é outro scanner, dedicado aos arquivos a enviar. | MariaDB guarda catálogo Jellyfin; MongoDB/Supabase recebem catálogo operacional Nebula e metadados exportados para a árvore virtual. | `ILibraryManager` e eventos `ItemAdded`/`ItemUpdated`; `NebulaMetadataExportService`; `NotificationsLibraryNotifier`; `NebulaStagingWatcher`. |
+| Solicitações e reports na web | Autocomplete consulta `UserFeedback/MediaSuggestions`; envio grava `ActivityLog` e chama `PrioritizeMedia`; painel carrega atividades e cruza títulos com `MediaRequestCatalog` para separar pendentes/incluídos. Reports de reprodução também são atividades. | Activity log persiste solicitações/reports; catálogo STRM é construído de raízes configuradas e cacheado pelo manager; prioridade é aplicada às filas Nebula. | `UserFeedbackController`; `NebulaFtpManager.SearchMediaSuggestions`/`GetMediaSuggestionCatalog`/`PrioritizeMedia`; `UserFeedbackListPage`; toolbar web. |
+
+**Limites deste mapa:** rastreamento de código e contratos, não medição de produção. Não comprova latência, throughput, restauração real, estado de serviços ou sincronização de dados em uma instalação ativa; esses itens seguem em T0.1/T0.3/T0.4, T1, T2 e T4.
+
+#### T0.1 — Amostra operacional inicial (parcial; 28/09/2026)
+
+- Processo observado: servidor instalado em `C:\Program Files\MulletaFlix\Server\MulletaFlix.exe`, versão `12.1.5`, PID `11108`; não houve restart nem alteração da instalação.
+- Em 50 GETs sequenciais somente de `/ready`, todas as respostas foram HTTP 200. Header do servidor: p50 **5,41 ms**, p95 **9,74 ms**; tempo medido pelo cliente: p50 **7,47 ms**, p95 **15,75 ms** (percentis nearest-rank, N=50).
+- Working set do processo foi observado em **1,84 GiB** antes da bateria e **3,17 GiB** logo depois; após 10 segundos sem novas chamadas, **3,22 GiB**, com **1,38 GiB** de memória física disponível no host. Isto é correlação durante a amostragem, não prova de que as requisições causaram o crescimento; nenhuma outra atividade do host foi isolada.
+- Limite: este é um endpoint de prontidão, não p50/p95 dos endpoints mais usados, nem duração de startup, throughput de Nebula ou tamanho da biblioteca. T0.1 continua aberta até coleta representativa, com janela sem concorrência e medição dos cenários definidos.
 
 ### Fase 1 — Observabilidade e operação (P0)
 
@@ -58,6 +82,7 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 - [ ] **T1.2 — Criar indicadores de operação no painel.** Saúde/degradação de MongoDB e MariaDB, espaço do cache, fila mais antiga, itens em retry, throughput e falhas por etapa.
 - [ ] **T1.3 — Separar logs operacionais de auditoria.** IDs de correlação, retenção configurável e remoção/redação de tokens, credenciais, URLs assinadas e dados pessoais.
 - [ ] **T1.4 — Expor health checks úteis.** Diferenciar processo ativo de serviço pronto; reportar dependências essenciais e estado degradado sem expor segredos publicamente.
+  - [x] O `/ready` do Nebula usa `GetComponentHealthAsync` e verifica MongoDB + listeners FTP/HTTP; não materializa listas completas de uploads para responder readiness.
 - [ ] **T1.5 — Definir alertas e diagnósticos.** Alertar fila sem progresso, backup vencido, disco próximo do limite, erro repetido de provedor e falha de restauração.
 
 **Aceite:** um incidente de teste pode ser rastreado do endpoint/tarefa até a dependência causadora; health check não revela configuração sensível; métricas não usam títulos, caminhos ou IDs de usuário como labels de alta cardinalidade.
@@ -70,6 +95,7 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 - [ ] **T2.4 — Implementar backpressure e fairness.** Limites independentes por operação/rede, proteção contra rajadas e evitar starvation de tarefas não prioritárias.
 - [ ] **T2.5 — Adicionar recuperação operacional.** Retentativas com backoff/jitter, limite de tentativas, fila de falhas com reprocessamento administrativo e cancelamento seguro.
 - [ ] **T2.6 — Revisar limpeza e startup.** Varredura/cleanup incremental, concorrência limitada, checkpoint e progresso reportado; inicialização não deve bloquear o host por uma limpeza completa.
+- [ ] **T2.7 — Atualizar a listagem virtual após upload Nebula.** Persistir primeiro `completed` e as partes Telegram no MongoDB; em seguida invalidar somente a pasta afetada via rclone RC `vfs/refresh`. Falha no refresh não reverte o upload; não copiar a mídia integral para N: e não reduzir globalmente `--dir-cache-time` salvo como fallback medido.
 
 **Aceite:** reiniciar o servidor durante download/upload retoma ou encerra o trabalho de modo consistente; cenário de retry não produz duplicação; prioridades efetivas coincidem com a ordem exibida; tarefas não ficam indefinidamente sem progresso.
 
@@ -77,13 +103,21 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 
 - [ ] **T3.1 — Formalizar o contrato do cache de reprodução.** Cache em disco com limite configurável, chave canônica, política de expiração/evicção, espaço reservado e comportamento quando o volume está cheio.
   - [x] Expirar entradas após 1 hora sem atividade; manter limpeza periódica a cada 5 minutos e proteger leases ativos.
-  - [ ] Implementar cota/reserva configuráveis e comportamento seguro quando o volume está cheio.
+  - [x] Configurar cota máxima e reserva de espaço livre; evictar mídias inativas por LRU e aplicar limites na gravação e limpeza periódica.
+  - [x] Quando cache/capacidade falhar, entregar os bytes ao fluxo de reprodução sem persistir o bloco.
 - [ ] **T3.2 — Validar leitura em partes e prefetch.** Garantir que a mídia original começa a tocar enquanto o cache pré-carrega as partes necessárias, com limites de concorrência e cancelamento ao encerrar/trocar a sessão.
+  - [x] Limitar a duas mídias com pré-cache integral ativo e quatro aguardando; não enfileirar prefetch-ahead além de dois chunks concorrentes. Os chunks antecipados usam o cache persistente compartilhado, evitando novo download do mesmo bloco entre ranges/leitores.
+  - [x] Provar por teste do `NebulaChunkedStream` que o primeiro bloco é entregue e persistido enquanto o prefetch do próximo chunk continua bloqueado.
+  - [x] Monitorar eventos `PlaybackStart`/`PlaybackStopped` por sessão; trocar/encerrar uma reprodução cancela o pré-cache da mídia anterior apenas quando nenhum outro cliente permanece nela. Eventos de parada sem identidade suficiente são ignorados; se ainda houver um range aberto, o cancelamento fica pendente até o último lease fechar, e novo playback remove essa intenção. Se a mídia retomar durante a resolução do cancelamento, o monitor reinicia o pré-cache.
+  - [ ] Validar ponta a ponta em runtime o vínculo entre eventos reais Jellyfin, caminho STRM, documento Mongo e chave de cache, além de confirmar reprodução contínua durante troca/parada. O cancelamento por lease continua como fallback com tolerância de 2 minutos para encerramentos sem evento.
 - [ ] **T3.3 — Preservar leases ativos.** Limpeza não remove conteúdo usado por leitores ou downloads em andamento; liberar lease mesmo em exceção, cancelamento e encerramento do servidor.
+  - [x] Limpeza manual e por cota ignoram mídias com lease, prefetch ou fetch de chunk em andamento; mudança de configuração não interrompe sessões ativas.
 - [x] **T3.4 — Prevenir duplicação de downloads concorrentes.** Uma única operação por parte/arquivo atende leitores simultâneos; cancelamento de um leitor não cancela nem duplica o download compartilhado.
 - [ ] **T3.5 — Exibir diagnóstico de cache.** Bytes e arquivos em cache, hits/misses, latência Telegram, prefetch em andamento, leases, erros e limpeza segura.
+  - [x] Painel usa os nomes atuais do DTO e mostra ocupação da cota, limite configurado, espaço livre/reserva e leases ativos.
 - [ ] **T3.6 — Fazer testes de falha e recuperação.** Rede lenta/interrompida, parte ausente, servidor reiniciado, cliente cancelado, mudança de caminho e disco cheio.
   - [x] Cobrir cancelamento do último leitor, cancelamento de um leitor com outros aguardando e rejeição/cancelamento de operações no descarte do cache.
+  - [x] Cobrir cota cheia, reserva mínima, evicção inativa, redução de cota existente e limpeza manual durante fetch.
 
 **Aceite:** a reprodução direta do disco permanece inalterada; com Nebula, o cache não impede o primeiro frame, não remove partes ativas e demonstra redução mensurável de pausas em cenários equivalentes.
 
@@ -222,15 +256,96 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 
 ## Registro de execução
 
-### 28/09/2026 — Cache compartilhado Nebula (T3.1 parcial, T3.4 concluída, T3.6 parcial)
+### 28/09/2026 — Cache compartilhado Nebula (T3.1 parcial, T3.3 parcial, T3.4 concluída, T3.5 parcial, T3.6 parcial)
 
 - Corrigido o cancelamento por leitor: cada requisição pode cancelar sua própria espera sem interromper leitores restantes; o fetch compartilhado é cancelado quando o último leitor sai.
 - O descarte do cache cancela fetches em andamento e chamadas novas passam a ser rejeitadas; entradas concorrentes são removidas somente se ainda corresponderem à mesma operação.
 - Alinhada expiração de inatividade para 1 hora; a limpeza periódica permanece em 5 minutos e preserva leases ativos.
-- Testes cobrem uma única chamada de origem com vários leitores, cancelamento independente e total, descarte durante fetch e rejeição após descarte.
-- Verificação Release: 985 testes no projeto `Jellyfin.Server.Implementations.Tests`, 947 aprovados, 38 ignorados, 0 falhas; build incluído pela execução: 0 erros. Persistem avisos, incluindo advisory de alta severidade em `Newtonsoft.Json` e avisos de analisadores/documentação.
-- A cota máxima/reserva do disco e os demais cenários de falha/recuperação continuam pendentes; T3.1 permanece aberta e T3.6 parcial.
+- Adicionadas cota máxima e reserva configuráveis no painel; o cache evicta diretórios inativos por LRU, respeita mídias/leitores/fetches ativos e não falha a reprodução quando não pode gravar.
+- A limpeza periódica aplica também redução de cota já configurada; a limpeza manual ignora operações de chunk em andamento. Alterar apenas os limites atualiza o cache existente sem interromper a sessão; mudar caminho aguarda o cache anterior ficar ocioso antes de descartá-lo.
+- O painel agora corresponde ao DTO real e exibe ocupação da cota, limite, espaço livre/reserva e leases. Ainda faltam hits/misses, latência Telegram, prefetch em andamento e erros.
+- Testes cobrem cota cheia, reserva mínima, evicção inativa, redução de cota existente, limpeza manual durante fetch, cancelamento independente/total e descarte.
+- Corrigidas corridas de cancelamento/descarte de fetches compartilhados e prefetch; leases, início de fetch, limpeza e evicção agora são sincronizados para não remover conteúdo que acabou de entrar em uso. Reduzir a cota aplica a evicção imediatamente.
+- A troca do caminho do cache atualiza também a referência compartilhada usada por novas streams FTP/HTTP, enquanto leases existentes continuam no cache anterior até terminarem.
+- A API genérica preserva caminho/cota/reserva, devolve esses campos no GET e valida limites; caminho omitido mantém o atual e caminho vazio volta ao padrão. Limpeza alcança arquivos persistidos mesmo sem cache inicializado e informa falha real de remoção.
+- A tela do cache trata as respostas JSON corretamente, diferencia caminho omitido/vazio e mostra o resultado efetivo da limpeza, evitando sucesso visual sem a operação correspondente.
+- Verificação Release: 992 testes no projeto `Jellyfin.Server.Implementations.Tests` (954 aprovados, 38 ignorados, 0 falhas); API: 178 aprovados, 0 falhas; web: 208 testes aprovados. `dotnet build Jellyfin.Server/Jellyfin.Server.csproj -c Release --no-restore`, `npm run build:check`, `npm run lint:changed`, `npm run build:production` e `npm run verify:build` concluídos com exit 0. Persistem aviso de advisory de alta severidade em `Newtonsoft.Json`, avisos de bundle/analisadores e mensagem jsdom `window is not defined` após resumo dos testes, sem falha no processo.
+- Risco a medir antes de otimização: gravações de cache ainda são serializadas pelo gate global para proteger cota/reserva/evicção. Benchmark concorrente está pendente em T3.2; não paralelizar sem preservar as invariantes e demonstrar ganho.
+- T3.1 permanece aberta porque a chave canônica e alguns cenários de falha ainda precisam de revisão; T3.3/T3.5/T3.6 também parciais conforme itens não marcados.
 - Nenhuma release foi criada/publicada; aguardar conclusão integral das melhorias ativas conforme decisão do usuário.
+
+### 28/09/2026 — Limites e persistência do prefetch Nebula (T3.2 parcial)
+
+- O pré-cache integral admite duas mídias ativas e quatro aguardando; além desse limite, a reprodução continua por demanda sem criar mais tarefas de pré-cache.
+- O prefetch-ahead é especulativo: no máximo dois chunks concorrentes; quando os slots estão ocupados, a especulação é descartada e o leitor baixa o chunk se/ quando requisitado.
+- Os chunks antecipados passam pelo cache persistente compartilhado, permitindo coalescência entre leitores/ranges e evitando downloads duplicados.
+- Testes verificam limite ativo e fila de pré-cache, reutilização do mesmo chunk entre leitores, persistência e que a leitura demandada não espera pelo semáforo de prefetch-ahead.
+- Verificação Release: suíte completa `Jellyfin.Server.Implementations.Tests` com 961 aprovados, 38 ignorados, 0 falhas; build do servidor com 0 erros; `git diff --check` concluído. Permanecem avisos NU1903/analisadores existentes.
+- T3.2 segue parcial: falta teste integrado que prove primeiro bloco antes do prefetch restante e sinal explícito/seguro de encerramento/troca da sessão para cancelar a mídia anterior. O cancelamento atual por leases mantém janela de tolerância de 2 minutos para streams HTTP de ranges.
+- Nenhum servidor instalado foi reiniciado e nenhuma release/portal foi publicada.
+
+### 28/09/2026 — Primeiro bloco durante pré-cache Nebula (T3.2 parcial)
+
+- Adicionado um seam interno de fetch no `NebulaChunkedStream`, sem alterar o construtor público usado em produção, para exercitar de forma determinística concorrência do prefetch integral e leitura sob demanda.
+- A revisão adversarial identificou uma quebra de assinatura pública preexistente no diff acumulado; a assinatura anterior com `NebulaPlaybackCache` foi restaurada e o `NebulaPlaybackCacheAccessor` ficou restrito às sobrecargas internas.
+- Novo teste comprova que o primeiro chunk é devolvido e escrito no cache local enquanto o fetch do chunk seguinte permanece bloqueado; o teste libera o fetch ao final e espera o pré-cache terminar.
+- Teste focado Release: 1 aprovado, 0 falhas. Suíte completa `Jellyfin.Server.Implementations.Tests`: 962 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros; permanecem avisos conhecidos de dependência/analisadores. `git diff --check` passou.
+- T3.2 continua parcial: falta validação real da sequência de reprodução e vínculo Jellyfin → Mongo → cache em runtime. Nenhuma release será criada até todas as melhorias ativas do roadmap serem implementadas e validadas.
+
+### 28/09/2026 — Cancelamento do pré-cache pelo ciclo de sessão (T3.2 parcial)
+
+- Registrado `NebulaPlaybackSessionMonitor` como hosted service, escutando os eventos reais do `ISessionManager`. Ele acompanha mídia e `PlaySessionId` por sessão, solicita cancelamento ao trocar/parar e protege sessões concorrentes que ainda usam o mesmo caminho.
+- O caminho STRM é resolvido novamente no Mongo para obter a mesma chave de mídia usada pelo cache; se houver range aberto, a intenção de cancelar aguarda o último lease, e um novo prefetch da mesma mídia limpa essa intenção.
+- Testes Release cobrem compartilhamento de mídia entre sessões, troca de título, parada atrasada ou sem identidade, cancelamento isolado e adiado, retomada durante a resolução, lease ativo e execução de callbacks fora do lock global.
+- Suíte `Jellyfin.Server.Implementations.Tests`: 970 aprovados, 38 ignorados, 0 falhas; suíte `Jellyfin.Api.Tests`: 178 aprovados, 0 falhas; build Release do servidor: 0 erros. `git diff --check` passou. Permanecem avisos NU1903/analisadores conhecidos.
+- Preservada compatibilidade pública: assinatura original do construtor HTTP restaurada e novo método de cancelamento da interface recebe implementação padrão compatível.
+- A validação real da sequência Jellyfin → Mongo → cache durante reprodução ainda falta; nenhuma release foi criada/publicada.
+
+### 28/09/2026 — Mapeamento estático de fluxos (T0.2 concluída)
+
+- Documentada a cadeia de startup, ingestão/upload Nebula, download STRM, reprodução FTP/HTTP com cache, MariaDB, MongoDB/Supabase, scanners, backups e telas web de solicitações/cache.
+- Separadas as responsabilidades entre MariaDB do catálogo do servidor, MongoDB `ftp` do Nebula, Telegram como armazenamento de partes, staging local, cache temporário e Supabase como destino remoto de sincronização/backup.
+- Identificada distinção importante: `FullSystemBackup` e backup/sincronização Nebula para Supabase são fluxos diferentes; validar um não comprova restauração do outro.
+- Escopo foi leitura de código e documentação de dependências; não houve mudança comportamental nem teste de runtime. T0.1/T0.3/T0.4 continuam abertas para medições e cenários reproduzíveis.
+
+### 28/09/2026 — Readiness leve do Nebula (T1.4 parcial)
+
+- O health check `/ready` deixou de chamar `GetStatusAsync`, que materializava filas completas de uploads no MongoDB. Agora usa `GetComponentHealthAsync`, que verifica o ping MongoDB e o estado dos listeners FTP/HTTP sem carregar filas operacionais.
+- A resposta contém apenas indicadores booleanos de MongoDB, listeners e readiness Telegram; não inclui strings de conexão, tokens, endereços privados ou dados de mídia. MongoDB/listeners indisponíveis resultam em `Unhealthy`; Telegram permanece informativo e não bloqueia readiness do transporte local.
+- Testes adicionados para Nebula desabilitado, componentes saudáveis, Mongo indisponível, listeners indisponíveis, exceção, cancelamento e ausência de Telegram configurado. `dotnet test tests/Jellyfin.Server.Tests/Jellyfin.Server.Tests.csproj -c Release --no-restore --filter FullyQualifiedName~NebulaHealthCheckTests`: 8 aprovados, 0 falhas. `dotnet build Jellyfin.Server/Jellyfin.Server.csproj -c Release --no-restore`: exit 0, 0 erros; permanece NU1903 para `Newtonsoft.Json` 9.0.1.
+- `git diff --check`: exit 0. Busca por `GetStatusAsync(cancellationToken)` em `Jellyfin.Server/Health` não encontrou outros health checks com a mesma materialização de filas.
+- Não houve alteração/restart do servidor instalado nem publicação. T1.4 segue parcial: health checks de outras dependências, estado degradado, exposição pública e garantia de não vazamento precisam de revisão ponta a ponta.
+
+### 28/09/2026 — Descoberta automática de mídia no disco N após upload
+
+- Requisito registrado: upload concluído deve tornar a mídia visível automaticamente na listagem virtual
+  do `N:`, sem copiar o arquivo integralmente para a unidade.
+- O `N:` é uma montagem virtual do FTP Nebula via rclone. A fonte de verdade é o documento MongoDB com
+  `status = completed` e partes Telegram válidas (`tg_file_id`/`tg_file`).
+- Causa atual da demora: a montagem usa `--dir-cache-time 24h`, permitindo que o rclone preserve uma
+  listagem antiga após o MongoDB ser atualizado.
+- Implementação planejada: persistir primeiro o estado final e, depois, invalidar somente a pasta afetada
+  usando o RC do rclone e `vfs/refresh`. Reduzir globalmente `--dir-cache-time` fica como fallback, pois
+  aumenta consultas `LIST` e pode reintroduzir instabilidade.
+- Aceite: visibilidade sem desmontar/remontar, refresh limitado à pasta, falha do refresh sem reverter o
+  upload e teste comprovando a ordem MongoDB, refresh e listagem.
+
+#### Progresso de implementação (28/09/2026)
+
+- O upload concluído agenda um `vfs/refresh` apenas para a pasta virtual correspondente, depois da gravação
+  de `completed` no MongoDB. Não há cópia da mídia para N: nem alteração do TTL global de 24 horas.
+- O RC do rclone é restrito a `127.0.0.1`, usa credenciais aleatórias no ambiente do processo (não na linha
+  de comando), e a chamada é autenticada. Falhas e timeout são registrados sem desfazer o upload.
+- Refreshes de uma mesma pasta são agrupados; um upload durante refresh em andamento agenda no máximo uma
+  nova atualização após a atual. Pastas diferentes continuam independentes. O helper desabilita RC quando
+  as credenciais não estão presentes e falha fechado quando apenas uma delas é fornecida.
+- Verificação: suíte completa `Jellyfin.Server.Implementations.Tests` com 958 aprovados, 38 ignorados e
+  0 falhas (inclui 219 testes Nebula de upload/fila); build Release do servidor concluído com 0 erros;
+  sintaxe Python e argumento RC do helper validados; `git diff --check` concluído. Permanecem avisos
+  existentes de NU1903 (`Newtonsoft.Json` 9.0.1) e de analisadores.
+- T2.7 permanece **parcial**: ainda falta uma validação integrada controlada confirmando o upload no Mongo,
+  o refresh autenticado no rclone real e a visibilidade imediata no N: sem reiniciar a montagem. Nenhum
+  servidor instalado foi reiniciado e nenhuma release/portal foi publicada.
 
 ## Backlog futuro — fora do ciclo ativo
 

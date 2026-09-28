@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using MulletaFlix.Api.Controllers;
+using MulletaFlix.Api.Results;
 using Xunit;
 
 namespace MulletaFlix.Api.Tests.Controllers;
@@ -80,8 +81,14 @@ public sealed class NebulaFtpControllerTests
             .Returns(new NebulaFtpConfiguration
             {
                 ApiHash = "existing-api-hash",
-                HttpStreamToken = "existing-stream-token"
+                HttpStreamToken = "existing-stream-token",
+                PlaybackCachePath = @"E:\NebulaCache",
+                PlaybackCacheMaxSizeGb = 120,
+                PlaybackCacheMinimumFreeSpaceGb = 8
             });
+        NebulaFtpConfiguration? saved = null;
+        configuration.Setup(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()))
+            .Callback<string, object>((_, value) => saved = Assert.IsType<NebulaFtpConfiguration>(value));
         var controller = new NebulaFtpController(manager.Object, configuration.Object);
 
         var result = controller.UpdateConfig(new NebulaFtpConfiguration
@@ -93,6 +100,31 @@ public sealed class NebulaFtpControllerTests
 
         Assert.IsType<NoContentResult>(result);
         configuration.Verify(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()), Times.Once);
+        Assert.NotNull(saved);
+        Assert.Equal(@"E:\NebulaCache", saved.PlaybackCachePath);
+        Assert.Equal(120, saved.PlaybackCacheMaxSizeGb);
+        Assert.Equal(8, saved.PlaybackCacheMinimumFreeSpaceGb);
+    }
+
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(50, -1)]
+    [InlineData(4097, 0)]
+    [InlineData(50, 1025)]
+    public void UpdateConfig_RejectsInvalidPlaybackCacheLimits(int maxSizeGb, int minimumFreeSpaceGb)
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = controller.UpdateConfig(new NebulaFtpConfiguration
+        {
+            PlaybackCacheMaxSizeGb = maxSizeGb,
+            PlaybackCacheMinimumFreeSpaceGb = minimumFreeSpaceGb
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        configuration.Verify(m => m.SaveConfiguration(It.IsAny<string>(), It.IsAny<object>()), Times.Never);
     }
 
     [Fact]
@@ -178,6 +210,7 @@ public sealed class NebulaFtpControllerTests
     {
         var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
         var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        configuration.Setup(m => m.GetConfiguration("nebulaftp")).Returns(new NebulaFtpConfiguration());
         var expected = new NebulaPlaybackCacheStatusDto
         {
             ConfiguredPath = @"E:\new-cache",
@@ -194,6 +227,28 @@ public sealed class NebulaFtpControllerTests
 
         var ok = Assert.IsAssignableFrom<OkObjectResult>(result.Result);
         Assert.Same(expected, ok.Value);
+    }
+
+    [Fact]
+    public async Task UpdatePlaybackCachePath_WhenPathIsOmitted_PreservesConfiguredPath()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        configuration.Setup(m => m.GetConfiguration("nebulaftp"))
+            .Returns(new NebulaFtpConfiguration { PlaybackCachePath = @"E:\existing-cache" });
+        manager.Setup(m => m.UpdatePlaybackCachePathAsync(@"E:\existing-cache", 90, 4, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var expected = new NebulaPlaybackCacheStatusDto();
+        manager.Setup(m => m.GetPlaybackCacheStatus()).Returns(expected);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.UpdatePlaybackCachePath(
+            new NebulaUpdatePlaybackCachePathRequest { MaxCacheSizeGb = 90, MinimumFreeSpaceGb = 4 },
+            CancellationToken.None);
+
+        var ok = Assert.IsType<OkResult<NebulaPlaybackCacheStatusDto>>(result.Result);
+        Assert.Same(expected, ok.Value);
+        manager.Verify(m => m.UpdatePlaybackCachePathAsync(@"E:\existing-cache", 90, 4, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -215,6 +270,7 @@ public sealed class NebulaFtpControllerTests
     {
         var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
         var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        configuration.Setup(m => m.GetConfiguration("nebulaftp")).Returns(new NebulaFtpConfiguration());
         manager.Setup(m => m.UpdatePlaybackCachePathAsync(It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
         var controller = new NebulaFtpController(manager.Object, configuration.Object);

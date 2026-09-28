@@ -1,5 +1,6 @@
 package org.mulletaflix.android.service
 
+import androidx.work.ExistingWorkPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,6 +78,20 @@ class OfflineSubtitleRecoveryPolicyTest {
         assertEquals(false, isTransientOfflineSubtitleNetworkFailure(IOException("generic I/O failure")))
         assertEquals(false, isTransientOfflineSubtitleNetworkFailure(SSLHandshakeException("certificate")))
         assertEquals(false, isTransientOfflineSubtitleNetworkFailure(java.net.ProtocolException("protocol")))
+    }
+
+    @Test
+    fun `durable worker retries only when session changed or transient sidecar failed`() {
+        assertEquals(false, shouldRetryOfflineSubtitleRecoveryWork(sessionChanged = false, hasTransientFailures = false))
+        assertTrue(shouldRetryOfflineSubtitleRecoveryWork(sessionChanged = false, hasTransientFailures = true))
+        assertTrue(shouldRetryOfflineSubtitleRecoveryWork(sessionChanged = true, hasTransientFailures = false))
+    }
+
+    @Test
+    fun `session change and transient follow-ups replace existing work`() {
+        assertEquals(ExistingWorkPolicy.REPLACE, offlineSubtitleRecoverySessionChangeWorkPolicy())
+        assertEquals(ExistingWorkPolicy.REPLACE, offlineSubtitleRecoveryWorkPolicy(isTransientFollowUp = true))
+        assertEquals(ExistingWorkPolicy.KEEP, offlineSubtitleRecoveryWorkPolicy(isTransientFollowUp = false))
     }
 
     private fun candidate(

@@ -361,7 +361,7 @@ class SeriesSectionTest {
     }
 
     @Test
-    fun downloadActionIsHiddenOnTvAndAnExistingBatchCanBeCancelled() {
+    fun allSeasonDownloadActionsAreHiddenOnTvEvenWhenBatchIsRunning() {
         if (!isTelevisionProfile()) return
 
         var cancelRequests = 0
@@ -401,12 +401,9 @@ class SeriesSectionTest {
         selectedSeason.requestFocus()
         selectedSeason.assertIsFocused()
         composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
-        composeRule.onNodeWithText("Preparando 1/2").assertIsDisplayed()
-
-        val cancelButton = composeRule.onNodeWithText("Cancelar")
-        cancelButton.assertHasClickAction().performClick()
-        composeRule.waitForIdle()
-        org.junit.Assert.assertEquals(1, cancelRequests)
+        composeRule.onNodeWithText("Preparando 1/2").assertDoesNotExist()
+        composeRule.onNodeWithText("Cancelar").assertDoesNotExist()
+        org.junit.Assert.assertEquals(0, cancelRequests)
         composeRule.onNodeWithText("Temporada 1").assertIsFocused()
     }
 
@@ -462,7 +459,9 @@ class SeriesSectionTest {
         composeRule.runOnIdle { showExternalProgress.value = true }
         composeRule.waitForIdle()
         otherAction.assertIsFocused()
-        composeRule.onNodeWithText("Cancelar").assertIsNotFocused()
+        composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
+        composeRule.onNodeWithText("Preparando 1/2").assertDoesNotExist()
+        composeRule.onNodeWithText("Cancelar").assertDoesNotExist()
     }
 
     @Test
@@ -530,7 +529,8 @@ class SeriesSectionTest {
         composeRule.waitForIdle()
         otherAction.assertIsFocused()
         composeRule.onNodeWithText("Baixar temporada").assertDoesNotExist()
-        composeRule.onNodeWithText("Cancelar").assertIsNotFocused()
+        composeRule.onNodeWithText("Preparando 0/1").assertDoesNotExist()
+        composeRule.onNodeWithText("Cancelar").assertDoesNotExist()
     }
 
     /**

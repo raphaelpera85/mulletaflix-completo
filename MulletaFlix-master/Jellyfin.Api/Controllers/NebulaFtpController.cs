@@ -80,6 +80,11 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
 
         var existing = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
         PreserveExistingSecretValues(config, existing);
+        // Cache settings are changed only through PlaybackCache/Path; older generic config clients
+        // must not reset them when they submit a stale or partial configuration document.
+        config.PlaybackCachePath = existing.PlaybackCachePath;
+        config.PlaybackCacheMaxSizeGb = existing.PlaybackCacheMaxSizeGb;
+        config.PlaybackCacheMinimumFreeSpaceGb = existing.PlaybackCacheMinimumFreeSpaceGb;
         _configManager.SaveConfiguration("nebulaftp", config);
         return NoContent();
     }
@@ -117,8 +122,9 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             return BadRequest("A cota deve ficar entre 1 e 4096 GiB; a reserva, entre 0 e 1024 GiB.");
         }
 
+        var existing = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
         var success = await _nebulaManager.UpdatePlaybackCachePathAsync(
-            request.CachePath,
+            request.CachePath ?? existing.PlaybackCachePath,
             request.MaxCacheSizeGb,
             request.MinimumFreeSpaceGb,
             cancellationToken).ConfigureAwait(false);
@@ -205,6 +211,16 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
         if (config.ChunkSizeMb is < 1 or > 1024)
         {
             return "ChunkSizeMb deve estar entre 1 e 1024 MB.";
+        }
+
+        if (config.PlaybackCacheMaxSizeGb is < 1 or > 4096)
+        {
+            return "PlaybackCacheMaxSizeGb deve estar entre 1 e 4096 GiB.";
+        }
+
+        if (config.PlaybackCacheMinimumFreeSpaceGb is < 0 or > 1024)
+        {
+            return "PlaybackCacheMinimumFreeSpaceGb deve estar entre 0 e 1024 GiB.";
         }
 
         if (!string.IsNullOrWhiteSpace(config.SupabaseUrl)
@@ -463,6 +479,9 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             TurboEnabled = config.TurboEnabled,
             TurboIdleMinutes = config.TurboIdleMinutes,
             DownloadParts = config.DownloadParts,
+            PlaybackCachePath = config.PlaybackCachePath,
+            PlaybackCacheMaxSizeGb = config.PlaybackCacheMaxSizeGb,
+            PlaybackCacheMinimumFreeSpaceGb = config.PlaybackCacheMinimumFreeSpaceGb,
             SupabaseUrl = config.SupabaseUrl,
             SupabaseKey = string.Empty,
             SupabaseProjectRef = config.SupabaseProjectRef,

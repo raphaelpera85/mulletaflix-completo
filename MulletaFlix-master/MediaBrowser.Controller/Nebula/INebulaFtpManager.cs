@@ -44,6 +44,10 @@ public interface INebulaFtpManager
     /// <summary>Starts prefetching all Telegram chunks for the selected media in the background.</summary>
     Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default);
 
+    /// <summary>Cancels speculative media prefetch after all playback sessions using it end.</summary>
+    Task<bool> CancelPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
     /// <summary>Obtém informações e status de armazenamento do cache de reprodução de mídia.</summary>
     NebulaPlaybackCacheStatusDto GetPlaybackCacheStatus();
 

@@ -365,7 +365,7 @@ public sealed class NebulaPlaybackCacheStatusDto
 
 public sealed class NebulaUpdatePlaybackCachePathRequest
 {
-    public string CachePath { get; set; } = string.Empty;
+    public string? CachePath { get; set; }
 
     public int? MaxCacheSizeGb { get; set; }
 

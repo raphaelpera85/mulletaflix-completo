@@ -11,6 +11,11 @@ import javax.net.ssl.SSLException
 
 internal const val MAX_OFFLINE_SUBTITLE_ATTEMPTS = 3
 
+internal fun shouldRetryOfflineSubtitleRecoveryWork(
+    sessionChanged: Boolean,
+    hasTransientFailures: Boolean,
+): Boolean = sessionChanged || hasTransientFailures
+
 internal fun shouldRetryOfflineSubtitleHttpStatus(statusCode: Int): Boolean =
     statusCode == 408 || statusCode == 429 || statusCode in 500..599
 

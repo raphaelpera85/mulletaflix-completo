@@ -22,9 +22,11 @@ import org.mulletaflix.core.api.ClientIdentityInterceptor
 import org.mulletaflix.core.api.SessionRepository
 import org.mulletaflix.core.api.buildAuthenticatedImageClient
 import org.mulletaflix.core.api.ServerUrlInterceptor
+import org.mulletaflix.core.common.session.FeedbackRequestSession
 import org.mulletaflix.designsystem.media.canonicalImageCacheKey
 import org.mulletaflix.domain.repository.PlaybackIssueQueue
 import org.mulletaflix.android.service.PlaybackIssueWorkScheduler
+import org.mulletaflix.android.service.OfflineSubtitleRecoveryWorkScheduler
 
 /**
  * Application entry point for MulletaFlix Android.
@@ -51,6 +53,8 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
 
     @Inject internal lateinit var playbackIssueWorkScheduler: PlaybackIssueWorkScheduler
 
+    @Inject internal lateinit var offlineSubtitleRecoveryWorkScheduler: OfflineSubtitleRecoveryWorkScheduler
+
     override fun onCreate() {
         super.onCreate()
 
@@ -67,6 +71,27 @@ class MulletaFlixApp : Application(), ImageLoaderFactory {
                 kotlinx.coroutines.delay(java.util.concurrent.TimeUnit.HOURS.toMillis(ImageCacheCleanup.INTERVAL_HOURS))
                 runCatching { ImageCacheCleanup.clear(this@MulletaFlixApp) }
             }
+        }
+
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            var previousSession: FeedbackRequestSession? = null
+            var loggedOutSinceLastSession = false
+            sessionRepository.getFeedbackRequestSession()
+                .distinctUntilChanged()
+                .collect { session ->
+                    if (session != null) {
+                        if (loggedOutSinceLastSession || (previousSession != null && previousSession != session)) {
+                            offlineSubtitleRecoveryWorkScheduler.enqueueAfterSessionChange()
+                        } else {
+                            offlineSubtitleRecoveryWorkScheduler.enqueue()
+                        }
+                        previousSession = session
+                        loggedOutSinceLastSession = false
+                    } else {
+                        loggedOutSinceLastSession = previousSession != null
+                        offlineSubtitleRecoveryWorkScheduler.cancel()
+                    }
+                }
         }
 
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

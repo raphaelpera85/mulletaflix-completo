@@ -8,7 +8,7 @@ import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import CircularProgress from '@mui/material/CircularProgress';
-import Grid from '@mui/material/Grid';
+import Grid from '@mui/material/Grid2';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 import LinearProgress from '@mui/material/LinearProgress';
@@ -98,11 +98,6 @@ export const Component = () => {
 
     const handleSavePath = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!cachePathInput.trim()) {
-            toast('O caminho da pasta não pode ser vazio.');
-            return;
-        }
-
         setIsSaving(true);
         setSuccessMessage(null);
         setError(null);
@@ -113,6 +108,7 @@ export const Component = () => {
             const updated = await (apiClient.ajax({
                 type: 'POST',
                 url,
+                dataType: 'json',
                 data: JSON.stringify({
                     CachePath: cachePathInput.trim(),
                     MaxCacheSizeGb: maxCacheSizeGb,
@@ -135,7 +131,7 @@ export const Component = () => {
     }, [ cachePathInput, maxCacheSizeGb, minimumFreeSpaceGb ]);
 
     const handleClearCache = useCallback(async () => {
-        if (!confirm('Deseja realmente limpar o cache de reprodução do Nebula? Apenas arquivos que não estão sendo executados no momento serão removidos.')) {
+        if (!window.confirm('Deseja realmente limpar o cache de reprodução do Nebula? Apenas arquivos que não estão sendo executados no momento serão removidos.')) {
             return;
         }
 
@@ -146,20 +142,19 @@ export const Component = () => {
         try {
             const apiClient = getApiClient();
             const url = apiClient.getUrl('NebulaFtp/PlaybackCache/Clear');
-            const result = await (apiClient.ajax({
+            const cleared = await (apiClient.ajax({
                 type: 'POST',
                 url,
+                dataType: 'json',
                 contentType: 'application/json'
-            }) as Promise<{ freedFormatted: string; deletedCount: number; status: NebulaPlaybackCacheStatus }>);
+            }) as Promise<boolean>);
 
-            if (result.status) {
-                setStatus(result.status);
-                setCachePathInput(result.status.configuredPath || '');
-            } else {
-                void loadStatus();
+            if (!cleared) {
+                throw new Error('O servidor não conseguiu limpar o cache.');
             }
 
-            const msg = `Cache limpo com sucesso! ${result.deletedCount || 0} arquivo(s) removido(s) (${result.freedFormatted || '0 B'} liberados).`;
+            await loadStatus();
+            const msg = 'Cache limpo. Arquivos em reprodução foram preservados.';
             setSuccessMessage(msg);
             toast(msg);
         } catch (err: unknown) {
@@ -171,14 +166,36 @@ export const Component = () => {
         }
     }, [ loadStatus ]);
 
+    const handleRefresh = useCallback(async () => {
+        await loadStatus();
+    }, [ loadStatus ]);
+
+    const handleDismissError = useCallback(() => setError(null), []);
+    const handleDismissSuccess = useCallback(() => setSuccessMessage(null), []);
+    const handleCachePathChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setCachePathInput(event.target.value);
+    }, []);
+    const handleMaxCacheSizeChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setMaxCacheSizeGb(Number(event.target.value));
+    }, []);
+    const handleMinimumFreeSpaceChange = useCallback((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setMinimumFreeSpaceGb(Number(event.target.value));
+    }, []);
+
     if (isLoading && !status) {
         return <Loading />;
     }
 
     const maxCacheSizeBytes = status?.maxCacheSizeBytes ?? 0;
-    const cacheUsagePercentage = maxCacheSizeBytes > 0
-        ? Math.min((status?.totalSizeBytes ?? 0) / maxCacheSizeBytes * 100, 100)
-        : 0;
+    const cacheUsagePercentage = maxCacheSizeBytes > 0 ?
+        Math.min((status?.totalSizeBytes ?? 0) / maxCacheSizeBytes * 100, 100) :
+        0;
+    let cacheUsageColor: 'error' | 'warning' | 'primary' = 'primary';
+    if (cacheUsagePercentage > 90) {
+        cacheUsageColor = 'error';
+    } else if (cacheUsagePercentage > 75) {
+        cacheUsageColor = 'warning';
+    }
 
     return (
         <Page
@@ -193,7 +210,7 @@ export const Component = () => {
                             Cache de Reprodução Nebula
                         </Typography>
                         <IconButton
-                            onClick={() => void loadStatus()}
+                            onClick={handleRefresh}
                             disabled={isLoading}
                             title='Atualizar Status'
                         >
@@ -206,20 +223,20 @@ export const Component = () => {
                     </Typography>
 
                     {error && (
-                        <Alert severity='error' onClose={() => setError(null)}>
+                        <Alert severity='error' onClose={handleDismissError}>
                             {error}
                         </Alert>
                     )}
 
                     {successMessage && (
-                        <Alert severity='success' onClose={() => setSuccessMessage(null)}>
+                        <Alert severity='success' onClose={handleDismissSuccess}>
                             {successMessage}
                         </Alert>
                     )}
 
                     {/* Status Overview Cards */}
                     <Grid container spacing={2}>
-                        <Grid item xs={12} sm={4}>
+                        <Grid size={{ xs: 12, sm: 4 }}>
                             <Card variant='outlined'>
                                 <CardContent>
                                     <Stack direction='row' alignItems='center' spacing={1} sx={{ mb: 1 }}>
@@ -238,7 +255,7 @@ export const Component = () => {
                             </Card>
                         </Grid>
 
-                        <Grid item xs={12} sm={4}>
+                        <Grid size={{ xs: 12, sm: 4 }}>
                             <Card variant='outlined'>
                                 <CardContent>
                                     <Stack direction='row' alignItems='center' spacing={1} sx={{ mb: 1 }}>
@@ -257,11 +274,11 @@ export const Component = () => {
                             </Card>
                         </Grid>
 
-                        <Grid item xs={12} sm={4}>
+                        <Grid size={{ xs: 12, sm: 4 }}>
                             <Card variant='outlined'>
                                 <CardContent>
                                     <Typography variant='subtitle2' color='text.secondary' sx={{ mb: 1 }}>
-                                        Uso do Disco do Cache
+                                        Uso da Cota do Cache
                                     </Typography>
                                     <Typography variant='h4'>
                                         {maxCacheSizeBytes ? `${cacheUsagePercentage.toFixed(1)}%` : 'N/D'}
@@ -271,11 +288,14 @@ export const Component = () => {
                                             variant='determinate'
                                             value={cacheUsagePercentage}
                                             sx={{ mt: 1, borderRadius: 1 }}
-                                            color={cacheUsagePercentage > 90 ? 'error' : cacheUsagePercentage > 75 ? 'warning' : 'primary'}
+                                            color={cacheUsageColor}
                                         />
                                     )}
                                     <Typography variant='caption' color='text.secondary'>
                                         Limite: {Math.round(maxCacheSizeBytes / (1024 ** 3))} GiB
+                                    </Typography>
+                                    <Typography variant='caption' color='text.secondary' display='block'>
+                                        Livre: {status?.freeSpaceGb ?? 0} GiB · reserva: {Math.round((status?.minimumFreeSpaceBytes ?? 0) / (1024 ** 3))} GiB
                                     </Typography>
                                 </CardContent>
                             </Card>
@@ -293,10 +313,10 @@ export const Component = () => {
                                     <TextField
                                         label='Pasta de Cache'
                                         value={cachePathInput}
-                                        onChange={e => setCachePathInput(e.target.value)}
+                                        onChange={handleCachePathChange}
                                         helperText='Pasta onde os arquivos temporários são salvos. Caso o campo fique vazio, o servidor utiliza a pasta padrão do sistema de streaming.'
                                         fullWidth
-                                        InputProps={{
+                                        slotProps={{ input: {
                                             endAdornment: (
                                                 <InputAdornment position='end'>
                                                     <IconButton
@@ -308,28 +328,28 @@ export const Component = () => {
                                                     </IconButton>
                                                 </InputAdornment>
                                             )
-                                        }}
+                                        } }}
                                     />
 
                                     <Grid container spacing={2}>
-                                        <Grid item xs={12} sm={6}>
+                                        <Grid size={{ xs: 12, sm: 6 }}>
                                             <TextField
                                                 type='number'
                                                 label='Limite máximo do cache (GiB)'
                                                 value={maxCacheSizeGb}
-                                                onChange={e => setMaxCacheSizeGb(Number(e.target.value))}
-                                                inputProps={{ min: 1, max: 4096 }}
+                                                onChange={handleMaxCacheSizeChange}
+                                                slotProps={{ htmlInput: { min: 1, max: 4096 } }}
                                                 helperText='Ao alcançar o limite, o servidor remove mídias inativas primeiro e preserva a reprodução atual.'
                                                 fullWidth
                                             />
                                         </Grid>
-                                        <Grid item xs={12} sm={6}>
+                                        <Grid size={{ xs: 12, sm: 6 }}>
                                             <TextField
                                                 type='number'
                                                 label='Espaço livre a preservar (GiB)'
                                                 value={minimumFreeSpaceGb}
-                                                onChange={e => setMinimumFreeSpaceGb(Number(e.target.value))}
-                                                inputProps={{ min: 0, max: 1024 }}
+                                                onChange={handleMinimumFreeSpaceChange}
+                                                slotProps={{ htmlInput: { min: 0, max: 1024 } }}
                                                 helperText='Sem espaço disponível, o bloco é transmitido normalmente, mas não fica em cache.'
                                                 fullWidth
                                             />
@@ -364,7 +384,7 @@ export const Component = () => {
                                 variant='outlined'
                                 color='error'
                                 startIcon={isClearing ? <CircularProgress size={20} color='inherit' /> : <DeleteSweep />}
-                                onClick={() => void handleClearCache()}
+                                onClick={handleClearCache}
                                 disabled={isClearing || !status?.cachedFilesCount}
                             >
                                 Limpar Cache Agora
