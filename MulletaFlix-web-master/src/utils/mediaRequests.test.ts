@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyMediaRequests, isMediaRequestIncluded, type MediaCatalogTitle } from './mediaRequestUtils';
+import { classifyMediaRequests, isMediaRequestIncluded, type MediaCatalogTitle } from './mediaRequests';
 
 const catalog: MediaCatalogTitle[] = [
     { Title: 'Atomic (2024)', MediaType: 'Series', Year: 2024 },

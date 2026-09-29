@@ -98,19 +98,21 @@ public class RateLimitMiddleware
 
         if (isLoginAttempt)
         {
-            if (IsBlocked(_failedLogins, ip, LoginWindow, MaxFailedLogins))
+            if (IsBlocked(_failedLogins, ip, LoginWindow, MaxFailedLogins, out var retryAfterLogin))
             {
                 _logger.LogWarning("Rate limit exceeded for login from IP {IP}", ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
+                context.Response.Headers.RetryAfter = retryAfterLogin.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 return;
             }
         }
         else if (!isAuth && !IsLoopback(ip) && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
         {
-            if (IsBlocked(_anonymousRequests, ip, AnonymousWindow, MaxAnonymousRequests))
+            if (IsBlocked(_anonymousRequests, ip, AnonymousWindow, MaxAnonymousRequests, out var retryAfterAnonymous))
             {
                 _logger.LogWarning("Rate limit exceeded for anonymous requests from IP {IP}", ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
+                context.Response.Headers.RetryAfter = retryAfterAnonymous.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 return;
             }
         }
@@ -183,14 +185,15 @@ public class RateLimitMiddleware
             || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsBlocked(ConcurrentDictionary<string, RateLimitEntry> store, string key, TimeSpan window, int max)
+    private static bool IsBlocked(ConcurrentDictionary<string, RateLimitEntry> store, string key, TimeSpan window, int max, out int retryAfterSeconds)
     {
         var now = DateTime.UtcNow;
         if (store.TryGetValue(key, out var entry))
         {
-            return entry.IsBlocked(now, window, max);
+            return entry.IsBlocked(now, window, max, out retryAfterSeconds);
         }
 
+        retryAfterSeconds = 0;
         return false;
     }
 
@@ -238,12 +241,24 @@ public class RateLimitMiddleware
         private readonly object _sync = new();
         public List<DateTime> Timestamps { get; } = new();
 
-        public bool IsBlocked(DateTime now, TimeSpan window, int max)
+        public bool IsBlocked(DateTime now, TimeSpan window, int max, out int retryAfterSeconds)
         {
             lock (_sync)
             {
                 Prune(now, window);
-                return Timestamps.Count >= max;
+                if (Timestamps.Count < max)
+                {
+                    retryAfterSeconds = 0;
+                    return false;
+                }
+
+                // The window frees up one slot as soon as its oldest recorded timestamp ages out;
+                // report that as a whole-second ceiling so RFC 9110 Retry-After never undersells
+                // how long the client actually still needs to wait.
+                var oldest = Timestamps.Min();
+                var remaining = (oldest + window) - now;
+                retryAfterSeconds = remaining > TimeSpan.Zero ? (int)Math.Ceiling(remaining.TotalSeconds) : 1;
+                return true;
             }
         }
 

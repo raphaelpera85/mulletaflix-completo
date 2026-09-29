@@ -166,6 +166,7 @@ namespace Emby.Server.Implementations.AppBase
             lock (_configurationSyncLock)
             {
                 XmlSerializer.SerializeToFile(CommonConfiguration, path);
+                RestrictConfigurationFilePermissions(path);
             }
 
             OnConfigurationUpdated();
@@ -347,9 +348,35 @@ namespace Emby.Server.Implementations.AppBase
             lock (_configurationSyncLock)
             {
                 XmlSerializer.SerializeToFile(configuration, path);
+                RestrictConfigurationFilePermissions(path);
             }
 
             OnNamedConfigurationUpdated(key, configuration);
+        }
+
+        /// <summary>
+        /// Restricts a just-written configuration file to owner-only read/write on Unix. Config
+        /// files can hold plaintext secrets (e.g. NebulaFtpConfiguration's Password, ApiHash,
+        /// BotTokens, SupabaseKey, MongoDbConnectionString), and the OS default permissions on
+        /// most Linux distributions (typically 644) leave them world-readable to any local
+        /// account. Windows ACLs are left untouched — <see cref="File.SetUnixFileMode"/> throws
+        /// <see cref="PlatformNotSupportedException"/> there, and NTFS already restricts access by
+        /// default to the file's owner/administrators.
+        /// </summary>
+        /// <param name="path">The configuration file that was just written.</param>
+        private void RestrictConfigurationFilePermissions(string path)
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Logger.LogWarning(ex, "Unable to restrict permissions on configuration file: {Path}", path);
+                }
+            }
         }
 
         /// <summary>

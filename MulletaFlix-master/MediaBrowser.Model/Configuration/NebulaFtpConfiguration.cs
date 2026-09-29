@@ -147,4 +147,13 @@ public class NebulaFtpConfiguration
 
     /// <summary>Number of application users included in the last independent backup.</summary>
     public int SupabaseLastUsersBackupCount { get; set; }
+
+    /// <summary>Last Supabase-to-MongoDB restore time (Nebula media/users), for operational alerting.</summary>
+    public DateTime? SupabaseLastRestoreTime { get; set; }
+
+    /// <summary>Last Supabase-to-MongoDB restore result text, for operational alerting.</summary>
+    public string SupabaseLastRestoreStatus { get; set; } = "Nenhuma restauração realizada ainda";
+
+    /// <summary>Whether the last Supabase-to-MongoDB restore attempt failed; drives the restore-failure alert.</summary>
+    public bool SupabaseLastRestoreFailed { get; set; }
 }

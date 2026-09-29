@@ -3424,6 +3424,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             LastUsersBackupTime = config.SupabaseLastUsersBackupTime,
             LastUsersBackupStatus = config.SupabaseLastUsersBackupStatus,
             LastUsersBackupCount = config.SupabaseLastUsersBackupCount,
+            LastRestoreTime = config.SupabaseLastRestoreTime,
+            LastRestoreStatus = config.SupabaseLastRestoreStatus,
+            LastRestoreFailed = config.SupabaseLastRestoreFailed,
             TotalLocalFiles = 0,
             TotalRemoteFiles = config.SupabaseLastBackupFilesCount,
             Message = hasUrl ? "Configurado" : "Supabase não configurado"
@@ -3724,13 +3727,20 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             {
                 AddServerLog($"[SUPABASE-RESTORE] {result.Message}");
                 CompleteMaintenanceOperation("succeeded");
+                config.SupabaseLastRestoreTime = DateTime.UtcNow;
+                config.SupabaseLastRestoreStatus = $"Restauração do MongoDB realizada com sucesso ({result.FilesRestored} arquivos, {result.UsersRestored} usuários) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
+                config.SupabaseLastRestoreFailed = false;
             }
             else
             {
                 AddServerLog($"[SUPABASE-RESTORE-ERRO] Falha na restauração: {result.Message}");
                 CompleteMaintenanceOperation("failed", result.Message);
+                config.SupabaseLastRestoreTime = DateTime.UtcNow;
+                config.SupabaseLastRestoreStatus = $"Falha na restauração às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {result.Message}";
+                config.SupabaseLastRestoreFailed = true;
             }
 
+            _configManager.SaveConfiguration("nebulaftp", config);
             await CacheOperationReplayAsync("supabase-restore", idempotencyKey, result, CancellationToken.None).ConfigureAwait(false);
             return result;
         }
@@ -3745,6 +3755,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             AddServerLog($"[SUPABASE-RESTORE-ERRO] Exceção durante a restauração nativa: {ex.Message}");
             _logger.LogError(ex, "Erro durante a restauração nativa do Supabase.");
             CompleteMaintenanceOperation("failed", ex.Message);
+            config.SupabaseLastRestoreTime = DateTime.UtcNow;
+            config.SupabaseLastRestoreStatus = $"Falha na restauração às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {ex.Message}";
+            config.SupabaseLastRestoreFailed = true;
+            _configManager.SaveConfiguration("nebulaftp", config);
             var failedResult = new NebulaSupabaseRestoreResultDto
             {
                 Success = false,

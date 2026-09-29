@@ -2,14 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.SystemBackupService;
+using MediaBrowser.Model.Nebula;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.System;
 using MediaBrowser.Model.Tasks;
@@ -37,6 +40,7 @@ public class ServerHealthController : BaseMulletaFlixApiController
     private readonly IPluginManager _pluginManager;
     private readonly IBackupService _backupService;
     private readonly ISystemManager _systemManager;
+    private readonly INebulaFtpManager _nebulaFtpManager;
 
     public ServerHealthController(
         IServerApplicationHost applicationHost,
@@ -47,7 +51,8 @@ public class ServerHealthController : BaseMulletaFlixApiController
         ILibraryManager libraryManager,
         IPluginManager pluginManager,
         IBackupService backupService,
-        ISystemManager systemManager)
+        ISystemManager systemManager,
+        INebulaFtpManager nebulaFtpManager)
     {
         _applicationHost = applicationHost;
         _applicationPaths = applicationPaths;
@@ -58,6 +63,7 @@ public class ServerHealthController : BaseMulletaFlixApiController
         _pluginManager = pluginManager;
         _backupService = backupService;
         _systemManager = systemManager;
+        _nebulaFtpManager = nebulaFtpManager;
     }
 
     /// <summary>
@@ -96,6 +102,115 @@ public class ServerHealthController : BaseMulletaFlixApiController
         summary.OverallStatus = CalculateOverallStatus(summary);
 
         return Ok(summary);
+    }
+
+    /// <summary>
+    /// Gets actionable operational alerts: stalled upload queue, overdue backup, low disk space,
+    /// repeated provider errors and restore failures. Deterministic evaluation over already-aggregated,
+    /// low-cardinality signals; see <see cref="OperationalAlertEvaluator"/>.
+    /// </summary>
+    /// <response code="200">Alerts returned (possibly empty).</response>
+    [HttpGet("Alerts")]
+    [ProducesResponseType(typeof(IReadOnlyList<OperationalAlertDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<OperationalAlertDto>>> GetOperationalAlerts(CancellationToken cancellationToken)
+    {
+        var inputs = new OperationalAlertInputs
+        {
+            NowUtc = DateTime.UtcNow
+        };
+
+        // Queue-stall signal: the oldest pending/queued Nebula upload, when available.
+        try
+        {
+            var queueSummary = await _nebulaFtpManager.GetUploadQueueSummaryAsync(cancellationToken).ConfigureAwait(false);
+            if (queueSummary.IsAvailable)
+            {
+                inputs.OldestPendingUploadAtUtc = queueSummary.OldestPendingAtUtc;
+                inputs.RecentFailuresByStage = queueSummary.FailuresByStage;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Nebula is an optional integration; a failure to read its queue summary must not block
+            // the rest of the operational alerts (disk space, backup, restore remain evaluable).
+        }
+
+        // Backup-overdue and restore-failure signals from local backups and Supabase status.
+        try
+        {
+            var backups = await _backupService.EnumerateBackups().ConfigureAwait(false);
+            var lastSuccessfulBackup = backups.Where(b => b.Options.Database == true).OrderByDescending(b => b.DateCreated).FirstOrDefault();
+            inputs.LastSuccessfulBackupUtc = lastSuccessfulBackup?.DateCreated.UtcDateTime;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Missing/unreadable local backups leave LastSuccessfulBackupUtc null, which itself
+            // raises the critical "no successful backup" alert; no separate handling needed.
+        }
+
+        try
+        {
+            var supabaseStatus = await _nebulaFtpManager.GetSupabaseStatusAsync(cancellationToken).ConfigureAwait(false);
+            if (supabaseStatus.IsConfigured && (inputs.LastSuccessfulBackupUtc is null || supabaseStatus.LastBackupTime > inputs.LastSuccessfulBackupUtc))
+            {
+                inputs.LastSuccessfulBackupUtc = supabaseStatus.LastBackupTime;
+            }
+
+            inputs.LastRestoreFailed = supabaseStatus.LastRestoreFailed;
+            inputs.LastRestoreFailureMessage = supabaseStatus.LastRestoreFailed ? supabaseStatus.LastRestoreStatus : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Supabase is an optional remote sync target; unreachable status must not block alerts
+            // derived from local signals (queue, disk, local backup).
+        }
+
+        // Disk-space signal from already-computed folder storage info.
+        try
+        {
+            var storageInfo = _systemManager.GetSystemStorageInfo();
+            var roles = new Dictionary<string, double>();
+            AddStorageRole(roles, "cache", storageInfo.CacheFolder);
+            AddStorageRole(roles, "backup", storageInfo.ProgramDataFolder);
+            AddStorageRole(roles, "transcode", storageInfo.TranscodingTempFolder);
+            AddStorageRole(roles, "log", storageInfo.LogFolder);
+            inputs.StorageFreeRatioByRole = roles;
+        }
+        catch (Exception)
+        {
+            // Leave StorageFreeRatioByRole empty; disk-space alerts simply do not fire for this call.
+        }
+
+        var alerts = OperationalAlertEvaluator.Evaluate(inputs);
+        return Ok(alerts);
+    }
+
+    private static void AddStorageRole(Dictionary<string, double> roles, string role, FolderStorageInfo? folder)
+    {
+        if (folder is null)
+        {
+            return;
+        }
+
+        var total = folder.FreeSpace + folder.UsedSpace;
+        if (total <= 0)
+        {
+            return;
+        }
+
+        roles[role] = (double)folder.FreeSpace / total;
     }
 
     private async Task<StorageHealthDto> GetStorageHealthAsync()

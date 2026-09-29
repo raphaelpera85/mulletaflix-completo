@@ -19,7 +19,7 @@ import Page from 'components/Page';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import type { ApiClient } from 'jellyfin-apiclient';
 import { useQuery } from '@tanstack/react-query';
-import { classifyMediaRequests, type MediaCatalogTitle } from './mediaRequestUtils';
+import { classifyMediaRequests, type MediaCatalogTitle } from 'utils/mediaRequests';
 
 interface UserFeedbackListPageProps {
     type: 'MediaRequest' | 'PlaybackIssue';

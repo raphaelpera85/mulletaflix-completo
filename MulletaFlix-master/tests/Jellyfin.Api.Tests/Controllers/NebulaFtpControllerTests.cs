@@ -243,6 +243,45 @@ public sealed class NebulaFtpControllerTests
     }
 
     [Fact]
+    public void GetConfig_RedactsAllSecretFieldsFromResponse()
+    {
+        // This is the read path an admin's browser actually calls to populate the Nebula settings
+        // form; it must never echo back a secret the server already knows, even though the write
+        // path (UpdateConfig/PreserveExistingSecretValues) is what re-applies them on save.
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>();
+        configuration.Setup(m => m.GetConfiguration("nebulaftp"))
+            .Returns(new NebulaFtpConfiguration
+            {
+                Password = "ftp-password",
+                HttpStreamToken = "stream-token",
+                MongoDbConnectionString = "mongodb://user:pass@host/db",
+                ApiHash = "12345678901234567890123456789012",
+                SupabaseKey = "supabase-service-role-key",
+                BotTokens = "111:AAA,222:BBB",
+                // Non-secret fields should still round-trip unchanged.
+                ServerHost = "nebula.example.com",
+                ServerPort = 2121,
+                Username = "nebula-ftp-user"
+            });
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = Assert.IsType<ActionResult<NebulaFtpConfiguration>>(controller.GetConfig());
+        var config = Assert.IsType<NebulaFtpConfiguration>(Assert.IsType<OkResult<NebulaFtpConfiguration>>(result.Result).Value);
+
+        Assert.Equal(string.Empty, config.Password);
+        Assert.Equal(string.Empty, config.HttpStreamToken);
+        Assert.Equal(string.Empty, config.MongoDbConnectionString);
+        Assert.Equal(string.Empty, config.ApiHash);
+        Assert.Equal(string.Empty, config.SupabaseKey);
+        Assert.Equal(string.Empty, config.BotTokens);
+
+        Assert.Equal("nebula.example.com", config.ServerHost);
+        Assert.Equal(2121, config.ServerPort);
+        Assert.Equal("nebula-ftp-user", config.Username);
+    }
+
+    [Fact]
     public void UpdateConfig_AcceptsValidConfigAndReturnsNoContent()
     {
         var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);

@@ -152,6 +152,16 @@ const UserViewNav = () => {
                 {globalize.translate('MediaRequestTitle')}
             </Button>
 
+            <Button
+                variant='text'
+                color={location.pathname === '/myrequests' ? 'primary' : 'inherit'}
+                startIcon={<Icon>list_alt</Icon>}
+                component={Link}
+                to='/myrequests'
+            >
+                {globalize.translate('MyMediaRequestsTitle')}
+            </Button>
+
             {primaryNavItems?.map(navItem => {
                 if ('url' in navItem) {
                     return (

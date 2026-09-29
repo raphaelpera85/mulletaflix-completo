@@ -53,6 +53,22 @@ public class UserFeedbackController : BaseMulletaFlixApiController
         return new OkObjectResult(_nebulaFtpManager.GetMediaSuggestionCatalog());
     }
 
+    /// <summary>Returns the media requests submitted by the current user, most recent first.</summary>
+    [HttpGet("MediaRequests")]
+    [ProducesResponseType(typeof(MediaBrowser.Model.Querying.QueryResult<MediaBrowser.Model.Activity.ActivityLogEntry>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMyMediaRequests([FromQuery] int limit = 100)
+    {
+        var result = await _activityManager.GetPagedResultAsync(new MulletaFlix.Data.Queries.ActivityLogQuery
+        {
+            UserId = User.GetUserId(),
+            Type = "MediaRequest",
+            Limit = Math.Clamp(limit, 1, 500),
+            OrderBy = new[] { (MulletaFlix.Data.Enums.ActivityLogSortBy.DateCreated, MulletaFlix.Database.Implementations.Enums.SortOrder.Descending) }
+        }).ConfigureAwait(false);
+
+        return new OkObjectResult(result);
+    }
+
     /// <summary>Creates a request for a title to be added to the server library.</summary>
     [HttpPost("MediaRequests")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

@@ -17,6 +17,13 @@ public class ActivityLogQuery : PaginatedQuery
     public bool? HasUserId { get; set; }
 
     /// <summary>
+    /// Gets or sets the exact user id to filter by. Unlike <see cref="HasUserId"/>, which
+    /// only tests for presence/absence, this restricts results to entries created by this
+    /// specific user (e.g. so a non-elevated caller can list only their own activity).
+    /// </summary>
+    public Guid? UserId { get; set; }
+
+    /// <summary>
     /// Gets or sets the minimum date to query for.
     /// </summary>
     public DateTime? MinDate { get; set; }

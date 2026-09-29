@@ -13,6 +13,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import TaskIcon from '@mui/icons-material/Task';
 import ExtensionIcon from '@mui/icons-material/Extension';
 import BackupTableIcon from '@mui/icons-material/BackupTable';
+import OperationalAlertsCard from './OperationalAlertsCard';
 import ComputerIcon from '@mui/icons-material/Computer';
 import WarningIcon from '@mui/icons-material/Warning';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -173,6 +174,13 @@ const ServerHealthPanel = () => {
                         size='small'
                     />
                 </Stack>
+
+                <Box sx={{ mb: 2 }}>
+                    <Typography variant='subtitle2' fontWeight={600} sx={{ mb: 1 }}>
+                        {globalize.translate('OperationalAlerts')}
+                    </Typography>
+                    <OperationalAlertsCard />
+                </Box>
 
                 <Grid container spacing={2}>
                     {/* Storage Card */}

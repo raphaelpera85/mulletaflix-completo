@@ -1983,5 +1983,9 @@
     "MediaRequestsAdminTitle": "Media requests",
     "MediaRequestsPendingTitle": "Request queue",
     "MediaRequestsIncludedTitle": "Included titles",
+    "MyMediaRequestsTitle": "My requests",
+    "MyMediaRequestsEmpty": "You haven't requested any titles yet.",
+    "MyMediaRequestsPendingEmpty": "No pending requests.",
+    "MyMediaRequestsIncludedEmpty": "None of your requests have been added yet.",
     "PlaybackIssuesAdminTitle": "Reported errors and bugs"
 }

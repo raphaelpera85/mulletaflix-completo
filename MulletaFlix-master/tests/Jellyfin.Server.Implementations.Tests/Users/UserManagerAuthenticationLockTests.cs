@@ -15,8 +15,10 @@ using MediaBrowser.Model.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using MulletaFlix.Data;
 using MulletaFlix.Database.Implementations.Contexts;
 using MulletaFlix.Database.Implementations.Entities;
+using MulletaFlix.Database.Implementations.Enums;
 using MulletaFlix.Server.Implementations.Users;
 using Xunit;
 
@@ -61,10 +63,10 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
 
         _appHostMock = new Mock<IApplicationHost>();
 
-        var cryptoProviderMock = new Mock<ICryptoProvider>();
+        var cryptoProvider = new Emby.Server.Implementations.Cryptography.CryptographyProvider();
         _defaultAuthenticationProvider = new DefaultAuthenticationProvider(
             NullLogger<DefaultAuthenticationProvider>.Instance,
-            cryptoProviderMock.Object);
+            cryptoProvider);
         _invalidAuthProvider = new InvalidAuthProvider();
         _defaultPasswordResetProvider = new DefaultPasswordResetProvider(
             _configurationManagerMock.Object,
@@ -122,6 +124,64 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
         Assert.Equal(user.Id, firstResult.Id);
         Assert.Equal(user.Id, secondResult.Id);
         Assert.Equal(1, authProvider.MaxConcurrentCalls);
+    }
+
+    [Fact]
+    public async Task AuthenticateUser_ExceedingLoginAttemptsBeforeLockout_DisablesTheAccount()
+    {
+        // Reproduces the real production lockout flow: UserManager.AuthenticateUser ->
+        // UserAuthenticationService.AuthenticateUser -> IncrementInvalidLoginAttemptCount, which
+        // sets PermissionKind.IsDisabled once InvalidLoginAttemptCount reaches
+        // LoginAttemptsBeforeLockout. This path had zero test coverage before this change: a
+        // regression here (e.g. an off-by-one, or forgetting to persist the disabled flag) would
+        // silently defeat brute-force protection without any test failing.
+        using var userManager = CreateUserManager(new BlockingAuthenticationProvider());
+
+        var user = await userManager.CreateUserAsync("lockout-user");
+        user.AuthenticationProviderId = _defaultAuthenticationProvider.GetType().FullName!;
+        user.Password = new Emby.Server.Implementations.Cryptography.CryptographyProvider().CreatePasswordHash("correct-password").ToString();
+        user.LoginAttemptsBeforeLockout = 3;
+        await userManager.UpdateUserAsync(user);
+
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            var result = await userManager.AuthenticateUser("lockout-user", "wrong-password", "127.0.0.1", isUserSession: true);
+            Assert.Null(result);
+
+            var reloaded = userManager.GetUserById(user.Id);
+            Assert.NotNull(reloaded);
+            Assert.Equal(attempt, reloaded.InvalidLoginAttemptCount);
+            Assert.Equal(attempt >= 3, reloaded.HasPermission(PermissionKind.IsDisabled));
+        }
+
+        // A 4th attempt with the (now disabled) account must be rejected for being disabled,
+        // not merely for a bad password — proving the lockout, not just the counter, took effect.
+        var securityException = await Assert.ThrowsAsync<System.Security.SecurityException>(
+            () => userManager.AuthenticateUser("lockout-user", "wrong-password", "127.0.0.1", isUserSession: true));
+        Assert.Contains("disabled", securityException.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AuthenticateUser_SuccessfulLogin_ResetsInvalidLoginAttemptCount()
+    {
+        using var userManager = CreateUserManager(new BlockingAuthenticationProvider());
+
+        var user = await userManager.CreateUserAsync("reset-user");
+        user.AuthenticationProviderId = _defaultAuthenticationProvider.GetType().FullName!;
+        user.Password = new Emby.Server.Implementations.Cryptography.CryptographyProvider().CreatePasswordHash("correct-password").ToString();
+        user.LoginAttemptsBeforeLockout = 5;
+        await userManager.UpdateUserAsync(user);
+
+        // Two failed attempts first, to build up a non-zero invalid attempt count.
+        Assert.Null(await userManager.AuthenticateUser("reset-user", "wrong-password", "127.0.0.1", isUserSession: true));
+        Assert.Null(await userManager.AuthenticateUser("reset-user", "wrong-password", "127.0.0.1", isUserSession: true));
+
+        Assert.Equal(2, userManager.GetUserById(user.Id)!.InvalidLoginAttemptCount);
+
+        var authenticated = await userManager.AuthenticateUser("reset-user", "correct-password", "127.0.0.1", isUserSession: true);
+
+        Assert.NotNull(authenticated);
+        Assert.Equal(0, userManager.GetUserById(user.Id)!.InvalidLoginAttemptCount);
     }
 
     private UserManager CreateUserManager(IAuthenticationProvider authenticationProvider)

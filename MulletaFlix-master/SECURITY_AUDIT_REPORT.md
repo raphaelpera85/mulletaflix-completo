@@ -30,7 +30,11 @@ The MulletaFlix codebase is based on Emby/Jellyfin and inherits many of its secu
 **Severity:** High  
 **CVSS:** 7.5 (High)
 
-**Status:** FIXED — Cross-origin denied when no hosts configured.
+**Status:** FIXED — Cross-origin denied when no hosts configured. Regression-tested by
+`tests/Jellyfin.Server.Tests/Configuration/CorsPolicyProviderTests.cs` (added 29/09/2026): an
+empty or wildcard-only `CorsHosts` produces a policy with no explicit origins and
+`SupportsCredentials == false`; explicit hosts produce a policy scoped to exactly those origins
+with credentials allowed.
 
 ---
 

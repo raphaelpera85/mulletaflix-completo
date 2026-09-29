@@ -340,6 +340,12 @@ public class NebulaSupabaseStatusDto
     public string LastUsersBackupStatus { get; set; } = string.Empty;
 
     public int LastUsersBackupCount { get; set; }
+
+    public DateTime? LastRestoreTime { get; set; }
+
+    public string LastRestoreStatus { get; set; } = string.Empty;
+
+    public bool LastRestoreFailed { get; set; }
 }
 
 public class NebulaSupabaseTestRequest

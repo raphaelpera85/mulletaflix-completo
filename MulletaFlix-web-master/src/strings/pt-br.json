@@ -1956,5 +1956,9 @@
     "MediaRequestsAdminTitle": "Solicitações de mídias",
     "MediaRequestsPendingTitle": "Fila de solicitações",
     "MediaRequestsIncludedTitle": "Títulos incluídos",
+    "MyMediaRequestsTitle": "Minhas solicitações",
+    "MyMediaRequestsEmpty": "Você ainda não solicitou nenhum título.",
+    "MyMediaRequestsPendingEmpty": "Nenhuma solicitação pendente.",
+    "MyMediaRequestsIncludedEmpty": "Nenhuma das suas solicitações foi incluída ainda.",
     "PlaybackIssuesAdminTitle": "Erros e bugs reportados"
 }

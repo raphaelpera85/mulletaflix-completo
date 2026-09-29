@@ -81,6 +81,68 @@ public sealed class RateLimitMiddlewareTests
     }
 
     [Fact]
+    public async Task AnonymousRequests_BlockedResponse_IncludesRetryAfterHeader()
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+
+        for (var i = 0; i < 30; i++)
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.20");
+            await middleware.Invoke(context);
+        }
+
+        var blocked = new DefaultHttpContext();
+        blocked.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.20");
+        await middleware.Invoke(blocked);
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, blocked.Response.StatusCode);
+        Assert.True(blocked.Response.Headers.ContainsKey("Retry-After"));
+        var retryAfter = int.Parse(blocked.Response.Headers.RetryAfter.ToString(), System.Globalization.CultureInfo.InvariantCulture);
+        // The anonymous window is 10 seconds; the header must be a positive value no larger
+        // than the full window (it reports the remaining wait, never the whole window itself
+        // unless every request landed in the same instant).
+        Assert.InRange(retryAfter, 1, 10);
+    }
+
+    [Fact]
+    public async Task LoginAttempts_BlockedResponse_IncludesRetryAfterHeader()
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+
+        for (var i = 0; i < 10; i++)
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.21");
+            context.Request.Path = "/Users/Authenticate";
+            await middleware.Invoke(context);
+        }
+
+        var blocked = new DefaultHttpContext();
+        blocked.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.21");
+        blocked.Request.Path = "/Users/Authenticate";
+        await middleware.Invoke(blocked);
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, blocked.Response.StatusCode);
+        Assert.True(blocked.Response.Headers.ContainsKey("Retry-After"));
+        var retryAfter = int.Parse(blocked.Response.Headers.RetryAfter.ToString(), System.Globalization.CultureInfo.InvariantCulture);
+        // The login window is 15 minutes (900s); the header must be positive and never exceed it.
+        Assert.InRange(retryAfter, 1, 900);
+    }
+
+    [Fact]
     public async Task AnonymousStaticAssets_AreNotCountedAgainstRequestLimit()
     {
         var middleware = new RateLimitMiddleware(

@@ -67,6 +67,11 @@ public class ActivityManager : IActivityManager
                 entries = entries.Where(e => e.ActivityLog.UserId.Equals(default) != query.HasUserId.Value);
             }
 
+            if (query.UserId is not null)
+            {
+                entries = entries.Where(e => e.ActivityLog.UserId == query.UserId.Value);
+            }
+
             if (query.MinDate is not null)
             {
                 entries = entries.Where(e => e.ActivityLog.DateCreated >= query.MinDate.Value);

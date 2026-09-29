@@ -1054,8 +1054,13 @@ namespace MulletaFlix.Server.Implementations.Users
 
         internal async Task UpdateUserInternalAsync(UsersDbContext dbContext, User user)
         {
-            dbContext.Users.Attach(user);
-            dbContext.Entry(user).State = EntityState.Modified;
+            // dbContext.Update(...) walks the whole navigation graph (Permissions, Preferences,
+            // AccessSchedules, ...) and marks each already-keyed entity Modified. A plain
+            // Attach + manual root-only "Entry(user).State = Modified" does NOT cascade to those
+            // child collections, so any mutation made only through a navigation property (e.g.
+            // SetPermission, used by the login-lockout path to flip IsDisabled) would silently
+            // never reach the database while this method still returned successfully.
+            dbContext.Update(user);
             await dbContext.SaveChangesAsync().ConfigureAwait(false);
         }
 

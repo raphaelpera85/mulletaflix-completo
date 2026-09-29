@@ -754,11 +754,34 @@ export default function (view: HTMLElement, params: ViewParams): void {
         autoFocuser.autoFocus(view);
     }
 
+    function showLoadError(): void {
+        const errorContainer = view.querySelector<HTMLElement>('#itemDetailLoadError');
+        const message = errorContainer?.querySelector<HTMLElement>('.itemDetailLoadErrorMessage');
+        const wrapper = view.querySelector<HTMLElement>('.detailPageWrapperContainer');
+        const logo = view.querySelector<HTMLElement>('.detailLogo');
+
+        if (message) {
+            message.textContent = globalize.translate('ErrorDefault');
+        }
+
+        errorContainer?.classList.remove('hide');
+        wrapper?.classList.add('hide');
+        logo?.classList.add('hide');
+    }
+
+    function hideLoadError(): void {
+        view.querySelector<HTMLElement>('#itemDetailLoadError')?.classList.add('hide');
+        view.querySelector<HTMLElement>('.detailPageWrapperContainer')?.classList.remove('hide');
+        view.querySelector<HTMLElement>('.detailLogo')?.classList.remove('hide');
+    }
+
     function loadData(): void {
         const itemId = params.id || params.itemId || params.seriesTimerId;
         if (!itemId) {
             return;
         }
+
+        hideLoadError();
 
         const apiClient = (params.serverId ? ServerConnections.getApiClient(params.serverId) : null) || ApiClient;
 
@@ -767,15 +790,21 @@ export default function (view: HTMLElement, params: ViewParams): void {
                 renderItem(item, apiClient);
             }).catch((err: unknown) => {
                 console.error('[itemDetails] failed to load series timer', err);
+                showLoadError();
             });
         } else {
             loading.withLoading(() => apiClient.getItem(apiClient.getCurrentUserId(), itemId)).then((item: any) => {
                 renderItem(item, apiClient);
             }).catch((err: unknown) => {
                 console.error('[itemDetails] failed to load item', err);
+                showLoadError();
             });
         }
     }
+
+    view.querySelector<HTMLButtonElement>('.btnItemDetailRetry')?.addEventListener('click', () => {
+        loadData();
+    });
 
     view.addEventListener('viewshow', () => {
         loadData();

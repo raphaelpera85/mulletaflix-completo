@@ -1689,6 +1689,100 @@ public sealed class NebulaPlaybackCacheTests
         }
     }
 
+    [Fact]
+    public async Task Lease_IsReleasedEvenWhenOperationInsideUsingBlockThrows()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+
+            Exception? caught = null;
+            try
+            {
+                using var lease = cache.Acquire("exploding-media");
+                Assert.Equal(1, cache.ActiveLeasesCount);
+                throw new InvalidOperationException("Simulated failure while media is leased.");
+            }
+            catch (InvalidOperationException ex)
+            {
+                caught = ex;
+            }
+
+            Assert.NotNull(caught);
+            Assert.Equal(0, cache.ActiveLeasesCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Lease_IsReleasedWhenTheUnderlyingFetchIsCanceled()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            using var cts = new CancellationTokenSource();
+
+            var lease = cache.Acquire("cancelled-fetch-media");
+            Assert.Equal(1, cache.ActiveLeasesCount);
+
+            cts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cache.GetOrFetchChunkAsync(
+                "cancelled-fetch-media",
+                0,
+                0,
+                4,
+                async token =>
+                {
+                    await Task.Delay(Timeout.Infinite, token);
+                    return Array.Empty<byte>();
+                },
+                cts.Token));
+
+            // Cancellation of the read/fetch must not itself release the lease; the caller
+            // (the stream wrapping this media) still owns it until it disposes explicitly,
+            // exactly like NebulaChunkedStream.Dispose releases _playbackLease in a finally block.
+            Assert.Equal(1, cache.ActiveLeasesCount);
+
+            lease.Dispose();
+            Assert.Equal(0, cache.ActiveLeasesCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Lease_DisposalAfterCacheShutdownDoesNotThrow()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var lease = cache.Acquire("shutdown-media");
+            Assert.Equal(1, cache.ActiveLeasesCount);
+
+            // Mirrors NebulaFtpManager.StopEnvioAsync, which disposes the shared playback cache
+            // during server shutdown without first waiting for every outstanding NebulaChunkedStream
+            // to release its lease. The lease's later Dispose() (e.g. from a client disconnect
+            // processed after shutdown began) must not throw ObjectDisposedException or any other
+            // exception back into the stream's own Dispose(bool) path.
+            cache.Dispose();
+
+            var exception = Record.Exception(() => lease.Dispose());
+            Assert.Null(exception);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "nebula-cache-tests", Guid.NewGuid().ToString("N"));

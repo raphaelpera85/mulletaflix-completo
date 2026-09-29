@@ -12,21 +12,28 @@ export interface MediaRequestActivity {
 const requestTitlePrefix = /^Solicitação de mídia:\s*/i;
 const yearPattern = /(?:19|20)\d{2}/;
 
+const lastChar = (value: string) => value.slice(-1);
+
 const stripTrailingYear = (value: string) => {
     const trimmed = value.trimEnd();
-    const yearMatch = /\d{4}$/.exec(trimmed);
+    const lastCharacter = lastChar(trimmed);
+    const hasClosingBracket = lastCharacter === ')' || lastCharacter === ']';
+    const withoutBracket = hasClosingBracket ? trimmed.slice(0, -1).trimEnd() : trimmed;
+
+    const yearMatch = /\d{4}$/.exec(withoutBracket);
     if (!yearMatch || !yearPattern.test(yearMatch[0])) return value;
 
-    let prefix = trimmed.slice(0, yearMatch.index).trimEnd();
-    const closingCharacter = prefix.at(-1);
-    if (closingCharacter === ')' || closingCharacter === ']') {
-        prefix = prefix.slice(0, -1).trimEnd();
-        const openingCharacter = prefix.at(-1);
+    let prefix = withoutBracket.slice(0, yearMatch.index).trimEnd();
+    if (hasClosingBracket) {
+        const openingCharacter = lastChar(prefix);
         if (openingCharacter === '(' || openingCharacter === '[') {
             prefix = prefix.slice(0, -1).trimEnd();
         }
-    } else if (closingCharacter === '-' || closingCharacter === '–') {
-        prefix = prefix.slice(0, -1).trimEnd();
+    } else {
+        const separatorCharacter = lastChar(prefix);
+        if (separatorCharacter === '-' || separatorCharacter === '–') {
+            prefix = prefix.slice(0, -1).trimEnd();
+        }
     }
 
     return prefix;
