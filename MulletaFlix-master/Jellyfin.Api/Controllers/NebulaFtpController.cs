@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Nebula;
 using MediaBrowser.Model.Net;
+using MulletaFlix.Api.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -53,6 +54,44 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
     {
         var summary = await _nebulaManager.GetUploadQueueSummaryAsync(cancellationToken).ConfigureAwait(false);
         return Ok(summary);
+    }
+
+    [HttpGet("FailedUploads")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<NebulaFailedUploadDto[]>> GetTerminalFailedUploads(CancellationToken cancellationToken)
+    {
+        var uploads = await _nebulaManager.GetTerminalFailedUploadsAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(uploads.ToArray());
+    }
+
+    [HttpPost("FailedUploads/{id}/Retry")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<NebulaFailedUploadRetryResultDto>> RetryTerminalFailedUpload(
+        string id,
+        CancellationToken cancellationToken)
+    {
+        var result = await _nebulaManager.RetryTerminalFailedUploadAsync(id, cancellationToken).ConfigureAwait(false);
+        return result.Success ? Ok(result) : BadRequest(result);
+    }
+
+    [HttpGet("CancellableUploads")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<NebulaCancellableUploadDto[]>> GetCancellableUploads(CancellationToken cancellationToken)
+    {
+        var uploads = await _nebulaManager.GetCancellableUploadsAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(uploads.ToArray());
+    }
+
+    [HttpPost("Uploads/{id}/Cancel")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<NebulaUploadCancellationResultDto>> CancelUpload(
+        string id,
+        CancellationToken cancellationToken)
+    {
+        var result = await _nebulaManager.CancelUploadAsync(id, User.GetUserId().ToString("D"), cancellationToken).ConfigureAwait(false);
+        return result.Success ? Ok(result) : BadRequest(result);
     }
 
     [HttpGet("DatabaseHealth")]

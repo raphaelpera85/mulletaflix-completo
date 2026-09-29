@@ -44,6 +44,8 @@ public class NebulaStatusDto
 
     public int UploadQueueCount { get; set; }
 
+    public bool UploadQueueSnapshotAvailable { get; set; }
+
     public NebulaDownloadStatusDto CurrentDownload { get; set; } = new();
 
     public List<NebulaStageDiskDto> StageDisks { get; set; } = new();
@@ -123,6 +125,56 @@ public sealed class NebulaUploadQueueSummaryDto
     public List<NebulaUploadFailureStageCountDto> FailuresByStage { get; set; } = new();
 }
 
+public sealed class NebulaFailedUploadDto
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    public string Status { get; set; } = "failed";
+
+    public string FailureReason { get; set; } = string.Empty;
+
+    public string FailureStage { get; set; } = string.Empty;
+
+    public int RetryCount { get; set; }
+
+    public DateTime? FailedAtUtc { get; set; }
+
+    public bool SourceAvailable { get; set; }
+}
+
+public sealed class NebulaFailedUploadRetryResultDto
+{
+    public bool Success { get; set; }
+
+    public string Message { get; set; } = string.Empty;
+}
+
+public sealed class NebulaCancellableUploadDto
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Name { get; set; } = string.Empty;
+
+    public string Status { get; set; } = string.Empty;
+
+    public long UploadedBytes { get; set; }
+
+    public long TotalBytes { get; set; }
+
+    public bool CancellationRequested { get; set; }
+}
+
+public sealed class NebulaUploadCancellationResultDto
+{
+    public bool Success { get; set; }
+
+    public bool CancellationPending { get; set; }
+
+    public string Message { get; set; } = string.Empty;
+}
+
 public sealed class NebulaUploadFailureStageCountDto
 {
     public string Stage { get; set; } = string.Empty;
@@ -171,6 +223,12 @@ public class NebulaWorkerItemDto
     public long UploadedBytes { get; set; }
 
     public string InfoText { get; set; } = string.Empty;
+
+    public int QueuePosition { get; set; }
+
+    public bool IsPriority { get; set; }
+
+    public string PriorityReason { get; set; } = string.Empty;
 }
 
 public class NebulaDownloadStatusDto
@@ -188,6 +246,14 @@ public class NebulaDownloadStatusDto
     public string Speed { get; set; } = string.Empty;
 
     public string DetailText { get; set; } = "0.0%";
+
+    public int QueuePosition { get; set; }
+
+    public int QueueCount { get; set; }
+
+    public string PriorityReason { get; set; } = string.Empty;
+
+    public string NextItemName { get; set; } = string.Empty;
 }
 
 public class NebulaStageDiskDto

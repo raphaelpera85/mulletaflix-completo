@@ -87,8 +87,16 @@ public static class StorageHelper
     /// </summary>
     private static string ResolvePath(string path)
     {
-        var parts = path.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-        var current = Path.DirectorySeparatorChar.ToString();
+        var fullPath = Path.GetFullPath(path);
+        var current = Path.GetPathRoot(fullPath)
+            ?? throw new InvalidOperationException($"The path `{path}` has no filesystem root.");
+        var relativePath = Path.GetRelativePath(current, fullPath);
+        if (relativePath == ".")
+        {
+            return current;
+        }
+
+        var parts = relativePath.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
         foreach (var part in parts)
         {
             current = Path.Combine(current, part);
@@ -149,4 +157,3 @@ public static class StorageHelper
         return (Math.Sign(byteCount) * num).ToString(CultureInfo.InvariantCulture) + _byteHumanizedSuffixes[place];
     }
 }
-

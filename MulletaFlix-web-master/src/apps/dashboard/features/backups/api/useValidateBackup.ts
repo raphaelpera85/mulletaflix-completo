@@ -9,7 +9,9 @@ export const useValidateBackup = () => {
             if (!api) {
                 throw new Error('API not available');
             }
-            const response = await api.axiosInstance.post('/System/Backup/Validate', { Path: path });
+            const response = await api.axiosInstance.get<boolean>('/System/Backup/Validate', {
+                params: { path }
+            });
             return response.data;
         }
     });

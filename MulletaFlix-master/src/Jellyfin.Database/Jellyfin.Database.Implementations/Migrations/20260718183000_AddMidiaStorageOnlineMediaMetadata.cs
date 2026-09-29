@@ -1,10 +1,14 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using MulletaFlix.Database.Implementations;
 
 #nullable disable
 
 namespace Jellyfin.Database.Implementations.Migrations;
 
+[DbContext(typeof(MulletaFlixDbContext))]
+[Migration("20260718183000_AddMidiaStorageOnlineMediaMetadata")]
 public partial class AddMidiaStorageOnlineMediaMetadata : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

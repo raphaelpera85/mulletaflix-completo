@@ -27,6 +27,7 @@ import { TaskState } from '@jellyfin/sdk/lib/generated-client/models/task-state'
 import ConfirmDialog from 'components/ConfirmDialog';
 import ScheduleBackupDialog from 'apps/dashboard/features/backups/components/ScheduleBackupDialog';
 import BackupHistory from 'apps/dashboard/features/backups/components/BackupHistory';
+import BackupOperationalSummary from 'apps/dashboard/features/backups/components/BackupOperationalSummary';
 
 export const Component = () => {
     const { api } = useApi();
@@ -274,6 +275,11 @@ export const Component = () => {
                         <Typography>
                             {globalize.translate('HeaderBackupsHelp')}
                         </Typography>
+
+                        <BackupOperationalSummary
+                            task={tasks?.find(task => task.Key === 'BackupScheduledTask')}
+                            latestBackup={backups[0]}
+                        />
 
                         <Button
                             sx={{ alignSelf: 'flex-start' }}

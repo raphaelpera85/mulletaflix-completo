@@ -33,6 +33,8 @@
     <PackageReference Include="WTelegramClient" />
     <PackageReference Include="FubarDev.FtpServer" />
     <PackageReference Include="FubarDev.FtpServer.Commands" />
+    <!-- FubarDev.FtpServer transitively requests Newtonsoft.Json 9.0.1; pin the central, patched version in the server runtime graph. -->
+    <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="prometheus-net" />
   </ItemGroup>
 

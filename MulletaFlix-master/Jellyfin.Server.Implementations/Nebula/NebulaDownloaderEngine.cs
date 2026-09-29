@@ -81,6 +81,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     private readonly ConcurrentDictionary<string, byte> _prioritizedDirectories = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _prioritizedSeriesNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _wakeSignal = new(0, 1);
+    private readonly object _queueProgressLock = new();
+    private int _queuePosition;
+    private int _queueCount;
+    private string _priorityReason = string.Empty;
+    private string _nextItemName = string.Empty;
 
     private Task? _workerTask;
     private bool _isRunning;
@@ -226,6 +231,14 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     /// Evento disparado para atualizar o status do download em andamento.
     /// </summary>
     public event Action<NebulaDownloadStatusDto>? OnProgressChanged;
+
+    public (int Position, int Count, string Reason, string NextItemName) GetQueueProgress()
+    {
+        lock (_queueProgressLock)
+        {
+            return (_queuePosition, _queueCount, _priorityReason, _nextItemName);
+        }
+    }
 
     /// <summary>
     /// Evento disparado para enviar logs em tempo real para a interface web.
@@ -472,12 +485,35 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     });
                 }
 
-                foreach (var item in prioritizedList)
+                for (var queueIndex = 0; queueIndex < prioritizedList.Count; queueIndex++)
                 {
                     if (cancellationToken.IsCancellationRequested || !_isRunning)
                     {
                         break;
                     }
+
+                    var item = prioritizedList[queueIndex];
+                    lock (_queueProgressLock)
+                    {
+                        _queuePosition = queueIndex + 1;
+                        _queueCount = prioritizedList.Count;
+                        _priorityReason = GetPriorityReason(IsPathPrioritized(item.Path), item.CategoryName);
+                        _nextItemName = queueIndex + 1 < prioritizedList.Count
+                            ? Path.GetFileNameWithoutExtension(prioritizedList[queueIndex + 1].Path)
+                            : string.Empty;
+                    }
+
+                    OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
+                    {
+                        Name = Path.GetFileNameWithoutExtension(item.Path),
+                        StageStep = "Na fila planejada",
+                        QueuePosition = queueIndex + 1,
+                        QueueCount = prioritizedList.Count,
+                        PriorityReason = GetPriorityReason(IsPathPrioritized(item.Path), item.CategoryName),
+                        NextItemName = queueIndex + 1 < prioritizedList.Count
+                            ? Path.GetFileNameWithoutExtension(prioritizedList[queueIndex + 1].Path)
+                            : string.Empty
+                    });
 
                     if (_failureTracker.ShouldSkip(item.Path, out var skipReason))
                     {
@@ -502,6 +538,20 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                 }
 
                 // Aguarda 60 segundos antes de um novo ciclo de escaneamento, ou acorda imediatamente caso uma prioridade chegue
+                lock (_queueProgressLock)
+                {
+                    _queuePosition = 0;
+                    _queueCount = 0;
+                    _priorityReason = string.Empty;
+                    _nextItemName = string.Empty;
+                }
+                OnProgressChanged?.Invoke(new NebulaDownloadStatusDto
+                {
+                    Name = "Aguardando próximo ciclo",
+                    StageStep = "Varredura concluída",
+                    QueuePosition = 0,
+                    QueueCount = 0
+                });
                 await _wakeSignal.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -1822,6 +1872,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             .ThenBy(GetMediaSortTitle, StringComparer.InvariantCultureIgnoreCase)
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+    internal static string GetPriorityReason(bool isRequested, string categoryName)
+        => isRequested ? "Solicitação de usuário" : $"{categoryName} · ordem alfabética";
 
     private static string GetCategoryDisplayName(int categoryPriority) => categoryPriority switch
     {

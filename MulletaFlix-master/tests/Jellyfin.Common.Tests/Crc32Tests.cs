@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Text;
+using System.IO;
+using System.Threading.Tasks;
 using MediaBrowser.Common;
 using Xunit;
 
@@ -11,6 +13,24 @@ namespace MulletaFlix.Common.Tests
         public static void Compute_Empty_Zero()
         {
             Assert.Equal<uint>(0, Crc32.Compute(Array.Empty<byte>()));
+        }
+
+        [Fact]
+        public static async Task ComputeAsync_MatchesComputeAcrossMultipleReadChunks()
+        {
+            var data = new byte[180_000];
+            for (var index = 0; index < data.Length; index++)
+            {
+                data[index] = (byte)(index % 251);
+            }
+
+            using var stream = new MemoryStream(data);
+
+            var (checksum, length) = await Crc32.ComputeAsync(stream, TestContext.Current.CancellationToken);
+
+            Assert.Equal(Crc32.Compute(data), checksum);
+            Assert.Equal(data.Length, length);
+            Assert.True(stream.CanRead);
         }
 
         [Theory]
@@ -31,4 +51,3 @@ namespace MulletaFlix.Common.Tests
         }
     }
 }
-

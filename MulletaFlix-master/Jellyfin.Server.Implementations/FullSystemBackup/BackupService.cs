@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Common;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.SystemBackupService;
 using MediaBrowser.Model.Tasks;
@@ -278,14 +279,16 @@ public class BackupService : IBackupService
         {
             DateCreated = DateTime.UtcNow,
             ServerVersion = _applicationHost.ApplicationVersion,
-            DatabaseTables = null!,
+            DatabaseTables = [],
             BackupEngineVersion = _backupEngineVersion,
             Options = Map(backupOptions)
         };
 
-        _logger.LogInformation("Running database optimization before backup");
-
-        await _MulletaFlixDatabaseProvider.RunScheduledOptimisation(CancellationToken.None).ConfigureAwait(false);
+        if (backupOptions.Database)
+        {
+            _logger.LogInformation("Running database optimization before backup");
+            await _MulletaFlixDatabaseProvider.RunScheduledOptimisation(CancellationToken.None).ConfigureAwait(false);
+        }
 
         var backupFolder = Path.Combine(_applicationPaths.BackupPath);
 
@@ -302,81 +305,85 @@ public class BackupService : IBackupService
             throw new InvalidOperationException($"The backup directory '{backupStorageSpace.Path}' does not have at least '{StorageHelper.HumanizeStorageSize(FiveGigabyte)}' free space. Cannot create backup.");
         }
 
-        var backupPath = Path.Combine(backupFolder, $"MulletaFlix-backup-{manifest.DateCreated.ToLocalTime():yyyyMMddHHmmss}.zip");
+        var backupPath = Path.Combine(backupFolder, $"MulletaFlix-backup-{manifest.DateCreated.ToLocalTime():yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.zip");
+        var temporaryBackupPath = backupPath + ".partial";
 
         try
         {
             _logger.LogInformation("Attempting to create a new backup at {BackupPath}", backupPath);
-            var fileStream = File.OpenWrite(backupPath);
+            var fileStream = new FileStream(temporaryBackupPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
             await using (fileStream.ConfigureAwait(false))
             using (var zipArchive = new ZipArchive(fileStream, ZipArchiveMode.Create, false))
             {
                 _logger.LogInformation("Starting backup process");
-                var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
-                await using (dbContext.ConfigureAwait(false))
+                if (backupOptions.Database)
                 {
-                    dbContext.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
-
-                    static IAsyncEnumerable<object> GetValues(IQueryable dbSet)
+                    var dbContext = await _dbProvider.CreateDbContextAsync().ConfigureAwait(false);
+                    await using (dbContext.ConfigureAwait(false))
                     {
-                        var method = dbSet.GetType().GetMethod(nameof(DbSet<object>.AsAsyncEnumerable))!;
-                        var enumerable = method.Invoke(dbSet, null)!;
-                        return (IAsyncEnumerable<object>)enumerable;
-                    }
+                        dbContext.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
 
-                    // include the migration history as well
-                    var historyRepository = dbContext.GetService<IHistoryRepository>();
-                    var migrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
+                        static IAsyncEnumerable<object> GetValues(IQueryable dbSet)
+                        {
+                            var method = dbSet.GetType().GetMethod(nameof(DbSet<object>.AsAsyncEnumerable))!;
+                            var enumerable = method.Invoke(dbSet, null)!;
+                            return (IAsyncEnumerable<object>)enumerable;
+                        }
 
-                    ICollection<(Type Type, string SourceName, Func<IAsyncEnumerable<object>> ValueFactory)> entityTypes =
-                    [
-                        .. typeof(MulletaFlixDbContext)
+                        // include the migration history as well
+                        var historyRepository = dbContext.GetService<IHistoryRepository>();
+                        var migrations = await historyRepository.GetAppliedMigrationsAsync().ConfigureAwait(false);
+
+                        ICollection<(Type Type, string SourceName, Func<IAsyncEnumerable<object>> ValueFactory)> entityTypes =
+                        [
+                            .. typeof(MulletaFlixDbContext)
                             .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
                             .Where(e => e.PropertyType.IsAssignableTo(typeof(IQueryable)))
                             .Select(e => (Type: e.PropertyType, dbContext.Model.FindEntityType(e.PropertyType.GetGenericArguments()[0])!.GetSchemaQualifiedTableName()!, ValueFactory: new Func<IAsyncEnumerable<object>>(() => GetValues((IQueryable)e.GetValue(dbContext)!)))),
                         (Type: typeof(HistoryRow), SourceName: nameof(HistoryRow), ValueFactory: () => migrations.ToAsyncEnumerable())
-                    ];
-                    manifest.DatabaseTables = entityTypes.Select(e => e.Type.Name).ToArray();
-                    var transaction = await dbContext.Database.BeginTransactionAsync().ConfigureAwait(false);
+                        ];
+                        manifest.DatabaseTables = entityTypes.Select(e => e.Type.Name).ToArray();
+                        var transaction = await dbContext.Database.BeginTransactionAsync().ConfigureAwait(false);
 
-                    await using (transaction.ConfigureAwait(false))
-                    {
-                        _logger.LogInformation("Begin Database backup");
-
-                        foreach (var entityType in entityTypes)
+                        await using (transaction.ConfigureAwait(false))
                         {
-                            _logger.LogInformation("Begin backup of entity {Table}", entityType.SourceName);
-                            var zipEntry = zipArchive.CreateEntry(NormalizePathSeparator(Path.Combine("Database", $"{entityType.SourceName}.json")));
-                            var entities = 0;
-                            var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
-                            await using (zipEntryStream.ConfigureAwait(false))
+                            _logger.LogInformation("Begin Database backup");
+
+                            foreach (var entityType in entityTypes)
                             {
-                                var jsonSerializer = new Utf8JsonWriter(zipEntryStream);
-                                await using (jsonSerializer.ConfigureAwait(false))
+                                _logger.LogInformation("Begin backup of entity {Table}", entityType.SourceName);
+                                var zipEntry = zipArchive.CreateEntry(NormalizePathSeparator(Path.Combine("Database", $"{entityType.SourceName}.json")));
+                                var entities = 0;
+                                var zipEntryStream = await zipEntry.OpenAsync().ConfigureAwait(false);
+                                await using (zipEntryStream.ConfigureAwait(false))
                                 {
-                                    jsonSerializer.WriteStartArray();
-
-                                    var set = entityType.ValueFactory().ConfigureAwait(false);
-                                    await foreach (var item in set.ConfigureAwait(false))
+                                    var jsonSerializer = new Utf8JsonWriter(zipEntryStream);
+                                    await using (jsonSerializer.ConfigureAwait(false))
                                     {
-                                        entities++;
-                                        try
+                                        jsonSerializer.WriteStartArray();
+
+                                        var set = entityType.ValueFactory().ConfigureAwait(false);
+                                        await foreach (var item in set.ConfigureAwait(false))
                                         {
-                                            using var document = JsonSerializer.SerializeToDocument(item, _serializerSettings);
-                                            document.WriteTo(jsonSerializer);
+                                            entities++;
+                                            try
+                                            {
+                                                using var document = JsonSerializer.SerializeToDocument(item, _serializerSettings);
+                                                document.WriteTo(jsonSerializer);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                _logger.LogError(ex, "Could not load entity {Entity}", item);
+                                                throw;
+                                            }
                                         }
-                                        catch (Exception ex)
-                                        {
-                                            _logger.LogError(ex, "Could not load entity {Entity}", item);
-                                            throw;
-                                        }
+
+                                        jsonSerializer.WriteEndArray();
                                     }
-
-                                    jsonSerializer.WriteEndArray();
                                 }
-                            }
 
-                            _logger.LogInformation("Backup of entity {Table} with {Number} created", entityType.SourceName, entities);
+                                _logger.LogInformation("Backup of entity {Table} with {Number} created", entityType.SourceName, entities);
+                            }
                         }
                     }
                 }
@@ -441,6 +448,8 @@ public class BackupService : IBackupService
                 }
             }
 
+            await ValidateArchiveIntegrityAsync(temporaryBackupPath).ConfigureAwait(false);
+            File.Move(temporaryBackupPath, backupPath);
             _logger.LogInformation("Backup created");
             PruneOldBackups(backupFolder, maxToKeep: 2);
             return Map(manifest, backupPath);
@@ -450,9 +459,9 @@ public class BackupService : IBackupService
             _logger.LogError(ex, "Failed to create backup, removing {BackupPath}", backupPath);
             try
             {
-                if (File.Exists(backupPath))
+                if (File.Exists(temporaryBackupPath))
                 {
-                    File.Delete(backupPath);
+                    File.Delete(temporaryBackupPath);
                 }
             }
             catch (Exception innerEx)
@@ -461,6 +470,21 @@ public class BackupService : IBackupService
             }
 
             throw;
+        }
+    }
+
+    internal static async Task ValidateArchiveIntegrityAsync(string archivePath)
+    {
+        await using var fileStream = File.OpenRead(archivePath);
+        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: false);
+        foreach (var entry in archive.Entries)
+        {
+            await using var entryStream = await entry.OpenAsync().ConfigureAwait(false);
+            var (checksum, length) = await Crc32.ComputeAsync(entryStream).ConfigureAwait(false);
+            if (checksum != entry.Crc32 || length != entry.Length)
+            {
+                throw new InvalidDataException($"Backup entry '{entry.FullName}' failed its size or CRC-32 integrity check.");
+            }
         }
     }
 
@@ -551,6 +575,7 @@ public class BackupService : IBackupService
             DateCreated = manifest.DateCreated,
             ServerVersion = manifest.ServerVersion,
             Path = path,
+            SizeBytes = new FileInfo(path).Length,
             Options = Map(manifest.Options)
         };
     }
@@ -643,6 +668,7 @@ public class BackupService : IBackupService
     {
         try
         {
+            await ValidateArchiveIntegrityAsync(archivePath).ConfigureAwait(false);
             var manifest = await GetBackupManifest(archivePath).ConfigureAwait(false);
             return manifest is not null;
         }
@@ -710,4 +736,3 @@ public class BackupService : IBackupService
         }
     }
 }
-

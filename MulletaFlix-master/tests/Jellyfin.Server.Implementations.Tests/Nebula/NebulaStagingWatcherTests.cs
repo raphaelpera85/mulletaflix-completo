@@ -2,7 +2,9 @@ using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using Jellyfin.Server.Implementations.Nebula;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace MulletaFlix.Server.Implementations.Tests.Nebula;
@@ -33,6 +35,40 @@ public sealed class NebulaStagingWatcherTests
         Assert.False(string.IsNullOrWhiteSpace(root));
         Assert.True(NebulaStagingWatcher.IsFileSystemRoot(root));
         Assert.False(NebulaStagingWatcher.IsFileSystemRoot(Path.Combine(Path.GetTempPath(), "nebula-stage")));
+    }
+
+    [Fact]
+    public void StagingCleanup_ChecksCancellationBeforeTraversingEntries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"nebula-cleanup-{Guid.NewGuid():N}");
+        var nested = Path.Combine(root, "nested");
+        Directory.CreateDirectory(nested);
+
+        try
+        {
+            using var watcher = new NebulaStagingWatcher(null!, NullLogger<NebulaStagingWatcher>.Instance);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            var cleanup = typeof(NebulaStagingWatcher).GetMethod(
+                "CleanDirectorySubtree",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(cleanup);
+            var exception = Assert.Throws<TargetInvocationException>(() => cleanup.Invoke(
+                watcher,
+                [root, true, cancellation.Token]));
+
+            Assert.IsAssignableFrom<OperationCanceledException>(exception.InnerException);
+            Assert.True(Directory.Exists(nested), "Cancellation must leave unvisited staging entries untouched.");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 
     [Fact]

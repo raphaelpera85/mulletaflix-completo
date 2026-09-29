@@ -352,7 +352,7 @@ public sealed class NebulaFileSystem : IUnixFileSystem
         }
 
         var totalSize = doc.Contains("size") ? doc.GetValue("size").ToInt64() : (doc.Contains("file_size") ? doc.GetValue("file_size").ToInt64() : partsList.Sum(part => part.Size));
-        var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger, _playbackCacheAccessor, nebulaFile.NodeId);
+        var stream = new NebulaChunkedStream(_telegramPool, partsList, totalSize, _logger, _playbackCacheAccessor, "mongo:" + nebulaFile.NodeId);
         if (startPosition > 0)
         {
             stream.Seek(startPosition, SeekOrigin.Begin);

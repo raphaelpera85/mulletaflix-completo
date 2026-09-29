@@ -36,6 +36,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     private readonly string _sessionsDirectory;
     private readonly ConcurrentDictionary<int, Client> _clients = new();
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _botOperationGates = new();
+    private readonly ConcurrentDictionary<int, long> _uploadBotCooldowns = new();
     private readonly ConcurrentDictionary<int, int> _streamWaiters = new();
     private int _streamWaiterCount;
     private int _uploadRoundRobinCursor;
@@ -157,12 +158,25 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         var lastWaitLogTicks = Environment.TickCount64;
         while (true)
         {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long earliestCooldown = long.MaxValue;
             var ordered = candidates
                 .OrderBy(index => index == preferredBotIndex ? 0 : 1)
                 .ThenBy(index => (index - start + candidates.Count) % candidates.Count);
 
             foreach (var candidate in ordered)
             {
+                if (_uploadBotCooldowns.TryGetValue(candidate, out var availableAt))
+                {
+                    if (availableAt > now)
+                    {
+                        earliestCooldown = Math.Min(earliestCooldown, availableAt);
+                        continue;
+                    }
+
+                    _uploadBotCooldowns.TryRemove(new KeyValuePair<int, long>(candidate, availableAt));
+                }
+
                 // Cede o bot que um stream está de fato esperando. O contador global
                 // (_streamWaiterCount) bloqueava TODOS os uploads enquanto qualquer
                 // leitura/stream estivesse ativo, congelando a fila sem log algum.
@@ -191,7 +205,10 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     candidates.Count);
             }
 
-            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+            var wait = earliestCooldown == long.MaxValue
+                ? TimeSpan.FromMilliseconds(50)
+                : TimeSpan.FromMilliseconds(Math.Clamp(earliestCooldown - now, 1, 1000));
+            await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
             candidates = GetAvailableBotIndices();
             if (candidates.Count == 0)
             {
@@ -1452,21 +1469,14 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     // is what produced the measured bimodal upload speed: a ~19 s flood-wait became
                     // ~57 s per part (the observed 56-59 s slow mode) against 2.4 s in the fast mode.
                     // Returning null hands control back to NebulaUploadEngine, which rotates to the
-                    // next candidate bot immediately; if every candidate is throttled the part fails
-                    // and the existing MarkUploadFailedAsync retry path re-queues it.
-                    if (TryReadRetryAfter(responseJson, out var retryAfter))
-                    {
-                        _logger.LogWarning(
-                            "[NEBULA-TG] Bot [{BotIndex}] em flood-wait por {RetryAfter}s; liberando o bot e rotacionando.",
-                            botIndex,
-                            retryAfter);
-                    }
-                    else
-                    {
-                        _logger.LogWarning(
-                            "[NEBULA-TG] Bot [{BotIndex}] retornou HTTP 429; liberando o bot e rotacionando.",
-                            botIndex);
-                    }
+                    // next candidate. This bot is excluded from subsequent selections until its
+                    // cooldown expires, so repeated work cannot immediately hit the same flood-wait.
+                    var retryAfter = GetFloodWaitSeconds(responseJson);
+                    _uploadBotCooldowns[botIndex] = DateTimeOffset.UtcNow.AddSeconds(retryAfter).ToUnixTimeMilliseconds();
+                    _logger.LogWarning(
+                        "[NEBULA-TG] Bot [{BotIndex}] retornou HTTP 429; em cooldown por {RetryAfter}s e liberado para rotação.",
+                        botIndex,
+                        retryAfter);
 
                     return null;
                 }
@@ -1537,6 +1547,13 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         }
 
         return false;
+    }
+
+    internal static int GetFloodWaitSeconds(string responseJson)
+    {
+        return TryReadRetryAfter(responseJson, out var retryAfter) && retryAfter > 0
+            ? Math.Min(retryAfter, 300)
+            : 5;
     }
 
     internal static bool IsValidBotApiChunkResponse(

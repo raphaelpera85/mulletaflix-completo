@@ -31,6 +31,14 @@ public interface INebulaFtpManager
 
     Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default);
 
+    Task<System.Collections.Generic.List<NebulaFailedUploadDto>> GetTerminalFailedUploadsAsync(CancellationToken cancellationToken = default);
+
+    Task<NebulaFailedUploadRetryResultDto> RetryTerminalFailedUploadAsync(string id, CancellationToken cancellationToken = default);
+
+    Task<System.Collections.Generic.List<NebulaCancellableUploadDto>> GetCancellableUploadsAsync(CancellationToken cancellationToken = default);
+
+    Task<NebulaUploadCancellationResultDto> CancelUploadAsync(string id, string cancelledBy, CancellationToken cancellationToken = default);
+
     NebulaLogsDto GetLogs(int serverOffset, int downloaderOffset);
 
     Task<bool> StartEnvioAsync(bool streamOnly, CancellationToken cancellationToken = default);

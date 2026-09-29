@@ -14,6 +14,7 @@ Este projeto e todas as suas sessões de desenvolvimento são governados estrita
    - Mantenha a integridade da arquitetura, sem quebra de convenções estabelecidas.
 
 3. **Atualização Mandatória de Release (Servidor e Aplicativo)**:
+   - **Gate obrigatório deste ciclo:** não crie, empacote nem publique releases intermediárias enquanto houver melhorias ativas pendentes no roadmap `docs/roadmap-evolucao-tecnologica-servidor-e-web.md`. A release final só começa depois que todas as melhorias do escopo forem implementadas e validadas; então publique os artefatos e atualize o portal em conjunto. Esta condição prevalece sobre os passos abaixo, que descrevem o procedimento da release final.
    - Sempre que qualquer alteração, correção ou funcionalidade for concluída e testada:
      1. Gere o pacote de atualização do servidor via `.\build-update-package.ps1`. Este passo também compila o instalador executável (`stage` -> `.\build-mulletaflix-installer.ps1`), então a release do servidor sempre leva **dois** assets: `mulletaflix-update-win-x64.zip` e `mulletaflix_<versao>_windows-x64.exe`. Nunca use `-SkipInstaller` numa release oficial.
      2. Gere o pacote do aplicativo Android via `.\build-app-package.ps1`.

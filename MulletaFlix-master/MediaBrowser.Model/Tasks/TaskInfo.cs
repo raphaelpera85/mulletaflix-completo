@@ -48,6 +48,18 @@ namespace MediaBrowser.Model.Tasks
         public TaskResult LastExecutionResult { get; set; }
 
         /// <summary>
+        /// Gets or sets the next scheduled execution time in UTC when it can be determined from calendar triggers.
+        /// </summary>
+        /// <value>The next scheduled execution time in UTC, or <c>null</c> when the schedule is not calendar-based.</value>
+        public DateTime? NextExecutionTimeUtc { get; set; }
+
+        /// <summary>
+        /// Gets or sets the server's UTC offset in minutes at the next scheduled execution time.
+        /// </summary>
+        /// <value>The server's UTC offset in minutes, or <c>null</c> when no calendar execution is known.</value>
+        public int? NextExecutionTimeOffsetMinutes { get; set; }
+
+        /// <summary>
         /// Gets or sets the triggers.
         /// </summary>
         /// <value>The triggers.</value>

@@ -426,6 +426,14 @@ public class NebulaUploadEngineTests
             ordered);
     }
 
+    [Theory]
+    [InlineData(true, "FILMES", "Solicitação de usuário")]
+    [InlineData(false, "ANIMAÇÕES", "ANIMAÇÕES · ordem alfabética")]
+    public void NebulaDownloaderEngine_PriorityReason_ExplainsEffectiveSort(bool isRequested, string category, string expected)
+    {
+        Assert.Equal(expected, NebulaDownloaderEngine.GetPriorityReason(isRequested, category));
+    }
+
     /// <summary>
     /// As pastas de categoria do monitorado (Filmes, Animações, Series, Novelas) são
     /// reconhecidas e preservadas mesmo vazias, porque servem de destino para mídia nova.
@@ -611,6 +619,15 @@ public class NebulaUploadEngineTests
 
         Assert.True(NebulaTelegramPool.TryReadRetryAfter(ResponseJson, out var retryAfter));
         Assert.Equal(42, retryAfter);
+        Assert.Equal(42, NebulaTelegramPool.GetFloodWaitSeconds(ResponseJson));
+    }
+
+    [Fact]
+    public void TelegramPool_FloodWaitUsesSafeFallbackAndMaximum()
+    {
+        Assert.Equal(5, NebulaTelegramPool.GetFloodWaitSeconds("{\"ok\":false}"));
+        Assert.Equal(300, NebulaTelegramPool.GetFloodWaitSeconds(
+            "{\"ok\":false,\"parameters\":{\"retry_after\":9999}}"));
     }
 
     [Fact]

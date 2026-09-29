@@ -28,8 +28,12 @@ public class BackupManifestDto
     public required string Path { get; set; }
 
     /// <summary>
+    /// Gets or sets the archive size in bytes.
+    /// </summary>
+    public long SizeBytes { get; set; }
+
+    /// <summary>
     /// Gets or sets the contents of the backup archive.
     /// </summary>
     public required BackupOptionsDto Options { get; set; }
 }
-

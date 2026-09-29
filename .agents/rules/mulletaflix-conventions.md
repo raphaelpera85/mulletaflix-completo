@@ -61,6 +61,11 @@ Cada card deve apresentar claramente:
 
 ## 4. Ciclo de Lançamentos e Releases Obrigatórios
 
+### 4.0 Gate de release do roadmap ativo
+- Para o ciclo de melhorias descrito em `docs/roadmap-evolucao-tecnologica-servidor-e-web.md`, não criar nem publicar releases intermediárias. Implementar e validar todas as melhorias ativas do roadmap primeiro; só então iniciar a release final.
+- A cada etapa, atualizar o registro do roadmap com escopo concluído, evidências e pendências. Isso não autoriza publicar uma release parcial.
+- O escopo atual desse roadmap é servidor Windows/Linux e frontend web. Não gerar nem publicar APK por causa de mudanças exclusivas deste ciclo.
+
 ### 4.1 Regra de Ouro: Modificação no MulletaFlix Exige Release no Git
 - Sempre que qualquer alteração, correção de bug ou nova funcionalidade for finalizada e aprovada na suíte de testes (Quality Bar), deve-se:
   1. Gerar o pacote de atualização autônomo do servidor via `.\build-update-package.ps1 -Version <NovaVersao>`.
@@ -195,4 +200,3 @@ for (var attempt = 1; attempt <= 3; attempt++)
 
 ### 10.2 Prevenção de Overflow Horizontal em Textos e Markdown
 - Elementos que renderizam conteúdo dinâmico externo (ex: `MarkdownBox`, tabelas de changelog, blocos `<pre>`) devem conter `overflowWrap: 'break-word'`, `wordBreak: 'break-word'` e rolagem horizontal contida em blocos tabulares (`overflowX: 'auto'`), garantindo que nenhuma tabela de changelog estoure a largura máxima da tela.
-

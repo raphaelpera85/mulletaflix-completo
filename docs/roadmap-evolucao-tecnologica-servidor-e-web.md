@@ -113,17 +113,29 @@ As skills abaixo são roteamento de especialidade por tarefa; Gauntlet Loop defi
 
 - [x] **T2.1 — Especificar máquina de estados durável.** Estados, transições, lease/heartbeat, retomada após reinício e distinção entre retry, falha permanente e cancelamento documentados abaixo. A implementação está separada em T2.2, T2.4 e T2.5.
 - [ ] **T2.2 — Fortalecer idempotência e deduplicação.** Revalidar identidade canônica e estado Telegram antes de baixar, enviar ou reenfileirar; não duplicar arquivos concluídos.
+  - [x] Decisões de deduplicação de mídia exigem `completed` e conjunto de partes contíguo, com IDs Telegram e soma de tamanhos igual ao arquivo; compatibilidade de documentos legados sem `parts` exige ID raiz e tamanho válido.
+  - [x] Falha com partes parciais mantém arquivo local para retomada; parte isolada deixa de ser prova de conclusão.
+  - [ ] Validar concorrência real de produtores/retries contra MongoDB, identidade canônica entre caminhos diferentes e estado remoto Telegram indisponível.
 - [ ] **T2.3 — Tornar prioridade observável e consistente.** Aplicar prioridade explícita de solicitações, ordem de categorias configurada e A–Z dentro da categoria; mostrar na interface posição, motivo e próximo item.
+  - [x] Parcial: dashboard Nebula expõe posição planejada na varredura do downloader, justificativa (solicitação ou categoria/A–Z) e próximo título; a posição é explicitamente do plano transitório e não representa fila persistida de upload.
+  - [x] Parcial: o dashboard também exibe posição, razão e próximo dequeue do snapshot atual da fila fairness dos workers; identifica que títulos pendentes no Mongo ainda não admitidos não fazem parte desse snapshot.
+  - [ ] Pendente: tornar posição/prioridade duráveis e reconciliáveis para toda a fila Mongo, validar concorrência/prioridade após restart e alinhar a ordem de categorias a uma configuração única, em vez de manter regras duplicadas.
 - [ ] **T2.4 — Implementar backpressure e fairness.** Limites independentes por operação/rede, proteção contra rajadas e evitar starvation de tarefas não prioritárias.
+  - [x] Parcial: fila de upload usa fairness FIFO ponderada; após quatro seleções prioritárias, escolhe um item normal se houver item normal aguardando. Sem fila normal, prioritários continuam sem pausa.
+  - [ ] Pendente: definir/validar limites independentes de rede/operação, controle de rajadas e fairness sob carga concorrente real, incluindo trabalho já reivindicado por múltiplos workers.
 - [ ] **T2.5 — Adicionar recuperação operacional.** Retentativas com backoff/jitter, limite de tentativas, fila de falhas com reprocessamento administrativo e cancelamento seguro.
+  - [x] Parcial: backoff/jitter, limite de 8 tentativas, reprocessamento de falhas/cancelamentos e cancelamento persistido com checkpoint entre partes; dashboard administrativo lista e controla uploads ativos.
+  - [ ] Pendente: exercitar cancelamento/falha/restart com MongoDB isolado e ciclo real Telegram; auditar corridas de múltiplos workers e resposta incerta do Telegram.
 - [ ] **T2.6 — Revisar limpeza e startup.** Varredura/cleanup incremental, concorrência limitada, checkpoint e progresso reportado; inicialização não deve bloquear o host por uma limpeza completa.
+  - [x] Parcial: limpeza de staging sai do loop principal, executa em segundo plano e impede sobreposição; verifica cancelamento entre entradas e informa início, raízes concluídas e duração. Encerramento aguarda a limpeza.
+  - [ ] Pendente: travessia incremental com checkpoint persistido/reiniciável e progresso detalhado dentro de raízes grandes; teste de volume, startup e cancelamento em filesystem/Mongo representativos.
 - [ ] **T2.7 — Atualizar a listagem virtual após upload Nebula.** Persistir primeiro `completed` e as partes Telegram no MongoDB; em seguida invalidar somente a pasta afetada via rclone RC `vfs/refresh`. Falha no refresh não reverte o upload; não copiar a mídia integral para N: e não reduzir globalmente `--dir-cache-time` salvo como fallback medido.
 
 **Aceite:** reiniciar o servidor durante download/upload retoma ou encerra o trabalho de modo consistente; cenário de retry não produz duplicação; prioridades efetivas coincidem com a ordem exibida; tarefas não ficam indefinidamente sem progresso.
 
 #### T2.1 — Contrato da máquina de estados da fila de upload
 
-Esta seção define o contrato-alvo para upload Nebula no MongoDB. Ela não muda o comportamento ainda; itens de implementação permanecem nas tarefas T2.2/T2.4/T2.5. O documento atual usa `queued`, `staging`, `uploading`, `failed` e `completed`, mas hoje `failed` é sempre retryável após um minuto, sem limite, e `modified_at` funciona como lease implícito de uma hora. Não existe estado persistido de cancelamento nem heartbeat separado. A especificação não deve ser confundida com suporte já entregue.
+Esta seção define o contrato-alvo para upload Nebula no MongoDB. A especificação está concluída; implementação parcial está registrada em T2.2/T2.4/T2.5 e no histórico abaixo. A fila ainda mantém compatibilidade com `queued`, `staging`, `uploading`, `failed` e `completed`, com `cancelled` persistido em ações explícitas. `modified_at` continua funcionando como lease implícito de uma hora; heartbeat/lease explícito e fencing permanecem pendentes. Não confundir a cobertura parcial com o contrato inteiro implementado.
 
 Estados canônicos pretendidos:
 
@@ -151,7 +163,7 @@ Transições permitidas:
 | `uploading` | Erro permanente ou limite atingido | `failed` | Não fazer retry automático; preservar diagnóstico sanitizado e partes para inspeção/reprocessamento seguro. |
 | `uploading` | Lease expirado ou processo encerrado | `queued` | Recuperação por lease expirado; manter partes verificadas. Worker antigo perde escrita via fencing. |
 | `queued`, `staging`, `retry_wait` | Cancelamento explícito | `cancelled` | Cancelar sem claim e impedir novos claims. |
-| `uploading` | Cancelamento explícito | `uploading` até confirmação do worker, então `cancelled` | Registrar pedido, sinalizar token, parar novas partes; persistir checkpoint antes da transição final. |
+| `uploading` | Cancelamento explícito | `uploading` até confirmação do worker, então `cancelled` | Persistir pedido; deixar a chamada Telegram em andamento terminar, gravar checkpoint confirmado e consultar o pedido antes de iniciar outra parte. Não converter shutdown em cancelamento explícito. |
 | `failed`, `cancelled` | Reprocessamento administrativo explícito | `queued` | Registrar ator/horário/motivo; resetar apenas contadores/campos definidos pela ação, sem apagar partes válidas. |
 
 Invariantes e compatibilidade:
@@ -165,11 +177,12 @@ Invariantes e compatibilidade:
 7. Migração legada deve mapear `failed` com `retry_after` para `retry_wait`; `failed` sem data de retry para revisão/`failed`; `uploading` só pode ser retomado após confirmar instância única ou lease vencido. Registros sem campos novos continuam legíveis durante rollout; não fazer migração destrutiva em lote.
 8. Estados/status e causas expostos à interface usam vocabulário estável e sem nomes de arquivo, caminhos ou segredos em labels de métricas.
 
-Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, mas usa `modified_at` com limiar fixo de uma hora; `RequeueInterruptedUploadsAsync` re-enfileira todos os `uploading` no startup; `MarkUploadFailedAsync` fixa retry de um minuto e incrementa `retry_count` sem limite; gravações aceitam `worker_id` como proteção opcional. Não há heartbeat/lease explícito, cancelamento persistente, fila terminal de falhas nem fencing token. Essas diferenças justificam manter T2.2/T2.5 abertas e exigem rollout compatível com documentos antigos.
+Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, mas usa `modified_at` com limiar fixo de uma hora; `RequeueInterruptedUploadsAsync` recupera uploads interrompidos no startup; gravações aceitam `worker_id` como proteção opcional, sem fencing token. Cancelamento persistido e falhas terminais já existem parcialmente; heartbeat/lease explícito e validação integrada permanecem pendentes. Essas diferenças justificam manter T2.2/T2.5 abertas e exigem rollout compatível com documentos antigos.
 
 ### Fase 3 — Reprodução e cache temporário (P0)
 
 - [ ] **T3.1 — Formalizar o contrato do cache de reprodução.** Cache em disco com limite configurável, chave canônica, política de expiração/evicção, espaço reservado e comportamento quando o volume está cheio.
+  - [x] Canonizar IDs MongoDB sem diferenciar caixa e caminhos absolutos com segmentos equivalentes; separar namespaces de ID, caminho e chave opaca, preservando sensibilidade a caixa em caminhos Linux. Identidades ausentes são rejeitadas no cache; streams sem identidade recebem chave exclusiva por instância.
   - [x] Expirar entradas após 1 hora sem atividade; manter limpeza periódica a cada 5 minutos e proteger leases ativos.
   - [x] Configurar cota máxima e reserva de espaço livre; evictar mídias inativas por LRU e aplicar limites na gravação e limpeza periódica.
   - [x] Quando cache/capacidade falhar, entregar os bytes ao fluxo de reprodução sem persistir o bloco.
@@ -182,22 +195,49 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 - [ ] **T3.3 — Preservar leases ativos.** Limpeza não remove conteúdo usado por leitores ou downloads em andamento; liberar lease mesmo em exceção, cancelamento e encerramento do servidor.
   - [x] Limpeza manual e por cota ignoram mídias com lease, prefetch ou fetch de chunk em andamento; mudança de configuração não interrompe sessões ativas.
 - [x] **T3.4 — Prevenir duplicação de downloads concorrentes.** Uma única operação por parte/arquivo atende leitores simultâneos; cancelamento de um leitor não cancela nem duplica o download compartilhado.
-- [ ] **T3.5 — Exibir diagnóstico de cache.** Bytes e arquivos em cache, hits/misses, latência Telegram, prefetch em andamento, leases, erros e limpeza segura.
+- [x] **T3.5 — Exibir diagnóstico de cache.** Bytes e arquivos em cache, hits/misses, latência Telegram, prefetch em andamento, leases, erros e limpeza segura; DTO, endpoint e painel incluem também cancelamentos e métricas de execução da limpeza.
   - [x] Painel usa os nomes atuais do DTO e mostra ocupação da cota, limite configurado, espaço livre/reserva e leases ativos.
   - [x] DTO e painel exibem contadores desde a inicialização para hits/misses, tentativas/falhas de fetch, latência média, pré-cache ativo/em fila e erros de persistência.
   - [x] Expandir telemetria para falhas/tempo de limpeza, downloads cancelados e limpezas ignoradas por contenção; testar o DTO/API serializado com valores ativos e testar a contenção determinística do cleanup.
 - [ ] **T3.6 — Fazer testes de falha e recuperação.** Rede lenta/interrompida, parte ausente, servidor reiniciado, cliente cancelado, mudança de caminho e disco cheio.
   - [x] Cobrir cancelamento do último leitor, cancelamento de um leitor com outros aguardando e rejeição/cancelamento de operações no descarte do cache.
   - [x] Cobrir cota cheia, reserva mínima, evicção inativa, redução de cota existente e limpeza manual durante fetch.
+  - [x] Parte declarada mas indisponível/truncada agora gera `IOException` em vez de fim normal antecipado; cobrir leitores síncronos e assíncronos.
+  - [x] Recriar o componente de cache sobre o mesmo diretório e validar reuso do chunk persistido sem nova chamada à origem; isso simula a recuperação do cache, não substitui teste de reinicialização do host completo.
+  - [x] Simular `.partial` truncado após interrupção; validar que é contado no uso de disco, preservado durante lease ativo e removido quando o diretório da mídia expira.
+  - [x] Trocar o cache no accessor com streams reais: stream aberta conclui no cache/lease original e stream criada após a troca lê e persiste no novo cache. Isso não substitui a verificação do endpoint de configuração num host em execução.
 
 **Aceite:** a reprodução direta do disco permanece inalterada; com Nebula, o cache não impede o primeiro frame, não remove partes ativas e demonstra redução mensurável de pausas em cenários equivalentes.
 
 ### Fase 4 — Backups e recuperação de dados (P0)
 
-- [ ] **T4.1 — Inventariar dados recuperáveis.** MongoDB, MariaDB, usuários, configuração, índices, credenciais e dados de operação; classificar mídia volumosa separadamente.
+- [x] **T4.1 — Inventariar dados recuperáveis.** Inventário estático de MongoDB, MariaDB/EF, usuários, configuração/segredos, índices, dados de operação, mídia, STRM e temporários; cobertura observada e lacunas em [inventario-dados-e-recuperacao.md](inventario-dados-e-recuperacao.md). Volumes/contagens reais permanecem sem inspeção e pertencem ao baseline T0.1/T4.5.
 - [ ] **T4.2 — Garantir consistência do backup.** Definir snapshot/backup seguro para cada banco, criptografia, retenção, rotação, verificação de integridade e política de remoção remota.
+  - [x] Resposta HTTP ao gravar histórico `nebula_backups` agora é validada; rejeição/erro faz o ciclo reportar falha em vez de declarar sucesso.
+  - [x] Backup geral é montado em `.partial`, reaberto e lido integralmente antes de ser promovido atomicamente; nome final tem sufixo único para evitar colisão e truncamento por timestamp.
+  - [x] Opção `Database=false` agora omite exportação do banco e otimização, grava lista de tabelas vazia no manifesto e foi exercitada pelo fluxo real de criação do ZIP.
+  - [x] Corrigida a resolução do caminho de backup em Windows: preserva raiz da unidade/volume ao calcular espaço livre; antes, o caminho `C:\...` era reconstruído como `\C:...`, resultando em espaço `-1` e rejeição indevida do backup.
+  - [ ] Pendente: snapshot consistente, criptografia, retenção/rotação, integridade e política de remoção remota.
+  - [x] Backup/restauração exclusiva de usuários não informa sucesso com zero registros quando a origem relacional está ausente ou a tabela/consulta Supabase falha; erro fica explícito para painel/log.
+  - [x] Falhas HTTP/JSON ao listar usuários remotos ou excluir registros antigos agora invalidam o backup. Lista local vazia continua protegida contra exclusão em massa.
+  - [x] Rejeição HTTP no envio de usuários FTP do MongoDB agora encerra a sincronização com erro, sem informar sucesso com contagem zero; respostas 2xx e 503 cobertas em testes.
+  - [x] Leituras HTTP ou respostas JSON inválidas de usuários FTP e tokens de bot durante restauração MongoDB agora invalidam a operação e propagam erro; sucesso com tabelas vazias segue válido.
 - [ ] **T4.3 — Criar teste automático de restauração isolada.** Restaurar em diretório/instância temporária, validar contagens e consultas críticas e registrar duração/resultado.
+  - [x] Teste opt-in de ciclo completo MariaDB em schema aleatório: backup, remoção do registro de fixture, restore e consulta do registro restaurado; usa apenas `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` configurada explicitamente.
+  - [ ] Expandir validação para MongoDB/arquivos e registrar duração/contagens do conjunto completo; a cobertura atual não substitui validação de recuperação remota.
+  - [x] Exercitar `RestoreBackupAsync` com ZIP fixture e destinos temporários isolados; validar contagem de arquivos, conteúdo consultável de usuário/configuração, coleção e NFO, e duração finita.
+  - [x] Criar/restaurar banco MariaDB descartável com schema aleatório, validar linha crítica e tipo recuperado; executar somente quando `MULLETAFLIX_TEST_MARIADB_CONNECTION_STRING` aponta explicitamente para uma instância de teste.
+  - [x] Exercitar restauração relacional em banco EF InMemory exclusivo por teste; validar resultado, contagem, duração reportada, campos restaurados e consulta por ID. Isto não substitui teste com MariaDB temporário nem recuperação MongoDB.
+  - [ ] Pendente: validar backup/restauração MongoDB e recuperação ponta a ponta de todos os conteúdos, incluindo arquivos e fontes remotas; complementar com contagens e RTO/RPO medidos.
 - [ ] **T4.4 — Expor status acionável no painel.** Última execução, próxima execução, destino, conteúdo incluído, tamanho, validação, erros e ação de teste/restauração protegida.
+  - [x] Parcial: painel web resume última execução/erro e exibe data, destino e opções do backup mais recente. Próximo disparo para triggers de calendário é calculado pelo servidor e enviado em UTC; agendas intervaladas/startup não recebem data inventada.
+  - [x] Corrigido contrato da ação de validação: cliente agora usa `GET /System/Backup/Validate?path=...`, conforme endpoint, e oferece resultado válido/inválido/erro no diálogo do backup.
+  - [x] Manifesto da API informa o tamanho real do ZIP em bytes; painel formata o tamanho e permanece compatível com versões do servidor que ainda não enviam esse campo.
+  - [x] Validação percorre as entradas em streaming e compara CRC-32 e tamanho descompactado; payload corrompido é rejeitado mesmo quando o manifesto segue legível.
+  - [x] A restauração existente mantém confirmação explícita na web e controller protegido por `RequiresElevation`; isso não substitui teste de restauração isolado.
+  - [x] A checagem de espaço do backup agora resolve caminho absoluto corretamente em Windows e Unix; teste usa diretório temporário e confirma volume/espaço identificados.
+  - [x] Parcial: exercício MariaDB isolado e verificação de conteúdo/relatório local comprovados; validação CRC continua distinta de restore.
+  - [ ] Pendente: apresentar no painel escopo/cobertura consolidada de todos os destinos e o estado do último exercício completo incluindo MongoDB/arquivos.
 - [ ] **T4.5 — Testar recuperação completa.** Documentar RPO/RTO realistas e exercício de recuperação em ambiente Windows e Linux.
 
 **Aceite:** backup com status “sucesso” só após integridade validada; restauração de teste passa sem tocar nos dados de produção; falhas e backups vencidos geram alerta.
@@ -219,6 +259,7 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 - [ ] **T6.2 — Aplicar rate limits e limites concorrentes seletivos.** Diferenciar login, busca, ações caras e operações de administração; retornar `429`/`Retry-After` sem degradar reprodução normal.
 - [ ] **T6.3 — Validar entrada e caminhos de arquivo.** Tamanho, tipo, canonicalização, traversal, symlinks, extensões e acesso por usuário.
 - [ ] **T6.4 — Revisar segredos, logs e transporte.** Proteção em repouso, rotação, permissões de arquivo e redação de credenciais; revisar dependências vulneráveis.
+  - [x] Corrigida a resolução runtime vulnerável `Newtonsoft.Json 9.0.1` proveniente de FubarDev FTP e do MVC legado no plugin GetAvatar, com referência direta à versão central `13.0.3`; artefatos Release atuais auditados sem a versão afetada. Isso não conclui a auditoria geral de dependências, segredos ou transporte.
 - [ ] **T6.5 — Validar configurações seguras por padrão.** Rede local/remota, TLS, CORS, headers, contas administrativas e exposição de endpoints internos.
 
 **Aceite:** testes de autorização impedem acesso cruzado entre usuários; abuso de endpoint não esgota worker/banco; logs e mensagens de erro não revelam segredos.
@@ -282,6 +323,7 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 - [ ] **W4.2 — Adicionar snapshots visuais estáveis.** Viewports celular, desktop e TV; baseline revisto por pessoa; ambiente de navegador fixado.
 - [ ] **W4.3 — Validar interações e paginação.** Setas, scroll, foco, estados de carregamento e carregamento de mais resultados.
 - [ ] **W4.4 — Integrar quality gate do frontend.** `npm run build:check`, `npm test`, ESLint/Stylelint, `npm run build:production`, verificação do artefato e Playwright relevante.
+  - [x] Parcial: a rota de operações Nebula agora passa `npm run lint:changed`, `npm run build:check`, `npm test -- --run` (208 testes) e `npm run build:production`; falta cobertura Playwright/renderizada, confirmação visual responsiva e validar o artefato integrado ao servidor.
   - [x] Isolar os testes de `viewContainer` do módulo global `Dashboard` não usado nesses cenários e aguardar as Promises de `loadView`, evitando callbacks do polyfill após o teardown do `jsdom`.
 - [ ] **W4.5 — Definir política para flaky tests.** Diagnóstico com trace/screenshot; nenhuma instabilidade escondida por retries ilimitados.
 
@@ -404,6 +446,35 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Risco a medir antes de otimização: gravações de cache ainda são serializadas pelo gate global para proteger cota/reserva/evicção. Benchmark concorrente está pendente em T3.2; não paralelizar sem preservar as invariantes e demonstrar ganho.
 - T3.1 permanece aberta porque a chave canônica e alguns cenários de falha ainda precisam de revisão; T3.3/T3.5/T3.6 também parciais conforme itens não marcados.
 - Nenhuma release foi criada/publicada; aguardar conclusão integral das melhorias ativas conforme decisão do usuário.
+
+### 28/09/2026 — Falha explícita para parte ausente no stream (T3.6 parcial)
+
+- Uma mídia cuja parte anunciada no catálogo retorna zero bytes ou termina antes do tamanho informado não deve parecer concluída. O stream agora lança `IOException` tanto na leitura síncrona quanto assíncrona, inclusive se o trecho truncado já estiver no cache em memória.
+- Testes cobrem parte vazia em ambas as APIs de leitura e parte truncada na leitura síncrona; `NebulaPlaybackCacheTests`: 39/39 aprovados em Release. A primeira execução identificou a variante síncrona já mantida no cache em memória; a verificação foi aplicada também a esse caminho.
+- Suíte completa Implementations: 1.016 aprovados, 38 ignorados, 0 falhas; build Release do servidor e `git diff --check` passaram. Avisos existentes: advisory NU1903 de Newtonsoft.Json 9.0.1 e avisos StyleCop/xUnit não relacionados.
+- T3.6 segue parcial: faltam restart real, caminho alterado com readers ativos e cenários integrados de rede/disco. Nenhuma release foi criada/publicada por decisão do usuário.
+
+### 28/09/2026 — Reuso do cache após recriação (T3.6 parcial)
+
+- Teste recria `NebulaPlaybackCache` apontando para o mesmo diretório após descarte da instância anterior; o chunk correto é servido do disco, sem segundo fetch, e os contadores da nova instância indicam cache hit.
+- O teste é isolado e não conecta a MongoDB/Telegram nem acessa mídia do usuário; valida persistência do componente, não uma reinicialização end-to-end do processo Jellyfin.
+- Quality gate: teste isolado 1/1; suíte completa `Jellyfin.Server.Implementations.Tests` — 1.017 aprovados, 38 ignorados, 0 falhas; `dotnet build Jellyfin.Server/Jellyfin.Server.csproj -c Release --no-restore` e `git diff --check` passaram. Permanecem avisos NU1903 de Newtonsoft.Json 9.0.1.
+- T3.6 e T2.3 continuam parciais; nenhum teste usou MongoDB/Telegram reais, nenhuma mídia de produção foi acessada e nenhuma release intermediária foi criada.
+
+### 28/09/2026 — Recuperação de gravação parcial do cache (T3.6 parcial)
+
+- Teste simula interrupção com um chunk `.partial` de 2 bytes para tamanho esperado de 4; ao recriar o cache, ele ignora o incompleto, busca novamente e substitui atomicamente pelos bytes completos.
+- Outra regressão comprova que `.partial` conta no espaço/arquivos, não é removido enquanto existe lease da mídia e é eliminado junto à pasta após expiração ociosa.
+- Confirmado no código: a limpeza já enumera todos os arquivos da pasta e o download remove seu temporário em `finally`; não foi necessária mudança de produção para esse caso.
+- Quality gate Release: cache Nebula — 42/42; suíte completa `Jellyfin.Server.Implementations.Tests` — 1.019 aprovados, 38 ignorados, 0 falhas; build Release do servidor e `git diff --check` passaram. Persistem avisos NU1903 existentes de Newtonsoft.Json 9.0.1.
+- T3.6 segue parcial: sem reinício end-to-end do host, mudança de diretório com leitor ativo e carga real de rede/disco. T2.3 também permanece parcial. Nenhuma release criada/publicada.
+
+### 28/09/2026 — Troca de caminho com playback ativo (T3.6 parcial)
+
+- O teste anterior exercitava somente leases obtidos diretamente do accessor; foi ampliado para abrir streams reais e bloquear a leitura da stream antiga durante a troca.
+- Após a troca, uma stream nova lê e grava no novo cache; a stream já aberta termina com os bytes corretos no cache original, mantendo o lease antigo válido durante toda a leitura.
+- Quality gate Release: teste específico 1/1; suíte completa `Jellyfin.Server.Implementations.Tests` — 1.019 aprovados, 38 ignorados, 0 falhas; build Release do servidor e `git diff --check` passaram. NU1903 existente para Newtonsoft.Json 9.0.1 permanece.
+- Cobertura local do accessor concluída; T3.6 permanece parcial por faltar troca via endpoint em host rodando, reinício end-to-end e carga real. Nenhuma release publicada.
 
 ### 28/09/2026 — Limites e persistência do prefetch Nebula (T3.2 parcial)
 
@@ -568,6 +639,87 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Auditoria do código atual confirmou gaps: `failed` sempre recebe retry de 1 minuto sem teto; `modified_at` é lease implícito de 1 hora; startup re-enfileira todo `uploading`; `worker_id` pode ser opcional nas mutações; não há estado persistido de cancelamento.
 - T2.1 fica concluída como especificação. Implementação do contrato fica nas tarefas T2.2/T2.4/T2.5. Nenhum estado/dado de produção foi alterado. Validação documental: `git diff --check` e revisão cruzada da especificação com os métodos atuais do Mongo e watcher; nenhuma release criada/publicada.
 
+### 28/09/2026 — Deduplicação Nebula valida conjunto completo de partes (T2.2 parcial)
+
+- O código tratava qualquer parte com `tg_file_id` como upload completo em buscas de mídia já enviada, limpeza de staging e deduplicação do downloader. Isso podia descartar o arquivo local após uma falha parcial.
+- Adicionado validador de conclusão: exige status `completed`, tamanho conhecido, partes em sequência sem lacunas, IDs Telegram, estados de parte concluídos e soma exata do tamanho. Documentos legados sem array de partes só são aceitos com tamanho e ID Telegram na raiz; array vazio/inválido não é aceito.
+- O scanner agora preserva arquivos de uploads `failed` com partes parciais e os reencaminha para retomada; o motor já valida cada parte antes de reutilizá-la.
+- A remoção incremental de STRM agora também exige partes íntegras quando o documento diz `completed`; registros incompletos não apagam a fonte local.
+- Testes Release focados de watcher/upload/deduplicação: 231 aprovados; suíte completa `Jellyfin.Server.Implementations.Tests`: 991 aprovados, 38 ignorados, 0 falhas. O projeto compila durante a execução da suíte; `git diff --check` passou após atualizar este registro. Aviso NU1903 para Newtonsoft.Json 9.0.1 permanece.
+- T2.2 continua parcial: a proteção local está coberta, mas concorrência de múltiplos produtores, matching canônico sob corrida e confirmação com Telegram/Mongo real ainda não foram exercitados. Nenhuma mídia de produção foi alterada; nenhuma release criada/publicada.
+
+### 28/09/2026 — Prioridade planejada visível no dashboard (T2.3 parcial)
+
+- O status de download do Nebula agora carrega posição/total no plano da varredura, justificativa da prioridade e próximo título; o painel separa essa previsão da fila persistida de upload.
+- A ordenação existente continua priorizando solicitações, depois categoria e A–Z; teste cobre a explicação de prioridade solicitada e da ordem padrão.
+- Validação final desta etapa: `dotnet test tests/Jellyfin.Server.Implementations.Tests/Jellyfin.Server.Implementations.Tests.csproj -c Release --no-restore` passou com 993 aprovados, 38 ignorados e 0 falhas; `dotnet build Jellyfin.Server/Jellyfin.Server.csproj -c Release --no-restore` passou com 0 erros; `npm run build:check` passou; `git diff --check` passou. Permanecem avisos preexistentes de NU1903/Newtonsoft.Json 9.0.1.
+- T2.3 permanece parcial até a fila de envio persistida mostrar posição/razão efetivas e a política única de categoria ser validada. Nenhuma release foi criada/publicada.
+
+### 28/09/2026 — Fairness e backpressure da fila Nebula (T2.4 parcial)
+
+- A seleção anterior drenava a fila prioritária enquanto ela não esvaziasse, permitindo starvation dos uploads comuns sob solicitações contínuas.
+- Introduzido scheduler FIFO com limite de quatro itens prioritários consecutivos quando há trabalho normal esperando; sem trabalho normal, prioridade não é atrasada. Promoção de fila ocorre sob lock curto; logs são emitidos fora do lock.
+- Testes cobrem turno normal após quatro prioridades, prioridade contínua sem fila normal e promoção seletiva preservando FIFO.
+- A fila em memória agora tem teto de oito posições por worker e reserva até uma posição por worker para retries locais. Produtores externos respeitam o limite menor; estouro remove a chave de deduplicação e agenda rescan local, sem abandonar o arquivo. A contagem inclui itens comuns e prioritários.
+- A restauração Mongo agora percorre cursor em lotes de 128, em vez de materializar todos os uploads pendentes na memória; ela para quando atinge o limite dos produtores e continua nas varreduras periódicas. O rescan local lazy percorre staging e para ao preencher a fila.
+- O pool Telegram mantém cooldown por bot ao receber HTTP 429: respeita `retry_after` (limitado a 300 s), usa 5 s como fallback seguro e deixa bots saudáveis continuarem atendendo. Isso evita selecionar repetidamente um bot ainda em flood-wait sem impor atraso fixo aos demais.
+- Cobertura atual: fairness, prioridade sem fila normal, promoção FIFO, limite de produtor/reserva e produtores concorrentes não ultrapassando capacidade.
+- Cobertura adicional: `retry_after` válido, fallback quando ausente e limite superior do cooldown.
+- Validação: suíte completa passou com 999 aprovados, 38 ignorados e 0 falhas; build Release do servidor passou com 0 erros; `git diff --check` passou. Persistem avisos NU1903 de Newtonsoft.Json 9.0.1.
+- Limite: T2.4 permanece parcial até teste sustentado com carga e confirmação de comportamento com Telegram/Mongo reais; limites existentes por upload, worker e bot foram mapeados, mas precisam ser medidos/alinhados. Revisão adversarial delegada não executou porque o limite de agentes estava cheio; revisão local do diff feita. Nenhuma release criada/publicada.
+
+### 28/09/2026 — Backoff de falhas de upload Nebula (T2.5 parcial)
+
+- Falhas de upload deixam de repetir em intervalo fixo de 1 minuto: `retry_after` passa a usar backoff exponencial com jitter de ±20%, começando em 1 minuto e limitado a 1 hora. A contagem existente `retry_count` determina a próxima janela; documentos legados sem contador iniciam na primeira tentativa.
+- O cooldown adaptativo por bot para HTTP 429, registrado na seção T2.4, complementa o backoff do arquivo: o bot respeita o flood-wait e os outros bots seguem disponíveis.
+- Testes da política verificam progressão, limite de 1 hora e jitter; testes do pool verificam flood-wait válido, fallback de 5 s e teto de 300 s.
+- Validação Release: testes focados — 9 aprovados; suíte completa — 1007 aprovados, 38 ignorados e 0 falhas; build do servidor — 0 erros. A suíte completa teve uma falha intermitente preexistente em `DisposingCacheDoesNotWaitForBlockingSharedFetchCancellationCallback`, passou isolada e a repetição completa passou. NU1903 existente para Newtonsoft.Json 9.0.1 permanece.
+- T2.5 permanece parcial: faltam limite de tentativas/falha terminal, tela/ação administrativa de reprocessamento e cancelamento seguro. Nenhuma release criada/publicada.
+
+### 28/09/2026 — Falhas terminais e reprocessamento administrativo (T2.5 parcial)
+
+- Após 8 tentativas automáticas, o upload passa a falha terminal persistida (`failure_terminal`), sem `retry_after`. Recuperação no startup, claim e reconciliação horária excluem explicitamente esses registros; um documento terminal não volta à fila por ter `retry_after` ausente.
+- O painel Nebula lista até 100 falhas terminais recentes e permite reprocessar individualmente. A API de retry exige elevação; o manager só aceita caminhos existentes dentro das raízes de staging configuradas. Reprocessamento preserva partes já enviadas, reinicia o contador automático e insere na fila ativa (ou persiste `queued` para recuperação posterior).
+- Testes Release: política de retry — 11 aprovados; suíte completa Implementations — 1.010 aprovados, 38 ignorados, 0 falhas; suíte API — 183 aprovados, 0 falhas; build Release do servidor — 0 erros; `git diff --check` passou. Permanecem avisos NU1903 já conhecidos para Newtonsoft.Json 9.0.1.
+- T2.5 segue parcial: cancelamento seguro não foi implementado; não houve ensaio integrado com MongoDB/Telegram reais nem teste de carga operacional. Nenhuma release foi criada/publicada; todas as melhorias ativas precisam estar concluídas e validadas antes da release única do ciclo.
+
+### 28/09/2026 — Cancelamento seguro de uploads Nebula (T2.5 parcial)
+
+- A API elevada lista uploads canceláveis e persiste a solicitação com usuário/horário. Itens ainda não reivindicados passam diretamente a `cancelled`; uploads ativos terminam a parte Telegram em curso, salvam o checkpoint confirmado e param antes da próxima parte. Shutdown continua recuperável e não é tratado como cancelamento explícito.
+- O painel mostra uploads ativos/progresso, permite cancelar, lista cancelados junto das falhas terminais e permite retomar um cancelado sem apagar partes confirmadas. O watcher não reencaminha uma mídia cancelada automaticamente.
+- Transições de conclusão e falha agora excluem atomicamente solicitações de cancelamento. Revisão local encontrou e corrigiu duas corridas: falha sobrescrevendo cancelamento e remoção da origem em deduplicação que não concluiu; cancelamentos sob resposta de rede ambígua ainda requerem reconciliação com Telegram.
+- Consultas de recuperação agora excluem estado `cancelled` e pedidos ainda pendentes; solicitações de mídia persistidas são registradas no watcher antes de iniciar a restauração/workers, evitando dequeue sem prioridade no primeiro ciclo (T2.3 parcial).
+- Validação Release: `Jellyfin.Server.Implementations.Tests` — 1.010 aprovados, 38 ignorados, 0 falhas; `Jellyfin.Api.Tests` — 186 aprovados, 0 falhas; `npm run build:check` — exit 0; `git diff --check` — exit 0. O build compilou a implementação alterada; aviso NU1903 preexistente para Newtonsoft.Json 9.0.1 permanece.
+- Limites: sem MongoDB isolado/Telegram real, teste sustentado ou revisão adversarial delegada (limite de agentes atingido); nenhuma operação foi executada no MongoDB de produção. T2.5 permanece parcial e nenhuma release foi criada/publicada, conforme o gate único solicitado.
+
+### 28/09/2026 — Ordem efetiva de uploads no dashboard (T2.3 parcial)
+
+- A fila fairness agora gera snapshot de dequeue sem remover itens nem alterar seu contador de fairness. O status Nebula expõe posição e razão de cada item carregado; painel lista os cinco próximos e identifica o próximo dequeue. A razão distingue faixa prioritária de turno normal por fairness.
+- O painel separa a ordem da fila residente nos workers da contagem Mongo de pendências, evitando tratar itens ainda não admitidos na fila local como posições exatas.
+- Testes Release: `NebulaFairUploadQueueTests` — 7 aprovados; suíte `Jellyfin.Server.Implementations.Tests` — 1.012 aprovados, 38 ignorados, 0 falhas; `Jellyfin.Api.Tests` — 186 aprovados; `npm run build:check` — exit 0; `npm test -- --run` — 208 aprovados; `git diff --check` — exit 0.
+- `npm run lint:changed` não passou: ESLint reportou 32 erros na rota Nebula, nas linhas de campos de API, complexidade e blocos preexistentes de renderização/cancelamento; nenhum erro foi reportado nas linhas do novo snapshot da fila. A limpeza restante está registrada em W4.4.
+- Limites: snapshot é instantâneo e não promete reserva diante de workers concorrentes; posições e prioridades de toda a fila ainda não são persistidas nem reconciliadas ao reiniciar. Sem inspeção renderizada com runtime autenticado, Mongo/Telegram de produção ou teste de carga. T2.3 segue parcial; nenhuma release foi criada/publicada.
+
+### 28/09/2026 — Limpeza de staging fora do loop de varredura (T2.6 parcial)
+
+- A limpeza recursiva agora roda em tarefa de fundo single-flight no startup e após resync completo; não bloqueia restauração periódica nem novo pedido de rescan. O encerramento cancela cooperativamente e aguarda a tarefa.
+- Cancelamento é verificado entre entradas do filesystem; o progresso informa início, raízes concluídas e tempo total. Falha de uma raiz continua best-effort e não interrompe uploads.
+- Testes Release de `NebulaStagingWatcherTests`: 6 aprovados, incluindo cancelamento antes de percorrer/deletar entradas; `git diff --check` pendente nesta etapa.
+- T2.6 permanece parcial: sem checkpoint reiniciável dentro de raízes grandes, medição com volume representativo nem teste de startup/cancelamento no host real. Nenhuma release foi criada/publicada.
+
+### 28/09/2026 — Quality gate incremental da tela Nebula (W4.4 parcial)
+
+- A rota `dashboard/routes/nebula` tinha 32 violações ESLint: complexidade concentrada no componente de página, condições aninhadas, handlers inline e chaves JSON `snake_case` incompatíveis com a regra de nomes TypeScript.
+- Extraídos componentes focados para saúde do banco, resumo/snapshot da fila, uploads canceláveis/falhos e cache. Handlers agora usam callbacks estáveis e `data-upload-id`; o dicionário das etapas mantém as chaves externas sem desativar regras de lint. Estados e textos da interface foram preservados.
+- Validação real: `npm run lint:changed` passou para a rota; `npm run build:check` passou; Vitest passou com 208 testes/26 arquivos; `npm run build:production` passou; `git diff --check` passou.
+- O build mantém avisos Vite preexistentes de diretivas `use client` e imports mistos. Sem Playwright, navegação autenticada ou revisão visual nesta etapa; W4.4 segue parcial. Nenhuma release foi criada/publicada.
+
+### 28/09/2026 — Diagnóstico do cache de reprodução concluído (T3.5)
+
+- A API e o painel expõem tamanho/arquivos, hits/misses, leases, downloads Telegram (incluindo falha e cancelamento), latência média, pré-cache ativo/em fila, erros de persistência, e execução/falha/contenção/duração/data da última limpeza.
+- Testes Release executados nesta validação: `NebulaPlaybackCacheTests` — 36 aprovados; `NebulaFtpControllerTests` — 23 aprovados. Cobrem contadores, falha e recuperação de fetch, contenção de limpeza e serialização JSON camelCase dos novos campos.
+- T3.5 concluída. T3.6 permanece aberta para falhas e recuperação integrada de reprodução; nenhuma release foi criada/publicada.
+
 ## Backlog futuro — fora do ciclo ativo
 
 - Curadoria por IA local ou remota para nomes, imagens e NFO: não iniciar desenvolvimento neste ciclo. Reavaliar apenas após as tarefas determinísticas de catálogo, proveniência, aprovação e rollback serem concluídas e o usuário autorizar um novo escopo.
@@ -582,6 +734,122 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - Tarefas críticas do usuário concluíveis em celular, desktop e TV; nenhum grid essencial renderizado em branco sem estado de erro.
 - Metas de Web Vitals, bundle e acessibilidade medidas e acompanhadas por rota.
 - Curadoria por IA permanece opcional, auditável e reversível; precisão demonstrada em conjunto rotulado antes de qualquer automação.
+
+### 28/09/2026 — Identidade canônica do cache de playback (T3.1 parcial)
+
+- Chaves de ObjectId MongoDB agora são normalizadas sem distinção de caixa; caminhos absolutos são normalizados (`.`/`..`) com regras de caixa do sistema operacional e ficam em namespace separado de IDs e chaves opacas.
+- Cache rejeita identidade ausente em vez de agrupar tudo em `unknown-media`; cada stream sem identidade estável recebe chave própria para impedir reutilização de bytes de outra stream.
+- Testes específicos: 3/3 aprovados. Suíte completa `Jellyfin.Server.Implementations.Tests` em Release: 1.022 aprovados, 38 ignorados, 0 falhas. Build Release do servidor concluído com 0 erros. Persistem avisos NU1903 de Newtonsoft.Json 9.0.1.
+- T3.1 continua parcial até revisão global do contrato e evidência dos cenários restantes. Nenhuma mídia/DB de produção foi acessada e nenhuma release foi criada/publicada, conforme decisão do usuário.
+
+### 28/09/2026 — Backup de usuários não mascara origem/tabela ausente (T4.2 parcial)
+
+- As rotinas separadas de backup/restauração de usuários podiam retornar sucesso com zero usuários quando faltava `IDbContextFactory<UsersDbContext>`, a tabela `mulletaflix_users` não existia ou o Supabase rejeitava a leitura. Agora retornam falha explícita, sem marcar operações não realizadas como concluídas.
+- Testes locais usam EF InMemory e handler HTTP controlado; não acessam MongoDB, Supabase ou dados reais. Faltam ainda verificação dos lotes, snapshot consistente e teste isolado de restauração.
+- Verificação Release: 4 testes novos; suíte `Jellyfin.Server.Implementations.Tests` com 1.026 aprovados/38 ignorados e 0 falhas; build Release do servidor com 0 erros; `git diff --check` passou. Avisos NU1903 preexistentes de Newtonsoft.Json 9.0.1 permanecem.
+- Nenhuma release foi criada/publicada; todas as melhorias ativas do roadmap continuam sendo pré-requisito da release final.
+
+### 28/09/2026 — Falhas na reconciliação remota invalidam o backup (T4.2 parcial)
+
+- Erros ao listar usuários FTP/MulletaFlix remotos, respostas fora do formato JSON esperado e exclusões remotas rejeitadas agora propagam falha para o resultado.
+- Mantida a proteção de não excluir registros remotos quando a lista local está vazia. Exclusões já concluídas antes de uma falha não são revertidas; a próxima execução pode reconciliar novamente com segurança.
+- Testes focados `NebulaSupabaseSyncTests`: 12 aprovados; suíte completa `Jellyfin.Server.Implementations.Tests` Release: 1.028 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros. `git diff --check` passou (avisos apenas de conversão LF/CRLF do checkout).
+- T4.2 permanece parcial: snapshot consistente, criptografia, retenção/rotação e exercícios de restauração ainda não foram implementados. Nenhuma release foi criada/publicada, conforme decisão do usuário.
+
+### 28/09/2026 — Primeiro teste isolado de restauração de usuários (T4.3 parcial)
+
+- Adicionado teste de restauração relacional em EF InMemory isolado por teste. Confirma usuário persistido e consultável por ID, campos restaurados, contagem, duração finita/não negativa, status de sucesso e chamada remota simulada.
+- Testes focados `NebulaSupabaseSyncTests`: 13 aprovados; suíte completa `Jellyfin.Server.Implementations.Tests` Release: 1.029 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros. `git diff --check` passou; somente avisos de conversão LF/CRLF no checkout.
+- T4.3 continua parcial: EF InMemory não valida comportamento do provider MariaDB; recuperação MongoDB nem contagens/consultas críticas do conjunto completo ainda não foram testadas. Nenhuma release criada/publicada.
+
+### 28/09/2026 — Backup FTP falha quando Supabase rejeita lote (T4.2 parcial)
+
+- O backup MongoDB podia ignorar uma resposta HTTP não bem-sucedida ao enviar usuários FTP e continuar como sucesso com contagem zero. O envio agora lança erro; contagem só é informada após resposta 2xx.
+- Testes focados `NebulaSupabaseSyncTests`: 15 aprovados, incluindo HTTP 503 e sucesso HTTP 201; suíte completa Implementations Release: 1.031 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros. `git diff --check` passou; avisos restantes são NU1903 preexistente e conversão LF/CRLF.
+- T4.2 permanece parcial: consistência por snapshot, criptografia, retenção/rotação e prova completa de restauração continuam abertas. Nenhuma release foi criada/publicada.
+- TWINS: a busca por condicionais `if (resp*.IsSuccessStatusCode)` sem ramo de falha encontrou dois fluxos de restauração em `PerformRestoreAsync` (usuários FTP e tokens de bots, linhas próximas a 678 e 727); ambos seguem explicitamente pendentes em T4.2.
+
+### 28/09/2026 — Restauração MongoDB não mascara falhas HTTP/JSON (T4.2 parcial)
+
+- Leituras rejeitadas ou respostas que não sejam arrays JSON nas tabelas de usuários FTP e tokens agora fazem a restauração geral falhar; erros são preservados no resultado. Tabelas vazias com resposta válida continuam aceitas.
+- Testes focados `NebulaSupabaseSyncTests`: 18 aprovados, 0 falhas; cobertura para HTTP 503 em cada tabela e sucesso com tabelas vazias. Suíte completa `Jellyfin.Server.Implementations.Tests` Release: 1.034 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros (3 avisos NU1903 preexistentes de Newtonsoft.Json 9.0.1); `git diff --check` passou com avisos de conversão LF/CRLF no checkout.
+- T4.2 permanece parcial: snapshot consistente, criptografia, retenção/rotação e exercícios de recuperação ainda abertos. Nenhuma release criada/publicada.
+- TWINS: busca `rg -n -U "if \\(resp(Users|Tokens)\\.IsSuccessStatusCode)[\\s\\S]{0,800}?\\n\\s*\\}" Jellyfin.Server.Implementations/Nebula/NebulaSupabaseSyncService.cs` encontrou 0 ocorrências; as duas leituras correspondentes agora têm ramo explícito de falha.
+
+### 28/09/2026 — Histórico rejeitado invalida backup MongoDB (T4.2 parcial)
+
+- INTENT: `PerformBackupAsync` só atualiza `LastSuccessfulBackupTime` e retorna sucesso depois do Supabase confirmar também a gravação de `nebula_backups`; erro HTTP ou de transporte propaga para o resultado de falha.
+- Testes focados `NebulaSupabaseSyncTests`: 20 aprovados, incluindo 503 rejeitado e 201 aceito para o histórico. Suíte completa `Jellyfin.Server.Implementations.Tests` Release: 1.036 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros; 3 avisos NU1903 preexistentes do Newtonsoft.Json 9.0.1. `git diff --check` passou com avisos de conversão LF/CRLF.
+- T4.2 continua parcial: snapshot consistente, criptografia, retenção/rotação, integridade e exclusões remotas seguem abertas. Nenhuma release foi criada/publicada; todas as melhorias ativas do roadmap continuam como pré-requisito da release final.
+- TWINS: rastreamento do `SendAsync` que escrevia em `nebula_backups` encontrou resposta descartada; o caminho agora verifica `IsSuccessStatusCode` e lança apenas o código HTTP (sem ecoar o corpo remoto) para que o fluxo externo marque o backup como falho.
+
+### 28/09/2026 — Backup geral só publica arquivo ZIP íntegro (T4.2 parcial)
+
+- INTENT: o caminho final do backup só pode apontar para um arquivo fechado e legível; geração interrompida fica isolada como `.partial` e nome com timestamp de milissegundos + GUID evita colisões concorrentes.
+- Implementado: após fechar o ZIP temporário, o servidor reabre e percorre todas as entradas antes de promover com `File.Move`; falhas removem apenas o temporário, sem apagar um backup anterior válido.
+- Testes focados `BackupServiceTests`: 9 aprovados, incluindo arquivo legível e arquivo truncado. Eles exercitam o validador, mas ainda não geram um backup integral com todos os contextos; essa integração fica pendente em T4.3. Suíte completa `Jellyfin.Server.Implementations.Tests` Release: 1.038 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros e 3 avisos NU1903 preexistentes de Newtonsoft.Json 9.0.1. `git diff --check` passou; avisos restantes são conversão LF/CRLF já presente no checkout.
+- T4.2 continua parcial: falta snapshot consistente entre contextos/fontes, criptografia, checksums autenticados, retenção/rotação e reconciliação remota. Nenhuma release criada/publicada, conforme o gate do roadmap.
+- TWINS: inspeção adversarial de `File.OpenWrite(backupPath)` e nome com precisão de segundos encontrou escrita diretamente no destino final, potencialmente visível antes de concluída e sujeita a colisão; geração temporária validada + promoção atômica corrige o caminho sem apagar o arquivo anterior.
+
+### 28/09/2026 — Restauração de arquivos verificada em instância temporária (T4.3 parcial)
+
+- Teste chama `BackupService.RestoreBackupAsync` com um ZIP fixture sem banco e configurações de destino exclusivas em `%TEMP%`; confirma três arquivos restaurados, lê o JSON do usuário e da coleção, valida o NFO e mede duração finita.
+- Quality bar parcial: fluxo real de extração e consultas de conteúdo passaram, sem acessar dados de produção. Ainda não prova tabelas relacionais, contexto Mongo, nem criação/restauração completa do ZIP; MariaDB descartável e ciclo completo permanecem pendentes em T4.3.
+- Teste focado `RestoreBackupAsync_RestoresFilesIntoAnIsolatedInstanceAndReportsQueryableContent`: 1 aprovado; classe `BackupServiceTests`: 10 aprovados. Suíte completa `Jellyfin.Server.Implementations.Tests` Release: 1.039 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros e 3 avisos NU1903 preexistentes de Newtonsoft.Json 9.0.1. Nenhuma release criada/publicada.
+
+### 28/09/2026 — Painel operacional de backup e validação de integridade (T4.4 parcial)
+
+- INTENT: `A validação de backup deve chamar o GET /System/Backup/Validate?path=...; o painel deve mostrar o último resultado e o agendamento configurado com estados de erro legíveis.`
+- A tela de backups agora resume resultado/erro da tarefa agendada, próximo disparo calculado a partir dos triggers diário, semanal ou intervalo, e data/destino/opções/tamanho do backup mais recente. O diálogo de detalhes permite validar a integridade e distingue arquivo válido, inválido e falha da chamada.
+- `BackupManifestDto.SizeBytes` é derivado do tamanho do ZIP no disco. Teste isolado compara o campo com `FileInfo.Length` do fixture; cliente web aceita ausência do campo para compatibilidade com servidor antigo.
+- Conteúdos mostrados no resumo/detalhes agora vêm somente dos flags presentes no manifesto; o caso `Database=false` não é mais apresentado como incluído.
+- A validação manual percorre cada entrada ZIP e compara CRC-32 e tamanho expandido com o diretório central. Regressão corrompe um payload mantendo o manifesto legível e confirma retorno inválido. CRC incremental usa buffer pooled e limpo ao retornar, com memória limitada.
+- Corrigido contrato incompatível da ação: cliente enviava `POST` com corpo enquanto o controller expõe `GET` com `path` na query.
+- Direção visual: painel administrativo utilitário, mantendo MUI/tema existentes; o acento lateral e o chip de estado formam a âncora operacional. DFII subjetivo: 16 (impacto 2 + adequação 5 + viabilidade 5 + desempenho 5 − risco de consistência 1). Não é comprovação de usabilidade.
+- Verificação: testes focados de agenda/conteúdo 5/5; servidor rejeita payload corrompido e informa tamanho manifesto; suíte `Jellyfin.Server.Implementations.Tests` Release 1.041 aprovados/38 ignorados/0 falhas; suíte `Jellyfin.Common.Tests` 31/31; build Release do servidor 0 erros (3 avisos NU1903 conhecidos do Newtonsoft.Json 9.0.1). Suíte web 213 testes/27 arquivos; `npm run build:check`, `npm run lint:changed` e `npm run build:production` concluídos com código 0. Build web mantém avisos conhecidos de diretivas `use client` e chunks/importações do Vite; sem erro. Não houve inspeção visual interativa por navegador nesta rodada.
+- T4.4 permanece parcial: próxima execução ainda é estimada no fuso do navegador; escopo/cobertura real do destino e exercício de restauração isolada com relatório seguem pendentes. Validar CRC e o botão protegido de restaurar não comprovam recuperação real.
+- Nenhuma release foi criada ou publicada. O gate definido pelo usuário permanece: concluir todas as melhorias ativas do roadmap antes da release.
+
+### 28/09/2026 — Próxima execução calculada no backend (T4.4 parcial)
+
+- O contrato `TaskInfo` agora inclui `NextExecutionTimeUtc`; o servidor calcula schedules diários/semanais usando o relógio e fuso locais do host. Agendas de intervalo, startup, inválidas ou mistas retornam `null` deliberadamente, pois a próxima execução real não pode ser inferida com fidelidade só pelos triggers serializados.
+- O painel parou de calcular próxima execução com relógio do navegador e consome o instante UTC mais o offset do servidor naquela data; exibe a hora civil do host com o offset explícito, sem conversão pelo timezone do cliente.
+- Testes cobrem horário diário futuro, disparo diário no instante exato, diário vencido, dia da semana configurado, triggers não suportados/inválidos e retorno UTC. Testes web verificam renderização do horário civil do host com offset, timestamp válido e valores ausentes/malformados.
+- Quality bar: `Jellyfin.Model.Tests` Release 663 aprovados; `Jellyfin.Server.Implementations.Tests` Release 1.041 aprovados/38 ignorados; build Release do servidor 0 erros (avisos existentes NU1903 e warnings XML); suíte web 212 testes/27 arquivos; `npm run build:check`, `npm run lint:changed` e `npm run build:production` código 0 (avisos Vite existentes). Nenhuma release criada/publicada.
+- TWINS: comparação adversarial com `DailyTrigger.Start` e `WeeklyTrigger.GetNextTriggerDateTime` cobriu disparo exatamente no limite, data/hora vencida, virada semanal e fuso/offset; schedules por intervalo não são estimáveis sem `_lastStartDate`, por isso o contrato retorna indisponível em vez de um valor presumido.
+
+### 28/09/2026 — Escopo do backup e resolução de volume (T4.2/T4.4 parcial)
+
+- INTENT: `Database=false` precisa produzir um ZIP sem tabelas/otimização do MariaDB, e a validação de espaço deve reconhecer caminhos absolutos Windows/Unix sem confundir unidade ou volume.
+- Corrigido `StorageHelper.ResolvePath`: agora canonicaliza o caminho, inicia a caminhada na raiz retornada pelo sistema operacional e mantém resolução de links; em Windows não descarta mais `C:\`/UNC. O teste detectou o defeito indiretamente porque o fluxo real de backup recusava uma unidade com espaço suficiente devido a `FreeSpace=-1`.
+- `CreateBackupAsync` agora só otimiza e lê `MulletaFlixDbContext` quando `Database=true`. Quando desabilitado, manifesta `DatabaseTables=[]`; o teste lê o ZIP criado e verifica ausência de `Database/`, flags corretos, lista vazia e nenhuma chamada ao factory/otimização.
+- Testes focados `CreateBackupAsync_WhenDatabaseIsExcluded_DoesNotReadOrOptimizeDatabase` e `GetFreeSpaceOf_ResolvesAbsolutePathFromItsVolumeRoot`: 2/2 aprovados. Suíte completa `Jellyfin.Server.Implementations.Tests` Release: 1.043 aprovados, 38 ignorados, 0 falhas. Build Release do servidor: 0 erros, 3 avisos NU1903 conhecidos de Newtonsoft.Json 9.0.1.
+- T4.2 segue parcial: consistência transacional entre fontes, criptografia, retenção/rotação e política de remoção remota ainda pendentes. O teste de restore cobre apenas MariaDB; MongoDB/arquivos e recuperação remota continuam sem prova ponta a ponta.
+- Nenhuma release criada/publicada. O gate exige concluir todas as melhorias ativas do roadmap antes da release.
+
+### 28/09/2026 — Ciclo completo de backup/restore MariaDB (T4.3 parcial)
+
+- INTENT: provar backup e restauração relacional real sem se conectar ao banco ativo na porta `3306`.
+- Foi iniciada uma instância descartável MariaDB 11.4 no diretório temporário dedicado e porta `13306`; a connection string do teste é explicitamente configurada e o teste gera nome de schema aleatório, remove somente esse schema ao final e limpa seu diretório de fixtures.
+- A primeira execução encontrou falha concreta: migration `20260718183000_AddMidiaStorageOnlineMediaMetadata` não tinha atributos de registro EF Core, portanto a tabela não era criada mesmo após `MigrateAsync`; a enumeração das tabelas pelo backup então falhava com “table doesn't exist”. A migration agora declara explicitamente `DbContext` e id, e a execução subsequente confirmou o caminho.
+- O teste `RestoreBackupAsync_RestoresDatabaseRowsOnDisposableMariaDb` cria a tabela via migrations, insere fixture, gera backup real com DB, apaga a fixture e chama `RestoreBackupAsync`; consulta posterior confirmou que o registro e seu tipo foram restaurados. Resultado focado: 1/1 aprovado. Suíte `Jellyfin.Server.Implementations.Tests`: 1.043 aprovados, 38 ignorados, 0 falhas; build Release do servidor: 0 erros e 3 avisos NU1903 preexistentes.
+- O teste recusa explicitamente host fora do loopback ou porta padrão `3306`; só cria schema com nome aleatório após configuração explícita. Cobertura inclui as duas recusas e o ciclo real em MariaDB isolado `13306`: 3/3 aprovados.
+- A instância descartável foi encerrada; verificações confirmaram que a porta `13306` não está escutando e a porta `3306` continua pertencendo ao processo anterior (PID 6512). O diretório temporário do datadir permanece parado: a política do ambiente bloqueou a remoção recursiva, então não forcei outra forma de exclusão. A pasta de fixtures de restore foi removida pelo próprio teste.
+- Ainda parcial: o teste cobre MariaDB apenas; MongoDB e demais arquivos/conteúdos remotos, contagens completas, duração observável e cenário de falha permanecem pendentes. A suite MariaDB fixa existente não foi executada porque ela usa a porta ativa `3306` e elimina schema estático.
+- Nenhuma release criada/publicada. O gate exige concluir todas as melhorias ativas do roadmap antes da release.
+
+### 28/09/2026 — Contrato de respostas da restauração Nebula (T4.2/T4.3 parcial)
+
+- Adicionados testes para garantir que respostas HTTP 2xx com JSON no formato errado nas tabelas `nebula_users` e `nebula_bot_tokens` invalidam a restauração e não atualizam `LastSuccessfulRestoreTime`.
+- Quality gate focado `MongoRestoreFailsWhen`: 4 aprovados, 0 falhas. Testes usam handler HTTP controlado, EF InMemory e nenhum acesso ao MongoDB, Supabase real ou dados de produção.
+- Isso cobre validação do contrato remoto, não prova persistência MongoDB. O restore completo remoto permanece pendente em T4.3; sem release até o término de todas as melhorias ativas do roadmap.
+
+### 28/09/2026 — Remoção de Newtonsoft.Json vulnerável no runtime (T6.4 parcial)
+
+- INTENT: eliminar o `Newtonsoft.Json 9.0.1` ainda resolvido por dependências legadas sem aplicar uma substituição global a todas as dependências transitivas.
+- O grafo apontou duas origens: `FubarDev.FtpServer` (via `Scrutor`/`Microsoft.Extensions.DependencyModel`) e `Microsoft.AspNetCore.Mvc.Core 2.3.0` no plugin GetAvatar. Ambos os projetos agora referenciam explicitamente a versão central `13.0.3`; o advisory oficial marca versões anteriores a `13.0.1` como afetadas por DoS [GHSA-5crp-9r3c-p9vr](https://github.com/advisories/GHSA-5crp-9r3c-p9vr). O pin é localizado aos dois grafos afetados.
+- Evidência: suíte completa `Jellyfin.Server.Implementations.Tests` Release — 1.045 aprovados, 38 ignorados, 0 falhas; build Release do servidor — 0 erros (915 avisos de analisadores já existentes); build GetAvatar Release para `net10.0`, `win-x64` e `linux-x64` — 0 erros. Os quatro manifests `.deps.json` gerados foram conferidos e nenhum contém `Newtonsoft.Json 9.0.1`; `git diff --check` passou.
+- T6.4 continua aberto para proteção/rotação de segredos, transporte e revisão ampla de dependências. Nenhuma release criada/publicada; o gate continua exigindo concluir todas as melhorias ativas.
 
 ## Referências técnicas
 

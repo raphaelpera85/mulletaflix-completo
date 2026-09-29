@@ -146,7 +146,8 @@ public sealed class NebulaChunkedStream : Stream
         _chunkFetcher = chunkFetcher;
         _parts = parts.OrderBy(p => p.PartIndex).ToList();
         _logger = logger;
-        _mediaKey = string.IsNullOrWhiteSpace(mediaKey) ? "unknown-media" : mediaKey;
+        // Streams without a stable catalog identity must never share cached bytes with each other.
+        _mediaKey = string.IsNullOrWhiteSpace(mediaKey) ? $"stream:{Guid.NewGuid():N}" : mediaKey;
         if (playbackCache != null)
         {
             _playbackCache = playbackCache;
@@ -287,7 +288,7 @@ public sealed class NebulaChunkedStream : Stream
                 var bytesToCopy = Math.Min(availableInChunk, count);
                 if (bytesToCopy <= 0)
                 {
-                    return 0;
+                    throw new IOException($"A parte {part.PartIndex} da mídia terminou antes do tamanho esperado no offset {_position}.");
                 }
 
                 Buffer.BlockCopy(chunkData, chunkOffset, buffer, offset, bytesToCopy);
@@ -300,7 +301,7 @@ public sealed class NebulaChunkedStream : Stream
             var fetched = GetChunkAsync(part, chunkIndex, CancellationToken.None).GetAwaiter().GetResult();
             if (chunkOffset >= fetched.Length)
             {
-                return 0;
+                throw new IOException($"A parte {part.PartIndex} da mídia terminou antes do tamanho esperado no offset {_position}.");
             }
 
             var fetchedAvailable = fetched.Length - chunkOffset;
@@ -366,7 +367,7 @@ public sealed class NebulaChunkedStream : Stream
                 var chunkData = await GetChunkAsync(part, chunkIndex, cancellationToken).ConfigureAwait(false);
                 if (chunkOffset >= chunkData.Length)
                 {
-                    break;
+                    throw new IOException($"A parte {part.PartIndex} da mídia terminou antes do tamanho esperado no offset {_position}.");
                 }
 
                 var availableInChunk = chunkData.Length - chunkOffset;

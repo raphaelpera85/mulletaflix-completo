@@ -1,6 +1,10 @@
 #pragma warning disable CS1591
 
 using System;
+using System.Buffers;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace MediaBrowser.Common
 {
@@ -76,14 +80,48 @@ namespace MediaBrowser.Common
 
         public static uint Compute(ReadOnlySpan<byte> bytes)
         {
-            var crc = 0xffffffff;
-            var len = bytes.Length;
-            for (var i = 0; i < len; i++)
+            return ~ComputeState(0xffffffff, bytes);
+        }
+
+        /// <summary>
+        /// Computes a CRC-32 and byte count for a stream without buffering the complete stream.
+        /// The stream is consumed from its current position and remains open.
+        /// </summary>
+        /// <param name="stream">The stream to read.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>The CRC-32 and number of bytes read.</returns>
+        public static async Task<(uint Checksum, long Length)> ComputeAsync(Stream stream, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(stream);
+
+            var buffer = ArrayPool<byte>.Shared.Rent(81920);
+            try
+            {
+                var crc = 0xffffffff;
+                long length = 0;
+                int bytesRead;
+                while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
+                {
+                    crc = ComputeState(crc, buffer.AsSpan(0, bytesRead));
+                    length += bytesRead;
+                }
+
+                return (~crc, length);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+            }
+        }
+
+        private static uint ComputeState(uint crc, ReadOnlySpan<byte> bytes)
+        {
+            for (var i = 0; i < bytes.Length; i++)
             {
                 crc = (crc >> 8) ^ _crcTable[(bytes[i] ^ crc) & 0xff];
             }
 
-            return ~crc;
+            return crc;
         }
     }
 }

@@ -683,6 +683,294 @@ public sealed class NebulaPlaybackCacheTests
     }
 
     [Fact]
+    public async Task CacheCanonicalizesMongoIdsAndAbsolutePathsWithoutMixingOpaqueKeys()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var fetchCalls = 0;
+            Task<byte[]> Fetch(byte[] bytes, CancellationToken _)
+            {
+                Interlocked.Increment(ref fetchCalls);
+                return Task.FromResult(bytes);
+            }
+
+            const string objectId = "507F1F77BCF86CD799439011";
+            var firstByObjectId = await cache.GetOrFetchChunkAsync(
+                "mongo:" + objectId,
+                0,
+                0,
+                4,
+                token => Fetch(new byte[] { 1, 2, 3, 4 }, token),
+                CancellationToken.None);
+            var secondByObjectId = await cache.GetOrFetchChunkAsync(
+                "MONGO:" + objectId.ToLowerInvariant(),
+                0,
+                0,
+                4,
+                token => Fetch(new byte[] { 9, 9, 9, 9 }, token),
+                CancellationToken.None);
+
+            var aliasedPath = Path.Combine(root, "temporary", "..", "movie.mkv");
+            var canonicalPath = Path.Combine(root, "movie.mkv");
+            var firstByPath = await cache.GetOrFetchChunkAsync(
+                aliasedPath,
+                0,
+                1,
+                4,
+                token => Fetch(new byte[] { 5, 6, 7, 8 }, token),
+                CancellationToken.None);
+            var secondByPath = await cache.GetOrFetchChunkAsync(
+                canonicalPath,
+                0,
+                1,
+                4,
+                token => Fetch(new byte[] { 8, 8, 8, 8 }, token),
+                CancellationToken.None);
+            var sameTextAsPathButOpaque = await cache.GetOrFetchChunkAsync(
+                "opaque:" + canonicalPath,
+                0,
+                1,
+                4,
+                token => Fetch(new byte[] { 2, 2, 2, 2 }, token),
+                CancellationToken.None);
+            var opaqueHexName = await cache.GetOrFetchChunkAsync(
+                objectId,
+                0,
+                0,
+                4,
+                token => Fetch(new byte[] { 3, 3, 3, 3 }, token),
+                CancellationToken.None);
+
+            Assert.Equal(new byte[] { 1, 2, 3, 4 }, firstByObjectId);
+            Assert.Equal(firstByObjectId, secondByObjectId);
+            Assert.Equal(new byte[] { 5, 6, 7, 8 }, firstByPath);
+            Assert.Equal(firstByPath, secondByPath);
+            Assert.Equal(new byte[] { 2, 2, 2, 2 }, sameTextAsPathButOpaque);
+            Assert.Equal(new byte[] { 3, 3, 3, 3 }, opaqueHexName);
+            Assert.Equal(4, fetchCalls);
+            Assert.Equal(2, cache.CacheHits);
+            Assert.Equal(4, cache.CacheMisses);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CacheRejectsMissingIdentityInsteadOfSharingUnknownMediaBucket()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+
+            await Assert.ThrowsAsync<ArgumentException>(() => cache.GetOrFetchChunkAsync(
+                " ",
+                0,
+                0,
+                1,
+                _ => Task.FromResult(new byte[] { 1 }),
+                CancellationToken.None));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ChunkedStreamsWithoutIdentityReceiveIsolatedCacheEntries()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            var accessor = new NebulaPlaybackCacheAccessor();
+            accessor.Set(cache);
+            var part = new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = 4 };
+            var firstBytes = new byte[] { 1, 2, 3, 4 };
+            var secondBytes = new byte[] { 5, 6, 7, 8 };
+            await using var firstStream = new NebulaChunkedStream(
+                null,
+                new[] { part },
+                part.Size,
+                NullLogger<NebulaChunkedStream>.Instance,
+                accessor,
+                null,
+                (_, _, _) => Task.FromResult(firstBytes));
+            await using var secondStream = new NebulaChunkedStream(
+                null,
+                new[] { part },
+                part.Size,
+                NullLogger<NebulaChunkedStream>.Instance,
+                accessor,
+                null,
+                (_, _, _) => Task.FromResult(secondBytes));
+
+            var firstBuffer = new byte[firstBytes.Length];
+            var secondBuffer = new byte[secondBytes.Length];
+            Assert.Equal(firstBytes.Length, await firstStream.ReadAsync(firstBuffer.AsMemory()));
+            Assert.Equal(secondBytes.Length, await secondStream.ReadAsync(secondBuffer.AsMemory()));
+
+            Assert.Equal(firstBytes, firstBuffer);
+            Assert.Equal(secondBytes, secondBuffer);
+            Assert.Equal(8, cache.GetCacheSizeBytes());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RecreatedCacheServesPersistedChunkWithoutFetchingItAgain()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var fetchCalls = 0;
+            using (var firstCache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance))
+            using (firstCache.Acquire("restart-media"))
+            {
+                var initial = await firstCache.GetOrFetchChunkAsync(
+                    "restart-media",
+                    0,
+                    0,
+                    4,
+                    _ =>
+                    {
+                        Interlocked.Increment(ref fetchCalls);
+                        return Task.FromResult(new byte[] { 4, 3, 2, 1 });
+                    },
+                    CancellationToken.None);
+
+                Assert.Equal(new byte[] { 4, 3, 2, 1 }, initial);
+            }
+
+            using var restartedCache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            using var restartedLease = restartedCache.Acquire("restart-media");
+            var restored = await restartedCache.GetOrFetchChunkAsync(
+                "restart-media",
+                0,
+                0,
+                4,
+                _ =>
+                {
+                    Interlocked.Increment(ref fetchCalls);
+                    return Task.FromResult(new byte[] { 9, 9, 9, 9 });
+                },
+                CancellationToken.None);
+
+            Assert.Equal(new byte[] { 4, 3, 2, 1 }, restored);
+            Assert.Equal(1, fetchCalls);
+            Assert.Equal(1, restartedCache.CacheHits);
+            Assert.Equal(0, restartedCache.CacheMisses);
+            Assert.Equal(4, restartedCache.GetCacheSizeBytes());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RestartedCacheIgnoresInterruptedPartialChunkAndFetchesCompleteData()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            string chunkPath;
+            using (var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance))
+            using (cache.Acquire("interrupted-media"))
+            {
+                await cache.GetOrFetchChunkAsync(
+                    "interrupted-media",
+                    0,
+                    0,
+                    4,
+                    _ => Task.FromResult(new byte[] { 1, 2, 3, 4 }),
+                    CancellationToken.None);
+                chunkPath = Directory.GetFiles(cache.CachePath, "*.bin", SearchOption.AllDirectories).Single();
+            }
+
+            File.Delete(chunkPath);
+            await File.WriteAllBytesAsync(chunkPath + ".partial", new byte[] { 1, 2 });
+
+            var fetchCalls = 0;
+            using var restartedCache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            using var restartedLease = restartedCache.Acquire("interrupted-media");
+            var restored = await restartedCache.GetOrFetchChunkAsync(
+                "interrupted-media",
+                0,
+                0,
+                4,
+                _ =>
+                {
+                    Interlocked.Increment(ref fetchCalls);
+                    return Task.FromResult(new byte[] { 9, 8, 7, 6 });
+                },
+                CancellationToken.None);
+
+            Assert.Equal(new byte[] { 9, 8, 7, 6 }, restored);
+            Assert.Equal(1, fetchCalls);
+            Assert.Equal(4, new FileInfo(chunkPath).Length);
+            Assert.False(File.Exists(chunkPath + ".partial"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CleanupCountsAndPreservesOrExpiresOrphanedPartialChunksWithMediaLease()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            string partialPath;
+            using (var initialCache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance))
+            {
+                await initialCache.GetOrFetchChunkAsync(
+                    "orphaned-partial",
+                    0,
+                    0,
+                    4,
+                    _ => Task.FromResult(new byte[] { 1, 2, 3, 4 }),
+                    CancellationToken.None);
+                var completePath = Directory.GetFiles(initialCache.CachePath, "*.bin", SearchOption.AllDirectories).Single();
+                partialPath = completePath + ".partial";
+                File.Move(completePath, partialPath);
+                await File.WriteAllBytesAsync(partialPath, new byte[] { 1, 2 });
+                File.SetLastWriteTimeUtc(partialPath, DateTime.UtcNow.AddHours(-2));
+            }
+
+            using var cache = new NebulaPlaybackCache(root, NullLogger<NebulaPlaybackCache>.Instance);
+            Assert.Equal(2, cache.GetCacheSizeBytes());
+            Assert.Equal(1, cache.GetCachedFilesCount());
+
+            using (cache.Acquire("orphaned-partial"))
+            {
+                cache.CleanupExpiredEntries(DateTime.UtcNow.AddHours(2));
+                Assert.True(File.Exists(partialPath));
+            }
+
+            cache.CleanupExpiredEntries(DateTime.UtcNow.AddHours(2));
+
+            Assert.False(File.Exists(partialPath));
+            Assert.Equal(0, cache.GetCacheSizeBytes());
+            Assert.Equal(0, cache.GetCachedFilesCount());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ReportsTelegramFetchFailuresAndKeepsCacheMissVisible()
     {
         var root = CreateTempDirectory();
@@ -743,6 +1031,56 @@ public sealed class NebulaPlaybackCacheTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ChunkedStreamReportsMissingPartInsteadOfReturningSuccessfulEndOfStream()
+    {
+        var part = new NebulaStreamPart { PartIndex = 3, FileOffset = 0, Size = 4 };
+        await using var stream = new NebulaChunkedStream(
+            null,
+            new[] { part },
+            4,
+            NullLogger<NebulaChunkedStream>.Instance,
+            (NebulaPlaybackCacheAccessor?)null,
+            "missing-part",
+            (_, _, _) => Task.FromResult(Array.Empty<byte>()));
+
+        await Assert.ThrowsAsync<IOException>(async () => await stream.ReadAsync(new byte[4].AsMemory()));
+    }
+
+    [Fact]
+    public async Task ChunkedStreamReportsMissingPartForSynchronousReaders()
+    {
+        var part = new NebulaStreamPart { PartIndex = 3, FileOffset = 0, Size = 4 };
+        await using var stream = new NebulaChunkedStream(
+            null,
+            new[] { part },
+            4,
+            NullLogger<NebulaChunkedStream>.Instance,
+            (NebulaPlaybackCacheAccessor?)null,
+            "missing-part-sync",
+            (_, _, _) => Task.FromResult(Array.Empty<byte>()));
+
+        Assert.Throws<IOException>(() => stream.Read(new byte[4], 0, 4));
+    }
+
+    [Fact]
+    public async Task ChunkedStreamReportsTruncatedPartForSynchronousReaders()
+    {
+        var part = new NebulaStreamPart { PartIndex = 3, FileOffset = 0, Size = 4 };
+        await using var stream = new NebulaChunkedStream(
+            null,
+            new[] { part },
+            4,
+            NullLogger<NebulaChunkedStream>.Instance,
+            (NebulaPlaybackCacheAccessor?)null,
+            "truncated-part",
+            (_, _, _) => Task.FromResult(new byte[] { 1, 2 }));
+        var buffer = new byte[4];
+
+        Assert.Equal(2, stream.Read(buffer, 0, buffer.Length));
+        Assert.Throws<IOException>(() => stream.Read(buffer, 0, buffer.Length));
     }
 
     [Fact]
@@ -881,7 +1219,7 @@ public sealed class NebulaPlaybackCacheTests
     }
 
     [Fact]
-    public void CacheAccessorSwitchesNewStreamsWithoutInvalidatingExistingLeases()
+    public async Task CacheAccessorSwitchesNewStreamsWithoutInvalidatingExistingLeases()
     {
         var root = CreateTempDirectory();
         var replacementRoot = CreateTempDirectory();
@@ -891,17 +1229,49 @@ public sealed class NebulaPlaybackCacheTests
             using var replacementCache = new NebulaPlaybackCache(replacementRoot, NullLogger<NebulaPlaybackCache>.Instance);
             var accessor = new NebulaPlaybackCacheAccessor();
             accessor.Set(originalCache);
+            var originalFetchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseOriginalFetch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var originalBytes = new byte[] { 1, 2, 3, 4 };
+            var replacementBytes = new byte[] { 5, 6, 7, 8 };
+            var part = new NebulaStreamPart { PartIndex = 0, FileOffset = 0, Size = 4 };
+            await using var existingStream = new NebulaChunkedStream(
+                null,
+                new[] { part },
+                part.Size,
+                NullLogger<NebulaChunkedStream>.Instance,
+                accessor,
+                "active-media",
+                async (_, _, cancellationToken) =>
+                {
+                    originalFetchStarted.TrySetResult();
+                    await releaseOriginalFetch.Task.WaitAsync(cancellationToken);
+                    return originalBytes;
+                });
 
-            var (original, existingLease) = accessor.Acquire("active-media");
+            await originalFetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(1, originalCache.ActiveLeasesCount);
             accessor.Set(replacementCache);
-            var (replacement, replacementLease) = accessor.Acquire("next-media");
+            await using var newStream = new NebulaChunkedStream(
+                null,
+                new[] { part },
+                part.Size,
+                NullLogger<NebulaChunkedStream>.Instance,
+                accessor,
+                "next-media",
+                (_, _, _) => Task.FromResult(replacementBytes));
 
-            Assert.Same(originalCache, original);
-            Assert.Same(replacementCache, replacement);
+            var replacementBuffer = new byte[replacementBytes.Length];
+            Assert.Equal(replacementBytes.Length, await newStream.ReadAsync(replacementBuffer.AsMemory()));
+            Assert.Equal(replacementBytes, replacementBuffer);
+            Assert.Equal(replacementBytes.Length, replacementCache.GetCacheSizeBytes());
             Assert.Equal(1, originalCache.ActiveLeasesCount);
             Assert.Equal(1, replacementCache.ActiveLeasesCount);
-            existingLease?.Dispose();
-            replacementLease?.Dispose();
+
+            releaseOriginalFetch.TrySetResult();
+            var originalBuffer = new byte[originalBytes.Length];
+            Assert.Equal(originalBytes.Length, await existingStream.ReadAsync(originalBuffer.AsMemory()));
+            Assert.Equal(originalBytes, originalBuffer);
+            Assert.Equal(originalBytes.Length, originalCache.GetCacheSizeBytes());
         }
         finally
         {

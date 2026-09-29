@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Globalization;
@@ -1580,6 +1581,124 @@ public sealed class NebulaMongoContext : IDisposable
         };
     }
 
+    public async Task<List<NebulaFailedUploadDto>> GetTerminalFailedUploadsAsync(
+        IEnumerable<string> stagingRoots,
+        CancellationToken cancellationToken = default)
+    {
+        var terminalFailure = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("status", "failed"),
+            Builders<BsonDocument>.Filter.Eq("failure_terminal", true));
+        var cancelled = Builders<BsonDocument>.Filter.Eq("status", "cancelled");
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("type", "file"),
+            Builders<BsonDocument>.Filter.Or(terminalFailure, cancelled));
+        var sort = Builders<BsonDocument>.Sort.Descending("modified_at").Ascending("name");
+        using var cursor = await _filesCollection.Find(filter)
+            .Sort(sort)
+            .Limit(100)
+            .Project(Builders<BsonDocument>.Projection
+                .Include("name")
+                .Include("display_name")
+                .Include("failed_reason")
+                .Include("failure_stage")
+                .Include("retry_count")
+                .Include("last_failure_at")
+                .Include("cancelled_at")
+                .Include("local_path"))
+            .ToCursorAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var roots = stagingRoots.Where(static root => !string.IsNullOrWhiteSpace(root)).ToArray();
+        var results = new List<NebulaFailedUploadDto>();
+        while (await cursor.MoveNextAsync(cancellationToken).ConfigureAwait(false))
+        {
+            foreach (var document in cursor.Current)
+            {
+                var id = document.GetValue("_id", BsonNull.Value);
+                if (!id.IsObjectId)
+                {
+                    continue;
+                }
+
+                var pathValue = document.GetValue("local_path", BsonNull.Value);
+                var path = pathValue.IsString ? pathValue.AsString : string.Empty;
+                results.Add(new NebulaFailedUploadDto
+                {
+                    Id = id.AsObjectId.ToString(),
+                    Name = document.GetValue("display_name", document.GetValue("name", string.Empty)).ToString(),
+                    Status = document.GetValue("status", "failed").ToString(),
+                    FailureReason = document.GetValue("failed_reason", string.Equals(document.GetValue("status", "").ToString(), "cancelled", StringComparison.OrdinalIgnoreCase) ? "Cancelado pelo administrador." : string.Empty).ToString(),
+                    FailureStage = document.GetValue("failure_stage", NebulaUploadFailureStages.Unknown).ToString(),
+                    RetryCount = document.GetValue("retry_count", 0).ToInt32(),
+                    FailedAtUtc = ToUtcDateTime(ReadUnixTimestamp(document, "last_failure_at") ?? ReadUnixTimestamp(document, "cancelled_at")),
+                    SourceAvailable = IsValidStagingSource(path, roots)
+                });
+            }
+        }
+
+        return results;
+    }
+
+    public async Task<string?> RetryTerminalUploadAsync(
+        ObjectId id,
+        IEnumerable<string> stagingRoots,
+        CancellationToken cancellationToken = default)
+    {
+        var roots = stagingRoots.Where(static root => !string.IsNullOrWhiteSpace(root)).ToArray();
+        var terminalFailureFilter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("status", "failed"),
+            Builders<BsonDocument>.Filter.Eq("failure_terminal", true));
+        var cancelledFilter = Builders<BsonDocument>.Filter.Eq("status", "cancelled");
+        var terminalFilter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Eq("type", "file"),
+            Builders<BsonDocument>.Filter.Or(terminalFailureFilter, cancelledFilter));
+        var document = await _filesCollection.Find(terminalFilter)
+            .Project(Builders<BsonDocument>.Projection.Include("local_path"))
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var path = document is not null
+            && document.TryGetValue("local_path", out var pathValue)
+            && pathValue.IsString
+                ? pathValue.AsString
+                : string.Empty;
+        if (!IsValidStagingSource(path, roots))
+        {
+            return null;
+        }
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var update = Builders<BsonDocument>.Update
+            .Set("status", "queued")
+            .Set("queued_at", now)
+            .Set("manual_retry_at", now)
+            .Set("retry_count", 0)
+            .Inc("manual_retry_count", 1)
+            .Set("modified_at", now)
+            .Set("failure_terminal", false)
+            .Unset("retry_after")
+            .Unset("cancel_requested_at")
+            .Unset("cancelled_at")
+            .Unset("cancelled_by")
+            .Unset("worker_id")
+            .Unset("started_at");
+        var result = await _filesCollection.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.And(terminalFilter, Builders<BsonDocument>.Filter.Eq("local_path", path)),
+            update,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result.ModifiedCount > 0 ? path : null;
+    }
+
+    private static bool IsValidStagingSource(string path, IEnumerable<string> stagingRoots)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !NebulaMetadataExportService.IsUploadablePath(path) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        return stagingRoots.Any(root => IsPathWithinRoot(path, root));
+    }
+
     private static long? ReadUnixTimestamp(BsonDocument document, string fieldName)
     {
         return document.TryGetValue(fieldName, out var value) && value.IsNumeric
@@ -1641,7 +1760,22 @@ public sealed class NebulaMongoContext : IDisposable
     /// </summary>
     public async Task<long> RequeueInterruptedUploadsAsync(CancellationToken cancellationToken = default)
     {
-        var filter = Builders<BsonDocument>.Filter.Eq("status", "uploading");
+        var interruptedFilter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", true));
+        var cancelUpdate = Builders<BsonDocument>.Update
+            .Set("status", "cancelled")
+            .Set("cancelled_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .Unset("worker_id")
+            .Unset("started_at")
+            .Unset("retry_after")
+            .Unset("failure_terminal");
+        await _filesCollection.UpdateManyAsync(interruptedFilter, cancelUpdate, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false));
         var update = Builders<BsonDocument>.Update
             .Set("status", "queued")
             .Unset("worker_id")
@@ -1650,6 +1784,121 @@ public sealed class NebulaMongoContext : IDisposable
 
         var result = await _filesCollection.UpdateManyAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
         return result.ModifiedCount;
+    }
+
+    public async Task<List<NebulaCancellableUploadDto>> GetCancellableUploadsAsync(CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("type", "file"),
+            Builders<BsonDocument>.Filter.In("status", new[] { "queued", "staging", "uploading", "failed" }),
+            Builders<BsonDocument>.Filter.Ne("failure_terminal", true));
+        var projection = Builders<BsonDocument>.Projection
+            .Include("name")
+            .Include("status")
+            .Include("uploaded_bytes")
+            .Include("size")
+            .Include("cancel_requested_at");
+        using var cursor = await _filesCollection.FindAsync(
+            filter,
+            new FindOptions<BsonDocument>
+            {
+                Projection = projection,
+                Sort = Builders<BsonDocument>.Sort.Ascending("queued_at").Ascending("created_at"),
+                Limit = 100
+            },
+            cancellationToken).ConfigureAwait(false);
+        var documents = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+        return documents.Select(document => new NebulaCancellableUploadDto
+        {
+            Id = document.GetValue("_id", BsonNull.Value).ToString(),
+            Name = document.GetValue("name", string.Empty).AsString,
+            Status = document.GetValue("status", string.Empty).AsString,
+            UploadedBytes = document.GetValue("uploaded_bytes", 0L).ToInt64(),
+            TotalBytes = document.GetValue("size", 0L).ToInt64(),
+            CancellationRequested = document.Contains("cancel_requested_at")
+        }).ToList();
+    }
+
+    public async Task<BsonDocument?> RequestUploadCancellationAsync(
+        ObjectId id,
+        string cancelledBy,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var pendingFilter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.In("status", new[] { "queued", "staging", "failed" }),
+            Builders<BsonDocument>.Filter.Ne("failure_terminal", true));
+        var pendingUpdate = Builders<BsonDocument>.Update
+            .Set("status", "cancelled")
+            .Set("cancel_requested_at", now)
+            .Set("cancelled_at", now)
+            .Set("cancelled_by", cancelledBy)
+            .Set("modified_at", now)
+            .Unset("worker_id")
+            .Unset("started_at")
+            .Unset("retry_after")
+            .Unset("failure_terminal");
+        var updated = await _filesCollection.FindOneAndUpdateAsync(
+            pendingFilter,
+            pendingUpdate,
+            new FindOneAndUpdateOptions<BsonDocument> { ReturnDocument = ReturnDocument.After },
+            cancellationToken).ConfigureAwait(false);
+        if (updated != null)
+        {
+            return updated;
+        }
+
+        var uploadingFilter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false));
+        var uploadingUpdate = Builders<BsonDocument>.Update
+            .Set("cancel_requested_at", now)
+            .Set("cancelled_by", cancelledBy)
+            .Set("modified_at", now);
+        updated = await _filesCollection.FindOneAndUpdateAsync(
+            uploadingFilter,
+            uploadingUpdate,
+            new FindOneAndUpdateOptions<BsonDocument> { ReturnDocument = ReturnDocument.After },
+            cancellationToken).ConfigureAwait(false);
+        return updated ?? await _filesCollection.Find(Builders<BsonDocument>.Filter.Eq("_id", id))
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> IsUploadCancellationRequestedAsync(
+        ObjectId id,
+        string workerId,
+        CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", true),
+            BuildWorkerOwnershipFilter(workerId));
+        return await _filesCollection.Find(filter).Limit(1).AnyAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> MarkUploadCancelledAsync(
+        ObjectId id,
+        string workerId,
+        CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", true),
+            BuildWorkerOwnershipFilter(workerId));
+        var update = Builders<BsonDocument>.Update
+            .Set("status", "cancelled")
+            .Set("cancelled_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            .Unset("worker_id")
+            .Unset("started_at")
+            .Unset("retry_after")
+            .Unset("failure_terminal");
+        var result = await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result.MatchedCount > 0;
     }
 
     public async Task<List<BsonDocument>> GetQueuedUploadsAsync(CancellationToken cancellationToken = default)
@@ -2007,19 +2256,6 @@ public sealed class NebulaMongoContext : IDisposable
         return null;
     }
 
-    internal static bool HasTelegramParts(BsonDocument doc)
-    {
-        if (doc.TryGetValue("parts", out var partsVal) && partsVal.IsBsonArray && partsVal.AsBsonArray.Count > 0)
-        {
-            return partsVal.AsBsonArray.Any(p => p is BsonDocument pDoc &&
-                (!string.IsNullOrWhiteSpace(pDoc.GetValue("tg_file_id", string.Empty).AsString) ||
-                 !string.IsNullOrWhiteSpace(pDoc.GetValue("tg_file", string.Empty).AsString)));
-        }
-
-        return !string.IsNullOrWhiteSpace(doc.GetValue("tg_file_id", string.Empty).AsString) ||
-               !string.IsNullOrWhiteSpace(doc.GetValue("file_id", string.Empty).AsString);
-    }
-
     /// <summary>
     /// Confirms that a completed media record has a structurally complete set of Telegram parts.
     /// </summary>
@@ -2039,11 +2275,16 @@ public sealed class NebulaMongoContext : IDisposable
 
         var expectedSize = sizeValue.ToInt64();
 
-        if (!doc.TryGetValue("parts", out var partsValue) || !partsValue.IsBsonArray || partsValue.AsBsonArray.Count == 0)
+        if (!doc.TryGetValue("parts", out var partsValue))
         {
             // Older single-part documents store the Telegram id on the root document.
             var rootFileId = doc.TryGetValue("tg_file_id", out var rootTelegramId) ? rootTelegramId : doc.GetValue("file_id", BsonNull.Value);
             return rootFileId.IsString && !string.IsNullOrWhiteSpace(rootFileId.AsString);
+        }
+
+        if (!partsValue.IsBsonArray || partsValue.AsBsonArray.Count == 0)
+        {
+            return false;
         }
 
         var parts = partsValue.AsBsonArray;
@@ -2212,32 +2453,45 @@ public sealed class NebulaMongoContext : IDisposable
     /// <param name="failureStage">Etapa de baixa cardinalidade onde ocorreu a falha.</param>
     /// <param name="cancellationToken">Token de cancelamento.</param>
     /// <param name="workerId">Worker que deve possuir o arquivo; nulo desativa a verificação.</param>
-    /// <returns>Uma tarefa assíncrona.</returns>
-    public async Task MarkUploadFailedAsync(
+    /// <returns>Verdadeiro quando a transição para falha foi gravada.</returns>
+    public async Task<bool> MarkUploadFailedAsync(
         ObjectId id,
         string reason,
         string failureStage,
         CancellationToken cancellationToken = default,
         string? workerId = null)
     {
-        var failedAt = DateTimeOffset.UtcNow;
-        var retryAt = failedAt.AddMinutes(1).ToUnixTimeSeconds();
-        var normalizedStage = NormalizeUploadFailureStage(failureStage);
-        var filter = Builders<BsonDocument>.Filter.And(
+        var failureFilter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Eq("status", "uploading"),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
             BuildWorkerOwnershipFilter(workerId));
+        var existing = await _filesCollection.Find(failureFilter)
+            .Project(Builders<BsonDocument>.Projection.Include("retry_count"))
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var previousRetryCount = existing?.GetValue("retry_count", 0).ToInt32() ?? 0;
+        var retryAttempt = Math.Max(1, previousRetryCount + 1);
+        var jitterFactor = 0.8 + (Random.Shared.NextDouble() * 0.4);
+        var retryDelay = NebulaUploadRetryPolicy.GetDelay(retryAttempt, jitterFactor);
+        var failedAt = DateTimeOffset.UtcNow;
+        var normalizedStage = NormalizeUploadFailureStage(failureStage);
         var update = Builders<BsonDocument>.Update
             .Set("status", "failed")
             .Set("failed_reason", reason.Length > 1000 ? reason[..1000] : reason)
             .Set("failure_stage", normalizedStage)
             .Set("last_failure_at", failedAt.ToUnixTimeSeconds())
-            .Set("retry_after", retryAt)
             .Inc("retry_count", 1)
             .Unset("worker_id")
             .Unset("started_at")
             .Set("modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
-        await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
+        update = NebulaUploadRetryPolicy.IsTerminal(retryAttempt)
+            ? update.Set("failure_terminal", true).Unset("retry_after")
+            : update.Set("failure_terminal", false).Set("retry_after", failedAt.Add(retryDelay).ToUnixTimeSeconds());
+
+        var result = await _filesCollection.UpdateOneAsync(failureFilter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result.MatchedCount > 0;
     }
 
     /// <summary>
@@ -2256,10 +2510,12 @@ public sealed class NebulaMongoContext : IDisposable
     {
         var filter = Builders<BsonDocument>.Filter.And(
             Builders<BsonDocument>.Filter.Eq("_id", id),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
             BuildWorkerOwnershipFilter(workerId));
         var update = Builders<BsonDocument>.Update.Combine(
             new BsonDocument("$set", finalFields),
             Builders<BsonDocument>.Update.Unset("retry_after"),
+            Builders<BsonDocument>.Update.Unset("failure_terminal"),
             Builders<BsonDocument>.Update.Unset("failed_reason"));
         var result = await _filesCollection.UpdateOneAsync(filter, update, cancellationToken: cancellationToken).ConfigureAwait(false);
         return result.MatchedCount > 0;
@@ -2283,6 +2539,7 @@ public sealed class NebulaMongoContext : IDisposable
             .Unset("worker_id")
             .Unset("started_at")
             .Unset("retry_after")
+            .Unset("failure_terminal")
             .Unset("failed_reason");
 
         if (completedMedia.TryGetValue("parts", out var parts))
@@ -2298,7 +2555,8 @@ public sealed class NebulaMongoContext : IDisposable
         var result = await _filesCollection.UpdateOneAsync(
             Builders<BsonDocument>.Filter.And(
                 Builders<BsonDocument>.Filter.Eq("_id", id),
-                Builders<BsonDocument>.Filter.Ne("status", "completed")),
+                Builders<BsonDocument>.Filter.Ne("status", "completed"),
+                Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false)),
             update,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -2341,42 +2599,43 @@ public sealed class NebulaMongoContext : IDisposable
     /// Obtém todos os arquivos com upload ativo ou pendente no MongoDB (uploading, queued, staging, falhas prontas para retry ou com partes parciais não concluídas).
     /// </summary>
     /// <param name="cancellationToken">Token de cancelamento.</param>
-    /// <returns>Lista de documentos BSON ordenados por mtime/ctime/progresso.</returns>
-    public async Task<List<BsonDocument>> GetActiveOrPendingUploadsAsync(CancellationToken cancellationToken = default)
+    /// <returns>Documentos BSON ordenados por fila e processados em lotes.</returns>
+    public async IAsyncEnumerable<BsonDocument> GetActiveOrPendingUploadsAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var retryReady = BuildRetryReadyFilter(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-            var filter = Builders<BsonDocument>.Filter.And(
-                Builders<BsonDocument>.Filter.Eq("type", "file"),
-                Builders<BsonDocument>.Filter.Or(
-                    Builders<BsonDocument>.Filter.In("status", new[] { "uploading", "queued", "staging" }),
-                    Builders<BsonDocument>.Filter.And(
-                        Builders<BsonDocument>.Filter.Eq("status", "failed"),
-                        retryReady),
-                    Builders<BsonDocument>.Filter.And(
-                        Builders<BsonDocument>.Filter.Exists("parts"),
-                        Builders<BsonDocument>.Filter.Ne("parts", new BsonArray()),
-                        Builders<BsonDocument>.Filter.Ne("status", "completed"))));
+        var retryReady = BuildRetryReadyFilter(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var filter = Builders<BsonDocument>.Filter.And(
+            Builders<BsonDocument>.Filter.Eq("type", "file"),
+            Builders<BsonDocument>.Filter.Ne("failure_terminal", true),
+            Builders<BsonDocument>.Filter.Ne("status", "cancelled"),
+            Builders<BsonDocument>.Filter.Exists("cancel_requested_at", false),
+            Builders<BsonDocument>.Filter.Or(
+                Builders<BsonDocument>.Filter.In("status", new[] { "uploading", "queued", "staging" }),
+                Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.Eq("status", "failed"),
+                    retryReady),
+                Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.Exists("parts"),
+                    Builders<BsonDocument>.Filter.Ne("parts", new BsonArray()),
+                    Builders<BsonDocument>.Filter.Ne("status", "completed"))));
 
-            var sort = Builders<BsonDocument>.Sort
-                .Ascending("queued_at")
-                .Ascending("created_at")
-                .Ascending("mtime")
-                .Ascending("ctime")
-                .Ascending("_id");
+        var sort = Builders<BsonDocument>.Sort
+            .Ascending("queued_at")
+            .Ascending("created_at")
+            .Ascending("mtime")
+            .Ascending("ctime")
+            .Ascending("_id");
 
-            using var cursor = await _filesCollection.FindAsync(filter, new FindOptions<BsonDocument> { Sort = sort }, cancellationToken).ConfigureAwait(false);
-            return await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        using var cursor = await _filesCollection.FindAsync(
+            filter,
+            new FindOptions<BsonDocument> { Sort = sort, BatchSize = 128 },
+            cancellationToken).ConfigureAwait(false);
+        while (await cursor.MoveNextAsync(cancellationToken).ConfigureAwait(false))
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[NEBULA-MONGO] Erro ao buscar uploads pendentes no MongoDB.");
-            return [];
+            foreach (var document in cursor.Current)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return document;
+            }
         }
     }
 
@@ -2540,6 +2799,7 @@ public sealed class NebulaMongoContext : IDisposable
                 Builders<BsonDocument>.Filter.In("status", new[] { "queued", "staging" }),
                 Builders<BsonDocument>.Filter.And(
                     Builders<BsonDocument>.Filter.Eq("status", "failed"),
+                    Builders<BsonDocument>.Filter.Ne("failure_terminal", true),
                     BuildRetryReadyFilter(now)),
                 Builders<BsonDocument>.Filter.And(
                     Builders<BsonDocument>.Filter.Eq("status", "uploading"),
@@ -2653,6 +2913,12 @@ public sealed class NebulaMongoContext : IDisposable
                         continue;
                     }
 
+                    if (index.CancelledPaths.Contains(fullPath))
+                    {
+                        _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
+                        continue;
+                    }
+
                     // Delta: arquivo que já está na fila ou em envio (mesmo tamanho)
                     // pertence ao worker de upload, não à varredura.
                     if (index.PendingSizes.TryGetValue(fullPath, out var pendingSize) && pendingSize == fileInfo.Length)
@@ -2681,7 +2947,16 @@ public sealed class NebulaMongoContext : IDisposable
                     if (existing != null)
                     {
                         var st = existing.TryGetValue("status", out var stVal) && stVal.IsString ? stVal.AsString : "unknown";
-                        if (string.Equals(st, "completed", StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(st, "failed", StringComparison.OrdinalIgnoreCase)
+                            && existing.GetValue("failure_terminal", false).ToBoolean())
+                        {
+                            // A terminal item stays visible for explicit administration. The
+                            // hourly staging reconciliation must not silently reset its retry cap.
+                            _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
+                            continue;
+                        }
+
+                        if (string.Equals(st, "completed", StringComparison.OrdinalIgnoreCase) && IsCompletedTelegramMedia(existing))
                         {
                             RemoveCompletedStagingFile(fileInfo, stageRoot, existing.GetValue("name", fileName).AsString);
                             _stagingScanJournal[fullPath] = new StagingScanEntry(scanStamp, Handled: true);
@@ -2780,6 +3055,7 @@ public sealed class NebulaMongoContext : IDisposable
     internal async Task<StagingSyncIndex> GetStagingSyncIndexAsync(IReadOnlyCollection<string> stagingRoots, CancellationToken cancellationToken = default)
     {
         var completedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cancelledPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pendingSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
         try
@@ -2794,7 +3070,7 @@ public sealed class NebulaMongoContext : IDisposable
 
             if (rootFilters.Count == 0)
             {
-                return new StagingSyncIndex(completedPaths, pendingSizes);
+                return new StagingSyncIndex(completedPaths, cancelledPaths, pendingSizes);
             }
 
             var filter = Builders<BsonDocument>.Filter.And(
@@ -2841,6 +3117,12 @@ public sealed class NebulaMongoContext : IDisposable
                     continue;
                 }
 
+                if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
+                {
+                    cancelledPaths.Add(fullPath);
+                    continue;
+                }
+
                 if (InFlightStatuses.Contains(status, StringComparer.OrdinalIgnoreCase))
                 {
                     pendingSizes[fullPath] = doc.TryGetValue("size", out var sizeValue) && sizeValue.IsNumeric ? sizeValue.ToInt64() : -1L;
@@ -2856,7 +3138,7 @@ public sealed class NebulaMongoContext : IDisposable
             _logger.LogWarning(ex, "[NEBULA-MONGO] Erro ao montar o índice de staging do delta.");
         }
 
-        return new StagingSyncIndex(completedPaths, pendingSizes);
+        return new StagingSyncIndex(completedPaths, cancelledPaths, pendingSizes);
     }
 
     /// <summary>
@@ -2931,7 +3213,7 @@ public sealed class NebulaMongoContext : IDisposable
     /// <summary>
     /// Índice de delta do staging: caminhos concluídos e tamanhos dos pendentes.
     /// </summary>
-    internal readonly record struct StagingSyncIndex(HashSet<string> CompletedPaths, Dictionary<string, long> PendingSizes);
+    internal readonly record struct StagingSyncIndex(HashSet<string> CompletedPaths, HashSet<string> CancelledPaths, Dictionary<string, long> PendingSizes);
 
     /// <summary>
     /// Computa estatísticas detalhadas da fila de envio do MongoDB e do alimentador de disco.

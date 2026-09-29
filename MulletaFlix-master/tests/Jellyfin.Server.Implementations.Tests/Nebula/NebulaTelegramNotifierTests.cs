@@ -12,40 +12,6 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 public class NebulaTelegramNotifierTests
 {
     [Fact]
-    public void HasTelegramParts_ReturnsFalse_WhenCompletedMetadataHasNoUploadedPart()
-    {
-        var document = new BsonDocument
-        {
-            { "name", "Rebelde (2022) - S01E01.mkv" },
-            { "status", "completed" },
-            { "metadata", new BsonDocument { { "title", "Rebelde" } } }
-        };
-
-        Assert.False(NebulaMongoContext.HasTelegramParts(document));
-    }
-
-    [Fact]
-    public void HasTelegramParts_ReturnsTrue_WhenUploadedPartHasTelegramFileId()
-    {
-        var document = new BsonDocument
-        {
-            { "status", "completed" },
-            {
-                "parts",
-                new BsonArray
-                {
-                    new BsonDocument
-                    {
-                        { "tg_file_id", "telegram-file-id" }
-                    }
-                }
-            }
-        };
-
-        Assert.True(NebulaMongoContext.HasTelegramParts(document));
-    }
-
-    [Fact]
     public void IsCompletedTelegramMedia_RequiresContiguousPartsAndMatchingSize()
     {
         var complete = new BsonDocument
@@ -88,6 +54,22 @@ public class NebulaTelegramNotifierTests
         document["parts"].AsBsonArray[0].AsBsonDocument["status"] = "completed";
         document["status"] = "uploading";
         Assert.False(NebulaMongoContext.IsCompletedTelegramMedia(document));
+    }
+
+    [Fact]
+    public void IsCompletedTelegramMedia_AcceptsLegacyRootIdButRejectsEmptyPartsArray()
+    {
+        var legacy = new BsonDocument
+        {
+            { "status", "completed" },
+            { "size", 10L },
+            { "tg_file_id", "legacy-file-id" }
+        };
+        var emptyParts = legacy.DeepClone().AsBsonDocument;
+        emptyParts.Add("parts", new BsonArray());
+
+        Assert.True(NebulaMongoContext.IsCompletedTelegramMedia(legacy));
+        Assert.False(NebulaMongoContext.IsCompletedTelegramMedia(emptyParts));
     }
 
     [Fact]

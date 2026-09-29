@@ -115,14 +115,29 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         NebulaMongoContext mongoContext,
         ILogger<NebulaSupabaseSyncService> logger,
         IDbContextFactory<UsersDbContext>? usersDbProvider = null)
+        : this(mongoContext, logger, usersDbProvider, new HttpClient { Timeout = TimeSpan.FromMinutes(5) })
+    {
+    }
+
+    internal NebulaSupabaseSyncService(
+        NebulaMongoContext mongoContext,
+        ILogger<NebulaSupabaseSyncService> logger,
+        IDbContextFactory<UsersDbContext> usersDbProvider,
+        HttpMessageHandler httpMessageHandler)
+        : this(mongoContext, logger, usersDbProvider, new HttpClient(httpMessageHandler) { Timeout = TimeSpan.FromMinutes(5) })
+    {
+    }
+
+    private NebulaSupabaseSyncService(
+        NebulaMongoContext mongoContext,
+        ILogger<NebulaSupabaseSyncService> logger,
+        IDbContextFactory<UsersDbContext>? usersDbProvider,
+        HttpClient httpClient)
     {
         _mongoContext = mongoContext;
         _logger = logger;
         _usersDbProvider = usersDbProvider;
-        _httpClient = new HttpClient
-        {
-            Timeout = TimeSpan.FromMinutes(5)
-        };
+        _httpClient = httpClient;
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "MulletaFlix-Server/12.0");
     }
 
@@ -209,7 +224,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                     break;
                 }
             }
-        }, ct);
+            },
+            ct);
     }
 
     /// <summary>
@@ -530,31 +546,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
 
             // Usuários FTP do MongoDB
             var allUsers = await _mongoContext.GetAllUsersForSyncAsync(cancellationToken).ConfigureAwait(false);
-            var syncedUsers = 0;
-            if (allUsers.Count > 0)
-            {
-                var userRecords = new List<SupabaseUserRecord>();
-                foreach (var userDoc in allUsers)
-                {
-                    userRecords.Add(ConvertBsonDocToSupabaseUser(userDoc));
-                }
-
-                var jsonUsers = JsonSerializer.Serialize(userRecords);
-                var uriUsers = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_users?on_conflict=login";
-                using var reqUsers = new HttpRequestMessage(HttpMethod.Post, uriUsers)
-                {
-                    Content = new StringContent(jsonUsers, Encoding.UTF8, "application/json")
-                };
-                reqUsers.Headers.Add("apikey", supabaseKey);
-                reqUsers.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-                reqUsers.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
-
-                using var respUsers = await _httpClient.SendAsync(reqUsers, cancellationToken).ConfigureAwait(false);
-                if (respUsers.IsSuccessStatusCode)
-                {
-                    syncedUsers = userRecords.Count;
-                }
-            }
+            var syncedUsers = await BackupNebulaUsersAsync(supabaseUrl, supabaseKey, allUsers, cancellationToken).ConfigureAwait(false);
 
             // O backup é espelho dos usuários FTP atuais. Usuários do app têm outro fluxo.
             var deletedFtpUsers = await RemoveDeletedNebulaUsersAsync(supabaseUrl, supabaseKey, allUsers, cancellationToken).ConfigureAwait(false);
@@ -570,24 +562,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 details = $"Backup do MongoDB concluído com {syncedFiles} arquivos e {syncedUsers} usuários FTP; {deletedFtpUsers} usuários removidos do backup. Usuários do aplicativo não incluídos."
             };
 
-            try
-            {
-                var jsonLog = JsonSerializer.Serialize(backupLog);
-                var uriLog = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_backups";
-                using var reqLog = new HttpRequestMessage(HttpMethod.Post, uriLog)
-                {
-                    Content = new StringContent(jsonLog, Encoding.UTF8, "application/json")
-                };
-                reqLog.Headers.Add("apikey", supabaseKey);
-                reqLog.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
-                reqLog.Headers.Add("Prefer", "return=minimal");
-
-                _ = await _httpClient.SendAsync(reqLog, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[SUPABASE-SYNC] Aviso ao registrar histórico de backup no Supabase.");
-            }
+            await RecordBackupHistoryAsync(supabaseUrl, supabaseKey, backupLog, cancellationToken).ConfigureAwait(false);
 
             _lastSuccessfulBackupTime = DateTime.UtcNow;
             result.Success = true;
@@ -610,6 +585,30 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         finally
         {
             _backupGate.Release();
+        }
+    }
+
+    internal async Task RecordBackupHistoryAsync<T>(
+        string supabaseUrl,
+        string supabaseKey,
+        T backupLog,
+        CancellationToken cancellationToken = default)
+    {
+        var jsonLog = JsonSerializer.Serialize(backupLog);
+        var uriLog = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_backups";
+        using var request = new HttpRequestMessage(HttpMethod.Post, uriLog)
+        {
+            Content = new StringContent(jsonLog, Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("apikey", supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+        request.Headers.Add("Prefer", "return=minimal");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Falha ao registrar histórico do backup no Supabase (HTTP {(int)response.StatusCode}).");
         }
     }
 
@@ -684,41 +683,47 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 reqUsers.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
 
                 using var respUsers = await _httpClient.SendAsync(reqUsers, cancellationToken).ConfigureAwait(false);
-                if (respUsers.IsSuccessStatusCode)
+                if (!respUsers.IsSuccessStatusCode)
                 {
-                    var bodyUsers = await respUsers.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    using var docUsers = JsonDocument.Parse(bodyUsers);
-                    if (docUsers.RootElement.ValueKind == JsonValueKind.Array)
+                    var errorBody = await respUsers.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    throw new InvalidOperationException($"Supabase rejeitou a restauração de usuários FTP: HTTP {(int)respUsers.StatusCode} - {errorBody}");
+                }
+
+                var bodyUsers = await respUsers.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                using var docUsers = JsonDocument.Parse(bodyUsers);
+                if (docUsers.RootElement.ValueKind != JsonValueKind.Array)
+                {
+                    throw new InvalidOperationException("A resposta de usuários FTP do Supabase não é uma lista JSON.");
+                }
+
+                foreach (var item in docUsers.RootElement.EnumerateArray())
+                {
+                    if (item.TryGetProperty("doc_data", out var userDocData) && userDocData.ValueKind == JsonValueKind.Object)
                     {
-                        foreach (var item in docUsers.RootElement.EnumerateArray())
+                        var userBson = BsonDocument.Parse(userDocData.GetRawText());
+                        await _mongoContext.UpsertRawUserDocAsync(userBson, cancellationToken).ConfigureAwait(false);
+                        restoredUsers++;
+                    }
+                    else if (item.TryGetProperty("login", out var loginProp) && loginProp.ValueKind == JsonValueKind.String)
+                    {
+                        var login = loginProp.GetString()!;
+                        var passHash = item.TryGetProperty("password_hash", out var pProp) ? pProp.GetString() ?? string.Empty : string.Empty;
+                        var userBson = new BsonDocument
                         {
-                            if (item.TryGetProperty("doc_data", out var userDocData) && userDocData.ValueKind == JsonValueKind.Object)
-                            {
-                                var userBson = BsonDocument.Parse(userDocData.GetRawText());
-                                await _mongoContext.UpsertRawUserDocAsync(userBson, cancellationToken).ConfigureAwait(false);
-                                restoredUsers++;
-                            }
-                            else if (item.TryGetProperty("login", out var loginProp) && loginProp.ValueKind == JsonValueKind.String)
-                            {
-                                var login = loginProp.GetString()!;
-                                var passHash = item.TryGetProperty("password_hash", out var pProp) ? pProp.GetString() ?? string.Empty : string.Empty;
-                                var userBson = new BsonDocument
-                                {
-                                    { "_id", login },
-                                    { "password_hash", passHash },
-                                    { "permissions", "elradfmwM" },
-                                    { "created_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
-                                };
-                                await _mongoContext.UpsertRawUserDocAsync(userBson, cancellationToken).ConfigureAwait(false);
-                                restoredUsers++;
-                            }
-                        }
+                            { "_id", login },
+                            { "password_hash", passHash },
+                            { "permissions", "elradfmwM" },
+                            { "created_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
+                        };
+                        await _mongoContext.UpsertRawUserDocAsync(userBson, cancellationToken).ConfigureAwait(false);
+                        restoredUsers++;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[SUPABASE-RESTORE] Aviso ao restaurar tabela de usuários.");
+                _logger.LogWarning(ex, "[SUPABASE-RESTORE] Falha ao restaurar tabela de usuários.");
+                throw;
             }
 
             var restoredAppUsers = await RestoreMulletaFlixUsersAsync(supabaseUrl, supabaseKey, cancellationToken).ConfigureAwait(false);
@@ -733,36 +738,42 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 reqTokens.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
 
                 using var respTokens = await _httpClient.SendAsync(reqTokens, cancellationToken).ConfigureAwait(false);
-                if (respTokens.IsSuccessStatusCode)
+                if (!respTokens.IsSuccessStatusCode)
                 {
-                    var bodyTokens = await respTokens.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    using var docTokens = JsonDocument.Parse(bodyTokens);
-                    if (docTokens.RootElement.ValueKind == JsonValueKind.Array)
+                    var errorBody = await respTokens.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    throw new InvalidOperationException($"Supabase rejeitou a restauração de tokens de bot: HTTP {(int)respTokens.StatusCode} - {errorBody}");
+                }
+
+                var bodyTokens = await respTokens.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                using var docTokens = JsonDocument.Parse(bodyTokens);
+                if (docTokens.RootElement.ValueKind != JsonValueKind.Array)
+                {
+                    throw new InvalidOperationException("A resposta de tokens de bot do Supabase não é uma lista JSON.");
+                }
+
+                foreach (var item in docTokens.RootElement.EnumerateArray())
+                {
+                    var token = item.TryGetProperty("token", out var tProp) ? tProp.GetString() : (item.TryGetProperty("bot_token", out var btProp) ? btProp.GetString() : null);
+                    if (!string.IsNullOrWhiteSpace(token))
                     {
-                        foreach (var item in docTokens.RootElement.EnumerateArray())
+                        var idx = item.TryGetProperty("index", out var iProp) && iProp.TryGetInt32(out var iVal) ? iVal : (restoredTokens + 1);
+                        var enabled = !item.TryGetProperty("enabled", out var eProp) || eProp.ValueKind != JsonValueKind.False;
+                        var tokenBson = new BsonDocument
                         {
-                            var token = item.TryGetProperty("token", out var tProp) ? tProp.GetString() : (item.TryGetProperty("bot_token", out var btProp) ? btProp.GetString() : null);
-                            if (!string.IsNullOrWhiteSpace(token))
-                            {
-                                var idx = item.TryGetProperty("index", out var iProp) && iProp.TryGetInt32(out var iVal) ? iVal : (restoredTokens + 1);
-                                var enabled = !item.TryGetProperty("enabled", out var eProp) || eProp.ValueKind != JsonValueKind.False;
-                                var tokenBson = new BsonDocument
-                                {
-                                    { "index", idx },
-                                    { "token", token.Trim() },
-                                    { "enabled", enabled },
-                                    { "updated_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
-                                };
-                                await _mongoContext.UpsertRawTokenDocAsync(tokenBson, cancellationToken).ConfigureAwait(false);
-                                restoredTokens++;
-                            }
-                        }
+                            { "index", idx },
+                            { "token", token.Trim() },
+                            { "enabled", enabled },
+                            { "updated_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
+                        };
+                        await _mongoContext.UpsertRawTokenDocAsync(tokenBson, cancellationToken).ConfigureAwait(false);
+                        restoredTokens++;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[SUPABASE-RESTORE] Aviso ao restaurar tokens de bot.");
+                _logger.LogWarning(ex, "[SUPABASE-RESTORE] Falha ao restaurar tokens de bot.");
+                throw;
             }
 
             _lastSuccessfulRestoreTime = DateTime.UtcNow;
@@ -861,6 +872,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             return result;
         }
 
+        if (_usersDbProvider == null)
+        {
+            result.Message = "A origem relacional dos usuários não está configurada; backup não foi executado.";
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
+            return result;
+        }
+
         await _backupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -906,6 +924,13 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         if (!IsServiceRoleKey(supabaseKey))
         {
             result.Message = ServiceRoleKeyRequiredMessage;
+            progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
+            return result;
+        }
+
+        if (_usersDbProvider == null)
+        {
+            result.Message = "A origem relacional dos usuários não está configurada; restauração não foi executada.";
             progressAction?.Invoke($"[SUPABASE-ERRO] {result.Message}");
             return result;
         }
@@ -982,6 +1007,37 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         throw new InvalidOperationException("Não foi possível enviar o lote ao Supabase após 3 tentativas.");
     }
 
+    internal async Task<int> BackupNebulaUsersAsync(
+        string supabaseUrl,
+        string supabaseKey,
+        IReadOnlyCollection<BsonDocument> users,
+        CancellationToken cancellationToken = default)
+    {
+        if (users.Count == 0)
+        {
+            return 0;
+        }
+
+        var userRecords = users.Select(ConvertBsonDocToSupabaseUser).ToList();
+        var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/nebula_users?on_conflict=login";
+        using var request = new HttpRequestMessage(HttpMethod.Post, uri)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(userRecords), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("apikey", supabaseKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", supabaseKey);
+        request.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException($"Falha ao salvar usuários FTP no Supabase: HTTP {(int)response.StatusCode} - {body}");
+        }
+
+        return userRecords.Count;
+    }
+
     /// <summary>
     /// Verifica quantos usuários reais do MulletaFlix existem no banco relacional.
     /// </summary>
@@ -1021,7 +1077,7 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     {
         if (_usersDbProvider == null)
         {
-            return 0;
+            throw new InvalidOperationException("A origem relacional dos usuários não está configurada.");
         }
 
         await using var db = await _usersDbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -1085,9 +1141,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.NotFound && body.Contains("PGRST205", StringComparison.Ordinal))
             {
-                _logger.LogWarning(
-                    "[SUPABASE-SYNC] A tabela mulletaflix_users não existe no projeto remoto; backup dos usuários do aplicativo foi ignorado. Crie a tabela/migração para habilitar esta etapa.");
-                return 0;
+                throw new InvalidOperationException(
+                    "A tabela mulletaflix_users não existe no projeto Supabase; aplique a migração antes de declarar o backup concluído.");
             }
 
             throw new InvalidOperationException($"Falha ao salvar usuários do MulletaFlix no Supabase: HTTP {(int)response.StatusCode} - {body}");
@@ -1119,14 +1174,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("[SUPABASE-SYNC] Não foi possível listar usuários FTP remotos; nenhuma remoção será feita.");
-            return 0;
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException($"Falha ao listar usuários FTP remotos para reconciliação: HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {responseBody}");
         }
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
         if (json.RootElement.ValueKind != JsonValueKind.Array)
         {
-            return 0;
+            throw new InvalidOperationException("A resposta de usuários FTP do Supabase não é uma lista JSON.");
         }
 
         var deleted = 0;
@@ -1143,10 +1198,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 continue;
             }
 
-            if (await DeleteSupabaseRowAsync(supabaseUrl, supabaseKey, "nebula_users", "login", login, cancellationToken).ConfigureAwait(false))
-            {
-                deleted++;
-            }
+            await DeleteSupabaseRowAsync(supabaseUrl, supabaseKey, "nebula_users", "login", login, cancellationToken).ConfigureAwait(false);
+            deleted++;
         }
 
         return deleted;
@@ -1178,14 +1231,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("[SUPABASE-SYNC] Não foi possível listar usuários MulletaFlix remotos; nenhuma remoção será feita.");
-            return 0;
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException($"Falha ao listar usuários MulletaFlix remotos para reconciliação: HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {responseBody}");
         }
 
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
         if (json.RootElement.ValueKind != JsonValueKind.Array)
         {
-            return 0;
+            throw new InvalidOperationException("A resposta de usuários MulletaFlix do Supabase não é uma lista JSON.");
         }
 
         var deleted = 0;
@@ -1196,16 +1249,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
                 continue;
             }
 
-            if (await DeleteSupabaseRowAsync(supabaseUrl, supabaseKey, "mulletaflix_users", "id", id.ToString(), cancellationToken).ConfigureAwait(false))
-            {
-                deleted++;
-            }
+            await DeleteSupabaseRowAsync(supabaseUrl, supabaseKey, "mulletaflix_users", "id", id.ToString(), cancellationToken).ConfigureAwait(false);
+            deleted++;
         }
 
         return deleted;
     }
 
-    private async Task<bool> DeleteSupabaseRowAsync(
+    private async Task DeleteSupabaseRowAsync(
         string supabaseUrl,
         string supabaseKey,
         string table,
@@ -1221,18 +1272,16 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("[SUPABASE-SYNC] Não foi possível remover registro antigo de {Table}: HTTP {StatusCode}.", table, response.StatusCode);
-            return false;
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException($"Falha ao remover registro antigo da tabela {table}: HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {responseBody}");
         }
-
-        return true;
     }
 
     private async Task<int> RestoreMulletaFlixUsersAsync(string supabaseUrl, string supabaseKey, CancellationToken cancellationToken)
     {
         if (_usersDbProvider == null)
         {
-            return 0;
+            throw new InvalidOperationException("A origem relacional dos usuários não está configurada.");
         }
 
         var uri = $"{supabaseUrl.TrimEnd('/')}/rest/v1/mulletaflix_users?select=*&order=username.asc";
@@ -1242,7 +1291,8 @@ public sealed class NebulaSupabaseSyncService : IDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return 0;
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException($"Supabase rejeitou a restauração dos usuários: HTTP {(int)response.StatusCode} - {errorBody}");
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

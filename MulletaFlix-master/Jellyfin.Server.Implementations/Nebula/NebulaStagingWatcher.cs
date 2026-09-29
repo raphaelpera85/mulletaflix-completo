@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using MediaBrowser.Model.Nebula;
 using MongoDB.Bson;
 
 namespace Jellyfin.Server.Implementations.Nebula;
@@ -22,8 +24,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
     private readonly int _botCount;
     private readonly List<FileSystemWatcher> _watchers = [];
     private readonly List<string> _stagingDirs = [];
-    private readonly ConcurrentQueue<NebulaUploadTaskItem> _priorityFiles = new();
-    private readonly ConcurrentQueue<NebulaUploadTaskItem> _pendingFiles = new();
+    private readonly NebulaFairUploadQueue<NebulaUploadTaskItem> _uploadQueue = new();
     private readonly ConcurrentDictionary<string, byte> _prioritizedPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _prioritizedDirectories = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _prioritizedSeriesNames = new(StringComparer.OrdinalIgnoreCase);
@@ -31,7 +32,11 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
     private readonly ConcurrentDictionary<string, byte> _activeFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _workerTasks = [];
+    private int _producerQueueLimit = int.MaxValue;
+    private int _stagingRescanRequested;
     private Task? _masterTask;
+    private Task? _stagingCleanupTask;
+    private int _stagingCleanupRunning;
     private bool _isRunning;
     private bool _disposed;
 
@@ -137,8 +142,11 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             }
         }
 
-        _isRunning = true;
         var actualWorkers = Math.Clamp(workerCount, 1, 16);
+        var queueCapacity = checked(actualWorkers * 8);
+        _uploadQueue.SetCapacity(queueCapacity);
+        _producerQueueLimit = queueCapacity - actualWorkers;
+        _isRunning = true;
         _masterTask = Task.Run(() => RunMasterLoopAsync(actualWorkers, _cts.Token));
     }
 
@@ -148,6 +156,32 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
     public void EnqueueMediaFromDownloader(string filePath)
     {
         EnqueueFile(filePath);
+    }
+
+    public IReadOnlyList<NebulaWorkerItemDto> GetPendingQueueSnapshot()
+    {
+        var orderedItems = _uploadQueue.SnapshotInDequeueOrder();
+        var snapshot = new List<NebulaWorkerItemDto>(orderedItems.Count);
+        for (var index = 0; index < orderedItems.Count; index++)
+        {
+            var (item, isPriority) = orderedItems[index];
+            var reason = isPriority
+                ? "Faixa prioritária (solicitação ou promoção manual)"
+                : "Fila padrão; turno de fairness FIFO";
+            snapshot.Add(new NebulaWorkerItemDto
+            {
+                Name = item.FileName,
+                DisplayName = item.FileName,
+                Status = "queued",
+                WorkerId = "fila",
+                QueuePosition = index + 1,
+                IsPriority = isPriority,
+                PriorityReason = reason,
+                InfoText = $"Posição {index + 1} · {reason}"
+            });
+        }
+
+        return snapshot;
     }
 
     /// <summary>
@@ -286,24 +320,11 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
     private void PromotePendingFilesToPriority()
     {
-        var temp = new List<NebulaUploadTaskItem>();
-        while (_pendingFiles.TryDequeue(out var item))
+        var promoted = _uploadQueue.PromotePending(item => IsPathPrioritized(item.FilePath));
+        foreach (var item in promoted)
         {
-            if (IsPathPrioritized(item.FilePath))
-            {
-                _priorityFiles.Enqueue(item);
-                _logger.LogInformation("[NEBULA-WATCHER][PRIORIDADE] Upload promovido para fila prioritária: {File}", item.FileName);
-                EmitServer("INFO", $"[PRIORIDADE] Upload promovido para envio rápido: {item.FileName}");
-            }
-            else
-            {
-                temp.Add(item);
-            }
-        }
-
-        foreach (var item in temp)
-        {
-            _pendingFiles.Enqueue(item);
+            _logger.LogInformation("[NEBULA-WATCHER][PRIORIDADE] Upload promovido para fila prioritária: {File}", item.FileName);
+            EmitServer("INFO", $"[PRIORIDADE] Upload promovido para envio rápido: {item.FileName}");
         }
     }
 
@@ -339,15 +360,18 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 NodeId = nodeId
             };
 
-            if (IsPathPrioritized(fullPath))
+            var prioritized = IsPathPrioritized(fullPath);
+            if (!_uploadQueue.TryEnqueue(item, prioritized, _producerQueueLimit))
             {
-                _priorityFiles.Enqueue(item);
+                _queuedFiles.TryRemove(queueKey, out _);
+                Interlocked.Exchange(ref _stagingRescanRequested, 1);
+                return;
+            }
+
+            if (prioritized)
+            {
                 _logger.LogInformation("[NEBULA-WATCHER][PRIORIDADE] Arquivo prioritário enfileirado para upload imediato: {File}", fileName);
                 EmitServer("INFO", $"[PRIORIDADE] Arquivo na fila de upload imediato: {fileName}");
-            }
-            else
-            {
-                _pendingFiles.Enqueue(item);
             }
         }
     }
@@ -390,7 +414,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         }
 
         // A limpeza é best-effort e roda depois que a capacidade de upload já está ativa.
-        CleanOrphanStagingDirectories();
+        ScheduleOrphanStagingCleanup(cancellationToken);
 
         EmitServer("INFO", $"Workers de upload ativos: {workerCount} (configurados={workerCount}, transmissoes={workerCount}, bots={_botCount}).");
         EmitServer("INFO", "Signal handlers unavailable on this platform; use Ctrl+C to stop.");
@@ -416,13 +440,19 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                     {
                         lastFullSync = DateTime.UtcNow;
                         await _mongoContext.SyncStagingDirectoryAsync(_stagingDirs, _uploadEngine.DeleteSourceAfterUpload, cancellationToken).ConfigureAwait(false);
-                        CleanOrphanStagingDirectories();
+                        ScheduleOrphanStagingCleanup(cancellationToken);
                     }
 
-                    if (_pendingFiles.Count < workerCount * 2)
+                    if (_uploadQueue.PendingCount < _producerQueueLimit)
                     {
                         await RestorePendingUploadsFromMongoAsync(cancellationToken).ConfigureAwait(false);
                     }
+                }
+
+                if (Volatile.Read(ref _stagingRescanRequested) != 0 && _uploadQueue.PendingCount < _producerQueueLimit)
+                {
+                    Interlocked.Exchange(ref _stagingRescanRequested, 0);
+                    RescanStagingDirectories(cancellationToken);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -477,12 +507,15 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
         try
         {
-            var pendingDocs = await _mongoContext.GetActiveOrPendingUploadsAsync(cancellationToken).ConfigureAwait(false);
             var count = 0;
 
-            foreach (var doc in pendingDocs)
+            await foreach (var doc in _mongoContext.GetActiveOrPendingUploadsAsync(cancellationToken).ConfigureAwait(false))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (_uploadQueue.PendingCount >= _producerQueueLimit)
+                {
+                    break;
+                }
 
                 var fileName = doc.TryGetValue("name", out var fn) && fn.IsString ? fn.AsString : null;
                 if (string.IsNullOrWhiteSpace(fileName))
@@ -506,8 +539,12 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                     ? idVal.AsObjectId
                     : (doc.TryGetValue("_id", out var sidVal) && ObjectId.TryParse(sidVal.ToString(), out var parsedOid) ? parsedOid : null);
 
+                var before = _uploadQueue.PendingCount;
                 EnqueueFile(resolvedLocalPath, nodeId, parent);
-                count++;
+                if (_uploadQueue.PendingCount > before)
+                {
+                    count++;
+                }
             }
 
             if (count > 0)
@@ -530,21 +567,55 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         }
     }
 
+    private void RescanStagingDirectories(CancellationToken cancellationToken)
+    {
+        foreach (var root in _stagingDirs)
+        {
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (_uploadQueue.PendingCount >= _producerQueueLimit)
+                    {
+                        Interlocked.Exchange(ref _stagingRescanRequested, 1);
+                        return;
+                    }
+
+                    EnqueueFile(file);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "[NEBULA-WATCHER] Falha ao recuperar arquivos da varredura local de staging: {Root}", root);
+                Interlocked.Exchange(ref _stagingRescanRequested, 1);
+            }
+        }
+    }
+
+    private bool RequeueWorkerItem(NebulaUploadTaskItem item, bool prioritized)
+    {
+        if (_uploadQueue.TryEnqueue(item, prioritized, maximumPending: _uploadQueue.Capacity))
+        {
+            return true;
+        }
+
+        _queuedFiles.TryRemove(Path.GetFullPath(item.FilePath), out _);
+        Interlocked.Exchange(ref _stagingRescanRequested, 1);
+        return false;
+    }
+
     private async Task UploadWorkerLoopAsync(int workerId, CancellationToken cancellationToken)
     {
         _logger.LogDebug("[NEBULA-WATCHER] Worker #{Worker} pronto para envio.", workerId);
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var isPriorityItem = false;
-            if (_priorityFiles.TryDequeue(out var item))
-            {
-                isPriorityItem = true;
-            }
-            else if (!_pendingFiles.TryDequeue(out item))
-            {
-                item = null;
-            }
+            _uploadQueue.TryDequeue(out var item, out var isPriorityItem);
 
             if (item != null)
             {
@@ -555,15 +626,18 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                     {
                         if (isPriorityItem || IsPathPrioritized(item.FilePath))
                         {
-                            _priorityFiles.Enqueue(item);
+                            requeued = RequeueWorkerItem(item, prioritized: true);
                         }
                         else
                         {
-                            _pendingFiles.Enqueue(item);
+                            requeued = RequeueWorkerItem(item, prioritized: false);
                         }
 
-                        requeued = true;
-                        await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+                        if (requeued)
+                        {
+                            await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
+                        }
+
                         continue;
                     }
 
@@ -619,15 +693,17 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                         // Arquivo ainda em gravação no disco: reinsere na fila com delay
                         if (isPriorityItem || IsPathPrioritized(item.FilePath))
                         {
-                            _priorityFiles.Enqueue(item);
+                            requeued = RequeueWorkerItem(item, prioritized: true);
                         }
                         else
                         {
-                            _pendingFiles.Enqueue(item);
+                            requeued = RequeueWorkerItem(item, prioritized: false);
                         }
 
-                        requeued = true;
-                        await Task.Delay(2000, cancellationToken).ConfigureAwait(false);
+                        if (requeued)
+                        {
+                            await Task.Delay(2000, cancellationToken).ConfigureAwait(false);
+                        }
                     }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -792,15 +868,66 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
             _logger.LogError(ex, "[NEBULA-WATCHER] Falha ao aguardar workers durante o encerramento.");
         }
 
+        if (_stagingCleanupTask != null)
+        {
+            try
+            {
+                await _stagingCleanupTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // A limpeza cooperativa termina normalmente ao cancelar o watcher.
+            }
+        }
+
         _isRunning = false;
     }
 
-    private void CleanOrphanStagingDirectories()
+    private void ScheduleOrphanStagingCleanup(CancellationToken cancellationToken)
     {
+        if (Interlocked.CompareExchange(ref _stagingCleanupRunning, 1, 0) != 0)
+        {
+            _logger.LogDebug("[NEBULA-WATCHER] Limpeza de staging ignorada: já existe uma execução ativa.");
+            return;
+        }
+
+        EmitServer("INFO", $"Limpeza de staging iniciada ({_stagingDirs.Count} raiz(es)); execução sem bloquear o scanner.");
+        _stagingCleanupTask = Task.Run(() =>
+        {
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                CleanOrphanStagingDirectories(cancellationToken);
+                _logger.LogInformation(
+                    "[NEBULA-WATCHER] Limpeza de staging concluída em {ElapsedSeconds:F1}s.",
+                    stopwatch.Elapsed.TotalSeconds);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("[NEBULA-WATCHER] Limpeza de staging cancelada durante o encerramento.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[NEBULA-WATCHER] Falha na limpeza assíncrona de staging.");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _stagingCleanupRunning, 0);
+            }
+            },
+            CancellationToken.None);
+    }
+
+    private void CleanOrphanStagingDirectories(CancellationToken cancellationToken)
+    {
+        var rootIndex = 0;
         foreach (var stageRoot in _stagingDirs)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            rootIndex++;
             if (string.IsNullOrWhiteSpace(stageRoot) || !Directory.Exists(stageRoot))
             {
+                _logger.LogDebug("[NEBULA-WATCHER] Progresso da limpeza: raiz {Current}/{Total} indisponível.", rootIndex, _stagingDirs.Count);
                 continue;
             }
 
@@ -813,9 +940,10 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 // first and aggregating the media/active-download/remaining-file flags upward,
                 // a directory already knows its subtree's state from its children's results
                 // without ever re-scanning a subtree that was already visited.
-                CleanDirectorySubtree(stageRoot, isStagingRoot: true);
+                CleanDirectorySubtree(stageRoot, isStagingRoot: true, cancellationToken);
+                _logger.LogInformation("[NEBULA-WATCHER] Progresso da limpeza: raiz {Current}/{Total} concluída.", rootIndex, _stagingDirs.Count);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogDebug(ex, "[NEBULA-WATCHER] Erro ao varrer diretórios em {Root}", stageRoot);
             }
@@ -827,7 +955,10 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
     /// pending marker) when it turns out to be orphaned, and returns the aggregated state used
     /// by the parent call to make the same decision without re-reading any file twice.
     /// </summary>
-    private (bool HasMedia, bool HasActiveDownload, int RemainingFileCount) CleanDirectorySubtree(string dir, bool isStagingRoot)
+    private (bool HasMedia, bool HasActiveDownload, int RemainingFileCount) CleanDirectorySubtree(
+        string dir,
+        bool isStagingRoot,
+        CancellationToken cancellationToken)
     {
         var hasMedia = false;
         var hasActiveDownload = false;
@@ -849,9 +980,10 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
 
         foreach (var entry in entries)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (Directory.Exists(entry))
             {
-                var childResult = CleanDirectorySubtree(entry, isStagingRoot: false);
+                var childResult = CleanDirectorySubtree(entry, isStagingRoot: false, cancellationToken);
                 hasMedia |= childResult.HasMedia;
                 hasActiveDownload |= childResult.HasActiveDownload;
                 remainingFileCount += childResult.RemainingFileCount;

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +13,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Moq;
+using MulletaFlix.Api.Constants;
 using MulletaFlix.Api.Controllers;
 using MulletaFlix.Api.Results;
 using Xunit;
@@ -105,6 +108,105 @@ public sealed class NebulaFtpControllerTests
         Assert.Equal(2, response.RecentFailureCount);
         Assert.Equal(NebulaUploadFailureStages.TelegramTransfer, Assert.Single(response.FailuresByStage).Stage);
         manager.Verify(m => m.GetUploadQueueSummaryAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetTerminalFailedUploads_ReturnsManagerItems()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var expected = new[] { new NebulaFailedUploadDto { Id = "507f1f77bcf86cd799439011", Name = "Episode.mkv", SourceAvailable = true } };
+        manager.Setup(m => m.GetTerminalFailedUploadsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(expected.ToList());
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.GetTerminalFailedUploads(CancellationToken.None);
+
+        var response = Assert.IsType<NebulaFailedUploadDto[]>(Assert.IsType<OkResult<NebulaFailedUploadDto[]>>(result.Result).Value);
+        Assert.Same(expected[0], Assert.Single(response));
+        manager.Verify(m => m.GetTerminalFailedUploadsAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RetryTerminalFailedUpload_ReturnsBadRequestWhenManagerRejectsSource()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        manager.Setup(m => m.RetryTerminalFailedUploadAsync("507f1f77bcf86cd799439011", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new NebulaFailedUploadRetryResultDto { Message = "Arquivo de origem ausente." });
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.RetryTerminalFailedUpload("507f1f77bcf86cd799439011", CancellationToken.None);
+
+        var response = Assert.IsType<NebulaFailedUploadRetryResultDto>(Assert.IsType<BadRequestObjectResult>(result.Result).Value);
+        Assert.Equal("Arquivo de origem ausente.", response.Message);
+    }
+
+    [Fact]
+    public async Task GetCancellableUploads_ReturnsManagerItems()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var expected = new List<NebulaCancellableUploadDto>
+        {
+            new() { Id = "507f1f77bcf86cd799439011", Name = "Episode.mkv", Status = "uploading", TotalBytes = 100, UploadedBytes = 50 }
+        };
+        manager.Setup(m => m.GetCancellableUploadsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(expected);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var result = await controller.GetCancellableUploads(CancellationToken.None);
+
+        var response = Assert.IsType<NebulaCancellableUploadDto[]>(Assert.IsType<OkResult<NebulaCancellableUploadDto[]>>(result.Result).Value);
+        Assert.Same(expected[0], Assert.Single(response));
+    }
+
+    [Fact]
+    public async Task CancelUpload_PersistsCallingUserIdThroughManager()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var userId = Guid.NewGuid();
+        manager.Setup(m => m.CancelUploadAsync("507f1f77bcf86cd799439011", userId.ToString("D"), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new NebulaUploadCancellationResultDto { Success = true, CancellationPending = true });
+        var controller = new NebulaFtpController(manager.Object, configuration.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(InternalClaimTypes.UserId, userId.ToString("D"))], "test"))
+                }
+            }
+        };
+
+        var result = await controller.CancelUpload("507f1f77bcf86cd799439011", CancellationToken.None);
+
+        var response = Assert.IsType<NebulaUploadCancellationResultDto>(Assert.IsType<OkResult<NebulaUploadCancellationResultDto>>(result.Result).Value);
+        Assert.True(response.CancellationPending);
+        manager.VerifyAll();
+    }
+
+    [Fact]
+    public async Task CancelUpload_ReturnsBadRequestWhenUploadCannotBeCancelled()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var userId = Guid.NewGuid();
+        manager.Setup(m => m.CancelUploadAsync("bad-id", userId.ToString("D"), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new NebulaUploadCancellationResultDto { Message = "Identificador inválido." });
+        var controller = new NebulaFtpController(manager.Object, configuration.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(InternalClaimTypes.UserId, userId.ToString("D"))], "test"))
+                }
+            }
+        };
+
+        var result = await controller.CancelUpload("bad-id", CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
     [Fact]

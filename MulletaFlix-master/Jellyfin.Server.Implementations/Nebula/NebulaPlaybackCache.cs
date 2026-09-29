@@ -946,9 +946,33 @@ public sealed class NebulaPlaybackCache : IDisposable
 
     private static string NormalizeMediaKey(string mediaKey)
     {
-        var value = string.IsNullOrWhiteSpace(mediaKey) ? "unknown-media" : mediaKey.Trim();
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+        if (string.IsNullOrWhiteSpace(mediaKey))
+        {
+            throw new ArgumentException("Uma identidade de mídia não vazia é necessária para usar o cache.", nameof(mediaKey));
+        }
+
+        var value = mediaKey.Trim();
+        string identity;
+        if (value.StartsWith("mongo:", StringComparison.OrdinalIgnoreCase)
+            && IsObjectId(value["mongo:".Length..]))
+        {
+            identity = "mongo:" + value["mongo:".Length..].ToLowerInvariant();
+        }
+        else if (Path.IsPathRooted(value))
+        {
+            var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(value));
+            identity = "path:" + (OperatingSystem.IsWindows() ? fullPath.ToUpperInvariant() : fullPath);
+        }
+        else
+        {
+            identity = "opaque:" + value;
+        }
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
     }
+
+    private static bool IsObjectId(string value)
+        => value.Length == 24 && value.All(static character => Uri.IsHexDigit(character));
 
     private void Release(string mediaKey)
     {

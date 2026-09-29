@@ -597,6 +597,12 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             activity?.SetTag("nebula.result", "cancelled");
             throw;
         }
+        catch (NebulaUploadCancellationRequestedException)
+        {
+            outcome = "cancelled";
+            activity?.SetTag("nebula.result", "cancelled");
+            return false;
+        }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, "Upload failed");
@@ -699,11 +705,21 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
                 if (existingDoc != null && existingDoc.TryGetValue("_id", out var existingId) && existingId.IsObjectId)
                 {
-                    await _mongoContext!.CompleteDuplicateUploadAsync(
+                    var duplicateCompleted = await _mongoContext!.CompleteDuplicateUploadAsync(
                         existingId.AsObjectId,
                         alreadyCompleted,
                         totalSize,
                         cancellationToken).ConfigureAwait(false);
+                    if (!duplicateCompleted)
+                    {
+                        if (await _mongoContext.IsUploadCancellationRequestedAsync(existingId.AsObjectId, workerKey, cancellationToken).ConfigureAwait(false))
+                        {
+                            await _mongoContext.MarkUploadCancelledAsync(existingId.AsObjectId, workerKey, cancellationToken).ConfigureAwait(false);
+                            throw new NebulaUploadCancellationRequestedException();
+                        }
+
+                        return false;
+                    }
                 }
 
                 if (ShouldDeleteLocalSource(localFilePath))
@@ -865,9 +881,19 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             {
                 if (_mongoContext != null)
                 {
+                    if (await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false))
+                    {
+                        await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false);
+                        throw new NebulaUploadCancellationRequestedException();
+                    }
+
                     try
                     {
-                        await _mongoContext.MarkUploadFailedAsync(nodeId, reason, failureStage, cancellationToken, workerKey).ConfigureAwait(false);
+                        var markedFailed = await _mongoContext.MarkUploadFailedAsync(nodeId, reason, failureStage, cancellationToken, workerKey).ConfigureAwait(false);
+                        if (!markedFailed && await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
+                        {
+                            throw new NebulaUploadCancellationRequestedException();
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -876,6 +902,18 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 }
 
                 return false;
+            }
+
+            async Task<bool> StopForCancellationIfRequestedAsync()
+            {
+                if (!await _mongoContext.IsUploadCancellationRequestedAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false))
+                {
+                    return false;
+                }
+
+                await _mongoContext.MarkUploadCancelledAsync(nodeId, workerKey, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("[NEBULA-UPLOAD] Upload de '{Name}' cancelado pelo administrador após salvar as partes confirmadas.", targetFileName);
+                return true;
             }
 
             // 2. Extrai partes contíguas a partir da parte 0
@@ -922,6 +960,10 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 for (int partNum = resumePart; partNum < totalParts; partNum++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
+                    {
+                        throw new NebulaUploadCancellationRequestedException();
+                    }
 
                     var offset = (long)partNum * _logicalChunkSizeBytes;
                     fileStream.Seek(offset, SeekOrigin.Begin);
@@ -979,7 +1021,20 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                     {
                         botIndex = availableBots[(partNum + botAttempt) % availableBots.Count];
                         LogServer("INFO", $"[UPLOAD] W{workerId} parte={partNum + 1} bot=#{botIndex + 1} iniciando");
-                        tgMsg = await _telegramPool.UploadDocumentAsync(botIndex, chunkData, chunkName, "application/octet-stream", caption, cancellationToken).ConfigureAwait(false);
+                        try
+                        {
+                            tgMsg = await _telegramPool.UploadDocumentAsync(botIndex, chunkData, chunkName, "application/octet-stream", caption, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception)
+                        {
+                            if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
+                            {
+                                throw new NebulaUploadCancellationRequestedException();
+                            }
+
+                            throw;
+                        }
+
                         if (tgMsg != null)
                         {
                             break;
@@ -1041,7 +1096,17 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                             return false;
                         }
                     }
+
+                    if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
+                    {
+                        throw new NebulaUploadCancellationRequestedException();
+                    }
                 }
+            }
+
+            if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
+            {
+                throw new NebulaUploadCancellationRequestedException();
             }
 
             if (parts.Count < totalParts)
@@ -1082,6 +1147,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                 var completed = await _mongoContext.CompleteFileUploadAsync(nodeId, finalFields, cancellationToken, workerKey).ConfigureAwait(false);
                 if (!completed)
                 {
+                    if (await StopForCancellationIfRequestedAsync().ConfigureAwait(false))
+                    {
+                        throw new NebulaUploadCancellationRequestedException();
+                    }
+
                     _logger.LogWarning(
                         "[NEBULA-UPLOAD] Worker {Worker} perdeu a posse de '{Name}' antes da conclusão; não sobrescrevendo o estado.",
                         workerId,
@@ -1320,5 +1390,9 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     public void Dispose()
     {
         DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    private sealed class NebulaUploadCancellationRequestedException : Exception
+    {
     }
 }

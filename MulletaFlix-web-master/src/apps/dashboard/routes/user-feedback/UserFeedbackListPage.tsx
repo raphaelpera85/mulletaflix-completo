@@ -4,8 +4,8 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import parseISO from 'date-fns/parseISO';
-import React, { useMemo } from 'react';
-import type { MRT_ColumnDef } from 'material-react-table';
+import React, { useCallback, useMemo } from 'react';
+import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import type { ActivityLogEntry } from '@jellyfin/sdk/lib/generated-client/models/activity-log-entry';
 import { ActivityLogSortBy } from '@jellyfin/sdk/lib/generated-client/models/activity-log-sort-by';
 import { SortOrder } from '@jellyfin/sdk/lib/generated-client/models/sort-order';
@@ -15,28 +15,16 @@ import { DEFAULT_TABLE_OPTIONS } from 'apps/dashboard/components/table/TablePage
 import { useLogEntries } from 'apps/dashboard/features/activity/api/useLogEntries';
 import { useUsersDetails } from 'hooks/useUsers';
 import globalize from 'lib/globalize';
-import { useMaterialReactTable, MaterialReactTable } from 'material-react-table';
 import Page from 'components/Page';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import type { ApiClient } from 'jellyfin-apiclient';
 import { useQuery } from '@tanstack/react-query';
+import { classifyMediaRequests, type MediaCatalogTitle } from './mediaRequestUtils';
 
 interface UserFeedbackListPageProps {
     type: 'MediaRequest' | 'PlaybackIssue';
     titleKey: string;
 }
-
-interface MediaCatalogTitle {
-    Title: string;
-    MediaType: string;
-    Year?: number;
-}
-
-const normalizeTitle = (value: string) => value.normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
 
 const getMediaCatalog = async (): Promise<MediaCatalogTitle[]> => {
     const apiClient = ServerConnections.currentApiClient() as unknown as ApiClient | null;
@@ -60,14 +48,10 @@ const UserFeedbackListPage = ({ type, titleKey }: UserFeedbackListPageProps) => 
         staleTime: 60_000
     });
 
-    const catalogTitles = useMemo(() => new Set((catalogQuery.data || []).map(item => normalizeTitle(item.Title))), [ catalogQuery.data ]);
-    const categorizedRequests = useMemo(() => (data?.Items || []).map(entry => ({
-        entry,
-        title: entry.Name?.replace(/^Solicitação de mídia:\s*/i, '') || '',
-        included: catalogTitles.has(normalizeTitle(entry.Name?.replace(/^Solicitação de mídia:\s*/i, '') || ''))
-    })), [ catalogTitles, data?.Items ]);
-    const pendingRequests = useMemo(() => categorizedRequests.filter(item => !item.included).map(item => item.entry), [ categorizedRequests ]);
-    const includedRequests = useMemo(() => categorizedRequests.filter(item => item.included).map(item => item.entry), [ categorizedRequests ]);
+    const { pending: pendingRequests, included: includedRequests } = useMemo(
+        () => classifyMediaRequests(data?.Items || [], catalogQuery.data || []),
+        [ catalogQuery.data, data?.Items ]
+    );
 
     const columns = useMemo<MRT_ColumnDef<ActivityLogEntry>[]>(() => [
         {
@@ -120,31 +104,39 @@ const UserFeedbackListPage = ({ type, titleKey }: UserFeedbackListPageProps) => 
         initialState: { density: 'compact', pagination: { pageIndex: 0, pageSize: 25 } }
     });
 
-    const retry = () => { void Promise.all([ refetch(), refetchUsers(), catalogQuery.refetch() ]); };
+    const retry = useCallback(() => {
+        void Promise.all([ refetch(), refetchUsers(), catalogQuery.refetch() ]);
+    }, [ catalogQuery, refetch, refetchUsers ]);
     const hasError = isError || isUsersError || (type === 'MediaRequest' && catalogQuery.isError);
+    let content;
+    if (hasError) {
+        content = (
+            <Alert severity='error' action={<Button color='inherit' size='small' onClick={retry}>{globalize.translate('Retry')}</Button>}>
+                {globalize.translate('ActivitiesLoadError')}
+            </Alert>
+        );
+    } else if (type === 'PlaybackIssue') {
+        content = <MaterialReactTable table={pendingTable} />;
+    } else {
+        content = (
+            <Stack spacing={4} sx={{ minHeight: 0 }}>
+                <Box>
+                    <Typography variant='h2' sx={{ mb: 1 }}>{globalize.translate('MediaRequestsPendingTitle')} ({pendingRequests.length})</Typography>
+                    <MaterialReactTable table={pendingTable} />
+                </Box>
+                <Box>
+                    <Typography variant='h2' sx={{ mb: 1 }}>{globalize.translate('MediaRequestsIncludedTitle')} ({includedRequests.length})</Typography>
+                    <MaterialReactTable table={includedTable} />
+                </Box>
+            </Stack>
+        );
+    }
 
     return (
         <Page id={`userFeedback-${type}`} title={globalize.translate(titleKey)} className='mainAnimatedPage type-interior'>
             <Box className='content-primary' sx={{ display: 'flex', flexDirection: 'column', gap: 3, height: '100%' }}>
                 <Typography variant='h1'>{globalize.translate(titleKey)}</Typography>
-                {hasError ? (
-                    <Alert severity='error' action={<Button color='inherit' size='small' onClick={retry}>{globalize.translate('Retry')}</Button>}>
-                        {globalize.translate('ActivitiesLoadError')}
-                    </Alert>
-                ) : type === 'PlaybackIssue' ? (
-                    <MaterialReactTable table={pendingTable} />
-                ) : (
-                    <Stack spacing={4} sx={{ minHeight: 0 }}>
-                        <Box>
-                            <Typography variant='h2' sx={{ mb: 1 }}>{globalize.translate('MediaRequestsPendingTitle')} ({pendingRequests.length})</Typography>
-                            <MaterialReactTable table={pendingTable} />
-                        </Box>
-                        <Box>
-                            <Typography variant='h2' sx={{ mb: 1 }}>{globalize.translate('MediaRequestsIncludedTitle')} ({includedRequests.length})</Typography>
-                            <MaterialReactTable table={includedTable} />
-                        </Box>
-                    </Stack>
-                )}
+                {content}
             </Box>
         </Page>
     );

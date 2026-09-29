@@ -7,6 +7,7 @@ import Delete from '@mui/icons-material/Delete';
 import Download from '@mui/icons-material/Download';
 import PlayArrow from '@mui/icons-material/PlayArrow';
 import Restore from '@mui/icons-material/Restore';
+import Replay from '@mui/icons-material/Replay';
 import Stop from '@mui/icons-material/Stop';
 import SmartToy from '@mui/icons-material/SmartToy';
 import VpnKey from '@mui/icons-material/VpnKey';
@@ -43,6 +44,9 @@ type NebulaWorker = {
     UploadedBytes?: number;
     Size?: number;
     InfoText?: string;
+    QueuePosition?: number;
+    IsPriority?: boolean;
+    PriorityReason?: string;
 };
 
 type NebulaStatus = {
@@ -56,6 +60,7 @@ type NebulaStatus = {
     ActiveUploads: NebulaWorker[];
     QueuedUploads: NebulaWorker[];
     UploadQueueCount: number;
+    UploadQueueSnapshotAvailable?: boolean;
     CurrentDownload: {
         Name?: string;
         StageStep?: string;
@@ -64,6 +69,10 @@ type NebulaStatus = {
         TotalMb?: number;
         Speed?: string;
         DetailText?: string;
+        QueuePosition?: number;
+        QueueCount?: number;
+        PriorityReason?: string;
+        NextItemName?: string;
     };
     StageDisks: {
         Path?: string;
@@ -140,6 +149,37 @@ type NebulaUploadQueueSummary = {
     failuresByStage: { stage: string; count: number }[];
 };
 
+type NebulaFailedUpload = {
+    id: string;
+    name: string;
+    status: string;
+    failureReason: string;
+    failureStage: string;
+    retryCount: number;
+    failedAtUtc: string | null;
+    sourceAvailable: boolean;
+};
+
+type NebulaFailedUploadRetryResult = {
+    success: boolean;
+    message: string;
+};
+
+type NebulaCancellableUpload = {
+    id: string;
+    name: string;
+    status: string;
+    uploadedBytes: number;
+    totalBytes: number;
+    cancellationRequested: boolean;
+};
+
+type NebulaUploadCancellationResult = {
+    success: boolean;
+    cancellationPending: boolean;
+    message: string;
+};
+
 const STATUS_QUERY_KEY = [ 'NebulaStatus' ];
 const LOGS_QUERY_KEY = [ 'NebulaLogs' ];
 const BOTS_QUERY_KEY = [ 'NebulaBots' ];
@@ -147,6 +187,8 @@ const HEALTH_QUERY_KEY = [ 'NebulaHealth' ];
 const DATABASE_HEALTH_QUERY_KEY = [ 'NebulaDatabaseHealth' ];
 const PLAYBACK_CACHE_QUERY_KEY = [ 'NebulaPlaybackCacheStatus' ];
 const UPLOAD_QUEUE_SUMMARY_QUERY_KEY = [ 'NebulaUploadQueueSummary' ];
+const TERMINAL_FAILED_UPLOADS_QUERY_KEY = [ 'NebulaTerminalFailedUploads' ];
+const CANCELLABLE_UPLOADS_QUERY_KEY = [ 'NebulaCancellableUploads' ];
 
 const getApiClient = (): ApiClient => {
     const apiClient = ServerConnections.currentApiClient();
@@ -213,11 +255,286 @@ const formatBytes = (value: number) => {
     return `${scaled.toFixed(1)} ${units[unitIndex]}`;
 };
 
-const uploadFailureStageLabel: Record<string, string> = {
-    telegram_availability: 'Telegram indisponível',
-    telegram_transfer: 'Transferência ao Telegram',
-    upload_integrity: 'Integridade do upload',
-    unknown: 'Etapa não identificada'
+const uploadFailureStageLabel = new Map<string, string>([
+    [ 'telegram_availability', 'Telegram indisponível' ],
+    [ 'telegram_transfer', 'Transferência ao Telegram' ],
+    [ 'upload_integrity', 'Integridade do upload' ],
+    [ 'unknown', 'Etapa não identificada' ]
+]);
+
+const getUploadStateLabel = (status: string): string => {
+    switch (status) {
+        case 'uploading': return 'Enviando';
+        case 'staging': return 'Aguardando arquivo';
+        default: return 'Na fila';
+    }
+};
+
+const getTerminalActionLabel = (upload: NebulaFailedUpload): string => {
+    if (!upload.sourceAvailable) return 'Arquivo de origem ausente';
+    return upload.status === 'cancelled' ? 'Retomar envio' : 'Reprocessar';
+};
+
+const DatabaseHealthContent = ({
+    health,
+    isError,
+    error,
+    onRetry
+}: {
+    health?: NebulaDatabaseHealth;
+    isError: boolean;
+    error: unknown;
+    onRetry: () => void;
+}) => {
+    if (isError) {
+        return (
+            <Alert severity='warning' action={<Button color='inherit' size='small' onClick={onRetry}>Tentar novamente</Button>}>
+                Não foi possível consultar o MariaDB: {getErrorMessage(error)}
+            </Alert>
+        );
+    }
+
+    if (!health) return <Typography variant='body2' color='text.secondary'>Consultando MariaDB...</Typography>;
+
+    const availabilityLabel = health.available ? 'MariaDB indisponível' : 'MariaDB sem check';
+    return (
+        <Stack direction='row' alignItems='center' spacing={1}>
+            {stateChip(health.available && health.healthy, 'MariaDB conectado', availabilityLabel)}
+            <Typography variant='caption' color='text.secondary'>{health.status}</Typography>
+        </Stack>
+    );
+};
+
+const UploadQueueSummaryContent = ({
+    summary,
+    isError,
+    error,
+    onRetry
+}: {
+    summary?: NebulaUploadQueueSummary;
+    isError: boolean;
+    error: unknown;
+    onRetry: () => void;
+}) => {
+    if (isError) {
+        return (
+            <Alert severity='warning' action={<Button color='inherit' size='small' onClick={onRetry}>Tentar novamente</Button>}>
+                Não foi possível consultar a fila: {getErrorMessage(error)}
+            </Alert>
+        );
+    }
+
+    if (!summary) return <Typography color='text.secondary'>Consultando fila...</Typography>;
+    if (!summary.isAvailable) return <Alert severity='info'>Resumo indisponível: MongoDB ainda não está conectado.</Alert>;
+
+    return (
+        <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} flexWrap='wrap'>
+            <Typography>{summary.pendingCount} item(ns) pendente(s)</Typography>
+            <Typography>{summary.retryCount} item(ns) aguardando retry</Typography>
+            <Typography color='text.secondary'>
+                Mais antigo: {summary.oldestPendingName || 'nenhum'}
+                {summary.oldestPendingAtUtc && ` · ${new Date(summary.oldestPendingAtUtc).toLocaleString()}`}
+            </Typography>
+            <Divider flexItem sx={{ width: '100%' }} />
+            <Typography variant='caption' color='text.secondary'>Atividade nos últimos 60 minutos</Typography>
+            <Typography>{summary.completedCountLastHour} upload(s) concluído(s) · {formatBytes(summary.uploadedBytesLastHour)} enviados</Typography>
+            <Typography>{summary.recentFailureCount} mídia(s) com falha recente</Typography>
+            {summary.failuresByStage.length > 0 ? (
+                <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} flexWrap='wrap'>
+                    {summary.failuresByStage.map(failure => (
+                        <Chip
+                            key={failure.stage}
+                            size='small'
+                            color='warning'
+                            label={`${uploadFailureStageLabel.get(failure.stage) || 'Outras etapas'}: ${failure.count}`}
+                        />
+                    ))}
+                </Stack>
+            ) : (
+                <Typography variant='body2' color='text.secondary'>Nenhuma falha registrada nessa janela.</Typography>
+            )}
+        </Stack>
+    );
+};
+
+const EffectiveUploadQueue = ({ status }: { status: NebulaStatus }) => {
+    if (!status.UploadQueueSnapshotAvailable) return null;
+    const nextUpload = status.QueuedUploads[0];
+
+    return (
+        <Box>
+            <Typography variant='h3' component='h3' sx={{ fontSize: '1rem', mb: 0.5 }}>Próximos uploads — ordem efetiva</Typography>
+            <Typography variant='body2' color='text.secondary' sx={{ mb: 1 }}>
+                Ordem do snapshot atual dos workers; itens ainda aguardando admissão ficam contabilizados no resumo MongoDB.
+            </Typography>
+            {status.QueuedUploads.length > 0 ? (
+                <Stack spacing={0.75}>
+                    {status.QueuedUploads.slice(0, 5).map(upload => (
+                        <Stack key={`${upload.QueuePosition}-${upload.Name}`} direction={{ xs: 'column', sm: 'row' }} justifyContent='space-between' alignItems={{ xs: 'stretch', sm: 'center' }} gap={0.75}>
+                            <Typography sx={{ overflowWrap: 'anywhere' }}>
+                                {upload.QueuePosition}. {upload.DisplayName || upload.Name || 'Mídia sem nome'}
+                            </Typography>
+                            <Chip
+                                size='small'
+                                color={upload.IsPriority ? 'primary' : 'default'}
+                                label={upload.PriorityReason || 'Fila padrão'}
+                            />
+                        </Stack>
+                    ))}
+                </Stack>
+            ) : (
+                <Typography variant='body2' color='text.secondary'>Nenhum upload está carregado na fila dos workers.</Typography>
+            )}
+            {nextUpload && (
+                <Typography variant='body2' sx={{ mt: 1 }}>Próximo item: {nextUpload.DisplayName || nextUpload.Name}</Typography>
+            )}
+        </Box>
+    );
+};
+
+const CancellableUploadsContent = ({
+    uploads,
+    isLoading,
+    isError,
+    error,
+    isCancelling,
+    onCancel
+}: {
+    uploads?: NebulaCancellableUpload[];
+    isLoading: boolean;
+    isError: boolean;
+    error: unknown;
+    isCancelling: boolean;
+    onCancel: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) => {
+    if (isError) return <Alert severity='warning'>Não foi possível consultar uploads canceláveis: {getErrorMessage(error)}</Alert>;
+    if (isLoading) return <Typography color='text.secondary'>Consultando uploads...</Typography>;
+    if (!uploads?.length) return <Typography variant='body2' color='text.secondary'>Nenhum upload pendente ou em andamento.</Typography>;
+
+    return (
+        <Stack spacing={1}>
+            {uploads.map(upload => (
+                <Paper key={upload.id} variant='outlined' sx={{ p: 1.5 }}>
+                    <Stack direction={{ xs: 'column', md: 'row' }} justifyContent='space-between' alignItems={{ xs: 'stretch', md: 'center' }} gap={1.5}>
+                        <Box sx={{ minWidth: 0 }}>
+                            <Typography fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>{upload.name}</Typography>
+                            <Typography variant='body2' color='text.secondary'>
+                                {getUploadStateLabel(upload.status)}
+                                {upload.totalBytes > 0 && ` · ${Math.round(upload.uploadedBytes / upload.totalBytes * 100)}% concluído`}
+                            </Typography>
+                        </Box>
+                        <Button
+                            variant='outlined'
+                            color='warning'
+                            startIcon={<Stop />}
+                            disabled={upload.cancellationRequested || isCancelling}
+                            data-upload-id={upload.id}
+                            onClick={onCancel}
+                        >
+                            {upload.cancellationRequested ? 'Cancelamento pendente' : 'Cancelar upload'}
+                        </Button>
+                    </Stack>
+                </Paper>
+            ))}
+        </Stack>
+    );
+};
+
+const FailedUploadsContent = ({
+    uploads,
+    isLoading,
+    isError,
+    error,
+    isRetrying,
+    onRetry
+}: {
+    uploads?: NebulaFailedUpload[];
+    isLoading: boolean;
+    isError: boolean;
+    error: unknown;
+    isRetrying: boolean;
+    onRetry: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) => {
+    if (isError) return <Alert severity='warning'>Não foi possível consultar falhas terminais: {getErrorMessage(error)}</Alert>;
+    if (isLoading) return <Typography color='text.secondary'>Consultando falhas terminais...</Typography>;
+    if (!uploads?.length) return <Typography variant='body2' color='text.secondary'>Nenhum upload em falha terminal.</Typography>;
+
+    return (
+        <Stack spacing={1}>
+            {uploads.map(upload => (
+                <Paper key={upload.id} variant='outlined' sx={{ p: 1.5 }}>
+                    <Stack direction={{ xs: 'column', md: 'row' }} justifyContent='space-between' alignItems={{ xs: 'stretch', md: 'center' }} gap={1.5}>
+                        <Box sx={{ minWidth: 0 }}>
+                            <Typography fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>{upload.name}</Typography>
+                            <Typography variant='body2' color='text.secondary'>
+                                {upload.failureReason || 'Falha sem detalhe'} · {upload.retryCount} tentativas
+                                {upload.failedAtUtc && ` · ${new Date(upload.failedAtUtc).toLocaleString()}`}
+                            </Typography>
+                            <Chip
+                                size='small'
+                                color={upload.status === 'cancelled' ? 'default' : 'warning'}
+                                label={upload.status === 'cancelled' ? 'Cancelado' : uploadFailureStageLabel.get(upload.failureStage) || 'Outras etapas'}
+                                sx={{ mt: 0.75 }}
+                            />
+                        </Box>
+                        <Button
+                            variant='outlined'
+                            startIcon={<Replay />}
+                            disabled={!upload.sourceAvailable || isRetrying}
+                            data-upload-id={upload.id}
+                            onClick={onRetry}
+                        >
+                            {getTerminalActionLabel(upload)}
+                        </Button>
+                    </Stack>
+                </Paper>
+            ))}
+        </Stack>
+    );
+};
+
+const PlaybackCacheContent = ({
+    cache,
+    isError,
+    error,
+    onRetry
+}: {
+    cache?: NebulaPlaybackCacheStatus;
+    isError: boolean;
+    error: unknown;
+    onRetry: () => void;
+}) => {
+    if (isError) {
+        return (
+            <Alert severity='warning' action={<Button color='inherit' size='small' onClick={onRetry}>Tentar novamente</Button>}>
+                Não foi possível consultar o cache: {getErrorMessage(error)}
+            </Alert>
+        );
+    }
+
+    if (!cache) return <Typography color='text.secondary'>Consultando cache...</Typography>;
+    if (!cache.isAvailable) return <Alert severity='info'>O componente de cache não está inicializado; métricas de ocupação ainda não estão disponíveis.</Alert>;
+
+    const usagePercent = cache.maxCacheSizeBytes > 0 ?
+        Math.min(100, cache.totalSizeBytes / cache.maxCacheSizeBytes * 100) :
+        0;
+    return (
+        <Stack spacing={1}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent='space-between' gap={1}>
+                <Typography>{cache.formattedSize} em {cache.cachedFilesCount} arquivo(s)</Typography>
+                <Typography color='text.secondary'>{cache.activeLeasesCount} reprodução(ões) protegida(s)</Typography>
+            </Stack>
+            <LinearProgress variant='determinate' value={usagePercent} aria-label='Uso da cota do cache de reprodução' />
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent='space-between' gap={1}>
+                <Typography variant='caption' color='text.secondary'>
+                    {cache.freeSpaceGb.toFixed(1)} GB livres de {cache.totalSpaceGb.toFixed(1)} GB no volume
+                </Typography>
+                <Typography variant='caption' color='text.secondary'>
+                    Pré-cache: {cache.activePrefetchCount} ativo(s), {cache.queuedPrefetchCount} na fila
+                </Typography>
+            </Stack>
+        </Stack>
+    );
 };
 
 const stateChip = (active: boolean, activeLabel: string, inactiveLabel: string) => (
@@ -510,6 +827,44 @@ const NebulaPage = () => {
         },
         refetchInterval: 30000
     });
+    const terminalFailedUploadsQuery = useQuery({
+        queryKey: TERMINAL_FAILED_UPLOADS_QUERY_KEY,
+        queryFn: () => {
+            const apiClient = getApiClient();
+            return apiClient.getJSON(apiClient.getUrl('NebulaFtp/FailedUploads')) as Promise<NebulaFailedUpload[]>;
+        },
+        refetchInterval: 30000
+    });
+    const cancellableUploadsQuery = useQuery({
+        queryKey: CANCELLABLE_UPLOADS_QUERY_KEY,
+        queryFn: () => {
+            const apiClient = getApiClient();
+            return apiClient.getJSON(apiClient.getUrl('NebulaFtp/CancellableUploads')) as Promise<NebulaCancellableUpload[]>;
+        },
+        refetchInterval: 10000
+    });
+    const retryTerminalUploadMutation = useMutation({
+        mutationFn: (id: string) => postAction<NebulaFailedUploadRetryResult>(`NebulaFtp/FailedUploads/${encodeURIComponent(id)}/Retry`),
+        onSuccess: async result => {
+            toast(result.message || 'Upload recolocado na fila.');
+            await queryClient.invalidateQueries({ queryKey: TERMINAL_FAILED_UPLOADS_QUERY_KEY });
+            await queryClient.invalidateQueries({ queryKey: UPLOAD_QUEUE_SUMMARY_QUERY_KEY });
+            await queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+            await queryClient.invalidateQueries({ queryKey: LOGS_QUERY_KEY });
+        },
+        onError: error => toast(`Erro ao reprocessar upload: ${getErrorMessage(error)}`)
+    });
+    const cancelUploadMutation = useMutation({
+        mutationFn: (id: string) => postAction<NebulaUploadCancellationResult>(`NebulaFtp/Uploads/${encodeURIComponent(id)}/Cancel`),
+        onSuccess: async result => {
+            toast(result.message || 'Cancelamento solicitado.');
+            await queryClient.invalidateQueries({ queryKey: CANCELLABLE_UPLOADS_QUERY_KEY });
+            await queryClient.invalidateQueries({ queryKey: UPLOAD_QUEUE_SUMMARY_QUERY_KEY });
+            await queryClient.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+            await queryClient.invalidateQueries({ queryKey: LOGS_QUERY_KEY });
+        },
+        onError: error => toast(`Erro ao cancelar upload: ${getErrorMessage(error)}`)
+    });
 
     const retryStatus = useCallback(() => {
         void statusQuery.refetch();
@@ -639,6 +994,14 @@ const NebulaPage = () => {
         const index = Number(event.currentTarget.dataset.botIndex);
         if (Number.isInteger(index)) handleBotDelete(index);
     }, [ handleBotDelete ]);
+    const handleCancelUploadClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        const uploadId = event.currentTarget.dataset.uploadId;
+        if (uploadId) cancelUploadMutation.mutate(uploadId);
+    }, [ cancelUploadMutation ]);
+    const handleRetryUploadClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        const uploadId = event.currentTarget.dataset.uploadId;
+        if (uploadId) retryTerminalUploadMutation.mutate(uploadId);
+    }, [ retryTerminalUploadMutation ]);
 
     if (statusQuery.isLoading && !statusQuery.isError) {
         return <Loading />;
@@ -864,6 +1227,15 @@ const NebulaPage = () => {
                                 secondary={activeUploads[0]?.InfoText || 'Fila monitorada pelo servidor'}
                             />
                         </Stack>
+                        {currentDownload?.QueueCount ? (
+                            <Paper variant='outlined' sx={{ p: 1.5 }}>
+                                <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} flexWrap='wrap'>
+                                    <Typography variant='body2'>Posição planejada na varredura: {currentDownload.QueuePosition} de {currentDownload.QueueCount}</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Prioridade: {currentDownload.PriorityReason || 'ordem padrão'}</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Próximo título: {currentDownload.NextItemName || 'nenhum nesta varredura'}</Typography>
+                                </Stack>
+                            </Paper>
+                        ) : null}
 
                         <Paper variant='outlined' sx={{ p: 2 }}>
                             <Stack spacing={1.5}>
@@ -872,20 +1244,12 @@ const NebulaPage = () => {
                                     <Typography variant='body2' color='text.secondary'>Checks individuais sem expor credenciais ou URLs sensíveis.</Typography>
                                 </Box>
                                 <HealthContent isError={healthQuery.isError} error={healthQuery.error} health={componentHealth} onRetry={retryHealth} />
-                                {databaseHealthQuery.isError ? (
-                                    <Alert severity='warning' action={<Button color='inherit' size='small' onClick={retryDatabaseHealth}>Tentar novamente</Button>}>
-                                        Não foi possível consultar o MariaDB: {getErrorMessage(databaseHealthQuery.error)}
-                                    </Alert>
-                                ) : databaseHealthQuery.data ? (
-                                    <Stack direction='row' alignItems='center' spacing={1}>
-                                        {stateChip(databaseHealthQuery.data.available && databaseHealthQuery.data.healthy,
-                                            'MariaDB conectado',
-                                            databaseHealthQuery.data.available ? 'MariaDB indisponível' : 'MariaDB sem check')}
-                                        <Typography variant='caption' color='text.secondary'>{databaseHealthQuery.data.status}</Typography>
-                                    </Stack>
-                                ) : (
-                                    <Typography variant='body2' color='text.secondary'>Consultando MariaDB...</Typography>
-                                )}
+                                <DatabaseHealthContent
+                                    health={databaseHealthQuery.data}
+                                    isError={databaseHealthQuery.isError}
+                                    error={databaseHealthQuery.error}
+                                    onRetry={retryDatabaseHealth}
+                                />
                             </Stack>
                         </Paper>
 
@@ -895,44 +1259,39 @@ const NebulaPage = () => {
                                     <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>Resumo da fila de envio</Typography>
                                     <Typography variant='body2' color='text.secondary'>Consulta somente contagens e o item pendente mais antigo; atualização a cada 30 segundos.</Typography>
                                 </Box>
-                                {uploadQueueSummaryQuery.isError ? (
-                                    <Alert severity='warning' action={<Button color='inherit' size='small' onClick={retryUploadQueueSummary}>Tentar novamente</Button>}>
-                                        Não foi possível consultar a fila: {getErrorMessage(uploadQueueSummaryQuery.error)}
-                                    </Alert>
-                                ) : uploadQueueSummaryQuery.data && !uploadQueueSummaryQuery.data.isAvailable ? (
-                                    <Alert severity='info'>Resumo indisponível: MongoDB ainda não está conectado.</Alert>
-                                ) : uploadQueueSummaryQuery.data ? (
-                                    <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} flexWrap='wrap'>
-                                        <Typography>{uploadQueueSummaryQuery.data.pendingCount} item(ns) pendente(s)</Typography>
-                                        <Typography>{uploadQueueSummaryQuery.data.retryCount} item(ns) aguardando retry</Typography>
-                                        <Typography color='text.secondary'>
-                                            Mais antigo: {uploadQueueSummaryQuery.data.oldestPendingName || 'nenhum'}
-                                            {uploadQueueSummaryQuery.data.oldestPendingAtUtc
-                                                ? ` · ${new Date(uploadQueueSummaryQuery.data.oldestPendingAtUtc).toLocaleString()}`
-                                                : ''}
-                                        </Typography>
-                                        <Divider flexItem sx={{ width: '100%' }} />
-                                        <Typography variant='caption' color='text.secondary'>Atividade nos últimos 60 minutos</Typography>
-                                        <Typography>{uploadQueueSummaryQuery.data.completedCountLastHour} upload(s) concluído(s) · {formatBytes(uploadQueueSummaryQuery.data.uploadedBytesLastHour)} enviados</Typography>
-                                        <Typography>{uploadQueueSummaryQuery.data.recentFailureCount} mídia(s) com falha recente</Typography>
-                                        {uploadQueueSummaryQuery.data.failuresByStage.length > 0 ? (
-                                            <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} flexWrap='wrap'>
-                                                {uploadQueueSummaryQuery.data.failuresByStage.map((failure) => (
-                                                    <Chip
-                                                        key={failure.stage}
-                                                        size='small'
-                                                        color='warning'
-                                                        label={`${uploadFailureStageLabel[failure.stage] || 'Outras etapas'}: ${failure.count}`}
-                                                    />
-                                                ))}
-                                            </Stack>
-                                        ) : (
-                                            <Typography variant='body2' color='text.secondary'>Nenhuma falha registrada nessa janela.</Typography>
-                                        )}
-                                    </Stack>
-                                ) : (
-                                    <Typography color='text.secondary'>Consultando fila...</Typography>
-                                )}
+                                <UploadQueueSummaryContent
+                                    summary={uploadQueueSummaryQuery.data}
+                                    isError={uploadQueueSummaryQuery.isError}
+                                    error={uploadQueueSummaryQuery.error}
+                                    onRetry={retryUploadQueueSummary}
+                                />
+                                <EffectiveUploadQueue status={status} />
+                                <Divider />
+                                <Box>
+                                    <Typography variant='h3' component='h3' sx={{ fontSize: '1rem' }}>Uploads em andamento ou na fila</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Cancelamentos durante envio param após a parte atual; partes confirmadas permanecem salvas.</Typography>
+                                </Box>
+                                <CancellableUploadsContent
+                                    uploads={cancellableUploadsQuery.data}
+                                    isLoading={cancellableUploadsQuery.isLoading}
+                                    isError={cancellableUploadsQuery.isError}
+                                    error={cancellableUploadsQuery.error}
+                                    isCancelling={cancelUploadMutation.isPending}
+                                    onCancel={handleCancelUploadClick}
+                                />
+                                <Divider />
+                                <Box>
+                                    <Typography variant='h3' component='h3' sx={{ fontSize: '1rem' }}>Falhas e uploads cancelados</Typography>
+                                    <Typography variant='body2' color='text.secondary'>Após 8 tentativas automáticas, uma falha para de repetir. Reprocessar preserva as partes confirmadas.</Typography>
+                                </Box>
+                                <FailedUploadsContent
+                                    uploads={terminalFailedUploadsQuery.data}
+                                    isLoading={terminalFailedUploadsQuery.isLoading}
+                                    isError={terminalFailedUploadsQuery.isError}
+                                    error={terminalFailedUploadsQuery.error}
+                                    isRetrying={retryTerminalUploadMutation.isPending}
+                                    onRetry={handleRetryUploadClick}
+                                />
                             </Stack>
                         </Paper>
 
@@ -942,37 +1301,12 @@ const NebulaPage = () => {
                                     <Typography variant='h2' component='h2' sx={{ fontSize: '1.2rem' }}>Cache de reprodução</Typography>
                                     <Typography variant='body2' color='text.secondary'>Uso, espaço livre e sessões protegidas; atualização a cada 30 segundos.</Typography>
                                 </Box>
-                                {playbackCacheQuery.isError ? (
-                                    <Alert severity='warning' action={<Button color='inherit' size='small' onClick={retryPlaybackCache}>Tentar novamente</Button>}>
-                                        Não foi possível consultar o cache: {getErrorMessage(playbackCacheQuery.error)}
-                                    </Alert>
-                                ) : playbackCacheQuery.data && !playbackCacheQuery.data.isAvailable ? (
-                                    <Alert severity='info'>O componente de cache não está inicializado; métricas de ocupação ainda não estão disponíveis.</Alert>
-                                ) : playbackCacheQuery.data ? (
-                                    <Stack spacing={1}>
-                                        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent='space-between' gap={1}>
-                                            <Typography>{playbackCacheQuery.data.formattedSize} em {playbackCacheQuery.data.cachedFilesCount} arquivo(s)</Typography>
-                                            <Typography color='text.secondary'>{playbackCacheQuery.data.activeLeasesCount} reprodução(ões) protegida(s)</Typography>
-                                        </Stack>
-                                        <LinearProgress
-                                            variant='determinate'
-                                            value={playbackCacheQuery.data.maxCacheSizeBytes > 0
-                                                ? Math.min(100, (playbackCacheQuery.data.totalSizeBytes / playbackCacheQuery.data.maxCacheSizeBytes) * 100)
-                                                : 0}
-                                            aria-label='Uso da cota do cache de reprodução'
-                                        />
-                                        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent='space-between' gap={1}>
-                                            <Typography variant='caption' color='text.secondary'>
-                                                {playbackCacheQuery.data.freeSpaceGb.toFixed(1)} GB livres de {playbackCacheQuery.data.totalSpaceGb.toFixed(1)} GB no volume
-                                            </Typography>
-                                            <Typography variant='caption' color='text.secondary'>
-                                                Pré-cache: {playbackCacheQuery.data.activePrefetchCount} ativo(s), {playbackCacheQuery.data.queuedPrefetchCount} na fila
-                                            </Typography>
-                                        </Stack>
-                                    </Stack>
-                                ) : (
-                                    <Typography color='text.secondary'>Consultando cache...</Typography>
-                                )}
+                                <PlaybackCacheContent
+                                    cache={playbackCacheQuery.data}
+                                    isError={playbackCacheQuery.isError}
+                                    error={playbackCacheQuery.error}
+                                    onRetry={retryPlaybackCache}
+                                />
                             </Stack>
                         </Paper>
 

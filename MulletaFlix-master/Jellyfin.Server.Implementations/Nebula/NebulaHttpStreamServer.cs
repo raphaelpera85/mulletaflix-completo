@@ -677,7 +677,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
 
     private static string GetMediaCacheKey(BsonDocument doc)
     {
-        return doc.TryGetValue("_id", out var id) ? id.ToString() : doc.GetValue("name", "media.bin").AsString;
+        return doc.TryGetValue("_id", out var id) ? "mongo:" + id : "name:" + doc.GetValue("name", "media.bin").AsString;
     }
 
     private static bool TryParseRange(string? rangeHeader, long totalSize, out long start, out long end, out bool isRange)

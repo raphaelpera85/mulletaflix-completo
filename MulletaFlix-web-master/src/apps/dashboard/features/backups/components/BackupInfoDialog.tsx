@@ -17,6 +17,8 @@ import ContentCopy from '@mui/icons-material/ContentCopy';
 import IconButton from '@mui/material/IconButton';
 import { copy } from 'scripts/clipboard';
 import Toast from 'apps/dashboard/components/Toast';
+import Alert from '@mui/material/Alert';
+import { useValidateBackup } from 'apps/dashboard/features/backups/api/useValidateBackup';
 
 type IProps = {
     backup: BackupManifestDto;
@@ -26,6 +28,12 @@ type IProps = {
 
 const BackupInfoDialog: FunctionComponent<IProps> = ({ backup, open, onClose }: IProps) => {
     const [ isCopiedToastOpen, setIsCopiedToastOpen ] = useState(false);
+    const validateBackup = useValidateBackup();
+    const validate = validateBackup.mutate;
+
+    const onValidateBackup = useCallback(() => {
+        if (backup.Path) validate(backup.Path);
+    }, [backup.Path, validate]);
 
     const handleToastClose = useCallback(() => {
         setIsCopiedToastOpen(false);
@@ -84,7 +92,7 @@ const BackupInfoDialog: FunctionComponent<IProps> = ({ backup, open, onClose }: 
                                 control={
                                     <Checkbox
                                         name='Database'
-                                        defaultChecked={true}
+                                        defaultChecked={backup.Options?.Database}
                                         disabled
                                     />
                                 }
@@ -131,10 +139,26 @@ const BackupInfoDialog: FunctionComponent<IProps> = ({ backup, open, onClose }: 
                             />
                         </FormControl>
                     </FormGroup>
+                    {validateBackup.isSuccess && (
+                        <Alert severity={validateBackup.data ? 'success' : 'error'} role='status'>
+                            {globalize.translate(validateBackup.data ? 'LabelBackupValid' : 'LabelBackupInvalid')}
+                        </Alert>
+                    )}
+                    {validateBackup.isError && (
+                        <Alert severity='error' role='alert'>
+                            {globalize.translate('LabelBackupValidationFailed')}
+                        </Alert>
+                    )}
                 </Stack>
             </DialogContent>
 
             <DialogActions>
+                <Button
+                    disabled={!backup.Path || validateBackup.isPending}
+                    onClick={onValidateBackup}
+                >
+                    {globalize.translate(validateBackup.isPending ? 'LabelValidatingBackup' : 'ButtonValidateBackup')}
+                </Button>
                 <Button onClick={onClose}>
                     {globalize.translate('ButtonOk')}
                 </Button>
@@ -144,4 +168,3 @@ const BackupInfoDialog: FunctionComponent<IProps> = ({ backup, open, onClose }: 
 };
 
 export default BackupInfoDialog;
-

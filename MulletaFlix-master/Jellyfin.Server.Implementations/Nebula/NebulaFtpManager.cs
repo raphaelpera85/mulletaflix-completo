@@ -879,14 +879,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 DoneMb = _currentDownload.DoneMb,
                 TotalMb = _currentDownload.TotalMb,
                 Speed = _currentDownload.Speed,
-                DetailText = _currentDownload.DetailText
+                DetailText = _currentDownload.DetailText,
+                QueuePosition = _currentDownload.QueuePosition,
+                QueueCount = _currentDownload.QueueCount,
+                PriorityReason = _currentDownload.PriorityReason,
+                NextItemName = _currentDownload.NextItemName
             };
         }
 
         // Query active uploads (in-memory real-time first, fallback to Mongo)
         if (status.IsEnvioRunning)
         {
-            status.QueuedUploads = await QueryMongoPendingUploadsAsync(config, cancellationToken).ConfigureAwait(false);
+            status.UploadQueueSnapshotAvailable = _stagingWatcher != null;
+            status.QueuedUploads = _stagingWatcher is not null
+                ? _stagingWatcher.GetPendingQueueSnapshot().ToList()
+                : await QueryMongoPendingUploadsAsync(config, cancellationToken).ConfigureAwait(false);
             status.UploadQueueCount = status.QueuedUploads.Count;
             var mongoActive = await QueryMongoActiveUploadsAsync(config, cancellationToken).ConfigureAwait(false);
             if (mongoActive.Count > 0)
@@ -971,6 +978,162 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         {
             _logger.LogWarning(ex, "[NEBULA-HEALTH] Não foi possível consultar o resumo da fila MongoDB.");
             return new NebulaUploadQueueSummaryDto();
+        }
+    }
+
+    public async Task<List<NebulaFailedUploadDto>> GetTerminalFailedUploadsAsync(CancellationToken cancellationToken = default)
+    {
+        var mongo = _mongoContext;
+        if (mongo is null)
+        {
+            return [];
+        }
+
+        var config = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
+        var stagingRoots = config.StagePaths?.Where(static path => !string.IsNullOrWhiteSpace(path)).ToArray()
+            ?? Array.Empty<string>();
+        if (stagingRoots.Length == 0)
+        {
+            stagingRoots = [Path.Combine(AppContext.BaseDirectory, "NebulaStage")];
+        }
+
+        try
+        {
+            return await mongo.GetTerminalFailedUploadsAsync(stagingRoots, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-HEALTH] Não foi possível consultar uploads em falha terminal.");
+            return [];
+        }
+    }
+
+    public async Task<NebulaFailedUploadRetryResultDto> RetryTerminalFailedUploadAsync(
+        string id,
+        CancellationToken cancellationToken = default)
+    {
+        if (!MongoDB.Bson.ObjectId.TryParse(id, out var objectId))
+        {
+            return new NebulaFailedUploadRetryResultDto { Message = "Identificador inválido." };
+        }
+
+        var mongo = _mongoContext;
+        if (mongo is null)
+        {
+            return new NebulaFailedUploadRetryResultDto { Message = "MongoDB não está conectado." };
+        }
+
+        var config = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
+        var stagingRoots = config.StagePaths?.Where(static path => !string.IsNullOrWhiteSpace(path)).ToArray()
+            ?? Array.Empty<string>();
+        if (stagingRoots.Length == 0)
+        {
+            stagingRoots = [Path.Combine(AppContext.BaseDirectory, "NebulaStage")];
+        }
+
+        try
+        {
+            var path = await mongo.RetryTerminalUploadAsync(objectId, stagingRoots, cancellationToken).ConfigureAwait(false);
+            if (path is null)
+            {
+                return new NebulaFailedUploadRetryResultDto
+                {
+                    Message = "Upload não está mais em falha terminal ou o arquivo de origem não existe no staging."
+                };
+            }
+
+            _stagingWatcher?.EnqueueMediaFromDownloader(path);
+            EmitServerLog("INFO", $"[NEBULA] Reprocessamento administrativo enfileirado: {Path.GetFileName(path)}");
+            return new NebulaFailedUploadRetryResultDto { Success = true, Message = "Upload recolocado na fila." };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA] Não foi possível reprocessar upload em falha terminal {UploadId}.", id);
+            return new NebulaFailedUploadRetryResultDto { Message = "Falha ao recolocar upload na fila; consulte os logs." };
+        }
+    }
+
+    public async Task<List<NebulaCancellableUploadDto>> GetCancellableUploadsAsync(CancellationToken cancellationToken = default)
+    {
+        var mongo = _mongoContext;
+        if (mongo is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            return await mongo.GetCancellableUploadsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA-HEALTH] Não foi possível consultar uploads canceláveis.");
+            return [];
+        }
+    }
+
+    public async Task<NebulaUploadCancellationResultDto> CancelUploadAsync(
+        string id,
+        string cancelledBy,
+        CancellationToken cancellationToken = default)
+    {
+        if (!MongoDB.Bson.ObjectId.TryParse(id, out var objectId))
+        {
+            return new NebulaUploadCancellationResultDto { Message = "Identificador inválido." };
+        }
+
+        var mongo = _mongoContext;
+        if (mongo is null)
+        {
+            return new NebulaUploadCancellationResultDto { Message = "MongoDB não está conectado." };
+        }
+
+        try
+        {
+            var result = await mongo.RequestUploadCancellationAsync(objectId, cancelledBy, cancellationToken).ConfigureAwait(false);
+            if (result is null)
+            {
+                return new NebulaUploadCancellationResultDto { Message = "Upload não encontrado." };
+            }
+
+            var status = result.GetValue("status", string.Empty).AsString;
+            if (string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                return new NebulaUploadCancellationResultDto { Success = true, Message = "Upload cancelado; partes confirmadas foram preservadas." };
+            }
+
+            if (string.Equals(status, "uploading", StringComparison.OrdinalIgnoreCase) && result.Contains("cancel_requested_at"))
+            {
+                return new NebulaUploadCancellationResultDto
+                {
+                    Success = true,
+                    CancellationPending = true,
+                    Message = "Cancelamento solicitado. O upload terminará a parte atual e preservará o checkpoint antes de parar."
+                };
+            }
+
+            return new NebulaUploadCancellationResultDto { Message = "Upload não pode ser cancelado no estado atual." };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[NEBULA] Não foi possível solicitar cancelamento do upload {UploadId}.", id);
+            return new NebulaUploadCancellationResultDto { Message = "Falha ao solicitar cancelamento; consulte os logs." };
         }
     }
 
@@ -1407,7 +1570,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 }
 
                 _stagingWatcher = new NebulaStagingWatcher(_uploadEngine, _mongoContext, _loggerFactory.CreateLogger<NebulaStagingWatcher>(), EmitServerLog, _telegramPool.BotCount);
-                _stagingWatcher.Start(allWatchDirs, config.MaxWorkers);
                 foreach (var title in config.RequestedMediaPriorities ?? Array.Empty<string>())
                 {
                     if (!string.IsNullOrWhiteSpace(title))
@@ -1415,6 +1577,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                         _stagingWatcher.PrioritizeUpload(string.Empty, title);
                     }
                 }
+
+                // Seed persisted requests before Start launches the restoration
+                // loop and workers; otherwise the first restored item could be
+                // dequeued before its priority is registered.
+                _stagingWatcher.Start(allWatchDirs, config.MaxWorkers);
             }
 
             // 6. Inicia sincronização contínua de background para manter o Supabase sempre atualizado
@@ -2212,12 +2379,17 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             _downloaderEngine.OnLog += msg => AddDownloaderLog(msg);
             _downloaderEngine.OnProgressChanged += st =>
             {
+                var queueProgress = _downloaderEngine.GetQueueProgress();
                 _currentDownload.Name = st.Name;
                 _currentDownload.TotalMb = st.TotalMb;
                 _currentDownload.DoneMb = st.DoneMb;
                 _currentDownload.Percentage = st.Percentage;
                 _currentDownload.StageStep = st.StageStep;
                 _currentDownload.DetailText = st.DetailText;
+                _currentDownload.QueuePosition = queueProgress.Position;
+                _currentDownload.QueueCount = queueProgress.Count;
+                _currentDownload.PriorityReason = queueProgress.Reason;
+                _currentDownload.NextItemName = queueProgress.NextItemName;
             };
 
             _downloaderEngine.Start(config);
