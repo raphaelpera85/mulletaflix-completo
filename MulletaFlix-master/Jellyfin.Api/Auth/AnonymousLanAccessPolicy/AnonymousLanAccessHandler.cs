@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System.Net;
+using System.Threading.Tasks;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Net;
 using Microsoft.AspNetCore.Authorization;
@@ -32,8 +33,8 @@ namespace MulletaFlix.Api.Auth.AnonymousLanAccessPolicy
         {
             var ip = _httpContextAccessor.HttpContext?.GetNormalizedRemoteIP();
 
-            // Loopback will be on LAN, so we can accept null.
-            if (ip is null || _networkManager.IsInLocalNetwork(ip))
+            // Loopback is always local, and GetNormalizedRemoteIP maps a missing remote address to loopback.
+            if (ip is null || IPAddress.IsLoopback(ip) || _networkManager.IsInLocalNetwork(ip))
             {
                 context.Succeed(requirement);
             }

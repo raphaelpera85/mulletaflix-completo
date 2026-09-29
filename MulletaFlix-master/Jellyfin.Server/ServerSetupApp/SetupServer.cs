@@ -13,6 +13,7 @@ using MulletaFlix.Networking.Manager;
 using MulletaFlix.Server.Helpers;
 using MulletaFlix.Server.Extensions;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Model.IO;
@@ -73,6 +74,17 @@ public sealed class SetupServer : IDisposable
         var xmlSerializer = new MyXmlSerializer();
         _configurationManager = new ServerConfigurationManager(_applicationPaths, loggerFactory, xmlSerializer);
         _configurationManager.RegisterConfiguration<NetworkConfigurationFactory>();
+    }
+
+    internal static bool IsLocalNetworkRequest(HttpContext context, INetworkManager? networkManager)
+    {
+        if (networkManager is null)
+        {
+            return false;
+        }
+
+        var remoteIp = context.GetNormalizedRemoteIP();
+        return IPAddress.IsLoopback(remoteIp) || networkManager.IsInLocalNetwork(remoteIp);
     }
 
     internal static ConcurrentQueue<StartupLogTopic>? LogQueue { get; set; } = new();
@@ -192,14 +204,24 @@ public sealed class SetupServer : IDisposable
                                 })
                                 .Configure(app =>
                                 {
-                                    app.UseHealthChecks("/health");
                                     app.UseForwardedHeaders();
+                                    app.Use(async (context, next) =>
+                                    {
+                                        if (!IsLocalNetworkRequest(context, _networkManagerFactory()))
+                                        {
+                                            context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+                                            return;
+                                        }
+
+                                        await next().ConfigureAwait(false);
+                                    });
+                                    app.UseHealthChecks("/health");
                                     app.Map("/startup/logger", loggerRoute =>
                                     {
                                         loggerRoute.Run(async context =>
                                         {
                                             var networkManager = _networkManagerFactory();
-                                            if (context.Connection.RemoteIpAddress is null || networkManager is null || !networkManager.IsInLocalNetwork(context.Connection.RemoteIpAddress))
+                                            if (!IsLocalNetworkRequest(context, networkManager))
                                             {
                                                 context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
                                                 return;
@@ -269,7 +291,7 @@ public sealed class SetupServer : IDisposable
                                                 { "version", version },
                                                 { "logs", startupLogEntries },
                                                 { "networkManagerReady", networkManager is not null },
-                                                { "localNetworkRequest", networkManager is not null && context.Connection.RemoteIpAddress is not null && networkManager.IsInLocalNetwork(context.Connection.RemoteIpAddress) }
+                                                { "localNetworkRequest", IsLocalNetworkRequest(context, networkManager) }
                                             },
                                             new ByteCounterStream(context.Response.BodyWriter.AsStream(), IODefaults.FileStreamBufferSize, true, _startupUiRenderer.ParserOptions))
                                             .ConfigureAwait(false);

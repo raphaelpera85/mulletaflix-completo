@@ -25,6 +25,7 @@ using MulletaFlix.Server.Extensions;
 using MulletaFlix.Server.Health;
 using MulletaFlix.Server.Implementations.Extensions;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Extensions;
 using MediaBrowser.Providers.Plugins.MidiaStorageOnline;
@@ -376,12 +377,14 @@ namespace MulletaFlix.Server
                 mainApp.UseEndpoints(endpoints =>
                 {
                     endpoints.MapControllers();
-                    endpoints.MapMetrics();
+                    endpoints.MapMetrics().RequireAuthorization(Policies.LocalAccessOrRequiresElevation);
 
-                    endpoints.MapHealthChecks("/health");
+                    endpoints.MapHealthChecks("/health")
+                        .RequireAuthorization(Policies.LocalAccessOrRequiresElevation);
                     endpoints.MapHealthChecks(
                         "/ready",
-                        new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+                        new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") })
+                        .RequireAuthorization(Policies.LocalAccessOrRequiresElevation);
                 });
             });
         }

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Middleware;
 using Microsoft.AspNetCore.Http;
@@ -52,6 +53,53 @@ public sealed class RateLimitMiddlewareTests
     public void BaseUrl_IsPathUnderBaseUrl_RequiresPrefixBoundary(string path, string prefix, bool expected)
     {
         Assert.Equal(expected, BaseUrlRedirectionMiddleware.IsPathUnderBaseUrl(path, prefix));
+    }
+
+    [Theory]
+    [InlineData("/Search/Hints", "search")]
+    [InlineData("/Items/RemoteSearch", "search")]
+    [InlineData("/NebulaFtp/Download", "nebula")]
+    [InlineData("/Backup/Create", "administration")]
+    [InlineData("/System/Logs", "administration")]
+    [InlineData("/Systematic/Logs", null)]
+    public void SelectiveRateLimitCategory_RequiresRouteBoundary(string path, string? expected)
+    {
+        Assert.Equal(expected, RateLimitMiddleware.GetSelectiveRateLimitCategory(path));
+    }
+
+    [Fact]
+    public async Task AuthenticatedNebulaRequests_AreLimitedSeparatelyFromAnonymousTraffic()
+    {
+        var middleware = new RateLimitMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<RateLimitMiddleware>.Instance);
+
+        for (var i = 0; i < 10; i++)
+        {
+            var context = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity("test"))
+            };
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.77");
+            context.Request.Path = "/NebulaFtp/Download";
+            await middleware.Invoke(context);
+            Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        }
+
+        var blocked = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity("test"))
+        };
+        blocked.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.77");
+        blocked.Request.Path = "/NebulaFtp/Download";
+        await middleware.Invoke(blocked);
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, blocked.Response.StatusCode);
+        Assert.True(blocked.Response.Headers.ContainsKey("Retry-After"));
     }
 
     [Fact]

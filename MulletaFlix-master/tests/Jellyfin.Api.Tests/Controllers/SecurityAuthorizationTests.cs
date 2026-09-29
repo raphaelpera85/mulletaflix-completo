@@ -1,8 +1,11 @@
 using System;
+using System.Linq;
 using System.Reflection;
 using MulletaFlix.Api.Controllers;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Xunit;
 
 namespace MulletaFlix.Api.Tests.Controllers;
@@ -30,9 +33,50 @@ public class SecurityAuthorizationTests
         AssertMethodHasPolicy(typeof(StartupController), nameof(StartupController.UpdateStartupUser), Policies.AnonymousLanAccessPolicy);
     }
 
+    [Fact]
+    public void SensitiveDiagnosticsAndPluginConfigurationEndpoints_RequireElevation()
+    {
+        AssertClassHasPolicy(typeof(ActivityLogController), Policies.RequiresElevation);
+        AssertClassHasPolicy(typeof(PlaybackReportsController), Policies.RequiresElevation);
+        AssertClassHasPolicy(typeof(ServerHealthController), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(DashboardController), nameof(DashboardController.GetConfigurationPages), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(DashboardController), nameof(DashboardController.GetDashboardConfigurationPage), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetSystemStorage), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetServerLogs), Policies.RequiresElevation);
+        AssertMethodHasPolicy(typeof(SystemController), nameof(SystemController.GetLogFile), Policies.RequiresElevation);
+        AssertClassHasPolicy(typeof(EnvironmentController), Policies.FirstTimeSetupOrElevated);
+    }
+
+    [Fact]
+    public void SessionStreamingEndpoints_RequireAuthorization()
+    {
+        AssertControllerRouteMethodsRequireAuthorization(typeof(SessionController));
+        AssertClassHasAuthorize(typeof(MediaInfoController));
+        AssertClassHasAuthorize(typeof(DynamicHlsController));
+    }
+
     private static void AssertClassHasAuthorize(Type controllerType)
     {
         Assert.Contains(controllerType.GetCustomAttributes<AuthorizeAttribute>(inherit: true), _ => true);
+    }
+
+    private static void AssertControllerRouteMethodsRequireAuthorization(Type controllerType)
+    {
+        var routeMethods = controllerType
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(method => method.GetCustomAttributes<HttpMethodAttribute>(inherit: true).Any())
+            .ToArray();
+
+        Assert.NotEmpty(routeMethods);
+        foreach (var method in routeMethods)
+        {
+            Assert.Contains(method.GetCustomAttributes<AuthorizeAttribute>(inherit: true), _ => true);
+        }
+    }
+
+    private static void AssertClassHasPolicy(Type controllerType, string policy)
+    {
+        Assert.Contains(controllerType.GetCustomAttributes<AuthorizeAttribute>(inherit: true), attribute => attribute.Policy == policy);
     }
 
     private static void AssertMethodHasPolicy(Type controllerType, string methodName, string policy)

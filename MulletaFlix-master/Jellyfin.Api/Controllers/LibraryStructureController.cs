@@ -158,6 +158,11 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         var currentPath = Path.Combine(rootFolderPath, name);
         var newPath = Path.Combine(rootFolderPath, newName);
 
+        if (!IsPathWithinRoot(rootFolderPath, currentPath) || !IsPathWithinRoot(rootFolderPath, newPath))
+        {
+            return BadRequest("Library names must resolve below the default user views directory.");
+        }
+
         if (!Directory.Exists(currentPath))
         {
             return NotFound("The media collection does not exist.");
@@ -385,6 +390,16 @@ public class LibraryStructureController : BaseMulletaFlixApiController
 
         item.UpdateLibraryOptions(libraryOptions);
         return NoContent();
+    }
+
+    internal static bool IsPathWithinRoot(string rootPath, string candidatePath)
+    {
+        var fullRootPath = Path.GetFullPath(rootPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var fullCandidatePath = Path.GetFullPath(candidatePath);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return fullCandidatePath.StartsWith(fullRootPath, comparison);
     }
 
     private void ApplyLibraryDefaults(LibraryOptions options)

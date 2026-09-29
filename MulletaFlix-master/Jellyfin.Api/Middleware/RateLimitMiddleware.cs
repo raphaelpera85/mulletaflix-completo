@@ -14,12 +14,21 @@ public class RateLimitMiddleware
 {
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _failedLogins = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _anonymousRequests = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, RateLimitEntry> _searchRequests = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, RateLimitEntry> _administrativeRequests = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, RateLimitEntry> _nebulaRequests = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly TimeSpan LoginWindow = TimeSpan.FromMinutes(15);
     private const int MaxFailedLogins = 10;
 
     private static readonly TimeSpan AnonymousWindow = TimeSpan.FromSeconds(10);
     private const int MaxAnonymousRequests = 30;
+    private static readonly TimeSpan SearchWindow = TimeSpan.FromSeconds(10);
+    private const int MaxSearchRequests = 60;
+    private static readonly TimeSpan AdministrativeWindow = TimeSpan.FromSeconds(10);
+    private const int MaxAdministrativeRequests = 20;
+    private static readonly TimeSpan NebulaWindow = TimeSpan.FromSeconds(10);
+    private const int MaxNebulaRequests = 10;
 
     private static readonly string[] StaticWebPaths =
     [
@@ -55,6 +64,19 @@ public class RateLimitMiddleware
         "/QuickConnect/Enabled",
         "/Users/Public",
         "/Branding/Configuration"
+    ];
+
+    private static readonly string[] AdministrativePaths =
+    [
+        "/ActivityLog",
+        "/Backup",
+        "/Configuration",
+        "/Dashboard",
+        "/Environment",
+        "/Plugins",
+        "/ScheduledTasks",
+        "/ServerHealth",
+        "/System"
     ];
 
     /// <summary>
@@ -95,6 +117,7 @@ public class RateLimitMiddleware
         var isLoginAttempt = path is not null && (
             IsPathOrDescendant(path, "/Users/Authenticate")
             || IsPathOrDescendant(path, "/Users/Register"));
+        var selectiveCategory = path is not null ? GetSelectiveRateLimitCategory(path) : null;
 
         if (isLoginAttempt)
         {
@@ -103,6 +126,38 @@ public class RateLimitMiddleware
                 _logger.LogWarning("Rate limit exceeded for login from IP {IP}", ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
                 context.Response.Headers.RetryAfter = retryAfterLogin.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return;
+            }
+        }
+        else if (selectiveCategory is not null && !IsLoopback(ip))
+        {
+            var selectiveStore = selectiveCategory switch
+            {
+                "search" => _searchRequests,
+                "administration" => _administrativeRequests,
+                "nebula" => _nebulaRequests,
+                _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
+            };
+            var selectiveWindow = selectiveCategory switch
+            {
+                "search" => SearchWindow,
+                "administration" => AdministrativeWindow,
+                "nebula" => NebulaWindow,
+                _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
+            };
+            var selectiveMax = selectiveCategory switch
+            {
+                "search" => MaxSearchRequests,
+                "administration" => MaxAdministrativeRequests,
+                "nebula" => MaxNebulaRequests,
+                _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
+            };
+
+            if (IsBlocked(selectiveStore, ip, selectiveWindow, selectiveMax, out var retryAfterSelective))
+            {
+                _logger.LogWarning("Rate limit exceeded for {Category} requests from IP {IP}", selectiveCategory, ip);
+                context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
+                context.Response.Headers.RetryAfter = retryAfterSelective.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 return;
             }
         }
@@ -123,10 +178,57 @@ public class RateLimitMiddleware
         {
             RecordAttempt(_failedLogins, ip, LoginWindow);
         }
+        else if (selectiveCategory is not null && !IsLoopback(ip))
+        {
+            var selectiveStore = selectiveCategory switch
+            {
+                "search" => _searchRequests,
+                "administration" => _administrativeRequests,
+                "nebula" => _nebulaRequests,
+                _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
+            };
+            var selectiveWindow = selectiveCategory switch
+            {
+                "search" => SearchWindow,
+                "administration" => AdministrativeWindow,
+                "nebula" => NebulaWindow,
+                _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
+            };
+            RecordAttempt(selectiveStore, ip, selectiveWindow);
+        }
         else if (!isAuth && !isLoginAttempt && !IsLoopback(ip) && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
         {
             RecordAttempt(_anonymousRequests, ip, AnonymousWindow);
         }
+    }
+
+    internal static string? GetSelectiveRateLimitCategory(string path)
+    {
+        if (IsPublicBootstrapPath(path))
+        {
+            return null;
+        }
+
+        if (IsPathOrDescendant(path, "/Search")
+            || IsPathOrDescendant(path, "/Items/RemoteSearch"))
+        {
+            return "search";
+        }
+
+        if (IsPathOrDescendant(path, "/NebulaFtp"))
+        {
+            return "nebula";
+        }
+
+        foreach (var route in AdministrativePaths)
+        {
+            if (IsPathOrDescendant(path, route))
+            {
+                return "administration";
+            }
+        }
+
+        return null;
     }
 
     internal static bool IsPathOrDescendant(string path, string route)
