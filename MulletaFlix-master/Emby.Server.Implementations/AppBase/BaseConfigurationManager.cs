@@ -19,7 +19,7 @@ namespace Emby.Server.Implementations.AppBase
     /// </summary>
     public abstract class BaseConfigurationManager : IConfigurationManager
     {
-        private readonly ConcurrentDictionary<string, object> _configurations = new();
+        private readonly ConcurrentDictionary<string, object> _configurations = new(StringComparer.OrdinalIgnoreCase);
         private readonly Lock _configurationSyncLock = new();
 
         private ConfigurationStore[] _configurationStores = Array.Empty<ConfigurationStore>();
@@ -277,29 +277,27 @@ namespace Emby.Server.Implementations.AppBase
         /// <inheritdoc />
         public object GetConfiguration(string key)
         {
-            return _configurations.GetOrAdd(
-                key,
-                static (k, configurationManager) =>
-                {
-                    var file = configurationManager.GetConfigurationFile(k);
-
-                    var configurationInfo = Array.Find(
-                        configurationManager._configurationStores,
-                        i => string.Equals(i.Key, k, StringComparison.OrdinalIgnoreCase));
-
-                    if (configurationInfo is null)
+            lock (_configurationSyncLock)
+            {
+                return _configurations.GetOrAdd(
+                    key,
+                    static (k, configurationManager) =>
                     {
-                        throw new ResourceNotFoundException("Configuration with key " + k + " not found.");
-                    }
+                        var file = configurationManager.GetConfigurationFile(k);
 
-                    var configurationType = configurationInfo.ConfigurationType;
+                        var configurationInfo = Array.Find(
+                            configurationManager._configurationStores,
+                            i => string.Equals(i.Key, k, StringComparison.OrdinalIgnoreCase));
 
-                    lock (configurationManager._configurationSyncLock)
-                    {
-                        return configurationManager.LoadConfiguration(file, configurationType);
-                    }
-                },
-                this);
+                        if (configurationInfo is null)
+                        {
+                            throw new ResourceNotFoundException("Configuration with key " + k + " not found.");
+                        }
+
+                        return configurationManager.LoadConfiguration(file, configurationInfo.ConfigurationType);
+                    },
+                    this);
+            }
         }
 
         private object LoadConfiguration(string path, Type configurationType)
@@ -323,6 +321,39 @@ namespace Emby.Server.Implementations.AppBase
         /// <inheritdoc />
         public void SaveConfiguration(string key, object configuration)
         {
+            lock (_configurationSyncLock)
+            {
+                // Ordinary saves replace editable settings, never execution outcomes.
+                // Result writers use UpdateConfiguration to change only their own group.
+                if (configuration is NebulaFtpConfiguration nebulaConfiguration)
+                {
+                    nebulaConfiguration.PreserveBackupHistory((NebulaFtpConfiguration)GetConfiguration(key));
+                }
+
+                PersistNamedConfiguration(key, configuration);
+            }
+
+            OnNamedConfigurationUpdated(key, configuration);
+        }
+
+        /// <inheritdoc />
+        public object UpdateConfiguration(string key, Func<object, object> update)
+        {
+            ArgumentNullException.ThrowIfNull(update);
+            object replacement;
+            lock (_configurationSyncLock)
+            {
+                replacement = update(GetConfiguration(key));
+                ArgumentNullException.ThrowIfNull(replacement);
+                PersistNamedConfiguration(key, replacement);
+            }
+
+            OnNamedConfigurationUpdated(key, replacement);
+            return replacement;
+        }
+
+        private void PersistNamedConfiguration(string key, object configuration)
+        {
             var configurationStore = GetConfigurationStore(key);
             var configurationType = configurationStore.ConfigurationType;
 
@@ -340,18 +371,34 @@ namespace Emby.Server.Implementations.AppBase
 
             NamedConfigurationUpdating?.Invoke(this, new ConfigurationUpdateEventArgs(key, configuration));
 
-            _configurations.AddOrUpdate(key, configuration, (_, _) => configuration);
-
             var path = GetConfigurationFile(key);
             Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException("Path can't be a root directory."));
 
-            lock (_configurationSyncLock)
+            var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
             {
-                XmlSerializer.SerializeToFile(configuration, path);
-                RestrictConfigurationFilePermissions(path);
+                // Create and restrict the empty file before serializing any secrets into it.
+                using (new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                }
+
+                RestrictConfigurationFilePermissions(temporaryPath);
+                XmlSerializer.SerializeToFile(configuration, temporaryPath);
+                File.Move(temporaryPath, path, overwrite: true);
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(temporaryPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Logger.LogWarning(ex, "Unable to remove temporary configuration file: {Path}", temporaryPath);
+                }
             }
 
-            OnNamedConfigurationUpdated(key, configuration);
+            _configurations.AddOrUpdate(key, configuration, (_, _) => configuration);
         }
 
         /// <summary>
@@ -386,7 +433,26 @@ namespace Emby.Server.Implementations.AppBase
         /// <param name="configuration">The old configuration.</param>
         protected virtual void OnNamedConfigurationUpdated(string key, object configuration)
         {
-            NamedConfigurationUpdated?.Invoke(this, new ConfigurationUpdateEventArgs(key, configuration));
+            var handlers = NamedConfigurationUpdated;
+            if (handlers is null)
+            {
+                return;
+            }
+
+            var args = new ConfigurationUpdateEventArgs(key, configuration);
+            foreach (EventHandler<ConfigurationUpdateEventArgs> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(this, args);
+                }
+                catch (Exception ex)
+                {
+                    // Persistence already committed. A failing subscriber must not report
+                    // the successful write as failed or prevent other subscribers running.
+                    Logger.LogError(ex, "Named configuration notification failed for {Key}", key);
+                }
+            }
         }
 
         /// <inheritdoc />

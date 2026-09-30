@@ -149,15 +149,17 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             return BadRequest(validationError);
         }
 
-        var existing = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
-        PreserveExistingSecretValues(config, existing);
-        Helpers.NebulaConfigurationHistory.Preserve(config, existing);
-        // Cache settings are changed only through PlaybackCache/Path; older generic config clients
-        // must not reset them when they submit a stale or partial configuration document.
-        config.PlaybackCachePath = existing.PlaybackCachePath;
-        config.PlaybackCacheMaxSizeGb = existing.PlaybackCacheMaxSizeGb;
-        config.PlaybackCacheMinimumFreeSpaceGb = existing.PlaybackCacheMinimumFreeSpaceGb;
-        _configManager.SaveConfiguration("nebulaftp", config);
+        _configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var existing = (NebulaFtpConfiguration)current;
+            PreserveExistingSecretValues(config, existing);
+            config.PreserveBackupHistory(existing);
+            // Cache settings are changed only through PlaybackCache/Path.
+            config.PlaybackCachePath = existing.PlaybackCachePath;
+            config.PlaybackCacheMaxSizeGb = existing.PlaybackCacheMaxSizeGb;
+            config.PlaybackCacheMinimumFreeSpaceGb = existing.PlaybackCacheMinimumFreeSpaceGb;
+            return config;
+        });
         return NoContent();
     }
 
@@ -233,28 +235,31 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             return BadRequest("ApiHash deve ter 32 caracteres.");
         }
 
-        var existing = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
-        if (!string.IsNullOrWhiteSpace(request.Password))
+        _configManager.UpdateConfiguration("nebulaftp", current =>
         {
-            existing.Password = request.Password.Trim();
-        }
+            var existing = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            if (!string.IsNullOrWhiteSpace(request.Password))
+            {
+                existing.Password = request.Password.Trim();
+            }
 
-        if (!string.IsNullOrWhiteSpace(request.HttpStreamToken))
-        {
-            existing.HttpStreamToken = request.HttpStreamToken.Trim();
-        }
+            if (!string.IsNullOrWhiteSpace(request.HttpStreamToken))
+            {
+                existing.HttpStreamToken = request.HttpStreamToken.Trim();
+            }
 
-        if (!string.IsNullOrWhiteSpace(request.SupabaseKey))
-        {
-            existing.SupabaseKey = request.SupabaseKey.Trim();
-        }
+            if (!string.IsNullOrWhiteSpace(request.SupabaseKey))
+            {
+                existing.SupabaseKey = request.SupabaseKey.Trim();
+            }
 
-        if (!string.IsNullOrWhiteSpace(request.ApiHash))
-        {
-            existing.ApiHash = request.ApiHash.Trim();
-        }
+            if (!string.IsNullOrWhiteSpace(request.ApiHash))
+            {
+                existing.ApiHash = request.ApiHash.Trim();
+            }
 
-        _configManager.SaveConfiguration("nebulaftp", existing);
+            return existing;
+        });
         return NoContent();
     }
 

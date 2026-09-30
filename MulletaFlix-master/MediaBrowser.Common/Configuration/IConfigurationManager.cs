@@ -81,6 +81,15 @@ namespace MediaBrowser.Common.Configuration
         void SaveConfiguration(string key, object configuration);
 
         /// <summary>
+        /// Atomically transforms the current named configuration and persists the replacement.
+        /// The transform must be synchronous and must not mutate the current instance.
+        /// </summary>
+        /// <param name="key">The configuration key.</param>
+        /// <param name="update">The transform applied inside the persistence gate.</param>
+        /// <returns>The committed replacement.</returns>
+        object UpdateConfiguration(string key, Func<object, object> update);
+
+        /// <summary>
         /// Adds the parts.
         /// </summary>
         /// <param name="factories">The factories.</param>

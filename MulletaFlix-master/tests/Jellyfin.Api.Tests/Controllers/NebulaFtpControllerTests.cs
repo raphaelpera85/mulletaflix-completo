@@ -264,6 +264,7 @@ public sealed class NebulaFtpControllerTests
 
         configuration.Setup(m => m.GetConfiguration("nebulaftp")).Returns(existing);
         configuration.Setup(m => m.SaveConfiguration("nebulaftp", incoming));
+        ConfigureAtomicUpdates(configuration);
         var controller = new NebulaFtpController(manager.Object, configuration.Object);
 
         Assert.IsType<NoContentResult>(controller.UpdateConfig(incoming));
@@ -312,6 +313,7 @@ public sealed class NebulaFtpControllerTests
         configuration.Setup(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()))
             .Callback<string, object>((_, value) => saved = Assert.IsType<NebulaFtpConfiguration>(value));
         var controller = new ConfigurationController(configuration.Object, Mock.Of<ILocalizationManager>(), Mock.Of<IMediaEncoder>());
+        ConfigureAtomicUpdates(configuration);
         using var document = JsonDocument.Parse(payload);
 
         Assert.IsType<NoContentResult>(controller.UpdateNamedConfiguration("nebulaftp", document));
@@ -323,6 +325,17 @@ public sealed class NebulaFtpControllerTests
         }
 
         configuration.Verify(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()), Times.Once);
+    }
+
+    private static void ConfigureAtomicUpdates(Mock<IServerConfigurationManager> configuration)
+    {
+        configuration.Setup(m => m.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()))
+            .Returns<string, Func<object, object>>((key, update) =>
+            {
+                var replacement = update(configuration.Object.GetConfiguration(key));
+                configuration.Object.SaveConfiguration(key, replacement);
+                return replacement;
+            });
     }
 
     private static NebulaFtpConfiguration CreateBackupHistory() => new()
@@ -401,6 +414,7 @@ public sealed class NebulaFtpControllerTests
             .Callback<string, object>((_, value) => saved = Assert.IsType<NebulaFtpConfiguration>(value));
         var controller = new NebulaFtpController(manager.Object, configuration.Object);
 
+        ConfigureAtomicUpdates(configuration);
         var result = controller.UpdateConfig(new NebulaFtpConfiguration
         {
             ServerPort = 2121,
@@ -452,13 +466,45 @@ public sealed class NebulaFtpControllerTests
         configuration.Setup(m => m.GetConfiguration("nebulaftp")).Returns(existing);
         var controller = new NebulaFtpController(manager.Object, configuration.Object);
 
-        var result = controller.RotateSecrets(new NebulaCredentialRotationRequest { HttpStreamToken = "new-http-token" });
+        ConfigureAtomicUpdates(configuration);
+        NebulaFtpConfiguration? saved = null;
+        configuration.Setup(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()))
+            .Callback<string, object>((_, value) => saved = (NebulaFtpConfiguration)value);
+        var result = controller.RotateSecrets(new NebulaCredentialRotationRequest { HttpStreamToken = " new-http-token " });
 
         Assert.IsType<NoContentResult>(result);
+        Assert.NotNull(saved);
+        Assert.NotSame(existing, saved);
+        Assert.Equal("old-http-token", existing.HttpStreamToken);
         Assert.Equal("old-password", existing.Password);
-        Assert.Equal("new-http-token", existing.HttpStreamToken);
-        Assert.Equal("old-supabase-key", existing.SupabaseKey);
-        configuration.Verify(m => m.SaveConfiguration("nebulaftp", existing), Times.Once);
+        Assert.Equal("new-http-token", saved.HttpStreamToken);
+        Assert.Equal("old-password", saved.Password);
+        Assert.Equal("old-supabase-key", saved.SupabaseKey);
+        Assert.Equal(existing.ApiHash, saved.ApiHash);
+        configuration.Verify(m => m.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()), Times.Once);
+        configuration.Verify(m => m.SaveConfiguration("nebulaftp", saved), Times.Once);
+    }
+
+    [Fact]
+    public void RotateSecrets_FailedSaveDoesNotMutateCurrentSecrets()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>();
+        var existing = new NebulaFtpConfiguration { Password = "old-password", HttpStreamToken = "old-token" };
+        configuration.Setup(m => m.GetConfiguration("nebulaftp")).Returns(existing);
+        ConfigureAtomicUpdates(configuration);
+        configuration.Setup(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()))
+            .Throws(new System.IO.IOException("test secret save failure"));
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        Assert.Throws<System.IO.IOException>(() => controller.RotateSecrets(new NebulaCredentialRotationRequest
+        {
+            Password = "new-password", HttpStreamToken = "new-token"
+        }));
+
+        Assert.Equal("old-password", existing.Password);
+        Assert.Equal("old-token", existing.HttpStreamToken);
+        configuration.Verify(m => m.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()), Times.Once);
     }
 
     [Fact]
@@ -471,6 +517,7 @@ public sealed class NebulaFtpControllerTests
         var result = controller.RotateSecrets(new NebulaCredentialRotationRequest());
 
         Assert.IsType<BadRequestObjectResult>(result);
+        configuration.Verify(m => m.UpdateConfiguration(It.IsAny<string>(), It.IsAny<Func<object, object>>()), Times.Never);
         configuration.Verify(m => m.SaveConfiguration(It.IsAny<string>(), It.IsAny<object>()), Times.Never);
     }
 

@@ -5,7 +5,6 @@ using System.Text.Json;
 using MulletaFlix.Api.Attributes;
 using MulletaFlix.Extensions.Json;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Branding;
@@ -117,11 +116,17 @@ public class ConfigurationController : BaseMulletaFlixApiController
 
         if (deserializedConfiguration is NebulaFtpConfiguration nebulaConfiguration)
         {
-            var existing = _configurationManager.GetConfiguration<NebulaFtpConfiguration>(key);
-            Helpers.NebulaConfigurationHistory.Preserve(nebulaConfiguration, existing);
+            _configurationManager.UpdateConfiguration(key, current =>
+            {
+                nebulaConfiguration.PreserveBackupHistory((NebulaFtpConfiguration)current);
+                return nebulaConfiguration;
+            });
+        }
+        else
+        {
+            _configurationManager.SaveConfiguration(key, deserializedConfiguration);
         }
 
-        _configurationManager.SaveConfiguration(key, deserializedConfiguration);
         return NoContent();
     }
 

@@ -60,6 +60,14 @@ public sealed class NebulaBackupStatusTests
         var config = new NebulaFtpConfiguration { SupabaseLastUsersBackupFailed = false, SupabaseLastUsersBackupCount = 5 };
         var configManager = new Mock<IServerConfigurationManager>();
         configManager.Setup(manager => manager.GetConfiguration("nebulaftp")).Returns(config);
+        var original = config;
+        configManager.Setup(manager => manager.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()))
+            .Returns<string, Func<object, object>>((key, update) =>
+            {
+                config = (NebulaFtpConfiguration)update(config);
+                configManager.Object.SaveConfiguration(key, config);
+                return config;
+            });
         await using var manager = new NebulaFtpManager(configManager.Object, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
 
         var result = await manager.BackupUsersToSupabaseAsync();
@@ -67,6 +75,7 @@ public sealed class NebulaBackupStatusTests
         Assert.False(result.Success);
         Assert.True(config.SupabaseLastUsersBackupFailed);
         Assert.NotNull(config.SupabaseLastUsersBackupTime);
+        Assert.False(original.SupabaseLastUsersBackupFailed);
         configManager.Verify(manager => manager.SaveConfiguration("nebulaftp", config), Times.Once);
     }
 }

@@ -3672,22 +3672,18 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             }
 
             var result = await syncService.PerformBackupAsync(config.SupabaseUrl, config.SupabaseKey, ReportBackupProgress, forceFull, cancellationToken).ConfigureAwait(false);
-            ApplyMongoBackupResult(config, result);
             if (result.Success)
             {
                 AddServerLog($"[SUPABASE] {result.Message}");
                 CompleteMaintenanceOperation("succeeded");
-                config.SupabaseLastBackupTime = DateTime.UtcNow;
-                config.SupabaseLastBackupStatus = $"Backup do MongoDB realizado com sucesso ({result.FilesBackedUp} arquivos, {result.UsersBackedUp} usuários FTP) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
             }
             else
             {
                 AddServerLog($"[SUPABASE-ERRO] Falha na sincronização: {result.Message}");
                 CompleteMaintenanceOperation("failed", result.Message);
-                config.SupabaseLastBackupStatus = $"Falha no backup às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {result.Message}";
             }
 
-            _configManager.SaveConfiguration("nebulaftp", config);
+            RecordMongoBackupResult(result);
             await CacheOperationReplayAsync("supabase-backup", idempotencyKey, result, CancellationToken.None).ConfigureAwait(false);
             return result;
         }
@@ -3708,9 +3704,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 Message = $"Erro durante o backup: {ex.Message}",
                 Timestamp = DateTime.UtcNow
             };
-            ApplyMongoBackupResult(config, failedResult);
-            config.SupabaseLastBackupStatus = failedResult.Message;
-            _configManager.SaveConfiguration("nebulaftp", config);
+            RecordMongoBackupResult(failedResult);
             await CacheOperationReplayAsync("supabase-backup", idempotencyKey, failedResult, CancellationToken.None).ConfigureAwait(false);
             return failedResult;
         }
@@ -3753,18 +3747,39 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
     private void RecordUsersBackupResult(NebulaSupabaseBackupResultDto result)
     {
-        var config = Config;
-        config.SupabaseLastUsersBackupFailed = !result.Success;
-        config.SupabaseLastUsersBackupTime = DateTime.UtcNow;
-        config.SupabaseLastUsersBackupStatus = result.Success
-            ? result.Message
-            : $"Falha no backup de usuários: {result.Message}";
-        if (result.Success)
+        _configManager.UpdateConfiguration("nebulaftp", current =>
         {
-            config.SupabaseLastUsersBackupCount = result.UsersBackedUp;
-        }
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            config.SupabaseLastUsersBackupFailed = !result.Success;
+            config.SupabaseLastUsersBackupTime = DateTime.UtcNow;
+            config.SupabaseLastUsersBackupStatus = result.Success
+                ? result.Message
+                : $"Falha no backup de usuários: {result.Message}";
+            if (result.Success)
+            {
+                config.SupabaseLastUsersBackupCount = result.UsersBackedUp;
+            }
 
-        _configManager.SaveConfiguration("nebulaftp", config);
+            return config;
+        });
+    }
+
+    internal void RecordMongoBackupResult(NebulaSupabaseBackupResultDto result)
+    {
+        _configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            ApplyMongoBackupResult(config, result);
+            if (result.Success)
+            {
+                config.SupabaseLastBackupTime = DateTime.UtcNow;
+            }
+
+            config.SupabaseLastBackupStatus = result.Success
+                ? $"Backup do MongoDB realizado com sucesso ({result.FilesBackedUp} arquivos, {result.UsersBackedUp} usuários FTP) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}"
+                : $"Falha no backup às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {result.Message}";
+            return config;
+        });
     }
 
     internal static void ApplyMongoBackupResult(NebulaFtpConfiguration config, NebulaSupabaseBackupResultDto result)
@@ -3879,20 +3894,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             {
                 AddServerLog($"[SUPABASE-RESTORE] {result.Message}");
                 CompleteMaintenanceOperation("succeeded");
-                config.SupabaseLastRestoreTime = DateTime.UtcNow;
-                config.SupabaseLastRestoreStatus = $"Restauração do MongoDB realizada com sucesso ({result.FilesRestored} arquivos, {result.UsersRestored} usuários) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}";
-                config.SupabaseLastRestoreFailed = false;
             }
             else
             {
                 AddServerLog($"[SUPABASE-RESTORE-ERRO] Falha na restauração: {result.Message}");
                 CompleteMaintenanceOperation("failed", result.Message);
-                config.SupabaseLastRestoreTime = DateTime.UtcNow;
-                config.SupabaseLastRestoreStatus = $"Falha na restauração às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {result.Message}";
-                config.SupabaseLastRestoreFailed = true;
             }
 
-            _configManager.SaveConfiguration("nebulaftp", config);
+            RecordMongoRestoreResult(result.Success, result.Message, result.FilesRestored, result.UsersRestored);
             await CacheOperationReplayAsync("supabase-restore", idempotencyKey, result, CancellationToken.None).ConfigureAwait(false);
             return result;
         }
@@ -3907,10 +3916,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             AddServerLog($"[SUPABASE-RESTORE-ERRO] Exceção durante a restauração nativa: {ex.Message}");
             _logger.LogError(ex, "Erro durante a restauração nativa do Supabase.");
             CompleteMaintenanceOperation("failed", ex.Message);
-            config.SupabaseLastRestoreTime = DateTime.UtcNow;
-            config.SupabaseLastRestoreStatus = $"Falha na restauração às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {ex.Message}";
-            config.SupabaseLastRestoreFailed = true;
-            _configManager.SaveConfiguration("nebulaftp", config);
+            RecordMongoRestoreResult(false, ex.Message, 0, 0);
             var failedResult = new NebulaSupabaseRestoreResultDto
             {
                 Success = false,
@@ -3934,6 +3940,20 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             }
             _maintenanceLock.Release();
         }
+    }
+
+    internal void RecordMongoRestoreResult(bool success, string message, int filesRestored, int usersRestored)
+    {
+        _configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            config.SupabaseLastRestoreTime = DateTime.UtcNow;
+            config.SupabaseLastRestoreFailed = !success;
+            config.SupabaseLastRestoreStatus = success
+                ? $"Restauração do MongoDB realizada com sucesso ({filesRestored} arquivos, {usersRestored} usuários) em {DateTime.Now:dd/MM/yyyy HH:mm:ss}"
+                : $"Falha na restauração às {DateTime.Now:dd/MM/yyyy HH:mm:ss}: {message}";
+            return config;
+        });
     }
 
     public string GetSupabaseSqlScript()
@@ -4135,12 +4155,15 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             return false;
         }
 
-        var config = Config;
-        config.TelegramNotificationsEnabled = request.Enabled;
-        config.TelegramNotificationIntervalSeconds = Math.Clamp(request.IntervalSeconds, 1, 60);
-        config.TelegramNotificationChatIds = string.Join(",", chatIds);
-        config.ChatId = chatIds[0];
-        _configManager.SaveConfiguration("nebulaftp", config);
+        _configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            config.TelegramNotificationsEnabled = request.Enabled;
+            config.TelegramNotificationIntervalSeconds = Math.Clamp(request.IntervalSeconds, 1, 60);
+            config.TelegramNotificationChatIds = string.Join(",", chatIds);
+            config.ChatId = chatIds[0];
+            return config;
+        });
         return true;
     }
 
@@ -4169,13 +4192,15 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
 
         var interval = Math.Clamp(request.IntervalSeconds, 1, 60);
-        var config = Config;
-        config.NotificationsEnabled = request.Enabled;
-        config.NotificationsIntervalSeconds = interval;
-        config.NotificationsChannelIds = string.Join(",", channelIds);
-        config.PublicServerUrl = NormalizePublicServerUrl(request.PublicServerUrl ?? config.PublicServerUrl);
-
-        _configManager.SaveConfiguration("nebulaftp", config);
+        _configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            config.NotificationsEnabled = request.Enabled;
+            config.NotificationsIntervalSeconds = interval;
+            config.NotificationsChannelIds = string.Join(",", channelIds);
+            config.PublicServerUrl = NormalizePublicServerUrl(request.PublicServerUrl ?? config.PublicServerUrl);
+            return config;
+        });
         return true;
     }
 

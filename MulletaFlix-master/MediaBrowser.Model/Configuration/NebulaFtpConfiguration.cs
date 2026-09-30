@@ -4,6 +4,30 @@ namespace MediaBrowser.Model.Configuration;
 
 public class NebulaFtpConfiguration
 {
+    /// <summary>Creates a shallow snapshot for scalar configuration/result updates; collections must not be mutated.</summary>
+    /// <returns>A separate configuration instance.</returns>
+    public NebulaFtpConfiguration CreateSnapshot() => (NebulaFtpConfiguration)MemberwiseClone();
+
+    /// <summary>Copies server-owned outcomes from the current configuration before replacing editable settings.</summary>
+    /// <param name="existing">The current configuration inside the persistence gate.</param>
+    public void PreserveBackupHistory(NebulaFtpConfiguration existing)
+    {
+        SupabaseLastBackupTime = existing.SupabaseLastBackupTime;
+        SupabaseLastBackupStatus = existing.SupabaseLastBackupStatus;
+        SupabaseLastBackupFilesCount = existing.SupabaseLastBackupFilesCount;
+        SupabaseLastBackupAttemptTime = existing.SupabaseLastBackupAttemptTime;
+        SupabaseLastBackupFailed = existing.SupabaseLastBackupFailed;
+        SupabaseLastBackupProcessedFilesCount = existing.SupabaseLastBackupProcessedFilesCount;
+        SupabaseLastBackupProcessedUsersCount = existing.SupabaseLastBackupProcessedUsersCount;
+        SupabaseLastUsersBackupTime = existing.SupabaseLastUsersBackupTime;
+        SupabaseLastUsersBackupStatus = existing.SupabaseLastUsersBackupStatus;
+        SupabaseLastUsersBackupCount = existing.SupabaseLastUsersBackupCount;
+        SupabaseLastUsersBackupFailed = existing.SupabaseLastUsersBackupFailed;
+        SupabaseLastRestoreTime = existing.SupabaseLastRestoreTime;
+        SupabaseLastRestoreStatus = existing.SupabaseLastRestoreStatus;
+        SupabaseLastRestoreFailed = existing.SupabaseLastRestoreFailed;
+    }
+
     public const int DefaultSupabaseAutoBackupIntervalHours = 1;
     public const int DefaultSupabaseUsersBackupIntervalHours = 24;
 

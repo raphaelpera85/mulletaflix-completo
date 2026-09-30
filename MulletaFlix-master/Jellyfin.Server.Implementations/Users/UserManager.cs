@@ -462,14 +462,17 @@ namespace MulletaFlix.Server.Implementations.Users
         {
             try
             {
-                var config = _serverConfigurationManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
-                config.Username = username;
-                if (password is not null)
+                _serverConfigurationManager.UpdateConfiguration("nebulaftp", current =>
                 {
-                    config.Password = password;
-                }
+                    var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+                    config.Username = username;
+                    if (password is not null)
+                    {
+                        config.Password = password;
+                    }
 
-                _serverConfigurationManager.SaveConfiguration("nebulaftp", config);
+                    return config;
+                });
             }
             catch (Exception ex)
             {

@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Cryptography;
+using MediaBrowser.Model.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -182,6 +183,58 @@ public sealed class UserManagerAuthenticationLockTests : IDisposable
 
         Assert.NotNull(authenticated);
         Assert.Equal(0, userManager.GetUserById(user.Id)!.InvalidLoginAttemptCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("new-password")]
+    public void SyncNebulaCredentials_UsesSnapshotAndPreservesNullPassword(string? password)
+    {
+        var original = new NebulaFtpConfiguration { Username = "old-user", Password = "old-password", MaxWorkers = 3 };
+        NebulaFtpConfiguration? saved = null;
+        _configurationManagerMock.Setup(m => m.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()))
+            .Returns<string, Func<object, object>>((_, update) => saved = (NebulaFtpConfiguration)update(original));
+        using var manager = CreateUserManager(_defaultAuthenticationProvider);
+        var method = typeof(UserManager).GetMethod("SyncNebulaFtpCredentials", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        method.Invoke(manager, ["new-user", password]);
+
+        Assert.NotNull(saved);
+        Assert.NotSame(original, saved);
+        Assert.Equal("new-user", saved.Username);
+        Assert.Equal(password ?? "old-password", saved.Password);
+        Assert.Equal(3, saved.MaxWorkers);
+        Assert.Equal("old-user", original.Username);
+        Assert.Equal("old-password", original.Password);
+        _configurationManagerMock.Verify(m => m.SaveConfiguration(It.IsAny<string>(), It.IsAny<object>()), Times.Never);
+    }
+
+    [Fact]
+    public void SyncNebulaCredentials_FailedCommitDoesNotMutateCurrentCredentials()
+    {
+        var original = new NebulaFtpConfiguration { Username = "old-user", Password = "old-password" };
+        NebulaFtpConfiguration? attempted = null;
+        _configurationManagerMock.Setup(m => m.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()))
+            .Returns<string, Func<object, object>>((_, update) =>
+            {
+                attempted = (NebulaFtpConfiguration)update(original);
+                throw new IOException("test credential save failure");
+            });
+        using var manager = CreateUserManager(_defaultAuthenticationProvider);
+        var method = typeof(UserManager).GetMethod("SyncNebulaFtpCredentials", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        method.Invoke(manager, ["new-user", "new-password"]);
+
+        Assert.NotNull(attempted);
+        Assert.NotSame(original, attempted);
+        Assert.Equal("new-user", attempted.Username);
+        Assert.Equal("new-password", attempted.Password);
+        Assert.Equal("old-user", original.Username);
+        Assert.Equal("old-password", original.Password);
+        _configurationManagerMock.Verify(m => m.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()), Times.Once);
     }
 
     private UserManager CreateUserManager(IAuthenticationProvider authenticationProvider)
