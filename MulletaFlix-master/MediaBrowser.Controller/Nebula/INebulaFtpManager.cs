@@ -69,7 +69,7 @@ public interface INebulaFtpManager
 
     /// <summary>Atualiza o diretório de destino do cache de reprodução de mídia.</summary>
     Task<bool> UpdatePlaybackCachePathAsync(
-        string newPath,
+        string? newPath,
         int? maxCacheSizeGb = null,
         int? minimumFreeSpaceGb = null,
         CancellationToken cancellationToken = default);

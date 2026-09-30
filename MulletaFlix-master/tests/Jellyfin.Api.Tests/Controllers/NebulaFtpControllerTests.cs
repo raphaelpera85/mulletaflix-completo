@@ -601,13 +601,11 @@ public sealed class NebulaFtpControllerTests
     }
 
     [Fact]
-    public async Task UpdatePlaybackCachePath_WhenPathIsOmitted_PreservesConfiguredPath()
+    public async Task UpdatePlaybackCachePath_WhenPathIsOmitted_DefersPathSelectionToManager()
     {
         var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
         var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
-        configuration.Setup(m => m.GetConfiguration("nebulaftp"))
-            .Returns(new NebulaFtpConfiguration { PlaybackCachePath = @"E:\existing-cache" });
-        manager.Setup(m => m.UpdatePlaybackCachePathAsync(@"E:\existing-cache", 90, 4, It.IsAny<CancellationToken>()))
+        manager.Setup(m => m.UpdatePlaybackCachePathAsync(null, 90, 4, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         var expected = new NebulaPlaybackCacheStatusDto();
         manager.Setup(m => m.GetPlaybackCacheStatus()).Returns(expected);
@@ -619,7 +617,8 @@ public sealed class NebulaFtpControllerTests
 
         var ok = Assert.IsType<OkResult<NebulaPlaybackCacheStatusDto>>(result.Result);
         Assert.Same(expected, ok.Value);
-        manager.Verify(m => m.UpdatePlaybackCachePathAsync(@"E:\existing-cache", 90, 4, It.IsAny<CancellationToken>()), Times.Once);
+        manager.Verify(m => m.UpdatePlaybackCachePathAsync(null, 90, 4, It.IsAny<CancellationToken>()), Times.Once);
+        configuration.Verify(m => m.GetConfiguration(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]

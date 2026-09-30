@@ -1892,15 +1892,20 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 && string.IsNullOrWhiteSpace(seriesPath)
                 && !string.IsNullOrWhiteSpace(seriesName))
             {
-                var config = Config;
                 var requestedTitle = seriesName.Trim();
-                var priorities = (config.RequestedMediaPriorities ?? Array.Empty<string>()).ToList();
-                if (!priorities.Contains(requestedTitle, StringComparer.OrdinalIgnoreCase))
+                _configManager.UpdateConfiguration("nebulaftp", current =>
                 {
+                    var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+                    var priorities = (config.RequestedMediaPriorities ?? Array.Empty<string>()).ToList();
+                    if (priorities.Contains(requestedTitle, StringComparer.OrdinalIgnoreCase))
+                    {
+                        return current;
+                    }
+
                     priorities.Add(requestedTitle);
                     config.RequestedMediaPriorities = priorities.ToArray();
-                    _configManager.SaveConfiguration("nebulaftp", config);
-                }
+                    return config;
+                });
 
                 _downloaderEngine?.PrioritizeTarget(string.Empty, seriesName);
                 _stagingWatcher?.PrioritizeUpload(string.Empty, seriesName);
@@ -2244,8 +2249,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
     }
 
-    public Task<bool> UpdatePlaybackCachePathAsync(
-        string newPath,
+    public async Task<bool> UpdatePlaybackCachePathAsync(
+        string? newPath,
         int? maxCacheSizeGb = null,
         int? minimumFreeSpaceGb = null,
         CancellationToken cancellationToken = default)
@@ -2254,73 +2259,113 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         {
             if (maxCacheSizeGb is < 1 or > 4096 || minimumFreeSpaceGb is < 0 or > 1024)
             {
-                return Task.FromResult(false);
+                return false;
             }
 
-            var trimmed = newPath?.Trim() ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(trimmed))
-            {
-                Directory.CreateDirectory(trimmed);
-            }
-
-            var config = Config;
-            config.PlaybackCachePath = trimmed;
-            config.PlaybackCacheMaxSizeGb = maxCacheSizeGb ?? config.PlaybackCacheMaxSizeGb;
-            config.PlaybackCacheMinimumFreeSpaceGb = minimumFreeSpaceGb ?? config.PlaybackCacheMinimumFreeSpaceGb;
-
-            var effective = !string.IsNullOrWhiteSpace(trimmed)
-                ? trimmed
-                : _configManager.CommonApplicationPaths.CachePath;
-
-            var maxCacheBytes = (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024;
-            var minimumFreeSpaceBytes = (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024;
-            var requestedCacheRoot = Path.GetFullPath(Path.Combine(effective, "nebula-playback"));
-            if (_playbackCache != null
-                && string.Equals(
-                    Path.TrimEndingDirectorySeparator(Path.GetFullPath(_playbackCache.CachePath)),
-                    Path.TrimEndingDirectorySeparator(requestedCacheRoot),
-                    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-            {
-                _configManager.SaveConfiguration("nebulaftp", config);
-                _playbackCache.UpdateLimits(maxCacheBytes, minimumFreeSpaceBytes);
-                _logger.LogInformation("[NEBULA] Limites do cache de reprodução atualizados sem interromper a mídia ativa.");
-                return Task.FromResult(true);
-            }
-
-            var oldCache = _playbackCache;
-            var newCache = new NebulaPlaybackCache(
-                effective,
-                _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
-                maxCacheBytes: maxCacheBytes,
-                minimumFreeSpaceBytes: minimumFreeSpaceBytes);
+            await _envioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                _configManager.SaveConfiguration("nebulaftp", config);
+                await _sharedRuntimeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    if (Volatile.Read(ref _disposed) != 0)
+                    {
+                        return false;
+                    }
+
+                    var trimmed = (newPath ?? Config.PlaybackCachePath)?.Trim() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(trimmed))
+                    {
+                        Directory.CreateDirectory(trimmed);
+                    }
+
+                    var config = Config;
+
+                    var effective = !string.IsNullOrWhiteSpace(trimmed)
+                        ? trimmed
+                        : _configManager.CommonApplicationPaths.CachePath;
+
+                    var maxCacheBytes = (long)(maxCacheSizeGb ?? config.PlaybackCacheMaxSizeGb) * 1024 * 1024 * 1024;
+                    var minimumFreeSpaceBytes = (long)(minimumFreeSpaceGb ?? config.PlaybackCacheMinimumFreeSpaceGb) * 1024 * 1024 * 1024;
+                    var requestedCacheRoot = Path.GetFullPath(Path.Combine(effective, "nebula-playback"));
+                    if (_playbackCache != null
+                        && string.Equals(
+                            Path.TrimEndingDirectorySeparator(Path.GetFullPath(_playbackCache.CachePath)),
+                            Path.TrimEndingDirectorySeparator(requestedCacheRoot),
+                            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                    {
+                        var saved = SavePlaybackCacheSettings(trimmed, maxCacheSizeGb, minimumFreeSpaceGb);
+                        _playbackCache.UpdateLimits((long)saved.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024, (long)saved.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
+                        _logger.LogInformation("[NEBULA] Limites do cache de reprodução atualizados sem interromper a mídia ativa.");
+                        return true;
+                    }
+
+                    var oldCache = _playbackCache;
+                    var newCache = new NebulaPlaybackCache(
+                        effective,
+                        _loggerFactory.CreateLogger<NebulaPlaybackCache>(),
+                        maxCacheBytes: maxCacheBytes,
+                        minimumFreeSpaceBytes: minimumFreeSpaceBytes);
+                    try
+                    {
+                        var saved = SavePlaybackCacheSettings(trimmed, maxCacheSizeGb, minimumFreeSpaceGb);
+                        newCache.UpdateLimits((long)saved.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024, (long)saved.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
+                    }
+                    catch
+                    {
+                        newCache.Dispose();
+                        throw;
+                    }
+
+                    _playbackCache = newCache;
+                    _playbackCacheAccessor.Set(newCache);
+
+                    if (oldCache != null)
+                    {
+                        _ = oldCache.DisposeWhenIdleAsync();
+                    }
+
+                    _httpStreamServer?.SetPlaybackCache(newCache);
+
+                    _logger.LogInformation("[NEBULA] Caminho do cache de reprodução atualizado para: {Path}", effective);
+                    return true;
+                }
+                finally
+                {
+                    _sharedRuntimeLock.Release();
+                }
             }
-            catch
+            finally
             {
-                newCache.Dispose();
-                throw;
+                _envioLock.Release();
             }
-
-            _playbackCache = newCache;
-            _playbackCacheAccessor.Set(newCache);
-
-            if (oldCache != null)
-            {
-                _ = oldCache.DisposeWhenIdleAsync();
-            }
-
-            _httpStreamServer?.SetPlaybackCache(newCache);
-
-            _logger.LogInformation("[NEBULA] Caminho do cache de reprodução atualizado para: {Path}", effective);
-            return Task.FromResult(true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[NEBULA] Falha ao atualizar caminho do cache de reprodução para {Path}", newPath);
-            return Task.FromResult(false);
+            return false;
         }
+    }
+
+    private NebulaFtpConfiguration SavePlaybackCacheSettings(string path, int? maxCacheSizeGb, int? minimumFreeSpaceGb)
+    {
+        return (NebulaFtpConfiguration)_configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            config.PlaybackCachePath = path;
+            config.PlaybackCacheMaxSizeGb = maxCacheSizeGb ?? config.PlaybackCacheMaxSizeGb;
+            config.PlaybackCacheMinimumFreeSpaceGb = minimumFreeSpaceGb ?? config.PlaybackCacheMinimumFreeSpaceGb;
+            if (config.PlaybackCacheMaxSizeGb is < 1 or > 4096 || config.PlaybackCacheMinimumFreeSpaceGb is < 0 or > 1024)
+            {
+                throw new ArgumentOutOfRangeException(nameof(maxCacheSizeGb), "Os limites vigentes do cache são inválidos.");
+            }
+
+            return config;
+        });
     }
 
     private static string FormatBytes(long bytes)

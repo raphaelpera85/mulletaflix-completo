@@ -163,8 +163,11 @@ public class NebulaMediaSuggestionTests
     public void PrioritizeMedia_PersistsRequestWhenNebulaWorkersAreStopped()
     {
         var config = new NebulaFtpConfiguration { Enabled = false };
+        var original = config;
         var configurationManager = new Mock<IServerConfigurationManager>();
-        configurationManager.Setup(manager => manager.GetConfiguration("nebulaftp")).Returns(config);
+        configurationManager.Setup(manager => manager.GetConfiguration("nebulaftp")).Returns(() => config);
+        configurationManager.Setup(manager => manager.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()))
+            .Returns<string, Func<object, object>>((_, update) => config = (NebulaFtpConfiguration)update(config));
 
         using var manager = new NebulaFtpManager(
             configurationManager.Object,
@@ -174,7 +177,10 @@ public class NebulaMediaSuggestionTests
         manager.PrioritizeMedia(string.Empty, seriesName: "  The Requested Show  ");
 
         Assert.Equal(new[] { "The Requested Show" }, config.RequestedMediaPriorities);
-        configurationManager.Verify(manager => manager.SaveConfiguration("nebulaftp", config), Times.Once);
+        Assert.NotSame(original, config);
+        Assert.Empty(original.RequestedMediaPriorities);
+        configurationManager.Verify(manager => manager.UpdateConfiguration("nebulaftp", It.IsAny<Func<object, object>>()), Times.Once);
+        configurationManager.Verify(manager => manager.SaveConfiguration(It.IsAny<string>(), It.IsAny<object>()), Times.Never);
     }
 
     [Fact]

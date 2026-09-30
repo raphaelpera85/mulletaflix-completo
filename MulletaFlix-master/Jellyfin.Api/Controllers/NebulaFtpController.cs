@@ -196,9 +196,8 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             return BadRequest("A cota deve ficar entre 1 e 4096 GiB; a reserva, entre 0 e 1024 GiB.");
         }
 
-        var existing = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
         var success = await _nebulaManager.UpdatePlaybackCachePathAsync(
-            request.CachePath ?? existing.PlaybackCachePath,
+            request.CachePath,
             request.MaxCacheSizeGb,
             request.MinimumFreeSpaceGb,
             cancellationToken).ConfigureAwait(false);
