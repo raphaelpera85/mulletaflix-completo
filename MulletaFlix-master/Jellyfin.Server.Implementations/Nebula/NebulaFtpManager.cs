@@ -763,9 +763,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     }
 
-    private NebulaFtpConfiguration ImportDotEnvConfiguration(NebulaFtpConfiguration config, bool save)
+    private static (bool Changed, NebulaFtpConfiguration Updated) ApplyDotEnvConfiguration(NebulaFtpConfiguration source, IReadOnlyDictionary<string, string> env)
     {
-        var env = ReadDotEnv();
+        if (env.Count == 0)
+        {
+            return (false, source);
+        }
+
+        var copy = source.CreateSnapshot();
         var changed = false;
 
         void SetIfMissing(string property, string key, Action<string> setter)
@@ -777,10 +782,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
             var current = property switch
             {
-                nameof(NebulaFtpConfiguration.ApiId) => config.ApiId,
-                nameof(NebulaFtpConfiguration.ApiHash) => config.ApiHash,
-                nameof(NebulaFtpConfiguration.ChatId) => config.ChatId,
-                nameof(NebulaFtpConfiguration.BotTokens) => config.BotTokens,
+                nameof(NebulaFtpConfiguration.ApiId) => copy.ApiId,
+                nameof(NebulaFtpConfiguration.ApiHash) => copy.ApiHash,
+                nameof(NebulaFtpConfiguration.ChatId) => copy.ChatId,
+                nameof(NebulaFtpConfiguration.BotTokens) => copy.BotTokens,
                 _ => string.Empty
             };
             var missingOrInvalid = string.IsNullOrWhiteSpace(current);
@@ -792,6 +797,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             {
                 missingOrInvalid |= !int.TryParse(current, out var parsedApiId) || parsedApiId <= 0;
             }
+
             if (missingOrInvalid)
             {
                 setter(value);
@@ -799,18 +805,48 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             }
         }
 
-        SetIfMissing(nameof(NebulaFtpConfiguration.ApiId), "API_ID", value => config.ApiId = value);
-        SetIfMissing(nameof(NebulaFtpConfiguration.ApiHash), "API_HASH", value => config.ApiHash = value);
-        SetIfMissing(nameof(NebulaFtpConfiguration.ChatId), "CHAT_ID", value => config.ChatId = value);
-        SetIfMissing(nameof(NebulaFtpConfiguration.BotTokens), "BOT_TOKENS", value => config.BotTokens = value);
+        SetIfMissing(nameof(NebulaFtpConfiguration.ApiId), "API_ID", value => copy.ApiId = value);
+        SetIfMissing(nameof(NebulaFtpConfiguration.ApiHash), "API_HASH", value => copy.ApiHash = value);
+        SetIfMissing(nameof(NebulaFtpConfiguration.ChatId), "CHAT_ID", value => copy.ChatId = value);
+        SetIfMissing(nameof(NebulaFtpConfiguration.BotTokens), "BOT_TOKENS", value => copy.BotTokens = value);
 
-        if (changed && save)
+        return (changed, copy);
+    }
+
+    private NebulaFtpConfiguration ImportDotEnvConfiguration(NebulaFtpConfiguration config, bool save)
+    {
+        var env = ReadDotEnv();
+        if (env.Count == 0)
         {
-            _configManager.SaveConfiguration("nebulaftp", config);
-            AddServerLog("[NEBULA-CONFIG] Credenciais do .env importadas automaticamente.");
+            return config;
         }
 
-        return config;
+        if (save)
+        {
+            var imported = false;
+            var saved = (NebulaFtpConfiguration)_configManager.UpdateConfiguration("nebulaftp", current =>
+            {
+                var existing = (NebulaFtpConfiguration)current;
+                var (changed, updated) = ApplyDotEnvConfiguration(existing, env);
+                if (changed)
+                {
+                    imported = true;
+                    return updated;
+                }
+
+                return current;
+            });
+
+            if (imported)
+            {
+                AddServerLog("[NEBULA-CONFIG] Credenciais do .env importadas automaticamente.");
+            }
+
+            return saved;
+        }
+
+        var (_, nonSaved) = ApplyDotEnvConfiguration(config, env);
+        return nonSaved;
     }
 
     private string GetSessionsDirectory()
@@ -1404,6 +1440,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
         var createdMongoContext = false;
         var createdTelegramPool = false;
+        var createdPlaybackCache = false;
 
         try
         {
@@ -1418,14 +1455,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             }
 
             await EnsureRuntimeDependenciesAsync(cancellationToken).ConfigureAwait(false);
-            var config = ImportDotEnvConfiguration(NormalizeRuntimeConfiguration(Config), save: true);
+            var config = EnsureRuntimeConfigurationNormalizedAndImported();
             if (!config.AllowInsecureRemoteFtp && !IsLoopbackHost(config.ServerHost))
             {
                 throw new InvalidOperationException(
                     "NebulaFTP nativo não suporta FTPS. Use ServerHost=127.0.0.1/localhost ou habilite AllowInsecureRemoteFtp explicitamente para uma rede confiável.");
             }
 
-            _configManager.SaveConfiguration("nebulaftp", config);
             RemoveMonitoredMediaLibraryPaths(config);
             _activeUploads.Clear();
             EmitRawLog(streamOnly ? "Iniciando NebulaFTP Server (Modo Somente Streaming)." : "Iniciando NebulaFTP Server (Modo Envio de Mídias).");
@@ -1570,6 +1606,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 maxCacheBytes: (long)config.PlaybackCacheMaxSizeGb * 1024 * 1024 * 1024,
                 minimumFreeSpaceBytes: (long)config.PlaybackCacheMinimumFreeSpaceGb * 1024 * 1024 * 1024);
             _playbackCacheAccessor.Set(_playbackCache);
+            createdPlaybackCache = true;
 
             _ftpServerHost = new NebulaFtpServerHost(
                 _mongoContext,
@@ -1709,6 +1746,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 {
                     await _httpStreamServer.DisposeAsync().ConfigureAwait(false);
                     _httpStreamServer = null;
+                }
+
+                if (createdPlaybackCache && _playbackCache != null)
+                {
+                    _playbackCache.Dispose();
+                    _playbackCache = null;
+                    _playbackCacheAccessor.Set(null);
                 }
 
                 if (_uploadEngine != null)
@@ -2412,8 +2456,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         NebulaFtpConfiguration config;
         try
         {
-            config = ImportDotEnvConfiguration(NormalizeRuntimeConfiguration(Config), save: true);
-            _configManager.SaveConfiguration("nebulaftp", config);
+            config = EnsureRuntimeConfigurationNormalizedAndImported();
         }
         catch (Exception ex)
         {
@@ -2688,8 +2731,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
         try
         {
-            var config = NormalizeRuntimeConfiguration(Config);
-            _configManager.SaveConfiguration("nebulaftp", config);
+            var config = EnsureRuntimeConfigurationNormalized();
             AddServerLog("[STRM] Iniciando geração da biblioteca STRM em C# nativo...");
 
             using var mongo = new NebulaMongoContext(config.MongoDbConnectionString, "ftp", _loggerFactory.CreateLogger<NebulaMongoContext>());
@@ -3555,11 +3597,20 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                 return new NebulaSupabaseProvisionResultDto { Success = false, Message = $"A Management API recusou o provisionamento (HTTP {(int)response.StatusCode}): {body}" };
             }
 
-            config.SupabaseUrl = safeUrl;
-            config.SupabaseKey = key;
-            config.SupabaseProjectRef = projectRef;
-            config.SupabaseManagementToken = string.Empty;
-            _configManager.SaveConfiguration("nebulaftp", config);
+            _configManager.UpdateConfiguration("nebulaftp", current =>
+            {
+                var existing = (NebulaFtpConfiguration)current;
+                var copy = existing.CreateSnapshot();
+                copy.SupabaseUrl = safeUrl;
+                copy.SupabaseKey = key;
+                copy.SupabaseProjectRef = projectRef;
+                if (string.Equals(copy.SupabaseManagementToken, managementToken, StringComparison.Ordinal))
+                {
+                    copy.SupabaseManagementToken = string.Empty;
+                }
+
+                return copy;
+            });
             AddServerLog("[SUPABASE] Estrutura inicial criada/validada pela Management API. Token administrativo removido da configuração.");
             return new NebulaSupabaseProvisionResultDto { Success = true, Message = "Estrutura do Supabase criada/validada com sucesso. O token administrativo foi removido da configuração." };
         }
@@ -4422,22 +4473,110 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         }
     }
 
-    private static NebulaFtpConfiguration NormalizeRuntimeConfiguration(NebulaFtpConfiguration config)
+    private static (bool Changed, NebulaFtpConfiguration Normalized) NormalizeRuntimeConfigurationSnapshot(NebulaFtpConfiguration config)
     {
-        config.ServerPort = config.ServerPort is >= 1 and <= 65535 ? config.ServerPort : 2121;
-        config.HttpStreamPort = config.HttpStreamPort is >= 1 and <= 65535 ? config.HttpStreamPort : 2123;
-        config.MaxActiveConnections = config.MaxActiveConnections is >= 1 and <= 4096 ? config.MaxActiveConnections : 32;
-        if (string.IsNullOrWhiteSpace(config.HttpStreamToken))
+        var copy = config.CreateSnapshot();
+        var changed = false;
+
+        var serverPort = copy.ServerPort is >= 1 and <= 65535 ? copy.ServerPort : 2121;
+        if (serverPort != copy.ServerPort)
         {
-            config.HttpStreamToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            copy.ServerPort = serverPort;
+            changed = true;
         }
-        config.MaxWorkers = Math.Clamp(config.MaxWorkers, 1, 64);
-        config.ChunkSizeMb = Math.Clamp(config.ChunkSizeMb, 1, 512);
-        config.DownloadParts = Math.Clamp(config.DownloadParts, 1, 32);
+
+        var httpPort = copy.HttpStreamPort is >= 1 and <= 65535 ? copy.HttpStreamPort : 2123;
+        if (httpPort != copy.HttpStreamPort)
+        {
+            copy.HttpStreamPort = httpPort;
+            changed = true;
+        }
+
+        var maxConnections = copy.MaxActiveConnections is >= 1 and <= 4096 ? copy.MaxActiveConnections : 32;
+        if (maxConnections != copy.MaxActiveConnections)
+        {
+            copy.MaxActiveConnections = maxConnections;
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(copy.HttpStreamToken))
+        {
+            copy.HttpStreamToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            changed = true;
+        }
+
+        var maxWorkers = Math.Clamp(copy.MaxWorkers, 1, 64);
+        if (maxWorkers != copy.MaxWorkers)
+        {
+            copy.MaxWorkers = maxWorkers;
+            changed = true;
+        }
+
+        var chunkSize = Math.Clamp(copy.ChunkSizeMb, 1, 512);
+        if (chunkSize != copy.ChunkSizeMb)
+        {
+            copy.ChunkSizeMb = chunkSize;
+            changed = true;
+        }
+
+        var downloadParts = Math.Clamp(copy.DownloadParts, 1, 32);
+        if (downloadParts != copy.DownloadParts)
+        {
+            copy.DownloadParts = downloadParts;
+            changed = true;
+        }
+
         // Earlier versions forced this value to 24 on every startup. Normalize old
         // configurations to the new hourly schedule instead of retaining that legacy value.
-        config.SupabaseAutoBackupIntervalHours = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
-        return config;
+        if (copy.SupabaseAutoBackupIntervalHours != NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours)
+        {
+            copy.SupabaseAutoBackupIntervalHours = NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours;
+            changed = true;
+        }
+
+        return (changed, copy);
+    }
+
+    private static NebulaFtpConfiguration NormalizeRuntimeConfiguration(NebulaFtpConfiguration config)
+    {
+        return NormalizeRuntimeConfigurationSnapshot(config).Normalized;
+    }
+
+    private NebulaFtpConfiguration EnsureRuntimeConfigurationNormalized()
+    {
+        return (NebulaFtpConfiguration)_configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var existing = (NebulaFtpConfiguration)current;
+            var (changed, normalized) = NormalizeRuntimeConfigurationSnapshot(existing);
+            return changed ? normalized : current;
+        });
+    }
+
+    private NebulaFtpConfiguration EnsureRuntimeConfigurationNormalizedAndImported()
+    {
+        var imported = false;
+        var saved = (NebulaFtpConfiguration)_configManager.UpdateConfiguration("nebulaftp", current =>
+        {
+            var existing = (NebulaFtpConfiguration)current;
+            var (normChanged, normalized) = NormalizeRuntimeConfigurationSnapshot(existing);
+            var target = normChanged ? normalized : existing.CreateSnapshot();
+            var env = ReadDotEnv();
+            var (envChanged, envUpdated) = ApplyDotEnvConfiguration(target, env);
+            if (envChanged)
+            {
+                imported = true;
+                target = envUpdated;
+            }
+
+            return (normChanged || envChanged) ? target : current;
+        });
+
+        if (imported)
+        {
+            AddServerLog("[NEBULA-CONFIG] Credenciais do .env importadas automaticamente.");
+        }
+
+        return saved;
     }
 
     private static bool IsLoopbackHost(string? host)

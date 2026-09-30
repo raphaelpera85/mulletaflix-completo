@@ -26,6 +26,8 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "mulletaflix-config-concurrency-" + Guid.NewGuid().ToString("N"));
     private readonly MyXmlSerializer _serializer = new();
 
+    private string ConfigurationPath => Path.Combine(_directory, "config", "nebulaftp.xml");
+
     [Fact]
     public async Task ConcurrentUpdates_KeepAllChangesAndPersistTheSameStateAsTheCache()
     {
@@ -871,6 +873,84 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         Assert.Null(GetManagerField<NebulaPlaybackCacheAccessor>(manager, "_playbackCacheAccessor").Current);
     }
 
+    [Fact]
+    public void NormalizeRuntimeConfigurationSnapshot_DoesNotMutateOriginalInstance()
+    {
+        var original = new NebulaFtpConfiguration
+        {
+            ServerPort = -1,
+            HttpStreamPort = 999999,
+            MaxActiveConnections = 0,
+            HttpStreamToken = string.Empty,
+            MaxWorkers = 999,
+            ChunkSizeMb = 0,
+            DownloadParts = 100,
+            SupabaseAutoBackupIntervalHours = 24
+        };
+
+        var method = typeof(NebulaFtpManager).GetMethod("NormalizeRuntimeConfigurationSnapshot", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [original]);
+        Assert.NotNull(result);
+
+        var changedProperty = result.GetType().GetField("Item1");
+        var normalizedProperty = result.GetType().GetField("Item2");
+        Assert.NotNull(changedProperty);
+        Assert.NotNull(normalizedProperty);
+
+        var changed = (bool)changedProperty.GetValue(result)!;
+        var normalized = (NebulaFtpConfiguration)normalizedProperty.GetValue(result)!;
+
+        Assert.True(changed);
+        Assert.NotSame(original, normalized);
+
+        // Assert original was untouched
+        Assert.Equal(-1, original.ServerPort);
+        Assert.Equal(999999, original.HttpStreamPort);
+        Assert.Equal(0, original.MaxActiveConnections);
+        Assert.Equal(string.Empty, original.HttpStreamToken);
+        Assert.Equal(999, original.MaxWorkers);
+        Assert.Equal(0, original.ChunkSizeMb);
+        Assert.Equal(100, original.DownloadParts);
+        Assert.Equal(24, original.SupabaseAutoBackupIntervalHours);
+
+        // Assert normalized values are clamped and valid
+        Assert.Equal(2121, normalized.ServerPort);
+        Assert.Equal(2123, normalized.HttpStreamPort);
+        Assert.Equal(32, normalized.MaxActiveConnections);
+        Assert.False(string.IsNullOrWhiteSpace(normalized.HttpStreamToken));
+        Assert.Equal(64, normalized.MaxWorkers);
+        Assert.Equal(1, normalized.ChunkSizeMb);
+        Assert.Equal(32, normalized.DownloadParts);
+        Assert.Equal(NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours, normalized.SupabaseAutoBackupIntervalHours);
+    }
+
+    [Fact]
+    public void EnsureRuntimeConfigurationNormalized_PersistsNormalizedValuesAtomically()
+    {
+        var configuration = CreateManager(_serializer);
+        configuration.UpdateConfiguration("nebulaftp", current =>
+        {
+            var next = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            next.ServerPort = 0;
+            next.SupabaseAutoBackupIntervalHours = 24;
+            return next;
+        });
+
+        using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var ensureMethod = typeof(NebulaFtpManager).GetMethod("EnsureRuntimeConfigurationNormalized", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(ensureMethod);
+
+        var normalized = (NebulaFtpConfiguration)ensureMethod.Invoke(manager, null)!;
+        Assert.Equal(2121, normalized.ServerPort);
+        Assert.Equal(NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours, normalized.SupabaseAutoBackupIntervalHours);
+
+        var currentConfig = configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+        Assert.Equal(2121, currentConfig.ServerPort);
+        Assert.Equal(NebulaFtpConfiguration.DefaultSupabaseAutoBackupIntervalHours, currentConfig.SupabaseAutoBackupIntervalHours);
+    }
+
     private static IServerConfigurationManager ObserveUpdateEntry(IServerConfigurationManager configuration, Action entered)
     {
         var observed = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
@@ -901,8 +981,6 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         field.SetValue(manager, cache);
         GetManagerField<NebulaPlaybackCacheAccessor>(manager, "_playbackCacheAccessor").Set(cache);
     }
-
-    private string ConfigurationPath => Path.Combine(_directory, "config", "nebulaftp.xml");
 
     private ServerConfigurationManager CreateManager(IXmlSerializer serializer)
     {

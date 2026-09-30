@@ -1,7 +1,9 @@
 using System;
+using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -154,6 +156,36 @@ public sealed class NebulaCleanupLifecycleTests
         Assert.Same(cleanup.Task, GetField(manager, "_cleanupTask"));
         cleanup.SetResult();
         DisposeLocalQueue(manager);
+    }
+
+    [Fact]
+    public async Task StopEnvioAsync_DisposesPlaybackCacheAndClearsAccessor()
+    {
+        var manager = CreateManager();
+        var cachePath = Path.Combine(Path.GetTempPath(), "test-stop-cache-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(cachePath);
+        try
+        {
+            var cache = new NebulaPlaybackCache(cachePath, NullLogger<NebulaPlaybackCache>.Instance);
+            SetField(manager, "_playbackCache", cache);
+            var accessor = (NebulaPlaybackCacheAccessor)GetField(manager, "_playbackCacheAccessor")!;
+            accessor.Set(cache);
+
+            Assert.Same(cache, accessor.Current);
+
+            await manager.StopEnvioAsync(CancellationToken.None);
+
+            Assert.Null(accessor.Current);
+            Assert.Null(GetField(manager, "_playbackCache"));
+        }
+        finally
+        {
+            DisposeLocalQueue(manager);
+            if (Directory.Exists(cachePath))
+            {
+                Directory.Delete(cachePath, true);
+            }
+        }
     }
 
     private static NebulaFtpManager CreateManager() => new(
