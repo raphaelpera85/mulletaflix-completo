@@ -87,10 +87,36 @@ try {
 $bodyContent = @'
 ### MulletaFlix __TAG__
 
-- **Ordem de download atualizada**: Animações → Filmes → Séries → Doramas → Novelas → Porno. Títulos são processados em ordem alfabética dentro de cada categoria, e solicitações explícitas mantêm prioridade máxima.
-- **Indicador Nebula corrigido**: a tela de configuração passa a exibir a sequência real de categorias e a ordenação alfabética.
-- **Classificação corrigida no catálogo Nebula**: a série Atomic foi movida de Animações para Séries, e Let's Play (2025) de Séries para Animações. Os documentos e episódios foram preservados; o backup dos registros alterados foi mantido localmente.
-- **Pacotes de produção do servidor**: artefatos Windows e Linux x64.
+Conclusão da **Fase 2 do roadmap — Nebula: fila, concorrência e recuperação**. Esta versão corrige duas causas de perda de progresso em envios concorrentes, elimina uma fonte de bloqueio pelo Telegram e torna a limpeza de arquivos retomável.
+
+#### Correções de concorrência
+
+- **Envio simultâneo podia sobrescrever o progresso de outro trabalhador**: a verificação de posse aceitava um documento sem dono como prova de propriedade. Um trabalhador que travava e voltava depois — já tendo o item sido reatribuído a outro — regravava partes antigas sobre as novas. A posse passou a exigir correspondência explícita, e a adoção de um item sem dono ficou concentrada em uma única operação atômica.
+- **Envio interrompido ficava retido por até uma hora**: o único indicador de atividade era a data de modificação, com janela fixa. Agora cada reivindicação registra uma concessão com prazo próprio, renovada a cada parte confirmada: um trabalhador realmente parado libera o item em minutos, enquanto uma transferência longa em andamento não é tomada no meio do caminho.
+- **Mídia concluída continuava marcada como reivindicada**: a conclusão não limpava os dados de posse e concessão, o que fazia um prazo vencido sugerir recuperação de trabalho já finalizado.
+
+#### Correções de fila
+
+- **Prioridade era perdida ao reiniciar o servidor**: a preferência de títulos solicitados vivia apenas na memória do processo. Após um reinício, a fila restaurada tratava um título pedido como trabalho comum. A prioridade passou a ser gravada no catálogo e é respeitada na reconciliação da fila.
+- **Bloqueios por excesso de chamadas ao Telegram**: limitar apenas quantas transferências ocorrem ao mesmo tempo não impedia disparos instantâneos em sequência no mesmo robô, o que provoca bloqueio temporário de dezenas de segundos. Foi adicionado um controle de taxa por robô, com janela deslizante, que distribui as chamadas entre os robôs disponíveis.
+- **Ordem de categorias podia divergir do que a interface exibia**: a sequência estava repetida em três lugares do código. Passou a ter uma fonte única, de modo que alterá-la atualiza ordem e rótulos juntos.
+
+#### Correções de limpeza
+
+- **Limpeza recomeçava do zero após cada interrupção**: a varredura carregava a árvore de arquivos inteira antes de tratar o primeiro item e não guardava o ponto de parada, então encerrar o servidor descartava todo o avanço — pastas muito grandes podiam nunca terminar. A varredura agora é incremental, guarda onde parou e retoma dali, informando quantos arquivos já foram verificados.
+- **Escolha do disco de preparação descartava volumes válidos**: a pasta era criada antes de consultar o espaço livre, e uma falha na criação eliminava o disco inteiro da escolha.
+
+#### Validação
+
+1.468 testes automatizados aprovados, 0 falhas (Server 52, Implementations 1.135, LiveTv 69, Api 212). Solução compilada em Release sem erros. A concorrência de fila foi exercitada contra um MongoDB dedicado, com trabalhadores reais disputando o mesmo item, e a atualização da listagem virtual foi verificada contra uma instância real do rclone.
+
+#### Limitações conhecidas
+
+O ciclo com resposta incerta ou tempo esgotado do próprio Telegram não foi exercitado nesta versão: exige credenciais e tráfego de produção.
+
+#### Artefatos
+
+Pacotes de produção Windows x64: atualização (`mulletaflix-update-win-x64.zip`) e instalador (`mulletaflix___TAG___windows-x64.exe`).
 '@
 
 $bodyContent = $bodyContent.Replace('__TAG__', $Tag)
@@ -236,14 +262,37 @@ foreach ($assetPath in $assets) {
 
     Write-Host "Enviando asset $assetName ($([Math]::Round($asset.Length / 1MB, 2)) MB)..." -ForegroundColor Cyan
     $uploadUrl = $release.upload_url -replace '\{\?name,label\}', "?name=$([uri]::EscapeDataString($assetName))"
-    $uploadHeaders = @{
-        "Authorization" = "Bearer $token"
-        "Content-Type" = $contentType
-        "User-Agent" = "MulletaFlix-Release-Script"
-    }
 
-    $uploadResult = Invoke-RestMethod -Uri $uploadUrl -Method Post -Headers $uploadHeaders -InFile $asset.FullName
-    Write-Host "Asset enviado: $($uploadResult.browser_download_url)" -ForegroundColor Green
+    # Invoke-RestMethod derruba a conexão em uploads grandes ("uma conexão que
+    # deveria ser mantida ativa foi fechada pelo servidor"), o que já impediu o
+    # zip de ~354 MB de subir em releases anteriores. HttpClient com timeout
+    # longo e streaming do arquivo sustenta o envio até o fim.
+    Add-Type -AssemblyName System.Net.Http
+    $uploadClient = New-Object System.Net.Http.HttpClient
+    $uploadClient.Timeout = [TimeSpan]::FromMinutes(60)
+    $uploadClient.DefaultRequestHeaders.Authorization =
+        New-Object System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", $token)
+    $uploadClient.DefaultRequestHeaders.UserAgent.ParseAdd('MulletaFlix-Release-Script')
+    $uploadClient.DefaultRequestHeaders.Accept.ParseAdd('application/vnd.github+json')
+
+    $uploadStream = [System.IO.File]::OpenRead($asset.FullName)
+    try {
+        $streamContent = New-Object System.Net.Http.StreamContent($uploadStream)
+        $streamContent.Headers.ContentType =
+            New-Object System.Net.Http.Headers.MediaTypeHeaderValue($contentType)
+
+        $uploadResponse = $uploadClient.PostAsync($uploadUrl, $streamContent).GetAwaiter().GetResult()
+        $uploadBody = $uploadResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (-not $uploadResponse.IsSuccessStatusCode) {
+            throw "Falha ao enviar $assetName : HTTP $([int]$uploadResponse.StatusCode) - $uploadBody"
+        }
+
+        $uploadResult = $uploadBody | ConvertFrom-Json
+        Write-Host "Asset enviado: $($uploadResult.browser_download_url)" -ForegroundColor Green
+    } finally {
+        $uploadStream.Dispose()
+        $uploadClient.Dispose()
+    }
 }
 
 

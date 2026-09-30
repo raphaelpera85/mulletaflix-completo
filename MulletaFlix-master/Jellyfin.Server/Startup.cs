@@ -374,6 +374,16 @@ namespace MulletaFlix.Server
                 // Metrics stay enabled in the stage so the sprint gate can validate observability.
                 mainApp.UseHttpMetrics();
 
+                // O MeterAdapter republica os Meter do .NET no endpoint Prometheus.
+                // O filtro remove meters cujos labels carregam configuração
+                // sensível — o MySqlConnector usa a connection string inteira
+                // (host, porta e usuário) como `pool_name`.
+                Prometheus.MeterAdapter.StartListening(new Prometheus.MeterAdapterOptions
+                {
+                    InstrumentFilterPredicate = instrument =>
+                        MetricsLabelRedactor.ShouldPublishInstrument(instrument.Meter.Name)
+                });
+
                 mainApp.UseEndpoints(endpoints =>
                 {
                     endpoints.MapControllers();

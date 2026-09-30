@@ -38,6 +38,7 @@ public sealed class NebulaPlaybackCache : IDisposable
 
     private readonly string _rootPath;
     private readonly ILogger<NebulaPlaybackCache> _logger;
+    private readonly Func<string, byte[], CancellationToken, Task> _writeChunkToDiskAsync;
     private readonly TimeSpan _entryLifetime;
     private long _maxCacheBytes;
     private long _minimumFreeSpaceBytes;
@@ -74,6 +75,23 @@ public sealed class NebulaPlaybackCache : IDisposable
         TimeSpan? entryLifetime = null,
         long maxCacheBytes = DefaultMaxCacheBytes,
         long minimumFreeSpaceBytes = DefaultMinimumFreeSpaceBytes)
+        : this(
+            cachePath,
+            logger,
+            entryLifetime,
+            maxCacheBytes,
+            minimumFreeSpaceBytes,
+            static (path, data, cancellationToken) => File.WriteAllBytesAsync(path, data, cancellationToken))
+    {
+    }
+
+    internal NebulaPlaybackCache(
+        string cachePath,
+        ILogger<NebulaPlaybackCache> logger,
+        TimeSpan? entryLifetime,
+        long maxCacheBytes,
+        long minimumFreeSpaceBytes,
+        Func<string, byte[], CancellationToken, Task> writeChunkToDiskAsync)
     {
         if (string.IsNullOrWhiteSpace(cachePath))
         {
@@ -82,6 +100,7 @@ public sealed class NebulaPlaybackCache : IDisposable
 
         _rootPath = Path.Combine(cachePath, "nebula-playback");
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _writeChunkToDiskAsync = writeChunkToDiskAsync ?? throw new ArgumentNullException(nameof(writeChunkToDiskAsync));
         _entryLifetime = entryLifetime ?? DefaultEntryLifetime;
         _maxCacheBytes = maxCacheBytes > 0 ? maxCacheBytes : long.MaxValue;
         _minimumFreeSpaceBytes = Math.Max(0, minimumFreeSpaceBytes);
@@ -762,6 +781,18 @@ public sealed class NebulaPlaybackCache : IDisposable
             return data;
         }
 
+        // Resposta curta indica transporte interrompido no meio do bloco.
+        // Devolvê-la ao leitor entregaria mídia truncada como se estivesse
+        // completa — e, pior, um bloco curto reaproveitado adiante corromperia a
+        // reprodução sem erro visível. O chamador precisa tratar isso como falha
+        // de rede e tentar de novo.
+        if (data.Length < expectedLength)
+        {
+            Interlocked.Increment(ref _telegramFetchFailures);
+            throw new IOException(
+                $"A origem devolveu {data.Length} byte(s) para um bloco de {expectedLength}; transferência incompleta.");
+        }
+
         await _storageGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         var temporaryPath = path + ".partial";
         try
@@ -774,17 +805,16 @@ public sealed class NebulaPlaybackCache : IDisposable
                 return data;
             }
 
-            await File.WriteAllBytesAsync(temporaryPath, data, cancellationToken).ConfigureAwait(false);
-            if (data.Length >= expectedLength)
+            await _writeChunkToDiskAsync(temporaryPath, data, cancellationToken).ConfigureAwait(false);
+
+            // O tamanho já foi validado acima: chegar aqui significa bloco completo.
+            var replacingExistingFile = File.Exists(path);
+            var previousLength = replacingExistingFile ? new FileInfo(path).Length : 0;
+            File.Move(temporaryPath, path, overwrite: true);
+            Interlocked.Add(ref _cachedBytes, data.Length - previousLength);
+            if (!replacingExistingFile)
             {
-                var replacingExistingFile = File.Exists(path);
-                var previousLength = replacingExistingFile ? new FileInfo(path).Length : 0;
-                File.Move(temporaryPath, path, overwrite: true);
-                Interlocked.Add(ref _cachedBytes, data.Length - previousLength);
-                if (!replacingExistingFile)
-                {
-                    Interlocked.Increment(ref _cachedFiles);
-                }
+                Interlocked.Increment(ref _cachedFiles);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -2,11 +2,36 @@ import './emby-scrollbuttons.scss';
 import 'webcomponents.js/webcomponents-lite';
 import '../emby-button/paper-icon-button-light';
 import globalize from 'lib/globalize';
-import { scrollerItemSlideIntoView } from './utils';
+import ScrollerFactory from 'lib/scroller';
+import { ScrollDirection, scrollerItemSlideIntoView } from './utils';
+import { observeScrollSize } from './observeScrollSize';
+import { updateScrollButtonElements } from './updateScrollButtonElements';
 
-const EmbyScrollButtonsPrototype: HTMLDivElement = Object.create(HTMLDivElement.prototype);
+interface ScrollButtonsElement extends HTMLDivElement {
+    createdCallback(): void;
+    attachedCallback(): void;
+    detachedCallback(): void;
+    scroller: ScrollButtonsScrollerElement | null;
+    scrollHandler: (() => void) | null;
+    scrollButtonsLeft: HTMLButtonElement | null;
+    scrollButtonsRight: HTMLButtonElement | null;
+    resizeObserver: ResizeObserver | null;
+}
 
-(EmbyScrollButtonsPrototype as any).createdCallback = function (): void {
+interface ScrollButtonsScrollerElement extends HTMLDivElement {
+    getScrollPosition(): number;
+    getScrollSize(): number;
+    getScrollSlider(): HTMLElement;
+    addScrollEventListener(fn: () => void, options?: AddEventListenerOptions): void;
+    removeScrollEventListener(fn: () => void, options?: EventListenerOptions): void;
+    scroller?: InstanceType<typeof ScrollerFactory> | null;
+    slideTo?(position: number, immediate?: boolean): void;
+    scrollToPosition?(position: number): void;
+}
+
+const EmbyScrollButtonsPrototype = Object.create(HTMLDivElement.prototype) as ScrollButtonsElement;
+
+EmbyScrollButtonsPrototype.createdCallback = function (): void {
     // no-op
 };
 
@@ -39,44 +64,25 @@ function getScrollWidth(parent: ScrollButtonsScrollerElement): number {
 }
 
 function updateScrollButtons(scrollButtons: ScrollButtonsElement, scrollSize: number, scrollPos: number, scrollWidth: number): void {
-    let localeAwarePos: number = scrollPos;
-    if (globalize.getIsElementRTL(scrollButtons)) {
-        localeAwarePos *= -1;
-    }
-
-    // TODO: Check if hack is really needed
-    // hack alert add twenty for rounding errors
-    if (scrollWidth <= scrollSize + 20) {
-        scrollButtons.scrollButtonsLeft!.classList.add('hide');
-        scrollButtons.scrollButtonsRight!.classList.add('hide');
-    } else {
-        scrollButtons.scrollButtonsLeft!.classList.remove('hide');
-        scrollButtons.scrollButtonsRight!.classList.remove('hide');
-    }
-
-    if (localeAwarePos > 0) {
-        scrollButtons.scrollButtonsLeft!.disabled = false;
-    } else {
-        scrollButtons.scrollButtonsLeft!.disabled = true;
-    }
-
-    const scrollPosEnd: number = localeAwarePos + scrollSize;
-    if (scrollWidth > 0 && scrollPosEnd >= scrollWidth) {
-        scrollButtons.scrollButtonsRight!.disabled = true;
-    } else {
-        scrollButtons.scrollButtonsRight!.disabled = false;
-    }
+    // Leave a small tolerance for subpixel rounding at the end of the row.
+    updateScrollButtonElements(
+        scrollButtons.scrollButtonsLeft!,
+        scrollButtons.scrollButtonsRight!,
+        scrollSize,
+        scrollPos,
+        scrollWidth,
+        globalize.getIsElementRTL(scrollButtons)
+    );
 }
 
 function onScroll(this: ScrollButtonsElement): void {
-    const scrollButtons = this;
     const scroller = this.scroller!;
 
     const scrollSize: number = getScrollSize(scroller);
     const scrollPos: number = getScrollPosition(scroller);
     const scrollWidth: number = getScrollWidth(scroller);
 
-    updateScrollButtons(scrollButtons, scrollSize, scrollPos, scrollWidth);
+    updateScrollButtons(this, scrollSize, scrollPos, scrollWidth);
 }
 
 function getStyleValue(style: CSSStyleDeclaration, name: string): number {
@@ -130,18 +136,18 @@ function getScrollSize(elem: ScrollButtonsScrollerElement): number {
 
 function onScrollButtonClick(this: HTMLElement): void {
     const direction = this.getAttribute('data-direction') as 'left' | 'right';
-    const scroller = this.parentNode!.nextSibling as unknown as ScrollButtonsScrollerElement;
-    const scrollPosition: number = getScrollPosition(scroller);
+    const scrollElement = this.parentNode!.nextSibling as unknown as ScrollButtonsScrollerElement;
+    const scrollPosition: number = getScrollPosition(scrollElement);
     scrollerItemSlideIntoView({
-        direction,
-        scroller,
+        direction: direction === 'left' ? ScrollDirection.LEFT : ScrollDirection.RIGHT,
+        scroller: scrollElement.scroller ?? null,
         scrollState: {
             scrollPos: scrollPosition
         }
-    } as any);
+    });
 }
 
-(EmbyScrollButtonsPrototype as any).attachedCallback = function (this: ScrollButtonsElement): void {
+EmbyScrollButtonsPrototype.attachedCallback = function (this: ScrollButtonsElement): void {
     const scroller = this.nextSibling as unknown as ScrollButtonsScrollerElement;
     this.scroller = scroller;
 
@@ -163,12 +169,24 @@ function onScrollButtonClick(this: HTMLElement): void {
         passive: true
     });
 
+    // Result cards can be mounted after the scroller and its buttons. A single
+    // initial measurement then sees an empty slider and leaves the controls
+    // hidden until the user scrolls (which they cannot do if the controls are
+    // the only visible navigation affordance). Re-measure when either the
+    // viewport or its content changes size.
+    this.resizeObserver = observeScrollSize(
+        scroller as unknown as Element,
+        scroller.getScrollSlider(),
+        () => scroller.scroller?.reload(),
+        scrollHandler
+    );
+
     requestAnimationFrame(() => {
         this.scrollHandler!();
     });
 };
 
-(EmbyScrollButtonsPrototype as any).detachedCallback = function (this: ScrollButtonsElement): void {
+EmbyScrollButtonsPrototype.detachedCallback = function (this: ScrollButtonsElement): void {
     const parent = this.scroller;
     this.scroller = null;
 
@@ -179,27 +197,13 @@ function onScrollButtonClick(this: HTMLElement): void {
         } as EventListenerOptions);
     }
 
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+
     this.scrollHandler = null;
     this.scrollButtonsLeft = null;
     this.scrollButtonsRight = null;
 };
-
-interface ScrollButtonsElement extends HTMLDivElement {
-    scroller: ScrollButtonsScrollerElement | null;
-    scrollHandler: (() => void) | null;
-    scrollButtonsLeft: HTMLButtonElement | null;
-    scrollButtonsRight: HTMLButtonElement | null;
-}
-
-interface ScrollButtonsScrollerElement {
-    offsetWidth: number;
-    getScrollPosition(): number;
-    getScrollSize(): number;
-    getScrollSlider(): HTMLElement;
-    addScrollEventListener(fn: () => void, options?: AddEventListenerOptions): void;
-    removeScrollEventListener(fn: () => void, options?: EventListenerOptions): void;
-    nextSibling: Node | null;
-}
 
 document.registerElement('emby-scrollbuttons', {
     prototype: EmbyScrollButtonsPrototype,

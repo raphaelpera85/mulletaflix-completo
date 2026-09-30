@@ -25,6 +25,9 @@ public interface INebulaFtpManager
     /// <summary>Gets the indexed STRM title catalog for request administration.</summary>
     System.Collections.Generic.IReadOnlyList<NebulaMediaSuggestionDto> GetMediaSuggestionCatalog();
 
+    /// <summary>Checks whether a title is registered in the durable media-request priority list.</summary>
+    bool IsMediaRequestPrioritized(string title);
+
     Task<NebulaStatusDto> GetStatusAsync(CancellationToken cancellationToken = default);
 
     Task<NebulaComponentHealthDto> GetComponentHealthAsync(CancellationToken cancellationToken = default);

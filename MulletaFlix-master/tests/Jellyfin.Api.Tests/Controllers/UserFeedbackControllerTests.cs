@@ -100,24 +100,30 @@ public class UserFeedbackControllerTests
     public async Task GetMyMediaRequests_FiltersByCallerUserIdAndMediaRequestType()
     {
         MulletaFlix.Data.Queries.ActivityLogQuery? capturedQuery = null;
+        var entry = new ActivityLogEntry("Solicitação de mídia: The Example", "MediaRequest", Guid.NewGuid()) { Id = 42 };
         var expected = new MediaBrowser.Model.Querying.QueryResult<ActivityLogEntry>(0, 1, new[]
         {
-            new ActivityLogEntry("Solicitação de mídia: The Example", "MediaRequest", Guid.NewGuid())
+            entry
         });
         var activityManager = new Mock<IActivityManager>();
         activityManager.Setup(manager => manager.GetPagedResultAsync(It.IsAny<MulletaFlix.Data.Queries.ActivityLogQuery>()))
             .Callback<MulletaFlix.Data.Queries.ActivityLogQuery>(query => capturedQuery = query)
             .ReturnsAsync(expected);
-        var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), Mock.Of<INebulaFtpManager>());
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        nebulaManager.Setup(manager => manager.IsMediaRequestPrioritized("The Example")).Returns(true);
+        var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
         var result = await controller.GetMyMediaRequests(limit: 50);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        Assert.Same(expected, okResult.Value);
+        var actual = Assert.IsType<MediaRequestQueryResultDto>(okResult.Value);
+        Assert.Equal(new[] { 42L }, actual.PriorityRequestIds);
+        Assert.Same(entry, Assert.Single(actual.Items));
         Assert.NotNull(capturedQuery);
         Assert.Equal("MediaRequest", capturedQuery!.Type);
         Assert.Equal(50, capturedQuery.Limit);
+        nebulaManager.Verify(manager => manager.IsMediaRequestPrioritized("The Example"), Times.Once);
     }
 
     [Fact]

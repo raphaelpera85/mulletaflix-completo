@@ -244,7 +244,7 @@ namespace MulletaFlix.LiveTv.Listings
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to download EPG guide from: {Url}", url);
+                    _logger.LogWarning(ex, "Failed to download EPG guide from: {Url}", LiveTvUrlRedactor.Redact(url));
                 }
             });
 
@@ -412,7 +412,7 @@ namespace MulletaFlix.LiveTv.Listings
 
             try
             {
-                _logger.LogInformation("Caching remote resource: {Url}", url);
+                _logger.LogInformation("Caching remote resource: {Url}", LiveTvUrlRedactor.Redact(url));
                 var client = _httpClientFactory.CreateClient(NamedClient.Default);
                 using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
@@ -434,7 +434,7 @@ namespace MulletaFlix.LiveTv.Listings
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error fetching and caching remote resource from {Url}", url);
+                _logger.LogError(ex, "Error fetching and caching remote resource from {Url}", LiveTvUrlRedactor.Redact(url));
                 if (File.Exists(localPath))
                 {
                     _logger.LogWarning("Using stale cache file for: {Path}", localPath);

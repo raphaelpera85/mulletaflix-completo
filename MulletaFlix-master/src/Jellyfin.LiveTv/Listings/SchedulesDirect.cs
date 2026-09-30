@@ -756,11 +756,30 @@ namespace MulletaFlix.LiveTv.Listings
             var root = await Request<TokenDto>(options, false, null, cancellationToken).ConfigureAwait(false);
             if (string.Equals(root?.Message, "OK", StringComparison.Ordinal))
             {
-                _logger.LogInformation("Authenticated with Schedules Direct token: {Token}", root.Token);
+                _logger.LogInformation("Authenticated with Schedules Direct (token {Token}).", RedactToken(root.Token));
                 return root.Token;
             }
 
             throw new AuthenticationException("Could not authenticate with Schedules Direct Error: " + root.Message);
+        }
+
+        /// <summary>
+        /// Reduz um token de sessão a uma forma segura para log. O token é uma
+        /// credencial de API: registrá-lo integralmente expõe a conta do usuário
+        /// a qualquer pessoa com acesso aos arquivos de log.
+        /// </summary>
+        /// <param name="token">O token a redigir.</param>
+        /// <returns>Um sufixo curto para correlação, ou <c>[REDACTED]</c>.</returns>
+        internal static string RedactToken(string? token)
+        {
+            // Tokens curtos ou ausentes não têm entropia suficiente para que
+            // qualquer fragmento possa ser exibido sem risco.
+            if (string.IsNullOrWhiteSpace(token) || token.Length <= 8)
+            {
+                return "[REDACTED]";
+            }
+
+            return string.Concat("…", token.AsSpan(token.Length - 4));
         }
 
         private async Task AddLineupToAccount(ListingsProviderInfo info, CancellationToken cancellationToken)

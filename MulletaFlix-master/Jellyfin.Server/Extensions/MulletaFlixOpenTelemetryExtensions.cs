@@ -34,6 +34,9 @@ internal static class MulletaFlixOpenTelemetryExtensions
                 .AddSource(NebulaHttpStreamServer.ActivitySourceName)
                 .AddSource(NebulaUploadEngine.ActivitySourceName)
                 .AddSource(NebulaDownloaderEngine.ActivitySourceName)
+                .AddSource(NebulaTelegramPool.ActivitySourceName)
+                .AddSource(NebulaMongoContext.ActivitySourceName)
+                .AddSource(NebulaPlaybackSessionMonitor.ActivitySourceName)
                 .AddAspNetCoreInstrumentation(options =>
                 {
                     options.RecordException = false;

@@ -708,17 +708,21 @@ public class BackupService : IBackupService
             }
 
             var backupFiles = Directory.EnumerateFiles(backupFolder, "MulletaFlix-backup-*.zip", SearchOption.TopDirectoryOnly)
-                .Select(p => new FileInfo(p))
-                .OrderByDescending(f => f.LastWriteTimeUtc)
-                .ToList();
+                .Select(path => new FileInfo(path))
+                .ToDictionary(file => file.Name, StringComparer.OrdinalIgnoreCase);
 
-            if (backupFiles.Count <= maxToKeep)
-            {
-                return;
-            }
+            var candidates = backupFiles.Values.Select(file => new BackupRetentionCandidate(
+                file.Name,
+                file.LastWriteTimeUtc > DateTime.UnixEpoch ? file.LastWriteTimeUtc : null));
 
-            foreach (var oldBackup in backupFiles.Skip(maxToKeep))
+            var removableBackups = BackupRetentionPolicy.SelectForRemoval(candidates, maxToKeep, maximumAge: null);
+            foreach (var candidate in removableBackups)
             {
+                if (!backupFiles.TryGetValue(candidate.Name, out var oldBackup))
+                {
+                    continue;
+                }
+
                 try
                 {
                     _logger.LogInformation("Pruning old backup to reclaim storage: {FileName}", oldBackup.Name);

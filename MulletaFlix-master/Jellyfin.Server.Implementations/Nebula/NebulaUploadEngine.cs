@@ -102,7 +102,7 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         _logQueueState = logQueueState;
         _getStagingRoots = getStagingRoots;
         _onUploadCompleted = onUploadCompleted;
-        _concurrencySemaphore = new SemaphoreSlim(uploadConcurrency > 0 ? uploadConcurrency : 8);
+        _concurrencySemaphore = new SemaphoreSlim(NebulaTransferLimits.ResolveUploadConcurrency(uploadConcurrency));
     }
 
     private void LogServer(string level, string message)
@@ -618,6 +618,37 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         }
     }
 
+    private async Task ReleaseClaimedUploadAsync(
+        ObjectId? claimedNodeId,
+        string workerKey,
+        Exception failure,
+        string targetFileName)
+    {
+        if (_mongoContext is null || claimedNodeId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // O motivo registra apenas o tipo da exceção: a mensagem pode conter
+            // caminho local ou nome de mídia e o campo é exibido no painel.
+            await _mongoContext.MarkUploadFailedAsync(
+                claimedNodeId.Value,
+                $"Erro inesperado no upload ({failure.GetType().Name}).",
+                NebulaUploadFailureStages.UnexpectedError,
+                CancellationToken.None,
+                workerKey).ConfigureAwait(false);
+        }
+        catch (Exception releaseFailure)
+        {
+            _logger.LogWarning(
+                releaseFailure,
+                "[NEBULA-UPLOAD] Não foi possível liberar '{Name}' de uploading após erro inesperado.",
+                targetFileName);
+        }
+    }
+
     private async Task<bool> ProcessFileUploadCoreAsync(
         string localFilePath,
         string targetFileName,
@@ -649,10 +680,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             return true;
         }
 
+        // Rastreia o documento reclamado para que uma exceção não encaminhada
+        // pelos ramos explícitos de falha não deixe a mídia presa em `uploading`.
+        ObjectId? claimedNodeId = null;
+        var workerKey = workerId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
         await _concurrencySemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var workerKey = workerId.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var fileInfo = new FileInfo(localFilePath);
             var totalSize = fileInfo.Length;
             var totalParts = (int)Math.Ceiling((double)totalSize / _logicalChunkSizeBytes);
@@ -865,7 +900,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         { "parts", new BsonArray() },
                         { "queued_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
                         { "created_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
-                        { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
+                        { "modified_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() },
+
+                        // O documento nasce em `uploading` já sob posse deste
+                        // worker. Sem isto o fencing de `worker_id` rejeitaria
+                        // todas as escritas seguintes, pois um documento sem dono
+                        // não pertence a ninguém.
+                        { "worker_id", workerKey },
+                        { "started_at", DateTimeOffset.UtcNow.ToUnixTimeSeconds() }
                     };
 
                     var inserted = await _mongoContext.InsertFileDocIfAbsentAsync(initialDoc, cancellationToken).ConfigureAwait(false);
@@ -874,6 +916,30 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
                         _logger.LogWarning("[NEBULA-UPLOAD] Upload duplicado bloqueado para '{Name}'.", targetFileName);
                         return false;
                     }
+                }
+            }
+
+            // A partir daqui o documento está em `uploading` neste worker, então
+            // qualquer saída por exceção precisa liberá-lo explicitamente.
+            claimedNodeId = nodeId;
+
+            // Documento preexistente pode ter chegado aqui sem passar por
+            // `ClaimFileForUploadAsync` (retomada de staging, por exemplo). A posse
+            // é adquirida atomicamente: só prossegue se o documento estiver sem
+            // dono ou já for deste worker. Outro worker vivo detém a posse e este
+            // ciclo precisa desistir em vez de sobrescrever as partes dele.
+            if (_mongoContext != null && existingDoc != null)
+            {
+                var ownsUpload = await _mongoContext
+                    .TryAcquireUploadOwnershipAsync(nodeId, workerKey, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!ownsUpload)
+                {
+                    _logger.LogInformation(
+                        "[NEBULA-UPLOAD] '{Name}' já pertence a outro worker; este ciclo não vai sobrescrever o progresso dele.",
+                        targetFileName);
+                    claimedNodeId = null;
+                    return false;
                 }
             }
 
@@ -1217,6 +1283,14 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             }
 
             return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not NebulaUploadCancellationRequestedException)
+        {
+            // Sem isto, uma exceção inesperada deixaria o documento em
+            // `uploading` até o requeue por obsolescência (1 h), invisível para o
+            // painel e para as contagens de falha por etapa.
+            await ReleaseClaimedUploadAsync(claimedNodeId, workerKey, ex, targetFileName).ConfigureAwait(false);
+            throw;
         }
         finally
         {

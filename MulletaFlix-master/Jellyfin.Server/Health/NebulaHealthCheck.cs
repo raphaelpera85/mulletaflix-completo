@@ -60,6 +60,24 @@ public sealed class NebulaHealthCheck : IHealthCheck
                     data: data);
             }
 
+            // Sem Telegram os uploads param, mas a mídia já enviada continua
+            // sendo transmitida. Reportar Unhealthy faria o `/ready` falhar e um
+            // orquestrador retiraria da rotação um servidor que ainda atende
+            // reprodução; Degraded preserva o 200 do readiness e ainda sinaliza
+            // a perda de capacidade.
+            //
+            // A degradação só se aplica quando o Telegram FOI configurado: sem
+            // credenciais, "não pronto" é o estado esperado da instalação e não
+            // uma falha. O pool exige um `ApiHash` de 32 caracteres, então a
+            // ausência dele indica que o recurso nunca foi habilitado.
+            var telegramConfigured = !string.IsNullOrWhiteSpace(config.ApiHash);
+            if (telegramConfigured && !status.TelegramReady)
+            {
+                return HealthCheckResult.Degraded(
+                    "Nebula está transmitindo, mas o Telegram não está pronto: novos envios estão suspensos.",
+                    data: data);
+            }
+
             return HealthCheckResult.Healthy(
                 "Nebula respondeu ao health check.",
                 data: data);

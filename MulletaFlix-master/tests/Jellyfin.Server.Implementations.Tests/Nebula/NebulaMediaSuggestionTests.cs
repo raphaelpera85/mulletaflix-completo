@@ -115,4 +115,20 @@ public class NebulaMediaSuggestionTests
         Assert.Equal(new[] { "The Requested Show" }, config.RequestedMediaPriorities);
         configurationManager.Verify(manager => manager.SaveConfiguration("nebulaftp", config), Times.Once);
     }
+
+    [Fact]
+    public void IsMediaRequestPrioritized_UsesPersistedTitlesWithoutCaseSensitivity()
+    {
+        var config = new NebulaFtpConfiguration { RequestedMediaPriorities = ["The Requested Show"] };
+        var configurationManager = new Mock<IServerConfigurationManager>();
+        configurationManager.Setup(manager => manager.GetConfiguration("nebulaftp")).Returns(config);
+        using var manager = new NebulaFtpManager(
+            configurationManager.Object,
+            NullLogger<NebulaFtpManager>.Instance,
+            NullLoggerFactory.Instance);
+
+        Assert.True(manager.IsMediaRequestPrioritized("  the requested show "));
+        Assert.False(manager.IsMediaRequestPrioritized("Another Show"));
+        Assert.False(manager.IsMediaRequestPrioritized("  "));
+    }
 }

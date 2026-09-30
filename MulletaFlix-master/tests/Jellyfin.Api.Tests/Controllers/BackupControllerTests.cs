@@ -56,6 +56,43 @@ public class BackupControllerTests
     }
 
     [Fact]
+    public async Task GetBackup_RejectsReparsePointInsideBackupDirectory()
+    {
+        var backupPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(backupPath);
+
+        try
+        {
+            var targetPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".zip");
+            var linkPath = Path.Combine(backupPath, "linked.zip");
+            File.WriteAllText(targetPath, string.Empty);
+
+            try
+            {
+                File.CreateSymbolicLink(linkPath, targetPath);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+            {
+                Assert.Skip($"Creating a symbolic link is unavailable in this environment: {ex.GetType().Name}.");
+            }
+
+            var backupService = new Mock<IBackupService>();
+            var controller = new BackupController(
+                backupService.Object,
+                Mock.Of<IApplicationPaths>(paths => paths.BackupPath == backupPath));
+
+            var result = await controller.GetBackup("linked.zip");
+
+            Assert.IsType<BadRequestObjectResult>(result.Result);
+            backupService.Verify(service => service.GetBackupManifest(It.IsAny<string>()), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(backupPath, recursive: true);
+        }
+    }
+
+    [Fact]
     public void StartRestoreBackup_UsesBackupDirectorySanitizedPath()
     {
         var backupPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));

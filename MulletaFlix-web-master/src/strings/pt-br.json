@@ -1960,5 +1960,7 @@
     "MyMediaRequestsEmpty": "Você ainda não solicitou nenhum título.",
     "MyMediaRequestsPendingEmpty": "Nenhuma solicitação pendente.",
     "MyMediaRequestsIncludedEmpty": "Nenhuma das suas solicitações foi incluída ainda.",
+    "MyMediaRequestPriority": "Prioridade solicitada",
+    "MyMediaRequestPriorityDescription": "O título foi registrado como prioritário no Nebula. A posição aparece quando um arquivo compatível entra na fila.",
     "PlaybackIssuesAdminTitle": "Erros e bugs reportados"
 }

@@ -70,6 +70,10 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private readonly SemaphoreSlim _mountLock = new(1, 1);
     private readonly SemaphoreSlim _dependencyLock = new(1, 1);
     private readonly NebulaDirectoryRefreshQueue _directoryRefreshQueue;
+
+    // Checkpoint da limpeza incremental: sem ele, um cancelamento descartava todo
+    // o avanço e o ciclo seguinte recomeçava da primeira entrada.
+    private readonly NebulaCleanupCheckpoint _cleanupCheckpoint = new();
     private int _rcloneRcPort;
     private string? _rcloneRcUsername;
     private string? _rcloneRcPassword;
@@ -545,9 +549,21 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                     _mediaSuggestions.Count,
                     roots.Length);
             }
-
-            return _mediaSuggestions;
         }
+
+        return _mediaSuggestions;
+    }
+
+    /// <inheritdoc />
+    public bool IsMediaRequestPrioritized(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        return (Config.RequestedMediaPriorities ?? Array.Empty<string>())
+            .Any(requestedTitle => string.Equals(requestedTitle?.Trim(), title.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     private string[] GetMediaSuggestionRoots()
@@ -2843,11 +2859,29 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             try
             {
-                var files = Directory.GetFiles(source, "*.*", SearchOption.AllDirectories);
-                foreach (var file in files)
+                // Travessia incremental: `GetFiles(..., AllDirectories)` materializava
+                // a árvore inteira antes de tratar o primeiro arquivo, o que numa raiz
+                // grande é um pico de alocação e um atraso longo sem progresso visível.
+                // `EnumerateFiles` entrega sob demanda e o checkpoint permite retomar
+                // de onde o ciclo anterior parou, em vez de recomeçar do início.
+                var resumeMarker = _cleanupCheckpoint.GetResumeMarker(source);
+                var entries = NebulaCleanupCheckpoint.EnumerateFrom(
+                    Directory.EnumerateFiles(source, "*.*", SearchOption.AllDirectories),
+                    resumeMarker);
+
+                if (!string.IsNullOrWhiteSpace(resumeMarker))
+                {
+                    EmitCleanupLog($"Limpeza retomada em {source} após {_cleanupCheckpoint.GetProcessedCount(source)} arquivo(s) já verificados.");
+                }
+
+                var completedTraversal = true;
+                foreach (var file in entries)
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
+                        // O progresso permanece registrado: o próximo ciclo retoma
+                        // a partir da última entrada tratada.
+                        completedTraversal = false;
                         return;
                     }
 
@@ -2859,6 +2893,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                     catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
                     {
                         _logger.LogDebug(ex, "Caminho inválido ignorado na limpeza contínua: {File}", file);
+                        _cleanupCheckpoint.Record(source, file);
                         continue;
                     }
 
@@ -2877,6 +2912,23 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                                 _logger.LogDebug(delEx, "Erro ao remover arquivo já enviado: {File}", file);
                             }
                         }
+                    }
+
+                    _cleanupCheckpoint.Record(source, file);
+                }
+
+                if (completedTraversal)
+                {
+                    // Raiz percorrida por inteiro: zera o marcador para que o ciclo
+                    // seguinte também considere arquivos criados antes dele.
+                    var processed = _cleanupCheckpoint.GetProcessedCount(source);
+                    _cleanupCheckpoint.Complete(source);
+                    if (processed > 0)
+                    {
+                        _logger.LogDebug(
+                            "[NEBULA-CLEANUP] Raiz {Source} percorrida por completo: {Processed} arquivo(s) verificados.",
+                            source,
+                            processed);
                     }
                 }
             }

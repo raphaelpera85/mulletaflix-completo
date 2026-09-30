@@ -19,11 +19,12 @@ const requestTitlePrefix = /^Solicitação de mídia:\s*/i;
 
 const getRequestTitle = (entry: ActivityLogEntry) => (entry.Name || '').replace(requestTitlePrefix, '').trim();
 
-const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey: string; chipColor: 'default' | 'success' }> = ({
+const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey: string; chipColor: 'default' | 'success'; priorityRequestIds: ReadonlySet<number> }> = ({
     titleKey,
     entries,
     emptyKey,
-    chipColor
+    chipColor,
+    priorityRequestIds
 }) => (
     <Box>
         <Typography variant='h2' sx={{ mb: 1 }}>
@@ -39,7 +40,20 @@ const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey
                     <ListItem
                         key={`${entry.Id ?? index}`}
                         divider={index < entries.length - 1}
-                        secondaryAction={<Chip size='small' color={chipColor} label={entry.Overview || ''} />}
+                        secondaryAction={(
+                            <Stack direction='row' spacing={0.5} sx={{ maxWidth: { xs: '45vw', sm: '55vw' }, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                {chipColor === 'default' && entry.Id !== undefined && priorityRequestIds.has(entry.Id) && (
+                                    <Chip
+                                        size='small'
+                                        color='warning'
+                                        label={globalize.translate('MyMediaRequestPriority')}
+                                        title={globalize.translate('MyMediaRequestPriorityDescription')}
+                                        aria-label={`${globalize.translate('MyMediaRequestPriority')}. ${globalize.translate('MyMediaRequestPriorityDescription')}`}
+                                    />
+                                )}
+                                <Chip size='small' color={chipColor} label={entry.Overview || ''} />
+                            </Stack>
+                        )}
                     >
                         <ListItemText
                             primary={getRequestTitle(entry)}
@@ -53,7 +67,7 @@ const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey
 );
 
 const MyMediaRequestsPage: FC = () => {
-    const { pending, included, isPending, isError, refetch } = useMyClassifiedMediaRequests();
+    const { pending, included, priorityRequestIds, isPending, isError, refetch } = useMyClassifiedMediaRequests();
 
     const handleRetry = useCallback(() => {
         refetch().catch(() => undefined);
@@ -89,12 +103,14 @@ const MyMediaRequestsPage: FC = () => {
                     entries={pending}
                     emptyKey='MyMediaRequestsPendingEmpty'
                     chipColor='default'
+                    priorityRequestIds={priorityRequestIds}
                 />
                 <RequestGroup
                     titleKey='MediaRequestsIncludedTitle'
                     entries={included}
                     emptyKey='MyMediaRequestsIncludedEmpty'
                     chipColor='success'
+                    priorityRequestIds={priorityRequestIds}
                 />
             </Stack>
         );

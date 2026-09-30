@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -27,6 +28,8 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// </summary>
 public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 {
+    public const string ActivitySourceName = "MulletaFlix.Nebula.TelegramPool";
+    private static readonly ActivitySource TelegramActivitySource = new(ActivitySourceName);
     private static readonly TimeSpan BotDownloadReadIdleTimeout = TimeSpan.FromSeconds(45);
     private readonly ILogger<NebulaTelegramPool> _logger;
     private readonly int _apiId;
@@ -37,6 +40,11 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     private readonly ConcurrentDictionary<int, Client> _clients = new();
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _botOperationGates = new();
     private readonly ConcurrentDictionary<int, long> _uploadBotCooldowns = new();
+
+    // Controle de taxa por bot. A rotação evita reusar um bot em flood-wait, mas
+    // nada impedia N workers de disparar N chamadas simultâneas no mesmo bot
+    // recém-liberado — o que provoca justamente o flood-wait seguinte.
+    private readonly ConcurrentDictionary<int, NebulaBurstLimiter> _botBurstLimiters = new();
     private readonly ConcurrentDictionary<int, int> _streamWaiters = new();
     private int _streamWaiterCount;
     private int _uploadRoundRobinCursor;
@@ -182,6 +190,27 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 // leitura/stream estivesse ativo, congelando a fila sem log algum.
                 if (_streamWaiters.TryGetValue(candidate, out var streamWaiters) && streamWaiters > 0)
                 {
+                    continue;
+                }
+
+                // Controle de rajada: mesmo com o bot livre, exceder a taxa da
+                // janela leva ao flood-wait. Pular para o próximo candidato
+                // espalha a carga em vez de insistir neste bot.
+                var burstLimiter = _botBurstLimiters.GetOrAdd(
+                    candidate,
+                    static _ => new NebulaBurstLimiter(
+                        NebulaTransferLimits.MaxTelegramCallsPerWindow,
+                        NebulaTransferLimits.TelegramBurstWindow));
+                if (!burstLimiter.TryAcquire())
+                {
+                    var retryDelay = burstLimiter.GetRetryDelay();
+                    if (retryDelay > TimeSpan.Zero)
+                    {
+                        earliestCooldown = Math.Min(
+                            earliestCooldown,
+                            now + (long)retryDelay.TotalMilliseconds);
+                    }
+
                     continue;
                 }
 
@@ -530,6 +559,55 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     /// Baixa um intervalo de bytes (chunk sob demanda) de um documento no Telegram usando MTProto ou fallback Bot API.
     /// </summary>
     public async Task<byte[]?> DownloadChunkAsync(
+        string? fileId,
+        int botIndex,
+        long chatId,
+        int messageId,
+        long offset,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = StartTelegramActivity("telegram.download_chunk", botIndex);
+        try
+        {
+            var result = await DownloadChunkCoreAsync(fileId, botIndex, chatId, messageId, offset, limit, cancellationToken).ConfigureAwait(false);
+            activity?.SetTag("telegram.result", result is { Length: > 0 } ? "success" : "empty");
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            activity?.SetTag("telegram.result", "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "Telegram download failed");
+            activity?.SetTag("error.type", ex.GetType().FullName);
+            activity?.SetTag("telegram.result", "failure");
+            throw;
+        }
+    }
+
+    internal static Activity? StartTelegramActivity(string operation, int botIndex)
+    {
+        var activity = TelegramActivitySource.StartActivity(operation, ActivityKind.Client);
+        activity?.SetTag("telegram.bot.index", botIndex);
+        return activity;
+    }
+
+    /// <summary>
+    /// Inicia um span para uma operação Telegram que percorre o pool inteiro e
+    /// portanto não tem um índice de bot único. Nenhum atributo carrega chat,
+    /// legenda, texto, nome de arquivo, caminho ou token.
+    /// </summary>
+    /// <param name="operation">Nome da operação de baixa cardinalidade.</param>
+    /// <returns>O span criado, ou <see langword="null"/> quando ninguém escuta a fonte.</returns>
+    internal static Activity? StartTelegramPoolActivity(string operation)
+    {
+        return TelegramActivitySource.StartActivity(operation, ActivityKind.Client);
+    }
+
+    private async Task<byte[]?> DownloadChunkCoreAsync(
         string? fileId,
         int botIndex,
         long chatId,
@@ -1427,14 +1505,17 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         string? caption = null,
         CancellationToken cancellationToken = default)
     {
+        using var activity = StartTelegramActivity("telegram.upload_document", botIndex);
         if (botIndex < 0 || botIndex >= _botTokens.Count || !_clients.ContainsKey(botIndex))
         {
             _logger.LogError("[NEBULA-TG] Bot com índice {BotIndex} não encontrado no pool.", botIndex);
+            activity?.SetTag("telegram.result", "rejected");
             return null;
         }
 
         var upload = await AcquireUploadBotAsync(botIndex, cancellationToken).ConfigureAwait(false);
         botIndex = upload.BotIndex;
+        activity?.SetTag("telegram.bot.index", botIndex);
         await using var operation = upload.Lease;
 
         for (var attempt = 1; attempt <= 3; attempt++)
@@ -1458,7 +1539,9 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 var responseJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
-                    return ParseUploadResultForBot(responseJson, botIndex);
+                    var parsed = ParseUploadResultForBot(responseJson, botIndex);
+                    activity?.SetTag("telegram.result", parsed is null ? "invalid_response" : "success");
+                    return parsed;
                 }
 
                 if ((int)response.StatusCode == 429)
@@ -1478,6 +1561,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                         botIndex,
                         retryAfter);
 
+                    activity?.SetTag("telegram.result", "flood_wait");
                     return null;
                 }
 
@@ -1490,6 +1574,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     "[NEBULA-TG] Telegram Bot API rejeitou o documento via Bot [{BotIndex}] com HTTP {StatusCode}.",
                     botIndex,
                     (int)response.StatusCode);
+                activity?.SetTag("telegram.result", "rejected");
                 return null;
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && attempt < 3 && !cancellationToken.IsCancellationRequested)
@@ -1503,6 +1588,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                activity?.SetTag("telegram.result", "cancelled");
                 throw;
             }
             catch (Exception ex)
@@ -1511,10 +1597,14 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                     "[NEBULA-TG] Erro ao enviar documento via Bot [{BotIndex}] (tipo {ErrorType}).",
                     botIndex,
                     ex.GetType().Name);
+                activity?.SetStatus(ActivityStatusCode.Error, "Telegram document upload failed");
+                activity?.SetTag("error.type", ex.GetType().FullName);
+                activity?.SetTag("telegram.result", "failure");
                 return null;
             }
         }
 
+        activity?.SetTag("telegram.result", "exhausted");
         return null;
     }
 
@@ -1607,14 +1697,17 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
         string? targetChatId = null,
         CancellationToken cancellationToken = default)
     {
+        using var activity = StartTelegramPoolActivity("telegram.send_photo");
         if (_botTokens.Count == 0 || string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath) || string.IsNullOrWhiteSpace(caption))
         {
+            activity?.SetTag("telegram.result", "rejected");
             return false;
         }
 
         var fileInfo = new FileInfo(imagePath);
         if (fileInfo.Length <= 0 || fileInfo.Length > 10 * 1024 * 1024)
         {
+            activity?.SetTag("telegram.result", "rejected");
             return false;
         }
 
@@ -1623,6 +1716,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
             : _chatId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (string.IsNullOrWhiteSpace(effectiveChatId) || effectiveChatId == "0")
         {
+            activity?.SetTag("telegram.result", "rejected");
             return false;
         }
 
@@ -1643,17 +1737,25 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 using var response = await _httpClient.PostAsync(endpoint, form, cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
+                    activity?.SetTag("telegram.result", "success");
                     return true;
                 }
 
                 _logger.LogWarning("[NEBULA-TG] Falha ao enviar capa via Bot API: {Status}", response.StatusCode);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                activity?.SetTag("telegram.result", "cancelled");
+                throw;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "[NEBULA-TG] Exceção ao enviar capa da notificação.");
+                activity?.SetTag("error.type", ex.GetType().FullName);
             }
         }
 
+        activity?.SetTag("telegram.result", "exhausted");
         return false;
     }
 
@@ -1666,8 +1768,10 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
     /// <returns><c>true</c> se a mensagem foi entregue com sucesso por algum bot; caso contrário, <c>false</c>.</returns>
     public async Task<bool> SendMessageAsync(string text, string? targetChatId = null, CancellationToken cancellationToken = default)
     {
+        using var activity = StartTelegramPoolActivity("telegram.send_message");
         if (_botTokens.Count == 0 || string.IsNullOrWhiteSpace(text))
         {
+            activity?.SetTag("telegram.result", "rejected");
             return false;
         }
 
@@ -1677,6 +1781,7 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
 
         if (string.IsNullOrWhiteSpace(effectiveChatId) || effectiveChatId == "0")
         {
+            activity?.SetTag("telegram.result", "rejected");
             return false;
         }
 
@@ -1698,18 +1803,26 @@ public sealed class NebulaTelegramPool : IAsyncDisposable, IDisposable
                 using var response = await _httpClient.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
+                    activity?.SetTag("telegram.result", "success");
                     return true;
                 }
 
                 var respBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 _logger.LogWarning("[NEBULA-TG] Falha ao enviar mensagem bot: {Status} - {Body}", response.StatusCode, respBody);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                activity?.SetTag("telegram.result", "cancelled");
+                throw;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "[NEBULA-TG] Exceção ao enviar mensagem Telegram via Bot API.");
+                activity?.SetTag("error.type", ex.GetType().FullName);
             }
         }
 
+        activity?.SetTag("telegram.result", "exhausted");
         return false;
     }
 

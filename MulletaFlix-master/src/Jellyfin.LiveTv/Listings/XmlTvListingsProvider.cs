@@ -57,7 +57,7 @@ namespace MulletaFlix.LiveTv.Listings
 
         private async Task<string> GetXml(ListingsProviderInfo info, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("xmltv path: {Path}", info.Path);
+            _logger.LogInformation("xmltv path: {Path}", LiveTvUrlRedactor.RedactIfRemote(info.Path));
 
             string cacheFilename = info.Id + ".xml";
             string cacheDir = Path.Join(_config.ApplicationPaths.CachePath, "xmltv");
@@ -81,7 +81,7 @@ namespace MulletaFlix.LiveTv.Listings
             {
                 if (info.Path.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogInformation("Downloading xmltv listings from {Path}", info.Path);
+                    _logger.LogInformation("Downloading xmltv listings from {Path}", LiveTvUrlRedactor.Redact(info.Path));
 
                     using var response = await _httpClientFactory.CreateClient(NamedClient.Default).GetAsync(info.Path, cancellationToken).ConfigureAwait(false);
                     var redirectedUrl = response.RequestMessage?.RequestUri?.ToString() ?? info.Path;
@@ -102,7 +102,7 @@ namespace MulletaFlix.LiveTv.Listings
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error downloading or processing XMLTV file from {Path}", info.Path);
+                _logger.LogError(ex, "Error downloading or processing XMLTV file from {Path}", LiveTvUrlRedactor.RedactIfRemote(info.Path));
 
                 if (File.Exists(cacheFile))
                 {

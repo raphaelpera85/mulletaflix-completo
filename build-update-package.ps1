@@ -196,7 +196,17 @@ try {
 
     Write-Host "Compressing update package to $zipPath..." -ForegroundColor Cyan
     
-    $tarCmd = Get-Command tar.exe -ErrorAction SilentlyContinue
+    # Usa explicitamente o tar do Windows. Um `tar` do MSYS/git-bash presente no
+    # PATH interpreta "D:\..." como host remoto e falha com "Cannot connect to D:",
+    # o que quebra o empacotamento quando o script é invocado a partir de um shell
+    # POSIX em vez do PowerShell nativo.
+    $systemTar = Join-Path $env:SystemRoot 'System32\tar.exe'
+    $tarCmd = if (Test-Path -LiteralPath $systemTar) {
+        Get-Command $systemTar -ErrorAction SilentlyContinue
+    } else {
+        Get-Command tar.exe -ErrorAction SilentlyContinue
+    }
+
     if ($tarCmd) {
         $prevPwd = Get-Location
         try {

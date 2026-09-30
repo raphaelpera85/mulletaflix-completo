@@ -7,6 +7,10 @@ import type { ApiClient } from 'jellyfin-apiclient';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { classifyMediaRequests, type MediaCatalogTitle, type MediaRequestActivity } from 'utils/mediaRequests';
 
+interface MediaRequestsResponse extends ActivityLogEntryQueryResult {
+    PriorityRequestIds?: number[];
+}
+
 const getApiClient = (): ApiClient => {
     const apiClient = ServerConnections.currentApiClient() as unknown as ApiClient | null;
     if (!apiClient) throw new Error('Cliente da API indisponível.');
@@ -18,10 +22,10 @@ const fetchMediaCatalog = async (): Promise<MediaCatalogTitle[]> => {
     return await apiClient.getJSON(apiClient.getUrl('UserFeedback/MediaRequestCatalog')) as MediaCatalogTitle[];
 };
 
-const fetchMyMediaRequests = async (): Promise<ActivityLogEntryQueryResult> => {
+const fetchMyMediaRequests = async (): Promise<MediaRequestsResponse> => {
     const apiClient = getApiClient();
     const url = apiClient.getUrl('UserFeedback/MediaRequests', { limit: 200 });
-    return await apiClient.getJSON(url) as ActivityLogEntryQueryResult;
+    return await apiClient.getJSON(url) as MediaRequestsResponse;
 };
 
 export const useMediaRequestCatalog = () => {
@@ -66,5 +70,11 @@ export const useMyClassifiedMediaRequests = () => {
         await Promise.all([ requestsQuery.refetch(), catalogQuery.refetch() ]);
     };
 
-    return { ...classified, isPending, isError, refetch };
+    return {
+        ...classified,
+        priorityRequestIds: new Set(requestsQuery.data?.PriorityRequestIds || []),
+        isPending,
+        isError,
+        refetch
+    };
 };

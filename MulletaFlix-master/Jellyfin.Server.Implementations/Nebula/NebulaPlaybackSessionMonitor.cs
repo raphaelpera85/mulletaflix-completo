@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,13 @@ namespace Jellyfin.Server.Implementations.Nebula;
 /// <summary>Cancels speculative Nebula prefetch when playback sessions finish or switch media.</summary>
 public sealed class NebulaPlaybackSessionMonitor : IHostedService
 {
+    /// <summary>
+    /// Nome da fonte OpenTelemetry das sessões de reprodução Nebula.
+    /// </summary>
+    public const string ActivitySourceName = "MulletaFlix.Nebula.PlaybackSession";
+
+    private static readonly ActivitySource PlaybackActivitySource = new(ActivitySourceName);
+
     private readonly ISessionManager _sessionManager;
     private readonly INebulaFtpManager _nebulaManager;
     private readonly ILogger<NebulaPlaybackSessionMonitor> _logger;
@@ -51,12 +59,15 @@ public sealed class NebulaPlaybackSessionMonitor : IHostedService
 
     internal async Task TrackPlaybackStartAsync(string? sessionId, string? playSessionId, string? mediaPath)
     {
+        using var activity = PlaybackActivitySource.StartActivity("nebula.playback.session_start", ActivityKind.Internal);
         if (string.IsNullOrWhiteSpace(sessionId))
         {
+            activity?.SetTag("nebula.playback.result", "ignored");
             return;
         }
 
         string? pathToCancel = null;
+        int activeSessions;
         lock (_gate)
         {
             if (_sessions.Remove(sessionId, out var previous)
@@ -70,23 +81,36 @@ public sealed class NebulaPlaybackSessionMonitor : IHostedService
             {
                 _sessions[sessionId] = new ActivePlayback(mediaPath, playSessionId);
             }
+
+            activeSessions = _sessions.Count;
         }
+
+        // Somente números e booleanos entram no span: o caminho da mídia e os
+        // identificadores de sessão são dados do usuário.
+        activity?.SetTag("nebula.playback.result", "tracked");
+        activity?.SetTag("nebula.playback.prefetch_cancelled", pathToCancel is not null);
+        activity?.SetTag("nebula.playback.active_sessions", activeSessions);
 
         await CancelIfUnusedAsync(pathToCancel).ConfigureAwait(false);
     }
 
     internal async Task TrackPlaybackStoppedAsync(string? sessionId, string? playSessionId, string? mediaPath = null)
     {
+        using var activity = PlaybackActivitySource.StartActivity("nebula.playback.session_stop", ActivityKind.Internal);
         if (string.IsNullOrWhiteSpace(sessionId))
         {
+            activity?.SetTag("nebula.playback.result", "ignored");
             return;
         }
 
         string? pathToCancel = null;
+        int activeSessions;
         lock (_gate)
         {
             if (!_sessions.TryGetValue(sessionId, out var active))
             {
+                activity?.SetTag("nebula.playback.result", "ignored");
+                activity?.SetTag("nebula.playback.active_sessions", _sessions.Count);
                 return;
             }
 
@@ -97,6 +121,8 @@ public sealed class NebulaPlaybackSessionMonitor : IHostedService
                     : string.IsNullOrWhiteSpace(mediaPath)
                         || !PathsEqual(active.MediaPath, mediaPath))
             {
+                activity?.SetTag("nebula.playback.result", "identity_mismatch");
+                activity?.SetTag("nebula.playback.active_sessions", _sessions.Count);
                 return;
             }
 
@@ -105,7 +131,13 @@ public sealed class NebulaPlaybackSessionMonitor : IHostedService
             {
                 pathToCancel = active.MediaPath;
             }
+
+            activeSessions = _sessions.Count;
         }
+
+        activity?.SetTag("nebula.playback.result", "tracked");
+        activity?.SetTag("nebula.playback.prefetch_cancelled", pathToCancel is not null);
+        activity?.SetTag("nebula.playback.active_sessions", activeSessions);
 
         await CancelIfUnusedAsync(pathToCancel).ConfigureAwait(false);
     }

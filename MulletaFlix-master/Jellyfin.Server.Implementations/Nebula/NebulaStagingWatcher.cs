@@ -328,7 +328,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         }
     }
 
-    private void EnqueueFile(string fullPath, ObjectId? nodeId = null, string? parentId = null)
+    private void EnqueueFile(string fullPath, ObjectId? nodeId = null, string? parentId = null, bool forcePriority = false)
     {
         if (string.IsNullOrWhiteSpace(fullPath) ||
             string.Equals(Path.GetFileName(fullPath), NebulaMetadataExportService.PendingMarkerFileName, StringComparison.OrdinalIgnoreCase) ||
@@ -360,7 +360,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                 NodeId = nodeId
             };
 
-            var prioritized = IsPathPrioritized(fullPath);
+            var prioritized = forcePriority || IsPathPrioritized(fullPath);
             if (!_uploadQueue.TryEnqueue(item, prioritized, _producerQueueLimit))
             {
                 _queuedFiles.TryRemove(queueKey, out _);
@@ -539,8 +539,15 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                     ? idVal.AsObjectId
                     : (doc.TryGetValue("_id", out var sidVal) && ObjectId.TryParse(sidVal.ToString(), out var parsedOid) ? parsedOid : null);
 
+                // A prioridade persistida sobrepõe o cálculo por caminho: a lista
+                // de solicitações em memória não sobrevive ao restart, então sem
+                // isto a fila restaurada perdia a preferência pedida pelo usuário.
+                var persistedPriority = doc.TryGetValue("is_priority", out var priorityValue)
+                    && priorityValue.IsBoolean
+                    && priorityValue.AsBoolean;
+
                 var before = _uploadQueue.PendingCount;
-                EnqueueFile(resolvedLocalPath, nodeId, parent);
+                EnqueueFile(resolvedLocalPath, nodeId, parent, forcePriority: persistedPriority);
                 if (_uploadQueue.PendingCount > before)
                 {
                     count++;

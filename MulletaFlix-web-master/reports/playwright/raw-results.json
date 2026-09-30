@@ -5,9 +5,8 @@
       "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\node_modules\\@playwright\\test\\cli.js",
       "test",
       "--config",
-      "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
-      "--grep",
-      "Wizard"
+      "playwright.stage.config.ts",
+      "tests/playwright/specs/24-scrollbuttons.spec.ts"
     ],
     "configFile": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\playwright.stage.config.ts",
     "rootDir": "D:/Users/Raphael/Documents/Projetos/mulletaflix/MulletaFlix-web-master/tests/playwright/specs",
@@ -51,7 +50,7 @@
       [
         "json",
         {
-          "outputFile": "D:\\Users\\Raphael\\Documents\\Projetos\\mulletaflix\\MulletaFlix-web-master\\reports\\playwright\\raw-results.json"
+          "outputFile": "reports/playwright/raw-results.json"
         }
       ]
     ],
@@ -69,96 +68,53 @@
   },
   "suites": [
     {
-      "title": "00-wizard.spec.ts",
-      "file": "00-wizard.spec.ts",
+      "title": "24-scrollbuttons.spec.ts",
+      "file": "24-scrollbuttons.spec.ts",
       "column": 0,
       "line": 0,
-      "specs": [],
-      "suites": [
+      "specs": [
         {
-          "title": "00 - Wizard",
-          "file": "00-wizard.spec.ts",
-          "line": 8,
-          "column": 15,
-          "specs": [
+          "title": "search-style scroller reveals and updates navigation after cards mount",
+          "ok": true,
+          "tags": [],
+          "tests": [
             {
-              "title": "stage starts clean and wizard pages are reachable",
-              "ok": true,
-              "tags": [],
-              "tests": [
+              "timeout": 120000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
                 {
-                  "timeout": 120000,
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 882,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-30T03:50:58.578Z",
                   "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1016,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-09-12T09:05:09.835Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
+                  "attachments": []
                 }
               ],
-              "id": "568f1ca24fc67c076af1-cd10c2b78139ec098857",
-              "file": "00-wizard.spec.ts",
-              "line": 9,
-              "column": 9
-            },
-            {
-              "title": "completes the wizard end-to-end",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 120000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 4835,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-09-12T09:05:11.258Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "568f1ca24fc67c076af1-0563e733b57853c3237c",
-              "file": "00-wizard.spec.ts",
-              "line": 22,
-              "column": 9
+              "status": "expected"
             }
-          ]
+          ],
+          "id": "9fab20378ea7e31d7438-5e375ae6afc77bdacd58",
+          "file": "24-scrollbuttons.spec.ts",
+          "line": 3,
+          "column": 5
         }
       ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-09-12T09:05:09.386Z",
-    "duration": 6946.724999999999,
-    "expected": 2,
+    "startTime": "2026-09-30T03:50:58.187Z",
+    "duration": 1595.327,
+    "expected": 1,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

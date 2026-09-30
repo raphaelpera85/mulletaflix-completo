@@ -259,6 +259,7 @@ const uploadFailureStageLabel = new Map<string, string>([
     [ 'telegram_availability', 'Telegram indisponível' ],
     [ 'telegram_transfer', 'Transferência ao Telegram' ],
     [ 'upload_integrity', 'Integridade do upload' ],
+    [ 'unexpected_error', 'Erro inesperado' ],
     [ 'unknown', 'Etapa não identificada' ]
 ]);
 

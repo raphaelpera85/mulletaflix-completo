@@ -345,6 +345,7 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
             route = GetMetricRoute(path);
             requestActivity = StartRequestActivity(
                 request.Headers["traceparent"],
+                request.Headers["tracestate"],
                 request.HttpMethod,
                 route);
             requestCancellation.CancelAfter(isStreamingRequest ? StreamRequestTimeout : ControlRequestTimeout);
@@ -443,9 +444,9 @@ public sealed class NebulaHttpStreamServer : IAsyncDisposable, IDisposable
         }
     }
 
-    internal static Activity? StartRequestActivity(string? traceParent, string method, string route)
+    internal static Activity? StartRequestActivity(string? traceParent, string? traceState, string method, string route)
     {
-        var parentContext = ActivityContext.TryParse(traceParent, null, out var parsedContext)
+        var parentContext = ActivityContext.TryParse(traceParent, traceState, out var parsedContext)
             ? parsedContext
             : default;
         var activity = RequestActivitySource.StartActivity("nebula.http.request", ActivityKind.Server, parentContext);

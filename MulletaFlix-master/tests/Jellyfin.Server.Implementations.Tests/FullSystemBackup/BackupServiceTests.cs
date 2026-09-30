@@ -534,4 +534,64 @@ public class BackupServiceTests
             }
         }
     }
+
+    [Fact]
+    public void PruneOldBackups_UsesSafeDefaultForZeroLimit()
+    {
+        var service = CreateService();
+        var tempFolder = Path.Combine(Path.GetTempPath(), "MulletaFlixPruneDefaultTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempFolder);
+
+        try
+        {
+            for (var age = 0; age < 7; age++)
+            {
+                var path = Path.Combine(tempFolder, $"MulletaFlix-backup-{age}.zip");
+                File.WriteAllText(path, $"backup-{age}");
+                File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-age));
+            }
+
+            service.PruneOldBackups(tempFolder, maxToKeep: 0);
+
+            Assert.Equal(BackupRetentionPolicy.DefaultKeepCount, Directory.GetFiles(tempFolder, "*.zip").Length);
+            Assert.False(File.Exists(Path.Combine(tempFolder, "MulletaFlix-backup-6.zip")));
+            Assert.False(File.Exists(Path.Combine(tempFolder, "MulletaFlix-backup-5.zip")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempFolder))
+            {
+                Directory.Delete(tempFolder, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void PruneOldBackups_NegativeLimitDisablesRemoval()
+    {
+        var service = CreateService();
+        var tempFolder = Path.Combine(Path.GetTempPath(), "MulletaFlixPruneUnlimitedTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempFolder);
+
+        try
+        {
+            for (var age = 0; age < 4; age++)
+            {
+                var path = Path.Combine(tempFolder, $"MulletaFlix-backup-{age}.zip");
+                File.WriteAllText(path, $"backup-{age}");
+                File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-age));
+            }
+
+            service.PruneOldBackups(tempFolder, maxToKeep: -1);
+
+            Assert.Equal(4, Directory.GetFiles(tempFolder, "*.zip").Length);
+        }
+        finally
+        {
+            if (Directory.Exists(tempFolder))
+            {
+                Directory.Delete(tempFolder, recursive: true);
+            }
+        }
+    }
 }

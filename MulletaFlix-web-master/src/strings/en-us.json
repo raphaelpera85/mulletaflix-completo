@@ -1987,5 +1987,7 @@
     "MyMediaRequestsEmpty": "You haven't requested any titles yet.",
     "MyMediaRequestsPendingEmpty": "No pending requests.",
     "MyMediaRequestsIncludedEmpty": "None of your requests have been added yet.",
+    "MyMediaRequestPriority": "Priority requested",
+    "MyMediaRequestPriorityDescription": "The title is registered as a Nebula priority. Its queue position appears when a matching file enters the queue.",
     "PlaybackIssuesAdminTitle": "Reported errors and bugs"
 }

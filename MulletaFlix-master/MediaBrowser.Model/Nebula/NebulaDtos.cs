@@ -190,6 +190,13 @@ public static class NebulaUploadFailureStages
 
     public const string UploadIntegrity = "upload_integrity";
 
+    /// <summary>
+    /// Falha por exceção não encaminhada pelos ramos explícitos do upload.
+    /// Distingue um erro inesperado de um documento legado sem `failure_stage`,
+    /// que continua classificado como <see cref="Unknown"/>.
+    /// </summary>
+    public const string UnexpectedError = "unexpected_error";
+
     public const string Unknown = "unknown";
 }
 

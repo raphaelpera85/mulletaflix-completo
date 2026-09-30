@@ -62,7 +62,11 @@ public class BackupController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public IActionResult StartRestoreBackup([FromBody, BindRequired] BackupRestoreRequestDto archiveRestoreDto)
     {
-        var archivePath = SanitizePath(archiveRestoreDto.ArchiveFileName);
+        if (!TryGetSafeBackupPath(archiveRestoreDto.ArchiveFileName, out var archivePath))
+        {
+            return BadRequest("The backup path must reference a regular file inside the backup directory.");
+        }
+
         if (!System.IO.File.Exists(archivePath))
         {
             return NotFound();
@@ -135,7 +139,10 @@ public class BackupController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<BackupManifestDto>> GetBackup([BindRequired] string path)
     {
-        var backupPath = SanitizePath(path);
+        if (!TryGetSafeBackupPath(path, out var backupPath))
+        {
+            return BadRequest("The backup path must reference a regular file inside the backup directory.");
+        }
 
         if (!System.IO.File.Exists(backupPath))
         {
@@ -152,12 +159,40 @@ public class BackupController : BaseMulletaFlixApiController
     }
 
     [NonAction]
-    private string SanitizePath(string path)
+    private bool TryGetSafeBackupPath(string path, out string backupPath)
     {
-        // sanitize path
-        var archiveRestorePath = Path.GetFileName(Path.GetFullPath(path));
-        var archivePath = Path.Combine(_applicationPaths.BackupPath, archiveRestorePath);
-        return archivePath;
+        backupPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var backupRoot = Path.GetFullPath(_applicationPaths.BackupPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var fileName = Path.GetFileName(path);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return false;
+        }
+
+        var candidate = Path.GetFullPath(Path.Combine(backupRoot, fileName));
+        if (!candidate.StartsWith(backupRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (System.IO.File.Exists(candidate))
+        {
+            var attributes = System.IO.File.GetAttributes(candidate);
+            if (attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                return false;
+            }
+        }
+
+        backupPath = candidate;
+        return true;
     }
 
     /// <summary>
@@ -186,7 +221,10 @@ public class BackupController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<bool>> ValidateBackup([BindRequired] string path)
     {
-        var backupPath = SanitizePath(path);
+        if (!TryGetSafeBackupPath(path, out var backupPath))
+        {
+            return BadRequest("The backup path must reference a regular file inside the backup directory.");
+        }
 
         if (!System.IO.File.Exists(backupPath))
         {

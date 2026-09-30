@@ -669,7 +669,7 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
         // 3. Executa o download multipart resiliente sem aguardar o reconhecimento
         // antecipado da mídia pelo Jellyfin.
-        var partsCount = config.DownloadParts > 0 ? Math.Clamp(config.DownloadParts, 1, 32) : 24;
+        var partsCount = NebulaTransferLimits.ResolveDownloadConnections(config.DownloadParts);
         bool downloadOk;
         try
         {
@@ -1214,10 +1214,10 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     lastLoggedBytes = initialDownloaded;
                 }
 
-                // Use todas as partes configuradas (até 32), como no downloader
-                // original. O limite anterior de 8 deixava o MulletaFlix bem
-                // mais lento quando DownloadParts era 20 ou 32.
-                var connectionCount = Math.Clamp(partsCount, 1, 32);
+                // Usa todas as partes configuradas dentro do limite seguro comum
+                // (ver NebulaTransferLimits). O limite anterior de 8 deixava o
+                // MulletaFlix bem mais lento quando DownloadParts era 20 ou 32.
+                var connectionCount = NebulaTransferLimits.ResolveDownloadConnections(partsCount);
                 using var semaphore = new SemaphoreSlim(connectionCount, connectionCount);
 
                 var downloadTasks = Enumerable.Range(0, partsCount).Select(async index =>
@@ -1852,16 +1852,9 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             Path.GetDirectoryName(path),
             Path.GetFileName(path));
 
-        return mediaType switch
-        {
-            "ANIMACAO" => 1,
-            "FILME" => 2,
-            "SERIE" => 3,
-            "DORAMA" => 4,
-            "NOVELA" => 5,
-            "PORNO" => 6,
-            _ => 7
-        };
+        // Ordem vem de NebulaCategoryOrder: manter um switch aqui fazia a tabela
+        // divergir da exibida na interface.
+        return NebulaCategoryOrder.GetRank(mediaType);
     }
 
     /// <summary>Orders media by requested priority, category rank, then A-Z work title.</summary>
@@ -1876,16 +1869,8 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     internal static string GetPriorityReason(bool isRequested, string categoryName)
         => isRequested ? "Solicitação de usuário" : $"{categoryName} · ordem alfabética";
 
-    private static string GetCategoryDisplayName(int categoryPriority) => categoryPriority switch
-    {
-        1 => "ANIMAÇÕES",
-        2 => "FILMES",
-        3 => "SERIES",
-        4 => "DORAMAS",
-        5 => "NOVELAS",
-        6 => "PORNO",
-        _ => "OUTROS"
-    };
+    private static string GetCategoryDisplayName(int categoryPriority)
+        => NebulaCategoryOrder.GetDisplayName(categoryPriority);
 
     /// <summary>Gets the work title used for alphabetical ordering, excluding category and season folders.</summary>
     internal static string GetMediaSortTitle(string path)
@@ -2197,16 +2182,33 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
 
             try
             {
-                Directory.CreateDirectory(root);
                 var fullPath = Path.GetFullPath(root);
                 var driveRoot = Path.GetPathRoot(fullPath) ?? string.Empty;
+
+                // A inspeção vem antes de criar o diretório: com um inspetor
+                // injetado (testes) ou um volume ainda não provisionado, falhar
+                // aqui descartava um candidato que o inspetor consideraria válido.
                 var (isReady, free, total) = driveInspector(root);
-                if (isReady && total > 0)
+                if (!isReady)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    Directory.CreateDirectory(root);
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogDebug(ex, "[NEBULA-STAGE] Não foi possível criar o stage root {Root}; o volume segue elegível pela inspeção.", root);
+                }
+
+                if (total > 0)
                 {
                     var pct = ((double)free / total) * 100.0;
                     candidates.Add((root, driveRoot, free, total, pct));
                 }
-                else if (isReady)
+                else
                 {
                     candidates.Add((root, driveRoot, free, total, 0.0));
                 }

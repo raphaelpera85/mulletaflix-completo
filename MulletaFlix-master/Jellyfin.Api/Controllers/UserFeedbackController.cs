@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Models.UserFeedbackDtos;
@@ -55,7 +56,7 @@ public class UserFeedbackController : BaseMulletaFlixApiController
 
     /// <summary>Returns the media requests submitted by the current user, most recent first.</summary>
     [HttpGet("MediaRequests")]
-    [ProducesResponseType(typeof(MediaBrowser.Model.Querying.QueryResult<MediaBrowser.Model.Activity.ActivityLogEntry>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(MediaRequestQueryResultDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMyMediaRequests([FromQuery] int limit = 100)
     {
         var result = await _activityManager.GetPagedResultAsync(new MulletaFlix.Data.Queries.ActivityLogQuery
@@ -66,7 +67,24 @@ public class UserFeedbackController : BaseMulletaFlixApiController
             OrderBy = new[] { (MulletaFlix.Data.Enums.ActivityLogSortBy.DateCreated, MulletaFlix.Database.Implementations.Enums.SortOrder.Descending) }
         }).ConfigureAwait(false);
 
-        return new OkObjectResult(result);
+        return new OkObjectResult(new MediaRequestQueryResultDto
+        {
+            StartIndex = result.StartIndex,
+            TotalRecordCount = result.TotalRecordCount,
+            Items = result.Items,
+            PriorityRequestIds = result.Items
+                .Where(entry => _nebulaFtpManager.IsMediaRequestPrioritized(GetRequestTitle(entry)))
+                .Select(entry => entry.Id)
+                .ToArray()
+        });
+    }
+
+    private static string GetRequestTitle(MediaBrowser.Model.Activity.ActivityLogEntry entry)
+    {
+        const string prefix = "Solicitação de mídia:";
+        return entry.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? entry.Name[prefix.Length..].Trim()
+            : entry.Name.Trim();
     }
 
     /// <summary>Creates a request for a title to be added to the server library.</summary>
