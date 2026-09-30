@@ -18,22 +18,7 @@ import toast from 'components/toast/toast';
 import type { ApiClient } from 'jellyfin-apiclient';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { queryClient } from 'utils/query/queryClient';
-
-type SupabaseStatus = {
-    IsConfigured: boolean;
-    IsConnected: boolean;
-    AutoBackupEnabled: boolean;
-    AutoBackupIntervalHours: number;
-    LastBackupTime?: string;
-    LastBackupStatus?: string;
-    AutoUsersBackupIntervalHours?: number;
-    LastUsersBackupTime?: string;
-    LastUsersBackupStatus?: string;
-    LastUsersBackupCount?: number;
-    TotalRemoteFiles: number;
-    TotalLocalFiles: number;
-    Message?: string;
-};
+import { useSupabaseBackupStatus } from 'apps/dashboard/features/backups/api/useSupabaseBackupStatus';
 
 type SupabaseConfig = {
     SupabaseUrl?: string;
@@ -73,7 +58,7 @@ const postAction = async (path: string): Promise<OperationResult> => {
     }) as Promise<OperationResult>;
 };
 
-const formatDate = (value?: string): string => {
+const formatDate = (value?: string | null): string => {
     if (!value) return 'Nenhum backup realizado ainda';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
@@ -83,11 +68,7 @@ const BackupRestorePage = () => {
     const [ isRestoreDialogOpen, setIsRestoreDialogOpen ] = useState(false);
     const [ projectRef, setProjectRef ] = useState('');
     const [ managementToken, setManagementToken ] = useState('');
-    const statusQuery = useQuery({
-        queryKey: STATUS_QUERY_KEY,
-        queryFn: () => getApiClient().getJSON(getApiClient().getUrl('NebulaFtp/Supabase/Status')) as Promise<SupabaseStatus>,
-        refetchInterval: 10000
-    });
+    const statusQuery = useSupabaseBackupStatus();
     const configQuery = useQuery({
         queryKey: CONFIG_QUERY_KEY,
         queryFn: () => getApiClient().getJSON(getApiClient().getUrl('NebulaFtp/Config')) as Promise<SupabaseConfig>
@@ -183,7 +164,7 @@ const BackupRestorePage = () => {
                             <Typography variant='body2'>Intervalo: <strong>{status?.AutoUsersBackupIntervalHours || 24} horas</strong></Typography>
                             <Typography variant='body2'>Último backup de usuários: <strong>{formatDate(status?.LastUsersBackupTime)}</strong></Typography>
                             <Typography variant='body2'>Status: <strong>{status?.LastUsersBackupStatus || 'Aguardando primeiro backup automático'}</strong></Typography>
-                            <Typography variant='body2'>Usuários incluídos: <strong>{status?.LastUsersBackupCount ?? 0}</strong></Typography>
+                            <Typography variant='body2'>Usuários processados na última execução: <strong>{status?.LastUsersBackupFailed === false ? status.LastUsersBackupCount ?? 'Não informado' : 'Não informado'}</strong></Typography>
                             <Typography variant='body2'>Mídia incluída: <strong>Não</strong></Typography>
                         </Box>
                     </Stack>

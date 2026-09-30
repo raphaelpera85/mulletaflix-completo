@@ -25,6 +25,50 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 public class NebulaUploadEngineTests
 {
     [Fact]
+    public async Task DisposeAsync_CancelsAndDrainsActiveUploadBeforeDisposingSemaphore()
+    {
+        var engine = new NebulaUploadEngine(
+            null!,
+            null!,
+            uploadConcurrency: 1,
+            chunkSizeMb: 16,
+            deleteSourceAfterUpload: false,
+            NullLogger<NebulaUploadEngine>.Instance);
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".mkv");
+        await File.WriteAllTextAsync(path, "upload lifecycle");
+        var semaphore = (SemaphoreSlim)typeof(NebulaUploadEngine)
+            .GetField("_concurrencySemaphore", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine)!;
+        var cancellation = (CancellationTokenSource)typeof(NebulaUploadEngine)
+            .GetField("_cts", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine)!;
+        await semaphore.WaitAsync();
+        using var releaseHeldSlot = cancellation.Token.Register(() => semaphore.Release());
+
+        try
+        {
+            var upload = engine.ProcessFileUploadAsync(path, Path.GetFileName(path));
+            Assert.True(SpinWait.SpinUntil(
+                () => (int)typeof(NebulaUploadEngine)
+                    .GetField("_activeOperations", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine)! == 1,
+                TimeSpan.FromSeconds(5)));
+
+            var disposal = engine.DisposeAsync().AsTask();
+            Assert.False(await engine.ProcessFileUploadAsync(path, Path.GetFileName(path)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upload);
+            await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            if (!cancellation.IsCancellationRequested)
+            {
+                semaphore.Release();
+            }
+
+            File.Delete(path);
+            await engine.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task UploadEngine_EmitsActivityWithoutMediaIdentifiers()
     {
         System.Diagnostics.Activity? recordedActivity = null;

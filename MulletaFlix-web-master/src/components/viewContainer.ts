@@ -1,5 +1,6 @@
 import './viewManager/viewContainer.scss';
 import Dashboard from '../utils/dashboard';
+import { getPluginControllerUrl } from '../utils/pluginControllerUrl';
 
 export type ControllerFactory =
     new (view: HTMLElement, params: Record<string, string>) => void | { default: new (view: HTMLElement, params: Record<string, string>) => void };
@@ -59,7 +60,7 @@ function setControllerClass(view: HTMLElement, options: ViewOptions): Promise<vo
         }
 
         controllerUrl = Dashboard.getPluginUrl(controllerUrl);
-        const apiUrl = ApiClient.getUrl('/web/' + controllerUrl);
+        const apiUrl = getPluginControllerUrl(ApiClient, controllerUrl);
         return import(/* @vite-ignore */ apiUrl).then((controllerFactory: unknown) => {
             options.controllerFactory = controllerFactory as ControllerFactory;
         });
@@ -170,24 +171,18 @@ function executeScripts(container: HTMLElement): void {
         if (oldScript.src || oldScript.getAttribute('src')) {
             const newScript = document.createElement('script');
             for (const attr of Array.from(oldScript.attributes)) {
-                if (attr.name === 'src') {
-                    const src = attr.value;
-                    if (src && !src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('//') && !src.startsWith('/')) {
-                        const resolved = (window as unknown as { ApiClient?: { getUrl: (p: string) => string } }).ApiClient?.getUrl('web/' + src) || src;
-                        newScript.src = resolved;
-                    } else {
-                        newScript.src = src;
-                    }
-                } else {
-                    newScript.setAttribute(attr.name, attr.value);
-                }
+                newScript.setAttribute(attr.name, attr.value);
+            }
+            const src = oldScript.getAttribute('src');
+            if (src && !/^(?:https?:\/\/|\/)/.test(src)) {
+                newScript.src = (window as unknown as { ApiClient?: { getUrl: (p: string) => string } }).ApiClient?.getUrl('web/' + src) || src;
             }
             newScript.async = false;
             oldScript.parentNode?.replaceChild(newScript, oldScript);
         } else if (oldScript.textContent) {
             try {
                 // Execute inline script in global scope
-                (0, eval)(oldScript.textContent);
+                window.eval(oldScript.textContent);
             } catch (error) {
                 console.error('[viewContainer] Error executing inline script:', error);
             }

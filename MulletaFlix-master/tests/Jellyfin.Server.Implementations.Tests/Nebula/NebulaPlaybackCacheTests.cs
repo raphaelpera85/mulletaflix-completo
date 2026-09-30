@@ -1545,6 +1545,10 @@ public sealed class NebulaPlaybackCacheTests
             await fetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var dispose = Task.Run(cache.Dispose);
             await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // Callback start does not establish that the Dispose task's caller
+            // has resumed. Prove completion while the callback stays blocked.
+            await dispose.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(releaseCallback.IsSet);
             Assert.True(dispose.IsCompleted);
 
             releaseCallback.Set();

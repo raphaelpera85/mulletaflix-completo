@@ -28,7 +28,7 @@ using MulletaFlix.Database.Implementations.Contexts;
 
 namespace MulletaFlix.Server.Implementations.Nebula;
 
-public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
+public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDisposable
 {
     private static readonly HttpClient RcloneRemoteControlClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly IServerConfigurationManager _configManager;
@@ -56,8 +56,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private NebulaSupabaseSyncService? _supabaseSyncService;
     private NebulaDownloaderEngine? _downloaderEngine;
     private Process? _rcloneProcess;
+    private Task? _rcloneStdoutTask;
+    private Task? _rcloneStderrTask;
     private CancellationTokenSource? _cleanupCts;
     private Task? _cleanupTask;
+    private Task _automaticMountTask = Task.CompletedTask;
+    private Task _disposeTask = Task.CompletedTask;
 
     private bool _isEnvioRunning;
     private bool _streamOnly;
@@ -70,6 +74,8 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private readonly SemaphoreSlim _mountLock = new(1, 1);
     private readonly SemaphoreSlim _dependencyLock = new(1, 1);
     private readonly NebulaDirectoryRefreshQueue _directoryRefreshQueue;
+    private readonly NebulaMountRetry _mountRetry;
+    private int _disposed;
 
     // Checkpoint da limpeza incremental: sem ele, um cancelamento descartava todo
     // o avanço e o ciclo seguinte recomeçava da primeira entrada.
@@ -80,7 +86,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private long _nextAutomaticMountAttemptUtcTicks;
     private int _automaticMountAttemptInProgress;
     private int _automaticMountFailures;
-    private int _mountRetryScheduled;
     private readonly Dictionary<string, NebulaOperationReplay> _operationReplays = new(StringComparer.Ordinal);
     private readonly object _mediaSuggestionsLock = new();
     private IReadOnlyList<NebulaMediaSuggestionDto> _mediaSuggestions = Array.Empty<NebulaMediaSuggestionDto>();
@@ -347,6 +352,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         _directoryRefreshQueue = new NebulaDirectoryRefreshQueue(
             RefreshRcloneDirectoryAsync,
             _loggerFactory.CreateLogger<NebulaDirectoryRefreshQueue>());
+        _mountRetry = new NebulaMountRetry(async token =>
+        {
+            if (Volatile.Read(ref _disposed) == 0 && (_isEnvioRunning || _isDownloaderRunning))
+            {
+                await MountDriveNAsync(token).ConfigureAwait(false);
+            }
+        }, _loggerFactory.CreateLogger<NebulaMountRetry>());
     }
 
     private async Task EnsureRuntimeDependenciesAsync(CancellationToken cancellationToken)
@@ -1364,6 +1376,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     public async Task<bool> StartEnvioAsync(bool streamOnly, CancellationToken cancellationToken = default)
     {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return false;
+        }
+
         if (_isEnvioRunning && _ftpServerHost != null && _ftpServerHost.IsRunning)
         {
             return true;
@@ -1390,6 +1407,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
         try
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return false;
+            }
+
             if (_isEnvioRunning && _ftpServerHost != null && _ftpServerHost.IsRunning)
             {
                 return true;
@@ -1722,7 +1744,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     public async Task<bool> StopEnvioAsync(CancellationToken cancellationToken = default)
     {
+        _mountRetry.Cancel();
         await _envioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var stopped = false;
 
         try
         {
@@ -1791,14 +1815,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 _uploadEngine = null;
             }
 
-            AddServerLog("NebulaFTP Server nativo em C# encerrado com sucesso.");
-            return true;
+            stopped = true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to stop NebulaFTP server");
             AddServerLog($"[ERRO] Falha ao parar serviços: {ex.Message}");
-            return false;
         }
         finally
         {
@@ -1808,11 +1830,19 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
             catch (Exception cleanupException)
             {
+                stopped = false;
                 _logger.LogError(cleanupException, "Falha ao liberar recursos compartilhados após parar o Envio.");
             }
 
             _envioLock.Release();
         }
+
+        if (stopped)
+        {
+            AddServerLog("NebulaFTP Server nativo em C# encerrado com sucesso.");
+        }
+
+        return stopped;
     }
 
     public async Task<bool> StartPlaybackPrefetchAsync(string mediaPath, CancellationToken cancellationToken = default)
@@ -2309,6 +2339,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     public async Task<bool> StartDownloaderAsync(CancellationToken cancellationToken = default)
     {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return false;
+        }
+
         if (_isDownloaderRunning && _downloaderEngine != null && _downloaderEngine.IsRunning)
         {
             return true;
@@ -2366,6 +2401,11 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
         try
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return false;
+            }
+
             if (_isDownloaderRunning && _downloaderEngine != null && _downloaderEngine.IsRunning)
             {
                 return true;
@@ -2428,19 +2468,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
             if (!IsDriveNAccessible() && config.UseMappedDrive)
             {
-                _ = Task.Run(
-                    async () =>
-                    {
-                        try
-                        {
-                            await MountDriveNAsync(CancellationToken.None).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Erro ao auto-montar unidade N: no startup do Downloader");
-                        }
-                    },
-                    CancellationToken.None);
+                _mountRetry.Schedule(TimeSpan.Zero);
             }
             else if (!config.UseMappedDrive)
             {
@@ -2465,7 +2493,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     public async Task<bool> StopDownloaderAsync(CancellationToken cancellationToken = default)
     {
+        _mountRetry.Cancel();
         await _downloaderLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var stopped = false;
 
         try
         {
@@ -2481,8 +2511,6 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             _currentDownload.StageStep = string.Empty;
             _currentDownload.Percentage = 0;
             _currentDownload.DetailText = "0.0%";
-
-            AddDownloaderLog("STRM Downloader encerrado.");
 
             // Only unmount drive N: if NO service (Envio or Downloader) needs it anymore
             if (!_isEnvioRunning)
@@ -2502,13 +2530,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 AddDownloaderLog("[NEBULA-MOUNT] Unidade N: mantida montada pois Envio ainda está ativo.");
             }
 
-            return true;
+            stopped = true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to stop STRM Downloader");
             AddDownloaderLog($"[ERRO] Falha ao parar Downloader: {ex.Message}");
-            return false;
         }
         finally
         {
@@ -2518,11 +2545,19 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
             catch (Exception cleanupException)
             {
+                stopped = false;
                 _logger.LogError(cleanupException, "Falha ao liberar recursos compartilhados após parar o Downloader.");
             }
 
             _downloaderLock.Release();
         }
+
+        if (stopped)
+        {
+            AddDownloaderLog("STRM Downloader encerrado.");
+        }
+
+        return stopped;
     }
 
     private async Task DisposeSharedRuntimeResourcesAsync()
@@ -2535,6 +2570,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 return;
             }
 
+            if (_uploadEngine != null || _downloaderEngine != null || _stagingWatcher != null
+                || _ftpServerHost != null || _httpStreamServer != null || _supabaseSyncService != null)
+            {
+                throw new InvalidOperationException("Nebula components still own shared runtime resources after incomplete shutdown.");
+            }
+
             var cleanupTask = _cleanupTask;
             _cleanupCts?.Cancel();
 
@@ -2542,7 +2583,16 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             {
                 try
                 {
-                    await Task.WhenAny(cleanupTask, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+                    await cleanupTask.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    _logger.LogWarning("[NEBULA-SHUTDOWN] Limpeza ainda em execução. Recursos compartilhados preservados para nova tentativa de encerramento.");
+                    throw;
+                }
+                catch (OperationCanceledException) when (_cleanupCts?.IsCancellationRequested == true)
+                {
+                    // Cooperative cleanup cancellation has completed; disposal is safe.
                 }
                 catch (Exception ex)
                 {
@@ -2725,9 +2775,30 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
 
     private void StartContinuousCleanup(NebulaFtpConfiguration config)
     {
+        lock (_lock)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            StartContinuousCleanupCore(config);
+        }
+    }
+
+    private void StartContinuousCleanupCore(NebulaFtpConfiguration config)
+    {
+        if (_cleanupTask is { IsCompleted: false })
+        {
+            if (_cleanupCts?.IsCancellationRequested == true)
+            {
+                throw new InvalidOperationException("Previous Nebula cleanup is still stopping. Retry startup after it completes.");
+            }
+
+            // Envio and Downloader share one cleanup loop.
+            return;
+        }
+
         _cleanupCts?.Cancel();
         _cleanupCts?.Dispose();
         _cleanupCts = new CancellationTokenSource();
+        var cleanupToken = _cleanupCts.Token;
 
         var sources = (config.MonitorPaths ?? Array.Empty<string>())
             .Where(p => !string.IsNullOrWhiteSpace(p)
@@ -2753,7 +2824,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         EmitCleanupLog("===========================================");
         EmitCleanupLog(string.Empty);
 
-        _cleanupTask = Task.Run(() => RunContinuousCleanupLoopAsync(sources, _cleanupCts.Token), _cleanupCts.Token);
+        _cleanupTask = Task.Run(() => RunContinuousCleanupLoopAsync(sources, cleanupToken), cleanupToken);
     }
 
     private async Task RunContinuousCleanupLoopAsync(List<string> sources, CancellationToken cancellationToken)
@@ -2789,12 +2860,12 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                     {
                         _logger.LogWarning("[NEBULA-WATCHDOG] Unidade N: inacessível (UseMappedDrive=true). Iniciando auto-recuperação...");
                         AddServerLog("[NEBULA-WATCHDOG] Unidade N: inacessível. Remontando automaticamente...");
-                        _ = Task.Run(
+                        _automaticMountTask = Task.Run(
                             async () =>
                             {
                                 try
                                 {
-                                    var mounted = await MountDriveNAsync(CancellationToken.None).ConfigureAwait(false);
+                                    var mounted = await MountDriveNAsync(cancellationToken).ConfigureAwait(false);
                                     if (mounted)
                                     {
                                         Interlocked.Exchange(ref _automaticMountFailures, 0);
@@ -3482,9 +3553,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             AutoBackupIntervalHours = config.SupabaseAutoBackupIntervalHours,
             LastBackupTime = config.SupabaseLastBackupTime,
             LastBackupStatus = config.SupabaseLastBackupStatus,
+            LastBackupAttemptTime = config.SupabaseLastBackupAttemptTime,
+            LastBackupFailed = config.SupabaseLastBackupFailed,
+            LastBackupProcessedFilesCount = config.SupabaseLastBackupProcessedFilesCount,
+            LastBackupProcessedUsersCount = config.SupabaseLastBackupProcessedUsersCount,
             LastUsersBackupTime = config.SupabaseLastUsersBackupTime,
             LastUsersBackupStatus = config.SupabaseLastUsersBackupStatus,
             LastUsersBackupCount = config.SupabaseLastUsersBackupCount,
+            LastUsersBackupFailed = config.SupabaseLastUsersBackupFailed,
             LastRestoreTime = config.SupabaseLastRestoreTime,
             LastRestoreStatus = config.SupabaseLastRestoreStatus,
             LastRestoreFailed = config.SupabaseLastRestoreFailed,
@@ -3596,6 +3672,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
             }
 
             var result = await syncService.PerformBackupAsync(config.SupabaseUrl, config.SupabaseKey, ReportBackupProgress, forceFull, cancellationToken).ConfigureAwait(false);
+            ApplyMongoBackupResult(config, result);
             if (result.Success)
             {
                 AddServerLog($"[SUPABASE] {result.Message}");
@@ -3631,6 +3708,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 Message = $"Erro durante o backup: {ex.Message}",
                 Timestamp = DateTime.UtcNow
             };
+            ApplyMongoBackupResult(config, failedResult);
+            config.SupabaseLastBackupStatus = failedResult.Message;
+            _configManager.SaveConfiguration("nebulaftp", config);
             await CacheOperationReplayAsync("supabase-backup", idempotencyKey, failedResult, CancellationToken.None).ConfigureAwait(false);
             return failedResult;
         }
@@ -3655,7 +3735,9 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         var config = NormalizeRuntimeConfiguration(Config);
         if (_supabaseSyncService == null)
         {
-            return new NebulaSupabaseBackupResultDto { Success = false, Message = "Serviço de sincronização do Supabase indisponível." };
+            var unavailableResult = new NebulaSupabaseBackupResultDto { Success = false, Message = "Serviço de sincronização do Supabase indisponível." };
+            RecordUsersBackupResult(unavailableResult);
+            return unavailableResult;
         }
 
         AddServerLog("[SUPABASE-USERS] Iniciando backup exclusivo dos usuários do MulletaFlix...");
@@ -3672,6 +3754,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private void RecordUsersBackupResult(NebulaSupabaseBackupResultDto result)
     {
         var config = Config;
+        config.SupabaseLastUsersBackupFailed = !result.Success;
         config.SupabaseLastUsersBackupTime = DateTime.UtcNow;
         config.SupabaseLastUsersBackupStatus = result.Success
             ? result.Message
@@ -3682,6 +3765,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
         }
 
         _configManager.SaveConfiguration("nebulaftp", config);
+    }
+
+    internal static void ApplyMongoBackupResult(NebulaFtpConfiguration config, NebulaSupabaseBackupResultDto result)
+    {
+        config.SupabaseLastBackupAttemptTime = result.Timestamp;
+        config.SupabaseLastBackupFailed = !result.Success;
+        config.SupabaseLastBackupProcessedFilesCount = result.Success ? result.FilesBackedUp : null;
+        config.SupabaseLastBackupProcessedUsersCount = result.Success ? result.UsersBackedUp : null;
     }
 
     public async Task<NebulaSupabaseRestoreResultDto> RestoreUsersFromSupabaseAsync(CancellationToken cancellationToken = default)
@@ -4114,12 +4205,77 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
     public void Dispose()
     {
+        lock (_lock)
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                // A failed stop keeps owned resources alive. Allow DisposeAsync
+                // to retry after the process becomes stoppable.
+                if (_disposeTask.IsFaulted)
+                {
+                    _disposeTask = Task.Run(() => DisposeAfterWorkersAsync(Task.CompletedTask));
+                }
+
+                return;
+            }
+
+            _mountRetry.Dispose();
+            var callbacks = _cleanupCts?.CancelAsync() ?? Task.CompletedTask;
+            _disposeTask = Task.Run(() => DisposeAfterWorkersAsync(callbacks));
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+        Task pending;
+        lock (_lock)
+        {
+            pending = _disposeTask;
+        }
+
+        await pending.ConfigureAwait(false);
+    }
+
+    private async Task DisposeAfterWorkersAsync(Task callbacks)
+    {
+        var acquired = new List<SemaphoreSlim>();
         try
         {
+            var cleanup = _cleanupTask;
+            if (cleanup != null)
+            {
+                try
+                {
+                    await cleanup.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_cleanupCts?.IsCancellationRequested == true)
+                {
+                }
+            }
+
+            await callbacks.ConfigureAwait(false);
+            await _mountRetry.WaitForIdleAsync().ConfigureAwait(false);
+            // Cleanup is drained before capturing its last watchdog attempt.
+            await _automaticMountTask.ConfigureAwait(false);
+            // Downloader startup already owns its gate before acquiring Envio.
+            // Follow that order or disposal can deadlock against startup.
+            // Maintenance jobs acquire maintenance then shared-runtime locks.
+            // Drain them in that order before releasing Mongo/Supabase resources.
+            foreach (var gate in new[] { _downloaderLock, _envioLock, _mountLock, _maintenanceLock, _sharedRuntimeLock })
+            {
+                await gate.WaitAsync().ConfigureAwait(false);
+                acquired.Add(gate);
+            }
+
+            // Normal disposal owns only this manager's process. Other server
+            // instances and independent rclone mounts must remain untouched.
+            if (!StopOwnedRcloneProcess())
+            {
+                throw new InvalidOperationException("Não foi possível parar o processo rclone pertencente ao Nebula; recursos preservados para nova tentativa.");
+            }
+
             _directoryRefreshQueue.Dispose();
-            // O servidor pode estar sendo reinstalado ou ter herdado uma
-            // montagem de uma sessão anterior. Encerra também rclone órfão.
-            StopAllRcloneProcesses(includeForeignProcesses: true);
 
             if (_supabaseSyncService != null)
             {
@@ -4159,7 +4315,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
             if (_telegramPool != null)
             {
-                _telegramPool.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                await _telegramPool.DisposeAsync().ConfigureAwait(false);
                 _telegramPool = null;
             }
 
@@ -4169,15 +4325,28 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 _mongoContext = null;
             }
 
-            _envioLock.Dispose();
-            _downloaderLock.Dispose();
-            _sharedRuntimeLock.Dispose();
-            _maintenanceLock.Dispose();
-            _mountLock.Dispose();
+            _cleanupCts?.Dispose();
+            _cleanupCts = null;
+            _cleanupTask = null;
+            _playbackCache?.Dispose();
+            _playbackCache = null;
+            _playbackCacheAccessor.Set(null);
+            _isEnvioRunning = false;
+            _isDownloaderRunning = false;
+            // Keep managed transition gates valid for callers already waiting;
+            // they observe _disposed after acquisition and can release safely.
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Erro no Dispose do NebulaFtpManager");
+            _logger.LogError(ex, "Falha ao concluir descarte assíncrono do NebulaFtpManager.");
+            throw;
+        }
+        finally
+        {
+            for (var index = acquired.Count - 1; index >= 0; index--)
+            {
+                acquired[index].Release();
+            }
         }
     }
 
@@ -4309,6 +4478,12 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
     public async Task<bool> MountDriveNAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return false;
+        }
+
         var config = NormalizeRuntimeConfiguration(Config);
         if (!config.UseMappedDrive)
         {
@@ -4330,6 +4505,11 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         await _mountLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return false;
+            }
+
             if (_rcloneProcess != null && !_rcloneProcess.HasExited && IsDriveNAccessible())
             {
                 AddServerLog("[NEBULA-MOUNT] Unidade N: já está montada e acessível.");
@@ -4343,6 +4523,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             if (_rcloneProcess != null && !_rcloneProcess.HasExited)
             {
                 AddServerLog("[NEBULA-MOUNT] Montagem N: já está em andamento; aguardando o helper existente.");
+                ScheduleMountRetry();
                 return false;
             }
 
@@ -4353,11 +4534,12 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 return false;
             }
 
-            // Garante liberação de processos ou pontos de montagem prévios antes de montar
-            AddServerLog("[NEBULA-MOUNT] Preparando montagem e liberando eventuais instâncias anteriores do rclone...");
-            // Clear stale rclone processes from previous Nebula/helper runs
-            // before claiming the N: WinFsp drive letter.
-            StopAllRcloneProcesses(includeForeignProcesses: true);
+            if (!StopOwnedRcloneProcess())
+            {
+                AddServerLog("[NEBULA-MOUNT-ERRO] Processo próprio anterior não encerrou. Montagem adiada.");
+                return false;
+            }
+
             for (var i = 0; i < 6; i++)
             {
                 if (!Directory.Exists("N:\\"))
@@ -4366,6 +4548,12 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 }
 
                 await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (Directory.Exists("N:\\"))
+            {
+                AddServerLog("[NEBULA-MOUNT-ERRO] Unidade N: ocupada sem montagem pertencente a esta instância. Nenhum processo externo será encerrado.");
+                return false;
             }
 
             // 1. Aguarda FTP local responder
@@ -4472,8 +4660,8 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             _rcloneProcess = Process.Start(psi);
             if (_rcloneProcess != null)
             {
-                _ = DrainMountOutputAsync(_rcloneProcess.StandardOutput, AddServerLog);
-                _ = DrainMountOutputAsync(_rcloneProcess.StandardError, AddServerLog);
+                _rcloneStdoutTask = DrainMountOutputAsync(_rcloneProcess.StandardOutput, AddServerLog);
+                _rcloneStderrTask = DrainMountOutputAsync(_rcloneProcess.StandardError, AddServerLog);
             }
 
             // 5. Polling para verificar se N:\ foi montado e está acessível
@@ -4487,7 +4675,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 if (_rcloneProcess != null && _rcloneProcess.HasExited)
                 {
                     AddServerLog($"[NEBULA-MOUNT-ERRO] rclone encerrou prematuramente (código: {_rcloneProcess.ExitCode}). Consulte {logFile}");
-                    StopAllRcloneProcesses(includeForeignProcesses: true);
+                    StopOwnedRcloneProcess();
                     ScheduleMountRetry();
                     return false;
                 }
@@ -4508,15 +4696,20 @@ CREATE POLICY nebula_bot_tokens_service_role_all
             }
 
             AddServerLog("[NEBULA-MOUNT-AVISO] Montagem de N: ainda está inicializando em segundo plano.");
-            StopAllRcloneProcesses(includeForeignProcesses: true);
+            StopOwnedRcloneProcess();
             ScheduleMountRetry();
+            return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            StopOwnedRcloneProcess();
             return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Erro ao montar unidade N: via rclone");
             AddServerLog($"[NEBULA-MOUNT-ERRO] Exceção ao montar unidade N: {ex.Message}");
-            StopAllRcloneProcesses(includeForeignProcesses: true);
+            StopOwnedRcloneProcess();
             ScheduleMountRetry();
             return false;
         }
@@ -4528,11 +4721,20 @@ CREATE POLICY nebula_bot_tokens_service_role_all
 
     public async Task<bool> UnmountDriveNAsync(CancellationToken cancellationToken = default)
     {
+        _mountRetry.Cancel();
+        await _mountLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // A desmontagem é o ponto de parada do Disco N. Limpa o processo
-            // proprietário e qualquer rclone órfão antes de liberar a letra.
-            StopAllRcloneProcesses(includeForeignProcesses: true);
+            if (_rcloneProcess == null)
+            {
+                AddServerLog("[NEBULA-MOUNT] Nenhuma montagem própria para encerrar. Montagens externas preservadas.");
+                return true;
+            }
+
+            if (!StopOwnedRcloneProcess())
+            {
+                return false;
+            }
 
             for (var i = 0; i < 6; i++)
             {
@@ -4544,6 +4746,12 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 await Task.Delay(500, cancellationToken).ConfigureAwait(false);
             }
 
+            if (Directory.Exists("N:\\"))
+            {
+                AddServerLog("[NEBULA-MOUNT-AVISO] Processo próprio encerrado, mas N: continua ocupada. Nenhum processo externo foi encerrado.");
+                return false;
+            }
+
             AddServerLog("[NEBULA-MOUNT] Unidade N: desmontada.");
             return true;
         }
@@ -4551,6 +4759,10 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         {
             _logger.LogError(ex, "Erro ao desmontar unidade N:");
             return false;
+        }
+        finally
+        {
+            _mountLock.Release();
         }
     }
 
@@ -4688,6 +4900,9 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         catch (ObjectDisposedException)
         {
         }
+        catch (IOException)
+        {
+        }
     }
 
     private string EnsureRcloneConfigFile(int serverPort, string username, string password, string rcloneExe)
@@ -4732,11 +4947,11 @@ idle_timeout = 15s
         return (username, password);
     }
 
-    private void StopOwnedRcloneProcess()
+    private bool StopOwnedRcloneProcess()
     {
         if (_rcloneProcess == null)
         {
-            return;
+            return true;
         }
 
         try
@@ -4744,143 +4959,49 @@ idle_timeout = 15s
             if (!_rcloneProcess.HasExited)
             {
                 _rcloneProcess.Kill(entireProcessTree: true);
-            }
-        }
-        catch
-        {
-        }
-        finally
-        {
-            _rcloneProcess.Dispose();
-            _rcloneProcess = null;
-        }
-    }
-
-    private void StopAllRcloneProcesses(bool includeForeignProcesses = false)
-    {
-        try
-        {
-            StopOwnedRcloneProcess();
-
-            if (includeForeignProcesses)
-            {
-                foreach (var process in Process.GetProcessesByName("rclone"))
+                if (!_rcloneProcess.WaitForExit(5000))
                 {
-                    try
-                    {
-                        if (!process.HasExited)
-                        {
-                            process.Kill(entireProcessTree: true);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Não foi possível encerrar uma instância antiga do rclone");
-                    }
-                    finally
-                    {
-                        process.Dispose();
-                    }
-                }
-
-                if (OperatingSystem.IsWindows())
-                {
-                    try
-                    {
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = "powershell.exe",
-                            Arguments = "-NoProfile -Command \"Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*.exe' -and $_.CommandLine -like '*mount_drive_n.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }\"",
-                            CreateNoWindow = true,
-                            UseShellExecute = false
-                        };
-                        using var p = Process.Start(psi);
-                        p?.WaitForExit(3000);
-                    }
-                    catch (Exception)
-                    {
-                    }
-
-                    // Fallback equivalente ao taskkill para processos que não
-                    // puderam ser enumerados/encerrados pelo Process API.
-                    try
-                    {
-                        var taskkill = new ProcessStartInfo
-                        {
-                            FileName = "taskkill.exe",
-                            Arguments = "/F /T /IM rclone.exe",
-                            CreateNoWindow = true,
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true
-                        };
-                        using var killProcess = Process.Start(taskkill);
-                        killProcess?.WaitForExit(3000);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Não foi possível executar o taskkill do rclone");
-                    }
+                    _logger.LogWarning("[NEBULA-MOUNT] Processo próprio não encerrou dentro do prazo. Referência preservada para nova tentativa.");
+                    return false;
                 }
             }
 
-            var rcloneExe = FindRcloneExe();
-            if (!string.IsNullOrWhiteSpace(rcloneExe))
+            var outputTasks = new[] { _rcloneStdoutTask, _rcloneStderrTask }
+                .Where(task => task is not null)
+                .Cast<Task>()
+                .ToArray();
+            if (outputTasks.Length > 0)
             {
                 try
                 {
-                    var psi = new ProcessStartInfo
+                    if (!Task.WaitAll(outputTasks, 5000))
                     {
-                        FileName = rcloneExe,
-                        Arguments = "unmount N:",
-                        CreateNoWindow = true,
-                        UseShellExecute = false
-                    };
-                    using var p = Process.Start(psi);
-                    p?.WaitForExit(2000);
+                        _logger.LogWarning("[NEBULA-MOUNT] Leitores de saída não encerraram dentro do prazo. Referência do processo preservada para nova tentativa.");
+                        return false;
+                    }
                 }
-                catch (Exception ex)
+                catch (AggregateException ex) when (outputTasks.All(task => task.IsCompleted))
                 {
-                    _logger.LogDebug(ex, "Não foi possível desmontar a unidade N: via rclone");
+                    _logger.LogWarning(ex, "[NEBULA-MOUNT] Um leitor de saída terminou com erro; todos encerraram e a liberação do processo continuará.");
                 }
             }
 
-            // Nunca mate processos rclone globais: eles podem pertencer a outro
-            // serviço ou a uma montagem do usuário. O processo iniciado pelo
-            // Nebula já foi encerrado acima e o comando unmount é limitado a N:.
+            _rcloneProcess.Dispose();
+            _rcloneProcess = null;
+            _rcloneStdoutTask = null;
+            _rcloneStderrTask = null;
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Erro ao encerrar processos do rclone");
+            _logger.LogWarning(ex, "[NEBULA-MOUNT] Falha ao encerrar processo próprio. Referência preservada para nova tentativa.");
+            return false;
         }
     }
 
     private void ScheduleMountRetry()
     {
-        if (Interlocked.CompareExchange(ref _mountRetryScheduled, 1, 0) != 0)
-        {
-            return;
-        }
-
-        _ = Task.Run(
-            async () =>
-            {
-                try
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
-                    AddServerLog("[NEBULA-MOUNT] Tentando montar novamente a unidade N: após limpar instâncias do rclone...");
-                    await MountDriveNAsync(CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Erro na tentativa automática de remontagem da unidade N:");
-                }
-                finally
-                {
-                    Interlocked.Exchange(ref _mountRetryScheduled, 0);
-                }
-            },
-            CancellationToken.None);
+        _mountRetry.Schedule(TimeSpan.FromSeconds(3));
     }
 
     private static bool IsDriveNAccessible()

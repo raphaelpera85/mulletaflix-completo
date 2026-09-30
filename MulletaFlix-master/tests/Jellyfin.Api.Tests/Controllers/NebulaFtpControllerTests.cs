@@ -6,8 +6,10 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Nebula;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -241,6 +243,105 @@ public sealed class NebulaFtpControllerTests
             m => m.SaveConfiguration(It.IsAny<string>(), It.IsAny<object>()),
             Times.Never);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UpdateConfig_PreservesServerOwnedBackupHistory(bool staleClient)
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var existing = CreateBackupHistory();
+        var incoming = staleClient ? CreateBackupHistory() : new NebulaFtpConfiguration();
+        incoming.MaxWorkers = 3;
+        if (staleClient)
+        {
+            incoming.SupabaseLastBackupFailed = false;
+            incoming.SupabaseLastBackupProcessedFilesCount = 999;
+            incoming.SupabaseLastUsersBackupFailed = false;
+            incoming.SupabaseLastRestoreStatus = "stale client result";
+        }
+
+        configuration.Setup(m => m.GetConfiguration("nebulaftp")).Returns(existing);
+        configuration.Setup(m => m.SaveConfiguration("nebulaftp", incoming));
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        Assert.IsType<NoContentResult>(controller.UpdateConfig(incoming));
+
+        foreach (var property in typeof(NebulaFtpConfiguration).GetProperties()
+                     .Where(p => p.Name.StartsWith("SupabaseLast", StringComparison.Ordinal)))
+        {
+            Assert.Equal(property.GetValue(existing), property.GetValue(incoming));
+        }
+
+        Assert.Equal(3, incoming.MaxWorkers);
+        configuration.Verify(m => m.SaveConfiguration("nebulaftp", incoming), Times.Once);
+    }
+
+    [Fact]
+    public void GetConfig_ReturnsCompleteBackupHistoryWithoutSecrets()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var existing = CreateBackupHistory();
+        existing.SupabaseKey = "not-for-the-response";
+        configuration.Setup(m => m.GetConfiguration("nebulaftp")).Returns(existing);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object);
+
+        var response = Assert.IsType<NebulaFtpConfiguration>(Assert.IsType<OkResult<NebulaFtpConfiguration>>(controller.GetConfig().Result).Value);
+
+        foreach (var property in typeof(NebulaFtpConfiguration).GetProperties()
+                     .Where(p => p.Name.StartsWith("SupabaseLast", StringComparison.Ordinal)))
+        {
+            Assert.Equal(property.GetValue(existing), property.GetValue(response));
+        }
+
+        Assert.Empty(response.SupabaseKey);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"SupabaseLastBackupFailed\":false,\"SupabaseLastBackupProcessedFilesCount\":999,\"MaxWorkers\":3}")]
+    public void GenericConfigurationUpdate_PreservesNebulaBackupHistory(string payload)
+    {
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        var existing = CreateBackupHistory();
+        configuration.Setup(m => m.GetConfigurationType("nebulaftp")).Returns(typeof(NebulaFtpConfiguration));
+        configuration.Setup(m => m.GetConfiguration("nebulaftp")).Returns(existing);
+        NebulaFtpConfiguration? saved = null;
+        configuration.Setup(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()))
+            .Callback<string, object>((_, value) => saved = Assert.IsType<NebulaFtpConfiguration>(value));
+        var controller = new ConfigurationController(configuration.Object, Mock.Of<ILocalizationManager>(), Mock.Of<IMediaEncoder>());
+        using var document = JsonDocument.Parse(payload);
+
+        Assert.IsType<NoContentResult>(controller.UpdateNamedConfiguration("nebulaftp", document));
+        Assert.NotNull(saved);
+        foreach (var property in typeof(NebulaFtpConfiguration).GetProperties()
+                     .Where(p => p.Name.StartsWith("SupabaseLast", StringComparison.Ordinal)))
+        {
+            Assert.Equal(property.GetValue(existing), property.GetValue(saved));
+        }
+
+        configuration.Verify(m => m.SaveConfiguration("nebulaftp", It.IsAny<object>()), Times.Once);
+    }
+
+    private static NebulaFtpConfiguration CreateBackupHistory() => new()
+    {
+        SupabaseLastBackupTime = DateTime.UnixEpoch.AddHours(1),
+        SupabaseLastBackupStatus = "Catalog failed",
+        SupabaseLastBackupFilesCount = 42,
+        SupabaseLastBackupAttemptTime = DateTime.UnixEpoch.AddHours(2),
+        SupabaseLastBackupFailed = true,
+        SupabaseLastBackupProcessedFilesCount = 0,
+        SupabaseLastBackupProcessedUsersCount = 7,
+        SupabaseLastUsersBackupTime = DateTime.UnixEpoch.AddHours(3),
+        SupabaseLastUsersBackupStatus = "Users failed",
+        SupabaseLastUsersBackupCount = 8,
+        SupabaseLastUsersBackupFailed = true,
+        SupabaseLastRestoreTime = DateTime.UnixEpoch.AddHours(4),
+        SupabaseLastRestoreStatus = "Restore failed",
+        SupabaseLastRestoreFailed = true
+    };
 
     [Fact]
     public void GetConfig_RedactsAllSecretFieldsFromResponse()

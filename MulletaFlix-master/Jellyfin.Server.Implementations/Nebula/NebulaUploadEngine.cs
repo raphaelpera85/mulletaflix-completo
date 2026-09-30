@@ -44,6 +44,10 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     private readonly Func<IEnumerable<string>>? _getStagingRoots;
     private readonly Func<string, Task>? _onUploadCompleted;
     private readonly CancellationTokenSource _cts = new();
+    private readonly object _lifecycleLock = new();
+    private TaskCompletionSource _operationsDrained = CompletedOperationsSource();
+    private Task _disposeTask = Task.CompletedTask;
+    private int _activeOperations;
     private bool _disposed;
 
     /// <summary>
@@ -574,6 +578,11 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
         int workerId,
         CancellationToken cancellationToken = default)
     {
+        if (!TryEnterOperation())
+        {
+            return false;
+        }
+
         using var activity = UploadActivitySource.StartActivity("nebula.upload", ActivityKind.Internal);
         activity?.SetTag("nebula.operation", "upload");
         var started = Stopwatch.GetTimestamp();
@@ -581,17 +590,18 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
 
         try
         {
+            using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
             var succeeded = await ProcessFileUploadCoreAsync(
                 localFilePath,
                 targetFileName,
                 parentId,
                 workerId,
-                cancellationToken).ConfigureAwait(false);
+                linkedCancellation.Token).ConfigureAwait(false);
             outcome = succeeded ? "success" : "failure";
             activity?.SetTag("nebula.result", outcome);
             return succeeded;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _cts.IsCancellationRequested)
         {
             outcome = "cancelled";
             activity?.SetTag("nebula.result", "cancelled");
@@ -615,6 +625,43 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
             var tags = new KeyValuePair<string, object?>("outcome", outcome);
             UploadCounter.Add(1, tags);
             UploadDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tags);
+            ExitOperation();
+        }
+    }
+
+    private static TaskCompletionSource CompletedOperationsSource()
+    {
+        var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        source.SetResult();
+        return source;
+    }
+
+    private bool TryEnterOperation()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+            {
+                return false;
+            }
+
+            if (_activeOperations++ == 0)
+            {
+                _operationsDrained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            return true;
+        }
+    }
+
+    private void ExitOperation()
+    {
+        lock (_lifecycleLock)
+        {
+            if (--_activeOperations == 0)
+            {
+                _operationsDrained.TrySetResult();
+            }
         }
     }
 
@@ -1370,16 +1417,28 @@ public sealed class NebulaUploadEngine : IAsyncDisposable, IDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        Task pending;
+        lock (_lifecycleLock)
         {
-            return;
+            if (!_disposed)
+            {
+                _disposed = true;
+                _disposeTask = DisposeCoreAsync(_operationsDrained.Task);
+            }
+
+            pending = _disposeTask;
         }
 
+        await pending.ConfigureAwait(false);
+    }
+
+    private async Task DisposeCoreAsync(Task operationsDrained)
+    {
+        await Task.Yield();
         _cts.Cancel();
+        await operationsDrained.ConfigureAwait(false);
         _concurrencySemaphore.Dispose();
         _cts.Dispose();
-        _disposed = true;
-        await Task.CompletedTask.ConfigureAwait(false);
     }
 
     private bool ShouldDeleteLocalSource(string localFilePath)

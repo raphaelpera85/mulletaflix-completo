@@ -28,9 +28,15 @@ import ConfirmDialog from 'components/ConfirmDialog';
 import ScheduleBackupDialog from 'apps/dashboard/features/backups/components/ScheduleBackupDialog';
 import BackupHistory from 'apps/dashboard/features/backups/components/BackupHistory';
 import BackupOperationalSummary from 'apps/dashboard/features/backups/components/BackupOperationalSummary';
+import BackupCoverageSummary from 'apps/dashboard/features/backups/components/BackupCoverageSummary';
+import { useSupabaseBackupStatus } from 'apps/dashboard/features/backups/api/useSupabaseBackupStatus';
 
 export const Component = () => {
     const { api } = useApi();
+    const supabaseStatus = useSupabaseBackupStatus();
+    const retrySupabaseStatus = useCallback(() => {
+        void supabaseStatus.refetch();
+    }, [ supabaseStatus ]);
     const {
         data: backups,
         isPending,
@@ -279,6 +285,13 @@ export const Component = () => {
                         <BackupOperationalSummary
                             task={tasks?.find(task => task.Key === 'BackupScheduledTask')}
                             latestBackup={backups[0]}
+                        />
+                        <BackupCoverageSummary
+                            latestBackup={backups[0]}
+                            status={supabaseStatus.data}
+                            loading={supabaseStatus.isLoading}
+                            error={supabaseStatus.isError}
+                            onRetry={retrySupabaseStatus}
                         />
 
                         <Button

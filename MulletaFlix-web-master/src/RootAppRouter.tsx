@@ -4,9 +4,10 @@ import {
     RouterProvider,
     createHashRouter,
     Outlet,
-    useLocation
+    useLocation,
+    type RouteObject
 } from 'react-router-dom';
-import type { RouteObject } from 'react-router-dom';
+import { getRouteKind, type AppRouteKind } from 'components/router/appRouteKind';
 
 import AppHeader from 'components/AppHeader';
 import AppBody from 'components/AppBody';
@@ -20,8 +21,6 @@ import appTheme from 'themes';
 import { ThemeStorageManager } from 'themes/themeStorageManager';
 
 const ROOT_ROUTE_ID = 'root';
-
-type AppRouteKind = 'dashboard' | 'wizard' | 'main';
 
 /**
  * Lazily import each app's route tree instead of pulling every app's routes
@@ -38,20 +37,14 @@ const routeLoaders: Record<AppRouteKind, () => Promise<RouteObject[]>> = {
     dashboard: () => import('apps/dashboard/routes/routes').then(m => m.DASHBOARD_APP_ROUTES),
     wizard: () => import('apps/wizard/routes/routes').then(m => m.WIZARD_APP_ROUTES),
     main: () => (
-        layoutManager.layout === LayoutMode.Experimental
-            ? import('apps/experimental/routes/routes').then(m => m.EXPERIMENTAL_APP_ROUTES)
-            : import('apps/stable/routes/routes').then(m => m.STABLE_APP_ROUTES)
+        layoutManager.layout === LayoutMode.Experimental ?
+            import('apps/experimental/routes/routes').then(m => m.EXPERIMENTAL_APP_ROUTES) :
+            import('apps/stable/routes/routes').then(m => m.STABLE_APP_ROUTES)
     )
 };
 
 const loadedKinds = new Set<AppRouteKind>();
 const pendingLoads = new Map<AppRouteKind, Promise<void>>();
-
-function getRouteKind(pathname: string): AppRouteKind {
-    if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) return 'dashboard';
-    if (pathname === '/wizard' || pathname.startsWith('/wizard/')) return 'wizard';
-    return 'main';
-}
 
 function loadRouteKind(
     kind: AppRouteKind,

@@ -334,6 +334,14 @@ public class NebulaSupabaseStatusDto
 
     public string LastBackupStatus { get; set; } = string.Empty;
 
+    public DateTime? LastBackupAttemptTime { get; set; }
+
+    public bool? LastBackupFailed { get; set; }
+
+    public int? LastBackupProcessedFilesCount { get; set; }
+
+    public int? LastBackupProcessedUsersCount { get; set; }
+
     public int TotalRemoteFiles { get; set; }
 
     public int TotalLocalFiles { get; set; }
@@ -347,6 +355,8 @@ public class NebulaSupabaseStatusDto
     public string LastUsersBackupStatus { get; set; } = string.Empty;
 
     public int LastUsersBackupCount { get; set; }
+
+    public bool? LastUsersBackupFailed { get; set; }
 
     public DateTime? LastRestoreTime { get; set; }
 

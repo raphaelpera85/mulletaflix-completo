@@ -56,7 +56,7 @@ const getRequestTitle = (entry: MediaRequestActivity) => (entry.Name || '').repl
 
 const getYear = (title: string, overview?: string | null) => {
     const overviewYear = overview ? /(?:^|·)\s*((?:19|20)\d{2})\s*$/.exec(overview)?.[1] : undefined;
-    const titleYear = /(?:[(\[]|[-–]\s*)((?:19|20)\d{2})[)\]]?\s*$/.exec(title)?.[1];
+    const titleYear = /(?:[([]|[-–]\s*)((?:19|20)\d{2})[)\]]?\s*$/.exec(title)?.[1];
     const rawYear = overviewYear || titleYear;
     return rawYear ? Number(rawYear) : undefined;
 };

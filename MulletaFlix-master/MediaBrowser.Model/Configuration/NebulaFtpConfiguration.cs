@@ -139,6 +139,14 @@ public class NebulaFtpConfiguration
 
     public int SupabaseLastBackupFilesCount { get; set; }
 
+    public DateTime? SupabaseLastBackupAttemptTime { get; set; }
+
+    public bool? SupabaseLastBackupFailed { get; set; }
+
+    public int? SupabaseLastBackupProcessedFilesCount { get; set; }
+
+    public int? SupabaseLastBackupProcessedUsersCount { get; set; }
+
     /// <summary>Last independent MulletaFlix-user backup time.</summary>
     public DateTime? SupabaseLastUsersBackupTime { get; set; }
 
@@ -147,6 +155,8 @@ public class NebulaFtpConfiguration
 
     /// <summary>Number of application users included in the last independent backup.</summary>
     public int SupabaseLastUsersBackupCount { get; set; }
+
+    public bool? SupabaseLastUsersBackupFailed { get; set; }
 
     /// <summary>Last Supabase-to-MongoDB restore time (Nebula media/users), for operational alerting.</summary>
     public DateTime? SupabaseLastRestoreTime { get; set; }

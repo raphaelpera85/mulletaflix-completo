@@ -151,6 +151,7 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
 
         var existing = _configManager.GetConfiguration<NebulaFtpConfiguration>("nebulaftp") ?? new NebulaFtpConfiguration();
         PreserveExistingSecretValues(config, existing);
+        Helpers.NebulaConfigurationHistory.Preserve(config, existing);
         // Cache settings are changed only through PlaybackCache/Path; older generic config clients
         // must not reset them when they submit a stale or partial configuration document.
         config.PlaybackCachePath = existing.PlaybackCachePath;
@@ -561,7 +562,18 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
             SupabaseAutoBackupIntervalHours = config.SupabaseAutoBackupIntervalHours,
             SupabaseLastBackupTime = config.SupabaseLastBackupTime,
             SupabaseLastBackupStatus = config.SupabaseLastBackupStatus,
-            SupabaseLastBackupFilesCount = config.SupabaseLastBackupFilesCount
+            SupabaseLastBackupFilesCount = config.SupabaseLastBackupFilesCount,
+            SupabaseLastBackupAttemptTime = config.SupabaseLastBackupAttemptTime,
+            SupabaseLastBackupFailed = config.SupabaseLastBackupFailed,
+            SupabaseLastBackupProcessedFilesCount = config.SupabaseLastBackupProcessedFilesCount,
+            SupabaseLastBackupProcessedUsersCount = config.SupabaseLastBackupProcessedUsersCount,
+            SupabaseLastUsersBackupTime = config.SupabaseLastUsersBackupTime,
+            SupabaseLastUsersBackupStatus = config.SupabaseLastUsersBackupStatus,
+            SupabaseLastUsersBackupCount = config.SupabaseLastUsersBackupCount,
+            SupabaseLastUsersBackupFailed = config.SupabaseLastUsersBackupFailed,
+            SupabaseLastRestoreTime = config.SupabaseLastRestoreTime,
+            SupabaseLastRestoreStatus = config.SupabaseLastRestoreStatus,
+            SupabaseLastRestoreFailed = config.SupabaseLastRestoreFailed
         };
     }
 
