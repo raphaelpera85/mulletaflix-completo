@@ -365,6 +365,155 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(ConfigurationPath)!, "*.tmp"));
     }
 
+    [Fact]
+    public void NoOpUpdate_DoesNotPersistOrNotify()
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer.Setup(s => s.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Callback<object, string>((value, path) => _serializer.SerializeToFile(value, path));
+        var manager = CreateManager(serializer.Object);
+        var original = manager.UpdateConfiguration("nebulaftp", current => ((NebulaFtpConfiguration)current).CreateSnapshot());
+        var before = File.ReadAllBytes(ConfigurationPath);
+        var notified = false;
+        manager.NamedConfigurationUpdating += (_, _) => notified = true;
+        manager.NamedConfigurationUpdated += (_, _) => notified = true;
+        serializer.Setup(s => s.SerializeToFile(It.IsAny<NebulaFtpConfiguration>(), It.IsAny<string>()))
+            .Throws(new IOException("no-op must not serialize"));
+
+        var result = manager.UpdateConfiguration("nebulaftp", current => current);
+
+        Assert.Same(original, result);
+        Assert.Same(original, manager.GetConfiguration("nebulaftp"));
+        Assert.False(notified);
+        Assert.Equal(before, File.ReadAllBytes(ConfigurationPath));
+    }
+
+    [Fact]
+    public async Task ConcurrentBotAdds_PreserveEveryTokenAndMaskResponses()
+    {
+        var configuration = CreateManager(_serializer);
+        var original = configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var tokens = Enumerable.Range(1, 12).Select(i => $"test-bot-{i:0000}").ToArray();
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writers = tokens.Select(token => Task.Run(async () =>
+        {
+            await start.Task;
+            manager.SaveBot(new NebulaSaveBotRequest { Token = token });
+        })).ToArray();
+        start.SetResult();
+        await Task.WhenAll(writers).WaitAsync(TimeSpan.FromSeconds(30));
+
+        var disk = (NebulaFtpConfiguration)_serializer.DeserializeFromFile(typeof(NebulaFtpConfiguration), ConfigurationPath);
+        Assert.Equal(tokens.Order(StringComparer.Ordinal), disk.BotTokens.Split(',').Order(StringComparer.Ordinal));
+        Assert.True(string.IsNullOrEmpty(original.BotTokens));
+        manager.SaveBot(new NebulaSaveBotRequest { Token = " test-bot-0001 " });
+        Assert.Equal(12, manager.GetBots().Count);
+        Assert.All(manager.GetBots(), bot => Assert.Equal(string.Empty, bot.Token));
+        Assert.Contains(manager.GetBots(), bot => bot.MaskedToken == "••••0001");
+    }
+
+    [Fact]
+    public async Task BotReplacementAndDeletion_UseCurrentOrderAndInvalidDeleteIsNoOp()
+    {
+        var configuration = CreateManager(_serializer);
+        configuration.UpdateConfiguration("nebulaftp", current =>
+        {
+            var next = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            next.BotTokens = "test-first,test-second";
+            next.MaxWorkers = 7;
+            return next;
+        });
+        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var original = configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+        manager.SaveBot(new NebulaSaveBotRequest { Index = 2, Token = " test-replaced " });
+        Assert.Equal("test-first,test-second", original.BotTokens);
+        Assert.Equal("test-first,test-replaced", configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp").BotTokens);
+        manager.DeleteBot(1);
+        var afterDelete = configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
+        Assert.Equal("test-replaced", afterDelete.BotTokens);
+        Assert.Equal(7, afterDelete.MaxWorkers);
+        var before = File.ReadAllBytes(ConfigurationPath);
+        var notified = false;
+        configuration.NamedConfigurationUpdated += (_, _) => notified = true;
+
+        manager.DeleteBot(99);
+        manager.DeleteBot(0);
+
+        Assert.False(notified);
+        Assert.Same(afterDelete, configuration.GetConfiguration("nebulaftp"));
+        Assert.Equal(before, File.ReadAllBytes(ConfigurationPath));
+    }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("delete")]
+    [InlineData("ftp")]
+    public async Task CredentialWriterFailure_PreservesOriginalCacheAndDisk(string operation)
+    {
+        var serializer = new Mock<IXmlSerializer>();
+        serializer.Setup(s => s.SerializeToFile(It.IsAny<object>(), It.IsAny<string>()))
+            .Callback<object, string>((value, path) => _serializer.SerializeToFile(value, path));
+        var configuration = CreateManager(serializer.Object);
+        var original = configuration.UpdateConfiguration("nebulaftp", current =>
+        {
+            var next = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            next.BotTokens = "test-original";
+            next.Password = string.Empty;
+            return next;
+        });
+        var before = File.ReadAllBytes(ConfigurationPath);
+        serializer.Setup(s => s.SerializeToFile(It.IsAny<NebulaFtpConfiguration>(), It.IsAny<string>()))
+            .Throws(new IOException("test credential write failure"));
+        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+
+        Assert.Throws<IOException>(() =>
+        {
+            switch (operation)
+            {
+                case "add": manager.SaveBot(new NebulaSaveBotRequest { Token = "test-new" }); break;
+                case "delete": manager.DeleteBot(1); break;
+                default: manager.EnsureLocalFtpCredentials(); break;
+            }
+        });
+
+        Assert.Same(original, configuration.GetConfiguration("nebulaftp"));
+        Assert.Equal("test-original", ((NebulaFtpConfiguration)original).BotTokens);
+        Assert.Equal(string.Empty, ((NebulaFtpConfiguration)original).Password);
+        Assert.Equal(before, File.ReadAllBytes(ConfigurationPath));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(ConfigurationPath)!, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task ConcurrentLocalCredentialProvisioning_GeneratesOnceAndPreservesExistingCredentials()
+    {
+        var configuration = CreateManager(_serializer);
+        var original = (NebulaFtpConfiguration)configuration.UpdateConfiguration("nebulaftp", current =>
+        {
+            var next = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            next.Username = " test-admin ";
+            next.Password = string.Empty;
+            next.MaxWorkers = 7;
+            return next;
+        });
+        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var writes = 0;
+        configuration.NamedConfigurationUpdated += (_, _) => Interlocked.Increment(ref writes);
+        var credentials = await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => Task.Run(() => manager.EnsureLocalFtpCredentials())));
+
+        Assert.Equal(1, writes);
+        Assert.All(credentials, pair => Assert.Equal(credentials[0], pair));
+        Assert.Equal("test-admin", credentials[0].Username);
+        Assert.Equal(32, credentials[0].Password.Length);
+        Assert.Matches("^[A-Za-z0-9_-]+$", credentials[0].Password);
+        Assert.Equal(string.Empty, original.Password);
+        var disk = (NebulaFtpConfiguration)_serializer.DeserializeFromFile(typeof(NebulaFtpConfiguration), ConfigurationPath);
+        Assert.Equal(credentials[0].Password, disk.Password);
+        Assert.Equal(7, disk.MaxWorkers);
+        Assert.Equal(credentials[0], manager.EnsureLocalFtpCredentials());
+        Assert.Equal(1, writes);
+    }
+
     private string ConfigurationPath => Path.Combine(_directory, "config", "nebulaftp.xml");
 
     private ServerConfigurationManager CreateManager(IXmlSerializer serializer)

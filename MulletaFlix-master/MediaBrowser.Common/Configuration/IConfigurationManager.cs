@@ -83,10 +83,11 @@ namespace MediaBrowser.Common.Configuration
         /// <summary>
         /// Atomically transforms the current named configuration and persists the replacement.
         /// The transform must be synchronous and must not mutate the current instance.
+        /// Returning the current instance leaves persistence and notifications unchanged.
         /// </summary>
         /// <param name="key">The configuration key.</param>
         /// <param name="update">The transform applied inside the persistence gate.</param>
-        /// <returns>The committed replacement.</returns>
+        /// <returns>The committed replacement, or the current instance for a no-op.</returns>
         object UpdateConfiguration(string key, Func<object, object> update);
 
         /// <summary>

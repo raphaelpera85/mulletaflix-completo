@@ -1484,7 +1484,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             // O provedor FTP autentica no MongoDB assim que o socket abre.
             // Portanto, a conta usada pelo rclone precisa existir antes de
             // iniciar o servidor FTP; criá-la durante o mount é tarde demais.
-            var (ftpUsername, ftpPassword) = EnsureLocalFtpCredentials(config);
+            var (ftpUsername, ftpPassword) = EnsureLocalFtpCredentials();
             var ftpPasswordHash = BCrypt.Net.BCrypt.HashPassword(ftpPassword);
             await _mongoContext.UpsertUserAsync(ftpUsername, ftpPasswordHash, "elradfmwM", cancellationToken).ConfigureAwait(false);
 
@@ -3335,44 +3335,46 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             return GetBots();
         }
 
-        var config = Config;
-        var tokens = (config.BotTokens ?? string.Empty)
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToList();
-
         var tokenToSave = request.Token.Trim();
-
-        if (request.Index.HasValue && request.Index.Value >= 1 && request.Index.Value <= tokens.Count)
+        _configManager.UpdateConfiguration("nebulaftp", current =>
         {
-            tokens[request.Index.Value - 1] = tokenToSave;
-        }
-        else
-        {
-            if (!tokens.Contains(tokenToSave, StringComparer.OrdinalIgnoreCase))
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            var tokens = (config.BotTokens ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+            if (request.Index.HasValue && request.Index.Value >= 1 && request.Index.Value <= tokens.Count)
+            {
+                tokens[request.Index.Value - 1] = tokenToSave;
+            }
+            else if (!tokens.Contains(tokenToSave, StringComparer.OrdinalIgnoreCase))
             {
                 tokens.Add(tokenToSave);
             }
-        }
 
-        config.BotTokens = string.Join(",", tokens);
-        _configManager.SaveConfiguration("nebulaftp", config);
+            config.BotTokens = string.Join(",", tokens);
+            return config;
+        });
 
         return GetBots();
     }
 
     public List<NebulaBotDto> DeleteBot(int index)
     {
-        var config = Config;
-        var tokens = (config.BotTokens ?? string.Empty)
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToList();
-
-        if (index >= 1 && index <= tokens.Count)
+        _configManager.UpdateConfiguration("nebulaftp", current =>
         {
+            var config = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            var tokens = (config.BotTokens ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+            if (index < 1 || index > tokens.Count)
+            {
+                return current;
+            }
+
             tokens.RemoveAt(index - 1);
             config.BotTokens = string.Join(",", tokens);
-            _configManager.SaveConfiguration("nebulaftp", config);
-        }
+            return config;
+        });
 
         return GetBots();
     }
@@ -4616,7 +4618,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 AddServerLog($"[NEBULA-MOUNT-AVISO] Servidor FTP não respondeu na porta {config.ServerPort} em 15s. Tentando montar N: mesmo assim...");
             }
 
-            var (ftpUsername, ftpPassword) = EnsureLocalFtpCredentials(config);
+            var (ftpUsername, ftpPassword) = EnsureLocalFtpCredentials();
             var configPath = EnsureRcloneConfigFile(config.ServerPort, ftpUsername, ftpPassword, rcloneExe);
             var hasInlineCredentials = !string.IsNullOrWhiteSpace(ftpUsername) && !string.IsNullOrWhiteSpace(ftpPassword);
 
@@ -4949,27 +4951,34 @@ idle_timeout = 15s
         return confPath;
     }
 
-    private (string Username, string Password) EnsureLocalFtpCredentials(NebulaFtpConfiguration config)
+    internal (string Username, string Password) EnsureLocalFtpCredentials()
     {
-        var username = string.IsNullOrWhiteSpace(config.Username) ? "mulleta" : config.Username.Trim();
-        var password = config.Password ?? string.Empty;
-
-        if (!string.IsNullOrWhiteSpace(password))
+        var provisioned = false;
+        var saved = (NebulaFtpConfiguration)_configManager.UpdateConfiguration("nebulaftp", current =>
         {
-            return (username, password);
+            var existing = (NebulaFtpConfiguration)current;
+            if (!string.IsNullOrWhiteSpace(existing.Password))
+            {
+                return current;
+            }
+
+            var config = existing.CreateSnapshot();
+            config.Username = string.IsNullOrWhiteSpace(existing.Username) ? "mulleta" : existing.Username.Trim();
+            // Each installation gets its own credential; never overwrite an existing password.
+            config.Password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24))
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+            provisioned = true;
+            return config;
+        });
+        var username = string.IsNullOrWhiteSpace(saved.Username) ? "mulleta" : saved.Username.Trim();
+        if (provisioned)
+        {
+            AddServerLog($"[NEBULA-MOUNT] Credencial FTP local provisionada para '{username}'.");
         }
 
-        // Cada instalação do MulletaFlix recebe uma credencial própria. Isso
-        // evita credenciais fixas no binário ou no instalador.
-        password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24))
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-        config.Username = username;
-        config.Password = password;
-        _configManager.SaveConfiguration("nebulaftp", config);
-        AddServerLog($"[NEBULA-MOUNT] Credencial FTP local provisionada para '{username}'.");
-        return (username, password);
+        return (username, saved.Password ?? string.Empty);
     }
 
     private bool StopOwnedRcloneProcess()

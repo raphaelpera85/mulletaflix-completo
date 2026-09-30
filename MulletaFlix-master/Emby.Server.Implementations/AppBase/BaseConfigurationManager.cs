@@ -343,8 +343,14 @@ namespace Emby.Server.Implementations.AppBase
             object replacement;
             lock (_configurationSyncLock)
             {
-                replacement = update(GetConfiguration(key));
+                var current = GetConfiguration(key);
+                replacement = update(current);
                 ArgumentNullException.ThrowIfNull(replacement);
+                if (ReferenceEquals(current, replacement))
+                {
+                    return current;
+                }
+
                 PersistNamedConfiguration(key, replacement);
             }
 
