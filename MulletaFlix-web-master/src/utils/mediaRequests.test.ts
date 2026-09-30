@@ -45,4 +45,19 @@ describe('media request catalog matching', () => {
             included: [ requests[0] ]
         });
     });
+
+    it('uses an explicit release year instead of numbers inside the title', () => {
+        expect(isMediaRequestIncluded({ Name: 'Solicitação de mídia: 2001 A Space Odyssey (1968)', Overview: 'Movie' }, [
+            { Title: '2001 A Space Odyssey (1968)', MediaType: 'Movie', Year: 1968 }
+        ])).toBe(true);
+    });
+
+    it('does not collapse a numeric sequel title into the original work', () => {
+        expect(isMediaRequestIncluded({ Name: 'Solicitação de mídia: Blade Runner 2049', Overview: 'Movie' }, [
+            { Title: 'Blade Runner (1982)', MediaType: 'Movie', Year: 1982 }
+        ])).toBe(false);
+        expect(isMediaRequestIncluded({ Name: 'Solicitação de mídia: Blade Runner 2049', Overview: 'Movie' }, [
+            { Title: 'Blade Runner 2049 (2017)', MediaType: 'Movie', Year: 2017 }
+        ])).toBe(true);
+    });
 });

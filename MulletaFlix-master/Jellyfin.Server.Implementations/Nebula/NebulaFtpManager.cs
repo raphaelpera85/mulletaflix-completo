@@ -619,13 +619,18 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
                 }))
                 {
                     var normalizedPath = path.Replace('\\', '/');
-                    var mediaType = normalizedPath.Contains("/doramas/", StringComparison.OrdinalIgnoreCase) ? "Dorama"
-                        : normalizedPath.Contains("/novelas/", StringComparison.OrdinalIgnoreCase) ? "Novel"
-                        : normalizedPath.Contains("/anima", StringComparison.OrdinalIgnoreCase) ? "Animation"
-                        : normalizedPath.Contains("/filmes/", StringComparison.OrdinalIgnoreCase) ? "Movie"
+                    var folderNames = normalizedPath.Split('/').Select(NormalizeSuggestionText).ToHashSet(StringComparer.Ordinal);
+                    var mediaType = folderNames.Contains("doramas") ? "Dorama"
+                        : folderNames.Contains("novelas") ? "Novel"
+                        : folderNames.Contains("animacoes") || folderNames.Contains("animation") || folderNames.Contains("anime") ? "Animation"
+                        : folderNames.Contains("filmes") || folderNames.Contains("movies") ? "Movie"
                         : "Series";
 
-                    AddMediaSuggestion(Path.GetFileNameWithoutExtension(path), mediaType, suggestions);
+                    var fileTitle = Path.GetFileNameWithoutExtension(path);
+                    if (!Regex.IsMatch(fileTitle, @"(?:^|[\s._-])(?:s\d{1,3}e\d{1,3}|\d{1,3}x\d{1,3})(?:$|[\s._-])", RegexOptions.IgnoreCase))
+                    {
+                        AddMediaSuggestion(fileTitle, mediaType, suggestions);
+                    }
 
                     // Episode STRMs are often named S01E01 or with an episode title.
                     // Also index the nearest non-season folder so users can request a series.
@@ -663,18 +668,22 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable
     private static void AddMediaSuggestion(string rawTitle, string mediaType, IDictionary<string, NebulaMediaSuggestionDto> suggestions)
     {
         var title = rawTitle.Trim();
-        if (title.Length == 0 || suggestions.ContainsKey(title))
+        if (title.Length == 0)
         {
             return;
         }
 
-        var yearMatch = Regex.Match(title, @"(?<!\d)(?:19|20)\d{2}(?!\d)");
-        suggestions[title] = new NebulaMediaSuggestionDto
+        // Only an explicit trailing year annotation is release metadata.
+        // Numbers in titles (2001, Blade Runner 2049) must not become release years.
+        var yearMatch = Regex.Match(title, @"(?:\((?<year>(?:19|20)\d{2})\)|\[(?<year>(?:19|20)\d{2})\])$");
+        int? year = yearMatch.Success && int.TryParse(yearMatch.Groups["year"].Value, out var parsedYear) ? parsedYear : null;
+        var identity = string.Join('\u001f', mediaType, year?.ToString(CultureInfo.InvariantCulture) ?? string.Empty, NormalizeSuggestionText(title));
+        suggestions.TryAdd(identity, new NebulaMediaSuggestionDto
         {
             Title = title,
             MediaType = mediaType,
-            Year = yearMatch.Success && int.TryParse(yearMatch.Value, out var year) ? year : null
-        };
+            Year = year
+        });
     }
 
     private static bool IsGenericMediaFolder(string name)

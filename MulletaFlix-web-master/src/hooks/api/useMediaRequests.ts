@@ -1,6 +1,6 @@
 import type { ActivityLogEntry } from '@jellyfin/sdk/lib/generated-client/models/activity-log-entry';
 import type { ActivityLogEntryQueryResult } from '@jellyfin/sdk/lib/generated-client/models/activity-log-entry-query-result';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 
 import { useApi } from 'hooks/useApi';
 import type { ApiClient } from 'jellyfin-apiclient';
@@ -9,6 +9,7 @@ import { classifyMediaRequests, type MediaCatalogTitle, type MediaRequestActivit
 
 interface MediaRequestsResponse extends ActivityLogEntryQueryResult {
     PriorityRequestIds?: number[];
+    Catalog?: MediaCatalogTitle[];
 }
 
 const getApiClient = (): ApiClient => {
@@ -22,9 +23,9 @@ const fetchMediaCatalog = async (): Promise<MediaCatalogTitle[]> => {
     return await apiClient.getJSON(apiClient.getUrl('UserFeedback/MediaRequestCatalog')) as MediaCatalogTitle[];
 };
 
-const fetchMyMediaRequests = async (): Promise<MediaRequestsResponse> => {
+const fetchMyMediaRequests = async (startIndex: number): Promise<MediaRequestsResponse> => {
     const apiClient = getApiClient();
-    const url = apiClient.getUrl('UserFeedback/MediaRequests', { limit: 200 });
+    const url = apiClient.getUrl('UserFeedback/MediaRequests', { limit: 200, startIndex });
     return await apiClient.getJSON(url) as MediaRequestsResponse;
 };
 
@@ -42,9 +43,15 @@ export const useMediaRequestCatalog = () => {
 export const useMyMediaRequests = () => {
     const { user } = useApi();
 
-    return useQuery({
-        queryKey: [ 'UserFeedback', 'MediaRequests', user?.Id ],
-        queryFn: fetchMyMediaRequests,
+    return useInfiniteQuery({
+        queryKey: [ 'UserFeedback', 'MediaRequests', 'pages', user?.Id ],
+        initialPageParam: 0,
+        queryFn: ({ pageParam }) => fetchMyMediaRequests(pageParam),
+        getNextPageParam: (lastPage, _pages, lastPageParam) => {
+            const itemCount = lastPage.Items?.length || 0;
+            const nextIndex = (lastPage.StartIndex ?? lastPageParam) + itemCount;
+            return itemCount > 0 && nextIndex < (lastPage.TotalRecordCount || 0) ? nextIndex : undefined;
+        },
         enabled: !!user
     });
 };
@@ -56,23 +63,26 @@ export const useMyMediaRequests = () => {
  */
 export const useMyClassifiedMediaRequests = () => {
     const requestsQuery = useMyMediaRequests();
-    const catalogQuery = useMediaRequestCatalog();
 
-    const isPending = requestsQuery.isPending || catalogQuery.isPending;
-    const isError = requestsQuery.isError || catalogQuery.isError;
+    const isPending = requestsQuery.isPending;
+    const isError = requestsQuery.isError && !requestsQuery.data;
 
     const classified = classifyMediaRequests<ActivityLogEntry & MediaRequestActivity>(
-        requestsQuery.data?.Items || [],
-        catalogQuery.data || []
+        requestsQuery.data?.pages.flatMap(page => page.Items || []) || [],
+        requestsQuery.data?.pages.flatMap(page => page.Catalog || []) || []
     );
 
     const refetch = async () => {
-        await Promise.all([ requestsQuery.refetch(), catalogQuery.refetch() ]);
+        await requestsQuery.refetch();
     };
 
     return {
         ...classified,
-        priorityRequestIds: new Set(requestsQuery.data?.PriorityRequestIds || []),
+        priorityRequestIds: new Set(requestsQuery.data?.pages.flatMap(page => page.PriorityRequestIds || []) || []),
+        hasNextPage: requestsQuery.hasNextPage,
+        fetchNextPage: requestsQuery.fetchNextPage,
+        isFetchingNextPage: requestsQuery.isFetchingNextPage,
+        isFetchNextPageError: requestsQuery.isFetchNextPageError,
         isPending,
         isError,
         refetch

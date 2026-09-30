@@ -123,6 +123,38 @@ public class BackupRetentionPolicyTests
     }
 
     [Fact]
+    public void SelectForRemoval_FutureTimestampsDoNotDisplaceRecentBackups()
+    {
+        var candidates = new[]
+        {
+            Candidate("recent.zip", 1),
+            Candidate("older.zip", 2),
+            Candidate("oldest.zip", 3),
+            Candidate("future.zip", -100),
+            Candidate("future-2.zip", -200)
+        };
+
+        var removal = BackupRetentionPolicy.SelectForRemoval(candidates, keepCount: 2, maximumAge: null).ToArray();
+
+        Assert.Equal("oldest.zip", Assert.Single(removal).Name);
+    }
+
+    [Fact]
+    public void SelectForRemoval_UnknownTimestampDoesNotReplaceLastDatedBackup()
+    {
+        var candidates = new[]
+        {
+            Candidate("recent-expired.zip", 90),
+            Candidate("older-expired.zip", 100),
+            new BackupRetentionCandidate("unknown.zip", null)
+        };
+
+        var removal = BackupRetentionPolicy.SelectForRemoval(candidates, keepCount: 2, maximumAge: TimeSpan.FromDays(30)).ToArray();
+
+        Assert.Equal("older-expired.zip", Assert.Single(removal).Name);
+    }
+
+    [Fact]
     public void SelectForRemoval_HandlesAnEmptySetWithoutThrowing()
     {
         Assert.Empty(BackupRetentionPolicy.SelectForRemoval([], keepCount: 3, maximumAge: TimeSpan.FromDays(7)));

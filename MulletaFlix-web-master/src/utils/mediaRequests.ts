@@ -28,11 +28,15 @@ const stripTrailingYear = (value: string) => {
         const openingCharacter = lastChar(prefix);
         if (openingCharacter === '(' || openingCharacter === '[') {
             prefix = prefix.slice(0, -1).trimEnd();
+        } else {
+            return value;
         }
     } else {
         const separatorCharacter = lastChar(prefix);
         if (separatorCharacter === '-' || separatorCharacter === '–') {
             prefix = prefix.slice(0, -1).trimEnd();
+        } else {
+            return value;
         }
     }
 
@@ -51,8 +55,8 @@ const normalizeTitle = (value: string) => {
 const getRequestTitle = (entry: MediaRequestActivity) => (entry.Name || '').replace(requestTitlePrefix, '').trim();
 
 const getYear = (title: string, overview?: string | null) => {
-    const overviewYear = overview ? yearPattern.exec(overview)?.[0] : undefined;
-    const titleYear = yearPattern.exec(title)?.[0];
+    const overviewYear = overview ? /(?:^|·)\s*((?:19|20)\d{2})\s*$/.exec(overview)?.[1] : undefined;
+    const titleYear = /(?:[(\[]|[-–]\s*)((?:19|20)\d{2})[)\]]?\s*$/.exec(title)?.[1];
     const rawYear = overviewYear || titleYear;
     return rawYear ? Number(rawYear) : undefined;
 };

@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using MulletaFlix.Api.Extensions;
 using MulletaFlix.Api.Models.UserFeedbackDtos;
@@ -57,26 +59,46 @@ public class UserFeedbackController : BaseMulletaFlixApiController
     /// <summary>Returns the media requests submitted by the current user, most recent first.</summary>
     [HttpGet("MediaRequests")]
     [ProducesResponseType(typeof(MediaRequestQueryResultDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetMyMediaRequests([FromQuery] int limit = 100)
+    public async Task<IActionResult> GetMyMediaRequests([FromQuery] int limit = 100, [FromQuery] int startIndex = 0)
     {
         var result = await _activityManager.GetPagedResultAsync(new MulletaFlix.Data.Queries.ActivityLogQuery
         {
             UserId = User.GetUserId(),
             Type = "MediaRequest",
             Limit = Math.Clamp(limit, 1, 500),
+            Skip = Math.Max(startIndex, 0),
             OrderBy = new[] { (MulletaFlix.Data.Enums.ActivityLogSortBy.DateCreated, MulletaFlix.Database.Implementations.Enums.SortOrder.Descending) }
         }).ConfigureAwait(false);
+
+        var requestedTitles = result.Items.Select(entry => GetCatalogTitleKey(GetRequestTitle(entry)))
+            .Where(title => title.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+        var catalog = _nebulaFtpManager.GetMediaSuggestionCatalog();
 
         return new OkObjectResult(new MediaRequestQueryResultDto
         {
             StartIndex = result.StartIndex,
             TotalRecordCount = result.TotalRecordCount,
             Items = result.Items,
+            Catalog = (catalog ?? Array.Empty<MediaBrowser.Model.Nebula.NebulaMediaSuggestionDto>())
+                .Where(item => requestedTitles.Contains(GetCatalogTitleKey(item.Title)))
+                .ToArray(),
             PriorityRequestIds = result.Items
                 .Where(entry => _nebulaFtpManager.IsMediaRequestPrioritized(GetRequestTitle(entry)))
                 .Select(entry => entry.Id)
                 .ToArray()
         });
+    }
+
+    private static string GetCatalogTitleKey(string title)
+    {
+        // This only selects candidates, not the final included status. Keep all
+        // category/year variants so the client can reject ambiguous identities.
+        var withoutYear = Regex.Replace(title.Trim(), @"\s*[\[(]?\s*(?:19|20)\d{2}\s*[\])]?\s*$", string.Empty);
+        return new string(withoutYear.Normalize(NormalizationForm.FormD)
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToLowerInvariant)
+            .ToArray());
     }
 
     private static string GetRequestTitle(MediaBrowser.Model.Activity.ActivityLogEntry entry)

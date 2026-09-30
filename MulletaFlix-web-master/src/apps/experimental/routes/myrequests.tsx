@@ -26,7 +26,7 @@ const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey
     chipColor,
     priorityRequestIds
 }) => (
-    <Box>
+    <Box component='section' aria-label={globalize.translate(titleKey)}>
         <Typography variant='h2' sx={{ mb: 1 }}>
             {globalize.translate(titleKey)} ({entries.length})
         </Typography>
@@ -35,30 +35,29 @@ const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey
                 {globalize.translate(emptyKey)}
             </Typography>
         ) : (
-            <List dense disablePadding>
+            <List dense disablePadding sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 20rem), 1fr))', gap: 2 }}>
                 {entries.map((entry, index) => (
                     <ListItem
                         key={`${entry.Id ?? index}`}
-                        divider={index < entries.length - 1}
-                        secondaryAction={(
-                            <Stack direction='row' spacing={0.5} sx={{ maxWidth: { xs: '45vw', sm: '55vw' }, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                                {chipColor === 'default' && entry.Id !== undefined && priorityRequestIds.has(entry.Id) && (
-                                    <Chip
-                                        size='small'
-                                        color='warning'
-                                        label={globalize.translate('MyMediaRequestPriority')}
-                                        title={globalize.translate('MyMediaRequestPriorityDescription')}
-                                        aria-label={`${globalize.translate('MyMediaRequestPriority')}. ${globalize.translate('MyMediaRequestPriorityDescription')}`}
-                                    />
-                                )}
-                                <Chip size='small' color={chipColor} label={entry.Overview || ''} />
-                            </Stack>
-                        )}
+                        sx={{ flexDirection: 'column', alignItems: 'flex-start', gap: 1, p: 2, border: 1, borderColor: 'divider', borderRadius: 1, minWidth: 0 }}
                     >
                         <ListItemText
                             primary={getRequestTitle(entry)}
                             secondary={entry.ShortOverview || undefined}
+                            sx={{ m: 0, width: '100%', overflowWrap: 'anywhere' }}
                         />
+                        <Stack direction='row' sx={{ maxWidth: '100%', flexWrap: 'wrap', gap: 0.5, '& .MuiChip-root': { maxWidth: '100%', height: 'auto' }, '& .MuiChip-label': { whiteSpace: 'normal', overflowWrap: 'anywhere', py: 0.5 } }}>
+                            {chipColor === 'default' && entry.Id !== undefined && priorityRequestIds.has(entry.Id) && (
+                                <Chip
+                                    size='small'
+                                    color='warning'
+                                    label={globalize.translate('MyMediaRequestPriority')}
+                                    title={globalize.translate('MyMediaRequestPriorityDescription')}
+                                    aria-label={`${globalize.translate('MyMediaRequestPriority')}. ${globalize.translate('MyMediaRequestPriorityDescription')}`}
+                                />
+                            )}
+                            <Chip size='small' color={chipColor} label={entry.Overview || ''} />
+                        </Stack>
                     </ListItem>
                 ))}
             </List>
@@ -67,11 +66,18 @@ const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey
 );
 
 const MyMediaRequestsPage: FC = () => {
-    const { pending, included, priorityRequestIds, isPending, isError, refetch } = useMyClassifiedMediaRequests();
+    const {
+        pending, included, priorityRequestIds, isPending, isError, refetch,
+        hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError
+    } = useMyClassifiedMediaRequests();
 
     const handleRetry = useCallback(() => {
         refetch().catch(() => undefined);
     }, [ refetch ]);
+
+    const handleLoadMore = useCallback(() => {
+        fetchNextPage().catch(() => undefined);
+    }, [ fetchNextPage ]);
 
     let content;
     if (isError) {
@@ -112,6 +118,17 @@ const MyMediaRequestsPage: FC = () => {
                     chipColor='success'
                     priorityRequestIds={priorityRequestIds}
                 />
+                {isFetchNextPageError && <Alert severity='error'>{globalize.translate('ErrorDefault')}</Alert>}
+                {hasNextPage && (
+                    <Button
+                        onClick={handleLoadMore}
+                        disabled={isFetchingNextPage}
+                        aria-busy={isFetchingNextPage}
+                        sx={{ alignSelf: 'flex-start' }}
+                    >
+                        {globalize.translate(isFetchNextPageError ? 'Retry' : 'ShowMore')}
+                    </Button>
+                )}
             </Stack>
         );
     }

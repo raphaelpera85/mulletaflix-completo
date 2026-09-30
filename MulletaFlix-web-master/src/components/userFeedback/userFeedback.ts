@@ -61,19 +61,26 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
         let debounceTimer: ReturnType<typeof setTimeout> | undefined;
         let requestSequence = 0;
         let activeIndex = -1;
+        const cancelLookup = () => {
+            requestSequence++;
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = undefined;
+        };
         const hideSuggestions = () => {
             suggestions.hidden = true;
-            suggestions.replaceChildren();
+            suggestions.textContent = '';
             activeIndex = -1;
             titleInput.removeAttribute('aria-activedescendant');
+            titleInput.setAttribute('aria-expanded', 'false');
         };
         const chooseSuggestion = (suggestion: MediaSuggestion) => {
+            cancelLookup();
             titleInput.value = suggestion.Title;
             if (mediaTypeSelect && Array.from(mediaTypeSelect.options).some(option => option.value === suggestion.MediaType)) {
                 mediaTypeSelect.value = suggestion.MediaType;
                 mediaTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
             }
-            if (yearInput && suggestion.Year) yearInput.value = String(suggestion.Year);
+            if (yearInput) yearInput.value = suggestion.Year ? String(suggestion.Year) : '';
             hideSuggestions();
         };
 
@@ -82,22 +89,20 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
         titleInput.setAttribute('aria-controls', suggestions.id);
         titleInput.setAttribute('aria-expanded', 'false');
         titleInput.addEventListener('input', () => {
-            if (debounceTimer) clearTimeout(debounceTimer);
+            cancelLookup();
+            hideSuggestions();
             const query = titleInput.value.trim();
             if (query.length < 2) {
-                requestSequence++;
-                hideSuggestions();
-                titleInput.setAttribute('aria-expanded', 'false');
                 return;
             }
 
-            const sequence = ++requestSequence;
+            const sequence = requestSequence;
             debounceTimer = setTimeout(() => {
                 void apiClient.getJSON(apiClient.getUrl(`UserFeedback/MediaSuggestions?query=${encodeURIComponent(query)}&limit=10`))
                     .then((response: unknown) => {
                         const results = response as MediaSuggestion[];
                         if (sequence !== requestSequence || titleInput.value.trim() !== query || !Array.isArray(results)) return;
-                        suggestions.replaceChildren();
+                        suggestions.textContent = '';
                         results.forEach((suggestion, index) => {
                             const option = document.createElement('button');
                             option.type = 'button';
@@ -127,12 +132,12 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
         });
 
         const updateActiveOption = () => {
-            const options = Array.from(suggestions.querySelectorAll<HTMLElement>('[role="option"]'));
-            options.forEach((option, index) => {
+            const suggestionOptions = Array.from(suggestions.querySelectorAll<HTMLElement>('[role="option"]'));
+            suggestionOptions.forEach((option, index) => {
                 option.setAttribute('aria-selected', String(index === activeIndex));
                 option.style.background = index === activeIndex ? '#343434' : 'transparent';
             });
-            const active = options[activeIndex];
+            const active = suggestionOptions[activeIndex];
             if (active) {
                 titleInput.setAttribute('aria-activedescendant', active.id);
                 active.scrollIntoView({ block: 'nearest' });
@@ -142,26 +147,33 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
         };
 
         titleInput.addEventListener('keydown', event => {
-            const options = suggestions.querySelectorAll<HTMLElement>('[role="option"]');
-            if (suggestions.hidden || options.length === 0) return;
+            if (event.key === 'Escape') {
+                cancelLookup();
+                hideSuggestions();
+                return;
+            }
+            const suggestionOptions = suggestions.querySelectorAll<HTMLElement>('[role="option"]');
+            if (suggestions.hidden || suggestionOptions.length === 0) return;
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
-                activeIndex = (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+                activeIndex = (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + suggestionOptions.length) % suggestionOptions.length;
                 updateActiveOption();
             } else if (event.key === 'Enter' && activeIndex >= 0) {
                 event.preventDefault();
-                (options[activeIndex] as HTMLButtonElement).click();
-            } else if (event.key === 'Escape') {
-                hideSuggestions();
-                titleInput.setAttribute('aria-expanded', 'false');
+                (suggestionOptions[activeIndex] as HTMLButtonElement).click();
             }
         });
         titleInput.addEventListener('blur', () => {
+            cancelLookup();
+            const sequence = requestSequence;
             window.setTimeout(() => {
-                hideSuggestions();
-                titleInput.setAttribute('aria-expanded', 'false');
+                if (sequence === requestSequence) hideSuggestions();
             }, 120);
         });
+        dialog.addEventListener('close', () => {
+            cancelLookup();
+            hideSuggestions();
+        }, { once: true });
     }
 
     form?.addEventListener('submit', (event) => {

@@ -4,6 +4,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Model.Activity;
+using MediaBrowser.Model.Nebula;
 using Moq;
 using MulletaFlix.Api.Controllers;
 using MulletaFlix.Api.Models.UserFeedbackDtos;
@@ -126,8 +127,36 @@ public class UserFeedbackControllerTests
         nebulaManager.Verify(manager => manager.IsMediaRequestPrioritized("The Example"), Times.Once);
     }
 
-    [Fact]
-    public async Task GetMyMediaRequests_ClampsOutOfRangeLimit()
+    [Theory]
+    [InlineData("Solicitação de mídia: Átomic (2024)", "Atomic")]
+    [InlineData("Solicitação de mídia: D&D - Cityscape", "D&D Cityscape")]
+    public async Task GetMyMediaRequests_ReturnsOnlyCallerPageCatalogCandidates(string requestName, string catalogTitle)
+    {
+        var entry = new ActivityLogEntry(requestName, "MediaRequest", Guid.NewGuid()) { Id = 42 };
+        var activityManager = new Mock<IActivityManager>();
+        activityManager.Setup(manager => manager.GetPagedResultAsync(It.IsAny<MulletaFlix.Data.Queries.ActivityLogQuery>()))
+            .ReturnsAsync(new MediaBrowser.Model.Querying.QueryResult<ActivityLogEntry>(0, 1, new[] { entry }));
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        nebulaManager.Setup(manager => manager.GetMediaSuggestionCatalog()).Returns(new[]
+        {
+            new NebulaMediaSuggestionDto { Title = catalogTitle, MediaType = "Series", Year = 2024 },
+            new NebulaMediaSuggestionDto { Title = catalogTitle, MediaType = "Animações", Year = 2025 },
+            new NebulaMediaSuggestionDto { Title = "Unrequested title", MediaType = "Series" }
+        });
+        var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var result = Assert.IsType<OkObjectResult>(await controller.GetMyMediaRequests());
+        var response = Assert.IsType<MediaRequestQueryResultDto>(result.Value);
+
+        Assert.Equal(2, response.Catalog.Count);
+        Assert.All(response.Catalog, item => Assert.Equal(catalogTitle, item.Title));
+    }
+
+    [Theory]
+    [InlineData(200, 200)]
+    [InlineData(-10, 0)]
+    public async Task GetMyMediaRequests_ClampsOutOfRangeLimitAndSupportsOffsets(int startIndex, int expectedIndex)
     {
         MulletaFlix.Data.Queries.ActivityLogQuery? capturedQuery = null;
         var activityManager = new Mock<IActivityManager>();
@@ -137,9 +166,11 @@ public class UserFeedbackControllerTests
         var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), Mock.Of<INebulaFtpManager>());
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
-        await controller.GetMyMediaRequests(limit: 10_000);
+        await controller.GetMyMediaRequests(limit: 10_000, startIndex: startIndex);
 
         Assert.NotNull(capturedQuery);
         Assert.Equal(500, capturedQuery!.Limit);
+        Assert.Equal(expectedIndex, capturedQuery.Skip);
+        Assert.Equal("MediaRequest", capturedQuery.Type);
     }
 }

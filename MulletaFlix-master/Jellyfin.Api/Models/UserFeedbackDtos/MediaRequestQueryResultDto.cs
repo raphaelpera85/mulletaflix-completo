@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using MediaBrowser.Model.Activity;
+using MediaBrowser.Model.Nebula;
 
 namespace MulletaFlix.Api.Models.UserFeedbackDtos;
 
@@ -17,4 +18,7 @@ public sealed class MediaRequestQueryResultDto
 
     /// <summary>Gets or sets request IDs whose titles are registered for Nebula priority.</summary>
     public IReadOnlyList<long> PriorityRequestIds { get; set; } = System.Array.Empty<long>();
+
+    /// <summary>Gets or sets path-free catalog candidates matching titles requested on this page.</summary>
+    public IReadOnlyList<NebulaMediaSuggestionDto> Catalog { get; set; } = System.Array.Empty<NebulaMediaSuggestionDto>();
 }

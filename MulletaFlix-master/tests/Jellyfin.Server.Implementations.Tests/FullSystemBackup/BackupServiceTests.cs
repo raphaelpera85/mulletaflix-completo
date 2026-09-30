@@ -567,6 +567,40 @@ public class BackupServiceTests
     }
 
     [Fact]
+    public void PruneOldBackups_FutureTimestampsPreserveRecentDatedArchives()
+    {
+        var service = CreateService();
+        var tempFolder = Path.Combine(Path.GetTempPath(), "MulletaFlixPruneClockTest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempFolder);
+
+        try
+        {
+            foreach (var age in new[] { 1, 2, 3, -100, -200 })
+            {
+                var path = Path.Combine(tempFolder, $"MulletaFlix-backup-{age}.zip");
+                File.WriteAllText(path, $"backup-{age}");
+                File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-age));
+            }
+
+            service.PruneOldBackups(tempFolder, maxToKeep: 2);
+
+            Assert.Equal(4, Directory.GetFiles(tempFolder, "*.zip").Length);
+            Assert.False(File.Exists(Path.Combine(tempFolder, "MulletaFlix-backup-3.zip")));
+            foreach (var age in new[] { 1, 2, -100, -200 })
+            {
+                Assert.True(File.Exists(Path.Combine(tempFolder, $"MulletaFlix-backup-{age}.zip")));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempFolder))
+            {
+                Directory.Delete(tempFolder, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void PruneOldBackups_NegativeLimitDisablesRemoval()
     {
         var service = CreateService();

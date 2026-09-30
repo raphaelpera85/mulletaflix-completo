@@ -63,24 +63,21 @@ public static class BackupRetentionPolicy
             return [];
         }
 
-        // Mais novos primeiro; sem data vai para o fim mas nunca é removido.
+        // Datas ausentes, anteriores à época Unix ou futuras não participam
+        // da rotação: não podem ocupar as vagas das cópias datadas recentes.
+        var now = DateTime.UtcNow;
         var ordered = all
+            .Where(candidate => candidate.CreatedUtc > DateTime.UnixEpoch && candidate.CreatedUtc <= now)
             .OrderByDescending(candidate => candidate.CreatedUtc ?? DateTime.MinValue)
             .ToList();
 
         var removal = new List<BackupRetentionCandidate>();
-        var now = DateTime.UtcNow;
 
-        for (var index = 0; index < ordered.Count; index++)
+        // Preservar a cópia datada mais recente mesmo vencida por idade.
+        // Uma cópia com data desconhecida não substitui esta garantia.
+        for (var index = 1; index < ordered.Count; index++)
         {
             var candidate = ordered[index];
-
-            // Sem data confiável não há como julgar idade nem posição real;
-            // remover às cegas poderia descartar o backup mais recente.
-            if (candidate.CreatedUtc is null)
-            {
-                continue;
-            }
 
             var exceedsCount = !unlimitedCount && index >= effectiveKeep;
             var exceedsAge = maximumAge.HasValue
@@ -90,16 +87,6 @@ public static class BackupRetentionPolicy
             {
                 removal.Add(candidate);
             }
-        }
-
-        // Nunca esvaziar o conjunto: preserva o mais recente entre os marcados
-        // se a regra tentar remover todos.
-        if (removal.Count >= all.Count)
-        {
-            var keepThisOne = removal
-                .OrderByDescending(candidate => candidate.CreatedUtc ?? DateTime.MinValue)
-                .First();
-            removal.Remove(keepThisOne);
         }
 
         return removal;
