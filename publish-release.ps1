@@ -2,6 +2,8 @@
 param(
     [string]$Tag,
     [string]$Title,
+    [string]$NotesPath,
+    [string]$TargetCommitish,
     [string]$ZipPath = "dist\mulletaflix-update-win-x64.zip",
     [string[]]$AssetPath = @(),
     [string]$AssetsDirectory = "dist",
@@ -120,9 +122,15 @@ Pacotes de produção Windows x64: atualização (`mulletaflix-update-win-x64.zi
 '@
 
 $bodyContent = $bodyContent.Replace('__TAG__', $Tag)
+if ($NotesPath) {
+    $resolvedNotesPath = if ([System.IO.Path]::IsPathRooted($NotesPath)) { $NotesPath } else { Join-Path $projectRoot $NotesPath }
+    $bodyContent = [System.IO.File]::ReadAllText($resolvedNotesPath, [System.Text.Encoding]::UTF8)
+    if ([string]::IsNullOrWhiteSpace($bodyContent)) { throw 'Release notes must not be empty.' }
+}
 
 $releasePayloadJson = @{
     tag_name = $Tag
+    target_commitish = $(if ($TargetCommitish) { $TargetCommitish } else { 'main' })
     name = $Title
     body = $bodyContent
     draft = $false
