@@ -10,6 +10,7 @@ using Emby.Server.Implementations.Configuration;
 using Emby.Server.Implementations.Serialization;
 using Jellyfin.Server.Implementations.Nebula;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Nebula;
 using MediaBrowser.Model.Serialization;
@@ -498,7 +499,16 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
             next.MaxWorkers = 7;
             return next;
         });
-        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entries = 0;
+        var observed = ObserveUpdateEntry(configuration, () =>
+        {
+            if (Interlocked.Increment(ref entries) == 2)
+            {
+                secondEntered.SetResult();
+            }
+        });
+        await using var manager = new NebulaFtpManager(observed, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
         var writes = 0;
         configuration.NamedConfigurationUpdated += (_, _) => Interlocked.Increment(ref writes);
         using var commitEntered = new ManualResetEventSlim();
@@ -516,13 +526,8 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         try
         {
             Assert.True(commitEntered.Wait(TimeSpan.FromSeconds(30)));
-            var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            second = Task.Run(() =>
-            {
-                secondStarted.SetResult();
-                return manager.EnsureLocalFtpCredentials();
-            });
-            await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            second = Task.Run(() => manager.EnsureLocalFtpCredentials());
+            await secondEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
             Assert.False(first.IsCompleted);
             Assert.False(second.IsCompleted);
         }
@@ -552,7 +557,16 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
     {
         var configuration = CreateManager(_serializer);
         var original = configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp");
-        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entries = 0;
+        var observed = ObserveUpdateEntry(configuration, () =>
+        {
+            if (Interlocked.Increment(ref entries) == 2)
+            {
+                secondEntered.SetResult();
+            }
+        });
+        await using var manager = new NebulaFtpManager(observed, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
         var titles = Enumerable.Range(1, 12).Select(i => $"Test Requested Show {i:00}").ToArray();
         using var commitEntered = new ManualResetEventSlim();
         using var releaseCommit = new ManualResetEventSlim();
@@ -569,13 +583,8 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         try
         {
             Assert.True(commitEntered.Wait(TimeSpan.FromSeconds(30)));
-            var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            second = Task.Run(() =>
-            {
-                secondStarted.SetResult();
-                manager.PrioritizeMedia(string.Empty, seriesName: titles[1]);
-            });
-            await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            second = Task.Run(() => manager.PrioritizeMedia(string.Empty, seriesName: titles[1]));
+            await secondEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
             Assert.False(first.IsCompleted);
             Assert.False(second.IsCompleted);
         }
@@ -759,6 +768,123 @@ public sealed class NamedConfigurationConcurrencyTests : IDisposable
         Assert.Same(cache, GetManagerField<NebulaPlaybackCacheAccessor>(manager, "_playbackCacheAccessor").Current);
         Assert.Equal(5L * 1024 * 1024 * 1024, cache.MaxCacheBytes);
         Assert.Equal(0, cache.MinimumFreeSpaceBytes);
+    }
+
+    [Fact]
+    public async Task QuotaOnlyCacheUpdate_UsesPathCommittedWhileWaitingForLifecycleGate()
+    {
+        var configuration = CreateManager(_serializer);
+        var oldRoot = Path.Combine(_directory, "old-path");
+        var currentRoot = Path.Combine(_directory, "current-path");
+        configuration.UpdateConfiguration("nebulaftp", current =>
+        {
+            var next = ((NebulaFtpConfiguration)current).CreateSnapshot();
+            next.PlaybackCachePath = oldRoot;
+            next.PlaybackCacheMinimumFreeSpaceGb = 0;
+            return next;
+        });
+        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var gate = GetManagerField<SemaphoreSlim>(manager, "_envioLock");
+        await gate.WaitAsync();
+        Task<bool> pending;
+        try
+        {
+            pending = manager.UpdatePlaybackCachePathAsync(null, 3);
+            Assert.False(pending.IsCompleted);
+            configuration.UpdateConfiguration("nebulaftp", current =>
+            {
+                var next = ((NebulaFtpConfiguration)current).CreateSnapshot();
+                next.PlaybackCachePath = currentRoot;
+                return next;
+            });
+        }
+        finally
+        {
+            gate.Release();
+        }
+
+        Assert.True(await pending.WaitAsync(TimeSpan.FromSeconds(30)));
+        Assert.Equal(currentRoot, configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp").PlaybackCachePath);
+        Assert.False(Directory.Exists(oldRoot));
+        var cache = GetManagerField<NebulaPlaybackCacheAccessor>(manager, "_playbackCacheAccessor").Current;
+        Assert.NotNull(cache);
+        Assert.Equal(Path.Combine(currentRoot, "nebula-playback"), cache.CachePath);
+        Assert.Equal(3L * 1024 * 1024 * 1024, cache.MaxCacheBytes);
+        Assert.True(await manager.UpdatePlaybackCachePathAsync(string.Empty, 2, 0));
+        Assert.Equal(string.Empty, configuration.GetConfiguration<NebulaFtpConfiguration>("nebulaftp").PlaybackCachePath);
+        Assert.Equal(Path.Combine(configuration.CommonApplicationPaths.CachePath, "nebula-playback"), GetManagerField<NebulaPlaybackCacheAccessor>(manager, "_playbackCacheAccessor").Current!.CachePath);
+    }
+
+    [Fact]
+    public async Task CancelledCacheUpdateAtSharedGate_ReleasesEnvioGate()
+    {
+        var configuration = CreateManager(_serializer);
+        await using var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var shared = GetManagerField<SemaphoreSlim>(manager, "_sharedRuntimeLock");
+        var envio = GetManagerField<SemaphoreSlim>(manager, "_envioLock");
+        await shared.WaitAsync();
+        using var cancellation = new CancellationTokenSource();
+        var root = Path.Combine(_directory, "cancelled-shared-cache");
+        try
+        {
+            var pending = manager.UpdatePlaybackCachePathAsync(root, 2, 0, cancellation.Token);
+            Assert.False(pending.IsCompleted);
+            Assert.Equal(0, envio.CurrentCount);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(1, envio.CurrentCount);
+            Assert.False(Directory.Exists(root));
+            Assert.False(File.Exists(ConfigurationPath));
+        }
+        finally
+        {
+            shared.Release();
+        }
+    }
+
+    [Fact]
+    public async Task DisposalRacingQueuedCacheUpdate_PreventsPublication()
+    {
+        var configuration = CreateManager(_serializer);
+        var manager = new NebulaFtpManager(configuration, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
+        var envio = GetManagerField<SemaphoreSlim>(manager, "_envioLock");
+        await envio.WaitAsync();
+        var root = Path.Combine(_directory, "disposal-race-cache");
+        Task<bool> pending;
+        Task disposal;
+        try
+        {
+            pending = manager.UpdatePlaybackCachePathAsync(root, 2, 0);
+            Assert.False(pending.IsCompleted);
+            disposal = manager.DisposeAsync().AsTask();
+            Assert.False(disposal.IsCompleted);
+        }
+        finally
+        {
+            envio.Release();
+        }
+
+        Assert.False(await pending.WaitAsync(TimeSpan.FromSeconds(30)));
+        await disposal.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.False(Directory.Exists(root));
+        Assert.False(File.Exists(ConfigurationPath));
+        Assert.Null(GetManagerField<NebulaPlaybackCacheAccessor>(manager, "_playbackCacheAccessor").Current);
+    }
+
+    private static IServerConfigurationManager ObserveUpdateEntry(IServerConfigurationManager configuration, Action entered)
+    {
+        var observed = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        observed.SetupGet(m => m.CommonApplicationPaths).Returns(configuration.CommonApplicationPaths);
+        observed.Setup(m => m.GetConfiguration(It.IsAny<string>())).Returns<string>(configuration.GetConfiguration);
+        observed.Setup(m => m.SaveConfiguration(It.IsAny<string>(), It.IsAny<object>()))
+            .Callback<string, object>(configuration.SaveConfiguration);
+        observed.Setup(m => m.UpdateConfiguration(It.IsAny<string>(), It.IsAny<Func<object, object>>()))
+            .Returns<string, Func<object, object>>((key, update) =>
+            {
+                entered();
+                return configuration.UpdateConfiguration(key, update);
+            });
+        return observed.Object;
     }
 
     private static T GetManagerField<T>(NebulaFtpManager manager, string name)
