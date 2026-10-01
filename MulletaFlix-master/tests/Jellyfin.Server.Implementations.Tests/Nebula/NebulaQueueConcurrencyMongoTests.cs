@@ -72,6 +72,35 @@ public sealed class NebulaQueueConcurrencyMongoTests : IDisposable
     }
 
     [Fact]
+    public async Task UploadQueueSummary_RecordsSuccessfulMongoActivity()
+    {
+        Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");
+
+        var stopped = new List<System.Diagnostics.Activity>();
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NebulaMongoContext.ActivitySourceName,
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> options) =>
+                options.Name == "mongodb.get_upload_queue_summary"
+                    ? System.Diagnostics.ActivitySamplingResult.AllData
+                    : System.Diagnostics.ActivitySamplingResult.None,
+            ActivityStopped = activity => stopped.Add(activity)
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+
+        using var context = CreateContext();
+        var summary = await context.GetUploadQueueSummaryAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, summary.PendingCount);
+        var activity = Assert.Single(stopped);
+        Assert.Equal("mongodb.get_upload_queue_summary", activity.OperationName);
+        Assert.Equal(System.Diagnostics.ActivityKind.Client, activity.Kind);
+        Assert.Equal("success", activity.GetTagItem("mongodb.result"));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("name", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ConcurrentClaims_OnlyOneWorkerWinsTheDocument()
     {
         Assert.SkipUnless(_available, "MongoDB de teste indisponível em 127.0.0.1:27099.");

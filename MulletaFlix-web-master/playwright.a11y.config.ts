@@ -4,7 +4,7 @@ const baseURL = 'http://127.0.0.1:8098';
 
 export default defineConfig({
     testDir: './tests/playwright/specs',
-    testMatch: '29-accessibility.spec.ts',
+    testMatch: [ '28-backup-coverage.spec.ts', '29-accessibility.spec.ts' ],
     fullyParallel: false,
     workers: 1,
     retries: 0,

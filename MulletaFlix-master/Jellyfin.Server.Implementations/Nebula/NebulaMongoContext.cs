@@ -1750,6 +1750,29 @@ public sealed class NebulaMongoContext : IDisposable
 
     public async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryAsync(CancellationToken cancellationToken = default)
     {
+        using var activity = StartMongoActivity("mongodb.get_upload_queue_summary");
+        try
+        {
+            var summary = await GetUploadQueueSummaryCoreAsync(cancellationToken).ConfigureAwait(false);
+            activity?.SetTag("mongodb.result", "success");
+            return summary;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            activity?.SetTag("mongodb.result", "cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, "MongoDB upload queue summary failed");
+            activity?.SetTag("error.type", ex.GetType().FullName);
+            activity?.SetTag("mongodb.result", "failure");
+            throw;
+        }
+    }
+
+    private async Task<NebulaUploadQueueSummaryDto> GetUploadQueueSummaryCoreAsync(CancellationToken cancellationToken)
+    {
         var now = DateTimeOffset.UtcNow;
         var windowStart = now.AddHours(-1);
         var windowStartUnix = windowStart.ToUnixTimeSeconds();

@@ -128,6 +128,75 @@ public class NebulaStreamEngineTests
     }
 
     [Fact]
+    public async Task MongoUploadQueueSummary_CancellationIsRecordedWithoutSensitiveTags()
+    {
+        var stopped = new List<System.Diagnostics.Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NebulaMongoContext.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> options) =>
+                options.Name == "mongodb.get_upload_queue_summary" ? ActivitySamplingResult.AllData : ActivitySamplingResult.None,
+            ActivityStopped = activity => stopped.Add(activity)
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        using var context = new NebulaMongoContext(
+            "mongodb://user:SensitivePassword@127.0.0.1:27017/SensitiveDatabase",
+            "test",
+            NullLogger<NebulaMongoContext>.Instance);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => context.GetUploadQueueSummaryAsync(cancellation.Token));
+
+        var activity = Assert.Single(stopped);
+        Assert.Equal("mongodb.get_upload_queue_summary", activity.OperationName);
+        Assert.Equal(ActivityKind.Client, activity.Kind);
+        Assert.Equal("cancelled", activity.GetTagItem("mongodb.result"));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("connection", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("database", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("path", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("name", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("token", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            activity.TagObjects,
+            tag => tag.Value is string value && value.Contains("Sensitive", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task MongoUploadQueueSummary_FailureIsRecordedWithoutSensitiveDetails()
+    {
+        var stopped = new List<System.Diagnostics.Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NebulaMongoContext.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> options) =>
+                options.Name == "mongodb.get_upload_queue_summary" ? ActivitySamplingResult.AllData : ActivitySamplingResult.None,
+            ActivityStopped = activity => stopped.Add(activity)
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        using var context = new NebulaMongoContext(
+            "mongodb://user:SensitivePassword@127.0.0.1:1/SensitiveDatabase?serverSelectionTimeoutMS=100&connectTimeoutMS=100",
+            "test",
+            NullLogger<NebulaMongoContext>.Instance);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => context.GetUploadQueueSummaryAsync());
+
+        var activity = Assert.Single(stopped);
+        Assert.Equal("mongodb.get_upload_queue_summary", activity.OperationName);
+        Assert.Equal(ActivityStatusCode.Error, activity.Status);
+        Assert.Equal("failure", activity.GetTagItem("mongodb.result"));
+        Assert.NotNull(activity.GetTagItem("error.type"));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("connection", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(activity.TagObjects, tag => tag.Key.Contains("database", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            activity.TagObjects,
+            tag => tag.Value is string value && value.Contains("Sensitive", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task MongoGetChildren_CancellationIsRecordedWithoutSensitiveTags()
     {
         using var listener = new ActivityListener

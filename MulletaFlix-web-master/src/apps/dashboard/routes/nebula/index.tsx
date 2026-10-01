@@ -34,6 +34,7 @@ import toast from 'components/toast/toast';
 import type { ApiClient } from 'jellyfin-apiclient';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
 import { queryClient } from 'utils/query/queryClient';
+import { getUploadQueueCountPresentation } from './queueCountPresentation';
 
 type NebulaWorker = {
     Name?: string;
@@ -912,7 +913,10 @@ const NebulaPage = () => {
     const logs = logsQuery.data;
     const componentHealth = healthQuery.data;
     const activeUploads = useMemo(() => status?.ActiveUploads ?? [], [ status?.ActiveUploads ]);
-    const queuedUploads = status?.UploadQueueCount ?? status?.QueuedUploads?.length ?? 0;
+    const queueCounts = getUploadQueueCountPresentation(
+        status?.UploadQueueCount ?? status?.QueuedUploads?.length,
+        uploadQueueSummaryQuery.data
+    );
     const currentDownload = status?.CurrentDownload;
     const isBusy = actionMutation.isPending
         || backupMutation.isPending
@@ -1223,9 +1227,9 @@ const NebulaPage = () => {
                                 title='Uploads ativos'
                                 icon={<CloudUpload color='primary' />}
                                 name={`${activeUploads.length} upload(s) ativo(s)`}
-                                detail={`${queuedUploads} item(ns) na fila`}
+                                detail={queueCounts.totalDescription}
                                 percentage={activeUploads[0]?.Percentage || 0}
-                                secondary={activeUploads[0]?.InfoText || 'Fila monitorada pelo servidor'}
+                                secondary={queueCounts.loadedDescription}
                             />
                         </Stack>
                         {currentDownload?.QueueCount ? (

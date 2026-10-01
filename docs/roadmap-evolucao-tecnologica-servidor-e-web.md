@@ -454,7 +454,7 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 - [ ] **W2.1 — Auditoria WCAG 2.2 AA.** Contraste, foco, semântica, labels, mensagens de status, zoom/reflow, orientação e alvos de toque.
 - [ ] **W2.2 — Navegação por teclado e controle remoto.** Ordem de foco, setas de carrossel, escape de diálogos, retorno de foco e atalhos sem armadilhas.
 - [ ] **W2.3 — Automatizar axe com Playwright.** Rodar nas páginas principais; complementar com avaliação manual por teclado/leitor de tela.
-  - [x] Parcial: auditoria axe-core automatizada da página real `Minhas solicitações`, com 390 px e 1280 px; fixture usa respostas determinísticas. Ainda faltam as demais rotas principais e revisão manual por teclado/leitor de tela.
+  - [x] Parcial: auditoria axe-core automatizada da página real `Minhas solicitações` e do componente real de cobertura de backups, com dados determinísticos em 390 px e 1280 px; WCAG 2.2 AA incluída no scan. Ainda faltam as demais rotas principais e revisão manual por teclado/leitor de tela.
 - [ ] **W2.4 — Melhorar formulários e erros.** Label visível, validação junto ao campo, sugestão para corrigir e anúncio acessível de sucesso/falha.
 
 **Aceite:** zero violações críticas/altas automatizáveis nas páginas alvo; checklist manual teclado/controle remoto; nenhum componente interativo sem nome/foco acessível.
@@ -1643,6 +1643,29 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - O teste falhou primeiro por ausência de `<title>` na fixture; o wrapper real `Page` foi mockado e não cria o título do documento. A fixture foi corrigida para espelhar essa responsabilidade, sem mascarar violações do conteúdo testado.
 - Gauntlet parcial: Playwright axe-core **1/1** passou em 390 px e 1280 px, zero violações WCAG 2.1 A/AA. O axe-core já está no lockfile como dependência transitiva de `eslint-plugin-jsx-a11y`; nenhuma dependência foi adicionada.
 - W2.3 permanece parcial: demais rotas principais, critérios WCAG 2.2, cenários de loading/erro/vazio e avaliação manual por teclado/leitor de tela ainda não foram cobertos. Nenhuma release intermediária foi criada; curadoria por IA permanece no backlog futuro.
+
+### 01/10/2026 — Scan axe no resumo de cobertura de backups (W2.3 parcial)
+
+- O gate `test:playwright:a11y` agora seleciona também `28-backup-coverage.spec.ts`; antes, o comando passava sem executar a cobertura pretendida porque seu `testMatch` incluía apenas o spec 29.
+- O teste verifica o componente real `BackupCoverageSummary` em 390 px e 1280 px, mantém assertivas de conteúdo/teclado/overflow e roda axe-core para WCAG 2.2 AA e versões anteriores; dados de serviço continuam simulados.
+- A fixture agora varia entre falha com conteúdo, carregamento sem dados e estado vazio sem backup; cada um dos três estados é verificado nos dois viewports, inclusive anúncio `role=status` no carregamento.
+- O primeiro scan encontrou `<title>` ausente somente na fixture, cujo HTML não espelhava o shell de página. A fixture foi corrigida; os dois viewports passaram com zero violações automatizadas.
+- Um matcher de rota inicialmente não cobriu query strings; o teste caiu na tela “Select Server”. A rota da fixture foi corrigida para incluir o estado na query e a repetição passou.
+- Gauntlet focado: `npm run test:playwright:a11y` **3/3** (seis combinações estado/viewports para a cobertura de backups e a página existente de solicitações), `npm run build:check` e ESLint dos arquivos alterados **passaram**. W2.3 segue parcial: outras rotas e revisão manual continuam pendentes. Nenhuma release intermediária foi criada; curadoria por IA permanece no backlog futuro.
+
+### 01/10/2026 — Card Nebula distingue fila total do snapshot dos workers (T1.2/T6.2 parcial)
+
+- INTENT: a tela mostrava apenas `UploadQueueCount`, que é o snapshot em memória limitado para proteger os workers; o resumo Mongo já fornecia o total persistido, mas o card “Uploads ativos” ignorava esse dado e podia exibir “70” como se fosse a fila inteira.
+- O card agora mostra separadamente o total `staging/queued` persistido no MongoDB, quantos itens estão atualmente carregados nos workers e quantos aguardam retry. Se o resumo estiver indisponível/inválido, comunica “Total pendente indisponível” e mantém o número do snapshot identificado como carregado — não o apresenta como total.
+- TWINS: searched `UploadQueueCount/UploadQueueSummary` - `UploadQueueCount` is sourced from `GetPendingQueueSnapshot()` while `UploadQueueSummary.PendingCount` is a separate Mongo count; the card now consumes both with explicit labels.
+- Gauntlet web: testes de apresentação **4/4**, suíte Vitest **281/281 em 43 arquivos**, `build:check`, ESLint focado, Stylelint e build de produção passaram; `verify:build` aprovou **1.902 arquivos**, limite por arquivo **1.536 KiB**, e `git diff --check` passou. O build mantém avisos existentes de Vite sobre diretivas `use client` e chunks mistos.
+- T1.2/T6.2 permanecem parciais: a UI esclarece o limite do snapshot, mas a validação das agregações/índices com volume real e calibração sob carga de produção seguem pendentes. Nenhuma release intermediária foi criada; curadoria IA segue no backlog futuro.
+
+### 01/10/2026 — Telemetria do resumo da fila MongoDB Nebula (T1.2 parcial)
+
+- `GetUploadQueueSummaryAsync` agora produz um span próprio `mongodb.get_upload_queue_summary`, com resultado `success`, `cancelled` ou `failure`; falhas registram apenas tipo da exceção e descrição genérica, sem incluir conexão, credenciais, nomes de mídia ou caminhos.
+- Regressão local confirma propagação de cancelamento, estado do span e ausência de dados sensíveis. Teste opt-in também verifica o caminho de sucesso em MongoDB real; foi ignorado neste ambiente por não haver MongoDB de teste em `127.0.0.1:27099`, portanto sucesso real permanece sem evidência até executar nesse ambiente.
+- T1.2/T6.2 continuam parciais: a telemetria da consulta foi adicionada, mas ainda faltam volume real, calibração sob carga e auditoria das demais rotas/trabalhos. Nenhuma release intermediária foi criada; curadoria por IA permanece no backlog futuro.
 
 ## Referências técnicas
 
