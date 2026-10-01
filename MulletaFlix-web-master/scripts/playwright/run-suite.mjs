@@ -9,6 +9,8 @@ import net from 'node:net';
 import fg from 'fast-glob';
 import {
     DEFAULT_STAGE_BASE_URL,
+    evaluatePlaywrightGate,
+    extractPlaywrightStats,
     fetchStagePublicInfo,
     getStageBaseUrl,
     writePlaywrightReportArtifacts
@@ -18,7 +20,8 @@ import {
     assertStagePidFileAbsent,
     buildStageKillArgs,
     buildStageRemovalTargets,
-    parseStagePid
+    parseStagePid,
+    resolveDotnetExecutable
 } from './stage-safety.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -33,7 +36,7 @@ const stageDataDir = path.join(workspaceRoot, 'stage-data');
 const legacyStageDataDir = path.join(workspaceRoot, 'stage', 'data', 'jellyfin-test');
 const stagePidFile = path.join(stageDataDir, 'stage.pid');
 const taskkillExecutable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
-const dotnetExecutable = path.join(process.env.ProgramFiles || 'C:\\Program Files', 'dotnet', 'dotnet.exe');
+const dotnetExecutable = resolveDotnetExecutable(process.platform, process.env.ProgramFiles);
 const allowedStageRoots = [
     path.join(workspaceRoot, 'stage'),
     stageDataDir
@@ -182,10 +185,24 @@ async function stopTrackedStageProcess() {
         throw new Error(`Invalid stage pid file: ${stagePidFile}`);
     }
 
-    spawnSync(taskkillExecutable, buildStageKillArgs(pid), {
-        windowsHide: true,
-        stdio: 'ignore'
-    });
+    if (process.platform === 'win32') {
+        const result = spawnSync(taskkillExecutable, buildStageKillArgs(pid), {
+            windowsHide: true,
+            stdio: 'ignore'
+        });
+        if (result.error) {
+            throw result.error;
+        }
+    } else {
+        try {
+            // The child was started detached, so its process group belongs to this stage.
+            process.kill(-pid, 'SIGTERM');
+        } catch (error) {
+            if (error?.code !== 'ESRCH') {
+                throw error;
+            }
+        }
+    }
     await rm(stagePidFile, { force: true });
     ownsStageProcess = false;
 }
@@ -260,6 +277,7 @@ function createSummaryBase(baseUrl, specCount) {
             total: 0,
             passed: 0,
             failed: 0,
+            flaky: 0,
             skipped: 0,
             durationMs: 0
         },
@@ -276,17 +294,6 @@ function createSummaryBase(baseUrl, specCount) {
             login: false
         },
         assumptions: []
-    };
-}
-
-function extractStats(rawReport) {
-    const stats = rawReport?.stats || {};
-    return {
-        total: Number(stats.expected || 0) + Number(stats.unexpected || 0) + Number(stats.flaky || 0) + Number(stats.skipped || 0),
-        passed: Number(stats.expected || 0),
-        failed: Number(stats.unexpected || 0),
-        skipped: Number(stats.skipped || 0),
-        durationMs: Number(stats.duration || 0)
     };
 }
 
@@ -379,20 +386,23 @@ async function main() {
 
     const rawReport = await loadRawReport(rawReportPath);
     const stageProbe = await probeStage(args.baseUrl);
+    const stats = rawReport ? extractPlaywrightStats(rawReport) : {
+        total: 0,
+        passed: 0,
+        failed: result.status === 0 ? 0 : 1,
+        flaky: 0,
+        skipped: 0,
+        durationMs: 0
+    };
+    const gate = evaluatePlaywrightGate(result.status, stats, !!rawReport);
 
     const summary = {
         title: 'MulletaFlix Playwright Summary',
         generatedAt: new Date().toISOString(),
         baseUrl: args.baseUrl,
-        status: result.status === 0 ? 'success' : 'failed',
+        status: gate.status,
         specCount: specs.length,
-        tests: rawReport ? extractStats(rawReport) : {
-            total: 0,
-            passed: 0,
-            failed: result.status === 0 ? 0 : 1,
-            skipped: 0,
-            durationMs: 0
-        },
+        tests: stats,
         stageProbe,
         stageChecks: {
             wizard: stageProbe.reachable && stageProbe.startupWizardCompleted === false,
@@ -419,7 +429,7 @@ async function main() {
     if (ownsStageProcess) {
         await stopTrackedStageProcess();
     }
-    process.exitCode = result.status === 0 && summary.tests.failed === 0 ? 0 : 1;
+    process.exitCode = gate.exitCode;
 }
 
 main().catch(async error => {
@@ -439,6 +449,7 @@ main().catch(async error => {
             total: 0,
             passed: 0,
             failed: 1,
+            flaky: 0,
             skipped: 0,
             durationMs: 0
         },

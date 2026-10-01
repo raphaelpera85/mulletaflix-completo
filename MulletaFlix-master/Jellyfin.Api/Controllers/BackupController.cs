@@ -43,10 +43,18 @@ public class BackupController : BaseMulletaFlixApiController
     /// <returns>The created backup manifest.</returns>
     [HttpPost("Create")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<BackupManifestDto>> CreateBackup([FromBody] BackupOptionsDto backupOptions)
     {
-        return Ok(await _backupService.CreateBackupAsync(backupOptions ?? new()).ConfigureAwait(false));
+        try
+        {
+            return Ok(await _backupService.CreateBackupAsync(backupOptions ?? new()).ConfigureAwait(false));
+        }
+        catch (BackupOperationInProgressException)
+        {
+            return CreateOperationInProgressResult();
+        }
     }
 
     /// <summary>
@@ -58,6 +66,7 @@ public class BackupController : BaseMulletaFlixApiController
     /// <returns>No-Content.</returns>
     [HttpPost("Restore")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public IActionResult StartRestoreBackup([FromBody, BindRequired] BackupRestoreRequestDto archiveRestoreDto)
@@ -72,7 +81,15 @@ public class BackupController : BaseMulletaFlixApiController
             return NotFound();
         }
 
-        _backupService.ScheduleRestoreAndRestartServer(archivePath);
+        try
+        {
+            _backupService.ScheduleRestoreAndRestartServer(archivePath);
+        }
+        catch (BackupOperationInProgressException)
+        {
+            return CreateOperationInProgressResult();
+        }
+
         return NoContent();
     }
 
@@ -86,6 +103,7 @@ public class BackupController : BaseMulletaFlixApiController
     /// <returns>No-Content.</returns>
     [HttpPost("RestorePointInTime")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> RestorePointInTime([FromBody, BindRequired] PointInTimeRestoreRequestDto restoreRequest)
@@ -105,7 +123,15 @@ public class BackupController : BaseMulletaFlixApiController
         }
 
         var selectedBackup = validBackups[0];
-        _backupService.ScheduleRestoreAndRestartServer(selectedBackup.Path);
+        try
+        {
+            _backupService.ScheduleRestoreAndRestartServer(selectedBackup.Path);
+        }
+        catch (BackupOperationInProgressException)
+        {
+            return CreateOperationInProgressResult();
+        }
+
         return NoContent();
     }
 
@@ -156,6 +182,13 @@ public class BackupController : BaseMulletaFlixApiController
         }
 
         return Ok(manifest);
+    }
+
+    [NonAction]
+    private ObjectResult CreateOperationInProgressResult()
+    {
+        Response.Headers.RetryAfter = "1";
+        return StatusCode(StatusCodes.Status429TooManyRequests, "Another backup or restore operation is already in progress.");
     }
 
     [NonAction]
@@ -234,4 +267,3 @@ public class BackupController : BaseMulletaFlixApiController
         return Ok(await _backupService.ValidateBackupIntegrity(backupPath).ConfigureAwait(false));
     }
 }
-

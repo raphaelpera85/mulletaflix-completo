@@ -7,26 +7,20 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Server.Implementations.Nebula;
 
 /// <summary>
-/// Coalesces completed uploads by virtual directory before refreshing rclone's VFS listing.
+/// Coalesces completed uploads by virtual directory and refreshes rclone sequentially.
 /// </summary>
-internal sealed class NebulaDirectoryRefreshQueue : IDisposable
+internal sealed class NebulaDirectoryRefreshQueue : IAsyncDisposable
 {
-    private sealed class DirectoryState
-    {
-        public CancellationTokenSource Cancellation { get; set; } = null!;
-
-        public bool IsRefreshing { get; set; }
-
-        public bool RefreshAgain { get; set; }
-    }
-
     private readonly object _lock = new();
-    private readonly Dictionary<string, DirectoryState> _directories = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTimeOffset> _pendingDirectories = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<string, CancellationToken, Task> _refresh;
     private readonly ILogger<NebulaDirectoryRefreshQueue> _logger;
     private readonly TimeSpan _debounce;
+    private readonly SemaphoreSlim _wakeSignal = new(0, 1);
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly Task _workerTask;
     private bool _disposed;
+    private int _resourcesDisposed;
 
     public NebulaDirectoryRefreshQueue(
         Func<string, CancellationToken, Task> refresh,
@@ -36,6 +30,7 @@ internal sealed class NebulaDirectoryRefreshQueue : IDisposable
         _refresh = refresh;
         _logger = logger;
         _debounce = debounce ?? TimeSpan.FromMilliseconds(750);
+        _workerTask = ProcessQueueAsync();
     }
 
     public void Enqueue(string directory)
@@ -45,9 +40,6 @@ internal sealed class NebulaDirectoryRefreshQueue : IDisposable
             return;
         }
 
-        DirectoryState state;
-        CancellationTokenSource? superseded = null;
-        var startWorker = false;
         lock (_lock)
         {
             if (_disposed)
@@ -55,107 +47,96 @@ internal sealed class NebulaDirectoryRefreshQueue : IDisposable
                 return;
             }
 
-            if (!_directories.TryGetValue(directory, out state!))
-            {
-                state = new DirectoryState();
-                _directories[directory] = state;
-                startWorker = true;
-            }
-            else if (state.IsRefreshing)
-            {
-                state.RefreshAgain = true;
-                return;
-            }
-            else
-            {
-                superseded = state.Cancellation;
-            }
-
-            state.Cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+            _pendingDirectories[directory] = DateTimeOffset.UtcNow + _debounce;
         }
 
-        superseded?.Cancel();
-        superseded?.Dispose();
-        if (startWorker)
+        try
         {
-            _ = RefreshAfterQuietPeriodAsync(directory, state);
+            _wakeSignal.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // A wake-up is already pending; the worker will observe the latest due time.
         }
     }
 
-    private async Task RefreshAfterQuietPeriodAsync(string directory, DirectoryState state)
+    private async Task ProcessQueueAsync()
     {
-        while (true)
+        var cancellationToken = _shutdown.Token;
+        try
         {
-            CancellationTokenSource cancellation;
-            lock (_lock)
+            while (true)
             {
-                if (_disposed || !_directories.TryGetValue(directory, out var current) || !ReferenceEquals(current, state))
+                cancellationToken.ThrowIfCancellationRequested();
+                string? directory = null;
+                TimeSpan? wait = null;
+
+                lock (_lock)
                 {
                     if (_disposed)
                     {
-                        state.Cancellation.Dispose();
+                        return;
                     }
 
-                    return;
-                }
-
-                cancellation = state.Cancellation;
-            }
-
-            try
-            {
-                await Task.Delay(_debounce, cancellation.Token).ConfigureAwait(false);
-                lock (_lock)
-                {
-                    if (_disposed || !_directories.TryGetValue(directory, out var current) || !ReferenceEquals(current, state)
-                        || !ReferenceEquals(state.Cancellation, cancellation))
+                    var next = default(KeyValuePair<string, DateTimeOffset>?);
+                    foreach (var pending in _pendingDirectories)
                     {
-                        continue;
+                        if (next is null || pending.Value < next.Value.Value)
+                        {
+                            next = pending;
+                        }
                     }
 
-                    state.IsRefreshing = true;
+                    if (next is { } scheduled)
+                    {
+                        var remaining = scheduled.Value - DateTimeOffset.UtcNow;
+                        if (remaining <= TimeSpan.Zero)
+                        {
+                            directory = scheduled.Key;
+                            _pendingDirectories.Remove(directory);
+                        }
+                        else
+                        {
+                            wait = remaining;
+                        }
+                    }
                 }
 
-                await _refresh(directory, cancellation.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-            {
-                // A newer upload superseded the debounce or the manager is shutting down.
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Falha ao atualizar cache rclone da pasta virtual {Directory}.", directory);
-            }
-
-            lock (_lock)
-            {
-                if (!_directories.TryGetValue(directory, out var current) || !ReferenceEquals(current, state))
+                if (directory is null)
                 {
-                    cancellation.Dispose();
-                    return;
-                }
+                    if (wait is { } delay)
+                    {
+                        await _wakeSignal.WaitAsync(delay, cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await _wakeSignal.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    }
 
-                if (!ReferenceEquals(state.Cancellation, cancellation))
-                {
-                    // Enqueue replaced a debounce timer while it was waiting.
                     continue;
                 }
 
-                state.IsRefreshing = false;
-                cancellation.Dispose();
-                if (!state.RefreshAgain || _disposed)
+                try
                 {
-                    _directories.Remove(directory);
-                    return;
+                    await _refresh(directory, cancellationToken).ConfigureAwait(false);
                 }
-
-                state.RefreshAgain = false;
-                state.Cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Falha ao atualizar cache rclone da pasta virtual {Directory}.", directory);
+                }
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Shutdown cancels a pending debounce or the active rclone refresh.
         }
     }
 
-    public void Dispose()
+    private void BeginShutdown()
     {
         lock (_lock)
         {
@@ -165,15 +146,21 @@ internal sealed class NebulaDirectoryRefreshQueue : IDisposable
             }
 
             _disposed = true;
-            _shutdown.Cancel();
-            foreach (var state in _directories.Values)
-            {
-                state.Cancellation.Cancel();
-            }
-
-            _directories.Clear();
+            _pendingDirectories.Clear();
         }
 
-        _shutdown.Dispose();
+        _shutdown.Cancel();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        BeginShutdown();
+        await _workerTask.ConfigureAwait(false);
+
+        if (Interlocked.Exchange(ref _resourcesDisposed, 1) == 0)
+        {
+            _wakeSignal.Dispose();
+            _shutdown.Dispose();
+        }
     }
 }

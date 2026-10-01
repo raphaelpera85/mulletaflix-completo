@@ -372,7 +372,12 @@ function createSections(instance: FavoritesTab, elem: HTMLElement, apiClient: Ap
     }
 
     elem.innerHTML = html;
-    (customElements as unknown as { upgradeSubtree: (root: Node) => void }).upgradeSubtree(elem);
+    const customElems = customElements as unknown as { upgradeSubtree?: (root: Node) => void; upgrade?: (root: Node) => void };
+    if (customElems?.upgradeSubtree) {
+        customElems.upgradeSubtree(elem);
+    } else if (customElems?.upgrade) {
+        customElems.upgrade(elem);
+    }
 
     const elems = elem.querySelectorAll<HTMLElement>('.itemsContainer');
 
@@ -400,25 +405,74 @@ class FavoritesTab {
         this.apiClient = ServerConnections.currentApiClient() as unknown as ApiClient | null;
         this.sectionsContainer = view.querySelector<HTMLElement>('.sections');
         createSections(this, this.sectionsContainer!, this.apiClient!);
+
+        view.querySelector<HTMLButtonElement>('.btnFavoritesRetry')?.addEventListener('click', () => {
+            this.hideLoadError();
+            void this.onResume({ autoFocus: true });
+        });
     }
 
-    onResume(options: { autoFocus?: boolean }): void {
+    private showLoadError(): void {
+        const errorContainer = this.view.querySelector<HTMLElement>('#favoritesLoadError');
+        const message = errorContainer?.querySelector<HTMLElement>('.favoritesLoadErrorMessage');
+        const emptyState = this.view.querySelector<HTMLElement>('#favoritesEmptyState');
+
+        if (message) {
+            message.textContent = globalize.translate('ErrorDefault');
+        }
+
+        errorContainer?.classList.remove('hide');
+        emptyState?.classList.add('hide');
+        if (this.sectionsContainer) {
+            this.sectionsContainer.classList.add('hide');
+        }
+    }
+
+    private hideLoadError(): void {
+        this.view.querySelector<HTMLElement>('#favoritesLoadError')?.classList.add('hide');
+        if (this.sectionsContainer) {
+            this.sectionsContainer.classList.remove('hide');
+        }
+    }
+
+    private updateEmptyState(): void {
+        if (!this.sectionsContainer) {
+            return;
+        }
+
+        const visibleSections = this.sectionsContainer.querySelectorAll('.verticalSection:not(.hide)');
+        const emptyState = this.view.querySelector<HTMLElement>('#favoritesEmptyState');
+        if (visibleSections.length === 0) {
+            emptyState?.classList.remove('hide');
+        } else {
+            emptyState?.classList.add('hide');
+        }
+    }
+
+    onResume(options: { autoFocus?: boolean }): Promise<void> {
+        this.hideLoadError();
         const promises: Promise<void>[] = [];
         const view = this.view;
         if (!this.sectionsContainer) {
-            return;
+            return Promise.resolve();
         }
         const elems = this.sectionsContainer.querySelectorAll<HTMLElement & { resume: (options: unknown) => Promise<void> }>('.itemsContainer');
 
         for (const elem of elems) {
-            promises.push(elem.resume(options));
+            if (typeof elem.resume === 'function') {
+                promises.push(elem.resume(options));
+            }
         }
 
-        void Promise.all(promises).then(function () {
+        return Promise.all(promises).then(() => {
+            this.updateEmptyState();
             if (options.autoFocus) {
                 focusManager.autoFocus(view);
             }
-        }).catch((error: unknown) => console.error('[Favorites] failed to resume sections', error));
+        }).catch((error: unknown) => {
+            console.error('[Favorites] failed to resume sections', error);
+            this.showLoadError();
+        });
     }
 
     onPause(): void {

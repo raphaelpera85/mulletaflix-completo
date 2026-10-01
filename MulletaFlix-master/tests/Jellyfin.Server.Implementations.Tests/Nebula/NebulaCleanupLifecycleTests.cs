@@ -134,7 +134,7 @@ public sealed class NebulaCleanupLifecycleTests
         {
             cleanup.TrySetResult();
             await DisposeRuntimeAsync(manager);
-            DisposeLocalQueue(manager);
+            await DisposeLocalQueueAsync(manager);
         }
 
         Assert.Null(GetField(manager, "_cleanupTask"));
@@ -142,7 +142,7 @@ public sealed class NebulaCleanupLifecycleTests
     }
 
     [Fact]
-    public void Startup_DoesNotReplaceACancelledCleanupStillRunning()
+    public async Task Startup_DoesNotReplaceACancelledCleanupStillRunning()
     {
         var manager = CreateManager();
         using var cancellation = new CancellationTokenSource();
@@ -155,7 +155,7 @@ public sealed class NebulaCleanupLifecycleTests
         Assert.IsType<InvalidOperationException>(error.InnerException);
         Assert.Same(cleanup.Task, GetField(manager, "_cleanupTask"));
         cleanup.SetResult();
-        DisposeLocalQueue(manager);
+        await DisposeLocalQueueAsync(manager);
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public sealed class NebulaCleanupLifecycleTests
         }
         finally
         {
-            DisposeLocalQueue(manager);
+            await DisposeLocalQueueAsync(manager);
             if (Directory.Exists(cachePath))
             {
                 Directory.Delete(cachePath, true);
@@ -203,6 +203,6 @@ public sealed class NebulaCleanupLifecycleTests
         (Task)typeof(NebulaFtpManager).GetMethod("DisposeSharedRuntimeResourcesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(manager, null)!;
 
     // These fixtures own only the queue and explicitly injected cleanup task.
-    private static void DisposeLocalQueue(NebulaFtpManager manager) =>
-        ((IDisposable)GetField(manager, "_directoryRefreshQueue")!).Dispose();
+    private static ValueTask DisposeLocalQueueAsync(NebulaFtpManager manager) =>
+        ((IAsyncDisposable)GetField(manager, "_directoryRefreshQueue")!).DisposeAsync();
 }

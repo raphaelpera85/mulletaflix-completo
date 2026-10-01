@@ -47,6 +47,14 @@ public class UserFeedbackController : BaseMulletaFlixApiController
         return new OkObjectResult(_nebulaFtpManager.SearchMediaSuggestions(query, limit));
     }
 
+    /// <summary>Returns the path-free status of STRM catalog indexing.</summary>
+    [HttpGet("MediaSuggestions/Status")]
+    [ProducesResponseType(typeof(MediaBrowser.Model.Nebula.NebulaMediaSuggestionIndexStatusDto), StatusCodes.Status200OK)]
+    public IActionResult GetMediaSuggestionIndexStatus()
+    {
+        return new OkObjectResult(_nebulaFtpManager.GetMediaSuggestionIndexStatus());
+    }
+
     /// <summary>Returns indexed STRM titles for the administration request status grids.</summary>
     [HttpGet("MediaRequestCatalog")]
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -74,6 +82,13 @@ public class UserFeedbackController : BaseMulletaFlixApiController
             .Where(title => title.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
         var catalog = _nebulaFtpManager.GetMediaSuggestionCatalog();
+        var queueQueries = result.Items.Select(entry => new MediaBrowser.Model.Nebula.NebulaMediaRequestQueueQueryDto
+        {
+            RequestId = entry.Id,
+            Title = GetRequestTitle(entry),
+            MediaType = GetRequestMediaType(entry.Overview),
+            Year = GetRequestYear(entry.Overview)
+        }).ToArray();
 
         return new OkObjectResult(new MediaRequestQueryResultDto
         {
@@ -86,8 +101,31 @@ public class UserFeedbackController : BaseMulletaFlixApiController
             PriorityRequestIds = result.Items
                 .Where(entry => _nebulaFtpManager.IsMediaRequestPrioritized(GetRequestTitle(entry)))
                 .Select(entry => entry.Id)
-                .ToArray()
+                .ToArray(),
+            QueueStatuses = _nebulaFtpManager.GetMediaRequestQueueStatuses(queueQueries)
+                ?? Array.Empty<MediaBrowser.Model.Nebula.NebulaMediaRequestQueueStatusDto>()
         });
+    }
+
+    private static string GetRequestMediaType(string? overview)
+    {
+        if (string.IsNullOrWhiteSpace(overview))
+        {
+            return string.Empty;
+        }
+
+        return overview.Split('·', 2)[0].Trim();
+    }
+
+    private static int? GetRequestYear(string? overview)
+    {
+        if (string.IsNullOrWhiteSpace(overview))
+        {
+            return null;
+        }
+
+        var match = Regex.Match(overview, @"(?:^|·)\s*(?<year>(?:19|20)\d{2})\s*$");
+        return match.Success && int.TryParse(match.Groups["year"].Value, out var year) ? year : null;
     }
 
     private static string GetCatalogTitleKey(string title)

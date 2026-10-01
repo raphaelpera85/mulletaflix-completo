@@ -276,9 +276,8 @@ function onDialogClosed(dlg: DialogElement, removeScrollLockOnClose: boolean, ha
         cancelable: false
     }));
 
-    if (!isHistoryEnabled(dlg)) {
-        inputManager.off(dlg, onBackCommand);
-    }
+    inputManager.off(dlg, onBackCommand);
+    dlg.removeEventListener('keydown', onDialogKeyDown);
 
     if (unlistenRef.current) {
         unlistenRef.current();
@@ -322,10 +321,21 @@ function onDialogClosed(dlg: DialogElement, removeScrollLockOnClose: boolean, ha
 
 function onBackCommand(e: Event): void {
     const evt = e as CustomEvent<{ command?: string }>;
-    if (evt.detail.command === 'back') {
+    if (evt.detail?.command === 'back') {
         e.preventDefault();
         e.stopPropagation();
+        close(e.currentTarget as HTMLElement);
     }
+}
+
+function onDialogKeyDown(this: DialogElement, e: KeyboardEvent): void {
+    if (e.key !== 'Escape' || e.defaultPrevented) {
+        return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    close(this);
 }
 
 export function open(dlg: HTMLElement): Promise<{ element: DialogElement }> {
@@ -347,7 +357,7 @@ export function open(dlg: HTMLElement): Promise<{ element: DialogElement }> {
     document.body.appendChild(dialogContainer);
 
     return new Promise((resolve) => {
-        const hash = `dlg${new Date().getTime()}`;
+        const hash = `dlg${new Date().getTime()}-${++dialogSequence}`;
         const activeElement = document.activeElement;
         const removeScrollLockOnClose = false;
         const unlistenRef: { current: (() => void) | null } = { current: null };
@@ -380,8 +390,7 @@ export function open(dlg: HTMLElement): Promise<{ element: DialogElement }> {
 
         if (isHistoryEnabled(dialog)) {
             const state = (history.location.state || {}) as DialogHistoryState;
-            const dialogs = state.dialogs || [];
-            dialogs.push(hash);
+            const dialogs = [...(state.dialogs || []), hash];
 
             history.push(
                 `${history.location.pathname}${history.location.search}`,
@@ -392,9 +401,10 @@ export function open(dlg: HTMLElement): Promise<{ element: DialogElement }> {
             );
 
             unlistenRef.current = history.listen(() => undefined);
-        } else {
-            inputManager.on(dialog, onBackCommand);
         }
+
+        inputManager.on(dialog, onBackCommand);
+        dialog.addEventListener('keydown', onDialogKeyDown);
     });
 }
 

@@ -113,6 +113,9 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     }
 
     /// <inheritdoc />
+    public int ActiveTranscodingJobsCount => _activeTranscodingJobs.Count;
+
+    /// <inheritdoc />
     public TranscodingJob? GetTranscodingJob(string playSessionId)
     {
         foreach (var job in _activeTranscodingJobs.Values)

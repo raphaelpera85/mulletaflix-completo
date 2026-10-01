@@ -636,23 +636,33 @@ public sealed class NebulaMongoContext : IDisposable
         try
         {
             var nameFilter = Builders<BsonDocument>.Filter.Eq("name", name);
-        var parentFilters = new List<FilterDefinition<BsonDocument>>();
+            var parentFilters = new List<FilterDefinition<BsonDocument>>();
 
-        if (!string.IsNullOrWhiteSpace(virtualPath))
-        {
-            var normPath = NormalizePath(virtualPath);
-            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", normPath));
-
-            if (normPath.StartsWith("/raphael/", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(virtualPath))
             {
-                parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", normPath["/raphael".Length..]));
-            }
-            else if (!IsRaphaelPath(normPath) && normPath != "/")
-            {
-                parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", $"/raphael{normPath}"));
-            }
+                var normPath = NormalizePath(virtualPath);
+                parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", normPath));
 
-            if (normPath == "/" || normPath.Equals("/raphael", StringComparison.OrdinalIgnoreCase))
+                if (normPath.StartsWith("/raphael/", StringComparison.OrdinalIgnoreCase))
+                {
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", normPath["/raphael".Length..]));
+                }
+                else if (!IsRaphaelPath(normPath) && normPath != "/")
+                {
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", $"/raphael{normPath}"));
+                }
+
+                if (normPath == "/" || normPath.Equals("/raphael", StringComparison.OrdinalIgnoreCase))
+                {
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/raphael"));
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/"));
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", BsonNull.Value));
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Exists("parent", false));
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", ""));
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "null"));
+                }
+            }
+            else if (string.IsNullOrWhiteSpace(parentId))
             {
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/raphael"));
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/"));
@@ -661,51 +671,41 @@ public sealed class NebulaMongoContext : IDisposable
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", ""));
                 parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "null"));
             }
-        }
-        else if (string.IsNullOrWhiteSpace(parentId))
-        {
-            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/raphael"));
-            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "/"));
-            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", BsonNull.Value));
-            parentFilters.Add(Builders<BsonDocument>.Filter.Exists("parent", false));
-            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", ""));
-            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", "null"));
-        }
 
-        if (!string.IsNullOrWhiteSpace(parentId))
-        {
-            if (ObjectId.TryParse(parentId, out var pOid))
+            if (!string.IsNullOrWhiteSpace(parentId))
             {
-                parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", pOid));
+                if (ObjectId.TryParse(parentId, out var pOid))
+                {
+                    parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", pOid));
+                }
+
+                parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", parentId));
             }
 
-            parentFilters.Add(Builders<BsonDocument>.Filter.Eq("parent", parentId));
-        }
+            var parentFilter = parentFilters.Count > 0
+                ? Builders<BsonDocument>.Filter.Or(parentFilters)
+                : Builders<BsonDocument>.Filter.Empty;
 
-        var parentFilter = parentFilters.Count > 0
-            ? Builders<BsonDocument>.Filter.Or(parentFilters)
-            : Builders<BsonDocument>.Filter.Empty;
+            var filter = Builders<BsonDocument>.Filter.And(nameFilter, parentFilter);
+            using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var matches = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+            if (matches.Count <= 1)
+            {
+                activity?.SetTag("mongodb.result", "success");
+                return matches.FirstOrDefault();
+            }
 
-        var filter = Builders<BsonDocument>.Filter.And(nameFilter, parentFilter);
-        using var cursor = await _filesCollection.FindAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var matches = await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
-        if (matches.Count <= 1)
-        {
+            // Se houver mais de um documento com o mesmo nome sob o pai (ex.: duplicações históricas),
+            // prefira o documento que possui payload do Telegram ou é um diretório válido.
+            var selected = matches
+                .OrderByDescending(d =>
+                    (d.TryGetValue("parts", out var p) && p.IsBsonArray && p.AsBsonArray.Count > 0) ||
+                    (d.TryGetValue("tg_file_id", out var t) && !string.IsNullOrEmpty(t.AsString)) ||
+                    d.GetValue("is_directory", false).AsBoolean ||
+                    d.GetValue("type", string.Empty).AsString == "dir")
+                .First();
             activity?.SetTag("mongodb.result", "success");
-            return matches.FirstOrDefault();
-        }
-
-        // Se houver mais de um documento com o mesmo nome sob o pai (ex.: duplicações históricas),
-        // prefira o documento que possui payload do Telegram ou é um diretório válido.
-        var selected = matches
-            .OrderByDescending(d =>
-                (d.TryGetValue("parts", out var p) && p.IsBsonArray && p.AsBsonArray.Count > 0) ||
-                (d.TryGetValue("tg_file_id", out var t) && !string.IsNullOrEmpty(t.AsString)) ||
-                d.GetValue("is_directory", false).AsBoolean ||
-                d.GetValue("type", string.Empty).AsString == "dir")
-            .First();
-        activity?.SetTag("mongodb.result", "success");
-        return selected;
+            return selected;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

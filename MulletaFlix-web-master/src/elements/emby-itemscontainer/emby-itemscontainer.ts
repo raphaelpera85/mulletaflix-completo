@@ -9,6 +9,7 @@ import imageLoader from '../../components/images/imageLoader';
 import layoutManager from '../../components/layoutManager';
 import browser from '../../scripts/browser';
 import dom from '../../utils/dom';
+import Events from '../../utils/events';
 import loading from '../../components/loading/loading';
 import focusManager from '../../components/focusManager';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -272,7 +273,7 @@ function onPlaybackStopped(this: ItemsContainerElement, e: unknown, stopInfo: { 
     }
 }
 
-type NotificationHandler = (...args: never[]) => unknown;
+type NotificationHandler = (e: any, ...args: any[]) => unknown;
 
 function addNotificationEvent(instance: ItemsContainerElement, name: string, handler: NotificationHandler, owner: any): void {
     const localHandler = handler.bind(instance);
@@ -528,11 +529,6 @@ interface ItemsContainerElement extends HTMLDivElement {
     refreshIntervalEndTime?: number | null;
     refreshTimeout?: number | null;
 }
-
-declare let Events: {
-    on(owner: any, name: string, handler: NotificationHandler): void;
-    off(owner: any, name: string, handler: NotificationHandler): void;
-};
 
 document.registerElement('emby-itemscontainer', {
     prototype: ItemsContainerPrototype,

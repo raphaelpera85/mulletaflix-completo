@@ -8,7 +8,8 @@ import {
     assertStagePidFileAbsent,
     buildStageKillArgs,
     buildStageRemovalTargets,
-    parseStagePid
+    parseStagePid,
+    resolveDotnetExecutable
 } from './stage-safety.mjs';
 
 test('buildStageRemovalTargets only returns workspace stage paths', () => {
@@ -68,10 +69,22 @@ test('run-suite never removes local app data or kills database processes by imag
     assert.match(source, /if \(ownsStageProcess\) \{\s*await stopTrackedStageProcess\(\)/);
 });
 
-test('run-suite starts the published dll through the installed dotnet host with visible logs', async () => {
+test('run-suite starts the published dll through the platform dotnet host with visible logs', async () => {
     const source = await readFile(new URL('./run-suite.mjs', import.meta.url), 'utf8');
 
     assert.match(source, /const stageDll = .*MulletaFlix\.dll/);
-    assert.match(source, /spawn\('dotnet', \[ stageDll,/);
+    assert.match(source, /spawn\(dotnetExecutable, \[ stageDll,/);
+    assert.match(source, /resolveDotnetExecutable\(process\.platform, process\.env\.ProgramFiles\)/);
+    assert.match(source, /spawnSync\(taskkillExecutable, buildStageKillArgs\(pid\)/);
+    assert.match(source, /process\.kill\(-pid, 'SIGTERM'\)/);
     assert.match(source, /stdio: \[ 'ignore', 'inherit', 'inherit' \]/);
+});
+
+test('resolveDotnetExecutable uses the native host on each platform', () => {
+    assert.equal(resolveDotnetExecutable('linux'), 'dotnet');
+    assert.equal(resolveDotnetExecutable('darwin'), 'dotnet');
+    assert.equal(
+        resolveDotnetExecutable('win32', 'C:\\Program Files'),
+        path.join('C:\\Program Files', 'dotnet', 'dotnet.exe')
+    );
 });

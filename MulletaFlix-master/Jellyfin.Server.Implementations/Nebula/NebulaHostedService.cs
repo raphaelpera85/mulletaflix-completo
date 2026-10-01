@@ -217,6 +217,9 @@ public sealed class NebulaHostedService : IHostedService, IDisposable
         }
 
         Volatile.Write(ref _applicationStarted, true);
+        // Start STRM indexing independently of whether the Nebula transfer pipeline is enabled.
+        // The manager serves the current snapshot immediately and scans configured libraries in the background.
+        _nebulaManager.GetMediaSuggestionCatalog();
         var startupCancellationToken = _shutdownCancellation.Token;
         _startupTask = Task.Run(
             async () =>

@@ -85,6 +85,44 @@ public class NebulaSupabaseSyncTests
     }
 
     [Fact]
+    public void StartContinuousSync_DoesNotStartAnotherCycleWhilePreviousCallbackIsStillRunning()
+    {
+        using var callbackStarted = new ManualResetEventSlim();
+        using var releaseCallback = new ManualResetEventSlim();
+        using var secondCallbackStarted = new ManualResetEventSlim();
+        using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);
+        var callbackCount = 0;
+        Action<NebulaSupabaseBackupResultDto> callback = _ =>
+        {
+            if (Interlocked.Increment(ref callbackCount) == 1)
+            {
+                callbackStarted.Set();
+                releaseCallback.Wait();
+            }
+            else
+            {
+                secondCallbackStarted.Set();
+            }
+        };
+
+        try
+        {
+            service.StartContinuousSync("https://supabase.invalid", "sb_secret_test", usersBackupCompleted: callback);
+            Assert.True(callbackStarted.Wait(TimeSpan.FromSeconds(10)));
+
+            service.StartContinuousSync("https://supabase.invalid", "sb_secret_test", usersBackupCompleted: callback);
+
+            Assert.False(secondCallbackStarted.Wait(TimeSpan.FromMilliseconds(250)));
+            Assert.Equal(1, Volatile.Read(ref callbackCount));
+        }
+        finally
+        {
+            releaseCallback.Set();
+            service.StopContinuousSync();
+        }
+    }
+
+    [Fact]
     public async Task UsersBackupFailsWhenRelationalSourceIsNotConfigured()
     {
         using var service = new NebulaSupabaseSyncService(null!, NullLogger<NebulaSupabaseSyncService>.Instance);

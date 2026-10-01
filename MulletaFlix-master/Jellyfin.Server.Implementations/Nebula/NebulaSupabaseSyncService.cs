@@ -39,12 +39,14 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     private readonly IDbContextFactory<UsersDbContext>? _usersDbProvider;
     private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _backupGate = new(1, 1);
+    private readonly object _continuousSyncLifecycleLock = new();
     private CancellationTokenSource? _continuousSyncCts;
     private Task? _continuousSyncTask;
     private Task? _continuousUsersBackupTask;
     private DateTime? _lastSuccessfulBackupTime;
     private DateTime? _lastSuccessfulRestoreTime;
     private bool _disposed;
+    private bool _resourcesDisposed;
 
     /// <summary>
     /// Obtém a data e hora UTC do último backup bem-sucedido realizado nesta sessão.
@@ -157,75 +159,84 @@ public sealed class NebulaSupabaseSyncService : IDisposable
             return;
         }
 
-        StopContinuousSync();
-        _continuousSyncCts = new CancellationTokenSource();
-        var ct = _continuousSyncCts.Token;
-
-        _continuousSyncTask = Task.Run(
-            async () =>
+        lock (_continuousSyncLifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!StopContinuousSyncCore())
             {
-                _logger.LogInformation("[SUPABASE-AUTO-SYNC] Loop de sincronização contínua iniciado (Intervalo: {Min} min).", intervalMinutes);
+                _logger.LogWarning("[SUPABASE-AUTO-SYNC] O ciclo anterior ainda está encerrando; a nova sincronização não será iniciada.");
+                return;
+            }
 
-                // Primeira execução imediata
-                try
-                {
-                    await PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (!ct.IsCancellationRequested)
-                {
-                    _logger.LogWarning(ex, "[SUPABASE-AUTO-SYNC] Aviso na sincronização inicial com Supabase.");
-                }
+            _continuousSyncCts = new CancellationTokenSource();
+            var ct = _continuousSyncCts.Token;
 
+            _continuousSyncTask = Task.Run(
+                async () =>
+                {
+                    _logger.LogInformation("[SUPABASE-AUTO-SYNC] Loop de sincronização contínua iniciado (Intervalo: {Min} min).", intervalMinutes);
+
+                    // Primeira execução imediata
+                    try
+                    {
+                        await PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (!ct.IsCancellationRequested)
+                    {
+                        _logger.LogWarning(ex, "[SUPABASE-AUTO-SYNC] Aviso na sincronização inicial com Supabase.");
+                    }
+
+                    while (!ct.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            await Task.Delay(TimeSpan.FromMinutes(Math.Max(5, intervalMinutes)), ct).ConfigureAwait(false);
+                            _logger.LogInformation("[SUPABASE-AUTO-SYNC] Executando sincronização periódica programada...");
+                            await PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "[SUPABASE-AUTO-SYNC] Erro no ciclo de sincronização periódica.");
+                        }
+                    }
+                },
+                ct);
+
+            _continuousUsersBackupTask = Task.Run(async () =>
+            {
+                _logger.LogInformation("[SUPABASE-USERS-AUTO] Agendador de backup de usuários iniciado (intervalo: {IntervalHours} horas).", NebulaFtpConfiguration.DefaultSupabaseUsersBackupIntervalHours);
                 while (!ct.IsCancellationRequested)
                 {
                     try
                     {
-                        await Task.Delay(TimeSpan.FromMinutes(Math.Max(5, intervalMinutes)), ct).ConfigureAwait(false);
-                        _logger.LogInformation("[SUPABASE-AUTO-SYNC] Executando sincronização periódica programada...");
-                        await PerformBackupAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
+                        var result = await PerformUsersBackupAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
+                        usersBackupCompleted?.Invoke(result);
                     }
-                    catch (OperationCanceledException)
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
                     {
                         break;
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "[SUPABASE-AUTO-SYNC] Erro no ciclo de sincronização periódica.");
+                        _logger.LogError(ex, "[SUPABASE-USERS-AUTO] Falha inesperada no backup automático de usuários.");
+                    }
+
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromHours(NebulaFtpConfiguration.DefaultSupabaseUsersBackupIntervalHours), ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        break;
                     }
                 }
             },
             ct);
-
-        _continuousUsersBackupTask = Task.Run(async () =>
-        {
-            _logger.LogInformation("[SUPABASE-USERS-AUTO] Agendador de backup de usuários iniciado (intervalo: {IntervalHours} horas).", NebulaFtpConfiguration.DefaultSupabaseUsersBackupIntervalHours);
-            while (!ct.IsCancellationRequested)
-            {
-                try
-                {
-                    var result = await PerformUsersBackupAsync(supabaseUrl, supabaseKey, progressAction, ct).ConfigureAwait(false);
-                    usersBackupCompleted?.Invoke(result);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[SUPABASE-USERS-AUTO] Falha inesperada no backup automático de usuários.");
-                }
-
-                try
-                {
-                    await Task.Delay(TimeSpan.FromHours(NebulaFtpConfiguration.DefaultSupabaseUsersBackupIntervalHours), ct).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    break;
-                }
-            }
-            },
-            ct);
+        }
     }
 
     /// <summary>
@@ -233,31 +244,91 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// </summary>
     public void StopContinuousSync()
     {
-        var task = _continuousSyncTask;
-        var usersBackupTask = _continuousUsersBackupTask;
+        lock (_continuousSyncLifecycleLock)
+        {
+            StopContinuousSyncCore();
+        }
+    }
+
+    private bool StopContinuousSyncCore()
+    {
+        var cancellationSource = _continuousSyncCts;
+        if (cancellationSource == null)
+        {
+            return true;
+        }
+
+        cancellationSource.Cancel();
+        var tasks = new[] { _continuousSyncTask, _continuousUsersBackupTask }
+            .Where(task => task != null)
+            .Cast<Task>()
+            .ToArray();
+        var completion = Task.WhenAll(tasks);
+
         try
         {
-            _continuousSyncCts?.Cancel();
-
-            if (task != null && !task.IsCompleted)
+            if (!completion.Wait(TimeSpan.FromSeconds(5)))
             {
-                task.Wait(TimeSpan.FromSeconds(5));
-            }
+                _logger.LogWarning("[SUPABASE-AUTO-SYNC] O ciclo não encerrou em cinco segundos; os handles permanecem ativos e um novo ciclo será recusado.");
+                _ = completion.ContinueWith(
+                    completed =>
+                    {
+                        if (completed.IsFaulted)
+                        {
+                            _logger.LogError(completed.Exception, "[SUPABASE-AUTO-SYNC] Um ciclo contínuo terminou com falha após o cancelamento.");
+                        }
 
-            if (usersBackupTask != null && !usersBackupTask.IsCompleted)
-            {
-                usersBackupTask.Wait(TimeSpan.FromSeconds(5));
-            }
+                        lock (_continuousSyncLifecycleLock)
+                        {
+                            if (ReferenceEquals(_continuousSyncCts, cancellationSource))
+                            {
+                                CleanupContinuousSync(cancellationSource);
+                                if (_disposed)
+                                {
+                                    DisposeOwnedResources();
+                                }
+                            }
+                        }
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
 
-            _continuousSyncCts?.Dispose();
-            _continuousSyncCts = null;
-            _continuousSyncTask = null;
-            _continuousUsersBackupTask = null;
+                return false;
+            }
         }
-        catch
+        catch (AggregateException ex)
         {
-            // Ignora
+            _logger.LogError(ex.Flatten(), "[SUPABASE-AUTO-SYNC] Um ciclo contínuo terminou com falha.");
         }
+
+        CleanupContinuousSync(cancellationSource);
+        return true;
+    }
+
+    private void CleanupContinuousSync(CancellationTokenSource cancellationSource)
+    {
+        if (!ReferenceEquals(_continuousSyncCts, cancellationSource))
+        {
+            return;
+        }
+
+        cancellationSource.Dispose();
+        _continuousSyncCts = null;
+        _continuousSyncTask = null;
+        _continuousUsersBackupTask = null;
+    }
+
+    private void DisposeOwnedResources()
+    {
+        if (_resourcesDisposed)
+        {
+            return;
+        }
+
+        _httpClient.Dispose();
+        _backupGate.Dispose();
+        _resourcesDisposed = true;
     }
 
     /// <summary>
@@ -1489,15 +1560,19 @@ public sealed class NebulaSupabaseSyncService : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_disposed)
+        lock (_continuousSyncLifecycleLock)
         {
-            return;
-        }
+            if (_disposed)
+            {
+                return;
+            }
 
-        StopContinuousSync();
-        _httpClient.Dispose();
-        _backupGate.Dispose();
-        _disposed = true;
+            _disposed = true;
+            if (StopContinuousSyncCore())
+            {
+                DisposeOwnedResources();
+            }
+        }
     }
 
     private sealed class SupabaseFileRecord

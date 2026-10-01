@@ -32,6 +32,10 @@ public class NullImageEncoder : IImageEncoder
         => throw new NotImplementedException();
 
     /// <inheritdoc />
+    public bool IsImageDecodable(string path, long maxPixelCount)
+        => false;
+
+    /// <inheritdoc />
     public string EncodeImage(string inputPath, DateTime dateModified, string outputPath, bool autoOrient, ImageOrientation? orientation, int quality, ImageProcessingOptions options, ImageFormat outputFormat)
     {
         throw new NotImplementedException();
@@ -61,4 +65,3 @@ public class NullImageEncoder : IImageEncoder
         throw new NotImplementedException();
     }
 }
-

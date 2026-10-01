@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using MulletaFlix.Data.Enums;
@@ -238,6 +238,165 @@ public class EncodingHelperTests
         };
     }
 
+    [Fact]
+    public void CanStreamCopyVideo_H264SupportedAndCopyAllowed_ReturnsTrue()
+    {
+        var helper = CreateHelper();
+        var video = new MediaStream { Index = 0, Type = MediaStreamType.Video, Codec = "h264" };
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        state.SupportedVideoCodecs = ["h264", "hevc"];
+        state.BaseRequest.AllowVideoStreamCopy = true;
+
+        var result = helper.CanStreamCopyVideo(state, video);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanStreamCopyVideo_SubtitleBurnIn_ReturnsFalse()
+    {
+        var helper = CreateHelper();
+        var video = new MediaStream { Index = 0, Type = MediaStreamType.Video, Codec = "h264" };
+        var sub = new MediaStream { Index = 2, Type = MediaStreamType.Subtitle, Codec = "ass" };
+        var state = BuildState(sub, SubtitleDeliveryMethod.Encode);
+        state.SupportedVideoCodecs = ["h264"];
+        state.BaseRequest.AllowVideoStreamCopy = true;
+        state.BaseRequest.SubtitleStreamIndex = 2;
+
+        var result = helper.CanStreamCopyVideo(state, video);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanStreamCopyVideo_InterlacedAndDeinterlaceRequested_ReturnsFalse()
+    {
+        var helper = CreateHelper();
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        state.VideoStream!.IsInterlaced = true;
+        state.SupportedVideoCodecs = ["h264"];
+        state.BaseRequest.AllowVideoStreamCopy = true;
+        state.BaseRequest.DeInterlace = true;
+
+        var result = helper.CanStreamCopyVideo(state, state.VideoStream);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanStreamCopyVideo_CodecNotSupportedByClient_ReturnsFalse()
+    {
+        var helper = CreateHelper();
+        var video = new MediaStream { Index = 0, Type = MediaStreamType.Video, Codec = "hevc" };
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        state.SupportedVideoCodecs = ["h264"];
+        state.BaseRequest.AllowVideoStreamCopy = true;
+
+        var result = helper.CanStreamCopyVideo(state, video);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanStreamCopyAudio_SupportedCodec_ReturnsTrue()
+    {
+        var helper = CreateHelper();
+        var audio = new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "aac", Channels = 2 };
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        state.BaseRequest.AllowAudioStreamCopy = true;
+        state.BaseRequest.EnableAutoStreamCopy = true;
+
+        var result = helper.CanStreamCopyAudio(state, audio, ["aac", "mp3"]);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanStreamCopyAudio_CodecNotSupported_ReturnsFalse()
+    {
+        var helper = CreateHelper();
+        var audio = new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "flac", Channels = 2 };
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        state.BaseRequest.AllowAudioStreamCopy = true;
+        state.BaseRequest.EnableAutoStreamCopy = true;
+
+        var result = helper.CanStreamCopyAudio(state, audio, ["aac", "mp3"]);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanStreamCopyAudio_ChannelsExceedRequested_ReturnsFalse()
+    {
+        var helper = CreateHelper();
+        var audio = new MediaStream { Index = 1, Type = MediaStreamType.Audio, Codec = "aac", Channels = 6 };
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        state.BaseRequest.AllowAudioStreamCopy = true;
+        state.BaseRequest.EnableAutoStreamCopy = true;
+        state.BaseRequest.MaxAudioChannels = 2;
+
+        var result = helper.CanStreamCopyAudio(state, audio, ["aac"]);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void GetFastSeekCommandLineParameter_ZeroTime_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        state.BaseRequest.StartTimeTicks = 0;
+
+        var seekArg = helper.GetFastSeekCommandLineParameter(state, new EncodingOptions(), "ts");
+
+        Assert.Empty(seekArg);
+    }
+
+    [Fact]
+    public void GetFastSeekCommandLineParameter_ProgressiveJob_FormatsSeekArgument()
+    {
+        var helper = CreateHelper();
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        // 60 seconds = 600,000,000 ticks
+        state.BaseRequest.StartTimeTicks = 600_000_000L;
+        state.RunTimeTicks = 3_600_000_000L; // 6 minutes
+
+        var seekArg = helper.GetFastSeekCommandLineParameter(state, new EncodingOptions(), "ts");
+
+        Assert.Equal("-ss 00:01:00.000", seekArg);
+    }
+
+    [Fact]
+    public void GetFastSeekCommandLineParameter_HlsRemuxing_AddsHalfSecondOffset()
+    {
+        var helper = CreateHelper();
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        state.TranscodingType = TranscodingJobType.Hls;
+        state.OutputVideoCodec = "copy";
+        // 60 seconds = 600,000,000 ticks. With 0.5s (5,000,000 ticks) offset: 605,000,000 ticks = 00:01:00.500
+        state.BaseRequest.StartTimeTicks = 600_000_000L;
+        state.RunTimeTicks = 3_600_000_000L;
+
+        var seekArg = helper.GetFastSeekCommandLineParameter(state, new EncodingOptions(), "ts");
+
+        Assert.Equal("-ss 00:01:00.500", seekArg);
+    }
+
+    [Fact]
+    public void GetFastSeekCommandLineParameter_NearEof_ClampsToRuntimeMinusFiveSeconds()
+    {
+        var helper = CreateHelper();
+        var state = BuildState(subtitle: null, deliveryMethod: null);
+        // Runtime = 100 seconds (1,000,000,000 ticks)
+        state.RunTimeTicks = 1_000_000_000L;
+        // Requested seek is 98 seconds (980,000,000 ticks). Max allowed is Runtime - 5s = 95s (950,000,000 ticks = 00:01:35.000)
+        state.BaseRequest.StartTimeTicks = 980_000_000L;
+
+        var seekArg = helper.GetFastSeekCommandLineParameter(state, new EncodingOptions(), "ts");
+
+        Assert.Equal("-ss 00:01:35.000", seekArg);
+    }
+
     private static EncodingHelper CreateHelper()
     {
         var appPaths = Mock.Of<IApplicationPaths>();
@@ -246,6 +405,9 @@ public class EncodingHelperTests
         var config = new Mock<IConfiguration>();
         var configurationManager = new Mock<IConfigurationManager>();
         var pathManager = new Mock<IPathManager>();
+
+        mediaEncoder.Setup(m => m.GetTimeParameter(It.IsAny<long>()))
+            .Returns((long ticks) => TimeSpan.FromTicks(ticks).ToString(@"hh\:mm\:ss\.fff", System.Globalization.CultureInfo.InvariantCulture));
 
         return new EncodingHelper(
             appPaths,

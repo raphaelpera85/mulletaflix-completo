@@ -1,15 +1,35 @@
 <div id="indexPage" style="outline: none;" data-role="page" data-dom-cache="true" class="page homePage libraryPage allLibraryPage backdropPage pageWithAbsoluteTabs withTabs" data-backdroptype="movie,series,book">
 
     <div class="tabContent pageTabContent" id="homeTab" data-index="0">
-        <div class="padded-top padded-left padded-right">
-            <button is="emby-button" type="button" class="raised button-accent btnMediaRequest">
-                <span class="material-icons" aria-hidden="true">add_circle</span>
-                <span>${MediaRequestTitle}</span>
+        <div id="homeTabLoadError" class="hide padded-left padded-right padded-top padded-bottom-page">
+            <p class="homeTabLoadErrorMessage"></p>
+            <button is="emby-button" type="button" class="raised button-accent btnHomeTabRetry">
+                <span>${Retry}</span>
             </button>
         </div>
-        <div class="sections"></div>
+        <div class="homeTabContent">
+            <div class="padded-top padded-left padded-right">
+                <button is="emby-button" type="button" class="raised button-accent btnMediaRequest">
+                    <span class="material-icons" aria-hidden="true">add_circle</span>
+                    <span>${MediaRequestTitle}</span>
+                </button>
+            </div>
+            <div class="sections"></div>
+        </div>
     </div>
     <div class="tabContent pageTabContent" id="favoritesTab" data-index="1">
+        <div id="favoritesLoadError" class="hide padded-left padded-right padded-top padded-bottom-page">
+            <p class="favoritesLoadErrorMessage"></p>
+            <button is="emby-button" type="button" class="raised button-accent btnFavoritesRetry">
+                <span>${Retry}</span>
+            </button>
+        </div>
+        <div id="favoritesEmptyState" class="hide padded-left padded-right padded-top padded-bottom-page centerMessage">
+            <div class="noItemsMessage">
+                <span class="material-icons" style="font-size: 3rem; opacity: 0.5;" aria-hidden="true">favorite_border</span>
+                <p class="secondary" style="margin-top: 0.5rem;">${MessageNoFavoritesAvailable}</p>
+            </div>
+        </div>
         <div class="sections"></div>
     </div>
 </div>

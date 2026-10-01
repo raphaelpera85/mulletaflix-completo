@@ -136,7 +136,7 @@ interface ItemPos {
 }
 
 interface ScrollableElement {
-    scroll(options?: ScrollToOptions): void;
+    scroll?(options?: ScrollToOptions): void;
     scrollTo?(x: number, y: number): void;
     scrollLeft: number;
     scrollTop: number;
@@ -189,12 +189,11 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
     }
 
     // Private variables
-    const self = this;
-    self.options = o;
+    this.options = o;
 
     // Frame
     const slideeElement: HTMLElement = o.slidee ? o.slidee : (sibling(frame.firstChild as ChildNode)[0] as HTMLElement);
-    self._pos = {
+    this._pos = {
         start: 0,
         center: 0,
         end: 0,
@@ -217,10 +216,12 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
     };
 
     // Expose properties
-    self.initialized = 0;
-    self.slidee = slideeElement;
-    self.options = o;
-    self.dragging = dragging;
+    this.initialized = 0;
+    this.slidee = slideeElement;
+    this.options = o;
+    this.dragging = dragging;
+
+    const currentPosition = (): ScrollerPos => this._pos as ScrollerPos;
 
     const nativeScrollElement = frame;
 
@@ -239,21 +240,21 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
 
     let frameSize = 0;
     let slideeSize = 0;
-    function ensureSizeInfo(): void {
+    const ensureSizeInfo = (): void => {
         if (requiresReflow) {
             requiresReflow = false;
 
             // Reset global variables
-            frameSize = slideeElement[o.horizontal ? 'clientWidth' : 'clientHeight'];
+            frameSize = frame[o.horizontal ? 'clientWidth' : 'clientHeight'];
             slideeSize = o.scrollWidth || Math.max(slideeElement[o.horizontal ? 'offsetWidth' : 'offsetHeight'], slideeElement[o.horizontal ? 'scrollWidth' : 'scrollHeight']);
 
             // Set position limits & relatives
-            (self._pos as ScrollerPos).end = Math.max(slideeSize - frameSize, 0);
+            currentPosition().end = Math.max(slideeSize - frameSize, 0);
             if (globalize.getIsRTL()) {
-                (self._pos as ScrollerPos).end *= -1;
+                currentPosition().end *= -1;
             }
         }
-    }
+    };
 
     /**
      * Loading function.
@@ -263,64 +264,71 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
      * @param {Boolean} [isInit] Whether load is called from within self.init().
      * @return {Void}
      */
-    function load(isInit?: boolean): void {
+    const load = (isInit?: boolean): void => {
         requiresReflow = true;
 
         if (!isInit) {
             ensureSizeInfo();
 
             // Fix possible overflowing
-            const pos = self._pos as ScrollerPos;
-            self.slideTo(within(pos.dest, pos.start, pos.end));
+            const pos = currentPosition();
+            this.slideTo(within(pos.dest, pos.start, pos.end));
         }
-    }
+    };
 
-    function initFrameResizeObserver(): void {
-        self.frameResizeObserver = new ResizeObserver(onResize);
+    const initFrameResizeObserver = (): void => {
+        this.frameResizeObserver = new ResizeObserver(onResize);
 
-        self.frameResizeObserver.observe(frame);
-    }
+        this.frameResizeObserver.observe(frame);
+    };
 
-    self.reload = function (): void {
+    this.reload = (): void => {
         load();
     };
 
-    self.getScrollEventName = function (): string {
+    this.getScrollEventName = (): string => {
         return transform ? 'scrollanimate' : 'scroll';
     };
 
-    self.getScrollSlider = function (): HTMLElement {
+    this.getScrollSlider = (): HTMLElement => {
         return slideeElement;
     };
 
-    self.getScrollFrame = function (): HTMLElement {
+    this.getScrollFrame = (): HTMLElement => {
         return frame;
     };
 
     function nativeScrollTo(container: HTMLElement, pos: number, immediate?: boolean): void {
         const scrollable = container as unknown as ScrollableElement;
+        const roundedPosition = Math.round(pos);
+        const behavior = immediate ? 'instant' : 'smooth';
+
         if (scrollable.scroll) {
-            if (o.horizontal) {
-                scrollable.scroll({
-                    left: pos,
-                    behavior: immediate ? 'instant' : 'smooth'
-                });
-            } else {
-                scrollable.scroll({
-                    top: pos,
-                    behavior: immediate ? 'instant' : 'smooth'
-                });
-            }
+            scrollNativeAxis(scrollable, pos, behavior);
         } else if (!immediate && scrollable.scrollTo) {
-            if (o.horizontal) {
-                scrollable.scrollTo(Math.round(pos), 0);
-            } else {
-                scrollable.scrollTo(0, Math.round(pos));
-            }
-        } else if (o.horizontal) {
-            scrollable.scrollLeft = Math.round(pos);
+            scrollToNativeAxis(scrollable, roundedPosition);
         } else {
-            scrollable.scrollTop = Math.round(pos);
+            setNativeScrollPosition(scrollable, roundedPosition);
+        }
+    }
+
+    function scrollNativeAxis(scrollable: ScrollableElement, pos: number, behavior: ScrollBehavior): void {
+        scrollable.scroll!(o.horizontal ? { left: pos, behavior } : { top: pos, behavior });
+    }
+
+    function scrollToNativeAxis(scrollable: ScrollableElement, pos: number): void {
+        if (o.horizontal) {
+            scrollable.scrollTo!(pos, 0);
+        } else {
+            scrollable.scrollTo!(0, pos);
+        }
+    }
+
+    function setNativeScrollPosition(scrollable: ScrollableElement, pos: number): void {
+        if (o.horizontal) {
+            scrollable.scrollLeft = pos;
+        } else {
+            scrollable.scrollTop = pos;
         }
     }
 
@@ -334,9 +342,9 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
          *
          * @return {Void}
          */
-    self.slideTo = function (newPos: number, immediate?: boolean, fullItemPos?: ItemPos): void {
+    this.slideTo = (newPos: number, immediate?: boolean, fullItemPos?: ItemPos): void => {
         ensureSizeInfo();
-        const pos = self._pos as ScrollerPos;
+        const pos = currentPosition();
 
         if (layoutManager.tv && globalize.getIsRTL()) {
             newPos = within(-newPos, pos.start);
@@ -372,28 +380,32 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
         lastAnimate = now;
     };
 
+    function forceLayout(elem: HTMLElement): void {
+        elem.getBoundingClientRect();
+    }
+
     function setStyleProperty(elem: HTMLElement, name: string, value: string, speed: number, resetTransition?: boolean): void {
         const style = elem.style;
 
         if (resetTransition || browser.edge) {
             style.transition = 'none';
-            void elem.offsetWidth;
+            forceLayout(elem);
         }
 
         style.transition = 'transform ' + speed + 'ms ease-out';
         (style as unknown as Record<string, string>)[name] = value;
     }
 
-    function dispatchScrollEventIfNeeded(): void {
+    const dispatchScrollEventIfNeeded = (): void => {
         if (o.dispatchScrollEvent) {
-            frame.dispatchEvent(new CustomEvent(self.getScrollEventName(), {
+            frame.dispatchEvent(new CustomEvent(this.getScrollEventName(), {
                 bubbles: true,
                 cancelable: false
             }));
         }
-    }
+    };
 
-    function renderAnimateWithTransform(fromPosition: number, toPosition: number, immediate?: boolean): void {
+    const renderAnimateWithTransform = (fromPosition: number, toPosition: number, immediate?: boolean): void => {
         let speed = o.speed || 0;
 
         if (immediate) {
@@ -405,10 +417,10 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
         } else {
             setStyleProperty(slideeElement, 'transform', 'translateY(' + (-Math.round(toPosition)) + 'px)', speed);
         }
-        (self._pos as ScrollerPos).cur = toPosition;
+        currentPosition().cur = toPosition;
 
         dispatchScrollEventIfNeeded();
-    }
+    };
 
     function getBoundingClientRect(elem: HTMLElement): DOMRect | { top: number; left: number; right?: number; width?: number; height?: number } {
         // Support: BlackBerry 5, iOS 3 (original iPhone)
@@ -427,7 +439,7 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
      *
      * @return {Object}
      */
-    self.getPos = function (item: HTMLElement): ItemPos {
+    this.getPos = (item: HTMLElement): ItemPos => {
         const scrollElement = transform ? slideeElement : nativeScrollElement;
         const slideeOffset = getBoundingClientRect(scrollElement);
         const itemOffset = getBoundingClientRect(item);
@@ -457,7 +469,7 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
 
         ensureSizeInfo();
 
-        const currentStart = (self._pos as ScrollerPos).cur;
+        const currentStart = currentPosition().cur;
         let currentEnd = currentStart + frameSize;
         if (globalize.getIsRTL()) {
             currentEnd = currentStart - frameSize;
@@ -476,10 +488,10 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
         };
     };
 
-    self.getCenterPosition = function (item: HTMLElement): number {
+    this.getCenterPosition = (item: HTMLElement): number => {
         ensureSizeInfo();
 
-        const pos = self.getPos(item);
+        const pos = this.getPos(item);
         return within(pos.center, pos.start, pos.end);
     };
 
@@ -511,7 +523,7 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
         const pointer = isTouch ? (event as TouchEvent).touches[0] : event as MouseEvent;
         dragging.initX = pointer.pageX;
         dragging.initY = pointer.pageY;
-        dragging.initPos = (self._pos as ScrollerPos).cur;
+        dragging.initPos = currentPosition().cur;
         dragging.start = +new Date();
         dragging.time = 0;
         dragging.path = 0;
@@ -544,7 +556,7 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
      *
      * @return {Void}
      */
-    function dragHandler(event: MouseEvent | TouchEvent): void {
+    const dragHandler = (event: MouseEvent | TouchEvent): void => {
         dragging.released = event.type === 'mouseup' || event.type === 'touchend';
         const eventName = dragging.released ? 'changedTouches' : 'touches';
         const pointer = dragging.touch ? (event as TouchEvent)[eventName as keyof TouchEvent] as unknown as TouchList : undefined;
@@ -558,34 +570,52 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
             return;
         }
 
-        // We haven't decided whether this is a drag or not...
-        if (!dragging.init) {
-            // If the drag path was very short, maybe it's not a drag?
-            if ((dragging.path || 0) < (o.dragThreshold || 0)) {
-                // If the pointer was released, the path will not become longer and it's
-                // definitely not a drag. If not released yet, decide on next iteration
-                return dragging.released ? dragEnd() : undefined;
-            } else if (o.horizontal ? Math.abs(dragging.pathX || 0) > Math.abs(dragging.pathY || 0) : Math.abs(dragging.pathX || 0) < Math.abs(dragging.pathY || 0)) {
-                // If dragging path is sufficiently long we can confidently start a drag
-                // if drag is in different direction than scroll, ignore it
-                dragging.init = 1;
-            } else {
-                return dragEnd();
-            }
+        if (!beginDragIfReady()) {
+            return;
         }
 
-        // Disable click on a source element, as it is unwelcome when dragging
-        if (!dragging.locked && (dragging.path || 0) > (dragging.pathToLock || 0)) {
-            dragging.locked = 1;
-            dragging.source!.addEventListener('click', disableOneEvent as EventListener);
-        }
+        preventClickAfterDrag();
 
         // Cancel dragging on release
         if (dragging.released) {
             dragEnd();
         }
 
-        self.slideTo(Math.round((dragging.initPos || 0) - (dragging.delta || 0)));
+        this.slideTo(Math.round((dragging.initPos || 0) - (dragging.delta || 0)));
+    };
+
+    function beginDragIfReady(): boolean {
+        if (dragging.init) {
+            return true;
+        }
+
+        if ((dragging.path || 0) < (o.dragThreshold || 0)) {
+            // A released pointer cannot produce a longer drag path.
+            if (dragging.released) {
+                dragEnd();
+            }
+            return false;
+        }
+
+        const horizontalMovement = Math.abs(dragging.pathX || 0);
+        const verticalMovement = Math.abs(dragging.pathY || 0);
+        const followsScrollAxis = o.horizontal ? horizontalMovement > verticalMovement : horizontalMovement < verticalMovement;
+        if (!followsScrollAxis) {
+            dragEnd();
+            return false;
+        }
+
+        dragging.init = 1;
+        return true;
+    }
+
+    function preventClickAfterDrag(): void {
+        if (dragging.locked || (dragging.path || 0) <= (dragging.pathToLock || 0)) {
+            return;
+        }
+
+        dragging.locked = 1;
+        dragging.source!.addEventListener('click', disableOneEvent as EventListener);
     }
 
     /**
@@ -658,9 +688,9 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
      *
      * @return {Void}
      */
-    function scrollHandler(event: WheelEvent): void {
+    const scrollHandler = (event: WheelEvent): void => {
         ensureSizeInfo();
-        const pos = self._pos as ScrollerPos;
+        const pos = currentPosition();
         // Ignore if there is no scrolling to be done
         if (!o.scrollBy || pos.start === pos.end) {
             return;
@@ -675,7 +705,7 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
             ) {
                 event.preventDefault();
             }
-            self.slideBy((o.scrollBy || 0) * delta);
+            this.slideBy((o.scrollBy || 0) * delta);
         } else {
             if (isSmoothScrollSupported) {
                 delta *= 12;
@@ -687,17 +717,17 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
                 nativeScrollElement.scrollTop += delta;
             }
         }
-    }
+    };
 
     /**
      * Destroys instance and everything it created.
      *
      * @return {Void}
      */
-    self.destroy = function (): typeof self {
-        if (self.frameResizeObserver) {
-            self.frameResizeObserver.disconnect();
-            self.frameResizeObserver = null;
+    this.destroy = (): ScrollerInstance => {
+        if (this.frameResizeObserver) {
+            this.frameResizeObserver.disconnect();
+            this.frameResizeObserver = null;
         }
 
         // Reset native FRAME element scroll
@@ -725,8 +755,8 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
         scrollSource.removeAttribute(`data-scroll-mode-${o.horizontal ? 'x' : 'y'}`);
 
         // Reset initialized status and return the instance
-        self.initialized = 0;
-        return self;
+        this.initialized = 0;
+        return this;
     };
 
     let contentRect: { width?: number; height?: number } = {};
@@ -767,9 +797,9 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
         }
     }
 
-    self.getScrollPosition = function (): number {
+    this.getScrollPosition = (): number => {
         if (transform) {
-            return (self._pos as ScrollerPos).cur;
+            return currentPosition().cur;
         }
 
         if (o.horizontal) {
@@ -779,7 +809,7 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
         }
     };
 
-    self.getScrollSize = function (): number {
+    this.getScrollSize = (): number => {
         if (transform) {
             return slideeSize;
         }
@@ -791,65 +821,35 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
         }
     };
 
-    /**
-     * Initialize.
-     *
-     * @return {Object}
-     */
-    self.init = function (): ScrollerInstance | undefined {
-        if (self.initialized) {
-            return undefined;
-        }
+    function configureNativeScroll(): void {
+        const axis = o.horizontal ? 'X' : 'Y';
+        const scrollClass = `scroll${axis}`;
+        const hiddenClass = `hiddenScroll${axis}`;
+        nativeScrollElement.classList.add(scrollClass);
 
-        if (!transform) {
-            if (o.horizontal) {
-                if (layoutManager.desktop && !o.hideScrollbar) {
-                    nativeScrollElement.classList.add('scrollX');
-                } else {
-                    nativeScrollElement.classList.add('scrollX');
-                    nativeScrollElement.classList.add('hiddenScrollX');
-
-                    if (layoutManager.tv && o.allowNativeSmoothScroll !== false) {
-                        nativeScrollElement.classList.add('smoothScrollX');
-                    }
-                }
-
-                if (o.forceHideScrollbars) {
-                    nativeScrollElement.classList.add('hiddenScrollX-forced');
-                }
-            } else {
-                if (layoutManager.desktop && !o.hideScrollbar) {
-                    nativeScrollElement.classList.add('scrollY');
-                } else {
-                    nativeScrollElement.classList.add('scrollY');
-                    nativeScrollElement.classList.add('hiddenScrollY');
-
-                    if (layoutManager.tv && o.allowNativeSmoothScroll !== false) {
-                        nativeScrollElement.classList.add('smoothScrollY');
-                    }
-                }
-
-                if (o.forceHideScrollbars) {
-                    nativeScrollElement.classList.add('hiddenScrollY-forced');
-                }
-            }
-        } else {
-            if (layoutManager.tv) {
-                frame.style.overflow = 'hidden';
-            }
-
-            slideeElement.style['will-change' as never] = 'transform';
-            slideeElement.style.transition = 'transform ' + (o.speed || 0) + 'ms ease-out';
-
-            if (o.horizontal) {
-                slideeElement.classList.add('animatedScrollX');
-            } else {
-                slideeElement.classList.add('animatedScrollY');
+        if (!layoutManager.desktop || o.hideScrollbar) {
+            nativeScrollElement.classList.add(hiddenClass);
+            if (layoutManager.tv && o.allowNativeSmoothScroll !== false) {
+                nativeScrollElement.classList.add(`smoothScroll${axis}`);
             }
         }
 
-        scrollSource.setAttribute(`data-scroll-mode-${o.horizontal ? 'x' : 'y'}`, 'custom');
+        if (o.forceHideScrollbars) {
+            nativeScrollElement.classList.add(`${hiddenClass}-forced`);
+        }
+    }
 
+    function configureTransformScroll(): void {
+        if (layoutManager.tv) {
+            frame.style.overflow = 'hidden';
+        }
+
+        slideeElement.style['will-change' as never] = 'transform';
+        slideeElement.style.transition = 'transform ' + (o.speed || 0) + 'ms ease-out';
+        slideeElement.classList.add(o.horizontal ? 'animatedScrollX' : 'animatedScrollY');
+    }
+
+    function bindScrollInputEvents(): void {
         if (transform || layoutManager.tv) {
             // This can prevent others from being able to listen to mouse events
             dom.addEventListener(dragSourceElement, 'mousedown', dragInitSlidee as EventListener, {
@@ -869,17 +869,10 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
                     passive: true
                 });
             }
+        }
 
-            if (o.mouseWheel) {
-                // Scrolling navigation
-                dom.addEventListener(scrollSource, wheelEvent, scrollHandler as EventListener, {
-                    passive: false
-                });
-            }
-        } else if (o.horizontal && o.mouseWheel) {
-            // Don't bind to mouse events with vertical scroll since the mouse wheel can handle this natively
-
-            // Scrolling navigation
+        if (o.mouseWheel && (transform || o.horizontal)) {
+            // Vertical native scrolling is handled by the browser's wheel behavior.
             dom.addEventListener(scrollSource, wheelEvent, scrollHandler as EventListener, {
                 passive: false
             });
@@ -889,15 +882,35 @@ const scrollerFactory = function (this: ScrollerInstance, frame: HTMLElement, op
             passive: true,
             capture: true
         });
+    }
+
+    /**
+     * Initialize.
+     *
+     * @return {Object}
+     */
+    this.init = (): ScrollerInstance | undefined => {
+        if (this.initialized) {
+            return undefined;
+        }
+
+        if (!transform) {
+            configureNativeScroll();
+        } else {
+            configureTransformScroll();
+        }
+
+        scrollSource.setAttribute(`data-scroll-mode-${o.horizontal ? 'x' : 'y'}`, 'custom');
+        bindScrollInputEvents();
 
         // Mark instance as initialized
-        self.initialized = 1;
+        this.initialized = 1;
 
         // Load
         load(true);
 
         // Return instance
-        return self;
+        return this;
     };
 } as unknown as {
     new (frame: HTMLElement, options?: ScrollerOptions): ScrollerInstance;

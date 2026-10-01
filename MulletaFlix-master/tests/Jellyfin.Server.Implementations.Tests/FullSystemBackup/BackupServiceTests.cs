@@ -68,7 +68,7 @@ public class BackupServiceTests
     }
 
     [Fact]
-    public void ScheduleRestoreAndRestartServer_SetsRestorePathAndNotifiesRestart()
+    public async Task ScheduleRestoreAndRestartServer_SetsRestorePathAndKeepsOperationsBlocked()
     {
         // Arrange
         var service = CreateService();
@@ -84,6 +84,8 @@ public class BackupServiceTests
         Assert.Equal(archivePath, _applicationHostMock.Object.RestoreBackupPath);
         Assert.True(_applicationHostMock.Object.ShouldRestart);
         _applicationHostMock.Verify(x => x.NotifyPendingRestart(), Times.Once);
+        await Assert.ThrowsAsync<BackupOperationInProgressException>(
+            () => service.CreateBackupAsync(new BackupOptionsDto()));
     }
 
     [Fact]
@@ -258,6 +260,46 @@ public class BackupServiceTests
                 Directory.Delete(isolatedRoot, recursive: true);
             }
         }
+    }
+
+    [Fact]
+    public async Task CreateBackupAsync_RejectsConcurrentOperationAndReleasesGateAfterFailure()
+    {
+        var optimizationStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseOptimization = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _databaseProviderMock
+            .Setup(provider => provider.RunScheduledOptimisation(It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                optimizationStarted.TrySetResult();
+                return releaseOptimization.Task;
+            });
+
+        var service = CreateService();
+        var firstOperation = service.CreateBackupAsync(new BackupOptionsDto { Database = true });
+
+        try
+        {
+            await optimizationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Assert.ThrowsAsync<BackupOperationInProgressException>(
+                () => service.CreateBackupAsync(new BackupOptionsDto { Database = false }));
+            await Assert.ThrowsAsync<BackupOperationInProgressException>(
+                () => service.RestoreBackupAsync("restore-is-not-started-while-backup-is-running.zip"));
+            Assert.Throws<BackupOperationInProgressException>(
+                () => service.ScheduleRestoreAndRestartServer("restore-is-not-scheduled-while-backup-is-running.zip"));
+            _applicationHostMock.Verify(host => host.NotifyPendingRestart(), Times.Never);
+        }
+        finally
+        {
+            releaseOptimization.TrySetResult();
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(() => firstOperation);
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => service.CreateBackupAsync(new BackupOptionsDto { Database = true }));
+        _databaseProviderMock.Verify(
+            provider => provider.RunScheduledOptimisation(It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
     }
 
     [Fact]

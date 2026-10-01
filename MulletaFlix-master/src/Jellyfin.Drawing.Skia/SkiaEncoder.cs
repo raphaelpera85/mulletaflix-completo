@@ -281,6 +281,65 @@ public class SkiaEncoder : IImageEncoder
     }
 
     /// <inheritdoc />
+    public bool IsImageDecodable(string path, long maxPixelCount)
+    {
+        if (string.IsNullOrWhiteSpace(path) || maxPixelCount <= 0 || !File.Exists(path))
+        {
+            return false;
+        }
+
+        var safePath = NormalizePath(path);
+        var isSafePathTemp = !string.Equals(Path.GetFullPath(safePath), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            using var codec = SKCodec.Create(safePath, out var result);
+            if (result != SKCodecResult.Success || codec is null)
+            {
+                return false;
+            }
+
+            var info = codec.Info;
+            if (info.Width <= 0 || info.Height <= 0 || (long)info.Width * info.Height > maxPixelCount)
+            {
+                return false;
+            }
+
+            var extension = Path.GetExtension(safePath);
+            var requiresTransparencyHack = _transparentImageTypes.Contains(extension);
+            using var bitmap = new SKBitmap(info.Width, info.Height, !requiresTransparencyHack);
+            if (bitmap.GetPixels() == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            return codec.GetPixels(bitmap.Info, bitmap.GetPixels()) == SKCodecResult.Success;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _logger.LogDebug(ex, "Unable to fully decode image {FilePath}", path);
+            return false;
+        }
+        finally
+        {
+            if (isSafePathTemp)
+            {
+                try
+                {
+                    File.Delete(safePath);
+                }
+                catch (IOException ex)
+                {
+                    _logger.LogDebug(ex, "Unable to remove temporary image validation file {TempPath}", safePath);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    _logger.LogDebug(ex, "Unable to remove temporary image validation file {TempPath}", safePath);
+                }
+            }
+        }
+    }
+
+    /// <inheritdoc />
     /// <exception cref="ArgumentNullException">The path is null.</exception>
     /// <exception cref="FileNotFoundException">The path is not valid.</exception>
     public string GetImageBlurHash(int xComp, int yComp, string path)
@@ -822,4 +881,3 @@ public class SkiaEncoder : IImageEncoder
         return null;
     }
 }
-

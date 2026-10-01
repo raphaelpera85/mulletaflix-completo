@@ -10,7 +10,7 @@ import Typography from '@mui/material/Typography';
 import React, { type FC, useCallback } from 'react';
 import type { ActivityLogEntry } from '@jellyfin/sdk/lib/generated-client/models/activity-log-entry';
 
-import { useMyClassifiedMediaRequests } from 'hooks/api/useMediaRequests';
+import { useMyClassifiedMediaRequests, type MediaRequestQueuePosition, type MediaRequestQueueStatus } from 'hooks/api/useMediaRequests';
 import Loading from 'components/loading/LoadingComponent';
 import Page from 'components/Page';
 import globalize from 'lib/globalize';
@@ -19,12 +19,59 @@ const requestTitlePrefix = /^Solicitação de mídia:\s*/i;
 
 const getRequestTitle = (entry: ActivityLogEntry) => (entry.Name || '').replace(requestTitlePrefix, '').trim();
 
-const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey: string; chipColor: 'default' | 'success'; priorityRequestIds: ReadonlySet<number> }> = ({
+const getQueueStatusText = (queue: MediaRequestQueuePosition | undefined) => {
+    if (!queue?.SnapshotAvailable) return globalize.translate('MediaRequestQueueUnavailable');
+
+    const segments: string[] = [];
+    const currentCount = queue.CurrentItemCount || 0;
+    if (queue.IsPriority) {
+        segments.push(globalize.translate('MediaRequestQueuePriority'));
+    }
+    if (currentCount > 0) {
+        segments.push(`${globalize.translate('MediaRequestQueueCurrent')}: ${currentCount}`);
+    }
+
+    if (queue.Position != null) {
+        segments.push(globalize.translate('MediaRequestQueuePosition')
+            .replace('{position}', String(queue.Position))
+            .replace('{count}', String(queue.QueueItemCount || 0)));
+    } else if (currentCount === 0) {
+        segments.push(globalize.translate(queue.IsRunning === false ? 'MediaRequestQueueAbsentFromSnapshot' : 'MediaRequestQueueAwaiting'));
+    }
+
+    const snapshotPrefix = queue.IsRunning === false ? `${globalize.translate('MediaRequestQueueLastSnapshot')}: ` : '';
+    return snapshotPrefix + segments.join(' · ');
+};
+
+const QueueStatus: FC<{ titleKey: string; queue: MediaRequestQueuePosition | undefined }> = ({ titleKey, queue }) => (
+    <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+        <Chip
+            size='small'
+            variant='outlined'
+            label={`${globalize.translate(titleKey)}: ${getQueueStatusText(queue)}`}
+            sx={{ maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', overflowWrap: 'anywhere', py: 0.5 } }}
+        />
+        {queue?.SnapshotAvailable && (queue.MatchingItemCount || 0) > 0 && (
+            <Typography variant='caption' color='text.secondary' sx={{ overflowWrap: 'anywhere' }}>
+                {globalize.translate('MediaRequestQueueMatches').replace('{count}', String(queue.MatchingItemCount))}
+            </Typography>
+        )}
+        {queue?.SnapshotAvailable && queue.SnapshotAtUtc && (
+            <Typography variant='caption' color='text.secondary' sx={{ overflowWrap: 'anywhere' }}>
+                {globalize.translate('MediaRequestQueueUpdated')}: {new Date(queue.SnapshotAtUtc).toLocaleString()}
+            </Typography>
+        )}
+    </Stack>
+);
+
+const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey: string; chipColor: 'default' | 'success'; priorityRequestIds: ReadonlySet<number>; queueStatuses: ReadonlyMap<number, MediaRequestQueueStatus>; showQueueStatus?: boolean }> = ({
     titleKey,
     entries,
     emptyKey,
     chipColor,
-    priorityRequestIds
+    priorityRequestIds,
+    queueStatuses,
+    showQueueStatus = false
 }) => (
     <Box component='section' aria-label={globalize.translate(titleKey)}>
         <Typography variant='h2' sx={{ mb: 1 }}>
@@ -58,6 +105,12 @@ const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey
                             )}
                             <Chip size='small' color={chipColor} label={entry.Overview || ''} />
                         </Stack>
+                        {showQueueStatus && entry.Id !== undefined && (
+                            <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ width: '100%', flexWrap: 'wrap', gap: 1 }}>
+                                <QueueStatus titleKey='MediaRequestQueueDownload' queue={queueStatuses.get(entry.Id)?.Download} />
+                                <QueueStatus titleKey='MediaRequestQueueUpload' queue={queueStatuses.get(entry.Id)?.Upload} />
+                            </Stack>
+                        )}
                     </ListItem>
                 ))}
             </List>
@@ -67,7 +120,7 @@ const RequestGroup: FC<{ titleKey: string; entries: ActivityLogEntry[]; emptyKey
 
 const MyMediaRequestsPage: FC = () => {
     const {
-        pending, included, priorityRequestIds, isPending, isError, refetch,
+        pending, included, priorityRequestIds, queueStatuses = new Map(), isPending, isError, refetch,
         hasNextPage, fetchNextPage, isFetchingNextPage, isFetchNextPageError
     } = useMyClassifiedMediaRequests();
 
@@ -110,6 +163,8 @@ const MyMediaRequestsPage: FC = () => {
                     emptyKey='MyMediaRequestsPendingEmpty'
                     chipColor='default'
                     priorityRequestIds={priorityRequestIds}
+                    queueStatuses={queueStatuses}
+                    showQueueStatus
                 />
                 <RequestGroup
                     titleKey='MediaRequestsIncludedTitle'
@@ -117,6 +172,7 @@ const MyMediaRequestsPage: FC = () => {
                     emptyKey='MyMediaRequestsIncludedEmpty'
                     chipColor='success'
                     priorityRequestIds={priorityRequestIds}
+                    queueStatuses={queueStatuses}
                 />
                 {isFetchNextPageError && <Alert severity='error'>{globalize.translate('ErrorDefault')}</Alert>}
                 {hasNextPage && (

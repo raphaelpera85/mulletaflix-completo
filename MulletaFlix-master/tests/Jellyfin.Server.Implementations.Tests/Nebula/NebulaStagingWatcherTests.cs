@@ -74,8 +74,8 @@ public sealed class NebulaStagingWatcherTests
     [Fact]
     public void RequeuedItem_KeepsTheQueueDedupeKey()
     {
-        var queued = CreateMap(StagedFile);
-        var active = CreateMap(StagedFile);
+        var queued = CreateQueuedMap(StagedFile);
+        var active = CreateActiveMap(StagedFile);
 
         Release(queued, active, StagedFile, requeued: true);
 
@@ -87,8 +87,8 @@ public sealed class NebulaStagingWatcherTests
     [Fact]
     public void RequeuedItem_AlwaysReleasesTheInMemoryClaim()
     {
-        var queued = CreateMap(StagedFile);
-        var active = CreateMap(StagedFile);
+        var queued = CreateQueuedMap(StagedFile);
+        var active = CreateActiveMap(StagedFile);
 
         Release(queued, active, StagedFile, requeued: true);
 
@@ -100,8 +100,8 @@ public sealed class NebulaStagingWatcherTests
     [Fact]
     public void TerminalItem_ClearsBothKeysSoTheFileCanBeDiscoveredAgain()
     {
-        var queued = CreateMap(StagedFile);
-        var active = CreateMap(StagedFile);
+        var queued = CreateQueuedMap(StagedFile);
+        var active = CreateActiveMap(StagedFile);
 
         Release(queued, active, StagedFile, requeued: false);
 
@@ -112,8 +112,8 @@ public sealed class NebulaStagingWatcherTests
     [Fact]
     public void RequeueThenTerminal_ClearsTheKeyOnlyAtTheEnd()
     {
-        var queued = CreateMap(StagedFile);
-        var active = CreateMap(StagedFile);
+        var queued = CreateQueuedMap(StagedFile);
+        var active = CreateActiveMap(StagedFile);
 
         // Two requeues in a row, as happens while a sidecar waits for its metadata marker.
         Release(queued, active, StagedFile, requeued: true);
@@ -127,16 +127,23 @@ public sealed class NebulaStagingWatcherTests
         Assert.False(queued.ContainsKey(Path.GetFullPath(StagedFile)));
     }
 
-    private static ConcurrentDictionary<string, byte> CreateMap(string path)
+    private static ConcurrentDictionary<string, byte> CreateQueuedMap(string path)
     {
         var map = new ConcurrentDictionary<string, byte>(System.StringComparer.OrdinalIgnoreCase);
         map[Path.GetFullPath(path)] = 0;
         return map;
     }
 
+    private static ConcurrentDictionary<string, bool> CreateActiveMap(string path)
+    {
+        var map = new ConcurrentDictionary<string, bool>(System.StringComparer.OrdinalIgnoreCase);
+        map[Path.GetFullPath(path)] = false;
+        return map;
+    }
+
     private static void Release(
         ConcurrentDictionary<string, byte> queued,
-        ConcurrentDictionary<string, byte> active,
+        ConcurrentDictionary<string, bool> active,
         string filePath,
         bool requeued)
     {

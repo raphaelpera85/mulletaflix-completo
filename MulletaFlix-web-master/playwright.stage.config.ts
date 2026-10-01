@@ -1,12 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8096';
-const baseURL = (process.env.PW_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
+let baseURL = process.env.PW_BASE_URL || DEFAULT_BASE_URL;
+while (baseURL.endsWith('/')) {
+    baseURL = baseURL.slice(0, -1);
+}
 const rawResultsFile = process.env.PW_JSON_REPORT || 'reports/playwright/raw-results.json';
 
 export default defineConfig({
     testDir: './tests/playwright/specs',
-    testMatch: /.*\.spec\.(ts|js|mjs)$/,
+    testMatch: ['**/*.spec.ts', '**/*.spec.js', '**/*.spec.mjs'],
     fullyParallel: false,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
@@ -22,7 +25,7 @@ export default defineConfig({
     use: {
         baseURL,
         launchOptions: {
-            headless: false,
+            headless: !!process.env.CI,
             args: [ '--allow-file-access-from-files' ],
             slowMo: process.env.PW_SLOW_MO ? Number(process.env.PW_SLOW_MO) : 50
         },

@@ -39,3 +39,9 @@ export function buildStageKillArgs(pid) {
 
     return [ '/PID', String(pid), '/T', '/F' ];
 }
+
+export function resolveDotnetExecutable(platform, programFiles) {
+    return platform === 'win32' ?
+        path.join(programFiles || 'C:\\Program Files', 'dotnet', 'dotnet.exe') :
+        'dotnet';
+}

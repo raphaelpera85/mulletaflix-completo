@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BaseItemKind } from '@jellyfin/sdk/lib/generated-client/models/base-item-kind';
+
+vi.mock('hooks/useApi', () => ({ useApi: vi.fn() }));
 
 import { buildUnifiedSearchParams } from './useUnifiedSearch';
 

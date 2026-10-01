@@ -34,6 +34,7 @@ public class BackupService : IBackupService
     private readonly IServerApplicationPaths _applicationPaths;
     private readonly IMulletaFlixDatabaseProvider _MulletaFlixDatabaseProvider;
     private readonly IHostApplicationLifetime _hostApplicationLifetime;
+    private int _backupOperationInProgress;
     private static readonly JsonSerializerOptions _serializerSettings = new JsonSerializerOptions(JsonSerializerDefaults.General)
     {
         AllowTrailingCommas = true,
@@ -70,26 +71,56 @@ public class BackupService : IBackupService
     /// <inheritdoc/>
     public void ScheduleRestoreAndRestartServer(string archivePath)
     {
-        _applicationHost.RestoreBackupPath = archivePath;
-        _applicationHost.ShouldRestart = true;
-        _applicationHost.NotifyPendingRestart();
-        _ = Task.Run(async () =>
+        if (Interlocked.CompareExchange(ref _backupOperationInProgress, 1, 0) != 0)
         {
-            try
+            throw new BackupOperationInProgressException();
+        }
+
+        try
+        {
+            _applicationHost.RestoreBackupPath = archivePath;
+            _applicationHost.ShouldRestart = true;
+            _applicationHost.NotifyPendingRestart();
+            _ = Task.Run(async () =>
             {
-                await Task.Delay(500).ConfigureAwait(false);
-                _hostApplicationLifetime.StopApplication();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during delayed application stop after restore");
-                Environment.Exit(1);
-            }
-        });
+                try
+                {
+                    await Task.Delay(500).ConfigureAwait(false);
+                    _hostApplicationLifetime.StopApplication();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during delayed application stop after restore");
+                    Environment.Exit(1);
+                }
+            });
+        }
+        catch
+        {
+            Volatile.Write(ref _backupOperationInProgress, 0);
+            throw;
+        }
     }
 
     /// <inheritdoc/>
     public async Task RestoreBackupAsync(string archivePath)
+    {
+        if (Interlocked.CompareExchange(ref _backupOperationInProgress, 1, 0) != 0)
+        {
+            throw new BackupOperationInProgressException();
+        }
+
+        try
+        {
+            await RestoreBackupCoreAsync(archivePath).ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _backupOperationInProgress, 0);
+        }
+    }
+
+    private async Task RestoreBackupCoreAsync(string archivePath)
     {
         _logger.LogWarning("Begin restoring system to {BackupArchive}", archivePath); // Info isn't cutting it
         if (!File.Exists(archivePath))
@@ -274,6 +305,23 @@ public class BackupService : IBackupService
 
     /// <inheritdoc/>
     public async Task<BackupManifestDto> CreateBackupAsync(BackupOptionsDto backupOptions)
+    {
+        if (Interlocked.CompareExchange(ref _backupOperationInProgress, 1, 0) != 0)
+        {
+            throw new BackupOperationInProgressException();
+        }
+
+        try
+        {
+            return await CreateBackupCoreAsync(backupOptions).ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _backupOperationInProgress, 0);
+        }
+    }
+
+    private async Task<BackupManifestDto> CreateBackupCoreAsync(BackupOptionsDto backupOptions)
     {
         var manifest = new BackupManifest()
         {

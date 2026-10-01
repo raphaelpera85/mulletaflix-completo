@@ -3,8 +3,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using MulletaFlix.Api.Constants;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +20,8 @@ public class RateLimitMiddleware
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _searchRequests = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _administrativeRequests = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, RateLimitEntry> _nebulaRequests = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly SemaphoreSlim _heavyBackupOperations = new(1, 1);
+    private static readonly SemaphoreSlim _catalogScans = new(1, 1);
 
     private static readonly TimeSpan LoginWindow = TimeSpan.FromMinutes(15);
     private const int MaxFailedLogins = 10;
@@ -80,13 +85,13 @@ public class RateLimitMiddleware
     ];
 
     /// <summary>
-    /// Maximum number of distinct IP entries retained per dictionary to prevent
-    /// unbounded memory growth from IP rotation attacks.
+    /// Maximum number of distinct client keys retained per dictionary to prevent
+    /// unbounded memory growth from rotating users or IP addresses.
     /// </summary>
-    private const int MaxDistinctIps = 10000;
+    private const int MaxDistinctClients = 10000;
 
     /// <summary>
-    /// Minimum interval between cleanup sweeps after the configured IP cap is reached.
+    /// Minimum interval between cleanup sweeps after the configured client-key cap is reached.
     /// </summary>
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
 
@@ -103,6 +108,27 @@ public class RateLimitMiddleware
 
     public async Task Invoke(HttpContext context)
     {
+        var heavyOperationLimiter = GetHeavyOperationLimiter(context.Request.Method, context.Request.Path.Value);
+        if (heavyOperationLimiter is not null && !heavyOperationLimiter.Wait(0))
+        {
+            _logger.LogWarning("Concurrent heavy operation rejected for path {Path}", context.Request.Path);
+            context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
+            context.Response.Headers.RetryAfter = "1";
+            return;
+        }
+
+        try
+        {
+            await InvokeCore(context);
+        }
+        finally
+        {
+            heavyOperationLimiter?.Release();
+        }
+    }
+
+    private async Task InvokeCore(HttpContext context)
+    {
         var ip = context.Connection.RemoteIpAddress?.ToString();
         if (string.IsNullOrEmpty(ip))
         {
@@ -118,10 +144,12 @@ public class RateLimitMiddleware
             IsPathOrDescendant(path, "/Users/Authenticate")
             || IsPathOrDescendant(path, "/Users/Register"));
         var selectiveCategory = path is not null ? GetSelectiveRateLimitCategory(path) : null;
+        RateLimitEntry? loginEntry = null;
 
         if (isLoginAttempt)
         {
-            if (IsBlocked(_failedLogins, ip, LoginWindow, MaxFailedLogins, out var retryAfterLogin))
+            loginEntry = _failedLogins.GetOrAdd(ip, _ => new RateLimitEntry());
+            if (!loginEntry.TryEnterLogin(DateTime.UtcNow, LoginWindow, MaxFailedLogins, out var retryAfterLogin))
             {
                 _logger.LogWarning("Rate limit exceeded for login from IP {IP}", ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
@@ -153,7 +181,8 @@ public class RateLimitMiddleware
                 _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
             };
 
-            if (IsBlocked(selectiveStore, ip, selectiveWindow, selectiveMax, out var retryAfterSelective))
+            var clientKey = GetSelectiveClientKey(context, ip);
+            if (!TryRecordAttempt(selectiveStore, clientKey, selectiveWindow, selectiveMax, out var retryAfterSelective))
             {
                 _logger.LogWarning("Rate limit exceeded for {Category} requests from IP {IP}", selectiveCategory, ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
@@ -163,7 +192,7 @@ public class RateLimitMiddleware
         }
         else if (!isAuth && !IsLoopback(ip) && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
         {
-            if (IsBlocked(_anonymousRequests, ip, AnonymousWindow, MaxAnonymousRequests, out var retryAfterAnonymous))
+            if (!TryRecordAttempt(_anonymousRequests, ip, AnonymousWindow, MaxAnonymousRequests, out var retryAfterAnonymous))
             {
                 _logger.LogWarning("Rate limit exceeded for anonymous requests from IP {IP}", ip);
                 context.Response.StatusCode = (int)HttpStatusCode.TooManyRequests;
@@ -172,34 +201,63 @@ public class RateLimitMiddleware
             }
         }
 
-        await _next(context);
+        try
+        {
+            await _next(context);
+        }
+        finally
+        {
+            if (loginEntry is not null)
+            {
+                loginEntry.CompleteLogin(
+                    DateTime.UtcNow,
+                    LoginWindow,
+                    context.Response.StatusCode == (int)HttpStatusCode.Unauthorized);
+                EvictStaleEntries(_failedLogins, DateTime.UtcNow);
+            }
+        }
+    }
 
-        if (isLoginAttempt && context.Response.StatusCode == (int)HttpStatusCode.Unauthorized)
+    private static SemaphoreSlim? GetHeavyOperationLimiter(string method, string? path)
+    {
+        if (!string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) || path is null)
         {
-            RecordAttempt(_failedLogins, ip, LoginWindow);
+            return null;
         }
-        else if (selectiveCategory is not null && !IsLoopback(ip))
+
+        var normalizedPath = path.TrimEnd('/');
+        if (string.Equals(normalizedPath, "/Backup/Create", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedPath, "/NebulaFtp/Supabase/Restore", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedPath, "/NebulaFtp/Supabase/Users/Backup", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedPath, "/NebulaFtp/Supabase/Users/Restore", StringComparison.OrdinalIgnoreCase))
         {
-            var selectiveStore = selectiveCategory switch
+            return _heavyBackupOperations;
+        }
+
+        return string.Equals(normalizedPath, "/NebulaFtp/Actions/ScanNovelas", StringComparison.OrdinalIgnoreCase)
+            ? _catalogScans
+            : null;
+    }
+
+    private static string GetSelectiveClientKey(HttpContext context, string ip)
+    {
+        if (context.User?.Identity?.IsAuthenticated == true)
+        {
+            if (Guid.TryParse(context.User.FindFirst(InternalClaimTypes.UserId)?.Value, out var userId)
+                && userId != Guid.Empty)
             {
-                "search" => _searchRequests,
-                "administration" => _administrativeRequests,
-                "nebula" => _nebulaRequests,
-                _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
-            };
-            var selectiveWindow = selectiveCategory switch
+                return "user:" + userId.ToString("N", System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            if (bool.TryParse(context.User.FindFirst(InternalClaimTypes.IsApiKey)?.Value, out var isApiKey)
+                && isApiKey
+                && context.User.FindFirst(InternalClaimTypes.Token)?.Value is { Length: > 0 } token)
             {
-                "search" => SearchWindow,
-                "administration" => AdministrativeWindow,
-                "nebula" => NebulaWindow,
-                _ => throw new InvalidOperationException($"Unknown rate-limit category: {selectiveCategory}")
-            };
-            RecordAttempt(selectiveStore, ip, selectiveWindow);
+                return "api-key:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+            }
         }
-        else if (!isAuth && !isLoginAttempt && !IsLoopback(ip) && !isStaticWebAsset && !isPublicBootstrap && !IsHermeticTestMode())
-        {
-            RecordAttempt(_anonymousRequests, ip, AnonymousWindow);
-        }
+
+        return "ip:" + ip;
     }
 
     internal static string? GetSelectiveRateLimitCategory(string path)
@@ -287,35 +345,32 @@ public class RateLimitMiddleware
             || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsBlocked(ConcurrentDictionary<string, RateLimitEntry> store, string key, TimeSpan window, int max, out int retryAfterSeconds)
-    {
-        var now = DateTime.UtcNow;
-        if (store.TryGetValue(key, out var entry))
-        {
-            return entry.IsBlocked(now, window, max, out retryAfterSeconds);
-        }
-
-        retryAfterSeconds = 0;
-        return false;
-    }
-
-    private static void RecordAttempt(ConcurrentDictionary<string, RateLimitEntry> store, string key, TimeSpan window)
+    private static bool TryRecordAttempt(
+        ConcurrentDictionary<string, RateLimitEntry> store,
+        string key,
+        TimeSpan window,
+        int max,
+        out int retryAfterSeconds)
     {
         var now = DateTime.UtcNow;
         var entry = store.GetOrAdd(key, _ => new RateLimitEntry());
-        entry.Record(now, window);
+        var admitted = entry.TryRecord(now, window, max, out retryAfterSeconds);
+        if (admitted)
+        {
+            EvictStaleEntries(store, now);
+        }
 
-        EvictStaleEntries(store, now);
+        return admitted;
     }
 
     private static void EvictStaleEntries(ConcurrentDictionary<string, RateLimitEntry> store, DateTime now)
     {
-        if (store.Count <= MaxDistinctIps)
+        if (store.Count <= MaxDistinctClients)
         {
             return;
         }
 
-        if ((now - _lastCleanup) < CleanupInterval && store.Count <= MaxDistinctIps * 2)
+        if ((now - _lastCleanup) < CleanupInterval && store.Count <= MaxDistinctClients * 2)
         {
             return;
         }
@@ -325,10 +380,11 @@ public class RateLimitMiddleware
         var keysToRemove = store
             .Select(kvp =>
             {
-                return (Key: kvp.Key, Oldest: kvp.Value.GetOldestTimestamp());
+                return (Key: kvp.Key, Oldest: kvp.Value.GetEvictableTimestamp());
             })
+            .Where(entry => entry.Oldest.HasValue)
             .OrderBy(entry => entry.Oldest)
-            .Take(Math.Max(1, store.Count - MaxDistinctIps))
+            .Take(Math.Max(1, store.Count - MaxDistinctClients))
             .Select(entry => entry.Key)
             .ToList();
 
@@ -341,42 +397,74 @@ public class RateLimitMiddleware
     private class RateLimitEntry
     {
         private readonly object _sync = new();
+        private int _activeLogins;
         public List<DateTime> Timestamps { get; } = new();
 
-        public bool IsBlocked(DateTime now, TimeSpan window, int max, out int retryAfterSeconds)
+        public bool TryEnterLogin(DateTime now, TimeSpan window, int max, out int retryAfterSeconds)
         {
             lock (_sync)
             {
                 Prune(now, window);
-                if (Timestamps.Count < max)
+                if (Timestamps.Count >= max)
                 {
-                    retryAfterSeconds = 0;
+                    var oldest = Timestamps.Min();
+                    var remaining = (oldest + window) - now;
+                    retryAfterSeconds = remaining > TimeSpan.Zero ? (int)Math.Ceiling(remaining.TotalSeconds) : 1;
                     return false;
                 }
 
-                // The window frees up one slot as soon as its oldest recorded timestamp ages out;
-                // report that as a whole-second ceiling so RFC 9110 Retry-After never undersells
-                // how long the client actually still needs to wait.
-                var oldest = Timestamps.Min();
-                var remaining = (oldest + window) - now;
-                retryAfterSeconds = remaining > TimeSpan.Zero ? (int)Math.Ceiling(remaining.TotalSeconds) : 1;
+                if (Timestamps.Count + _activeLogins >= max)
+                {
+                    retryAfterSeconds = 1;
+                    return false;
+                }
+
+                _activeLogins++;
+                retryAfterSeconds = 0;
                 return true;
             }
         }
 
-        public void Record(DateTime now, TimeSpan window)
+        public void CompleteLogin(DateTime now, TimeSpan window, bool failed)
+        {
+            lock (_sync)
+            {
+                _activeLogins--;
+                if (failed)
+                {
+                    Prune(now, window);
+                    Timestamps.Add(now);
+                }
+            }
+        }
+
+        public bool TryRecord(DateTime now, TimeSpan window, int max, out int retryAfterSeconds)
         {
             lock (_sync)
             {
                 Prune(now, window);
+                if (Timestamps.Count >= max)
+                {
+                    var remaining = (Timestamps.Min() + window) - now;
+                    retryAfterSeconds = remaining > TimeSpan.Zero ? (int)Math.Ceiling(remaining.TotalSeconds) : 1;
+                    return false;
+                }
+
                 Timestamps.Add(now);
+                retryAfterSeconds = 0;
+                return true;
             }
         }
 
-        public DateTime GetOldestTimestamp()
+        public DateTime? GetEvictableTimestamp()
         {
             lock (_sync)
             {
+                if (_activeLogins > 0)
+                {
+                    return null;
+                }
+
                 return Timestamps.Count == 0 ? DateTime.MinValue : Timestamps.Min();
             }
         }

@@ -11,12 +11,21 @@ test('autocomplete selects title/category/year by keyboard and submits the chose
     }));
     await page.route('**/components/toast/toast.ts*', route => route.fulfill({ contentType: 'application/javascript', body: 'export default () => {};' }));
     await page.route('**/lib/globalize/index.ts*', route => route.fulfill({ contentType: 'application/javascript', body: 'export default { translate: key => key };' }));
+    let errorOnce = true;
     await page.route('**/test-api/UserFeedback/MediaSuggestions?*', route => {
         const query = new URL(route.request().url()).searchParams.get('query');
+        if (query === 'NoMatch') return route.fulfill({ json: [] });
+        if (query === 'ErrorOnce' && errorOnce) {
+            errorOnce = false;
+            return route.fulfill({ status: 503, contentType: 'text/plain', body: 'Catalog unavailable' });
+        }
         return route.fulfill({ json: query === 'At' ?
             [{ Title: 'Atomic', MediaType: 'Series', Year: 2024 }] :
             [{ Title: "Let's Play", MediaType: 'Animation' }] });
     });
+    await page.route('**/test-api/UserFeedback/MediaSuggestions/Status', route => route.fulfill({ json: {
+        State: 'Ready', IsIndexing: false, FailedRootCount: 0
+    } }));
     let submitted: unknown;
     await page.route('**/test-api/UserFeedback/MediaRequests', route => {
         submitted = route.request().postDataJSON();
@@ -51,6 +60,20 @@ test('autocomplete selects title/category/year by keyboard and submits the chose
     await expect(title).toHaveValue("Let's Play");
     await expect(category).toHaveValue('Animation');
     await expect(year).toHaveValue('');
+
+    await title.fill('NoMatch');
+    await expect(page.getByRole('status')).toHaveText('MediaRequestSuggestionsEmpty');
+    await title.fill('ErrorOnce');
+    await expect(page.getByRole('status')).toContainText('MediaRequestSuggestionsFailed');
+    await title.press('Tab');
+    const retryButton = page.getByRole('button', { name: 'Retry', exact: true });
+    await expect(retryButton).toBeFocused();
+    await page.keyboard.press('Enter');
+    const retrySuggestion = page.getByRole('option', { name: "Let's Play — Animation" });
+    await expect(retrySuggestion).toBeVisible();
+    await title.press('ArrowDown');
+    await title.press('Enter');
+
     await page.getByRole('button', { name: 'ButtonSend', exact: true }).click();
     await expect.poll(() => submitted).toEqual({ Title: "Let's Play", MediaType: 'Animation' });
 });

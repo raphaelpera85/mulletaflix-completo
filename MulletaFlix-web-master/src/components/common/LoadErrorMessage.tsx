@@ -6,9 +6,10 @@ import globalize from 'lib/globalize';
 
 interface LoadErrorMessageProps {
     onRetry?: () => void;
+    message?: string;
 }
 
-const LoadErrorMessage: FC<LoadErrorMessageProps> = ({ onRetry }) => (
+const LoadErrorMessage: FC<LoadErrorMessageProps> = ({ onRetry, message }) => (
     <Alert
         severity='error'
         action={onRetry ? (
@@ -21,7 +22,7 @@ const LoadErrorMessage: FC<LoadErrorMessageProps> = ({ onRetry }) => (
             </Button>
         ) : undefined}
     >
-        {globalize.translate('ErrorDefault')}
+        {message ?? globalize.translate('ErrorDefault')}
     </Alert>
 );
 

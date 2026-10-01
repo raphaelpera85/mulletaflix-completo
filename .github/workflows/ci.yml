@@ -113,6 +113,9 @@ jobs:
       - name: Lint changed frontend files
         run: npm run lint:changed
 
+      - name: Lint stylesheets
+        run: npm run stylelint
+
       - name: Production build
         run: npm run build:production
 
@@ -181,12 +184,17 @@ jobs:
       - name: Run isolated wizard smoke test
         run: npm run playwright -- --grep=Wizard
 
+      - name: Run Playwright carousel navigation tests
+        run: npm run test:playwright:scrollbuttons
+
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-smoke-report
-          path: MulletaFlix-web-master/reports/playwright
+          path: |
+            MulletaFlix-web-master/reports/playwright
+            MulletaFlix-web-master/test-results/playwright
           if-no-files-found: warn
 
   supply-chain:

@@ -21,4 +21,7 @@ public sealed class MediaRequestQueryResultDto
 
     /// <summary>Gets or sets path-free catalog candidates matching titles requested on this page.</summary>
     public IReadOnlyList<NebulaMediaSuggestionDto> Catalog { get; set; } = System.Array.Empty<NebulaMediaSuggestionDto>();
+
+    /// <summary>Gets or sets path-free download and upload queue status for this page's requests.</summary>
+    public IReadOnlyList<NebulaMediaRequestQueueStatusDto> QueueStatuses { get; set; } = System.Array.Empty<NebulaMediaRequestQueueStatusDto>();
 }

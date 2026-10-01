@@ -54,7 +54,9 @@ using MediaBrowser.Common.Net;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Common.Updates;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.CatalogAudit;
 using MediaBrowser.Controller.Channels;
+using MulletaFlix.Server.Implementations.CatalogAudit;
 using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.ClientEvent;
 using MediaBrowser.Controller.Collections;
@@ -175,6 +177,11 @@ namespace Emby.Server.Implementations
 
             _xmlSerializer = new MyXmlSerializer();
             ConfigurationManager = new ServerConfigurationManager(ApplicationPaths, LoggerFactory, _xmlSerializer);
+            BundledPluginInstaller.EnsureFileTransformationInstalled(
+                AppContext.BaseDirectory,
+                ApplicationPaths.PluginsPath,
+                ApplicationVersion,
+                Logger);
             _pluginManager = new PluginManager(
                 LoggerFactory.CreateLogger<PluginManager>(),
                 this,
@@ -495,6 +502,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<IPluginManager>(_pluginManager);
             serviceCollection.AddSingleton<IApplicationPaths>(ApplicationPaths);
             serviceCollection.AddSingleton<IBackupService, BackupService>();
+            serviceCollection.AddSingleton<ICatalogAuditService, CatalogAuditService>();
 
             serviceCollection.AddSingleton<IFileSystem, ManagedFileSystem>();
             serviceCollection.AddSingleton<IShortcutHandler, MbLinkShortcutHandler>();

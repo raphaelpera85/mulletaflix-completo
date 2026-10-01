@@ -25,8 +25,15 @@ public interface INebulaFtpManager
     /// <summary>Gets the indexed STRM title catalog for request administration.</summary>
     System.Collections.Generic.IReadOnlyList<NebulaMediaSuggestionDto> GetMediaSuggestionCatalog();
 
+    /// <summary>Gets the current path-free STRM catalog index status.</summary>
+    NebulaMediaSuggestionIndexStatusDto GetMediaSuggestionIndexStatus();
+
     /// <summary>Checks whether a title is registered in the durable media-request priority list.</summary>
     bool IsMediaRequestPrioritized(string title);
+
+    /// <summary>Gets queue positions for the supplied caller-owned media requests without returning file paths.</summary>
+    System.Collections.Generic.IReadOnlyList<NebulaMediaRequestQueueStatusDto> GetMediaRequestQueueStatuses(
+        System.Collections.Generic.IReadOnlyList<NebulaMediaRequestQueueQueryDto> requests);
 
     Task<NebulaStatusDto> GetStatusAsync(CancellationToken cancellationToken = default);
 
@@ -97,6 +104,9 @@ public interface INebulaFtpManager
     Task<NebulaSupabaseProvisionResultDto> ProvisionSupabaseSchemaAsync(NebulaSupabaseProvisionRequest? request, CancellationToken cancellationToken = default);
 
     Task<NebulaSupabaseStatusDto> GetSupabaseStatusAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Starts a MongoDB-to-Supabase backup in the background if one is not already running.</summary>
+    bool TryStartMongoBackupToSupabaseInBackground(string? idempotencyKey, bool forceFull);
 
     Task<NebulaSupabaseBackupResultDto> BackupMongoToSupabaseAsync(string? idempotencyKey = null, bool forceFull = false, CancellationToken cancellationToken = default);
 

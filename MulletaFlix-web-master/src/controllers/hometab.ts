@@ -1,6 +1,7 @@
 import type { ApiClient } from 'jellyfin-apiclient';
 import type { UserDto } from '@jellyfin/sdk/lib/generated-client/models/user-dto';
 
+import globalize from '../lib/globalize';
 import * as userSettings from '../scripts/settings/userSettings';
 import focusManager from '../components/focusManager';
 import homeSections from '../components/homesections/homesections';
@@ -33,8 +34,33 @@ class HomeTab {
             if (this.apiClient) showMediaRequestDialog(this.apiClient);
         });
 
+        view.querySelector<HTMLButtonElement>('.btnHomeTabRetry')?.addEventListener('click', () => {
+            this.hideLoadError();
+            this.sectionsRendered = false;
+            void this.onResume({ refresh: true, autoFocus: true });
+        });
+
         view.querySelector('.sections')?.addEventListener('settingschange', onHomeScreenSettingsChanged.bind(this));
         Events.on(document, EventType.THEME_CHANGE, this._onThemeChange);
+    }
+
+    private showLoadError(): void {
+        this.sectionsRendered = false;
+        const errorContainer = this.view.querySelector<HTMLElement>('#homeTabLoadError');
+        const message = errorContainer?.querySelector<HTMLElement>('.homeTabLoadErrorMessage');
+        const content = this.view.querySelector<HTMLElement>('.homeTabContent');
+
+        if (message) {
+            message.textContent = globalize.translate('ErrorDefault');
+        }
+
+        errorContainer?.classList.remove('hide');
+        content?.classList.add('hide');
+    }
+
+    private hideLoadError(): void {
+        this.view.querySelector<HTMLElement>('#homeTabLoadError')?.classList.add('hide');
+        this.view.querySelector<HTMLElement>('.homeTabContent')?.classList.remove('hide');
     }
 
     onResume(options: { refresh?: boolean; autoFocus?: boolean }): Promise<unknown> {
@@ -48,8 +74,14 @@ class HomeTab {
             return Promise.resolve();
         }
 
+        this.hideLoadError();
         const view = this.view;
-        const apiClient = this.apiClient!;
+        const apiClient = this.apiClient;
+        if (!apiClient) {
+            this.showLoadError();
+            return Promise.resolve();
+        }
+
         const isNetflixTheme: boolean = document.documentElement.getAttribute('data-theme') === 'netflix';
         this.destroyHomeSections();
         this.sectionsRendered = true;
@@ -62,7 +94,8 @@ class HomeTab {
                     focusManager.autoFocus(view);
                 }
             }).catch((err: unknown) => {
-                console.error(err);
+                console.error('[HomeTab] failed to load home sections', err);
+                this.showLoadError();
             });
     }
 

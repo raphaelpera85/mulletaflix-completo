@@ -45,6 +45,9 @@ namespace MulletaFlix.Api.Controllers;
 [Route("")]
 public class ImageController : BaseMulletaFlixApiController
 {
+    private const int MaxSplashscreenUploadBytes = 20 * 1024 * 1024;
+    private const int MaxSplashscreenEncodedBytes = 28 * 1024 * 1024;
+    private const long MaxSplashscreenPixelCount = 16_777_216;
     private readonly IUserManager _userManager;
     private readonly ILibraryManager _libraryManager;
     private readonly IProviderManager _providerManager;
@@ -1720,7 +1723,9 @@ public class ImageController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status413RequestEntityTooLarge)]
     [AcceptsImageFile]
+    [RequestSizeLimit(MaxSplashscreenEncodedBytes)]
     public async Task<ActionResult> UploadCustomSplashscreen()
     {
         if (!TryGetImageExtensionFromContentType(Request.ContentType, out var extension))
@@ -1728,22 +1733,187 @@ public class ImageController : BaseMulletaFlixApiController
             return BadRequest("Incorrect ContentType.");
         }
 
+        // Vector and uncommon image formats can contain active content or be unsupported
+        // by the server image decoder. Keep the public splashscreen raster-only.
+        if (extension is not (".png" or ".jpg" or ".jpeg" or ".gif" or ".webp"))
+        {
+            return BadRequest("Unsupported image format.");
+        }
+
+        if (Request.ContentLength > MaxSplashscreenEncodedBytes)
+        {
+            return StatusCode(StatusCodes.Status413RequestEntityTooLarge, "Splashscreen exceeds maximum allowed size (20 MB).");
+        }
+
         var stream = GetFromBase64Stream(Request.Body);
         await using (stream.ConfigureAwait(false))
         {
-            var filePath = Path.Combine(_appPaths.DataPath, "splashscreen-upload" + extension);
-            var brandingOptions = _serverConfigurationManager.GetConfiguration<BrandingOptions>("branding");
-            brandingOptions.SplashscreenLocation = filePath;
-            _serverConfigurationManager.SaveConfiguration("branding", brandingOptions);
-
-            var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, IODefaults.FileStreamBufferSize, FileOptions.Asynchronous);
-            await using (fs.ConfigureAwait(false))
+            // A unique, unpublished path keeps the previous splashscreen intact until
+            // decoding, writing and the configuration commit have all succeeded.
+            var filePath = Path.Combine(_appPaths.DataPath, "splashscreen-upload-" + Guid.NewGuid().ToString("N") + extension);
+            var published = false;
+            string? previousPath = null;
+            try
             {
-                await stream.CopyToAsync(fs, CancellationToken.None).ConfigureAwait(false);
-            }
+                var buffer = new byte[IODefaults.FileStreamBufferSize];
+                var totalBytes = 0L;
+                var fs = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, IODefaults.FileStreamBufferSize, FileOptions.Asynchronous);
+                await using (fs.ConfigureAwait(false))
+                {
+                    try
+                    {
+                        int bytesRead;
+                        while ((bytesRead = await stream.ReadAsync(buffer, Request.HttpContext.RequestAborted).ConfigureAwait(false)) > 0)
+                        {
+                            totalBytes += bytesRead;
+                            if (totalBytes > MaxSplashscreenUploadBytes)
+                            {
+                                return StatusCode(StatusCodes.Status413RequestEntityTooLarge, "Splashscreen exceeds maximum allowed size (20 MB).");
+                            }
 
-            return NoContent();
+                            await fs.WriteAsync(buffer.AsMemory(0, bytesRead), Request.HttpContext.RequestAborted).ConfigureAwait(false);
+                        }
+                    }
+                    catch (FormatException)
+                    {
+                        return BadRequest("Invalid image data.");
+                    }
+
+                    if (totalBytes == 0)
+                    {
+                        return BadRequest("No image uploaded.");
+                    }
+
+                    await fs.FlushAsync(Request.HttpContext.RequestAborted).ConfigureAwait(false);
+                }
+
+                if (!HasSplashscreenImageSignature(filePath, extension))
+                {
+                    return BadRequest("Image data does not match ContentType.");
+                }
+
+                if (!_imageProcessor.IsImageDecodable(filePath, MaxSplashscreenPixelCount))
+                {
+                    return BadRequest("Invalid image data or image exceeds the maximum pixel count.");
+                }
+
+                _serverConfigurationManager.UpdateConfiguration("branding", current =>
+                {
+                    var options = (BrandingOptions)current;
+                    previousPath = options.SplashscreenLocation;
+                    return CloneBrandingWithSplashscreenPath(options, filePath);
+                });
+                published = true;
+                if (IsManagedSplashscreenPath(previousPath, _appPaths.DataPath))
+                {
+                    try
+                    {
+                        System.IO.File.Delete(previousPath!);
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogWarning(ex, "Unable to remove superseded splashscreen {Path}", previousPath);
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        _logger.LogWarning(ex, "Unable to remove superseded splashscreen {Path}", previousPath);
+                    }
+                }
+
+                return NoContent();
+            }
+            finally
+            {
+                if (!published && System.IO.File.Exists(filePath))
+                {
+                    try
+                    {
+                        System.IO.File.Delete(filePath);
+                    }
+                    catch (IOException ex)
+                    {
+                        _logger.LogWarning(ex, "Unable to remove incomplete splashscreen {Path}", filePath);
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        _logger.LogWarning(ex, "Unable to remove incomplete splashscreen {Path}", filePath);
+                    }
+                }
+            }
         }
+    }
+
+    private static bool HasSplashscreenImageSignature(string path, string extension)
+    {
+        Span<byte> header = stackalloc byte[12];
+        using var imageStream = System.IO.File.OpenRead(path);
+        if (imageStream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) < header.Length)
+        {
+            return false;
+        }
+
+        return extension switch
+        {
+            ".png" => header[..8].SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }),
+            ".jpg" or ".jpeg" => header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF,
+            ".gif" => header[..6].SequenceEqual("GIF87a"u8) || header[..6].SequenceEqual("GIF89a"u8),
+            ".webp" => header[..4].SequenceEqual("RIFF"u8) && header[8..12].SequenceEqual("WEBP"u8),
+            _ => false
+        };
+    }
+
+    private static bool IsManagedSplashscreenPath(string? path, string dataPath)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileNameWithoutExtension(path);
+        if (!fileName.StartsWith("splashscreen-upload-", StringComparison.OrdinalIgnoreCase)
+            || !Guid.TryParseExact(fileName["splashscreen-upload-".Length..], "N", out _))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fileDirectory = Path.GetDirectoryName(Path.GetFullPath(path));
+            var normalizedDataPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataPath));
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            return string.Equals(fileDirectory, normalizedDataPath, comparison);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static BrandingOptions CloneBrandingWithSplashscreenPath(BrandingOptions options, string? splashscreenPath)
+    {
+        return new BrandingOptions
+        {
+            LoginDisclaimer = options.LoginDisclaimer,
+            CustomCss = options.CustomCss,
+            DefaultTheme = options.DefaultTheme,
+            SplashscreenEnabled = options.SplashscreenEnabled,
+            SplashscreenLocation = splashscreenPath,
+            IntroEnabled = options.IntroEnabled,
+            IntroPath = options.IntroPath,
+            PrebufferEnabled = options.PrebufferEnabled,
+            PrebufferSizeMb = options.PrebufferSizeMb,
+            AdSenseEnabled = options.AdSenseEnabled,
+            AdSenseClientId = options.AdSenseClientId,
+            AdSenseSlotId = options.AdSenseSlotId,
+            AdSenseHoldSeconds = options.AdSenseHoldSeconds,
+            AdSenseShowOnLogin = options.AdSenseShowOnLogin,
+            AdSenseShowOnHome = options.AdSenseShowOnHome,
+            AdSenseShowAfterIntro = options.AdSenseShowAfterIntro
+        };
     }
 
     /// <summary>
@@ -1757,13 +1927,30 @@ public class ImageController : BaseMulletaFlixApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public ActionResult DeleteCustomSplashscreen()
     {
-        var brandingOptions = _serverConfigurationManager.GetConfiguration<BrandingOptions>("branding");
-        if (!string.IsNullOrEmpty(brandingOptions.SplashscreenLocation)
-            && System.IO.File.Exists(brandingOptions.SplashscreenLocation))
+        string? previousPath = null;
+        _serverConfigurationManager.UpdateConfiguration("branding", current =>
         {
-            System.IO.File.Delete(brandingOptions.SplashscreenLocation);
-            brandingOptions.SplashscreenLocation = null;
-            _serverConfigurationManager.SaveConfiguration("branding", brandingOptions);
+            var options = (BrandingOptions)current;
+            previousPath = options.SplashscreenLocation;
+            return string.IsNullOrEmpty(previousPath)
+                ? options
+                : CloneBrandingWithSplashscreenPath(options, null);
+        });
+
+        if (IsManagedSplashscreenPath(previousPath, _appPaths.DataPath))
+        {
+            try
+            {
+                System.IO.File.Delete(previousPath!);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "Unable to remove disabled splashscreen {Path}", previousPath);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning(ex, "Unable to remove disabled splashscreen {Path}", previousPath);
+            }
         }
 
         return NoContent();

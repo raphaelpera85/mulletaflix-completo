@@ -97,7 +97,7 @@ jobs:
       - name: Publish Server Binaries
         shell: pwsh
         run: |
-          dotnet publish MulletaFlix-master/Jellyfin.Server/Jellyfin.Server.csproj -c Release -r win-x64 --self-contained false -o stage
+          dotnet publish MulletaFlix-master/Jellyfin.Server/Jellyfin.Server.csproj -c Release -r win-x64 --self-contained true -o stage -p:DebugSymbols=false -p:DebugType=none -p:GenerateDocumentationFile=false -p:RunAnalyzersDuringBuild=false -p:RunAnalyzers=false
 
       - name: Create Update Archive
         shell: pwsh
@@ -107,6 +107,8 @@ jobs:
 
       - name: Publish GitHub Release and platform assets
         shell: pwsh
-        run: .\publish-release.ps1 -Tag "${{ github.ref_name }}" -Title "MulletaFlix Server ${{ github.ref_name }}" -AssetsDirectory dist
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
+          .\publish-release.ps1 -Tag "${{ github.ref_name }}" -Title "MulletaFlix Server ${{ github.ref_name }}" -NotesPath "docs/releases/$tagVersion.md" -AssetsDirectory dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

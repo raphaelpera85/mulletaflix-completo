@@ -1,14 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Nebula;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.SystemBackupService;
@@ -41,6 +46,8 @@ public class ServerHealthController : BaseMulletaFlixApiController
     private readonly IBackupService _backupService;
     private readonly ISystemManager _systemManager;
     private readonly INebulaFtpManager _nebulaFtpManager;
+    private readonly IMediaEncoder? _mediaEncoder;
+    private readonly ITranscodeManager? _transcodeManager;
 
     public ServerHealthController(
         IServerApplicationHost applicationHost,
@@ -52,7 +59,9 @@ public class ServerHealthController : BaseMulletaFlixApiController
         IPluginManager pluginManager,
         IBackupService backupService,
         ISystemManager systemManager,
-        INebulaFtpManager nebulaFtpManager)
+        INebulaFtpManager nebulaFtpManager,
+        IMediaEncoder? mediaEncoder = null,
+        ITranscodeManager? transcodeManager = null)
     {
         _applicationHost = applicationHost;
         _applicationPaths = applicationPaths;
@@ -64,6 +73,8 @@ public class ServerHealthController : BaseMulletaFlixApiController
         _backupService = backupService;
         _systemManager = systemManager;
         _nebulaFtpManager = nebulaFtpManager;
+        _mediaEncoder = mediaEncoder;
+        _transcodeManager = transcodeManager;
     }
 
     /// <summary>
@@ -97,6 +108,9 @@ public class ServerHealthController : BaseMulletaFlixApiController
 
         // System health
         summary.System = GetSystemHealth();
+
+        // Encoding health (lightweight diagnostic check without process execution delay)
+        summary.Encoding = await GetEncodingHealthAsync(CancellationToken.None, runExecutionTest: false).ConfigureAwait(false);
 
         // Overall status
         summary.OverallStatus = CalculateOverallStatus(summary);
@@ -334,9 +348,186 @@ public class ServerHealthController : BaseMulletaFlixApiController
         return false;
     }
 
+    /// <summary>
+    /// Gets FFmpeg/FFprobe and host hardware encoding diagnostics.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="test">Whether to run an active execution test (default: true).</param>
+    /// <response code="200">Encoding diagnostics returned.</response>
+    [HttpGet("Encoding")]
+    [ProducesResponseType(typeof(EncodingHealthDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<EncodingHealthDto>> GetEncodingHealth(
+        CancellationToken cancellationToken,
+        [FromQuery] bool test = true)
+    {
+        var encodingHealth = await GetEncodingHealthAsync(cancellationToken, test).ConfigureAwait(false);
+        return Ok(encodingHealth);
+    }
+
+    private async Task<EncodingHealthDto> GetEncodingHealthAsync(CancellationToken cancellationToken, bool runExecutionTest)
+    {
+        var encodingOptions = _configurationManager.GetEncodingOptions();
+        var configuredHw = encodingOptions?.HardwareAccelerationType.ToString() ?? "none";
+
+        var dto = new EncodingHealthDto
+        {
+            ConfiguredHwAcceleration = configuredHw,
+            ActiveTranscodingJobsCount = _transcodeManager?.ActiveTranscodingJobsCount ?? 0,
+            MaxConcurrentTranscodingJobs = encodingOptions?.MaxConcurrentTranscodingJobs ?? 0,
+            HostCapabilities = DetectHostHardwareCapabilities()
+        };
+
+        if (_mediaEncoder == null)
+        {
+            dto.IsAvailable = false;
+            dto.CanExecute = false;
+            dto.ExecutionTestMessage = "Media encoder service is not registered.";
+            dto.Status = HealthStatus.Critical;
+            return dto;
+        }
+
+        dto.EncoderPath = _mediaEncoder.EncoderPath ?? string.Empty;
+        dto.ProbePath = _mediaEncoder.ProbePath ?? string.Empty;
+        dto.Version = _mediaEncoder.EncoderVersion?.ToString() ?? string.Empty;
+
+        var fileExists = !string.IsNullOrWhiteSpace(dto.EncoderPath) && System.IO.File.Exists(dto.EncoderPath);
+        dto.IsAvailable = !string.IsNullOrWhiteSpace(dto.EncoderPath) && _mediaEncoder.EncoderVersion != null;
+
+        var candidateHwAccels = new[] { "d3d11va", "dxva2", "qsv", "cuda", "nvenc", "vaapi", "videotoolbox", "v4l2m2m", "rkmpp", "amf" };
+        dto.SupportedHwAccelerations = candidateHwAccels.Where(h => _mediaEncoder.SupportsHwaccel(h)).ToArray();
+
+        var candidateEncoders = new[]
+        {
+            "libx264", "libx265", "libsvtav1", "h264_nvenc", "hevc_nvenc", "av1_nvenc",
+            "h264_qsv", "hevc_qsv", "av1_qsv", "h264_amf", "hevc_amf", "av1_amf",
+            "h264_vaapi", "hevc_vaapi", "av1_vaapi", "aac", "libmp3lame", "libopus", "ac3", "flac"
+        };
+        dto.SupportedEncoders = candidateEncoders.Where(e => _mediaEncoder.SupportsEncoder(e)).ToArray();
+
+        var candidateDecoders = new[]
+        {
+            "h264", "hevc", "vp8", "vp9", "av1", "mpeg2video", "vc1", "aac", "mp3", "ac3", "eac3", "flac", "truehd", "dca",
+            "h264_qsv", "hevc_qsv", "av1_qsv", "h264_cuvid", "hevc_cuvid", "av1_cuvid"
+        };
+        dto.SupportedDecoders = candidateDecoders.Where(d => _mediaEncoder.SupportsDecoder(d)).ToArray();
+
+        var candidateFilters = new[]
+        {
+            "scale", "scale_vaapi", "scale_qsv", "scale_cuda", "tonemap", "tonemap_opencl",
+            "tonemap_vaapi", "overlay", "overlay_vaapi", "overlay_qsv", "overlay_cuda", "yadif",
+            "deinterlace_qsv", "deinterlace_vaapi"
+        };
+        dto.SupportedFilters = candidateFilters.Where(f => _mediaEncoder.SupportsFilter(f)).ToArray();
+
+        if (runExecutionTest)
+        {
+            if (!fileExists)
+            {
+                dto.CanExecute = false;
+                dto.ExecutionTestMessage = "FFmpeg executable was not found on path.";
+            }
+            else
+            {
+                try
+                {
+                    var sw = Stopwatch.StartNew();
+                    using var process = new Process
+                    {
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = dto.EncoderPath,
+                            Arguments = "-version",
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        }
+                    };
+
+                    process.Start();
+
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    cts.CancelAfter(TimeSpan.FromSeconds(5));
+
+                    await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+                    sw.Stop();
+
+                    dto.ExecutionTestDurationMs = sw.ElapsedMilliseconds;
+
+                    if (process.ExitCode == 0)
+                    {
+                        dto.CanExecute = true;
+                        var firstLine = (await process.StandardOutput.ReadLineAsync(cancellationToken).ConfigureAwait(false)) ?? string.Empty;
+                        dto.ExecutionTestMessage = $"Execution successful (exit 0): {firstLine.Trim()}";
+                    }
+                    else
+                    {
+                        dto.CanExecute = false;
+                        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+                        dto.ExecutionTestMessage = $"Execution failed (exit {process.ExitCode}): {stderr.Trim()}";
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    dto.CanExecute = false;
+                    dto.ExecutionTestMessage = $"Execution test exception: {ex.Message}";
+                }
+            }
+        }
+        else
+        {
+            dto.CanExecute = fileExists;
+            dto.ExecutionTestMessage = fileExists ? "Executable found (execution test skipped)." : "Executable not found.";
+        }
+
+        if (!dto.IsAvailable || (runExecutionTest && !dto.CanExecute))
+        {
+            dto.Status = HealthStatus.Critical;
+        }
+        else if (configuredHw != "none" && !dto.SupportedHwAccelerations.Any(a => string.Equals(a, configuredHw, StringComparison.OrdinalIgnoreCase)))
+        {
+            dto.Status = HealthStatus.Warning;
+        }
+        else
+        {
+            dto.Status = HealthStatus.Ok;
+        }
+
+        return dto;
+    }
+
+    private HostHardwareCapabilitiesDto DetectHostHardwareCapabilities()
+    {
+        var isWindows = OperatingSystem.IsWindows();
+        var isLinux = OperatingSystem.IsLinux();
+        var isMacOS = OperatingSystem.IsMacOS();
+
+        return new HostHardwareCapabilitiesDto
+        {
+            OperatingSystem = RuntimeInformation.OSDescription,
+            Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+            SupportsD3D11VA = isWindows && (_mediaEncoder?.SupportsHwaccel("d3d11va") ?? false),
+            SupportsDxva2 = isWindows && (_mediaEncoder?.SupportsHwaccel("dxva2") ?? false),
+            SupportsVaapi = (isLinux || OperatingSystem.IsFreeBSD()) && (_mediaEncoder?.SupportsHwaccel("vaapi") ?? false),
+            SupportsQuickSync = _mediaEncoder?.SupportsHwaccel("qsv") ?? false,
+            SupportsNvenc = (_mediaEncoder?.SupportsHwaccel("cuda") ?? false) || (_mediaEncoder?.SupportsEncoder("h264_nvenc") ?? false),
+            SupportsAmf = isWindows && ((_mediaEncoder?.SupportsHwaccel("amf") ?? false) || (_mediaEncoder?.SupportsEncoder("h264_amf") ?? false)),
+            SupportsVideoToolbox = isMacOS && (_mediaEncoder?.SupportsHwaccel("videotoolbox") ?? false),
+            IsVaapiDeviceAmd = _mediaEncoder?.IsVaapiDeviceAmd ?? false,
+            IsVaapiDeviceInteliHD = _mediaEncoder?.IsVaapiDeviceInteliHD ?? false,
+            IsVaapiDeviceInteli965 = _mediaEncoder?.IsVaapiDeviceInteli965 ?? false,
+            IsVaapiDeviceSupportVulkanDrmModifier = _mediaEncoder?.IsVaapiDeviceSupportVulkanDrmModifier ?? false,
+            IsVaapiDeviceSupportVulkanDrmInterop = _mediaEncoder?.IsVaapiDeviceSupportVulkanDrmInterop ?? false
+        };
+    }
+
     private HealthStatus CalculateOverallStatus(ServerHealthSummaryDto summary)
     {
-        var statuses = new[]
+        var statuses = new List<HealthStatus>
         {
             summary.Storage.Status,
             summary.Tasks.Status,
@@ -344,6 +535,11 @@ public class ServerHealthController : BaseMulletaFlixApiController
             summary.Backup.Status,
             summary.System.Status
         };
+
+        if (summary.Encoding != null)
+        {
+            statuses.Add(summary.Encoding.Status);
+        }
 
         if (statuses.Any(s => s == HealthStatus.Critical)) return HealthStatus.Critical;
         if (statuses.Any(s => s == HealthStatus.Warning)) return HealthStatus.Warning;
@@ -376,6 +572,7 @@ public class ServerHealthSummaryDto
     public PluginHealthDto Plugins { get; set; }
     public BackupHealthDto Backup { get; set; }
     public SystemHealthDto System { get; set; }
+    public EncodingHealthDto? Encoding { get; set; }
     public HealthStatus OverallStatus { get; set; }
 }
 
@@ -446,4 +643,48 @@ public class SystemHealthDto
     public bool HasUpdateAvailable { get; set; }
     public bool StartupWizardCompleted { get; set; }
     public HealthStatus Status { get; set; }
+}
+
+/// <summary>
+/// FFmpeg/FFprobe encoding and host hardware capabilities health metrics.
+/// </summary>
+public class EncodingHealthDto
+{
+    public string EncoderPath { get; set; } = string.Empty;
+    public string ProbePath { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
+    public bool IsAvailable { get; set; }
+    public bool CanExecute { get; set; }
+    public string? ExecutionTestMessage { get; set; }
+    public long? ExecutionTestDurationMs { get; set; }
+    public string ConfiguredHwAcceleration { get; set; } = string.Empty;
+    public int ActiveTranscodingJobsCount { get; set; }
+    public int MaxConcurrentTranscodingJobs { get; set; }
+    public string[] SupportedHwAccelerations { get; set; } = Array.Empty<string>();
+    public string[] SupportedEncoders { get; set; } = Array.Empty<string>();
+    public string[] SupportedDecoders { get; set; } = Array.Empty<string>();
+    public string[] SupportedFilters { get; set; } = Array.Empty<string>();
+    public HostHardwareCapabilitiesDto HostCapabilities { get; set; } = new();
+    public HealthStatus Status { get; set; }
+}
+
+/// <summary>
+/// Host hardware capabilities for hardware-accelerated transcoding.
+/// </summary>
+public class HostHardwareCapabilitiesDto
+{
+    public string OperatingSystem { get; set; } = string.Empty;
+    public string Architecture { get; set; } = string.Empty;
+    public bool SupportsD3D11VA { get; set; }
+    public bool SupportsDxva2 { get; set; }
+    public bool SupportsVaapi { get; set; }
+    public bool SupportsQuickSync { get; set; }
+    public bool SupportsNvenc { get; set; }
+    public bool SupportsAmf { get; set; }
+    public bool SupportsVideoToolbox { get; set; }
+    public bool IsVaapiDeviceAmd { get; set; }
+    public bool IsVaapiDeviceInteliHD { get; set; }
+    public bool IsVaapiDeviceInteli965 { get; set; }
+    public bool IsVaapiDeviceSupportVulkanDrmModifier { get; set; }
+    public bool IsVaapiDeviceSupportVulkanDrmInterop { get; set; }
 }

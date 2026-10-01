@@ -5,6 +5,7 @@ import cardBuilder from 'components/cardbuilder/cardBuilder';
 import type { CardOptions } from 'types/cardOptions';
 import 'elements/emby-scroller/emby-scroller';
 import 'elements/emby-itemscontainer/emby-itemscontainer';
+import 'lib/legacy/patchCreateElement';
 
 interface SearchResultsRowProps {
     title?: string;
@@ -14,6 +15,8 @@ interface SearchResultsRowProps {
 
 const SearchResultsRow: FC<SearchResultsRowProps> = ({ title, items = [], cardOptions = {} }) => {
     const element = useRef<HTMLDivElement>(null);
+    const scrollerAttributes = { class: 'padded-top-focusscale padded-bottom-focusscale' } as React.HTMLAttributes<HTMLDivElement>;
+    const itemsContainerAttributes = { class: 'focuscontainer-x itemsContainer scrollSlider' } as React.HTMLAttributes<HTMLDivElement>;
 
     useEffect(() => {
         cardBuilder.buildCards(items, {
@@ -38,11 +41,11 @@ const SearchResultsRow: FC<SearchResultsRowProps> = ({ title, items = [], cardOp
                 data-horizontal='true'
                 data-centerfocus='card'
                 data-scrollbuttons='true'
-                className='padded-top-focusscale padded-bottom-focusscale'
+                {...scrollerAttributes}
             >
                 <div
                     is='emby-itemscontainer'
-                    className='focuscontainer-x itemsContainer scrollSlider'
+                    {...itemsContainerAttributes}
                 />
             </div>
         </div>

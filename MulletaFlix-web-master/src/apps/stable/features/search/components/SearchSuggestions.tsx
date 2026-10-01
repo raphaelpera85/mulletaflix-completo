@@ -34,6 +34,24 @@ const SearchSuggestions: FunctionComponent<SearchSuggestionsProps> = ({ parentId
 
     const hasQuery = !!query?.trim();
 
+    if (!suggestions?.length) {
+        return (
+            <div
+                className='verticalSection searchSuggestions centerMessage'
+                style={{ textAlign: 'center' }}
+            >
+                <h2 className='sectionTitle padded-left padded-right'>
+                    {hasQuery ? globalize.translate('Search') : globalize.translate('Suggestions')}
+                </h2>
+                <div className='noItemsMessage secondary padded-left padded-right' style={{ marginTop: '1rem' }}>
+                    {hasQuery ?
+                        globalize.translate('SearchResultsEmpty', query ?? '') :
+                        globalize.translate('MessageNoMovieSuggestionsAvailable')}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div
             className='verticalSection searchSuggestions'

@@ -10,6 +10,24 @@ import { classifyMediaRequests, type MediaCatalogTitle, type MediaRequestActivit
 interface MediaRequestsResponse extends ActivityLogEntryQueryResult {
     PriorityRequestIds?: number[];
     Catalog?: MediaCatalogTitle[];
+    QueueStatuses?: MediaRequestQueueStatus[];
+}
+
+export interface MediaRequestQueuePosition {
+    SnapshotAvailable?: boolean;
+    IsRunning?: boolean;
+    SnapshotAtUtc?: string | null;
+    Position?: number | null;
+    QueueItemCount?: number;
+    MatchingItemCount?: number;
+    CurrentItemCount?: number;
+    IsPriority?: boolean;
+}
+
+export interface MediaRequestQueueStatus {
+    RequestId: number;
+    Download?: MediaRequestQueuePosition;
+    Upload?: MediaRequestQueuePosition;
 }
 
 const getApiClient = (): ApiClient => {
@@ -71,6 +89,9 @@ export const useMyClassifiedMediaRequests = () => {
         requestsQuery.data?.pages.flatMap(page => page.Items || []) || [],
         requestsQuery.data?.pages.flatMap(page => page.Catalog || []) || []
     );
+    const queueStatuses = new Map<number, MediaRequestQueueStatus>(
+        requestsQuery.data?.pages.flatMap(page => page.QueueStatuses || []).map(status => [ status.RequestId, status ]) || []
+    );
 
     const refetch = async () => {
         await requestsQuery.refetch();
@@ -78,6 +99,7 @@ export const useMyClassifiedMediaRequests = () => {
 
     return {
         ...classified,
+        queueStatuses,
         priorityRequestIds: new Set(requestsQuery.data?.pages.flatMap(page => page.PriorityRequestIds || []) || []),
         hasNextPage: requestsQuery.hasNextPage,
         fetchNextPage: requestsQuery.fetchNextPage,

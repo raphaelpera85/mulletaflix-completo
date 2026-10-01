@@ -11,6 +11,10 @@ export function updateScrollButtonElements(
 
     previousButton.classList.toggle('hide', !hasOverflow);
     nextButton.classList.toggle('hide', !hasOverflow);
-    previousButton.disabled = localeAwarePos <= 0;
-    nextButton.disabled = scrollWidth > 0 && localeAwarePos + scrollSize >= scrollWidth;
+    const isPrevDisabled = localeAwarePos <= 0;
+    const isNextDisabled = scrollWidth > 0 && localeAwarePos + scrollSize >= scrollWidth;
+    previousButton.disabled = isPrevDisabled;
+    nextButton.disabled = isNextDisabled;
+    previousButton.setAttribute('aria-disabled', String(isPrevDisabled));
+    nextButton.setAttribute('aria-disabled', String(isNextDisabled));
 }

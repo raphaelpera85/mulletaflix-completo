@@ -17,6 +17,38 @@ function formatWizardStatus(value) {
     return value ? 'true' : 'false';
 }
 
+export function extractPlaywrightStats(rawReport) {
+    const stats = rawReport?.stats || {};
+    return {
+        total: Number(stats.expected || 0) + Number(stats.unexpected || 0) + Number(stats.flaky || 0) + Number(stats.skipped || 0),
+        passed: Number(stats.expected || 0),
+        failed: Number(stats.unexpected || 0),
+        flaky: Number(stats.flaky || 0),
+        skipped: Number(stats.skipped || 0),
+        durationMs: Number(stats.duration || 0)
+    };
+}
+
+export function evaluatePlaywrightGate(processExitCode, stats, hasRawReport) {
+    if (processExitCode !== 0 || stats.failed > 0) {
+        return { status: 'failed', exitCode: 1 };
+    }
+
+    if (!hasRawReport) {
+        return { status: 'unverified', exitCode: 1 };
+    }
+
+    if (stats.flaky > 0) {
+        return { status: 'flaky', exitCode: 1 };
+    }
+
+    if (stats.passed === 0) {
+        return { status: 'no-tests', exitCode: 1 };
+    }
+
+    return { status: 'success', exitCode: 0 };
+}
+
 function getConclusion(summary) {
     if (summary.status === 'no-specs') {
         return 'Infraestrutura pronta, mas ainda não há specs Playwright no diretório configurado.';
@@ -26,11 +58,19 @@ function getConclusion(summary) {
         return 'O stage não respondeu ao probe básico. Verifique se o servidor limpo está no ar.';
     }
 
-    if (summary.tests.failed > 0) {
+    if (summary.status === 'failed' || summary.tests.failed > 0) {
         return 'A suíte falhou. Corrija os pontos listados no relatório antes de expandir a cobertura.';
     }
 
-    if (summary.tests.total === 0) {
+    if (summary.tests.flaky > 0) {
+        return 'A suíte teve testes instáveis que passaram apenas no retry. Analise trace e screenshot antes de aprovar.';
+    }
+
+    if (summary.status === 'unverified') {
+        return 'O Playwright terminou sem relatório JSON. A execução não pode ser considerada aprovada.';
+    }
+
+    if (summary.status === 'no-tests' || summary.tests.passed === 0) {
         return 'Nenhum teste foi executado. Verifique o diretório de specs configurado.';
     }
 
@@ -59,6 +99,7 @@ export function buildMarkdownReport(summary) {
         `- Total de testes: ${report.tests.total}`,
         `- Passou: ${report.tests.passed}`,
         `- Falhou: ${report.tests.failed}`,
+        `- Instáveis: ${report.tests.flaky}`,
         `- Ignorados: ${report.tests.skipped}`,
         `- Duração: ${report.tests.durationMs} ms`,
         '',

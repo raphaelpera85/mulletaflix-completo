@@ -61,7 +61,7 @@ describe('media request autocomplete', () => {
         resolveLookup([{ Title: 'Atomic', MediaType: 'Series' }]);
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(document.querySelector<HTMLElement>('[role="listbox"]')!.hidden).toBe(true);
+        expect(document.querySelector<HTMLElement>('.userFeedbackSuggestions')!.hidden).toBe(true);
         expect(input.getAttribute('aria-expanded')).toBe('false');
     });
 
@@ -70,11 +70,11 @@ describe('media request autocomplete', () => {
         const input = open();
         type(input, 'Atomic');
         await vi.advanceTimersByTimeAsync(250);
-        expect(document.querySelector<HTMLElement>('[role="listbox"]')!.hidden).toBe(false);
+        expect(document.querySelector<HTMLElement>('.userFeedbackSuggestions')!.hidden).toBe(false);
 
         type(input, 'Another title');
 
-        expect(document.querySelector<HTMLElement>('[role="listbox"]')!.hidden).toBe(true);
+        expect(document.querySelector<HTMLElement>('.userFeedbackSuggestions')!.hidden).toBe(true);
         expect(input.getAttribute('aria-expanded')).toBe('false');
     });
 
@@ -86,5 +86,61 @@ describe('media request autocomplete', () => {
         await vi.advanceTimersByTimeAsync(250);
 
         expect(getJSON).not.toHaveBeenCalled();
+    });
+
+    it('announces when the catalog lookup is in progress and when no titles match', async () => {
+        let resolveLookup!: (value: unknown) => void;
+        getJSON.mockReturnValueOnce(new Promise(resolve => {
+            resolveLookup = resolve;
+        })).mockResolvedValueOnce({ State: 'Ready', IsIndexing: false, FailedRootCount: 0 }).mockResolvedValueOnce([]);
+        const input = open();
+        type(input, 'Missing title');
+        await vi.advanceTimersByTimeAsync(250);
+
+        expect(document.querySelector('[role="status"]')?.textContent).toBe('MediaRequestSuggestionsLoading');
+        expect(input.getAttribute('aria-expanded')).toBe('true');
+        resolveLookup([]);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(document.querySelector('[role="status"]')?.textContent).toBe('MediaRequestSuggestionsEmpty');
+        expect(document.querySelector<HTMLElement>('.userFeedbackSuggestions')?.hidden).toBe(false);
+    });
+
+    it('shows indexing progress and refreshes matches when the catalog finishes', async () => {
+        getJSON.mockResolvedValueOnce([])
+            .mockResolvedValueOnce({ State: 'Indexing', IsIndexing: true, FailedRootCount: 0 })
+            .mockResolvedValueOnce({ State: 'Ready', IsIndexing: false, FailedRootCount: 0 })
+            .mockResolvedValueOnce([{ Title: 'Atomic', MediaType: 'Series' }]);
+        const input = open();
+        type(input, 'Atomic');
+        await vi.advanceTimersByTimeAsync(250);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(document.querySelector('[role="status"]')?.textContent).toBe('MediaRequestSuggestionsIndexing');
+        await vi.advanceTimersByTimeAsync(1000);
+
+        expect(document.querySelector<HTMLElement>('[role="option"]')?.textContent).toBe('Atomic — Series');
+        expect(getJSON).toHaveBeenCalledTimes(4);
+    });
+
+    it('shows a retry action after lookup failure and recovers', async () => {
+        getJSON.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([{ Title: 'Atomic', MediaType: 'Series' }]);
+        const input = open();
+        type(input, 'Atomic');
+        await vi.advanceTimersByTimeAsync(250);
+
+        expect(document.querySelector('[role="status"]')?.textContent).toContain('MediaRequestSuggestionsFailed');
+        const retry = document.querySelector<HTMLButtonElement>('.userFeedbackSuggestions button');
+        expect(retry?.textContent).toBe('Retry');
+        retry?.focus();
+        input.dispatchEvent(new FocusEvent('blur', { relatedTarget: retry }));
+        await vi.advanceTimersByTimeAsync(120);
+        expect(document.querySelector<HTMLElement>('.userFeedbackSuggestions')?.hidden).toBe(false);
+        retry?.click();
+        expect(document.activeElement).toBe(input);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(getJSON).toHaveBeenCalledTimes(2);
+        expect(document.querySelector<HTMLElement>('[role="option"]')?.textContent).toBe('Atomic — Series');
     });
 });

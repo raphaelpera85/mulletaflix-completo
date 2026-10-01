@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text;
-using System.Threading.Channels;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
@@ -22,6 +25,7 @@ namespace Jellyfin.Server.Implementations.Nebula;
 public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
 {
     private sealed record WorkItem(string MessageHtml, string? ImagePath);
+    private sealed record ScheduledMetadataCheck(Guid ItemId, CancellationTokenSource CancellationSource);
 
     /// <summary>How long an item's cover and nfo are given to stabilise before giving up.</summary>
     private const int MetadataWaitSeconds = 180;
@@ -32,6 +36,15 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
     /// </summary>
     private const int MaxConcurrentMetadataWaits = 24;
 
+    /// <summary>Maximum number of metadata checks waiting behind the fixed worker pool.</summary>
+    internal const int MaxPendingMetadataChecks = 4096;
+
+    /// <summary>Maximum number of ready notifications waiting for delivery.</summary>
+    internal const int MaxPendingNotifications = 256;
+
+    /// <summary>Nome da fonte de métricas de notificações Nebula.</summary>
+    public const string MeterName = "MulletaFlix.Nebula.NotificationsLibraryNotifier";
+
     private static readonly TimeSpan InitialAttemptDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan MaxAttemptDelay = TimeSpan.FromSeconds(10);
 
@@ -39,13 +52,32 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
     private readonly INebulaFtpManager _nebulaManager;
     private readonly IServerApplicationHost _applicationHost;
     private readonly ILogger<NotificationsLibraryNotifier> _logger;
+    private readonly Meter _meter;
+    private readonly Counter<long> _metadataCheckCounter;
+    private readonly Counter<long> _notificationQueueCounter;
     private readonly ConcurrentDictionary<Guid, byte> _recentlyNotified = new();
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _scheduled = new();
+    private readonly object _scheduleLock = new();
     private readonly CancellationTokenSource _cts = new();
-    private readonly Channel<WorkItem> _queue = Channel.CreateUnbounded<WorkItem>();
-    private readonly SemaphoreSlim _metadataWaitSlots = new(MaxConcurrentMetadataWaits, MaxConcurrentMetadataWaits);
+    private readonly Channel<ScheduledMetadataCheck> _metadataQueue = Channel.CreateBounded<ScheduledMetadataCheck>(new BoundedChannelOptions(MaxPendingMetadataChecks)
+    {
+        FullMode = BoundedChannelFullMode.Wait,
+        SingleReader = false,
+        SingleWriter = false
+    });
+    private readonly Channel<WorkItem> _queue = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(MaxPendingNotifications)
+    {
+        FullMode = BoundedChannelFullMode.Wait,
+        SingleReader = true,
+        SingleWriter = false
+    });
     private Task? _workerTask;
+    private Task[] _metadataWorkerTasks = [];
+    private int _started;
     private int _disposed;
+    private int _stopping;
+    private int _cleanupCompleted;
+    private int _activeMetadataWorkers;
 
     public NotificationsLibraryNotifier(
         ILibraryManager libraryManager,
@@ -57,13 +89,41 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
         _nebulaManager = nebulaManager;
         _applicationHost = applicationHost;
         _logger = logger;
+        _meter = new Meter(MeterName);
+        _metadataCheckCounter = _meter.CreateCounter<long>(
+            "mulletaflix.nebula.notifications.metadata.checks",
+            description: "Metadata checks admitted to or rejected by the bounded queue.");
+        _notificationQueueCounter = _meter.CreateCounter<long>(
+            "mulletaflix.nebula.notifications.delivery.queued",
+            description: "Notifications admitted to or rejected by the bounded queue.");
+        _meter.CreateObservableGauge<long>(
+            "mulletaflix.nebula.notifications.metadata.pending",
+            () => _metadataQueue.Reader.Count,
+            description: "Metadata checks waiting in the bounded queue.");
+        _meter.CreateObservableGauge<long>(
+            "mulletaflix.nebula.notifications.delivery.pending",
+            () => _queue.Reader.Count,
+            description: "Notifications waiting in the bounded queue.");
+        _meter.CreateObservableGauge<long>(
+            "mulletaflix.nebula.notifications.metadata.workers.active",
+            () => Volatile.Read(ref _activeMetadataWorkers),
+            description: "Metadata checks currently handled by workers.");
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0 || Volatile.Read(ref _stopping) != 0, this);
+        if (Interlocked.Exchange(ref _started, 1) != 0)
+        {
+            return Task.CompletedTask;
+        }
+
         _libraryManager.ItemAdded += OnItemAdded;
         _libraryManager.ItemUpdated += OnItemUpdated;
         _workerTask = Task.Run(ProcessQueueAsync, CancellationToken.None);
+        _metadataWorkerTasks = Enumerable.Range(0, MaxConcurrentMetadataWaits)
+            .Select(_ => Task.Run(ProcessMetadataQueueAsync, CancellationToken.None))
+            .ToArray();
         return Task.CompletedTask;
     }
 
@@ -71,14 +131,18 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
     {
         _libraryManager.ItemAdded -= OnItemAdded;
         _libraryManager.ItemUpdated -= OnItemUpdated;
-        _cts.Cancel();
-        foreach (var scheduled in _scheduled.Values)
+        BeginStopping();
+        var completion = ObserveWorkerCompletion();
+        try
         {
-            scheduled.Cancel();
+            await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        if (_workerTask is not null)
+        finally
         {
-            await _workerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (completion.IsCompleted)
+            {
+                CleanupAfterWorkers();
+            }
         }
     }
 
@@ -107,29 +171,76 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
     private static bool IsNotifiableMedia(BaseItem? item)
         => item is not null && !item.IsFolder && !item.IsVirtualItem && (item is Movie || item is Episode);
 
-    private void ScheduleMetadataCheck(Guid itemId)
+    internal bool ScheduleMetadataCheck(Guid itemId)
     {
         var scheduled = new CancellationTokenSource();
-        if (_scheduled.TryGetValue(itemId, out var previous))
+        lock (_scheduleLock)
         {
-            previous.Cancel();
+            if (Volatile.Read(ref _disposed) != 0 || _cts.IsCancellationRequested)
+            {
+                scheduled.Dispose();
+                return false;
+            }
+
+            if (_scheduled.TryGetValue(itemId, out var previous))
+            {
+                previous.Cancel();
+            }
+
+            _scheduled[itemId] = scheduled;
+            if (_metadataQueue.Writer.TryWrite(new ScheduledMetadataCheck(itemId, scheduled)))
+            {
+                _metadataCheckCounter.Add(1, new KeyValuePair<string, object?>("result", "accepted"));
+                return true;
+            }
+
+            _scheduled.TryRemove(itemId, out _);
+            scheduled.Dispose();
         }
 
-        _scheduled[itemId] = scheduled;
-        _ = Task.Run(() => WaitForMetadataAndQueueAsync(itemId, scheduled), CancellationToken.None);
+        _metadataCheckCounter.Add(1, new KeyValuePair<string, object?>("result", "rejected"));
+        _logger.LogWarning("[NOTIFICATIONS] Fila de verificação de metadados cheia; mídia {ItemId} não foi agendada.", itemId);
+        return false;
     }
 
-    private async Task WaitForMetadataAndQueueAsync(Guid itemId, CancellationTokenSource scheduled)
+    private async Task ProcessMetadataQueueAsync()
     {
-        var slotAcquired = false;
+        try
+        {
+            while (await _metadataQueue.Reader.WaitToReadAsync(_cts.Token).ConfigureAwait(false))
+            {
+                while (_metadataQueue.Reader.TryRead(out var scheduled))
+                {
+                    Interlocked.Increment(ref _activeMetadataWorkers);
+                    try
+                    {
+                        await WaitForMetadataAndQueueAsync(scheduled).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _activeMetadataWorkers);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[NOTIFICATIONS] Worker de verificação de metadados encerrou com erro.");
+        }
+    }
+
+    private async Task WaitForMetadataAndQueueAsync(ScheduledMetadataCheck work)
+    {
+        var itemId = work.ItemId;
+        var scheduled = work.CancellationSource;
         try
         {
             // Bound how many items are polled at the same time. A library scan that adds a thousand
             // items used to start a thousand concurrent polling loops, each one reloading the item
             // from the database and stat'ing its cover and nfo files on every attempt.
-            await _metadataWaitSlots.WaitAsync(scheduled.Token).ConfigureAwait(false);
-            slotAcquired = true;
-
             BaseItem? ready = null;
             string? previousSnapshot = null;
             var deadline = DateTime.UtcNow.AddSeconds(MetadataWaitSeconds);
@@ -171,13 +282,8 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
                 return;
             }
 
-            if (!_recentlyNotified.TryAdd(itemId, 0))
-            {
-                return;
-            }
-
             var message = BuildMessage(ready, settings.PublicServerUrl, _applicationHost.SystemId);
-            _queue.Writer.TryWrite(new WorkItem(message, GetCoverPath(ready)));
+            TryQueueNotification(itemId, message, GetCoverPath(ready));
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested || scheduled.IsCancellationRequested)
         {
@@ -188,19 +294,42 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
         }
         finally
         {
-            if (slotAcquired)
+            lock (_scheduleLock)
             {
-                _metadataWaitSlots.Release();
-            }
-
-            if (_scheduled.TryGetValue(itemId, out var current) && ReferenceEquals(current, scheduled))
-            {
-                _scheduled.TryRemove(itemId, out _);
+                if (_scheduled.TryGetValue(itemId, out var current) && ReferenceEquals(current, scheduled))
+                {
+                    _scheduled.TryRemove(itemId, out _);
+                }
             }
 
             scheduled.Dispose();
         }
     }
+
+    internal bool TryQueueNotification(Guid itemId, string messageHtml, string? imagePath)
+    {
+        if (!_recentlyNotified.TryAdd(itemId, 0))
+        {
+            return false;
+        }
+
+        if (_queue.Writer.TryWrite(new WorkItem(messageHtml, imagePath)))
+        {
+            _notificationQueueCounter.Add(1, new KeyValuePair<string, object?>("result", "accepted"));
+            return true;
+        }
+
+        _recentlyNotified.TryRemove(itemId, out _);
+        _notificationQueueCounter.Add(1, new KeyValuePair<string, object?>("result", "rejected"));
+        _logger.LogWarning("[NOTIFICATIONS] Fila de envio cheia; notificação da mídia {ItemId} não foi enfileirada.", itemId);
+        return false;
+    }
+
+    internal int PendingMetadataCheckCount => _metadataQueue.Reader.Count;
+
+    internal int PendingNotificationCount => _queue.Reader.Count;
+
+    internal int ScheduledMetadataCheckCount => _scheduled.Count;
 
     private static string GetMetadataSnapshot(BaseItem item)
     {
@@ -329,6 +458,81 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
         }
     }
 
+    private void BeginStopping()
+    {
+        if (Interlocked.Exchange(ref _stopping, 1) != 0)
+        {
+            return;
+        }
+
+        _cts.Cancel();
+        lock (_scheduleLock)
+        {
+            foreach (var scheduled in _scheduled.Values)
+            {
+                scheduled.Cancel();
+            }
+        }
+
+        _metadataQueue.Writer.TryComplete();
+        _queue.Writer.TryComplete();
+    }
+
+    private Task ObserveWorkerCompletion()
+    {
+        IEnumerable<Task> tasks = _metadataWorkerTasks;
+        if (_workerTask is not null)
+        {
+            tasks = tasks.Append(_workerTask);
+        }
+
+        var completion = Task.WhenAll(tasks);
+        _ = completion.ContinueWith(
+            task =>
+            {
+                if (task.IsFaulted)
+                {
+                    _logger.LogError(task.Exception, "[NOTIFICATIONS] Um worker terminou com falha durante o encerramento.");
+                }
+
+                CleanupAfterWorkers();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return completion;
+    }
+
+    private void CleanupAfterWorkers()
+    {
+        if (Interlocked.Exchange(ref _cleanupCompleted, 1) != 0)
+        {
+            return;
+        }
+
+        lock (_scheduleLock)
+        {
+            foreach (var scheduled in _scheduled.Values)
+            {
+                scheduled.Dispose();
+            }
+
+            _scheduled.Clear();
+        }
+
+        while (_metadataQueue.Reader.TryRead(out var pending))
+        {
+            pending.CancellationSource.Dispose();
+        }
+
+        while (_queue.Reader.TryRead(out _))
+        {
+        }
+
+        _cts.Dispose();
+        _meter.Dispose();
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -338,9 +542,7 @@ public sealed class NotificationsLibraryNotifier : IHostedService, IDisposable
 
         _libraryManager.ItemAdded -= OnItemAdded;
         _libraryManager.ItemUpdated -= OnItemUpdated;
-        _cts.Cancel();
-        _queue.Writer.TryComplete();
-        _cts.Dispose();
-        _metadataWaitSlots.Dispose();
+        BeginStopping();
+        ObserveWorkerCompletion();
     }
 }

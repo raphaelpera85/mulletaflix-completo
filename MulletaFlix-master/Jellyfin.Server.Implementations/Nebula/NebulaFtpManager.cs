@@ -73,6 +73,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     private readonly SemaphoreSlim _maintenanceLock = new(1, 1);
     private readonly SemaphoreSlim _mountLock = new(1, 1);
     private readonly SemaphoreSlim _dependencyLock = new(1, 1);
+    private readonly BackgroundOperationGate _mongoBackupGate = new();
     private readonly NebulaDirectoryRefreshQueue _directoryRefreshQueue;
     private readonly NebulaMountRetry _mountRetry;
     private int _disposed;
@@ -87,12 +88,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     private int _automaticMountAttemptInProgress;
     private int _automaticMountFailures;
     private readonly Dictionary<string, NebulaOperationReplay> _operationReplays = new(StringComparer.Ordinal);
-    private readonly object _mediaSuggestionsLock = new();
-    private IReadOnlyList<NebulaMediaSuggestionDto> _mediaSuggestions = Array.Empty<NebulaMediaSuggestionDto>();
-    private DateTime _mediaSuggestionsRefreshedUtc = DateTime.MinValue;
-    private string _mediaSuggestionsRootSignature = string.Empty;
-    private static readonly TimeSpan MediaSuggestionsCacheDuration = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan EmptyMediaSuggestionsCacheDuration = TimeSpan.FromSeconds(30);
+    private readonly NebulaMediaSuggestionCatalog _mediaSuggestionCatalog;
     private static readonly TimeSpan OperationReplayTtl = TimeSpan.FromMinutes(15);
 
     private readonly ConcurrentDictionary<string, NebulaWorkerItemDto> _activeUploads = new(StringComparer.OrdinalIgnoreCase);
@@ -349,16 +345,22 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         _libraryManager = libraryManager;
         _metadataExportService = metadataExportService;
         _usersDbProvider = usersDbProvider;
+        _mediaSuggestionCatalog = new NebulaMediaSuggestionCatalog(
+            GetMediaSuggestionRoots,
+            BuildMediaSuggestionsCatalog,
+            _logger);
         _directoryRefreshQueue = new NebulaDirectoryRefreshQueue(
             RefreshRcloneDirectoryAsync,
             _loggerFactory.CreateLogger<NebulaDirectoryRefreshQueue>());
-        _mountRetry = new NebulaMountRetry(async token =>
-        {
-            if (Volatile.Read(ref _disposed) == 0 && (_isEnvioRunning || _isDownloaderRunning))
+        _mountRetry = new NebulaMountRetry(
+            async token =>
             {
-                await MountDriveNAsync(token).ConfigureAwait(false);
-            }
-        }, _loggerFactory.CreateLogger<NebulaMountRetry>());
+                if (Volatile.Read(ref _disposed) == 0 && (_isEnvioRunning || _isDownloaderRunning))
+                {
+                    await MountDriveNAsync(token).ConfigureAwait(false);
+                }
+            },
+            _loggerFactory.CreateLogger<NebulaMountRetry>());
     }
 
     private async Task EnsureRuntimeDependenciesAsync(CancellationToken cancellationToken)
@@ -543,27 +545,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
     /// <inheritdoc />
     public IReadOnlyList<NebulaMediaSuggestionDto> GetMediaSuggestionCatalog()
     {
-        var roots = GetMediaSuggestionRoots();
-        var rootSignature = string.Join("\n", roots);
-        lock (_mediaSuggestionsLock)
-        {
-            var cacheDuration = _mediaSuggestions.Count == 0
-                ? EmptyMediaSuggestionsCacheDuration
-                : MediaSuggestionsCacheDuration;
-            if (!string.Equals(_mediaSuggestionsRootSignature, rootSignature, StringComparison.Ordinal)
-                || DateTime.UtcNow - _mediaSuggestionsRefreshedUtc >= cacheDuration)
-            {
-                _mediaSuggestions = BuildMediaSuggestionsCatalog(roots);
-                _mediaSuggestionsRootSignature = rootSignature;
-                _mediaSuggestionsRefreshedUtc = DateTime.UtcNow;
-                _logger.LogInformation(
-                    "[NEBULA-REQUESTS] Catálogo STRM atualizado: {TitleCount} títulos encontrados em {RootCount} raízes.",
-                    _mediaSuggestions.Count,
-                    roots.Length);
-            }
-        }
+        return _mediaSuggestionCatalog.GetItems();
+    }
 
-        return _mediaSuggestions;
+    /// <inheritdoc />
+    public NebulaMediaSuggestionIndexStatusDto GetMediaSuggestionIndexStatus()
+    {
+        return _mediaSuggestionCatalog.GetStatus();
     }
 
     /// <inheritdoc />
@@ -576,6 +564,27 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
 
         return (Config.RequestedMediaPriorities ?? Array.Empty<string>())
             .Any(requestedTitle => string.Equals(requestedTitle?.Trim(), title.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<NebulaMediaRequestQueueStatusDto> GetMediaRequestQueueStatuses(
+        IReadOnlyList<NebulaMediaRequestQueueQueryDto> requests)
+    {
+        if (requests.Count == 0)
+        {
+            return Array.Empty<NebulaMediaRequestQueueStatusDto>();
+        }
+
+        var downloadSnapshot = _downloaderEngine?.GetMediaQueueSnapshot() ?? NebulaMediaQueueSnapshot.Unavailable;
+        var uploadSnapshot = _stagingWatcher?.GetMediaRequestQueueSnapshot() ?? NebulaMediaQueueSnapshot.Unavailable;
+        var downloadStatuses = NebulaMediaQueueMatcher.SummarizeMany(requests, downloadSnapshot);
+        var uploadStatuses = NebulaMediaQueueMatcher.SummarizeMany(requests, uploadSnapshot);
+        return requests.Select(request => new NebulaMediaRequestQueueStatusDto
+        {
+            RequestId = request.RequestId,
+            Download = downloadStatuses[request.RequestId],
+            Upload = uploadStatuses[request.RequestId]
+        }).ToArray();
     }
 
     private string[] GetMediaSuggestionRoots()
@@ -606,15 +615,22 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         return roots.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    private IReadOnlyList<NebulaMediaSuggestionDto> BuildMediaSuggestionsCatalog(IEnumerable<string> configuredRoots)
+    private NebulaMediaSuggestionCatalogBuildResult BuildMediaSuggestionsCatalog(IEnumerable<string> configuredRoots, CancellationToken cancellationToken)
     {
         var suggestions = new Dictionary<string, NebulaMediaSuggestionDto>(StringComparer.OrdinalIgnoreCase);
+        var failedRootCount = 0;
         foreach (var configuredRoot in configuredRoots)
         {
-            if (string.IsNullOrWhiteSpace(configuredRoot)
-                || NebulaStagingWatcher.IsFileSystemRoot(configuredRoot)
-                || !Directory.Exists(configuredRoot))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (string.IsNullOrWhiteSpace(configuredRoot))
             {
+                continue;
+            }
+
+            if (NebulaStagingWatcher.IsFileSystemRoot(configuredRoot) || !Directory.Exists(configuredRoot))
+            {
+                failedRootCount++;
+                _logger.LogWarning("[NEBULA-REQUESTS] Uma raiz STRM configurada não existe ou não pode ser indexada.");
                 continue;
             }
 
@@ -630,6 +646,7 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
                     MatchCasing = MatchCasing.CaseInsensitive
                 }))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var normalizedPath = path.Replace('\\', '/');
                     var folderNames = normalizedPath.Split('/').Select(NormalizeSuggestionText).ToHashSet(StringComparer.Ordinal);
                     var mediaType = folderNames.Contains("doramas") ? "Dorama"
@@ -670,11 +687,14 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[NEBULA-REQUESTS] Não foi possível indexar STRM em {Root}.", configuredRoot);
+                failedRootCount++;
+                _logger.LogWarning(ex, "[NEBULA-REQUESTS] Não foi possível indexar uma raiz STRM configurada.");
             }
         }
 
-        return suggestions.Values.OrderBy(item => item.Title, StringComparer.OrdinalIgnoreCase).ToArray();
+        return new NebulaMediaSuggestionCatalogBuildResult(
+            suggestions.Values.OrderBy(item => item.Title, StringComparer.OrdinalIgnoreCase).ToArray(),
+            failedRootCount);
     }
 
     private static void AddMediaSuggestion(string rawTitle, string mediaType, IDictionary<string, NebulaMediaSuggestionDto> suggestions)
@@ -3822,6 +3842,13 @@ public sealed class NebulaFtpManager : INebulaFtpManager, IDisposable, IAsyncDis
         }
     }
 
+    public bool TryStartMongoBackupToSupabaseInBackground(string? idempotencyKey, bool forceFull)
+    {
+        return _mongoBackupGate.TryStart(
+            () => BackupMongoToSupabaseAsync(idempotencyKey, forceFull, CancellationToken.None),
+            ex => _logger.LogError(ex, "Unhandled error in background MongoDB-to-Supabase backup.")) is not null;
+    }
+
     public async Task<NebulaSupabaseBackupResultDto> BackupUsersToSupabaseAsync(CancellationToken cancellationToken = default)
     {
         var config = NormalizeRuntimeConfiguration(Config);
@@ -4365,6 +4392,8 @@ CREATE POLICY nebula_bot_tokens_service_role_all
         var acquired = new List<SemaphoreSlim>();
         try
         {
+            await _mediaSuggestionCatalog.DisposeAsync().ConfigureAwait(false);
+
             var cleanup = _cleanupTask;
             if (cleanup != null)
             {
@@ -4398,7 +4427,7 @@ CREATE POLICY nebula_bot_tokens_service_role_all
                 throw new InvalidOperationException("Não foi possível parar o processo rclone pertencente ao Nebula; recursos preservados para nova tentativa.");
             }
 
-            _directoryRefreshQueue.Dispose();
+            await _directoryRefreshQueue.DisposeAsync().ConfigureAwait(false);
 
             if (_supabaseSyncService != null)
             {

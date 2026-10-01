@@ -44,11 +44,13 @@ describe('my media requests pagination', () => {
         getJSON.mockResolvedValueOnce({
             StartIndex: 0, TotalRecordCount: 201,
             Items: Array.from({ length: 200 }, (_, Id) => ({ Id, Name: `Solicitação de mídia: Title ${Id}`, Overview: 'Series' })),
-            PriorityRequestIds: [0], Catalog: []
+            PriorityRequestIds: [0], Catalog: [],
+            QueueStatuses: [{ RequestId: 0, Download: { SnapshotAvailable: true, Position: 2, MatchingItemCount: 4 }, Upload: { SnapshotAvailable: false } }]
         }).mockResolvedValueOnce({
             StartIndex: 200, TotalRecordCount: 201,
             Items: [{ Id: 200, Name: 'Solicitação de mídia: Included title', Overview: 'Series' }],
-            PriorityRequestIds: [200], Catalog: [{ Title: 'Included title', MediaType: 'Series' }]
+            PriorityRequestIds: [200], Catalog: [{ Title: 'Included title', MediaType: 'Series' }],
+            QueueStatuses: [{ RequestId: 200, Download: { SnapshotAvailable: true, Position: 1, MatchingItemCount: 1 } }]
         });
 
         await mount();
@@ -62,6 +64,8 @@ describe('my media requests pagination', () => {
         expect(latest.pending).toHaveLength(200);
         expect(latest.included.map(entry => entry.Id)).toEqual([200]);
         expect(latest.priorityRequestIds).toEqual(new Set([0, 200]));
+        expect(latest.queueStatuses.get(0)?.Download?.Position).toBe(2);
+        expect(latest.queueStatuses.get(200)?.Download?.Position).toBe(1);
         expect(getJSON.mock.calls.map(([url]) => url)).toEqual([
             'UserFeedback/MediaRequests?limit=200&startIndex=0',
             'UserFeedback/MediaRequests?limit=200&startIndex=200'

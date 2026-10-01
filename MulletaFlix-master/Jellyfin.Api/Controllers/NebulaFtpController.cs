@@ -448,15 +448,22 @@ public sealed class NebulaFtpController : BaseMulletaFlixApiController
 
     [HttpPost("Supabase/Backup")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public ActionResult<NebulaSupabaseBackupResultDto> BackupSupabase([FromQuery] bool forceFull = false)
     {
         // Backups can take several minutes. Do not bind their lifetime to the
         // browser request: a closed tab/WebSocket or an HTTP timeout must not
         // cancel the database synchronization.
         var idempotencyKey = GetIdempotencyKey();
-        _ = Task.Run(
-            () => _nebulaManager.BackupMongoToSupabaseAsync(idempotencyKey, forceFull, CancellationToken.None),
-            CancellationToken.None);
+        if (!_nebulaManager.TryStartMongoBackupToSupabaseInBackground(idempotencyKey, forceFull))
+        {
+            Response.Headers.RetryAfter = "1";
+            return StatusCode(StatusCodes.Status429TooManyRequests, new NebulaSupabaseBackupResultDto
+            {
+                Success = false,
+                Message = "Já existe um backup do MongoDB para o Supabase em execução. Tente novamente em instantes."
+            });
+        }
 
         return Ok(new NebulaSupabaseBackupResultDto
         {

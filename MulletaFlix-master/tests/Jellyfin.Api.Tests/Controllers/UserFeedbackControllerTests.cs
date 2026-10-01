@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -31,6 +32,26 @@ public class UserFeedbackControllerTests
 
         Assert.Same(expected, result.Value);
         nebulaManager.Verify(manager => manager.SearchMediaSuggestions("Exam", 7), Times.Once);
+    }
+
+    [Fact]
+    public void GetMediaSuggestionIndexStatus_ReturnsPathFreeIndexStatus()
+    {
+        var expected = new NebulaMediaSuggestionIndexStatusDto
+        {
+            State = "Indexing",
+            IsIndexing = true,
+            RootCount = 3,
+            IndexedTitleCount = 42
+        };
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        nebulaManager.Setup(manager => manager.GetMediaSuggestionIndexStatus()).Returns(expected);
+        var controller = new UserFeedbackController(Mock.Of<IActivityManager>(), Mock.Of<ILibraryManager>(), nebulaManager.Object);
+
+        var result = Assert.IsType<OkObjectResult>(controller.GetMediaSuggestionIndexStatus());
+
+        Assert.Same(expected, result.Value);
+        nebulaManager.Verify(manager => manager.GetMediaSuggestionIndexStatus(), Times.Once);
     }
 
     [Fact]
@@ -125,6 +146,38 @@ public class UserFeedbackControllerTests
         Assert.Equal("MediaRequest", capturedQuery!.Type);
         Assert.Equal(50, capturedQuery.Limit);
         nebulaManager.Verify(manager => manager.IsMediaRequestPrioritized("The Example"), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetMyMediaRequests_ReturnsQueueStatusesForOnlyTheCurrentPage()
+    {
+        IReadOnlyList<NebulaMediaRequestQueueQueryDto>? capturedQueueQueries = null;
+        var entry = new ActivityLogEntry("Solicitação de mídia: Atomic (2025)", "MediaRequest", Guid.NewGuid())
+        {
+            Id = 42,
+            Overview = "Series · 2025"
+        };
+        var activityManager = new Mock<IActivityManager>();
+        activityManager.Setup(manager => manager.GetPagedResultAsync(It.IsAny<MulletaFlix.Data.Queries.ActivityLogQuery>()))
+            .ReturnsAsync(new MediaBrowser.Model.Querying.QueryResult<ActivityLogEntry>(0, 1, new[] { entry }));
+        var expectedStatus = new NebulaMediaRequestQueueStatusDto { RequestId = 42 };
+        var nebulaManager = new Mock<INebulaFtpManager>();
+        nebulaManager.Setup(manager => manager.GetMediaSuggestionCatalog()).Returns(Array.Empty<NebulaMediaSuggestionDto>());
+        nebulaManager.Setup(manager => manager.GetMediaRequestQueueStatuses(It.IsAny<IReadOnlyList<NebulaMediaRequestQueueQueryDto>>()))
+            .Callback<IReadOnlyList<NebulaMediaRequestQueueQueryDto>>(queries => capturedQueueQueries = queries)
+            .Returns(new[] { expectedStatus });
+        var controller = new UserFeedbackController(activityManager.Object, Mock.Of<ILibraryManager>(), nebulaManager.Object);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var result = Assert.IsType<OkObjectResult>(await controller.GetMyMediaRequests());
+        var response = Assert.IsType<MediaRequestQueryResultDto>(result.Value);
+
+        Assert.Same(expectedStatus, Assert.Single(response.QueueStatuses));
+        var query = Assert.Single(capturedQueueQueries!);
+        Assert.Equal(42, query.RequestId);
+        Assert.Equal("Atomic (2025)", query.Title);
+        Assert.Equal("Series", query.MediaType);
+        Assert.Equal(2025, query.Year);
     }
 
     [Theory]

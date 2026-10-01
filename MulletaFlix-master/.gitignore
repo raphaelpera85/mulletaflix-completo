@@ -273,6 +273,11 @@ BenchmarkDotNet.Artifacts
 
 # Ignore web artifacts from native builds
 web/
+!Jellyfin.Api/Web/
+Jellyfin.Api/Web/*
+!Jellyfin.Api/Web/NebulaFTP/
+Jellyfin.Api/Web/NebulaFTP/*
+!Jellyfin.Api/Web/NebulaFTP/configPage.js
 !MulletaFlix.Plugin.GetAvatar/Configuration/Web/
 !MulletaFlix.Plugin.GetAvatar/Configuration/Web/**
 web-src.*

@@ -90,4 +90,11 @@ public class TranscodeManagerTests
         using var manager = CreateManager(maxConcurrentJobs: 4);
         await manager.KillTranscodingJobs("device-1", "session-1", _ => true);
     }
+
+    [Fact]
+    public void ActiveTranscodingJobsCount_InitiallyZero()
+    {
+        using var manager = CreateManager(maxConcurrentJobs: 4);
+        Assert.Equal(0, manager.ActiveTranscodingJobsCount);
+    }
 }

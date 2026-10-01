@@ -90,6 +90,10 @@ if (-not $SkipBuild) {
     throw "Stage directory does not contain MulletaFlix binaries. Run build without -SkipBuild."
 }
 
+# Bundle the compatible third-party middleware; ApplicationHost installs it into the
+# server data plugin directory before PluginManager discovers plugins at startup.
+& (Join-Path $projectRoot 'tools\release\stage-file-transformation-plugin.ps1') -ApplicationDirectory $stageDir
+
 # Refresh web assets. Stale stage assets can hide dashboard routes behind the old service worker cache.
 if (Test-Path -LiteralPath (Join-Path $webRoot 'package.json')) {
     Write-Host "Building latest web client in an isolated production workspace..." -ForegroundColor Yellow

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
@@ -43,6 +44,7 @@ public class NebulaMediaSuggestionTests
                 NullLoggerFactory.Instance,
                 libraryManager.Object);
 
+            WaitForIndex(manager);
             var suggestions = manager.SearchMediaSuggestions("Série Ex", limit: 10);
 
             var suggestion = Assert.Single(suggestions);
@@ -87,6 +89,7 @@ public class NebulaMediaSuggestionTests
                 NullLoggerFactory.Instance,
                 libraryManager.Object);
 
+            WaitForIndex(manager);
             var catalog = manager.GetMediaSuggestionCatalog();
 
             Assert.Equal(titleCount, catalog.Count);
@@ -121,6 +124,7 @@ public class NebulaMediaSuggestionTests
                 .Returns(new NebulaFtpConfiguration { MonitorPaths = [root] });
             using var manager = new NebulaFtpManager(configManager.Object, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
 
+            WaitForIndex(manager);
             var atomic = manager.SearchMediaSuggestions("Atomic");
 
             Assert.Equal(2, atomic.Count);
@@ -151,12 +155,26 @@ public class NebulaMediaSuggestionTests
                 .Returns(new NebulaFtpConfiguration { MonitorPaths = [root] });
             using var manager = new NebulaFtpManager(configManager.Object, NullLogger<NebulaFtpManager>.Instance, NullLoggerFactory.Instance);
 
+            WaitForIndex(manager);
             Assert.Equal(expectedYear, Assert.Single(manager.SearchMediaSuggestions(title)).Year);
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static void WaitForIndex(NebulaFtpManager manager)
+    {
+        var completed = SpinWait.SpinUntil(
+            () =>
+            {
+                var status = manager.GetMediaSuggestionIndexStatus();
+                return !status.IsIndexing && status.State is "Ready" or "ReadyWithWarnings";
+            },
+            TimeSpan.FromSeconds(10));
+
+        Assert.True(completed, "STRM catalog did not finish indexing within the test timeout.");
     }
 
     [Fact]

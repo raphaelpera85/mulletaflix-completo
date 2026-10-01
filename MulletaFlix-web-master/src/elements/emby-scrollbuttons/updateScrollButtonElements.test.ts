@@ -12,7 +12,9 @@ describe('updateScrollButtonElements', () => {
         expect(previousButton.classList.contains('hide')).toBe(false);
         expect(nextButton.classList.contains('hide')).toBe(false);
         expect(previousButton.disabled).toBe(true);
+        expect(previousButton.getAttribute('aria-disabled')).toBe('true');
         expect(nextButton.disabled).toBe(false);
+        expect(nextButton.getAttribute('aria-disabled')).toBe('false');
     });
 
     it('disables the next control at the end of the row', () => {
@@ -22,7 +24,9 @@ describe('updateScrollButtonElements', () => {
         updateScrollButtonElements(previousButton, nextButton, 200, 600, 800, false);
 
         expect(previousButton.disabled).toBe(false);
+        expect(previousButton.getAttribute('aria-disabled')).toBe('false');
         expect(nextButton.disabled).toBe(true);
+        expect(nextButton.getAttribute('aria-disabled')).toBe('true');
     });
 
     it('hides both controls when content fits and respects RTL positions', () => {

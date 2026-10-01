@@ -84,8 +84,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
     private readonly object _queueProgressLock = new();
     private int _queuePosition;
     private int _queueCount;
+    private int _mediaQueueProcessedCount;
     private string _priorityReason = string.Empty;
     private string _nextItemName = string.Empty;
+    private IReadOnlyList<NebulaMediaQueueEntry> _mediaQueueSnapshot = Array.Empty<NebulaMediaQueueEntry>();
+    private DateTime? _mediaQueueSnapshotAtUtc;
 
     private Task? _workerTask;
     private bool _isRunning;
@@ -237,6 +240,26 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
         lock (_queueProgressLock)
         {
             return (_queuePosition, _queueCount, _priorityReason, _nextItemName);
+        }
+    }
+
+    internal static bool IsMediaQueueFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return string.Equals(extension, ".strm", StringComparison.OrdinalIgnoreCase)
+            || VideoExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal NebulaMediaQueueSnapshot GetMediaQueueSnapshot()
+    {
+        lock (_queueProgressLock)
+        {
+            var currentPosition = _isRunning ? _queuePosition : 0;
+            var items = _mediaQueueSnapshot
+                .Where(item => item.Position > _mediaQueueProcessedCount)
+                .Select(item => item with { IsCurrent = item.Position == currentPosition && currentPosition > 0 })
+                .ToArray();
+            return new NebulaMediaQueueSnapshot(_mediaQueueSnapshotAtUtc.HasValue, _isRunning, _mediaQueueSnapshotAtUtc, items);
         }
     }
 
@@ -473,6 +496,15 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     })
                     .ToList();
 
+                lock (_queueProgressLock)
+                {
+                    _mediaQueueSnapshot = prioritizedList
+                        .Select((item, index) => NebulaMediaQueueMatcher.CreateEntry(item.Path, index + 1, false, IsPathPrioritized(item.Path)))
+                        .ToArray();
+                    _mediaQueueSnapshotAtUtc = DateTime.UtcNow;
+                    _mediaQueueProcessedCount = 0;
+                }
+
                 LogInfo($"Total de mídias encontradas: {prioritizedList.Count}");
                 if (prioritizedList.Count == 0)
                 {
@@ -518,6 +550,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     if (_failureTracker.ShouldSkip(item.Path, out var skipReason))
                     {
                         _logger.LogDebug("[NEBULA-DOWNLOADER] Pulando mídia com falha recente: {Path} ({Reason})", item.Path, skipReason);
+                        lock (_queueProgressLock)
+                        {
+                            _mediaQueueProcessedCount = queueIndex + 1;
+                        }
+
                         continue;
                     }
 
@@ -528,6 +565,11 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
                     else
                     {
                         await ProcessSinglePhysicalMediaAsync(item.Path, item.CategoryName, item.Year, monitorSources, stageRoots, config, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    lock (_queueProgressLock)
+                    {
+                        _mediaQueueProcessedCount = queueIndex + 1;
                     }
                 }
 
@@ -562,6 +604,12 @@ public sealed class NebulaDownloaderEngine : IAsyncDisposable, IDisposable
             {
                 _logger.LogError(ex, "[NEBULA-DOWNLOADER] Erro no loop de escaneamento/download.");
                 LogError(ex.Message);
+                lock (_queueProgressLock)
+                {
+                    _queuePosition = 0;
+                    _queueCount = 0;
+                }
+
                 await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
             }
         }

@@ -48,7 +48,7 @@ for (const width of [390, 1280]) {
         await expect.poll(() => page.evaluate(() => (window as Window & { __loadMoreCalls?: number }).__loadMoreCalls)).toBe(1);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         const title = await pending.locator('.MuiListItemText-root').boundingBox();
-        const chips = await pending.locator('.MuiStack-root').boundingBox();
+        const chips = await pending.locator('.MuiListItem-root').first().locator(':scope > .MuiStack-root').first().boundingBox();
         expect(title).not.toBeNull();
         expect(chips).not.toBeNull();
         expect(chips!.y).toBeGreaterThanOrEqual(title!.y + title!.height);

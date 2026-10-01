@@ -29,7 +29,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
     private readonly ConcurrentDictionary<string, byte> _prioritizedDirectories = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _prioritizedSeriesNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _queuedFiles = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, byte> _activeFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, bool> _activeFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _cts = new();
     private readonly List<Task> _workerTasks = [];
     private int _producerQueueLimit = int.MaxValue;
@@ -182,6 +182,31 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
         }
 
         return snapshot;
+    }
+
+    internal NebulaMediaQueueSnapshot GetMediaRequestQueueSnapshot()
+    {
+        var orderedItems = _uploadQueue.SnapshotInDequeueOrder();
+        var mediaQueueItems = orderedItems
+            .Where(item => NebulaDownloaderEngine.IsMediaQueueFile(item.Item.FilePath))
+            .ToArray();
+        var entries = new List<NebulaMediaQueueEntry>(mediaQueueItems.Length + _activeFiles.Count);
+        for (var index = 0; index < mediaQueueItems.Length; index++)
+        {
+            var queueItem = mediaQueueItems[index];
+            entries.Add(NebulaMediaQueueMatcher.CreateEntry(queueItem.Item.FilePath, index + 1, false, queueItem.IsPriority));
+        }
+
+        foreach (var activeFile in _activeFiles)
+        {
+            if (NebulaDownloaderEngine.IsMediaQueueFile(activeFile.Key))
+            {
+                entries.Add(NebulaMediaQueueMatcher.CreateEntry(activeFile.Key, 0, true, activeFile.Value));
+            }
+        }
+
+        var isRunning = _isRunning;
+        return new NebulaMediaQueueSnapshot(isRunning, isRunning, isRunning ? DateTime.UtcNow : null, entries);
     }
 
     /// <summary>
@@ -669,6 +694,9 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                                 _logger.LogInformation("[NEBULA-WATCHER][Worker #{Worker}] Arquivo {File} já foi reivindicado por outro worker; pulando.", workerId, item.FileName);
                                 continue;
                             }
+
+                            // Track Mongo-claimed uploads too so user request status reflects all active workers.
+                            _activeFiles.TryAdd(Path.GetFullPath(item.FilePath), isPriorityItem || IsPathPrioritized(item.FilePath));
                         }
                         else
                         {
@@ -676,7 +704,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
                             // lock no MongoDB. Usamos um claim em memória para evitar que dois
                             // workers processem o mesmo arquivo simultaneamente.
                             var activeKey = Path.GetFullPath(item.FilePath);
-                            if (!_activeFiles.TryAdd(activeKey, 0))
+                            if (!_activeFiles.TryAdd(activeKey, isPriorityItem || IsPathPrioritized(item.FilePath)))
                             {
                                 _logger.LogDebug("[NEBULA-WATCHER][Worker #{Worker}] Arquivo {File} já está sendo processado por outro worker; pulando.", workerId, item.FileName);
                                 continue;
@@ -754,7 +782,7 @@ public sealed class NebulaStagingWatcher : IAsyncDisposable, IDisposable
     /// <param name="requeued">Whether the item was put back into the queue.</param>
     private static void ReleaseDequeuedItem(
         ConcurrentDictionary<string, byte> queuedFiles,
-        ConcurrentDictionary<string, byte> activeFiles,
+        ConcurrentDictionary<string, bool> activeFiles,
         string filePath,
         bool requeued)
     {

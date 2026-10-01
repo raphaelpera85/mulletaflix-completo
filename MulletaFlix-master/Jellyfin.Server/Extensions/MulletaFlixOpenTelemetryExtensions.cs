@@ -51,6 +51,7 @@ internal static class MulletaFlixOpenTelemetryExtensions
                 .AddAspNetCoreInstrumentation()
                 .AddMeter(NebulaUploadEngine.MeterName)
                 .AddMeter(NebulaDownloaderEngine.MeterName)
+                .AddMeter(NotificationsLibraryNotifier.MeterName)
                 .AddOtlpExporter());
         }
 

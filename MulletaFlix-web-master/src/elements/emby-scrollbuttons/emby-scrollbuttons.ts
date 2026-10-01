@@ -40,7 +40,7 @@ function getScrollButtonHtml(direction: 'left' | 'right'): string {
     const icon: string = direction === 'left' ? 'chevron_left' : 'chevron_right';
     const title: string = direction === 'left' ? globalize.translate('Previous') : globalize.translate('Next') ;
 
-    html += `<button type="button" is="paper-icon-button-light" data-ripple="false" data-direction="${direction}" title="${title}" class="emby-scrollbuttons-button">`;
+    html += `<button type="button" is="paper-icon-button-light" data-ripple="false" data-direction="${direction}" title="${title}" aria-label="${title}" class="emby-scrollbuttons-button">`;
     html += '<span class="material-icons ' + icon + '" aria-hidden="true"></span>';
     html += '</button>';
 
@@ -85,53 +85,8 @@ function onScroll(this: ScrollButtonsElement): void {
     updateScrollButtons(this, scrollSize, scrollPos, scrollWidth);
 }
 
-function getStyleValue(style: CSSStyleDeclaration, name: string): number {
-    let value: string | null = style.getPropertyValue(name);
-    if (!value) {
-        return 0;
-    }
-
-    value = value.replace('px', '');
-    if (!value) {
-        return 0;
-    }
-
-    const parsed: number = parseInt(value, 10);
-    if (isNaN(parsed)) {
-        return 0;
-    }
-
-    return parsed;
-}
-
 function getScrollSize(elem: ScrollButtonsScrollerElement): number {
-    let scrollSize: number = elem.offsetWidth;
-    let style: CSSStyleDeclaration = window.getComputedStyle(elem as unknown as Element, null);
-
-    let paddingLeft: number = getStyleValue(style, 'padding-left');
-    if (paddingLeft) {
-        scrollSize -= paddingLeft;
-    }
-
-    let paddingRight: number = getStyleValue(style, 'padding-right');
-    if (paddingRight) {
-        scrollSize -= paddingRight;
-    }
-
-    const slider = elem.getScrollSlider();
-    style = window.getComputedStyle(slider, null);
-
-    paddingLeft = getStyleValue(style, 'padding-left');
-    if (paddingLeft) {
-        scrollSize -= paddingLeft;
-    }
-
-    paddingRight = getStyleValue(style, 'padding-right');
-    if (paddingRight) {
-        scrollSize -= paddingRight;
-    }
-
-    return scrollSize;
+    return elem.getAttribute('data-horizontal') === 'false' ? elem.clientHeight : elem.clientWidth;
 }
 
 function onScrollButtonClick(this: HTMLElement): void {

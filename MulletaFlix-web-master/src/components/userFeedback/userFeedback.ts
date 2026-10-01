@@ -21,6 +21,12 @@ interface MediaSuggestion {
     Year?: number;
 }
 
+interface MediaSuggestionIndexStatus {
+    State: string;
+    IsIndexing: boolean;
+    FailedRootCount: number;
+}
+
 function openFeedbackDialog(apiClient: ApiClient, options: {
     title: string;
     endpoint: string;
@@ -44,14 +50,21 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
     const form = dialog.querySelector<HTMLFormElement>('form');
     const titleInput = form?.querySelector<HTMLInputElement>('input[name="title"]');
     if (titleInput) {
+        const mediaTitleInput = titleInput;
         const mediaTypeSelect = form?.querySelector<HTMLSelectElement>('select[name="mediaType"]');
         const yearInput = form?.querySelector<HTMLInputElement>('input[name="year"]');
         const suggestions = document.createElement('div');
         suggestions.className = 'userFeedbackSuggestions';
-        suggestions.id = 'userFeedbackMediaSuggestions';
-        suggestions.setAttribute('role', 'listbox');
         suggestions.hidden = true;
         suggestions.style.cssText = 'position:absolute;z-index:1100;left:0;right:0;top:100%;max-height:240px;overflow:auto;background:#242424;border:1px solid #555;border-radius:4px;box-shadow:0 4px 12px #0008';
+        const suggestionList = document.createElement('div');
+        suggestionList.id = 'userFeedbackMediaSuggestions';
+        suggestionList.setAttribute('role', 'listbox');
+        const suggestionStatus = document.createElement('div');
+        suggestionStatus.setAttribute('role', 'status');
+        suggestionStatus.setAttribute('aria-live', 'polite');
+        suggestionStatus.style.cssText = 'padding:10px 12px;color:#bbb';
+        suggestions.append(suggestionList, suggestionStatus);
         const titleContainer = titleInput.closest<HTMLElement>('.inputContainer');
         if (titleContainer) {
             titleContainer.style.position = 'relative';
@@ -59,17 +72,21 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
         }
 
         let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+        let indexPollTimer: ReturnType<typeof setTimeout> | undefined;
         let requestSequence = 0;
         let activeIndex = -1;
         const cancelLookup = () => {
             requestSequence++;
             if (debounceTimer) clearTimeout(debounceTimer);
+            if (indexPollTimer) clearTimeout(indexPollTimer);
             debounceTimer = undefined;
+            indexPollTimer = undefined;
         };
         const hideSuggestions = () => {
             suggestions.hidden = true;
-            suggestions.textContent = '';
             activeIndex = -1;
+            suggestionList.textContent = '';
+            suggestionStatus.textContent = '';
             titleInput.removeAttribute('aria-activedescendant');
             titleInput.setAttribute('aria-expanded', 'false');
         };
@@ -84,10 +101,104 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
             hideSuggestions();
         };
 
+        const showRetry = (query: string) => {
+            suggestionStatus.textContent = '';
+            const errorMessage = document.createElement('span');
+            errorMessage.textContent = globalize.translate('MediaRequestSuggestionsFailed');
+            const retryButton = document.createElement('button');
+            retryButton.type = 'button';
+            retryButton.className = 'button-flat';
+            retryButton.textContent = globalize.translate('Retry');
+            retryButton.style.cssText = 'margin-left:8px;color:inherit;background:transparent;border:0;text-decoration:underline;cursor:pointer';
+            retryButton.addEventListener('mousedown', event => event.preventDefault());
+            retryButton.addEventListener('click', () => {
+                cancelLookup();
+                titleInput.focus();
+                lookupSuggestions(query, requestSequence).catch(error => console.debug('[UserFeedback] suggestion retry failed', error));
+            });
+            suggestionStatus.append(errorMessage, retryButton);
+            suggestions.hidden = false;
+            titleInput.setAttribute('aria-expanded', 'true');
+        };
+
+        async function pollIndexStatus(query: string, sequence: number): Promise<void> {
+            try {
+                const status = await apiClient.getJSON(apiClient.getUrl('UserFeedback/MediaSuggestions/Status')) as MediaSuggestionIndexStatus;
+                if (sequence !== requestSequence || mediaTitleInput.value.trim() !== query) return;
+                if (status.IsIndexing) {
+                    suggestionStatus.textContent = globalize.translate('MediaRequestSuggestionsIndexing');
+                    indexPollTimer = window.setTimeout(() => {
+                        pollIndexStatus(query, sequence).catch(error => console.debug('[UserFeedback] index status retry failed', error));
+                    }, 1000);
+                    return;
+                }
+                if (status.State === 'Error') {
+                    showRetry(query);
+                    return;
+                }
+
+                lookupSuggestions(query, sequence, false, status.FailedRootCount).catch(error => console.debug('[UserFeedback] refreshed suggestion lookup failed', error));
+            } catch (error: unknown) {
+                if (sequence === requestSequence && mediaTitleInput.value.trim() === query) {
+                    console.debug('[UserFeedback] STRM index status failed', error);
+                    showRetry(query);
+                }
+            }
+        }
+
         titleInput.setAttribute('role', 'combobox');
         titleInput.setAttribute('aria-autocomplete', 'list');
-        titleInput.setAttribute('aria-controls', suggestions.id);
+        titleInput.setAttribute('aria-controls', suggestionList.id);
         titleInput.setAttribute('aria-expanded', 'false');
+
+        async function lookupSuggestions(query: string, sequence: number, checkIndex = true, failedRootCount = 0): Promise<void> {
+            suggestions.hidden = false;
+            suggestionList.textContent = '';
+            suggestionStatus.textContent = globalize.translate('MediaRequestSuggestionsLoading');
+            mediaTitleInput.setAttribute('aria-expanded', 'true');
+
+            try {
+                const response = await apiClient.getJSON(apiClient.getUrl(`UserFeedback/MediaSuggestions?query=${encodeURIComponent(query)}&limit=10`));
+                const results = response as MediaSuggestion[];
+                if (sequence !== requestSequence || mediaTitleInput.value.trim() !== query) return;
+                if (!Array.isArray(results)) throw new Error('Invalid media suggestions response');
+
+                if (results.length === 0) {
+                    if (checkIndex) {
+                        pollIndexStatus(query, sequence).catch(error => console.debug('[UserFeedback] index status lookup failed', error));
+                    } else {
+                        suggestionStatus.textContent = failedRootCount > 0 ?
+                            globalize.translate('MediaRequestSuggestionsPartialIndex') :
+                            globalize.translate('MediaRequestSuggestionsEmpty');
+                    }
+                } else {
+                    suggestionStatus.textContent = '';
+                }
+                results.forEach((suggestion, index) => {
+                    const option = document.createElement('button');
+                    option.type = 'button';
+                    option.id = `media-suggestion-${sequence}-${index}`;
+                    option.setAttribute('role', 'option');
+                    option.setAttribute('aria-selected', 'false');
+                    option.style.cssText = 'display:block;width:100%;padding:10px 12px;text-align:left;color:inherit;background:transparent;border:0;cursor:pointer';
+                    const details = [suggestion.MediaType, suggestion.Year].filter(Boolean).join(' · ');
+                    option.textContent = details ? `${suggestion.Title} — ${details}` : suggestion.Title;
+                    option.addEventListener('mouseenter', () => {
+                        activeIndex = index;
+                        updateActiveOption();
+                    });
+                    option.addEventListener('mousedown', event => event.preventDefault());
+                    option.addEventListener('click', () => chooseSuggestion(suggestion));
+                    suggestionList.appendChild(option);
+                });
+            } catch (error: unknown) {
+                if (sequence === requestSequence && mediaTitleInput.value.trim() === query) {
+                    showRetry(query);
+                }
+                console.debug('[UserFeedback] suggestion lookup failed', error);
+            }
+        }
+
         titleInput.addEventListener('input', () => {
             cancelLookup();
             hideSuggestions();
@@ -98,41 +209,12 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
 
             const sequence = requestSequence;
             debounceTimer = setTimeout(() => {
-                void apiClient.getJSON(apiClient.getUrl(`UserFeedback/MediaSuggestions?query=${encodeURIComponent(query)}&limit=10`))
-                    .then((response: unknown) => {
-                        const results = response as MediaSuggestion[];
-                        if (sequence !== requestSequence || titleInput.value.trim() !== query || !Array.isArray(results)) return;
-                        suggestions.textContent = '';
-                        results.forEach((suggestion, index) => {
-                            const option = document.createElement('button');
-                            option.type = 'button';
-                            option.id = `media-suggestion-${sequence}-${index}`;
-                            option.setAttribute('role', 'option');
-                            option.setAttribute('aria-selected', 'false');
-                            option.style.cssText = 'display:block;width:100%;padding:10px 12px;text-align:left;color:inherit;background:transparent;border:0;cursor:pointer';
-                            const details = [suggestion.MediaType, suggestion.Year].filter(Boolean).join(' · ');
-                            option.textContent = details ? `${suggestion.Title} — ${details}` : suggestion.Title;
-                            option.addEventListener('mouseenter', () => {
-                                activeIndex = index;
-                                updateActiveOption();
-                            });
-                            option.addEventListener('mousedown', event => event.preventDefault());
-                            option.addEventListener('click', () => chooseSuggestion(suggestion));
-                            suggestions.appendChild(option);
-                        });
-                        suggestions.hidden = results.length === 0;
-                        titleInput.setAttribute('aria-expanded', String(results.length > 0));
-                        if (results.length === 0) titleInput.removeAttribute('aria-activedescendant');
-                    })
-                    .catch((error: unknown) => {
-                        if (sequence === requestSequence) hideSuggestions();
-                        console.debug('[UserFeedback] suggestion lookup failed', error);
-                    });
+                void lookupSuggestions(query, sequence);
             }, 250);
         });
 
         const updateActiveOption = () => {
-            const suggestionOptions = Array.from(suggestions.querySelectorAll<HTMLElement>('[role="option"]'));
+            const suggestionOptions = Array.from(suggestionList.querySelectorAll<HTMLElement>('[role="option"]'));
             suggestionOptions.forEach((option, index) => {
                 option.setAttribute('aria-selected', String(index === activeIndex));
                 option.style.background = index === activeIndex ? '#343434' : 'transparent';
@@ -152,7 +234,7 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
                 hideSuggestions();
                 return;
             }
-            const suggestionOptions = suggestions.querySelectorAll<HTMLElement>('[role="option"]');
+            const suggestionOptions = suggestionList.querySelectorAll<HTMLElement>('[role="option"]');
             if (suggestions.hidden || suggestionOptions.length === 0) return;
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
@@ -163,12 +245,26 @@ function openFeedbackDialog(apiClient: ApiClient, options: {
                 (suggestionOptions[activeIndex] as HTMLButtonElement).click();
             }
         });
-        titleInput.addEventListener('blur', () => {
-            cancelLookup();
+        const scheduleHideIfFocusLeavesPopup = () => {
             const sequence = requestSequence;
             window.setTimeout(() => {
-                if (sequence === requestSequence) hideSuggestions();
+                const activeElement = document.activeElement;
+                if (sequence === requestSequence && activeElement !== titleInput && !suggestions.contains(activeElement)) {
+                    hideSuggestions();
+                }
             }, 120);
+        };
+        titleInput.addEventListener('blur', event => {
+            const nextFocus = event.relatedTarget;
+            if (nextFocus instanceof Node && suggestions.contains(nextFocus)) return;
+            cancelLookup();
+            scheduleHideIfFocusLeavesPopup();
+        });
+        suggestions.addEventListener('focusout', event => {
+            const nextFocus = event.relatedTarget;
+            if (nextFocus instanceof Node && suggestions.contains(nextFocus)) return;
+            cancelLookup();
+            scheduleHideIfFocusLeavesPopup();
         });
         dialog.addEventListener('close', () => {
             cancelLookup();

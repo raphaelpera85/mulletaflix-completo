@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.SystemBackupService;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -14,6 +15,54 @@ namespace MulletaFlix.Api.Tests.Controllers;
 
 public class BackupControllerTests
 {
+    [Fact]
+    public void StartRestoreBackup_ReturnsRetryAfterWhenAnotherBackupIsRunning()
+    {
+        var backupPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(backupPath);
+
+        try
+        {
+            const string archiveFileName = "restore.zip";
+            File.WriteAllText(Path.Combine(backupPath, archiveFileName), string.Empty);
+            var backupService = new Mock<IBackupService>();
+            backupService
+                .Setup(service => service.ScheduleRestoreAndRestartServer(It.IsAny<string>()))
+                .Throws(new BackupOperationInProgressException());
+            var controller = new BackupController(
+                backupService.Object,
+                Mock.Of<IApplicationPaths>(paths => paths.BackupPath == backupPath));
+            controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+            var result = controller.StartRestoreBackup(new BackupRestoreRequestDto { ArchiveFileName = archiveFileName });
+
+            var tooManyRequests = Assert.IsType<ObjectResult>(result);
+            Assert.Equal(StatusCodes.Status429TooManyRequests, tooManyRequests.StatusCode);
+            Assert.Equal("1", controller.Response.Headers.RetryAfter);
+        }
+        finally
+        {
+            Directory.Delete(backupPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CreateBackup_ReturnsRetryAfterWhenAnotherBackupIsRunning()
+    {
+        var backupService = new Mock<IBackupService>();
+        backupService
+            .Setup(service => service.CreateBackupAsync(It.IsAny<BackupOptionsDto>()))
+            .ThrowsAsync(new BackupOperationInProgressException());
+        var controller = new BackupController(backupService.Object, Mock.Of<IApplicationPaths>());
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var result = await controller.CreateBackup(new BackupOptionsDto());
+
+        var tooManyRequests = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, tooManyRequests.StatusCode);
+        Assert.Equal("1", controller.Response.Headers.RetryAfter);
+    }
+
     [Fact]
     public async Task GetBackup_UsesBackupDirectorySanitizedPath()
     {

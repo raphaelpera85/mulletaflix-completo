@@ -15,6 +15,7 @@ New-Item -ItemType Directory -Path $serverDir -Force | Out-Null
 try {
     & dotnet publish (Join-Path $repoRoot 'MulletaFlix-master/Jellyfin.Server/Jellyfin.Server.csproj') -c Release -r linux-x64 --self-contained true -o $serverDir -p:DebugSymbols=false -p:DebugType=none -p:GenerateDocumentationFile=false -p:RunAnalyzersDuringBuild=false -p:RunAnalyzers=false
     if ($LASTEXITCODE -ne 0) { throw "Linux publish failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'stage-file-transformation-plugin.ps1') -ApplicationDirectory $serverDir
     Copy-Item -LiteralPath $webPath -Destination (Join-Path $serverDir 'MulletaFlix-web') -Recurse
     foreach ($mapping in @(@('linux-install.sh','install.sh'), @('mulletaflix.service','mulletaflix.service'), @('LINUX-README.md','README.md'))) {
         # Linux shell files must have LF endings even when the checkout uses CRLF.

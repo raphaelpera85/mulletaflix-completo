@@ -25,6 +25,45 @@ namespace MulletaFlix.Api.Tests.Controllers;
 public sealed class NebulaFtpControllerTests
 {
     [Fact]
+    public void BackupSupabase_WhenBackgroundBackupIsRunning_Returns429WithRetryAfter()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        manager.Setup(m => m.TryStartMongoBackupToSupabaseInBackground(It.IsAny<string?>(), false)).Returns(false);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var result = controller.BackupSupabase();
+
+        var response = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, response.StatusCode);
+        Assert.Equal("1", controller.Response.Headers.RetryAfter.ToString());
+        Assert.False(Assert.IsType<NebulaSupabaseBackupResultDto>(response.Value).Success);
+        manager.VerifyAll();
+    }
+
+    [Fact]
+    public void BackupSupabase_WhenAdmitted_StartsBackgroundWorkAndReturnsAcceptedStatus()
+    {
+        var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);
+        var configuration = new Mock<IServerConfigurationManager>(MockBehavior.Strict);
+        manager.Setup(m => m.TryStartMongoBackupToSupabaseInBackground(It.IsAny<string?>(), true)).Returns(true);
+        var controller = new NebulaFtpController(manager.Object, configuration.Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var result = controller.BackupSupabase(forceFull: true);
+
+        var response = Assert.IsType<NebulaSupabaseBackupResultDto>(Assert.IsType<OkResult<NebulaSupabaseBackupResultDto>>(result.Result).Value);
+        Assert.True(response.Success);
+        Assert.Contains("completo iniciado em segundo plano", response.Message, StringComparison.OrdinalIgnoreCase);
+        manager.VerifyAll();
+    }
+
+    [Fact]
     public async Task GetHealth_ReturnsComponentHealthWithoutTransformingIt()
     {
         var manager = new Mock<INebulaFtpManager>(MockBehavior.Strict);

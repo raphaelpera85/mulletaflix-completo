@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Model.Configuration;
@@ -12,6 +13,41 @@ namespace MulletaFlix.Server.Implementations.Tests.Nebula;
 
 public sealed class NebulaBackupStatusTests
 {
+    [Fact]
+    public async Task BackgroundOperationGate_RejectsConcurrentWorkAndReopensAfterCompletion()
+    {
+        var gate = new BackgroundOperationGate();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var backgroundOperation = gate.TryStart(() => release.Task, _ => { });
+
+        Assert.NotNull(backgroundOperation);
+        Assert.Null(gate.TryStart(() => Task.CompletedTask, _ => { }));
+
+        release.SetResult();
+        await backgroundOperation;
+
+        var nextOperation = gate.TryStart(() => Task.CompletedTask, _ => { });
+        Assert.NotNull(nextOperation);
+        await nextOperation;
+    }
+
+    [Fact]
+    public async Task BackgroundOperationGate_ReleasesCapacityAfterFailure()
+    {
+        var gate = new BackgroundOperationGate();
+        var observed = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expected = new InvalidOperationException("simulated background backup failure");
+        var backgroundOperation = gate.TryStart(() => Task.FromException(expected), ex => observed.TrySetResult(ex));
+
+        Assert.NotNull(backgroundOperation);
+        Assert.Same(expected, await observed.Task);
+        await backgroundOperation;
+
+        var nextOperation = gate.TryStart(() => Task.CompletedTask, _ => { });
+        Assert.NotNull(nextOperation);
+        await nextOperation;
+    }
+
     [Fact]
     public void MongoBackupFailure_DoesNotExposePreviousCountsAsTheFailedAttempt()
     {

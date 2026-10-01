@@ -754,9 +754,9 @@ public class NebulaUploadEngineTests
 
         Assert.NotNull(activeFilesField);
 
-        // Verifica que o tipo é ConcurrentDictionary<string, byte>
+        // Keeps the no-NodeId claim and priority state for active queue reporting.
         var fieldType = activeFilesField.FieldType;
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentDictionary<string, byte>), fieldType);
+        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentDictionary<string, bool>), fieldType);
 
         // Cria instância mínima só para acessar o campo
         using var engine = new NebulaUploadEngine(
@@ -769,20 +769,20 @@ public class NebulaUploadEngineTests
 
         var watcher = new NebulaStagingWatcher(engine, Microsoft.Extensions.Logging.Abstractions.NullLogger<NebulaStagingWatcher>.Instance);
 
-        var dict = (System.Collections.Concurrent.ConcurrentDictionary<string, byte>?)activeFilesField.GetValue(watcher);
+        var dict = (System.Collections.Concurrent.ConcurrentDictionary<string, bool>?)activeFilesField.GetValue(watcher);
         Assert.NotNull(dict);
 
         // Simula dois workers tentando reivindicar o mesmo arquivo
         const string FakePath = @"C:\staging\filme.mkv";
-        var firstClaim = dict.TryAdd(FakePath, 0);
-        var secondClaim = dict.TryAdd(FakePath, 0);
+        var firstClaim = dict.TryAdd(FakePath, false);
+        var secondClaim = dict.TryAdd(FakePath, false);
 
         Assert.True(firstClaim, "O primeiro worker deve conseguir reivindicar o arquivo.");
         Assert.False(secondClaim, "O segundo worker NÃO deve conseguir reivindicar o mesmo arquivo.");
 
         // Simula liberação pelo finally do worker
         dict.TryRemove(FakePath, out _);
-        var thirdClaim = dict.TryAdd(FakePath, 0);
+        var thirdClaim = dict.TryAdd(FakePath, false);
         Assert.True(thirdClaim, "Após liberação, um novo worker deve conseguir reivindicar.");
     }
 

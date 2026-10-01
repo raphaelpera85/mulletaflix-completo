@@ -21,6 +21,7 @@ using MediaBrowser.Model.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace MulletaFlix.Api.Controllers;
 
@@ -36,6 +37,7 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     private readonly ILibraryManager _libraryManager;
     private readonly ILibraryMonitor _libraryMonitor;
     private readonly ILocalizationManager _localizationManager;
+    private readonly ILogger<LibraryStructureController> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryStructureController"/> class.
@@ -44,17 +46,20 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <param name="libraryManager">Instance of <see cref="ILibraryManager"/> interface.</param>
     /// <param name="libraryMonitor">Instance of <see cref="ILibraryMonitor"/> interface.</param>
     /// <param name="localizationManager">Instance of <see cref="ILocalizationManager"/> interface.</param>
+    /// <param name="logger">Logger.</param>
     public LibraryStructureController(
         IServerConfigurationManager serverConfigurationManager,
         ILibraryManager libraryManager,
         ILibraryMonitor libraryMonitor,
-        ILocalizationManager localizationManager)
+        ILocalizationManager localizationManager,
+        ILogger<LibraryStructureController> logger)
     {
         _serverConfigurationManager = serverConfigurationManager;
         _appPaths = serverConfigurationManager.ApplicationPaths;
         _libraryManager = libraryManager;
         _libraryMonitor = libraryMonitor;
         _localizationManager = localizationManager;
+        _logger = logger;
     }
 
     /// <summary>
@@ -136,6 +141,7 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <exception cref="ArgumentNullException">The new name may not be null.</exception>
     [HttpPost("Name")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public ActionResult RenameVirtualFolder(
@@ -173,10 +179,16 @@ public class LibraryStructureController : BaseMulletaFlixApiController
             return Conflict($"The media library already exists at {newPath}.");
         }
 
-        _libraryMonitor.Stop();
+        var operationLease = LibraryBackgroundOperationGate.TryAcquire();
+        if (operationLease is null)
+        {
+            Response.Headers.RetryAfter = "1";
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
 
         try
         {
+            _libraryMonitor.Stop();
             // Changing capitalization. Handle windows case insensitivity
             if (string.Equals(currentPath, newPath, StringComparison.OrdinalIgnoreCase))
             {
@@ -191,41 +203,47 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         }
         finally
         {
-            CollectionFolder.OnCollectionFolderChange();
-
-            Task.Run(async () =>
+            try
             {
-                // No need to start if scanning the library because it will handle it
-                if (refreshLibrary)
-                {
-                    await _libraryManager.ValidateTopLibraryFolders(CancellationToken.None, true).ConfigureAwait(false);
-                    var newLib = _libraryManager.GetUserRootFolder().Children.FirstOrDefault(f => f.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
-                    if (newLib is CollectionFolder folder)
+                CollectionFolder.OnCollectionFolderChange();
+            }
+            finally
+            {
+                StartBackgroundLibraryOperation(
+                    async () =>
                     {
-                        _libraryManager.ClearIgnoreRuleCache();
-                        foreach (var child in folder.GetPhysicalFolders())
+                        if (refreshLibrary)
                         {
-                            await child.RefreshMetadata(CancellationToken.None).ConfigureAwait(false);
-                            await child.ValidateChildren(new Progress<double>(), CancellationToken.None).ConfigureAwait(false);
-                        }
-                    }
-                    else
-                    {
-                        _libraryManager.ClearIgnoreRuleCache();
-                        // We don't know if this one can be validated individually, trigger a new validation
-                        await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None).ConfigureAwait(false);
-                    }
+                            await _libraryManager.ValidateTopLibraryFolders(CancellationToken.None, true).ConfigureAwait(false);
+                            var newLib = _libraryManager.GetUserRootFolder().Children.FirstOrDefault(f => f.Path.Equals(newPath, StringComparison.OrdinalIgnoreCase));
+                            if (newLib is CollectionFolder folder)
+                            {
+                                _libraryManager.ClearIgnoreRuleCache();
+                                foreach (var child in folder.GetPhysicalFolders())
+                                {
+                                    await child.RefreshMetadata(CancellationToken.None).ConfigureAwait(false);
+                                    await child.ValidateChildren(new Progress<double>(), CancellationToken.None).ConfigureAwait(false);
+                                }
+                            }
+                            else
+                            {
+                                _libraryManager.ClearIgnoreRuleCache();
+                                // We don't know if this one can be validated individually, trigger a new validation
+                                await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None).ConfigureAwait(false);
+                            }
 
-                    _libraryManager.ClearIgnoreRuleCache();
-                }
-                else
-                {
-                    // Need to add a delay here or directory watchers may still pick up the changes
-                    // Have to block here to allow exceptions to bubble
-                    await Task.Delay(1000).ConfigureAwait(false);
-                    _libraryMonitor.Start();
-                }
-            });
+                            _libraryManager.ClearIgnoreRuleCache();
+                        }
+                        else
+                        {
+                            // Need to add a delay here or directory watchers may still pick up the changes
+                            await Task.Delay(1000).ConfigureAwait(false);
+                            _libraryMonitor.Start();
+                        }
+                    },
+                    operationLease,
+                    "rename virtual folder");
+            }
         }
 
         return NoContent();
@@ -241,35 +259,43 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <exception cref="ArgumentNullException">The name of the library may not be empty.</exception>
     [HttpPost("Paths")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public ActionResult AddMediaPath(
         [FromBody, Required] MediaPathDto mediaPathDto,
         [FromQuery] bool refreshLibrary = false)
     {
-        _libraryMonitor.Stop();
+        var operationLease = LibraryBackgroundOperationGate.TryAcquire();
+        if (operationLease is null)
+        {
+            Response.Headers.RetryAfter = "1";
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
 
         try
         {
+            _libraryMonitor.Stop();
             var mediaPath = mediaPathDto.PathInfo ?? new MediaPathInfo(mediaPathDto.Path ?? throw new ArgumentException("PathInfo and Path can't both be null."));
 
             _libraryManager.AddMediaPath(mediaPathDto.Name, mediaPath);
         }
         finally
         {
-            Task.Run(async () =>
-            {
-                // No need to start if scanning the library because it will handle it
-                if (refreshLibrary)
+            StartBackgroundLibraryOperation(
+                async () =>
                 {
-                    await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None).ConfigureAwait(false);
-                }
-                else
-                {
-                    // Need to add a delay here or directory watchers may still pick up the changes
-                    // Have to block here to allow exceptions to bubble
-                    await Task.Delay(1000).ConfigureAwait(false);
-                    _libraryMonitor.Start();
-                }
-            });
+                    if (refreshLibrary)
+                    {
+                        await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        // Need to add a delay here or directory watchers may still pick up the changes
+                        await Task.Delay(1000).ConfigureAwait(false);
+                        _libraryMonitor.Start();
+                    }
+                },
+                operationLease,
+                "add media path");
         }
 
         return NoContent();
@@ -306,6 +332,7 @@ public class LibraryStructureController : BaseMulletaFlixApiController
     /// <exception cref="ArgumentException">The name of the library and path may not be empty.</exception>
     [HttpDelete("Paths")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public ActionResult RemoveMediaPath(
         [FromQuery] string name,
         [FromQuery] string path,
@@ -314,29 +341,36 @@ public class LibraryStructureController : BaseMulletaFlixApiController
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        _libraryMonitor.Stop();
+        var operationLease = LibraryBackgroundOperationGate.TryAcquire();
+        if (operationLease is null)
+        {
+            Response.Headers.RetryAfter = "1";
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
 
         try
         {
+            _libraryMonitor.Stop();
             _libraryManager.RemoveMediaPath(name, path);
         }
         finally
         {
-            Task.Run(async () =>
-            {
-                // No need to start if scanning the library because it will handle it
-                if (refreshLibrary)
+            StartBackgroundLibraryOperation(
+                async () =>
                 {
-                    await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None).ConfigureAwait(false);
-                }
-                else
-                {
-                    // Need to add a delay here or directory watchers may still pick up the changes
-                    // Have to block here to allow exceptions to bubble
-                    await Task.Delay(1000).ConfigureAwait(false);
-                    _libraryMonitor.Start();
-                }
-            });
+                    if (refreshLibrary)
+                    {
+                        await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        // Need to add a delay here or directory watchers may still pick up the changes
+                        await Task.Delay(1000).ConfigureAwait(false);
+                        _libraryMonitor.Start();
+                    }
+                },
+                operationLease,
+                "remove media path");
         }
 
         return NoContent();
@@ -417,6 +451,47 @@ public class LibraryStructureController : BaseMulletaFlixApiController
             options.PreferredMetadataLanguage = !string.IsNullOrWhiteSpace(serverLang)
                 ? serverLang
                 : _localizationManager.GetDefaultMetadataLanguage(options.MetadataCountryCode);
+        }
+    }
+
+    private void StartBackgroundLibraryOperation(Func<Task> operation, IDisposable operationLease, string operationName)
+    {
+        try
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await operation().ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // Keep background library operations from escaping without releasing admission.
+                catch (Exception ex)
+#pragma warning restore CA1031
+                {
+                    _logger.LogError(ex, "Background library operation {OperationName} failed.", operationName);
+                    try
+                    {
+                        _libraryMonitor.Start();
+                    }
+#pragma warning disable CA1031 // Log monitor recovery failures while always releasing the admission lease.
+                    catch (Exception restartException)
+#pragma warning restore CA1031
+                    {
+                        _logger.LogError(restartException, "Unable to restart the library monitor after {OperationName} failed.", operationName);
+                    }
+                }
+                finally
+                {
+                    operationLease.Dispose();
+                }
+            });
+        }
+#pragma warning disable CA1031 // A scheduler failure must not permanently hold the library admission gate.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            operationLease.Dispose();
+            _logger.LogError(ex, "Unable to schedule background library operation {OperationName}.", operationName);
         }
     }
 }

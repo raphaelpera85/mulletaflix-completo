@@ -378,6 +378,10 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
         => _imageEncoder.GetImageSize(path);
 
     /// <inheritdoc />
+    public bool IsImageDecodable(string path, long maxPixelCount)
+        => _imageEncoder.IsImageDecodable(path, maxPixelCount);
+
+    /// <inheritdoc />
     public string GetImageBlurHash(string path)
     {
         var size = GetImageDimensions(path);
@@ -548,4 +552,3 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
         _disposed = true;
     }
 }
-

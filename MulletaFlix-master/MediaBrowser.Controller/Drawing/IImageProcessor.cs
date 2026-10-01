@@ -36,6 +36,14 @@ namespace MediaBrowser.Controller.Drawing
         ImageDimensions GetImageDimensions(string path);
 
         /// <summary>
+        /// Fully decodes an image and rejects images exceeding the pixel limit.
+        /// </summary>
+        /// <param name="path">The filepath of the image.</param>
+        /// <param name="maxPixelCount">The maximum number of pixels to decode.</param>
+        /// <returns>Whether the image can be fully decoded within the pixel limit.</returns>
+        bool IsImageDecodable(string path, long maxPixelCount);
+
+        /// <summary>
         /// Gets the dimensions of the image.
         /// </summary>
         /// <param name="item">The base item.</param>
@@ -115,4 +123,3 @@ namespace MediaBrowser.Controller.Drawing
         void CreateImageCollage(ImageCollageOptions options, string? libraryName);
     }
 }
-

@@ -11,6 +11,11 @@ namespace MediaBrowser.Controller.MediaEncoding;
 public interface ITranscodeManager
 {
     /// <summary>
+    /// Gets the count of currently active transcoding jobs.
+    /// </summary>
+    public int ActiveTranscodingJobsCount { get; }
+
+    /// <summary>
     /// Get transcoding job.
     /// </summary>
     /// <param name="playSessionId">Playback session id.</param>
