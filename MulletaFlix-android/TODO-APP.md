@@ -2,6 +2,14 @@
 
 Este documento rastreia o status de implementação de todas as funcionalidades, módulos, telas e componentes do aplicativo oficial **MulletaFlix Android**.
 
+## Formulários de feedback responsivos (APK local; sem release)
+
+- [x] Limitar a altura disponível do corpo nos diálogos de solicitação de mídia e relato de reprodução, com rolagem interna para manter campos inferiores acessíveis quando há muitas sugestões ou mensagens longas.
+- [x] Manter as ações principais fixas fora da área rolável, sem mudar o envio, as validações, nem o estado dos formulários.
+- [x] Cobrir solicitação de mídia (6/6) e relato de reprodução (4/4) em cada perfil: telefone, tablet e Android TV; os três AVDs passaram e foram encerrados pelo wrapper.
+- [x] `testDebugUnitTest`, `:app:lintDebug`, `:app:assembleDebug` e compilação instrumentada dos módulos Home/Player: `BUILD SUCCESSFUL`.
+- [ ] Sem bump, APK de produção ou publicação nesta validação. A release estável continua `app-v1.3.80`; conferir versão/asset e assinatura correta antes de qualquer release APK.
+
 ## Redescoberta LAN após edição manual ou QR (APK local; sem release)
 
 - [x] Editar a URL ou preencher pelo QR continua impedindo que a seleção automática sobrescreva a escolha manual.

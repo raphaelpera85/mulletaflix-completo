@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -20,6 +21,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.mulletaflix.designsystem.theme.MulletaFlixTheme
+import org.mulletaflix.domain.model.MediaSuggestion
 import java.util.concurrent.atomic.AtomicReference
 
 class MediaRequestDialogTest {
@@ -175,6 +177,42 @@ class MediaRequestDialogTest {
 
         composeRule.onNodeWithText("Solicitar mídia").assertIsDisplayed()
         composeRule.runOnIdle { assertEquals(0, dismissCount) }
+    }
+
+    @Test
+    fun longSuggestionListKeepsLowerFieldsScrollableAndSubmitActionReachable() {
+        var submitted = false
+        composeRule.setContent {
+            MulletaFlixTheme {
+                MediaRequestDialog(
+                    title = "Duna",
+                    onTitleChange = {},
+                    suggestions = List(12) { index ->
+                        MediaSuggestion(
+                            title = "Duna - resultado ${index + 1}",
+                            mediaType = "Movie",
+                            year = 2021 + index,
+                        )
+                    },
+                    mediaType = "Filme",
+                    onMediaTypeChange = {},
+                    year = "2024",
+                    onYearChange = {},
+                    notes = "",
+                    onNotesChange = {},
+                    message = null,
+                    isSubmitting = false,
+                    hasFeedbackSession = true,
+                    feedbackSessionLoaded = true,
+                    onDismiss = {},
+                    onSubmit = { submitted = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("media-request-notes").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Enviar").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertTrue(submitted) }
     }
 
     private fun showDialog() {

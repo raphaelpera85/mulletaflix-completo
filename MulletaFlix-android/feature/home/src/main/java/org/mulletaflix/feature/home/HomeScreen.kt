@@ -440,12 +440,21 @@ internal fun MediaRequestDialog(
     val yearNumber = year.toIntOrNull()
     val yearValid = year.isBlank() || (yearNumber != null && yearNumber in 1888..2200)
     var expanded by remember { mutableStateOf(false) }
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp
+    val dialogContentMaxHeight = (screenHeightDp - 220).coerceIn(180, 440).dp
 
     AlertDialog(
         onDismissRequest = { if (!isSubmitting) onDismiss() },
         title = { Text("Solicitar mídia") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = dialogContentMaxHeight)
+                    .verticalScroll(rememberScrollState())
+                    .testTag("media-request-content"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 OutlinedTextField(
                     title,
                     { onTitleChange(it.take(200)) },

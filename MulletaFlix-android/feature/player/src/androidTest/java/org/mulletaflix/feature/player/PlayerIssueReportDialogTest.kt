@@ -4,7 +4,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.atomic.AtomicReference
@@ -83,5 +85,27 @@ class PlayerIssueReportDialogTest {
 
         composeRule.onNodeWithText("Relato salvo. Será enviado quando houver conexão com o servidor.").assertIsDisplayed()
         composeRule.onNodeWithText("Na fila").assertIsNotEnabled()
+    }
+
+    @Test
+    fun longFeedbackMessageDoesNotHideDescriptionOrDialogActions() {
+        val longMessage = "Falha temporária ao enviar. ".repeat(80)
+        composeRule.setContent {
+            MulletaFlixTheme {
+                PlayerIssueReportDialog(
+                    initialDescription = null,
+                    isSubmitting = false,
+                    isSent = false,
+                    message = longMessage,
+                    onDismiss = {},
+                    onSubmit = { _, _ -> },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("playback-issue-content").assertIsDisplayed()
+        composeRule.onNodeWithText("Descreva o problema (opcional)").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Enviar").assertIsDisplayed()
+        composeRule.onNodeWithText("Fechar").assertIsDisplayed()
     }
 }
