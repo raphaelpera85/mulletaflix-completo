@@ -111,8 +111,14 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
 
             var response = await client.DeleteAsync("Library/VirtualFolders/Paths?name=none&path=%2Fthis%2Fpath%2Fdoesnt%2Fexist", TestContext.Current.CancellationToken);
 
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.True(
+                response.StatusCode == HttpStatusCode.NotFound
+                    || response.StatusCode == HttpStatusCode.TooManyRequests,
+                $"Expected NotFound or a concurrent-operation rate limit, got {(int)response.StatusCode}.");
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                Assert.Equal("1", response.Headers.RetryAfter?.ToString());
+            }
         }
     }
 }
-

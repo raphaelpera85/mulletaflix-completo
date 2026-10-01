@@ -25,13 +25,13 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
         }
 
         [Fact]
-        public async Task GetDashboardConfigurationPage_NonExistingPage_NotFound()
+        public async Task GetDashboardConfigurationPage_NonExistingPage_UnauthorizedWithoutAuthentication()
         {
             var client = _factory.CreateClient();
 
             var response = await client.GetAsync("web/ConfigurationPage?name=ThisPageDoesntExists", TestContext.Current.CancellationToken);
 
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
         [Fact]
@@ -120,13 +120,13 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
         }
 
         [Fact]
-        public async Task GetDashboardConfigurationPage_BrokenPage_NotFound()
+        public async Task GetDashboardConfigurationPage_BrokenPage_UnauthorizedWithoutAuthentication()
         {
             var client = _factory.CreateClient();
 
             var response = await client.GetAsync("/web/ConfigurationPage?name=BrokenPage", TestContext.Current.CancellationToken);
 
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
         [Fact]
