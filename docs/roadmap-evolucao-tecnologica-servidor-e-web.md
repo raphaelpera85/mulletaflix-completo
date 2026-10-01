@@ -442,7 +442,7 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
   - [x] Quando a busca não encontra resultados durante a indexação, o autocomplete anuncia progresso, consulta o estado e refaz a busca ao concluir; falhas oferecem retry, e raízes não indexáveis são comunicadas como resultado potencialmente parcial. Strings pt-BR/en-US e `role=status` incluídos.
 - [ ] **W1.3 — Corrigir navegação de carrosséis e resultados.** Setas visíveis quando aplicáveis, estados disabled corretos, rolagem por teclado/controle remoto, foco e comportamento responsivo.
   - [x] Corrigir atualização tardia das setas: observer de resize recarrega primeiro as dimensões em cache do scroller e então recalcula visibilidade/disabled dos controles quando viewport ou cards mudam de tamanho. Playwright comprova atualização após inserir cards, resize para 390px, foco visível, Enter, movimento até as duas extremidades e `aria-disabled` coerente. A fixture ainda é sintética e não substitui integração com busca real, controle remoto, RTL ou modo nativo.
-  - [x] A integração de busca real agora também tem teste Playwright de interação: resultados controlados montados por `SearchResultsRow`, foco na seta, Enter percorre até o fim, estados `disabled`/`aria-disabled` são coerentes e navegação retorna ao início. Controle remoto, RTL e modo nativo seguem pendentes.
+  - [x] A integração de busca real tem teste Playwright de interação com dados controlados montados por `SearchResultsRow`: setas corretas, foco visível, Enter percorre até o fim, estados `disabled`/`aria-disabled` coerentes, retorno ao início e viewport de 390 px. Uma segunda passagem cobre RTL, movimento negativo e ambas as extremidades. Controle remoto físico, modo nativo e busca autenticada contra servidor real seguem pendentes.
 - [x] **W1.4 — Tratar falhas de API sem tela vazia.** Erros de rede/servidor mostram contexto e ação possível; logs técnicos ficam no console/telemetria sem expor detalhes sensíveis ao usuário.
   - [x] `LoadErrorMessage` parametrizável com mensagem contextual mantendo fallback seguro de `ErrorDefault` e botão de retry. Estados de erro tratados em Home, Favoritos, Detalhes, Solicitações e Busca.
 - [ ] **W1.5 — Consolidar componentes e tokens de UI.** Harmonizar controles React/MUI e componentes Jellyfin legados sem reescrita global; priorizar cabeçalho, botões, grids, diálogos, alertas e estados.
@@ -454,6 +454,7 @@ Limite de evidência atual: `ClaimFileForUploadAsync` realiza claim atômico, ma
 - [ ] **W2.1 — Auditoria WCAG 2.2 AA.** Contraste, foco, semântica, labels, mensagens de status, zoom/reflow, orientação e alvos de toque.
 - [ ] **W2.2 — Navegação por teclado e controle remoto.** Ordem de foco, setas de carrossel, escape de diálogos, retorno de foco e atalhos sem armadilhas.
 - [ ] **W2.3 — Automatizar axe com Playwright.** Rodar nas páginas principais; complementar com avaliação manual por teclado/leitor de tela.
+  - [x] Parcial: auditoria axe-core automatizada da página real `Minhas solicitações`, com 390 px e 1280 px; fixture usa respostas determinísticas. Ainda faltam as demais rotas principais e revisão manual por teclado/leitor de tela.
 - [ ] **W2.4 — Melhorar formulários e erros.** Label visível, validação junto ao campo, sugestão para corrigir e anúncio acessível de sucesso/falha.
 
 **Aceite:** zero violações críticas/altas automatizáveis nas páginas alvo; checklist manual teclado/controle remoto; nenhum componente interativo sem nome/foco acessível.
@@ -1627,7 +1628,21 @@ Este documento é backlog em execução; não autoriza publicar uma release ante
 - INTENT: o teste Playwright anterior comprovava apenas que a busca real criava cards e deixava setas visíveis; a tarefa W1.3 exige foco e rolagem por teclado; o roadmap exige navegação funcional até as duas extremidades.
 - O cenário agora usa o componente real `SearchResultsRow` com dados determinísticos e valida seta inicial desabilitada, foco, Enter para avançar, estado desabilitado no fim, retorno ao início e atributos ARIA. O teste sintético existente continua cobrindo viewport estreita e entrada tardia de cards.
 - Gauntlet: `npm run build:check` passou; testes Vitest focados **8/8**; Playwright `24-scrollbuttons.spec.ts` **2/2**; `npm run build:production` passou; `npm run verify:build` validou **1.902 arquivos**, limite de 1.536 KiB. Avisos Vite preexistentes sobre diretiva `use client` ignorada e imports dinâmicos/estáticos foram observados, sem falha de build.
-- W1.3 permanece parcial: falta validar controle remoto, RTL, modo nativo e uso com a busca autenticada em servidor real. Nenhuma release intermediária ou implantação foi criada; curadoria por IA segue no backlog futuro.
+- W1.3 permanece parcial: falta validar controle remoto físico, modo nativo e uso com a busca autenticada em servidor real. Nenhuma release intermediária ou implantação foi criada; curadoria por IA segue no backlog futuro.
+
+### 01/10/2026 — Viewport estreita e RTL em resultados reais de busca (W1.3 parcial)
+
+- INTENT: a cobertura real de busca ainda não verificava viewport estreita nem direção RTL; W1.3 exige comportamento responsivo e navegação correta até os dois limites.
+- O Playwright agora redimensiona o `SearchResultsRow` real para 390 px, navega adiante e retorna ao início. Também recarrega fixture em RTL antes da montagem, confirma posições negativas, avanço/retorno e estados desabilitados nas duas extremidades. A fixture usa resultados controlados e mocks de busca; não comprova busca autenticada nem controle remoto físico.
+- Gauntlet: `npm run build:check` exit 0; Vitest focado **8/8**; Playwright de carrosséis **2/2**; `npm run build:production` exit 0; `npm run verify:build` validou **1.902 arquivos** e limite individual de **1.536 KiB**. Build manteve avisos Vite existentes de `use client` ignorado e imports estáticos/dinâmicos mistos.
+- Nenhuma release, pacote ou implantação intermediária foi criada. O gate global continua aberto e curadoria por IA permanece no backlog futuro.
+
+### 01/10/2026 — Primeiro gate automatizado axe-core em Playwright (W2.3 parcial)
+
+- Criado `npm run test:playwright:a11y`, com servidor Vite isolado na porta 8098 e scan axe-core da página React real `MyMediaRequestsPage`, usando dados mockados para cobrir fila pendente, incluídos, prioridade e paginação.
+- O teste falhou primeiro por ausência de `<title>` na fixture; o wrapper real `Page` foi mockado e não cria o título do documento. A fixture foi corrigida para espelhar essa responsabilidade, sem mascarar violações do conteúdo testado.
+- Gauntlet parcial: Playwright axe-core **1/1** passou em 390 px e 1280 px, zero violações WCAG 2.1 A/AA. O axe-core já está no lockfile como dependência transitiva de `eslint-plugin-jsx-a11y`; nenhuma dependência foi adicionada.
+- W2.3 permanece parcial: demais rotas principais, critérios WCAG 2.2, cenários de loading/erro/vazio e avaliação manual por teclado/leitor de tela ainda não foram cobertos. Nenhuma release intermediária foi criada; curadoria por IA permanece no backlog futuro.
 
 ## Referências técnicas
 
