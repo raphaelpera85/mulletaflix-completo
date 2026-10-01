@@ -28,6 +28,7 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
         public async Task GetDashboardConfigurationPage_NonExistingPage_UnauthorizedWithoutAuthentication()
         {
             var client = _factory.CreateClient();
+            client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
 
             var response = await client.GetAsync("web/ConfigurationPage?name=ThisPageDoesntExists", TestContext.Current.CancellationToken);
 
@@ -119,10 +120,43 @@ namespace MulletaFlix.Server.Integration.Tests.Controllers
             Assert.Contains("configPage", html, StringComparison.OrdinalIgnoreCase);
         }
 
+        [Theory]
+        [InlineData("/IntroSkipper/Configuration/introskipper.js", "application/javascript", "intro-skipper-dashboard-root")]
+        [InlineData("/IntroSkipper/Configuration/introskipper.css", "text/css", ".app-shell")]
+        public async Task GetIntroSkipperConfigurationAssets_WorksWithoutApiToken(string path, string contentType, string expectedContent)
+        {
+            // Start the application as an administrator, then prove that the browser-native
+            // script/stylesheet requests work without the API token header.
+            var authenticatedClient = _factory.CreateClient();
+            authenticatedClient.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(authenticatedClient));
+
+            var response = await _factory.CreateClient().GetAsync(path, TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(contentType, response.Content.Headers.ContentType?.MediaType);
+            string body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.Contains(expectedContent, body, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task IntroSkipperConfigurationPage_UsesPublicStaticAssetRoutes()
+        {
+            const string resourceName = "IntroSkipper.Configuration.configPage.html";
+            await using Stream stream = typeof(global::IntroSkipper.Plugin).Assembly.GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException("Intro Skipper configuration page was not embedded.");
+            using var reader = new StreamReader(stream);
+            string html = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
+
+            Assert.Contains("/IntroSkipper/Configuration/introskipper.js", html, StringComparison.Ordinal);
+            Assert.Contains("/IntroSkipper/Configuration/introskipper.css", html, StringComparison.Ordinal);
+            Assert.DoesNotContain("configurationpage?name=introskipper", html, StringComparison.OrdinalIgnoreCase);
+        }
+
         [Fact]
         public async Task GetDashboardConfigurationPage_BrokenPage_UnauthorizedWithoutAuthentication()
         {
             var client = _factory.CreateClient();
+            client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
 
             var response = await client.GetAsync("/web/ConfigurationPage?name=BrokenPage", TestContext.Current.CancellationToken);
 

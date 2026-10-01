@@ -99,6 +99,17 @@ jobs:
         run: |
           dotnet publish MulletaFlix-master/Jellyfin.Server/Jellyfin.Server.csproj -c Release -r win-x64 --self-contained true -o stage -p:DebugSymbols=false -p:DebugType=none -p:GenerateDocumentationFile=false -p:RunAnalyzersDuringBuild=false -p:RunAnalyzers=false
 
+      - name: Checkout Windows tray source
+        uses: actions/checkout@v4
+        with:
+          repository: raphaelpera85/mulletaflix-server-windows
+          ref: f882f5f2ca7d84322f90b647114667273ee08b21
+          path: MulletaFlix-packaging-master/jellyfin-server-windows
+
+      - name: Stage Windows tray and runtime extras
+        shell: pwsh
+        run: .\MulletaFlix-packaging-master\build-stage-and-installer.ps1 -SkipServerBuild -SkipWebBuild -SkipInstaller
+
       - name: Create Update Archive
         shell: pwsh
         run: |

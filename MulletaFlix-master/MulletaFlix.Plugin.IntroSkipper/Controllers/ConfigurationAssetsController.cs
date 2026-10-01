@@ -8,8 +8,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace IntroSkipper.Controllers;
 
 /// <summary>
-/// Serves only the static assets required to render Intro Skipper's configuration page.
-/// Module and stylesheet requests do not include the dashboard API token.
+/// Serves only the non-sensitive static assets used to render the plugin configuration page.
+/// The dashboard loads module scripts and stylesheets with native browser requests, which do
+/// not carry the Jellyfin API token used by its authenticated page loader.
 /// </summary>
 [ApiController]
 [Route("IntroSkipper/Configuration")]

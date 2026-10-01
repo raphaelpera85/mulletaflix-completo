@@ -1121,4 +1121,3 @@ export default function (view, params) {
     downloaderLogOffset = 0;
     startPolling();
 }
-
